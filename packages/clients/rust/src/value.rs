@@ -57,6 +57,9 @@ pub enum Value {
 	/// A mutation value.
 	Mutation(tg::Mutation),
 
+	/// A module value.
+	Module(tg::Module),
+
 	/// A template value.
 	Template(tg::Template),
 
@@ -76,6 +79,7 @@ impl Value {
 			Self::Object(object) => vec![object.clone()],
 			Self::Template(template) => template.objects(),
 			Self::Mutation(mutation) => mutation.objects(),
+			Self::Module(module) => module.children(),
 			_ => vec![],
 		}
 	}
@@ -197,6 +201,7 @@ impl Value {
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
+			Self::Module(module) => Data::Module(module.to_data()),
 			Self::Template(template) => Data::Template(template.to_data()),
 			Self::Placeholder(placeholder) => Data::Placeholder(placeholder.to_data()),
 		}
@@ -244,6 +249,7 @@ impl Value {
 			Data::Object(object) => Self::Object(tg::object::Handle::with_referent(object)),
 			Data::Bytes(bytes) => Self::Bytes(bytes),
 			Data::Mutation(mutation) => Self::Mutation(tg::Mutation::try_from_data(mutation)?),
+			Data::Module(module) => Self::Module(tg::Module::try_from(module)?),
 			Data::Template(template) => Self::Template(tg::Template::try_from_data(template)?),
 			Data::Placeholder(placeholder) => {
 				Self::Placeholder(tg::Placeholder::try_from_data(placeholder)?)
@@ -303,6 +309,11 @@ impl Value {
 			},
 			Self::Mutation(mutation) => {
 				for object in mutation.objects() {
+					children.push(tg::Value::Object(object));
+				}
+			},
+			Self::Module(module) => {
+				for object in module.children() {
 					children.push(tg::Value::Object(object));
 				}
 			},

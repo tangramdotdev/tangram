@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a graph. */
 export let graph = (...args: tg.Args<tg.Graph.Arg>): tg.Graph.Builder => {
@@ -7,9 +8,11 @@ export let graph = (...args: tg.Args<tg.Graph.Arg>): tg.Graph.Builder => {
 
 /** A graph. */
 export class Graph {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.Graph.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "graph" as const, value: arg.object }

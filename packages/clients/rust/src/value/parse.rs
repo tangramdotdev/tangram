@@ -36,6 +36,7 @@ fn value_inner(input: &mut Input) -> ModalResult<tg::Value> {
 			object.map(tg::Value::Object),
 			bytes.map(tg::Value::Bytes),
 			mutation.map(tg::Value::Mutation),
+			module.map(tg::Value::Module),
 			template.map(tg::Value::Template),
 			placeholder.map(tg::Value::Placeholder),
 		)),
@@ -702,14 +703,17 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut cwd = None;
 		let mut env = BTreeMap::new();
 		let mut executable = None;
-		let mut host = String::from("builtin");
+		let mut host = None;
 		for (key, value) in entries {
 			match key.as_str() {
 				"args" => {
 					let value = value
 						.try_unwrap_array_ref()
 						.map_err(|_| tg::error!("expected array for args"))?;
-					args = value.clone();
+					args = value
+						.iter()
+						.map(parse_command_arg)
+						.collect::<tg::Result<_>>()?;
 				},
 				"cwd" => {
 					let value = value
@@ -721,7 +725,10 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 					let value = value
 						.try_unwrap_map_ref()
 						.map_err(|_| tg::error!("expected map for env"))?;
-					env = value.clone();
+					env = value
+						.iter()
+						.map(|(key, value)| Ok((key.clone(), parse_command_arg(value)?)))
+						.collect::<tg::Result<_>>()?;
 				},
 				"executable" => {
 					executable = Some(parse_executable(&value)?);
@@ -730,7 +737,7 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 					let value = value
 						.try_unwrap_string_ref()
 						.map_err(|_| tg::error!("expected string for host"))?;
-					host = value.clone();
+					host = Some(value.clone());
 				},
 				_ => {
 					return Err(tg::error!("unexpected field in command: {}", key));
@@ -738,6 +745,7 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 			}
 		}
 		let executable = executable.ok_or_else(|| tg::error!("missing executable field"))?;
+		let host = host.ok_or_else(|| tg::error!("missing host field"))?;
 		let object = tg::command::Object {
 			args,
 			cwd,
@@ -1206,6 +1214,21 @@ fn mutation_inner(input: &mut Input) -> ModalResult<tg::Mutation> {
 	.parse_next(input)
 }
 
+fn module(input: &mut Input) -> ModalResult<tg::Module> {
+	preceded(
+		(
+			"tg", whitespace, ".", whitespace, "module", whitespace, "(", whitespace,
+		),
+		cut_err(delimited(
+			whitespace,
+			map.map(tg::Value::Map)
+				.try_map(|value| parse_module(&value)),
+			(whitespace, ")"),
+		)),
+	)
+	.parse_next(input)
+}
+
 fn template(input: &mut Input) -> ModalResult<tg::Template> {
 	preceded(
 		(
@@ -1618,76 +1641,57 @@ fn parse_executable(value: &tg::Value) -> tg::Result<tg::command::Executable> {
 	match value {
 		tg::Value::String(value) => {
 			let path = PathBuf::from(value);
-			Ok(tg::command::Executable::Path(tg::command::PathExecutable {
-				path,
-			}))
+			Ok(tg::command::Executable {
+				artifact: None,
+				path: Some(path),
+			})
 		},
 		tg::Value::Map(value) => {
-			if value.contains_key("artifact") {
-				let mut artifact = None;
-				let mut path = None;
-				for (key, value) in value {
-					match key.as_str() {
-						"artifact" => {
-							let value = value
-								.try_unwrap_object_ref()
-								.map_err(|_| tg::error!("expected object for artifact"))?;
-							let value = tg::Artifact::try_from(value.clone()).map_err(|error| {
-								tg::error!(!error, "expected artifact object for artifact field")
-							})?;
-							artifact = Some(value);
-						},
-						"path" => {
-							let value = value
-								.try_unwrap_string_ref()
-								.map_err(|_| tg::error!("expected string for path"))?;
-							path = Some(PathBuf::from(value));
-						},
-						_ => {
-							return Err(tg::error!(
-								"unexpected field in artifact executable: {}",
-								key
-							));
-						},
-					}
+			let mut artifact = None;
+			let mut path = None;
+			for (key, value) in value {
+				match key.as_str() {
+					"artifact" => {
+						let value = value
+							.try_unwrap_object_ref()
+							.map_err(|_| tg::error!("expected object for artifact"))?;
+						let value = tg::Artifact::try_from(value.clone()).map_err(|error| {
+							tg::error!(!error, "expected artifact object for artifact field")
+						})?;
+						artifact = Some(value);
+					},
+					"path" => {
+						let value = value
+							.try_unwrap_string_ref()
+							.map_err(|_| tg::error!("expected string for path"))?;
+						path = Some(PathBuf::from(value));
+					},
+					_ => {
+						return Err(tg::error!("unexpected field in executable: {}", key));
+					},
 				}
-				let artifact = artifact.ok_or_else(|| tg::error!("missing artifact field"))?;
-				Ok(tg::command::Executable::Artifact(
-					tg::command::ArtifactExecutable { artifact, path },
-				))
-			} else if value.contains_key("module") {
-				let mut module = None;
-				let mut export = None;
-				for (key, value) in value {
-					match key.as_str() {
-						"module" => {
-							module = Some(parse_module(value)?);
-						},
-						"export" => {
-							let value = value
-								.try_unwrap_string_ref()
-								.map_err(|_| tg::error!("expected string for export"))?;
-							export = Some(value.clone());
-						},
-						_ => {
-							return Err(tg::error!(
-								"unexpected field in module executable: {}",
-								key
-							));
-						},
-					}
-				}
-				let module = module.ok_or_else(|| tg::error!("missing module field"))?;
-				Ok(tg::command::Executable::Module(
-					tg::command::ModuleExecutable { module, export },
-				))
-			} else {
-				Err(tg::error!(
-					"executable map must contain either artifact or module field"
-				))
 			}
+			Ok(tg::command::Executable { artifact, path })
 		},
 		_ => Err(tg::error!("executable must be a string or map")),
+	}
+}
+
+fn parse_command_arg(value: &tg::Value) -> tg::Result<tg::command::Value> {
+	let map = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected a map for a command arg"))?;
+	let kind = map
+		.get("kind")
+		.and_then(|value| value.try_unwrap_string_ref().ok())
+		.ok_or_else(|| tg::error!("expected a string kind for a command arg"))?;
+	let value = map
+		.get("value")
+		.ok_or_else(|| tg::error!("missing a value for a command arg"))?;
+	match kind.as_str() {
+		"string" => Ok(tg::command::Value::String(value.clone())),
+		"value" => Ok(tg::command::Value::Value(value.clone())),
+		_ => Err(tg::error!("invalid command arg kind")),
 	}
 }
 
@@ -1731,20 +1735,21 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 	for (key, value) in map {
 		match key.as_str() {
 			"item" => {
-				if value.is_string() {
-					let value = value
-						.try_unwrap_string_ref()
-						.map_err(|_| tg::error!("expected string"))?;
-					item = Some(tg::module::Item::Path(PathBuf::from(value)));
-				} else if value.is_object() {
-					let object = value
-						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object"))?;
-					let edge = tg::graph::Edge::Object(object.clone());
-					item = Some(tg::module::Item::Edge(edge));
-				} else {
-					return Err(tg::error!("expected string or object for item"));
-				}
+				item = Some(match value {
+					tg::Value::Map(map) => {
+						let pointer = parse_graph_pointer(map)?;
+						let edge = tg::graph::Edge::Pointer(pointer);
+						tg::module::Item::Edge(edge)
+					},
+					tg::Value::Object(object) => {
+						let edge = tg::graph::Edge::Object(object.clone());
+						tg::module::Item::Edge(edge)
+					},
+					tg::Value::String(value) => tg::module::Item::Path(PathBuf::from(value)),
+					_ => {
+						return Err(tg::error!("expected a map, object, or string for item"));
+					},
+				});
 			},
 			"options" => {
 				let value = value

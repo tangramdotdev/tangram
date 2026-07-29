@@ -196,7 +196,10 @@ impl Runtime {
 				arg.set("env", Serde(&state.arg.env))
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-				arg.set("executable", Serde(&state.arg.executable))
+				arg.set("export", state.arg.export.as_deref())
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				arg.set("module", Serde(&state.arg.module))
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 

@@ -1,19 +1,20 @@
+import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
+import type { Get as ProcessGet } from "./client/process/get.ts";
+import type { Put as ProcessPut } from "./client/process/put.ts";
+import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
 import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
-import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
-import type { Get as ProcessGet } from "./client/process/get.ts";
-import type { Put as ProcessPut } from "./client/process/put.ts";
-import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 
 export let process: {
 	args: Array<tg.Value>;
 	cwd: string;
 	env: { [key: string]: tg.Value };
-	executable: tg.Command.Executable;
+	export: string | null;
+	module: tg.Module;
 } = {} as any;
 
 export let setProcess = (newProcess: typeof process) => {
@@ -60,7 +61,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static build(...args: any): any {
-		return build.builder(...args);
+		return build.builder(...args).js(typeof args[0] === "function");
 	}
 
 	static exec<
@@ -82,7 +83,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"exec", Array<tg.Value>, never>;
 	static exec(...args: any): any {
-		return exec.builder(...args);
+		return exec.builder(...args).js(typeof args[0] === "function");
 	}
 
 	static run<
@@ -106,7 +107,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static run(...args: any): any {
-		return run.builder(...args);
+		return run.builder(...args).js(typeof args[0] === "function");
 	}
 
 	static spawn<
@@ -130,12 +131,12 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
 	static spawn(...args: any): any {
-		return spawn.builder(...args);
+		return spawn.builder(...args).js(typeof args[0] === "function");
 	}
 
 	static async arg(
 		...args: tg.Args<tg.Process.Arg>
-	): Promise<tg.Process.ArgObject> {
+	): Promise<tg.Process.ResolvedArgObject> {
 		return await tg.Process.argResolved(
 			...(await Promise.all(args.map(tg.resolve))),
 		);
@@ -143,12 +144,17 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async argResolved(
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.Process.Arg>>
-	): Promise<tg.Process.ArgObject> {
-		return await tg.Args.applyResolved({
+	): Promise<tg.Process.ResolvedArgObject> {
+		return await tg.Args.applyResolved<
+			tg.Process.Arg,
+			tg.Process.MappedArg,
+			tg.Process.ResolvedArgObject
+		>({
 			args,
-			map: async (arg) => {
+			map: async (arg): Promise<tg.Process.MappedArg> => {
+				let output: tg.ValueOrMaybeMutationMap<tg.Process.Arg>;
 				if (arg === undefined) {
-					return {};
+					output = {};
 				} else if (
 					typeof arg === "string" ||
 					tg.Artifact.is(arg) ||
@@ -159,14 +165,14 @@ export class Process<O extends tg.Value = tg.Value> {
 						typeof tg.process.env.SHELL === "string"
 							? tg.process.env.SHELL
 							: "sh";
-					return {
+					output = {
 						args: ["-c", arg],
 						executable,
 						host,
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
-					let output: tg.Process.ArgObject = {
+					output = {
 						args: object.args,
 						env: object.env,
 						executable: object.executable,
@@ -181,14 +187,21 @@ export class Process<O extends tg.Value = tg.Value> {
 					if (object.user !== null) {
 						output.user = object.user;
 					}
-					return output;
 				} else {
-					return arg;
+					output = arg;
 				}
+				return {
+					...output,
+					...(output.args === undefined || output.args === null
+						? {}
+						: {
+								args: output.args.map(tg.Command.Arg.Value.toValue),
+							}),
+				} as tg.Process.MappedArg;
 			},
 			reduce: {
-				args: "append",
-				env: "merge",
+				args: (a, b) => [...(a ?? []), ...(b ?? [])],
+				env: tg.Command.Arg.Env.reduce,
 				mounts: "append",
 				ports: "append",
 			},
@@ -367,7 +380,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's args. */
-	get args(): Promise<Array<tg.Value>> {
+	get args(): Promise<Array<tg.Command.Value>> {
 		return (async () => {
 			return await (
 				await this.command
@@ -385,11 +398,13 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's environment. */
-	async env(): Promise<{ [key: string]: tg.Value }>;
-	async env(name: string): Promise<tg.Value | undefined>;
+	async env(): Promise<{ [key: string]: tg.Command.Value }>;
+	async env(name: string): Promise<tg.Command.Value | undefined>;
 	async env(
 		name?: string,
-	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
+	): Promise<
+		{ [name: string]: tg.Command.Value } | tg.Command.Value | undefined
+	> {
 		let env = await (await this.command).env;
 		if (name === undefined) {
 			return { ...env };
@@ -698,22 +713,29 @@ export namespace Process {
 		M extends tg.Process.Builder.Mode,
 		A extends Array<tg.Value> = Array<tg.Value>,
 		O extends tg.Value = tg.Value,
+		E = tg.Command.Arg.Env,
 	> {
-		(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<M, [], O>;
+		(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<M, [], O, E>;
 	}
 
 	export class Builder<
 		M extends tg.Process.Builder.Mode,
 		A extends Array<tg.Value> = Array<tg.Value>,
 		O extends tg.Value = tg.Value,
+		E = tg.Command.Arg.Env,
 	> extends Function {
 		#args: tg.Args<tg.Process.Arg>;
+		#envMapper: tg.Process.Builder.EnvMapper<E>;
+		#js: boolean;
 		#mode: M;
 		#validate?: (arg: tg.Process.ArgObject) => void;
 
 		constructor(mode: M, ...args: tg.Args<tg.Process.Arg>) {
 			super();
 			this.#args = args;
+			this.#envMapper = ((env: tg.Command.Arg.Env) =>
+				env) as tg.Process.Builder.EnvMapper<E>;
+			this.#js = false;
 			this.#mode = mode;
 			return new Proxy(this, {
 				get(this_: any, prop, _receiver) {
@@ -731,15 +753,14 @@ export namespace Process {
 			});
 		}
 
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this {
-			this.#args.push({ args });
-			return this;
+		arg(...args: Array<tg.Unresolved<tg.Command.Arg.Value>>): this {
+			return this.args(args);
 		}
 
 		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>> | null>>
+			...args: Array<tg.Unresolved<Array<tg.Command.Arg.Value> | null>>
 		): this {
-			this.#args.push(...args.map((args) => ({ args })));
+			this.#args.push(...args.map((args) => this.argsArg(args)));
 			return this;
 		}
 
@@ -769,13 +790,17 @@ export namespace Process {
 			return this;
 		}
 
-		env(
-			...envs: Array<
-				tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap> | null>
-			>
-		): this {
-			this.#args.push(...envs.map((env) => ({ env })));
+		env(...envs: Array<tg.Unresolved<E | null>>): this {
+			this.#args.push(...envs.map((env) => this.envArg(env)));
 			return this;
+		}
+
+		envMapper<E_>(
+			envMapper: tg.Process.Builder.EnvMapper<E_>,
+		): tg.Process.Builder<M, A, O, E_> {
+			let builder = this as unknown as tg.Process.Builder<M, A, O, E_>;
+			builder.#envMapper = envMapper;
+			return builder;
 		}
 
 		executable(
@@ -787,6 +812,11 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
+			return this;
+		}
+
+		js(js: boolean): this {
+			this.#js = js;
 			return this;
 		}
 
@@ -907,28 +937,40 @@ export namespace Process {
 			return this;
 		}
 
-		exec(): tg.Process.Builder<"exec", A, never> {
-			let output = new tg.Process.Builder("exec", ...this.#args);
+		exec(): tg.Process.Builder<"exec", A, never, E> {
+			let output = new tg.Process.Builder<"exec", A, never, E>(
+				"exec",
+				...this.#args,
+			);
+			output.envMapper<E>(this.#envMapper);
+			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
-			return output as tg.Process.Builder<"exec", A, never>;
+			return output;
 		}
 
-		run(): tg.Process.Builder<"run", A, O> {
-			let output = new tg.Process.Builder("run", ...this.#args);
+		run(): tg.Process.Builder<"run", A, O, E> {
+			let output = new tg.Process.Builder<"run", A, O, E>("run", ...this.#args);
+			output.envMapper<E>(this.#envMapper);
+			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
-			return output as tg.Process.Builder<"run", A, O>;
+			return output;
 		}
 
-		spawn(): tg.Process.Builder<"spawn", A, O> {
-			let output = new tg.Process.Builder("spawn", ...this.#args);
+		spawn(): tg.Process.Builder<"spawn", A, O, E> {
+			let output = new tg.Process.Builder<"spawn", A, O, E>(
+				"spawn",
+				...this.#args,
+			);
+			output.envMapper<E>(this.#envMapper);
+			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
-			return output as tg.Process.Builder<"spawn", A, O>;
+			return output;
 		}
 
 		then<TResult1 = tg.Process.Builder.Output<M, O>, TResult2 = never>(
@@ -963,9 +1005,49 @@ export namespace Process {
 			}
 			return await process.output();
 		}
+
+		private argsArg(
+			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
+		): tg.Unresolved<tg.Process.ArgObject> {
+			if (!this.#js) {
+				return { args };
+			}
+			return tg.resolve(args).then((args) => {
+				if (args === null) {
+					return { args: null };
+				}
+				return {
+					args: args.flatMap((value) => {
+						let value_ =
+							value instanceof tg.Command.Value
+								? value
+								: tg.Command.Value.value(value);
+						return [
+							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+							value_,
+						];
+					}),
+				};
+			});
+		}
+
+		private envArg(
+			env: tg.Unresolved<E | null>,
+		): tg.Unresolved<tg.Process.ArgObject> {
+			let envMapper = this.#envMapper;
+			return tg.resolve(env).then(async (env) => {
+				if (env === null) {
+					return { env: null };
+				}
+				let output = envMapper(env as E);
+				return { env: await tg.resolve(output) };
+			});
+		}
 	}
 
 	export namespace Builder {
+		export type EnvMapper<E> = tg.Command.Builder.EnvMapper<E>;
+
 		export type Mode = "exec" | "run" | "spawn";
 
 		export type Output<
@@ -1007,9 +1089,22 @@ export namespace Process {
 
 	export type Arg = string | tg.Artifact | tg.Template | tg.Command | ArgObject;
 
+	export type MappedArg = Omit<
+		tg.ValueOrMaybeMutationMap<tg.Process.ArgObject>,
+		"args" | "env"
+	> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: tg.Command.Arg.Env | null;
+	};
+
+	export type ResolvedArgObject = Omit<tg.Process.ArgObject, "args" | "env"> & {
+		args?: Array<tg.Command.Value> | null;
+		env?: { [key: string]: tg.Command.Value } | null;
+	};
+
 	export type ArgObject = {
 		/** The command's arguments. */
-		args?: Array<tg.Value> | null;
+		args?: Array<tg.Command.Arg.Value> | null;
 
 		/** The cache location arg. */
 		cache_location?: tg.Location.Arg | null;
@@ -1030,7 +1125,7 @@ export namespace Process {
 		debug?: boolean | tg.Process.Debug | null;
 
 		/** The command's environment. */
-		env?: tg.MaybeMutationMap | null;
+		env?: tg.Command.Arg.Env | null;
 
 		/** The command's executable. */
 		executable?: tg.Command.Arg.Executable | null;

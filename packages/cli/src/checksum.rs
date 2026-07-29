@@ -1,4 +1,4 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Compute a checksum.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,8 +11,8 @@ pub struct Args {
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
 
-	/// The artifact, blob, or URL to checksum.
-	#[arg(default_value = ".", index = 1)]
+	/// The blob or file to checksum.
+	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
 
@@ -20,41 +20,38 @@ impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let referent = self.get_resolved_reference(&args.reference).await?;
-		let edge = referent.into_graph_edge()?.item;
-		let object = edge
+		let object = referent
+			.into_graph_edge()?
+			.item
 			.try_unwrap_object()
-			.map_err(|_| tg::error!("expected an object"))?;
-		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(tg::Either::Left(blob), algorithm);
-			let command = command
-				.store_with_handle(&client)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-			let reference = tg::Reference::with_object(command.into());
-			let args = crate::process::build::Args {
-				options: args.build,
-				reference: Some(reference),
-				trailing: Vec::new(),
-			};
-			self.command_build(args).boxed().await?;
-		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
-			let algorithm = args.algorithm;
-			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
-			let command = command
-				.store_with_handle(&client)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-			let reference = tg::Reference::with_object(command.into());
-			let args = crate::process::build::Args {
-				options: args.build,
-				reference: Some(reference),
-				trailing: Vec::new(),
-			};
-			self.command_build(args).boxed().await?;
+			.map_err(|_| tg::error!("expected a blob or file"))?;
+		let input = if let Ok(blob) = tg::Blob::try_from(object.clone()) {
+			tg::Either::Left(blob)
+		} else if let Ok(file) = tg::File::try_from(object) {
+			tg::Either::Right(file)
 		} else {
-			return Err(tg::error!("expected an artifact or a blob"));
-		}
-		Ok(())
+			return Err(tg::error!("expected a blob or file"));
+		};
+		let command = tg::builtin::checksum_command(input, args.algorithm);
+		let command = command
+			.store_with_handle(&client)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+		let reference = tg::Reference::with_object(command.into());
+		let options = args.build;
+		let transform = !options.detach && options.checkout.is_none();
+		let args = crate::process::build::Args {
+			options: options.clone(),
+			reference: Some(reference),
+			trailing: Vec::new(),
+		};
+		let output = self.build(args).await?;
+		let output = if transform && !output.is_null() {
+			let file: tg::File = output.try_into()?;
+			file.text_with_handle(&client).await?.into()
+		} else {
+			output
+		};
+		self.print_build_output(&options, output).await
 	}
 }

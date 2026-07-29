@@ -144,13 +144,21 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
-	#[arg(id = "spawn.debug.enabled", long = "debug")]
+	#[arg(env = "TANGRAM_JS_DEBUG", id = "spawn.debug.enabled", long = "debug")]
 	enabled: bool,
 
-	#[arg(id = "spawn.debug.addr", long = "debug-addr")]
+	#[arg(
+		env = "TANGRAM_JS_DEBUG_ADDR",
+		id = "spawn.debug.addr",
+		long = "debug-addr"
+	)]
 	addr: Option<std::net::SocketAddr>,
 
-	#[arg(long = "debug-mode", id = "spawn.debug.mode")]
+	#[arg(
+		env = "TANGRAM_JS_DEBUG_MODE",
+		long = "debug-mode",
+		id = "spawn.debug.mode"
+	)]
 	mode: Option<tg::process::debug::Mode>,
 
 	#[arg(
@@ -500,9 +508,7 @@ impl Cli {
 
 		let mut executable = options.executable;
 		let executable_path = match (&reference, &executable) {
-			(Some(_), Some(tg::command::data::Executable::Path(executable))) => {
-				Some(executable.path.clone())
-			},
+			(Some(_), Some(executable)) if executable.artifact.is_none() => executable.path.clone(),
 			_ => None,
 		};
 		if executable_path.is_some() {
@@ -633,16 +639,29 @@ impl Cli {
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 						let item = tg::module::Item::Edge(item.into());
-						let referent = referent.clone().map(|_| item);
+						command_options = Some(referent.options.clone());
+						let mut referent = referent.clone().map(|_| item);
+						referent.options.id.take();
+						referent.options.name.take();
+						referent.options.path.take();
+						referent.options.tag.take();
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
 						let host = tg::host::current().to_owned();
-						let executable =
-							tg::command::Executable::Module(tg::command::ModuleExecutable {
-								module,
-								export: Some(export),
-							});
+						let args = vec![
+							"js".into(),
+							"--export".into(),
+							export.into(),
+							"--host".into(),
+							host.clone().into(),
+							tg::command::Value::Value(module.into()),
+						];
+						let executable = tg::command::Executable {
+							artifact: None,
+							path: Some("tg".into()),
+						};
 						tg::Command::builder()
+							.args(args)
 							.host(host.clone())
 							.executable(executable)
 					},
@@ -671,26 +690,37 @@ impl Cli {
 						};
 						if let Some(kind) = kind {
 							let item = tg::module::Item::Edge(item);
-							let referent = referent.clone().map(|_| item);
+							command_options = Some(referent.options.clone());
+							let mut referent = referent.clone().map(|_| item);
+							referent.options.id.take();
+							referent.options.name.take();
+							referent.options.path.take();
+							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let host = tg::host::current().to_owned();
-							let executable =
-								tg::command::Executable::Module(tg::command::ModuleExecutable {
-									module,
-									export: Some(export),
-								});
+							let args = vec![
+								"js".into(),
+								"--export".into(),
+								export.into(),
+								"--host".into(),
+								host.clone().into(),
+								tg::command::Value::Value(module.into()),
+							];
+							let executable = tg::command::Executable {
+								artifact: None,
+								path: Some("tg".into()),
+							};
 							tg::Command::builder()
+								.args(args)
 								.host(host.clone())
 								.executable(executable)
 						} else {
 							let host = tg::host::current().to_owned();
-							let executable = tg::command::Executable::Artifact(
-								tg::command::ArtifactExecutable {
-									artifact: file.clone().into(),
-									path: None,
-								},
-							);
+							let executable = tg::command::Executable {
+								artifact: Some(file.clone().into()),
+								path: None,
+							};
 							tg::Command::builder()
 								.host(host.clone())
 								.executable(executable)
@@ -719,7 +749,7 @@ impl Cli {
 		}
 
 		// Set the args.
-		let mut args_: Vec<tg::Value> = Vec::new();
+		let mut args_: Vec<tg::command::Value> = Vec::new();
 		let mut matches = &self.matches;
 		while let Some((_, matches_)) = matches.subcommand() {
 			matches = matches_;
@@ -742,31 +772,31 @@ impl Cli {
 		};
 		if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
 			for value in options.arg_strings {
-				args_.push(tg::Value::String(value));
+				args_.push(value.into());
 			}
 			for value in options.arg_values {
 				let value = value
 					.parse()
 					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				args_.push(value);
+				args_.push(tg::command::Value::Value(value));
 			}
 		} else {
-			let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
+			let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
 			for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
-				let value = tg::Value::String(value);
+				let value = value.into();
 				indexed.push((index, value));
 			}
 			for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
 				let value = value
 					.parse()
 					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				indexed.push((index, value));
+				indexed.push((index, tg::command::Value::Value(value)));
 			}
 			indexed.sort_by_key(|&(index, _)| index);
 			args_.extend(indexed.into_iter().map(|(_, value)| value));
 		}
 		for arg in trailing {
-			args_.push(tg::Value::String(arg));
+			args_.push(arg.into());
 		}
 		command = command.args(args_);
 
@@ -776,25 +806,14 @@ impl Cli {
 		}
 
 		// Set the env.
-		let mut env = tg::value::Map::new();
-		for (key, value) in command_env.into_iter().flatten() {
-			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-				mutation.apply(&mut env, &key)?;
-			} else {
-				env.insert(key, value);
-			}
-		}
+		let mut env = command_env.unwrap_or_default();
 		for string in options.env_strings {
 			let (key, value) = string
 				.split_once('=')
 				.ok_or_else(|| tg::error!("expected KEY=VALUE"))?;
 			let key = key.to_owned();
-			let value = tg::Value::String(value.to_owned());
-			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-				mutation.apply(&mut env, &key)?;
-			} else {
-				env.insert(key, value);
-			}
+			let value = value.to_owned().into();
+			env.insert(key, value);
 		}
 		for string in options.env_values {
 			let (key, value) = string
@@ -805,9 +824,23 @@ impl Cli {
 				.parse::<tg::Value>()
 				.map_err(|error| tg::error!(!error, "failed to parse the value"))?;
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-				mutation.apply(&mut env, &key)?;
+				let current = env.remove(&key);
+				let value_mode = matches!(current, Some(tg::command::Value::Value(_)));
+				let mut values = tg::value::Map::new();
+				if let Some(current) = current {
+					values.insert(key.clone(), current.into_value());
+				}
+				mutation.apply(&mut values, &key)?;
+				if let Some(value) = values.remove(&key) {
+					let value = if value_mode {
+						tg::command::Value::Value(value)
+					} else {
+						tg::command::Value::String(value)
+					};
+					env.insert(key, value);
+				}
 			} else {
-				env.insert(key, value);
+				env.insert(key, tg::command::Value::Value(value));
 			}
 		}
 		command = command.env(env);
@@ -901,15 +934,16 @@ impl Cli {
 		};
 
 		let arg = tg::process::Arg {
-			args: command.args.clone(),
+			args: Vec::new(),
 			cached: options.cached,
 			checksum: options.checksum,
-			command: command_options.map(|options| {
-				tg::Referent::new(tg::Command::with_object(command.clone()), options)
-			}),
+			command: Some(tg::Referent::new(
+				tg::Command::with_object(command.clone()),
+				command_options.unwrap_or_default(),
+			)),
 			cwd: command.cwd.clone(),
 			debug: debug.map(tg::Either::Right),
-			env: command.env.clone(),
+			env: tg::value::Map::new(),
 			executable: Some(command.executable.clone()),
 			host: Some(command.host.clone()),
 			location: location.clone(),

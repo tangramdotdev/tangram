@@ -7,11 +7,11 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let command = await tg.command({ host: "builtin", executable: "echo" });
+			let command = await tg.command({ host: tg.host.current, executable: "echo" });
 			return await command.executable;
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '{"path":"echo"}'
+snapshot $output '{"artifact":null,"path":"echo"}'

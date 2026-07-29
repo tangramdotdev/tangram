@@ -1,18 +1,16 @@
 use ../../../test.nu *
 
-# Applying a set-if-unset mutation sets the value when the key is absent.
+# Applying a set-if-unset mutation returns the new value when the input is absent.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let map = {};
-			await (await tg.Mutation.setIfUnset("new")).apply(map, "k");
-			return map;
+			return await (await tg.Mutation.setIfUnset("new")).apply(undefined);
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '{"k":"new"}'
+snapshot $output '"new"'

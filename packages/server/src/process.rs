@@ -122,6 +122,17 @@ impl Session {
 			tg::value::Data::Mutation(mutation) => {
 				self.mutation_data_tokens_grant_subtree(mutation)
 			},
+			tg::value::Data::Module(module) => {
+				let mut children = std::collections::BTreeSet::new();
+				module.children(&mut children);
+				children.into_iter().all(|id| {
+					let object = tg::Referent::with_item_and_token(
+						id,
+						module.referent.options.token.clone(),
+					);
+					self.object_token_grants_subtree_for_process(&object)
+				})
+			},
 			tg::value::Data::Object(object) => self.object_token_grants_subtree_for_process(object),
 			tg::value::Data::Template(template) => {
 				self.template_data_tokens_grant_subtree(template)

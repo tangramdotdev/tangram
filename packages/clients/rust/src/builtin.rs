@@ -1,4 +1,11 @@
-use {crate::prelude::*, std::collections::BTreeMap, tangram_uri::Uri};
+use {
+	crate::prelude::*,
+	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	std::path::{Path, PathBuf},
+	tangram_uri::Uri,
+};
+
+const TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
 
 #[derive(
 	Clone,
@@ -80,23 +87,64 @@ pub async fn archive_with_handle<H>(
 where
 	H: tg::Handle,
 {
+	validate_archive_artifact_with_handle(artifact, handle).await?;
+	let mut args = vec![tg::Value::from("builtin"), "archive".into()];
+	if let Some(compression) = compression {
+		args.extend(["--compression".into(), compression.to_string().into()]);
+	}
+	args.extend([
+		"--format".into(),
+		format.to_string().into(),
+		"--input".into(),
+		artifact.clone().into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	]);
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![
-			artifact.clone().into(),
-			format.to_string().into(),
-			compression
-				.map(|compression| compression.to_string())
-				.into(),
-		],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "archive".into(),
-		})),
+		args,
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
-	let blob = output.try_into()?;
+	let file: tg::File = output.try_into()?;
+	let blob = file.contents_with_handle(handle).await?;
+
 	Ok(blob)
+}
+
+pub async fn validate_archive_artifact_with_handle<H>(
+	artifact: &tg::Artifact,
+	handle: &H,
+) -> tg::Result<()>
+where
+	H: tg::Handle,
+{
+	match artifact {
+		tg::Artifact::Directory(directory) => {
+			for artifact in directory.entries_with_handle(handle).await?.values() {
+				Box::pin(validate_archive_artifact_with_handle(artifact, handle)).await?;
+			}
+		},
+		tg::Artifact::File(file) => {
+			if !file.dependencies_with_handle(handle).await?.is_empty() {
+				return Err(tg::error!("cannot archive a file with dependencies"));
+			}
+		},
+		tg::Artifact::Symlink(symlink) => {
+			if symlink.artifact_with_handle(handle).await?.is_some() {
+				return Err(tg::error!("cannot archive a symlink with an artifact"));
+			}
+			if symlink.path_with_handle(handle).await?.is_none() {
+				return Err(tg::error!("cannot archive a symlink without a path"));
+			}
+		},
+	}
+
+	Ok(())
 }
 
 #[must_use]
@@ -105,17 +153,23 @@ pub fn archive_command(
 	format: tg::ArchiveFormat,
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Command {
-	let host = "builtin";
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "archive".into(),
-	});
-	let args = vec![
-		artifact.clone().into(),
+	let mut args: Vec<tg::command::Value> = vec!["builtin".into(), "archive".into()];
+	if let Some(compression) = compression {
+		args.extend(["--compression".into(), compression.to_string().into()]);
+	}
+	args.extend([
+		"--format".into(),
 		format.to_string().into(),
-		compression
-			.map(|compression| compression.to_string())
-			.into(),
-	];
+		"--input".into(),
+		artifact.clone().into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	]);
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -133,36 +187,41 @@ pub async fn bundle_with_handle<H>(artifact: &tg::Artifact, handle: &H) -> tg::R
 where
 	H: tg::Handle,
 {
-	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![artifact.clone().into()],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "bundle".into(),
-		})),
-		..Default::default()
-	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
-	let artifact = output.try_into()?;
-	Ok(artifact)
-}
+	let dependencies = Box::pin(artifact.recursive_dependencies_with_handle(handle)).await?;
+	if dependencies.is_empty() {
+		return Ok(artifact.clone());
+	}
+	let entries = dependencies
+		.into_iter()
+		.map(|id| async move {
+			let artifact = tg::Artifact::with_id(id.clone());
+			let artifact = remove_dependencies(handle, &artifact, 3).await?;
+			Ok::<_, tg::Error>((id.to_string(), artifact))
+		})
+		.collect::<FuturesOrdered<_>>()
+		.try_collect()
+		.await?;
+	let artifacts = tg::Directory::with_entries(entries);
+	let directory = artifact
+		.clone()
+		.try_unwrap_directory()
+		.map_err(|_| tg::error!("the artifact must be a directory"))?;
+	let directory = remove_dependencies(handle, &directory.into(), 0)
+		.await?
+		.try_unwrap_directory()
+		.map_err(|_| tg::error!("the artifact must be a directory"))?;
+	let directory = directory
+		.to_builder_with_handle(handle)
+		.await?
+		.add_with_handle(handle, TANGRAM_ARTIFACTS_PATH.as_ref(), artifacts.into())
+		.await?
+		.build();
 
-#[must_use]
-pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
-	let host = "builtin";
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "bundle".into(),
-	});
-	let args = vec![artifact.clone().into()];
-	tg::Command::builder()
-		.host(host)
-		.executable(executable)
-		.args(args)
-		.finish()
-		.expect("the command builder should be complete")
+	Ok(directory.into())
 }
 
 pub async fn checksum(
-	input: tg::Either<&tg::Blob, &tg::Artifact>,
+	input: tg::Either<&tg::Blob, &tg::File>,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum> {
 	let handle = tg::handle()?;
@@ -170,41 +229,71 @@ pub async fn checksum(
 }
 
 pub async fn checksum_with_handle<H>(
-	input: tg::Either<&tg::Blob, &tg::Artifact>,
+	input: tg::Either<&tg::Blob, &tg::File>,
 	handle: &H,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum>
 where
 	H: tg::Handle,
 {
+	let input = match input {
+		tg::Either::Left(blob) => tg::File::with_contents(blob.clone()),
+		tg::Either::Right(file) => file.clone(),
+	};
+	let args = vec![
+		tg::Value::from("builtin"),
+		"checksum".into(),
+		"--algorithm".into(),
+		algorithm.to_string().into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![input.cloned().into(), algorithm.to_string().into()],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "checksum".into(),
-		})),
+		args,
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output: tg::File = output.try_into()?;
 	let checksum = output
-		.try_unwrap_string()
-		.ok()
-		.ok_or_else(|| tg::error!("expected a string"))?
+		.text_with_handle(handle)
+		.await?
 		.parse()
 		.map_err(|error| tg::error!(!error, "failed to parse the checksum"))?;
+
 	Ok(checksum)
 }
 
 #[must_use]
 pub fn checksum_command(
-	input: tg::Either<tg::Blob, tg::Artifact>,
+	input: tg::Either<tg::Blob, tg::File>,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Command {
-	let host = "builtin";
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "checksum".into(),
-	});
-	let args = vec![input.into(), algorithm.to_string().into()];
+	let input = match input {
+		tg::Either::Left(blob) => tg::File::with_contents(blob),
+		tg::Either::Right(file) => file,
+	};
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
+		"checksum".into(),
+		"--algorithm".into(),
+		algorithm.to_string().into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -226,16 +315,30 @@ pub async fn compress_with_handle<H>(
 where
 	H: tg::Handle,
 {
+	let input = tg::File::with_contents(input.clone());
+	let args = vec![
+		tg::Value::from("builtin"),
+		"compress".into(),
+		"--format".into(),
+		format.to_string().into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![input.clone().into(), format.to_string().into()],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "compress".into(),
-		})),
+		args,
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
-	let blob = output.try_into()?;
+	let file: tg::File = output.try_into()?;
+	let blob = file.contents_with_handle(handle).await?;
+
 	Ok(blob)
 }
 
@@ -244,11 +347,25 @@ pub fn compress_command(
 	input: tg::Either<tg::Blob, tg::File>,
 	format: tg::CompressionFormat,
 ) -> tg::Command {
-	let host = "builtin";
-	let args = vec![input.into(), format.to_string().into()];
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "compress".into(),
-	});
+	let input = match input {
+		tg::Either::Left(blob) => tg::File::with_contents(blob),
+		tg::Either::Right(file) => file,
+	};
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
+		"compress".into(),
+		"--format".into(),
+		format.to_string().into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -266,26 +383,50 @@ pub async fn decompress_with_handle<H>(input: &tg::Blob, handle: &H) -> tg::Resu
 where
 	H: tg::Handle,
 {
+	let input = tg::File::with_contents(input.clone());
+	let args = vec![
+		tg::Value::from("builtin"),
+		"decompress".into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![input.clone().into()],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "decompress".into(),
-		})),
+		args,
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
-	let blob = output.try_into()?;
+	let file: tg::File = output.try_into()?;
+	let blob = file.contents_with_handle(handle).await?;
+
 	Ok(blob)
 }
 
 #[must_use]
 pub fn decompress_command(input: tg::Either<tg::Blob, tg::File>) -> tg::Command {
-	let host = "builtin";
-	let args = vec![input.into()];
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "decompress".into(),
-	});
+	let input = match input {
+		tg::Either::Left(blob) => tg::File::with_contents(blob),
+		tg::Either::Right(file) => file,
+	};
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
+		"decompress".into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -312,38 +453,65 @@ pub async fn download_with_handle<H>(
 where
 	H: tg::Handle,
 {
+	let checksum = checksum.cloned().unwrap_or_default();
+	let mut options = options.unwrap_or_default();
+	options.checksum.get_or_insert(checksum.algorithm());
+	let mode = options.mode.unwrap_or_default();
+	let mut args = vec![tg::Value::from("builtin"), "download".into()];
+	if let Some(algorithm) = options.checksum {
+		args.extend(["--checksum".into(), algorithm.to_string().into()]);
+	}
+	args.extend([
+		"--mode".into(),
+		mode.to_string().into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+		url.to_string().into(),
+	]);
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: std::iter::once(url.to_string().into())
-			.chain(options.map(tg::Value::from))
-			.collect(),
-		checksum: Some(checksum.cloned().unwrap_or_default()),
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "download".into(),
-		})),
+		args,
+		checksum: Some(checksum),
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
-	let output = if output.is_blob() {
-		tg::Either::Left(output.try_into()?)
-	} else if output.is_artifact() {
-		tg::Either::Right(output.try_into()?)
-	} else {
-		return Err(tg::error!("expected a blob or an artifact"));
+	let output = match mode {
+		tg::DownloadMode::Raw => {
+			let file: tg::File = output.try_into()?;
+			let blob = file.contents_with_handle(handle).await?;
+			tg::Either::Left(blob)
+		},
+		tg::DownloadMode::Decompress | tg::DownloadMode::Extract => {
+			tg::Either::Right(output.try_into()?)
+		},
 	};
+
 	Ok(output)
 }
 
 #[must_use]
 pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Command {
-	let host = "builtin";
-	let mut args = vec![url.to_string().into()];
-	if let Some(options) = options {
-		args.push(options.into());
+	let options = options.unwrap_or_default();
+	let mut args: Vec<tg::command::Value> = vec!["builtin".into(), "download".into()];
+	if let Some(algorithm) = options.checksum {
+		args.extend(["--checksum".into(), algorithm.to_string().into()]);
 	}
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "download".into(),
-	});
+	args.extend([
+		"--mode".into(),
+		options.mode.unwrap_or_default().to_string().into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+		url.to_string().into(),
+	]);
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -361,12 +529,22 @@ pub async fn extract_with_handle<H>(handle: &H, input: &tg::Blob) -> tg::Result<
 where
 	H: tg::Handle,
 {
+	let input = tg::File::with_contents(input.clone());
+	let args = vec![
+		tg::Value::from("builtin"),
+		"extract".into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
 	let arg = tg::process::Arg {
-		host: Some("builtin".into()),
-		args: vec![input.clone().into()],
-		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-			path: "extract".into(),
-		})),
+		args,
+		executable: Some(tg::command::Executable {
+			artifact: None,
+			path: Some("tg".into()),
+		}),
+		host: Some(tg::host::current().to_owned()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -376,11 +554,20 @@ where
 
 #[must_use]
 pub fn extract_command(input: &tg::Blob) -> tg::Command {
-	let host = "builtin";
-	let args = vec![input.clone().into()];
-	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
-		path: "extract".into(),
-	});
+	let input = tg::File::with_contents(input.clone());
+	let args: Vec<tg::command::Value> = vec![
+		"builtin".into(),
+		"extract".into(),
+		"--input".into(),
+		input.into(),
+		"--output".into(),
+		tg::Placeholder::new("output").into(),
+	];
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let host = tg::host::current();
 	tg::Command::builder()
 		.host(host)
 		.executable(executable)
@@ -389,48 +576,60 @@ pub fn extract_command(input: &tg::Blob) -> tg::Command {
 		.expect("the command builder should be complete")
 }
 
-impl From<DownloadOptions> for tg::Value {
-	fn from(options: DownloadOptions) -> Self {
-		let mut map = BTreeMap::new();
-		if let Some(checksum) = options.checksum {
-			map.insert("checksum".to_owned(), checksum.to_string().into());
-		}
-		if let Some(mode) = options.mode {
-			map.insert("mode".to_owned(), mode.to_string().into());
-		}
-		tg::Value::Map(map)
-	}
-}
-
-impl TryFrom<tg::Value> for DownloadOptions {
-	type Error = tg::Error;
-
-	fn try_from(value: tg::Value) -> Result<Self, Self::Error> {
-		let mut options = Self::default();
-		let map = value
-			.try_unwrap_map()
-			.ok()
-			.ok_or_else(|| tg::error!("expected a map"))?;
-		if let Some(value) = map.get("checksum") {
-			let checksum = value
-				.clone()
-				.try_unwrap_string()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the checksum algorithm"))?;
-			options.checksum = Some(checksum);
-		}
-		if let Some(value) = map.get("mode") {
-			let mode = value
-				.clone()
-				.try_unwrap_string()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a string"))?
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the mode"))?;
-			options.mode = Some(mode);
-		}
-		Ok(options)
+async fn remove_dependencies<H>(
+	handle: &H,
+	artifact: &tg::Artifact,
+	depth: usize,
+) -> tg::Result<tg::Artifact>
+where
+	H: tg::Handle,
+{
+	match artifact {
+		tg::Artifact::Directory(directory) => {
+			let entries = Box::pin(async move {
+				directory
+					.entries_with_handle(handle)
+					.await?
+					.iter()
+					.map(|(name, artifact)| async move {
+						let artifact = remove_dependencies(handle, artifact, depth + 1).await?;
+						Ok::<_, tg::Error>((name.clone(), artifact))
+					})
+					.collect::<FuturesOrdered<_>>()
+					.try_collect()
+					.await
+			})
+			.await?;
+			let directory = tg::Directory::with_entries(entries);
+			Ok(directory.into())
+		},
+		tg::Artifact::File(file) => {
+			let contents = file.contents_with_handle(handle).await?;
+			let executable = file.executable_with_handle(handle).await?;
+			let file = tg::File::builder()
+				.contents(contents)
+				.executable(executable)
+				.build()?;
+			Ok(file.into())
+		},
+		tg::Artifact::Symlink(symlink) => {
+			let artifact = symlink.artifact_with_handle(handle).await?;
+			let path = symlink.path_with_handle(handle).await?;
+			let mut target = PathBuf::new();
+			if let Some(artifact) = artifact {
+				for _ in 0..depth.saturating_sub(1) {
+					target.push("..");
+				}
+				target.push(TANGRAM_ARTIFACTS_PATH);
+				target.push(artifact.id().to_string());
+			}
+			if let Some(path) = path {
+				target.push(path);
+			}
+			if target == Path::new("") {
+				return Err(tg::error!("invalid symlink"));
+			}
+			Ok(tg::Symlink::with_path(target).into())
+		},
 	}
 }

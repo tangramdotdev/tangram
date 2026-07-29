@@ -135,11 +135,8 @@ pub fn magic<'s>(
 	}
 	let module = module.ok_or_else(|| tg::error!("failed to find the module for the function"))?;
 	let export = Some(function.get_name(scope).to_rust_string_lossy(scope));
-	let executable = tg::command::data::Executable::Module(tg::command::data::ModuleExecutable {
-		module,
-		export,
-	});
-	let value = Serde(executable).serialize(scope)?;
+	let output = crate::MagicOutput { export, module };
+	let value = Serde(output).serialize(scope)?;
 	Ok(value)
 }
 
@@ -218,11 +215,6 @@ pub async fn spawn(
 	args: (Serde<crate::host::SpawnArg>,),
 ) -> tg::Result<Serde<crate::host::SpawnOutput>> {
 	let (Serde(arg),) = args;
-	if state.arg.host.as_deref() == Some("js") {
-		return Err(tg::error!(
-			"cannot spawn a host process when the host is js"
-		));
-	}
 	let output = state.host.spawn(arg).await?;
 	Ok(Serde(output))
 }

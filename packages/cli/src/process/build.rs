@@ -4,32 +4,34 @@ pub use crate::process::run::{Args, Options};
 
 impl Cli {
 	pub async fn command_build(&mut self, args: Args) -> tg::Result<()> {
-		let detach = args.options.detach;
-		let verbose = args.options.verbose;
-		let checkout = args.options.checkout.is_some();
-		let location = args.options.spawn.location.get();
-		let print = args.options.print.clone();
-
-		// Build.
+		let options = args.options.clone();
 		let output = self.build(args).await?;
+		self.print_build_output(&options, output).await
+	}
 
-		// Print the output.
-		if detach && !verbose {
+	pub(crate) async fn print_build_output(
+		&mut self,
+		options: &Options,
+		output: tg::Value,
+	) -> tg::Result<()> {
+		let location = options.spawn.location.get();
+		if options.detach && !options.verbose {
 			let string = output
 				.try_unwrap_string()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?;
 			Self::print_display(string);
-		} else if checkout {
+		} else if options.checkout.is_some() {
 			Self::print_display(output);
-		} else if (detach && verbose) || !output.is_null() {
+		} else if (options.detach && options.verbose) || !output.is_null() {
 			let arg = tg::object::get::Arg {
 				location,
 				metadata: false,
 				stored: false,
 				token: None,
 			};
-			self.print_value(&output, print, arg).await?;
+			self.print_value(&output, options.print.clone(), arg)
+				.await?;
 		}
 
 		Ok(())

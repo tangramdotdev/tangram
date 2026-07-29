@@ -1025,18 +1025,6 @@ impl Session {
 			// Validate the host.
 			let host = command.host.as_str();
 			match host {
-				#[cfg(target_os = "macos")]
-				"builtin" => (),
-
-				#[cfg(target_os = "linux")]
-				"builtin" => (),
-
-				#[cfg(all(feature = "js", target_os = "macos"))]
-				"js" => (),
-
-				#[cfg(all(feature = "js", target_os = "linux"))]
-				"js" => (),
-
 				#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 				"aarch64-darwin" => (),
 
@@ -1070,12 +1058,7 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let mut args = match (&command.executable, command.host.as_str()) {
-				(tg::command::data::Executable::Module(_), _) | (_, "builtin" | "js") => {
-					render_args_dash_a(&command.args)
-				},
-				_ => render_args_string(&command.args, &guest_artifacts_path, &guest_output_path)?,
-			};
+			let args = render_args(&command.args, &guest_artifacts_path, &guest_output_path)?;
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1087,60 +1070,46 @@ impl Session {
 			};
 
 			// Render the env.
-			let env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+			let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+			let engine = match self.server.config.runner.js.engine {
+				crate::config::JsEngine::Auto => "auto",
+				crate::config::JsEngine::QuickJs => "quickjs",
+				crate::config::JsEngine::V8 => "v8",
+			};
+			env.insert("TANGRAM_JS_ENGINE".to_owned(), engine.to_owned());
+			for key in [
+				"TANGRAM_JS_DEBUG",
+				"TANGRAM_JS_DEBUG_ADDR",
+				"TANGRAM_JS_DEBUG_MODE",
+			] {
+				env.remove(key);
+			}
+			if let Some(debug) = state.debug.as_ref() {
+				env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+				if let Some(addr) = debug.addr {
+					env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+				}
+				if debug.mode != tg::process::debug::Mode::Normal {
+					env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+				}
+			}
 
 			#[cfg(target_os = "macos")]
-			let env = {
-				let mut env = env;
-				env.entry("TMPDIR".to_owned())
-					.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
-				env
-			};
+			env.entry("TMPDIR".to_owned())
+				.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
 
 			// Render the executable.
-			let executable = match (&command.executable, command.host.as_str()) {
-				(tg::command::data::Executable::Module(_), _) | (_, "js") => {
-					let mut js_args = Vec::new();
-					js_args.push("js".to_owned());
-					js_args.push("--host".to_owned());
-					js_args.push(command.host.clone());
-					match &self.server.config.runner.js.engine {
-						crate::config::JsEngine::Auto => {
-							js_args.push("--engine=auto".into());
-						},
-						crate::config::JsEngine::QuickJs => {
-							js_args.push("--engine=quickjs".into());
-						},
-						crate::config::JsEngine::V8 => {
-							js_args.push("--engine=v8".into());
-						},
-					}
-					render_js_debug_args(&mut js_args, state.debug.as_ref());
-					js_args.push(command.executable.to_string());
-					js_args.extend(args);
-					args = js_args;
-
-					sandbox.guest_tangram_path()
-				},
-
-				(_, "builtin") => {
-					args.insert(0, "builtin".to_owned());
-					args.insert(1, command.executable.to_string());
-
-					sandbox.guest_tangram_path()
-				},
-
-				(tg::command::data::Executable::Artifact(executable), _) => {
-					let mut path = guest_artifacts_path.join(executable.artifact.to_string());
-					if let Some(executable_path) = &executable.path {
-						path.push(executable_path);
-					}
-					path
-				},
-
-				(tg::command::data::Executable::Path(executable), _) => executable.path.clone(),
+			let executable = if let Some(artifact) = &command.executable.artifact {
+				let mut path = guest_artifacts_path.join(artifact.to_string());
+				if let Some(executable_path) = &command.executable.path {
+					path.push(executable_path);
+				}
+				path
+			} else if let Some(path) = &command.executable.path {
+				path.clone()
+			} else {
+				return Err(tg::error!("invalid executable"));
 			};
-
 			let stdin = match state.stdin {
 				tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 				tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
@@ -1428,42 +1397,26 @@ impl Session {
 	}
 }
 
-fn render_args_string(
-	args: &[tg::value::Data],
+fn render_args(
+	args: &[tg::command::data::Value],
 	artifacts_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
 	args.iter()
-		.map(|value| render_value_string(value, artifacts_path, output_path))
+		.map(|arg| match arg {
+			tg::command::data::Value::String(value) => {
+				render_value_string(value, artifacts_path, output_path)
+			},
+			tg::command::data::Value::Value(value) => {
+				let value = tg::Value::try_from_data(value.clone())?;
+				Ok(value.to_string())
+			},
+		})
 		.collect::<tg::Result<Vec<_>>>()
 }
 
-fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
-	args.iter()
-		.flat_map(|value| {
-			let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
-			["-A".to_owned(), value]
-		})
-		.collect::<Vec<_>>()
-}
-
-fn render_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
-	let Some(debug) = debug else {
-		return;
-	};
-	args.push("--debug".to_owned());
-	if let Some(addr) = debug.addr {
-		args.push("--debug-addr".to_owned());
-		args.push(addr.to_string());
-	}
-	if debug.mode != tg::process::debug::Mode::Normal {
-		args.push("--debug-mode".to_owned());
-		args.push(debug.mode.to_string());
-	}
-}
-
 fn render_env(
-	env: &tg::value::data::Map,
+	env: &BTreeMap<String, tg::command::data::Value>,
 	artifacts_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
@@ -1475,29 +1428,29 @@ fn render_env(
 			));
 		}
 	}
-	let mut resolved = tg::value::data::Map::new();
-	for (key, value) in env {
-		let mutation = match value {
-			tg::value::Data::Mutation(value) => value.clone(),
-			value => tg::mutation::Data::Set {
-				value: Box::new(value.clone()),
-			},
-		};
-		mutation.apply(&mut resolved, key)?;
-	}
-	let mut output = resolved
+	let mut output = env
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = render_value_string(value, artifacts_path, output_path)?;
+			let value = match value {
+				tg::command::data::Value::String(value) => {
+					render_value_string(value, artifacts_path, output_path)?
+				},
+				tg::command::data::Value::Value(value) => {
+					tg::Value::try_from_data(value.clone())?.to_string()
+				},
+			};
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<BTreeMap<_, _>>>()?;
-	for (key, value) in &resolved {
-		if matches!(value, tg::value::Data::String(_)) {
-			continue;
-		}
-		let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+	for (key, value) in env {
+		let value = match value {
+			tg::command::data::Value::String(tg::value::Data::String(_)) => continue,
+			tg::command::data::Value::String(value) | tg::command::data::Value::Value(value) => {
+				value
+			},
+		};
+		let value = tg::Value::try_from_data(value.clone())?.to_string();
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
 	Ok(output)
@@ -1510,6 +1463,13 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
+		tg::value::Data::Object(object) if object.item.is_artifact() => {
+			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
+			Ok(artifacts_path
+				.join(artifact.to_string())
+				.to_string_lossy()
+				.into_owned())
+		},
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path

@@ -106,7 +106,7 @@ pub async fn listen_signal_open(
 pub fn magic<'js>(
 	ctx: qjs::Ctx<'js>,
 	function: qjs::Function<'js>,
-) -> Result<Serde<tg::command::data::Executable>> {
+) -> Result<Serde<crate::MagicOutput>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let name: Option<String> = function.get("name").ok();
 	let file_name: Option<String> = function.get("fileName").ok();
@@ -130,11 +130,11 @@ pub fn magic<'js>(
 		Ok(module) => module,
 		Err(error) => return Result(Err(error)),
 	};
-	let executable = tg::command::data::Executable::Module(tg::command::data::ModuleExecutable {
-		module,
+	let output = crate::MagicOutput {
 		export: name,
-	});
-	Result(Ok(Serde(executable)))
+		module,
+	};
+	Result(Ok(Serde(output)))
 }
 
 pub async fn mkdtemp(ctx: qjs::Ctx<'_>) -> Result<String> {
@@ -211,11 +211,6 @@ pub async fn spawn(
 	arg: Serde<crate::host::SpawnArg>,
 ) -> Result<Serde<crate::host::SpawnOutput>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	if state.arg.host.as_deref() == Some("js") {
-		return Result(Err(tg::error!(
-			"cannot spawn a host process when the host is js"
-		)));
-	}
 	let Serde(arg) = arg;
 	let result = state.host.spawn(arg).await.map(Serde);
 	Result(result)

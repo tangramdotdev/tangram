@@ -10,7 +10,7 @@ let process_data = {
 	children: [],
 	command: "cmd_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0",
 	created_at: 0,
-	host: "test",
+	host: "x86_64-linux",
 	sandbox: "sbx_00041061050r3gg28a1c60t3gf20",
 	status: "started",
 }

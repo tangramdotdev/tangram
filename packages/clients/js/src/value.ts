@@ -15,6 +15,7 @@ export type Value =
 	| tg.Object
 	| Uint8Array
 	| tg.Mutation
+	| tg.Module
 	| tg.Template
 	| tg.Placeholder;
 
@@ -57,6 +58,8 @@ export namespace Value {
 			return { kind: "bytes", value: tg.encoding.base64.encode(value) };
 		} else if (value instanceof tg.Mutation) {
 			return { kind: "mutation", value: tg.Mutation.toData(value) };
+		} else if (value instanceof tg.Module) {
+			return { kind: "module", value: tg.Module.toData(value) };
 		} else if (value instanceof tg.Template) {
 			return { kind: "template", value: tg.Template.toData(value) };
 		} else if (value instanceof tg.Placeholder) {
@@ -101,6 +104,8 @@ export namespace Value {
 			return tg.encoding.base64.decode(data.value);
 		} else if (data.kind === "mutation") {
 			return tg.Mutation.fromData(data.value);
+		} else if (data.kind === "module") {
+			return tg.Module.fromData(data.value);
 		} else if (data.kind === "template") {
 			return tg.Template.fromData(data.value);
 		} else if (data.kind === "placeholder") {
@@ -122,6 +127,7 @@ export namespace Value {
 			tg.Object.is(value) ||
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
+			value instanceof tg.Module ||
 			value instanceof tg.Template ||
 			value instanceof tg.Placeholder
 		);
@@ -152,6 +158,7 @@ export namespace Value {
 			value instanceof Array ||
 			value instanceof Uint8Array ||
 			value instanceof tg.Mutation ||
+			value instanceof tg.Module ||
 			value instanceof tg.Template ||
 			value instanceof tg.Placeholder ||
 			tg.Object.is(value)
@@ -170,6 +177,8 @@ export namespace Value {
 			return [value];
 		} else if (value instanceof tg.Mutation) {
 			return value.objects();
+		} else if (value instanceof tg.Module) {
+			return tg.Module.children(value);
 		} else if (value instanceof tg.Template) {
 			return value.objects();
 		} else if (value instanceof tg.Placeholder) {
@@ -269,6 +278,7 @@ export namespace Value {
 		| { kind: "object"; value: string }
 		| { kind: "bytes"; value: string }
 		| { kind: "mutation"; value: tg.Mutation.Data }
+		| { kind: "module"; value: tg.Module.Data }
 		| { kind: "template"; value: tg.Template.Data }
 		| { kind: "placeholder"; value: tg.Placeholder.Data };
 
@@ -293,6 +303,8 @@ export namespace Value {
 				return [referent.item];
 			} else if (data.kind === "mutation") {
 				return tg.Mutation.Data.children(data.value);
+			} else if (data.kind === "module") {
+				return tg.Module.Data.children(data.value);
 			} else if (data.kind === "template") {
 				return tg.Template.Data.children(data.value);
 			} else {
@@ -330,6 +342,11 @@ export namespace Value {
 					return {
 						...data,
 						value: tg.Mutation.Data.withoutTokens(data.value),
+					};
+				} else if (data.kind === "module") {
+					return {
+						...data,
+						value: tg.Module.Data.withoutTokens(data.value),
 					};
 				} else if (data.kind === "template") {
 					return {

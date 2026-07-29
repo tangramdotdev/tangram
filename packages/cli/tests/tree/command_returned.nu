@@ -20,7 +20,7 @@ let path = artifact {
 	}
 }
 
-let id = tg build --host js --detach ($path | path join 'c')
+let id = tg build --detach ($path | path join 'c')
 let output = tg wait $id
 snapshot $output '{"exit":0,"output":42}'
 
@@ -29,7 +29,7 @@ let output = tg view $id --mode inline --expand-processes --depth 1
 snapshot $output '
 	✓ fil_01f5g0qq7n6rnp2f4ya73vvnq2bvzsfgmvzkvd397ynqm4y1bnbt7g#default
 	├╴output: 42
-	├╴command: cmd_01nnd6msat28s73ja18tr6ded3med875bz0df6fcqqkzfrv8sdgpd0
+	├╴command: cmd_018qp5j8pj03mszspa33e7anhx0mbp1q4bczp6skf5dv7b5715h5w0
 	├╴✓ ../b.tg.ts#default
 	└╴✓ fil_01bmpbckej87pxfjz87zeaht4sjyx2jw4jh3yvdqnr57bzygvt791g#default
 '

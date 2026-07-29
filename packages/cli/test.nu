@@ -313,7 +313,7 @@ def main [
 			let ratio = if $total > 0 { $completed / $total } else { 0 }
 			let filled = ($ratio * 10) | math floor
 			let bar = if $filled > 0 { (1..$filled | each { '=' } | str join) + '>' } else { '>' }
-			let bar = if $filled < 10 { $bar + (1..(9 - $filled) | each { ' ' } | str join) } else { $bar }
+			let bar = if $filled < 10 { $bar + (1..(10 - $filled) | each { ' ' } | str join) } else { $bar }
 			let elapsed = ((date now) - $start) / 1sec | math floor | into duration -u sec
 			let progress = $'[($bar)] ($completed)/($total_display): ($running | length) running, (ansi green)($passed) passed(ansi reset), (ansi yellow)($skipped) skipped(ansi reset), (ansi red)($failed) failed(ansi reset), ($elapsed)'
 			print -e -n $'($progress)'

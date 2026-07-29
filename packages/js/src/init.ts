@@ -4,7 +4,8 @@ type Arg = {
 	args: Array<tg.Value.Data>;
 	cwd: string;
 	env: Record<string, tg.Value.Data>;
-	executable: tg.Command.Data.Executable;
+	export: string | null;
+	module: tg.Module.Data;
 };
 
 export let init = (arg: Arg) => {
@@ -16,11 +17,11 @@ export let init = (arg: Arg) => {
 			tg.Value.fromData(value),
 		]),
 	);
-	let executable = tg.Command.Executable.fromData(arg.executable);
 	tg.setProcess({
 		args,
 		cwd,
 		env,
-		executable,
+		export: arg.export,
+		module: tg.Module.fromData(arg.module),
 	});
 };

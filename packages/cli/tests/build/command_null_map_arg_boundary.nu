@@ -20,7 +20,13 @@ let path = artifact {
 				list: [null, "x", file],
 			});
 			let id = await command.store();
-			let arg = (await tg.Command.withId(id).args)[0];
+			let args = await tg.Command.withId(id).args;
+			let value = args[args.length - 1];
+			tg.assert(
+				value instanceof tg.Command.Value && value.kind === "value",
+				"the value argument was dropped",
+			);
+			let arg = value.value;
 			tg.assert(
 				typeof arg === "object" && arg !== null && arg.a === null,
 				"the top-level null entry did not round-trip",

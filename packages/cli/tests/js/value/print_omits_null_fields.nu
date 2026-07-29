@@ -16,7 +16,7 @@ let path = artifact {
 			let executable = await tg.file("run");
 			let command = await tg.command({
 				executable: { artifact: executable },
-				host: "builtin",
+				host: tg.host.current,
 			});
 			let commandPrint = tg.Value.print(command);
 			let executableOmitsNull = !commandPrint.includes(`"path":`);

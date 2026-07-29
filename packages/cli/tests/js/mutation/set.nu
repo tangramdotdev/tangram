@@ -1,18 +1,16 @@
 use ../../../test.nu *
 
-# Applying a set mutation assigns the value to the key.
+# Applying a set mutation returns its value.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let map = {};
-			await (await tg.Mutation.set("v")).apply(map, "k");
-			return map;
+			return await (await tg.Mutation.set("v")).apply(undefined);
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '{"k":"v"}'
+snapshot $output '"v"'

@@ -9,7 +9,7 @@ let path = artifact {
 		export default async function () {
 			let command = await tg.command({
 				executable: "/bin/sh",
-				host: "builtin",
+				host: tg.host.current,
 			});
 			let output = tg.Value.print(command);
 			return (

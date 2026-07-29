@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create an error. */
 export function error(
@@ -77,9 +78,11 @@ export namespace error {
 
 /** An error. */
 export class Error {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.Error.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "error" as const, value: arg.object }
@@ -149,7 +152,11 @@ export class Error {
 	static async argResolved(
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.Error.Arg>>
 	): Promise<tg.Error.Arg.Object> {
-		return await tg.Args.applyResolved<tg.Error.Arg, tg.Error.Arg.Object>({
+		return await tg.Args.applyResolved<
+			tg.Error.Arg,
+			tg.ValueOrMaybeMutationMap<tg.Error.Arg.Object>,
+			tg.Error.Arg.Object
+		>({
 			args,
 			map: async (arg) => {
 				if (typeof arg === "string") {

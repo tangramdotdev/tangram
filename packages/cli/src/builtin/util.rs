@@ -1,9 +1,45 @@
-use tangram_client::prelude::*;
+use {
+	std::path::{Path, PathBuf},
+	tangram_client::prelude::*,
+	tokio::io::{AsyncRead, AsyncWrite},
+};
+
+pub(crate) type Reader = Box<dyn AsyncRead + Send + Unpin>;
+pub(crate) type Writer = Box<dyn AsyncWrite + Send + Sync + Unpin>;
+
+pub(crate) fn resolve_path(named: Option<PathBuf>, positional: Option<PathBuf>) -> Option<PathBuf> {
+	named.or(positional).filter(|path| path != Path::new("-"))
+}
+
+pub(crate) async fn open_input(path: Option<&Path>) -> tg::Result<Reader> {
+	let reader: Reader = if let Some(path) = path {
+		let file = tokio::fs::File::open(path).await.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to open the input"),
+		)?;
+		Box::new(file)
+	} else {
+		Box::new(tokio::io::stdin())
+	};
+
+	Ok(reader)
+}
+
+pub(crate) async fn open_output(path: Option<&Path>) -> tg::Result<Writer> {
+	let writer: Writer = if let Some(path) = path {
+		let file = tokio::fs::File::create(path).await.map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to create the output"),
+		)?;
+		Box::new(file)
+	} else {
+		Box::new(tokio::io::stdout())
+	};
+
+	Ok(writer)
+}
 
 pub(crate) fn detect_archive_format(
 	bytes: &[u8],
 ) -> tg::Result<Option<(tg::ArchiveFormat, Option<tg::CompressionFormat>)>> {
-	// Detect zip.
 	if bytes
 		.get(0..2)
 		.ok_or_else(|| tg::error!("buffer is too small"))?
@@ -11,13 +47,9 @@ pub(crate) fn detect_archive_format(
 	{
 		return Ok(Some((tg::ArchiveFormat::Zip, None)));
 	}
-
-	// If a compression magic number is found, then assume the archive format is tar.
 	if let Some(compression) = detect_compression_format(bytes)? {
 		return Ok(Some((tg::ArchiveFormat::Tar, Some(compression))));
 	}
-
-	// Otherwise, check for ustar.
 	let position = 257;
 	let length = 5;
 	if bytes
@@ -27,15 +59,11 @@ pub(crate) fn detect_archive_format(
 	{
 		return Ok(Some((tg::ArchiveFormat::Tar, None)));
 	}
-
-	// A tar archive with no entries consists of zero-filled end-of-archive blocks. If the first record is entirely zero, then treat the buffer as an empty tar archive.
 	if let Some(block) = bytes.get(0..512)
 		&& block.iter().all(|&byte| byte == 0)
 	{
 		return Ok(Some((tg::ArchiveFormat::Tar, None)));
 	}
-
-	// Otherwise, check for a valid tar checksum by parsing the header record. This is an 8-byte field at offset 148. See <https://en.wikipedia.org/wiki/Tar_(computing)#File_format>: "The checksum is calculated by taking the sum of the unsigned byte values of the header record with the eight checksum bytes taken to be ASCII spaces (decimal value 32). It is stored as a six digit octal number with leading zeroes followed by a NUL and then a space".
 	let position = 148;
 	let length = 8;
 	let header = bytes
@@ -51,8 +79,8 @@ pub(crate) fn detect_archive_format(
 	let expected_checksum =
 		u32::from_str_radix(checksum.trim(), 8).map_err(|_| tg::error!("invalid tar checksum"))?;
 	let mut actual_checksum = 0u32;
-	for (i, item) in bytes.iter().enumerate() {
-		if i >= position && i < position + length {
+	for (index, item) in bytes.iter().take(512).enumerate() {
+		if index >= position && index < position + length {
 			actual_checksum += 32;
 		} else {
 			actual_checksum += u32::from(*item);
@@ -65,36 +93,32 @@ pub(crate) fn detect_archive_format(
 	Ok(None)
 }
 
-pub(crate) fn detect_compression_format(bytes: &[u8]) -> tg::Result<Option<tg::CompressionFormat>> {
-	// Gz
-	let n = bytes
+pub(crate) fn detect_compression_format(input: &[u8]) -> tg::Result<Option<tg::CompressionFormat>> {
+	let bytes = input
 		.get(..2)
 		.ok_or_else(|| tg::error!("buffer is too small"))?;
-	if n == [0x1F, 0x8B] {
+	if bytes == [0x1f, 0x8b] {
 		return Ok(Some(tg::CompressionFormat::Gz));
 	}
 
-	// Zstd
-	let n = bytes
+	let bytes = input
 		.get(..4)
 		.ok_or_else(|| tg::error!("buffer is too small"))?;
-	if n == [0x28, 0xB5, 0x2F, 0xFD] {
+	if bytes == [0x28, 0xb5, 0x2f, 0xfd] {
 		return Ok(Some(tg::CompressionFormat::Zst));
 	}
 
-	// Bz2
-	let n = bytes
+	let bytes = input
 		.get(..3)
 		.ok_or_else(|| tg::error!("buffer is too small"))?;
-	if n == [0x42, 0x5A, 0x68] {
+	if bytes == [0x42, 0x5a, 0x68] {
 		return Ok(Some(tg::CompressionFormat::Bz2));
 	}
 
-	// Xz
-	let n = bytes
+	let bytes = input
 		.get(..6)
 		.ok_or_else(|| tg::error!("buffer is too small"))?;
-	if n == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00] {
+	if bytes == [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00] {
 		return Ok(Some(tg::CompressionFormat::Xz));
 	}
 

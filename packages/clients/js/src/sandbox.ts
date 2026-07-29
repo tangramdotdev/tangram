@@ -336,7 +336,11 @@ export namespace Sandbox {
 		}
 
 		async #thenInner(): Promise<tg.Sandbox> {
-			let arg = await tg.Args.apply<tg.Sandbox.Arg, tg.Sandbox.Arg>({
+			let arg = await tg.Args.apply<
+				tg.Sandbox.Arg,
+				tg.ValueOrMaybeMutationMap<tg.Sandbox.Arg>,
+				tg.Sandbox.Arg
+			>({
 				args: [{ host: tg.host.current, ttl: defaultTtl }, ...this.#args],
 				map: async (arg) => arg,
 				reduce: {

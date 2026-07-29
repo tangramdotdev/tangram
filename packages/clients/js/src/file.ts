@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 import { unindent } from "./template.ts";
 
 /** Create a file. */
@@ -20,9 +21,11 @@ export function file(
 
 /** A file. */
 export class File {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.File.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "file" as const, value: arg.object }
@@ -124,7 +127,11 @@ export class File {
 		...args: Array<tg.ValueOrMaybeMutationMap<tg.File.Arg>>
 	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>> {
 		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
-		return await tg.Args.applyResolved<tg.File.Arg, Arg>({
+		return await tg.Args.applyResolved<
+			tg.File.Arg,
+			tg.ValueOrMaybeMutationMap<Arg>,
+			Arg
+		>({
 			args,
 			map: async (arg) => {
 				if (arg === undefined) {

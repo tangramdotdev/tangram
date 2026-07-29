@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let command = await tg
-				.command({ host: "builtin", executable: "echo" })
+				.command({ host: tg.host.current, executable: "echo" })
 				.env({ K: "v" });
 			return await command.env;
 		}
@@ -16,4 +16,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot $output '{"K":"v"}'
+snapshot $output '{"K":{"kind":"string","value":"v"}}'

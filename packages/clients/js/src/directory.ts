@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a directory. */
 export let directory = (
@@ -9,9 +10,11 @@ export let directory = (
 
 /** A directory. */
 export class Directory {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.Directory.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "directory" as const, value: arg.object }

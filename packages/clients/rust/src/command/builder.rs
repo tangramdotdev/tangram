@@ -9,9 +9,9 @@ use {
 
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
-	args: Vec<tg::Value>,
+	args: Vec<tg::command::Value>,
 	cwd: Option<PathBuf>,
-	env: BTreeMap<String, tg::Value>,
+	env: BTreeMap<String, tg::command::Value>,
 	executable: Option<tg::command::Executable>,
 	host: Option<String>,
 	stdin: Option<tg::Blob>,
@@ -38,14 +38,17 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn arg(mut self, arg: tg::Value) -> Self {
-		self.args.push(arg);
+	pub fn arg(mut self, arg: impl Into<tg::command::Value>) -> Self {
+		self.args.push(arg.into());
 		self
 	}
 
 	#[must_use]
-	pub fn args(mut self, args: impl IntoIterator<Item = tg::Value>) -> Self {
-		self.args.extend(args);
+	pub fn args<A>(mut self, args: impl IntoIterator<Item = A>) -> Self
+	where
+		A: Into<tg::command::Value>,
+	{
+		self.args.extend(args.into_iter().map(Into::into));
 		self
 	}
 
@@ -56,7 +59,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn env(mut self, env: impl IntoIterator<Item = (String, tg::Value)>) -> Self {
+	pub fn env(mut self, env: impl IntoIterator<Item = (String, tg::command::Value)>) -> Self {
 		self.env.extend(env);
 		self
 	}

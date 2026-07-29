@@ -137,30 +137,7 @@ where
 	if let Some(name) = arg.name {
 		options.name.replace(name);
 	}
-	let executable = if let Some(mut executable) = arg.executable {
-		if let tg::command::Executable::Module(executable) = &mut executable {
-			let mut module_options = std::mem::take(&mut executable.module.referent.options);
-			if options.artifact.is_some() {
-				module_options.artifact = options.artifact;
-			}
-			if options.id.is_some() {
-				module_options.id = options.id;
-			}
-			if options.name.is_some() {
-				module_options.name = options.name;
-			}
-			if options.path.is_some() {
-				module_options.path = options.path;
-			}
-			if options.tag.is_some() {
-				module_options.tag = options.tag;
-			}
-			options = module_options;
-		}
-		Some(executable)
-	} else {
-		None
-	};
+	let executable = arg.executable;
 	let checksum = arg.checksum;
 	let (process_stdin, command_stdin) = match arg.stdin {
 		tg::process::Stdio::Blob(blob) => {
@@ -173,15 +150,18 @@ where
 	let tty = arg.tty;
 
 	let mut command_has_cwd = false;
+	let mut env = BTreeMap::new();
 	let mut builder = if let Some(command_) = command_ {
 		let object = command_.object_with_handle(handle).await?;
 		command_has_cwd = object.cwd.is_some();
+		env = object.env.clone();
 		tg::command::Builder::with_object(&object)
 	} else {
 		tg::Command::builder()
 	};
 
-	builder = builder.args(arg.args);
+	let args = arg.args.into_iter().map(tg::command::Value::String);
+	builder = builder.args(args);
 
 	if let Some(cwd) = arg.cwd {
 		builder = builder.cwd(cwd);
@@ -191,14 +171,33 @@ where
 		builder = builder.cwd(cwd);
 	}
 
-	let mut env = tg::value::Map::new();
 	if !sandboxed {
-		env.extend(tg::process::env()?);
+		let mut inherited = tg::process::env()?
+			.into_iter()
+			.map(|(key, value)| (key, tg::command::Value::String(value)))
+			.collect::<BTreeMap<_, _>>();
+		inherited.extend(env);
+		env = inherited;
 	}
 	for (key, value) in arg.env {
 		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
-			mutation.apply(&mut env, &key)?;
+			let current = env.remove(&key);
+			let value_mode = matches!(current, Some(tg::command::Value::Value(_)));
+			let mut values = tg::value::Map::new();
+			if let Some(current) = current {
+				values.insert(key.clone(), current.into_value());
+			}
+			mutation.apply(&mut values, &key)?;
+			if let Some(value) = values.remove(&key) {
+				let value = if value_mode {
+					tg::command::Value::Value(value)
+				} else {
+					tg::command::Value::String(value)
+				};
+				env.insert(key, value);
+			}
 		} else {
+			let value = tg::command::Value::String(value);
 			env.insert(key, value);
 		}
 	}
@@ -423,7 +422,7 @@ impl<O: 'static> tg::Process<O> {
 				let Ok(value) = std::env::var(name) else {
 					continue;
 				};
-				object.env.insert(name.to_owned(), tg::Value::String(value));
+				object.env.insert(name.to_owned(), value.into());
 				changed = true;
 			}
 			if changed {
@@ -557,9 +556,19 @@ impl<O: 'static> tg::Process<O> {
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts =
 			checkout_artifacts(handle, &command, arg.command.options.token.as_ref()).await?;
-		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
-		let (executable, args) =
-			render_command(&command, &artifacts, &output_path, arg.debug.as_ref())?;
+		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
+		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
+		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
+		if let Some(debug) = arg.debug.as_ref() {
+			env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+			if let Some(addr) = debug.addr {
+				env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+			}
+			if debug.mode != tg::process::debug::Mode::Normal {
+				env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+			}
+		}
+		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
 		let cwd = command.cwd.clone();
 
 		let output = PrepareUnsandboxedCommandOutput {
@@ -851,50 +860,29 @@ fn render_command(
 	command: &tg::command::Data,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
-	debug: Option<&tg::process::Debug>,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
-	match (&command.executable, command.host.as_str()) {
-		(_, "builtin") => {
-			let mut args = render_args_dash_a(&command.args);
-			args.insert(0, "builtin".to_owned());
-			args.insert(1, command.executable.to_string());
-			Ok(("tangram".into(), args))
-		},
-		(tg::command::data::Executable::Module(_), _) | (_, "js") => {
-			let mut args = Vec::new();
-			args.push("js".to_owned());
-			args.push("--host".to_owned());
-			args.push(command.host.clone());
-			args.extend(render_js_debug_args(debug));
-			args.push(command.executable.to_string());
-			args.extend(render_args_dash_a(&command.args));
-			Ok(("tangram".into(), args))
-		},
-		_ => {
-			let executable = render_executable(command, artifacts)?;
-			let args = render_args_string(&command.args, artifacts, output_path)?;
-			Ok((executable, args))
-		},
-	}
+	let executable = render_executable(command, artifacts)?;
+	let args = render_args(&command.args, artifacts, output_path)?;
+	Ok((executable, args))
 }
 
 fn render_executable(
 	command: &tg::command::Data,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 ) -> tg::Result<PathBuf> {
-	match &command.executable {
-		tg::command::data::Executable::Artifact(executable) => {
-			let mut path = artifacts
-				.get(&executable.artifact)
-				.cloned()
-				.ok_or_else(|| tg::error!("failed to find the executable artifact path"))?;
-			if let Some(executable_path) = &executable.path {
-				path.push(executable_path);
-			}
-			Ok(path)
-		},
-		tg::command::data::Executable::Module(_) => Err(tg::error!("invalid executable")),
-		tg::command::data::Executable::Path(executable) => Ok(executable.path.clone()),
+	if let Some(artifact) = &command.executable.artifact {
+		let mut path = artifacts
+			.get(artifact)
+			.cloned()
+			.ok_or_else(|| tg::error!("failed to find the executable artifact path"))?;
+		if let Some(executable_path) = &command.executable.path {
+			path.push(executable_path);
+		}
+		Ok(path)
+	} else if let Some(path) = &command.executable.path {
+		Ok(path.clone())
+	} else {
+		Err(tg::error!("invalid executable"))
 	}
 }
 
@@ -932,45 +920,27 @@ fn which(path: &Path, executable: &Path) -> Option<PathBuf> {
 	None
 }
 
-fn render_args_string(
-	args: &[tg::value::Data],
+fn render_args(
+	args: &[tg::command::data::Value],
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
 	args.iter()
-		.map(|value| render_value_string(value, artifacts, output_path))
-		.collect()
-}
-
-fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
-	args.iter()
-		.flat_map(|value| {
-			let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
-			["-A".to_owned(), value]
+		.map(|arg| match arg {
+			tg::command::data::Value::String(value) => {
+				render_value_string(value, artifacts, output_path)
+			},
+			tg::command::data::Value::Value(value) => {
+				let value = tg::Value::try_from_data(value.clone())?;
+				Ok(value.to_string())
+			},
 		})
 		.collect()
 }
 
-fn render_js_debug_args(debug: Option<&tg::process::Debug>) -> Vec<String> {
-	let mut args = Vec::new();
-	let Some(debug) = debug else {
-		return args;
-	};
-	args.push("--debug".to_owned());
-	if let Some(addr) = debug.addr {
-		args.push("--debug-addr".to_owned());
-		args.push(addr.to_string());
-	}
-	if debug.mode != tg::process::debug::Mode::Normal {
-		args.push("--debug-mode".to_owned());
-		args.push(debug.mode.to_string());
-	}
-	args
-}
-
 fn render_env<H>(
 	handle: &H,
-	env: &tg::value::data::Map,
+	env: &BTreeMap<String, tg::command::data::Value>,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>>
@@ -985,34 +955,38 @@ where
 			));
 		}
 	}
-	let mut resolved = tg::value::data::Map::new();
-	for (key, value) in env {
-		let mutation = match value {
-			tg::value::Data::Mutation(value) => value.clone(),
-			value => tg::mutation::Data::Set {
-				value: Box::new(value.clone()),
-			},
-		};
-		mutation.apply(&mut resolved, key)?;
-	}
-	let mut output = resolved
+	let mut output = env
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
-			let value = render_value_string(value, artifacts, output_path)?;
+			let value = match value {
+				tg::command::data::Value::String(value) => {
+					render_value_string(value, artifacts, output_path)?
+				},
+				tg::command::data::Value::Value(value) => {
+					tg::Value::try_from_data(value.clone())?.to_string()
+				},
+			};
 			Ok::<_, tg::Error>((key, value))
 		})
 		.collect::<tg::Result<BTreeMap<_, _>>>()?;
-	for (key, value) in &resolved {
-		if matches!(value, tg::value::Data::String(_)) {
-			continue;
-		}
-		let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+	for (key, value) in env {
+		let value = match value {
+			tg::command::data::Value::String(tg::value::Data::String(_)) => continue,
+			tg::command::data::Value::String(value) | tg::command::data::Value::Value(value) => {
+				value
+			},
+		};
+		let value = tg::Value::try_from_data(value.clone())?.to_string();
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
 	for key in [
 		"TANGRAM_CONFIG",
 		"TANGRAM_DIRECTORY",
+		"TANGRAM_JS_DEBUG",
+		"TANGRAM_JS_DEBUG_ADDR",
+		"TANGRAM_JS_DEBUG_MODE",
+		"TANGRAM_JS_ENGINE",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
 		"TANGRAM_TOKEN",

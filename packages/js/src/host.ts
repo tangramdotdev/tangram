@@ -84,7 +84,7 @@ export let host: tg.Host = {
 		};
 	},
 
-	magic(value: Function): tg.Command.Data.Executable {
+	magic(value: Function): tg.Host.MagicOutput {
 		return syscall("host_magic", value);
 	},
 

@@ -20,7 +20,7 @@ use {
 pub struct Command {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
-	pub args: tg::value::data::Array,
+	pub args: Vec<Value>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
@@ -28,10 +28,10 @@ pub struct Command {
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "BTreeMap::is_empty")]
-	pub env: tg::value::data::Map,
+	pub env: BTreeMap<String, Value>,
 
 	#[tangram_serialize(id = 3)]
-	pub executable: tg::command::data::Executable,
+	pub executable: Executable,
 
 	#[tangram_serialize(id = 4)]
 	pub host: String,
@@ -53,16 +53,13 @@ pub struct Command {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(untagged)]
-pub enum Executable {
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum Value {
 	#[tangram_serialize(id = 0)]
-	Artifact(ArtifactExecutable),
+	String(tg::value::Data),
 
 	#[tangram_serialize(id = 1)]
-	Module(ModuleExecutable),
-
-	#[tangram_serialize(id = 2)]
-	Path(PathExecutable),
+	Value(tg::value::Data),
 }
 
 #[derive(
@@ -73,43 +70,15 @@ pub enum Executable {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ArtifactExecutable {
-	#[tangram_serialize(id = 0)]
-	pub artifact: tg::artifact::Id,
+#[serde(deny_unknown_fields)]
+pub struct Executable {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<tg::artifact::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ModuleExecutable {
-	#[tangram_serialize(id = 0)]
-	pub module: tg::module::Data,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub export: Option<String>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct PathExecutable {
-	#[tangram_serialize(id = 0)]
-	pub path: PathBuf,
 }
 
 impl Command {
@@ -146,8 +115,8 @@ impl Command {
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		self.executable.children(children);
-		for value in &self.args {
-			value.children(children);
+		for arg in &self.args {
+			arg.children(children);
 		}
 		for value in self.env.values() {
 			value.children(children);
@@ -156,102 +125,68 @@ impl Command {
 
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.args = self
-			.args
-			.into_iter()
-			.map(tg::value::Data::without_tokens)
-			.collect();
+		self.args = self.args.into_iter().map(Value::without_tokens).collect();
 		self.env = self
 			.env
 			.into_iter()
 			.map(|(key, value)| (key, value.without_tokens()))
 			.collect();
-		self.executable = self.executable.without_tokens();
 
 		self
 	}
 }
 
-impl Executable {
+impl Value {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Artifact(artifact) => artifact.children(children),
-			Self::Module(module) => module.children(children),
-			Self::Path(_) => (),
+			Self::String(value) | Self::Value(value) => value.children(children),
 		}
 	}
 
 	#[must_use]
 	pub fn without_tokens(self) -> Self {
 		match self {
-			Self::Module(mut module) => {
-				module.module = module.module.without_tokens();
-				Self::Module(module)
-			},
-			value @ (Self::Artifact(_) | Self::Path(_)) => value,
+			Self::String(value) => Self::String(value.without_tokens()),
+			Self::Value(value) => Self::Value(value.without_tokens()),
+		}
+	}
+}
+
+impl Executable {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		if let Some(artifact) = &self.artifact {
+			children.insert(artifact.clone().into());
 		}
 	}
 
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
-		match self {
-			Self::Artifact(artifact) => artifact.to_uri(),
-			Self::Module(module) => module.to_uri(),
-			Self::Path(path) => path.to_uri(),
-		}
-	}
-
-	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		if let Ok(executable) = ModuleExecutable::with_uri(uri) {
-			Ok(Self::Module(executable))
-		} else if let Ok(executable) = ArtifactExecutable::with_uri(uri) {
-			Ok(Self::Artifact(executable))
-		} else if let Ok(executable) = PathExecutable::with_uri(uri) {
-			Ok(Self::Path(executable))
-		} else {
-			Err(tg::error!("invalid uri"))
-		}
-	}
-}
-
-impl ArtifactExecutable {
-	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		children.insert(self.artifact.clone().into());
-	}
-}
-
-impl ModuleExecutable {
-	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		if let tg::module::data::Item::Edge(edge) = &self.module.referent.item {
-			edge.children(children);
-		}
-	}
-}
-
-impl ArtifactExecutable {
-	#[must_use]
-	pub fn to_uri(&self) -> Uri {
-		let path = self.artifact.to_string();
+		let path = self
+			.artifact
+			.as_ref()
+			.map(ToString::to_string)
+			.or_else(|| {
+				self.path
+					.as_ref()
+					.map(|path| path.to_string_lossy().into_owned())
+			})
+			.unwrap_or_default();
 		let mut builder = Uri::builder().path(&path);
-		let mut query = Vec::new();
-		if let Some(path) = &self.path {
-			let path = path.to_string_lossy();
-			let path = tangram_uri::encode_query_value(&path);
-			let path = format!("path={path}");
-			query.push(path);
-		}
-		if !query.is_empty() {
-			let query = query.join("&");
-			builder = builder.query_raw(&query);
+		if self.artifact.is_some()
+			&& let Some(path) = &self.path
+		{
+			let path = tangram_uri::encode_query_value(&path.to_string_lossy());
+			builder = builder.query_raw(&format!("path={path}"));
 		}
 		builder.build().unwrap()
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let artifact = uri
-			.path()
-			.parse()
-			.map_err(|_| tg::error!("failed to parse the artifact"))?;
+		let artifact = uri.path().parse().ok();
+		if artifact.is_none() {
+			let path = Some(uri.path().into());
+			return Ok(Self { artifact, path });
+		}
 		let mut path = None;
 		if let Some(query) = uri.query_raw() {
 			for param in query.split('&') {
@@ -268,41 +203,6 @@ impl ArtifactExecutable {
 			}
 		}
 		Ok(Self { artifact, path })
-	}
-}
-
-impl ModuleExecutable {
-	#[must_use]
-	pub fn to_uri(&self) -> Uri {
-		let uri = self.module.to_uri();
-		let mut builder = Uri::builder();
-		builder = builder.path(uri.path());
-		if let Some(query) = uri.query_raw() {
-			builder = builder.query_raw(query);
-		}
-		if let Some(export) = &self.export {
-			builder = builder.fragment(export);
-		}
-		builder.build().unwrap()
-	}
-
-	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let module = tg::module::Data::with_uri(uri)?;
-		let export = uri.fragment().map(ToOwned::to_owned);
-		Ok(Self { module, export })
-	}
-}
-
-impl PathExecutable {
-	#[must_use]
-	pub fn to_uri(&self) -> Uri {
-		let path = self.path.to_string_lossy();
-		Uri::builder().path(&path).build().unwrap()
-	}
-
-	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let path = uri.path().into();
-		Ok(Self { path })
 	}
 }
 

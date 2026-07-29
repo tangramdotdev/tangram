@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a symlink. */
 export let symlink = (
@@ -11,9 +12,11 @@ export let symlink = (
 
 /** A symlink. */
 export class Symlink {
+	[Resolve.atomic]: null;
 	#state: tg.Object.State;
 
 	constructor(arg: tg.Symlink.ConstructorArg) {
+		this[Resolve.atomic] = null;
 		let object =
 			arg.object !== undefined
 				? { kind: "symlink" as const, value: arg.object }

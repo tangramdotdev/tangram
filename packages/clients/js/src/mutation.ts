@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { Resolve } from "./resolve.ts";
 
 /** Create a mutation. */
 export function mutation<T extends tg.Value = tg.Value>(
@@ -8,9 +9,11 @@ export function mutation<T extends tg.Value = tg.Value>(
 }
 
 export class Mutation<T extends tg.Value = tg.Value> {
+	[Resolve.atomic]: null;
 	#inner: tg.Mutation.Inner<T>;
 
 	constructor(inner: tg.Mutation.Inner<T>) {
+		this[Resolve.atomic] = null;
 		this.#inner = inner;
 	}
 
@@ -256,66 +259,74 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}
 	}
 
-	async apply(map: { [key: string]: tg.Value }, key: string): Promise<void> {
-		if (this.#inner.kind === "unset") {
+	async applyTo(map: { [key: string]: T }, key: string): Promise<void> {
+		let value = await this.apply(map[key]);
+		if (value === undefined) {
 			delete map[key];
+		} else {
+			map[key] = value;
+		}
+	}
+
+	async apply(value: T | undefined): Promise<T | undefined> {
+		let output: tg.Value | undefined = value;
+		if (this.#inner.kind === "unset") {
+			output = undefined;
 		} else if (this.#inner.kind === "set") {
-			map[key] = this.#inner.value;
+			output = this.#inner.value;
 		} else if (this.#inner.kind === "set_if_unset") {
-			if (map[key] === undefined) {
-				map[key] = this.#inner.value;
+			if (output === undefined) {
+				output = this.#inner.value;
 			}
 		} else if (this.#inner.kind === "prepend") {
-			if (map[key] === undefined || map[key] === null) {
-				map[key] = [];
+			if (output === undefined || output === null) {
+				output = [];
 			}
-			let array = map[key];
+			let array = output;
 			tg.assert(array instanceof Array);
-			map[key] = [...this.#inner.values, ...array];
+			output = [...this.#inner.values, ...array];
 		} else if (this.#inner.kind === "append") {
-			if (map[key] === undefined || map[key] === null) {
-				map[key] = [];
+			if (output === undefined || output === null) {
+				output = [];
 			}
-			let array = map[key];
+			let array = output;
 			tg.assert(array instanceof Array);
-			map[key] = [...array, ...this.#inner.values];
+			output = [...array, ...this.#inner.values];
 		} else if (this.#inner.kind === "prefix") {
-			if (map[key] === undefined) {
-				map[key] = await tg.template();
+			if (output === undefined) {
+				output = await tg.template();
 			}
-			let value = map[key];
 			tg.assert(
-				value === null ||
-					typeof value === "string" ||
-					tg.Artifact.is(value) ||
-					value instanceof tg.Template,
+				output === null ||
+					typeof output === "string" ||
+					tg.Artifact.is(output) ||
+					output instanceof tg.Template,
 			);
-			map[key] = await tg.Template.join(
+			output = await tg.Template.join(
 				this.#inner.separator ?? null,
 				this.#inner.template,
-				value,
+				output,
 			);
 		} else if (this.#inner.kind === "suffix") {
-			if (map[key] === undefined) {
-				map[key] = await tg.template();
+			if (output === undefined) {
+				output = await tg.template();
 			}
-			let value = map[key];
 			tg.assert(
-				value === null ||
-					typeof value === "string" ||
-					tg.Artifact.is(value) ||
-					value instanceof tg.Template,
+				output === null ||
+					typeof output === "string" ||
+					tg.Artifact.is(output) ||
+					output instanceof tg.Template,
 			);
-			map[key] = await tg.Template.join(
+			output = await tg.Template.join(
 				this.#inner.separator ?? null,
-				value,
+				output,
 				this.#inner.template,
 			);
 		} else if (this.#inner.kind === "merge") {
-			if (map[key] === undefined || map[key] === null) {
-				map[key] = {};
+			if (output === undefined || output === null) {
+				output = {};
 			}
-			let target = map[key];
+			let target = output;
 			tg.assert(tg.Value.isMap(target));
 			let inner = this.#inner.value;
 			for (let innerKey in inner) {
@@ -326,10 +337,12 @@ export class Mutation<T extends tg.Value = tg.Value> {
 				if (!(mutation instanceof tg.Mutation)) {
 					target[innerKey] = mutation;
 				} else {
-					await mutation.apply(target, innerKey);
+					await mutation.applyTo(target, innerKey);
 				}
 			}
 		}
+
+		return output as T | undefined;
 	}
 }
 

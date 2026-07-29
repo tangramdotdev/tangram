@@ -174,6 +174,7 @@ where
 			tg::Value::Object(v) => self.object(v),
 			tg::Value::Bytes(v) => self.bytes(v),
 			tg::Value::Mutation(v) => self.mutation(v),
+			tg::Value::Module(v) => self.module_value(v),
 			tg::Value::Template(v) => self.template(v),
 			tg::Value::Placeholder(v) => self.placeholder(v),
 		}
@@ -713,50 +714,57 @@ where
 		self.call_start("command")?;
 		self.start_map()?;
 		if !object.args.is_empty() {
-			self.map_entry("args", |s| s.array(&object.args))?;
+			self.map_entry("args", |s| {
+				s.start_array()?;
+				for arg in &object.args {
+					s.array_value(|s| s.command_arg(arg))?;
+				}
+				s.finish_array()
+			})?;
 		}
 		if let Some(cwd) = &object.cwd {
 			self.map_entry("cwd", |s| s.string(cwd.to_string_lossy().as_ref()))?;
 		}
 		if !object.env.is_empty() {
-			self.map_entry("env", |s| s.map(&object.env))?;
+			self.map_entry("env", |s| {
+				s.start_map()?;
+				for (key, value) in &object.env {
+					s.map_entry(key, |s| s.command_arg(value))?;
+				}
+				s.finish_map()
+			})?;
 		}
-		self.map_entry("executable", |s| match &object.executable {
-			tg::command::Executable::Artifact(executable) => {
-				s.command_executable_artifact(executable)
-			},
-			tg::command::Executable::Module(executable) => s.command_executable_module(executable),
-			tg::command::Executable::Path(executable) => {
-				s.string(executable.path.to_string_lossy().as_ref())
-			},
-		})?;
+		self.map_entry("executable", |s| s.command_executable(&object.executable))?;
 		self.map_entry("host", |s| s.string(&object.host))?;
 		self.finish_map()?;
 		self.call_finish()?;
 		Ok(())
 	}
 
-	pub fn command_executable_artifact(
-		&mut self,
-		value: &tg::command::ArtifactExecutable,
-	) -> Result {
+	pub fn command_arg(&mut self, arg: &tg::command::Value) -> Result {
 		self.start_map()?;
-		self.map_entry("artifact", |s| s.artifact(&value.artifact))?;
-		if let Some(path) = &value.path {
-			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+		match arg {
+			tg::command::Value::String(value) => {
+				self.map_entry("kind", |s| s.string("string"))?;
+				self.map_entry("value", |s| s.value(value))?;
+			},
+			tg::command::Value::Value(value) => {
+				self.map_entry("kind", |s| s.string("value"))?;
+				self.map_entry("value", |s| s.value(value))?;
+			},
 		}
-		self.finish_map()?;
-		Ok(())
+		self.finish_map()
 	}
 
-	pub fn command_executable_module(&mut self, value: &tg::command::ModuleExecutable) -> Result {
+	pub fn command_executable(&mut self, executable: &tg::command::Executable) -> Result {
 		self.start_map()?;
-		self.map_entry("module", |s| s.module(&value.module))?;
-		if let Some(export) = &value.export {
-			self.map_entry("export", |s| s.string(export))?;
+		if let Some(artifact) = &executable.artifact {
+			self.map_entry("artifact", |s| s.artifact(artifact))?;
 		}
-		self.finish_map()?;
-		Ok(())
+		if let Some(path) = &executable.path {
+			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+		}
+		self.finish_map()
 	}
 
 	pub fn module(&mut self, value: &tg::Module) -> Result {
@@ -776,6 +784,12 @@ where
 		})?;
 		self.finish_map()?;
 		Ok(())
+	}
+
+	pub fn module_value(&mut self, value: &tg::Module) -> Result {
+		self.call_start("module")?;
+		self.module(value)?;
+		self.call_finish()
 	}
 
 	pub fn referent_options(&mut self, options: &tg::referent::Options) -> Result {

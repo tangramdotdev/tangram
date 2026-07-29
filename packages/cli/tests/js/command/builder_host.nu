@@ -8,12 +8,12 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let command = await tg
-				.command({ host: "builtin", executable: "echo" })
-				.host("other");
+				.command({ host: tg.host.current, executable: "echo" })
+				.host("x86_64-linux");
 			return await command.host;
 		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '"other"'
+snapshot $output '"x86_64-linux"'
