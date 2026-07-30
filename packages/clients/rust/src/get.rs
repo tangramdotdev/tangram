@@ -21,9 +21,6 @@ pub struct Arg {
 	#[serde(flatten)]
 	pub options: tg::reference::Options,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub resolve: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
@@ -31,6 +28,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
 	pub referent: tg::Referent<tg::get::Item>,
 }
 

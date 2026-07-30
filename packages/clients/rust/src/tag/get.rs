@@ -1,20 +1,48 @@
 use {
 	crate::prelude::*,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(flatten)]
 	pub data: tg::tag::Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
 }
 
 impl tg::Session {
 	pub async fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		let uri = format!("/tags/{}", tag.to_string().replace('/', ":"));
+		let path = format!("/tags/{}", tag.to_string().replace('/', ":"));
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params_strict(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)

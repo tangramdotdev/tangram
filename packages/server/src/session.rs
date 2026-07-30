@@ -159,6 +159,10 @@ impl tg::Handle for Session {
 		self.list(arg).await
 	}
 
+	async fn match_(&self, arg: tg::match_::Arg) -> tg::Result<tg::match_::Output> {
+		self.match_(arg).await
+	}
+
 	async fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -201,6 +205,18 @@ impl tg::Handle for Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		self.try_get(reference, arg).await
+	}
+
+	async fn try_resolve(
+		&self,
+		reference: &tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
+		+ Send
+		+ 'static,
+	> {
+		self.try_resolve(reference, arg).await
 	}
 
 	async fn try_read_stream(

@@ -3,6 +3,8 @@ use ../../test.nu *
 # Checking in a package whose lockfile is missing a newly added import fails under --locked, even when combined with --unsolved-dependencies.
 
 let server = spawn
+tg group create a
+tg group create b
 
 # Tag the a dependency.
 let a_path = artifact {
@@ -60,4 +62,3 @@ failure $output
 # Ensure we cannot this artifact with --locked and --unsolved-dependencies
 let output = tg checkin $path --locked --unsolved-dependencies | complete
 failure $output
-

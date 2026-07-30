@@ -14,7 +14,7 @@ use {
 impl Session {
 	pub(crate) async fn get_tag_data_with_transaction(
 		transaction: &Transaction<'_>,
-		node: &crate::node::Node,
+		node: &crate::specifier::Item,
 	) -> tg::Result<tg::tag::Data> {
 		#[derive(db::row::Deserialize)]
 		struct Row {

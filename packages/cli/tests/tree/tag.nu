@@ -3,6 +3,9 @@ use ../../test.nu *
 # The tree command with the tag kind renders the expected hierarchy of tag components and the objects to which the leaf tags resolve.
 
 let server = spawn
+tg group create tree
+tg group create tree/of
+tg group create tree/of/tags
 
 # Create and tag dependencies.
 let foo_path = artifact {

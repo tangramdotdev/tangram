@@ -6,6 +6,7 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+tg --url $local.url group create test-pkg
 
 let path = artifact {
 	tangram.ts: '
@@ -26,7 +27,7 @@ let output = tg publish $path | complete
 failure $output
 snapshot --normalize --redact [$path $remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
-	-> failed to push items
+	-> failed to push tag ancestors
 	-> failed to create the pull stream
 	-> failed to sync
 	   remote = default

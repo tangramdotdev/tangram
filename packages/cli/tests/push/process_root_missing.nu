@@ -88,7 +88,7 @@ def test [...args] {
 	tg --url $local.url remote put default $remote.url
 
 	# Push the process.
-	tg --url $local.url push $process_id --command --log ...$args
+	tg --url $local.url push $process_id --process-commands --process-logs ...$args
 
 	# Confirm the process is on the remote and the same.
 	let source_process = tg --url $source.url get $process_id --pretty

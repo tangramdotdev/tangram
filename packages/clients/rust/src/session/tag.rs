@@ -15,8 +15,9 @@ impl tg::handle::Tag for tg::Session {
 	fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(tag)
+		self.try_get_tag(tag, arg)
 	}
 
 	fn delete_tags(

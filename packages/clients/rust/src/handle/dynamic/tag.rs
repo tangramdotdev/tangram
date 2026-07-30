@@ -12,8 +12,9 @@ impl tg::handle::Tag for Handle {
 	fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag, arg)) }
 	}
 
 	fn delete_tags(

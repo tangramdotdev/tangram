@@ -3,6 +3,9 @@ use ../../test.nu *
 # Checking in a package with conflicting tag version constraints that have no solution fails with the expected output.
 
 let server = spawn
+tg group create a
+tg group create b
+tg group create c
 
 # Tag the dependencies.
 let c1_path = artifact {

@@ -333,6 +333,11 @@ impl Session {
 		for index in indices.iter().copied() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => {},
 				Node::Object(node) => {
 					let Some(children) = &node.children else {
 						continue;
@@ -945,6 +950,11 @@ impl Session {
 			for index in indices.iter().rev().copied() {
 				let (id, node) = graph.nodes.get_index(index).unwrap();
 				match node {
+					Node::Group(_)
+					| Node::Organization(_)
+					| Node::Sandbox(_)
+					| Node::Tag(_)
+					| Node::User(_) => {},
 					Node::Object(node) => {
 						let visible = node
 							.local_visible
@@ -966,7 +976,7 @@ impl Session {
 									tg::grant::permission::object::Set::from_permission(permission),
 								),
 								principal: grant_principal.clone(),
-								resource: id.clone().unwrap_object().into(),
+								resource: tg::object::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 							});
 						}
@@ -995,7 +1005,7 @@ impl Session {
 								expires_at: Some(process_expires_at),
 								permissions: tg::grant::permission::Set::Process(permissions),
 								principal: grant_principal.clone(),
-								resource: id.clone().unwrap_process().into(),
+								resource: tg::process::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 							});
 						}
@@ -1029,8 +1039,17 @@ impl Session {
 			}
 			let (id, node) = graph.nodes.get_index(index).unwrap();
 			match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => {
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().copied());
+					}
+				},
 				Node::Object(node) => {
-					let id = id.unwrap_object_ref().clone();
+					let id = tg::object::Id::try_from(id.clone())?;
 					if node.marked {
 						let children = node
 							.children
@@ -1038,15 +1057,9 @@ impl Session {
 							.unwrap()
 							.iter()
 							.map(|index| {
-								graph
-									.nodes
-									.get_index(*index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_object()
+								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
 							})
-							.collect();
+							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
 						let metadata = node.metadata.clone().unwrap();
 						let stored = node.local_stored.clone().unwrap();
 						let arg = tangram_index::object::put::Arg {
@@ -1065,7 +1078,7 @@ impl Session {
 					}
 				},
 				Node::Process(node) => {
-					let id = id.unwrap_process_ref().clone();
+					let id = tg::process::Id::try_from(id.clone())?;
 					if node.marked {
 						let children = node
 							.children
@@ -1073,15 +1086,9 @@ impl Session {
 							.unwrap()
 							.iter()
 							.map(|index| {
-								graph
-									.nodes
-									.get_index(*index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_process()
+								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
 							})
-							.collect();
+							.collect::<tg::Result<Vec<_>>>()?;
 						let stored = node.local_stored.clone().unwrap();
 						let metadata = node.metadata.clone().unwrap();
 						let objects = node
@@ -1091,16 +1098,11 @@ impl Session {
 							.iter()
 							.copied()
 							.map(|(index, kind)| {
-								let id = graph
-									.nodes
-									.get_index(index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_object();
-								(id, kind)
+								let id =
+									graph.nodes.get_index(index).unwrap().0.clone().try_into()?;
+								Ok((id, kind))
 							})
-							.collect::<Vec<_>>();
+							.collect::<tg::Result<Vec<_>>>()?;
 						let mut command = None;
 						let mut error = Vec::new();
 						let mut log = None;

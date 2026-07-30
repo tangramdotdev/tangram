@@ -16,7 +16,7 @@ tg tag put $pattern $id
 
 # List tags.
 let list_output = tg list --no-groups
-snapshot --name list $list_output
+snapshot --normalize --name list $list_output
 
 # Get tag.
 let tag = tg tag get $pattern | from json

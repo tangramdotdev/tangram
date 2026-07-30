@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [test-dep test-main test-transitive] {
+	tg --url $local.url group create $group
+}
 
 # Create a shared directory with all three packages as siblings.
 let shared_path = artifact {

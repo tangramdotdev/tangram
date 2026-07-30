@@ -9,6 +9,9 @@ let local = spawn --name local --config {
 
 let path = artifact 'Hello, World!'
 let id = tg --url $remote.url checkin $path
+tg --url $remote.url group create a
+tg --url $remote.url group create a/q
+tg --url $remote.url group create a/q/r
 tg --url $remote.url tag put "a/q/r/s" $id
 tg --url $remote.url tag put "a/q/t" $id
 

@@ -3,6 +3,8 @@ use ../../test.nu *
 # --watch with --update selectively updates dependencies.
 
 let server = spawn
+tg group create a
+tg group create b
 
 # Tag the a dependency versions.
 let a_path = artifact {

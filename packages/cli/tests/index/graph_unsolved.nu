@@ -4,6 +4,10 @@ use ../../test.nu *
 
 let local = spawn --name local
 let remote = spawn --cloud --name remote
+for group in [a b c] {
+	tg --url $local.url group create $group
+	tg --url $remote.url group create $group
+}
 
 # Create conflicting versions of a dependency.
 let c1 = artifact {

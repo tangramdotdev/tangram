@@ -19,7 +19,7 @@ let process = tg --url $remote.url build --detach $path | str trim
 tg --url $remote.url wait $process
 let child = tg --url $remote.url get $process | from json | get children | first | get process
 
-tg pull --recursive $process
+tg pull --process-children $process
 
 let local_child = tg process get --local $child | complete
 success $local_child "the child process should be present locally after a recursive pull"

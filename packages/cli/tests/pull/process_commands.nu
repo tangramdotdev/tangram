@@ -13,7 +13,7 @@ let process = tg --url $remote.url build --detach $path | str trim
 tg --url $remote.url wait $process
 let command = tg --url $remote.url get $process | from json | get command
 
-tg pull --commands $process
+tg pull --process-commands $process
 
 let local_command = tg object get --local $command | complete
 success $local_command "the command should be present locally after a pull with commands"

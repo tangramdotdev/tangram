@@ -15,11 +15,7 @@ impl Cli {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		for reference in &args.references {
-			let arg = tg::get::Arg {
-				resolve: true,
-				..Default::default()
-			};
-			let referent = self.get_reference_with_arg(reference, arg).await?;
+			let referent = self.resolve_reference(reference).await?;
 			let edge = referent.into_graph_edge()?.item;
 
 			let blob = match &edge {

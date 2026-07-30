@@ -6,6 +6,10 @@ let remote = spawn --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+tg --url $remote.url group create checkin
+tg --url $remote.url group create checkin/a
+tg --url $remote.url group create update
+tg --url $remote.url group create update/a
 
 # Tag the old version of checkin/a on the remote.
 let checkin_old_path = artifact {

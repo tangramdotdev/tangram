@@ -3,6 +3,8 @@ use ../../test.nu *
 # The tree command with the package kind renders an unresolved transitive dependency as null while still resolving the solved siblings deeper in the dependency tree.
 
 let server = spawn
+tg group create leaf
+tg group create middle
 
 let leaf_path = artifact {
 	tangram.ts: '// leaf package'

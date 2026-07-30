@@ -1,11 +1,5 @@
 use {
-	crate::{
-		Session,
-		sync::{
-			put::State,
-			queue::{ObjectItem, ProcessItem},
-		},
-	},
+	crate::{Session, sync::put::State},
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 };
@@ -16,37 +10,17 @@ impl Session {
 		&self,
 		state: &State,
 		mut stream: BoxStream<'static, tg::sync::GetMessage>,
-	) {
+	) -> tg::Result<()> {
 		while let Some(message) = stream.next().await {
 			match message {
-				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(message)) => {
-					tracing::trace!(id = %message.id, "received get object");
-					let item = ObjectItem {
-						eager: message.eager,
-						id: message.id,
-						kind: None,
-						parent: None,
-						token: message.token,
-					};
-					state.queue.enqueue_object(item);
-				},
-
-				tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(message)) => {
-					tracing::trace!(id = %message.id, "received get process");
-					let item = ProcessItem {
-						eager: message.eager,
-						id: message.id,
-						parent: None,
-						token: message.token,
-					};
-					state.queue.enqueue_process(item);
+				tg::sync::GetMessage::Item(message) => {
+					tracing::trace!(id = %message.id, "received get item");
+					state
+						.queue
+						.enqueue(message.eager, message.id, message.token)?;
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(message)) => {
-					if state.arg.force {
-						tracing::trace!(id = %message.id, "ignoring stored object");
-						continue;
-					}
 					tracing::trace!(id = %message.id, "received stored object");
 					state.graph.lock().unwrap().update_object_remote(
 						&message.id,
@@ -60,10 +34,6 @@ impl Session {
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
-					if state.arg.force {
-						tracing::trace!(id = %message.id, "ignoring stored process");
-						continue;
-					}
 					tracing::trace!(id = %message.id, "received stored process");
 					let id = message.id;
 					let stored = tangram_index::process::Stored {
@@ -95,9 +65,11 @@ impl Session {
 					if state.graph.lock().unwrap().end_remote(&state.arg) {
 						state.queue.close();
 					}
-					break;
+					return Ok(());
 				},
 			}
 		}
+
+		Err(tg::error!("failed to receive the get end message"))
 	}
 }

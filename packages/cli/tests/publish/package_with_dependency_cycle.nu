@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [test-a test-b] {
+	tg --url $local.url group create $group
+}
 
 # Create an import cycle but NOT a process cycle.
 let shared_path = artifact {

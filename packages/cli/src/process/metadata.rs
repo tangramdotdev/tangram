@@ -17,7 +17,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let process = self.get_resolved_process(&args.process).await?;
+		let process = self.resolve_process(&args.process).await?;
 		let id = process.item;
 		let arg = tg::process::metadata::Arg {
 			location: args.locations.get(),

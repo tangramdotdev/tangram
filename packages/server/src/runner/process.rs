@@ -787,7 +787,7 @@ impl Session {
 				})),
 				items: objects
 					.into_iter()
-					.map(|object| object.map(tg::Either::Left))
+					.map(|object| object.map(Into::into))
 					.collect(),
 				..Default::default()
 			};

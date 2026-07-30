@@ -3,6 +3,8 @@ use ../test.nu *
 # Outdated reports a dependency pinned below its latest compatible and latest available versions, in both text and JSON output, matching the snapshots.
 
 let server = spawn
+tg group create another
+tg group create hello
 
 # Write the artifact to a temp.
 let path = artifact 'Hello, World!'

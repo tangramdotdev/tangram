@@ -1,22 +1,13 @@
-create table nodes (
+create table specifiers (
 	id text primary key,
-	kind text not null check (kind in ('user', 'group', 'organization', 'tag')),
-	parent text,
-	name text not null,
-	specifier text not null unique,
-	foreign key (parent) references nodes (id)
+	specifier text not null
 );
 
-create unique index nodes_parent_name_index on nodes (coalesce(parent, ''), name);
-
-create index nodes_parent_index on nodes (parent);
-
-create index nodes_kind_index on nodes (kind);
+create unique index specifiers_specifier_index on specifiers (specifier);
 
 create table users (
 	id text primary key,
-	name text not null,
-	foreign key (id) references nodes (id)
+	name text not null
 );
 
 create table user_emails (
@@ -79,25 +70,21 @@ create table github_identities (
 create table groups (
 	id text primary key,
 	name text not null,
-	parent text,
-	foreign key (id) references nodes (id),
-	foreign key (parent) references nodes (id)
+	parent text
 );
 
 create index groups_parent_index on groups (parent);
 
 create table organizations (
 	id text primary key,
-	name text not null,
-	foreign key (id) references nodes (id)
+	name text not null
 );
 
 create table group_members (
 	"group" text not null,
 	member text not null,
 	primary key ("group", member),
-	foreign key ("group") references groups (id),
-	foreign key (member) references nodes (id)
+	foreign key ("group") references groups (id)
 );
 
 create index group_members_member_index on group_members (member);
@@ -106,8 +93,7 @@ create table organization_members (
 	organization text not null,
 	member text not null,
 	primary key (organization, member),
-	foreign key (organization) references organizations (id),
-	foreign key (member) references nodes (id)
+	foreign key (organization) references organizations (id)
 );
 
 create index organization_members_member_index on organization_members (member);
@@ -130,18 +116,19 @@ create table tags (
 	name text not null,
 	parent text,
 	item text not null,
-	permissions text not null,
-	foreign key (id) references nodes (id),
-	foreign key (parent) references nodes (id)
+	permissions text not null
 );
 
-create table list_cache (
-	arg text not null,
-	output text not null,
-	timestamp integer not null
-);
+create index tags_parent_index on tags (parent);
 
-create unique index list_cache_arg_index on list_cache (arg);
+create table remote_cache (
+	principal text not null,
+	remote text not null,
+	request text not null,
+	response text not null,
+	timestamp integer not null,
+	primary key (principal, remote, request)
+);
 
 create table remotes (
 	principal text,

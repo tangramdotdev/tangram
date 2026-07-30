@@ -3,6 +3,8 @@ use ../../test.nu *
 # --watch with --locked prevents updating a stale lock.
 
 let server = spawn
+tg group create a
+tg group create b
 
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'

@@ -1,13 +1,24 @@
 use {
 	crate::prelude::*,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
 }
 
 impl tg::Session {

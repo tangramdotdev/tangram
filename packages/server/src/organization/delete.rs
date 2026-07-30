@@ -78,12 +78,15 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
+		let output = client
 			.try_delete_organization(organization, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to delete the organization"),
-			)
+			)?;
+		self.delete_remote_cache(&remote.name).await?;
+
+		Ok(output)
 	}
 
 	async fn delete_organization_with_transaction(
@@ -93,14 +96,14 @@ impl Session {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<()>> {
 		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(transaction, organization).await?
+			Self::try_get_specifier_by_selector_with_transaction(transaction, organization).await?
 		else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Organization {
+		if node.kind() != tg::id::Kind::Organization {
 			return Ok(None);
 		}
-		if Self::node_has_children_with_transaction(transaction, &node.id).await? {
+		if Self::specifier_has_children_with_transaction(transaction, &node.id).await? {
 			return Err(tg::error!("cannot delete an organization with children"));
 		}
 		let p = transaction.p();
@@ -145,7 +148,7 @@ impl Session {
 		for statement in [
 			format!("delete from organization_members where organization = {p}1;"),
 			format!("delete from organizations where id = {p}1;"),
-			format!("delete from nodes where id = {p}1;"),
+			format!("delete from specifiers where id = {p}1;"),
 		] {
 			transaction
 				.execute(statement.into(), db::params![node.id.to_string()])

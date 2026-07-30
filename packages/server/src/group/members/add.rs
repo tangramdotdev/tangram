@@ -74,7 +74,10 @@ impl Session {
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client.add_group_member(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to add the group member"),
-		)
+		)?;
+		self.delete_remote_cache(&remote.name).await?;
+
+		Ok(())
 	}
 
 	pub(crate) async fn add_group_member_with_transaction(
@@ -84,14 +87,14 @@ impl Session {
 		member: &tg::group::Member,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
-		let group = Self::try_get_node_by_selector_with_transaction(transaction, group)
+		let group = Self::try_get_specifier_by_selector_with_transaction(transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if group.kind != tg::id::Kind::Group {
+		if group.kind() != tg::id::Kind::Group {
 			return Err(tg::error!("failed to find the group"));
 		}
 		let member_id: tg::Id = member.clone().into();
-		if Self::try_get_node_by_id_with_transaction(transaction, &member_id)
+		if Self::try_get_specifier_by_id_with_transaction(transaction, &member_id)
 			.await?
 			.is_none()
 		{

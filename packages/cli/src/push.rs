@@ -1,38 +1,50 @@
-use {crate::Cli, futures::future, itertools::Itertools as _, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
-/// Push processes and objects.
+/// Push items.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(alias = "command", long)]
-	pub commands: bool,
-
 	#[command(flatten)]
 	pub destination: crate::location::Args,
 
 	#[command(flatten)]
 	pub eager: Eager,
 
-	#[arg(alias = "error", long)]
-	pub errors: bool,
-
-	#[arg(long, short)]
-	pub force: bool,
-
-	#[arg(alias = "log", long)]
-	pub logs: bool,
+	#[arg(long)]
+	pub group_children: bool,
 
 	#[arg(long)]
 	pub metadata: bool,
 
-	#[command(flatten)]
-	pub outputs: Outputs,
+	#[arg(long)]
+	pub organization_children: bool,
 
 	#[arg(long)]
-	pub recursive: bool,
+	pub process_children: bool,
+
+	#[arg(alias = "process-command", long)]
+	pub process_commands: bool,
+
+	#[arg(alias = "process-error", long)]
+	pub process_errors: bool,
+
+	#[arg(alias = "process-log", long)]
+	pub process_logs: bool,
+
+	#[command(flatten)]
+	pub process_outputs: ProcessOutputs,
 
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
+
+	#[arg(long)]
+	pub sandbox_processes: bool,
+
+	#[command(flatten)]
+	pub tag_items: TagItems,
+
+	#[arg(long)]
+	pub user_children: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -65,33 +77,66 @@ impl Eager {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Outputs {
+pub struct ProcessOutputs {
 	#[arg(
-		alias = "output",
+		alias = "process-output",
 		default_missing_value = "true",
-		id = "push.outputs.outputs",
-		long = "outputs",
+		id = "push.process_outputs.process_outputs",
+		long = "process-outputs",
 		num_args = 0..=1,
-		overrides_with = "push.outputs.no_outputs",
+		overrides_with = "push.process_outputs.no_process_outputs",
 		require_equals = true,
 	)]
-	outputs: Option<bool>,
+	process_outputs: Option<bool>,
 
 	#[arg(
-		alias = "no-output",
+		alias = "no-process-output",
 		default_missing_value = "true",
-		id = "push.outputs.no_outputs",
-		long = "no-outputs",
+		id = "push.process_outputs.no_process_outputs",
+		long = "no-process-outputs",
 		num_args = 0..=1,
-		overrides_with = "push.outputs.outputs",
+		overrides_with = "push.process_outputs.process_outputs",
 		require_equals = true,
 	)]
-	no_outputs: Option<bool>,
+	no_process_outputs: Option<bool>,
 }
 
-impl Outputs {
+impl ProcessOutputs {
 	pub fn get(&self) -> bool {
-		self.outputs.or(self.no_outputs.map(|v| !v)).unwrap_or(true)
+		self.process_outputs
+			.or(self.no_process_outputs.map(|value| !value))
+			.unwrap_or(true)
+	}
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct TagItems {
+	#[arg(
+		default_missing_value = "true",
+		id = "push.tag_items.tag_items",
+		long = "tag-items",
+		num_args = 0..=1,
+		overrides_with = "push.tag_items.no_tag_items",
+		require_equals = true,
+	)]
+	tag_items: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "push.tag_items.no_tag_items",
+		long = "no-tag-items",
+		num_args = 0..=1,
+		overrides_with = "push.tag_items.tag_items",
+		require_equals = true,
+	)]
+	no_tag_items: Option<bool>,
+}
+
+impl TagItems {
+	pub fn get(&self) -> bool {
+		self.tag_items
+			.or(self.no_tag_items.map(|value| !value))
+			.unwrap_or(true)
 	}
 }
 
@@ -99,45 +144,40 @@ impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let destination = args.destination.to_location()?;
-		let location = destination.clone().or_else(|| {
-			Some(tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			}))
-		});
 
 		// Get the references.
-		let referents = self.get_references(&args.references).await?;
-		let items: Vec<_> = referents
-			.into_iter()
-			.map(|referent| {
-				let item = match referent.item {
-					tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
-						tg::Either::Right(id.try_into()?)
-					},
-					tg::get::Item::Id(id) => tg::Either::Left(id.try_into()?),
-					tg::get::Item::Pointer(_) => {
-						return Err(tg::error!("expected an object or process id"));
-					},
-				};
-				let item = tg::Referent::with_item_and_token(item, referent.options.token);
-				Ok::<_, tg::Error>(item)
-			})
-			.try_collect()?;
+		let mut items = Vec::with_capacity(args.references.len());
+		for reference in &args.references {
+			let referent = if reference.item().is_specifier() {
+				self.get_reference_with_arg(reference, tg::get::Arg::default())
+					.await?
+			} else {
+				self.resolve_reference(reference).await?
+			};
+			let tg::get::Item::Id(id) = referent.item else {
+				return Err(tg::error!("expected an item id"));
+			};
+			let item = tg::Referent::with_item_and_token(id, referent.options.token);
+			items.push(item);
+		}
 
 		// Push the items.
 		let arg = tg::push::Arg {
-			commands: args.commands,
 			destination: destination.clone(),
 			eager: args.eager.get(),
-			errors: args.errors,
-			force: args.force,
-			items: items.clone(),
-			logs: args.logs,
+			group_children: args.group_children,
+			items,
 			metadata: args.metadata,
-			outputs: args.outputs.get(),
-			recursive: args.recursive,
+			organization_children: args.organization_children,
+			process_children: args.process_children,
+			process_commands: args.process_commands,
+			process_errors: args.process_errors,
+			process_logs: args.process_logs,
+			process_outputs: args.process_outputs.get(),
+			sandbox_processes: args.sandbox_processes,
 			source: None,
+			tag_items: args.tag_items.get(),
+			user_children: args.user_children,
 		};
 		let stream = client
 			.push(arg)
@@ -145,58 +185,33 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, "failed to push"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		let processes = output.skipped.processes;
+		let groups = output.skipped.groups;
 		let objects = output.skipped.objects;
+		let organizations = output.skipped.organizations;
+		let processes = output.skipped.processes;
+		let sandboxes = output.skipped.sandboxes;
+		let tags = output.skipped.tags;
+		let users = output.skipped.users;
 		let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!("skipped {processes} processes, {objects} objects, {bytes:#.1}");
+		let message = format!(
+			"skipped {users} users, {organizations} organizations, {groups} groups, {tags} tags, {sandboxes} sandboxes, {processes} processes, {objects} objects, {bytes:#.1}"
+		);
 		self.print_info_message(&message);
-		let processes = output.transferred.processes;
+		let groups = output.transferred.groups;
 		let objects = output.transferred.objects;
+		let organizations = output.transferred.organizations;
+		let processes = output.transferred.processes;
+		let sandboxes = output.transferred.sandboxes;
+		let tags = output.transferred.tags;
+		let users = output.transferred.users;
 		let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!("transferred {processes} processes, {objects} objects, {bytes:#.1}");
+		let message = format!(
+			"transferred {users} users, {organizations} organizations, {groups} groups, {tags} tags, {sandboxes} sandboxes, {processes} processes, {objects} objects, {bytes:#.1}"
+		);
 		self.print_info_message(&message);
-
-		// Put tags.
-		future::try_join_all(std::iter::zip(&args.references, &items).map(
-			async |(reference, item)| {
-				if let Ok(specifier) = reference.item().try_unwrap_specifier_ref() {
-					let arg = tg::tag::put::Arg {
-						force: args.force,
-						item: tag_item_from_item(item),
-						location: location.clone().map(Into::into),
-						public: false,
-						specifier: specifier.clone().try_into()?,
-					};
-					client.put_tag(arg).await.map_err(
-						|error| tg::error!(!error, tag = %specifier, "failed to put the tag"),
-					)?;
-				}
-				Ok::<_, tg::Error>(())
-			},
-		))
-		.await?;
-		for (reference, item) in std::iter::zip(&args.references, &items) {
-			if reference.item().is_specifier() {
-				let item = item_id(item);
-				let message = format!("tagged {} {item}", reference.without_token());
-				self.print_info_message(&message);
-			}
-		}
 
 		Ok(())
 	}
-}
-
-fn item_id(
-	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	&item.item
-}
-
-fn tag_item_from_item(
-	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-) -> tg::tag::data::Item {
-	item_id(item).clone().into()
 }

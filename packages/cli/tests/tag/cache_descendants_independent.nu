@@ -12,10 +12,15 @@ let id = tg --url $remote.url checkin $path
 let old = tg --url $remote.url get $id | str trim
 
 # Cache one deep descendant.
+tg --url $remote.url group create a
+tg --url $remote.url group create a/c
+tg --url $remote.url group create a/c/e
+tg --url $remote.url group create a/c/e/f
 tg --url $remote.url tag put "a/c/e/f/g" $id
 tg --url $local.url resolve "a/c/e/f/g" | ignore
 
 # Add a sibling branch on the remote and fetch it.
+tg --url $remote.url group create a/c/e/i
 tg --url $remote.url tag put "a/c/e/i/j" $id
-let e = tg --url $local.url resolve "a/c/e/i/j" | str trim
+let e = tg --url $local.url resolve --ttl 0 "a/c/e/i/j" | str trim
 assert equal $e $old "the new descendant should resolve through the local server"

@@ -55,10 +55,10 @@ impl Session {
 			let session = self.clone();
 			|_| {
 				async move {
-					let result = AssertUnwindSafe(session.sync_task(arg, stream, sender.clone()))
+					let future = AssertUnwindSafe(session.sync_task(arg, stream, sender.clone()))
 						.catch_unwind()
-						.instrument(tracing::Span::current())
-						.await;
+						.instrument(tracing::Span::current());
+					let result = future.boxed().await;
 					match result {
 						Ok(Ok(())) => (),
 						Ok(Err(error)) => {
@@ -204,10 +204,10 @@ impl Session {
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
 			async move {
-				session
+				let future = session
 					.sync_get(arg, graph, stream, get_output_sender)
-					.instrument(tracing::debug_span!("get"))
-					.await
+					.instrument(tracing::debug_span!("get"));
+				future.boxed().await
 			}
 		};
 
@@ -226,7 +226,7 @@ impl Session {
 		};
 
 		// Await the futures.
-		future::try_join4(
+		let future = future::try_join4(
 			input_task
 				.wait()
 				.map_err(|error| tg::error!(!error, "the input task panicked"))
@@ -234,8 +234,8 @@ impl Session {
 			output_future,
 			get_future,
 			put_future,
-		)
-		.await?;
+		);
+		future.boxed().await?;
 
 		Ok(())
 	}

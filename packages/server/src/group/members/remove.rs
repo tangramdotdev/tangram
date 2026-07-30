@@ -83,12 +83,15 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
+		let output = client
 			.remove_group_member(group, member, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to remove the group member"),
-			)
+			)?;
+		self.delete_remote_cache(&remote.name).await?;
+
+		Ok(output)
 	}
 
 	async fn remove_group_member_with_transaction(
@@ -99,7 +102,7 @@ impl Session {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<()>> {
 		let Some(group) =
-			Self::try_get_node_by_selector_with_transaction(transaction, group).await?
+			Self::try_get_specifier_by_selector_with_transaction(transaction, group).await?
 		else {
 			return Ok(None);
 		};

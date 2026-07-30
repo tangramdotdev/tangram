@@ -6,6 +6,7 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+tg --url $remote.url group create test
 
 # Create and tag an object on the remote.
 let id = tg --url $remote.url put 'tg.file("test")' | str trim

@@ -1358,14 +1358,16 @@ impl Tree {
 		// List the direct child groups and tags.
 		let arg = tg::list::Arg {
 			cached: false,
+			groups: true,
 			length: None,
 			location: None,
-			groups: true,
-			pattern: tg::specifier::Pattern::any_in_parent(Some(group.clone())),
+			organizations: false,
+			parent: Some(tg::grant::Resource::Specifier(group.clone())),
 			recursive: false,
 			reverse: false,
 			tags: true,
 			ttl: None,
+			users: false,
 		};
 		let output = client
 			.list(arg)
@@ -1376,13 +1378,15 @@ impl Tree {
 		let mut children = output
 			.data
 			.into_iter()
-			.map(move |entry| match entry {
-				tg::list::Entry::Group { group, .. } => {
-					(None, tg::Referent::with_item(Item::Group(group)))
+			.filter_map(move |entry| match entry {
+				tg::list::Entry::Group { specifier, .. } => {
+					Some((None, tg::Referent::with_item(Item::Group(specifier))))
 				},
-				tg::list::Entry::Tag { item, tag, .. } => {
+				tg::list::Entry::Tag {
+					item, specifier, ..
+				} => {
 					let options = tg::referent::Options {
-						tag: Some(tag.clone()),
+						tag: Some(specifier.clone()),
 						..tg::referent::Options::default()
 					};
 					let item = match item {
@@ -1394,8 +1398,9 @@ impl Tree {
 							tg::process::Options::default(),
 						)),
 					};
-					(Some(tag.to_string()), tg::Referent { item, options })
+					Some((Some(specifier.to_string()), tg::Referent { item, options }))
 				},
+				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
 			})
 			.collect::<Vec<_>>();
 		children.sort_by(|(a, _), (b, _)| a.cmp(b));

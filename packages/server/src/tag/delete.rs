@@ -97,7 +97,7 @@ impl Session {
 				.await?;
 			for statement in [
 				format!("delete from tags where id = {p}1;"),
-				format!("delete from nodes where id = {p}1;"),
+				format!("delete from specifiers where id = {p}1;"),
 			] {
 				transaction
 					.execute(statement.into(), db::params![tag.id.to_string()])
@@ -117,34 +117,38 @@ impl Session {
 		if !recursive && !pattern.contains_operators() {
 			let specifier = pattern.clone().try_into()?;
 			let Some(node) =
-				Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+				Self::try_get_specifier_with_transaction(transaction, &specifier).await?
 			else {
 				return Ok(Vec::new());
 			};
-			if node.kind != tg::id::Kind::Tag {
+			if node.kind() != tg::id::Kind::Tag {
 				return Ok(Vec::new());
 			}
 			return Ok(vec![
 				Self::get_tag_data_with_transaction(transaction, &node).await?,
 			]);
 		}
-		let output = self
-			.list_local(tg::list::Arg {
-				groups: false,
-				pattern: pattern.clone(),
-				recursive,
-				tags: true,
-				..tg::list::Arg::default()
-			})
+		let entries = self
+			.list_local_entries()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
 		let mut tags = Vec::new();
-		for entry in output.data {
-			let tg::list::Entry::Tag { tag, .. } = entry else {
+		for entry in entries {
+			let tg::list::Entry::Tag { specifier, .. } = entry else {
 				continue;
 			};
+			let matches = if recursive {
+				specifier
+					.prefixes()
+					.any(|prefix| pattern.matches_specifier(&prefix))
+			} else {
+				pattern.matches_specifier(&specifier)
+			};
+			if !matches {
+				continue;
+			}
 			let Some(node) =
-				Self::try_get_node_by_specifier_with_transaction(transaction, &tag).await?
+				Self::try_get_specifier_with_transaction(transaction, &specifier).await?
 			else {
 				continue;
 			};
@@ -169,10 +173,12 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
-			.delete_tags(arg)
-			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to delete the tags"))
+		let output = client.delete_tags(arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to delete the tags"),
+		)?;
+		self.delete_remote_cache(&remote.name).await?;
+
+		Ok(output)
 	}
 
 	pub(crate) async fn delete_tags_request(

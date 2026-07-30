@@ -3,6 +3,8 @@ use ../../test.nu *
 # The tree command with the package kind renders the expected dependency tree for a chain of three tagged packages resolved through version constraints.
 
 let server = spawn
+tg group create leaf
+tg group create middle
 
 let leaf_path = artifact {
 	tangram.ts: '// leaf package'

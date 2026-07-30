@@ -1,11 +1,7 @@
 use {
-	super::{
-		graph::{Graph, Id as GraphId},
-		progress::Progress,
-		queue::Queue,
-	},
+	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
-	futures::{future, stream::BoxStream},
+	futures::stream::BoxStream,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -13,9 +9,11 @@ use {
 	tracing::Instrument as _,
 };
 
+mod database;
 mod index;
 mod input;
 mod queue;
+mod sandbox;
 mod store;
 
 struct State {
@@ -38,11 +36,20 @@ impl Session {
 		let progress = Progress::new();
 
 		// Create the queue.
+		let (queue_database_sender, queue_database_receiver) =
+			async_channel::unbounded::<super::queue::DatabaseItem>();
 		let (queue_object_sender, queue_object_receiver) =
 			async_channel::unbounded::<super::queue::ObjectItem>();
 		let (queue_process_sender, queue_process_receiver) =
 			async_channel::unbounded::<super::queue::ProcessItem>();
-		let queue = Queue::new(queue_object_sender, queue_process_sender);
+		let (queue_sandbox_sender, queue_sandbox_receiver) =
+			async_channel::unbounded::<super::queue::SandboxItem>();
+		let queue = Queue::new(
+			queue_database_sender,
+			queue_object_sender,
+			queue_process_sender,
+			queue_sandbox_sender,
+		);
 
 		// Create the state.
 		let state = Arc::new(State {
@@ -56,28 +63,9 @@ impl Session {
 		// Enqueue the items.
 		for item in &state.arg.get {
 			let token = item.options.token.clone();
-			let item = &item.item;
-			match item {
-				tg::Either::Left(object) => {
-					let item = super::queue::ObjectItem {
-						eager: state.arg.eager,
-						id: object.clone(),
-						kind: None,
-						parent: None,
-						token,
-					};
-					state.queue.enqueue_object(item);
-				},
-				tg::Either::Right(process) => {
-					let item = super::queue::ProcessItem {
-						eager: state.arg.eager,
-						id: process.clone(),
-						parent: None,
-						token,
-					};
-					state.queue.enqueue_process(item);
-				},
-			}
+			state
+				.queue
+				.enqueue(state.arg.eager, item.item.clone(), token)?;
 		}
 
 		// Close the queue if there are no items.
@@ -86,6 +74,8 @@ impl Session {
 		}
 
 		// Create the channels.
+		let (database_sender, database_receiver) =
+			tokio::sync::mpsc::channel::<self::database::Item>(256);
 		let (store_object_sender, store_object_receiver) =
 			tokio::sync::mpsc::channel::<self::store::ObjectItem>(256);
 		let (store_process_sender, store_process_receiver) =
@@ -94,29 +84,39 @@ impl Session {
 			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
 		let (index_process_sender, index_process_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ProcessItem>(256);
+		let (sandbox_sender, sandbox_receiver) =
+			tokio::sync::mpsc::channel::<self::sandbox::Item>(256);
 
 		// Create the input future.
 		let input_future = {
 			let session = self.clone();
-			let state = state.clone();
-			async move {
-				session
-					.sync_get_input(
-						&state,
-						stream,
-						index_object_sender,
-						index_process_sender,
-						store_object_sender,
-						store_process_sender,
-					)
-					.await
-			}
-			.instrument(tracing::Span::current())
+			let arg = self::input::SyncGetInputArg {
+				database_sender,
+				index_object_sender,
+				index_process_sender,
+				sandbox_sender,
+				state: state.clone(),
+				store_object_sender,
+				store_process_sender,
+				stream,
+			};
+			async move { session.sync_get_input(arg).await }.instrument(tracing::Span::current())
 		};
 
 		// Create the queue future.
 		let queue_future = self
-			.sync_get_queue(state.clone(), queue_object_receiver, queue_process_receiver)
+			.sync_get_queue(
+				state.clone(),
+				queue_database_receiver,
+				queue_object_receiver,
+				queue_process_receiver,
+				queue_sandbox_receiver,
+			)
+			.instrument(tracing::Span::current());
+
+		// Create the database future.
+		let database_future = self
+			.sync_get_database(state.clone(), database_receiver)
 			.instrument(tracing::Span::current());
 
 		// Create the index future.
@@ -135,6 +135,11 @@ impl Session {
 			}
 			.instrument(tracing::Span::current())
 		};
+
+		// Create the sandbox future.
+		let sandbox_future = self
+			.sync_get_sandbox(state.clone(), sandbox_receiver)
+			.instrument(tracing::Span::current());
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
@@ -167,7 +172,14 @@ impl Session {
 		});
 
 		// Await the futures.
-		future::try_join4(input_future, queue_future, index_future, store_future).await?;
+		futures::try_join!(
+			database_future,
+			index_future,
+			input_future,
+			queue_future,
+			sandbox_future,
+			store_future
+		)?;
 
 		// Index the objects and processes.
 		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
@@ -181,6 +193,35 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		Ok(())
+	}
+
+	fn sync_get_create_temporary_grant(
+		&self,
+		id: &tg::Id,
+	) -> tg::Result<Option<tangram_index::grant::put::Arg>> {
+		if matches!(self.context.principal, tg::Principal::Root) {
+			return Ok(None);
+		}
+		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let time_to_live = i64::try_from(self.server.config.sync.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let permission = Self::admin_permission_for_resource(id)?;
+		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let principal = self.context.principal.try_to_grant_principal()?;
+		let arg = tangram_index::grant::put::Arg {
+			created_at,
+			creator: Some(self.context.principal.clone()),
+			expires_at: Some(expires_at),
+			permissions,
+			principal,
+			resource: id.clone(),
+			time_to_touch: Some(self.server.config.sync.grant_time_to_touch),
+		};
+
+		Ok(Some(arg))
 	}
 
 	async fn sync_get_touch_authorized_objects(
@@ -224,7 +265,7 @@ impl Session {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let required = Self::sync_get_object_permissions();
-		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
+		self.sync_get_authorize(graph, ids.iter().cloned().map(tg::Id::from), required)
 			.await
 	}
 
@@ -280,7 +321,7 @@ impl Session {
 			return Ok(vec![None; ids.len()]);
 		};
 
-		self.sync_get_authorize(graph, ids.iter().cloned().map(GraphId::from), required)
+		self.sync_get_authorize(graph, ids.iter().cloned().map(tg::Id::from), required)
 			.await
 	}
 
@@ -292,31 +333,31 @@ impl Session {
 				tg::grant::Permission::Process(permission),
 			));
 		};
-		if arg.recursive {
+		if arg.process_children {
 			insert(tg::grant::permission::process::Permission::Subtree);
-			if arg.commands {
+			if arg.process_commands {
 				insert(tg::grant::permission::process::Permission::SubtreeCommand);
 			}
-			if arg.errors {
+			if arg.process_errors {
 				insert(tg::grant::permission::process::Permission::SubtreeError);
 			}
-			if arg.logs {
+			if arg.process_logs {
 				insert(tg::grant::permission::process::Permission::SubtreeLog);
 			}
-			if arg.outputs {
+			if arg.process_outputs {
 				insert(tg::grant::permission::process::Permission::SubtreeOutput);
 			}
 		} else {
-			if arg.commands {
+			if arg.process_commands {
 				insert(tg::grant::permission::process::Permission::NodeCommand);
 			}
-			if arg.errors {
+			if arg.process_errors {
 				insert(tg::grant::permission::process::Permission::NodeError);
 			}
-			if arg.logs {
+			if arg.process_logs {
 				insert(tg::grant::permission::process::Permission::NodeLog);
 			}
-			if arg.outputs {
+			if arg.process_outputs {
 				insert(tg::grant::permission::process::Permission::NodeOutput);
 			}
 		}
@@ -326,7 +367,7 @@ impl Session {
 	async fn sync_get_authorize(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
-		ids: impl IntoIterator<Item = GraphId>,
+		ids: impl IntoIterator<Item = tg::Id>,
 		required: tg::grant::permission::Set,
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let ids = ids.into_iter().collect::<Vec<_>>();
@@ -338,19 +379,17 @@ impl Session {
 		{
 			let mut graph = graph.lock().unwrap();
 			for (position, id) in ids.iter().enumerate() {
-				let authorization = match id {
-					GraphId::Object(id) => graph.get_object_local_authorization(id, required),
-					GraphId::Process(id) => graph.get_process_local_authorization(id, required),
+				let authorization = match id.kind() {
+					tg::id::Kind::Process => {
+						graph.get_process_local_authorization(&id.clone().try_into()?, required)
+					},
+					_ => graph.get_object_local_authorization(&id.clone().try_into()?, required),
 				};
 				if authorization.permissions.contains(required) {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let id = match id {
-					GraphId::Object(id) => tg::Id::from(id.clone()),
-					GraphId::Process(id) => tg::Id::from(id.clone()),
-				};
-				let resource = tg::Referent::with_item_and_token(id, authorization.token);
+				let resource = tg::Referent::with_item_and_token(id.clone(), authorization.token);
 				args.push((resource, required));
 				positions.push(position);
 			}
@@ -368,20 +407,24 @@ impl Session {
 		let mut graph = graph.lock().unwrap();
 		for (position, output) in std::iter::zip(positions, authorization_outputs) {
 			if let Some(permissions) = output {
-				match &ids[position] {
-					GraphId::Object(id) => {
-						graph.update_object_local_permissions(id, permissions);
-					},
-					GraphId::Process(id) => {
-						graph.update_process_local_permissions(id, permissions);
-					},
+				match ids[position].kind() {
+					tg::id::Kind::Process => graph.update_process_local_permissions(
+						&ids[position].clone().try_into()?,
+						permissions,
+					),
+					_ => graph.update_object_local_permissions(
+						&ids[position].clone().try_into()?,
+						permissions,
+					),
 				}
 			}
 		}
 		for (position, id) in ids.iter().enumerate() {
-			let authorization = match id {
-				GraphId::Object(id) => graph.get_object_local_authorization(id, required),
-				GraphId::Process(id) => graph.get_process_local_authorization(id, required),
+			let authorization = match id.kind() {
+				tg::id::Kind::Process => {
+					graph.get_process_local_authorization(&id.clone().try_into()?, required)
+				},
+				_ => graph.get_object_local_authorization(&id.clone().try_into()?, required),
 			};
 			if authorization.permissions.contains(required) {
 				outputs[position] = Some(authorization.permissions);

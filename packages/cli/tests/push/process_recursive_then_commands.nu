@@ -34,7 +34,7 @@ def test [path: string, ...args] {
 	let children = $output.children
 
 	# Push the process without commands.
-	tg push "--recursive" ...$args $process_id
+	tg push "--process-children" ...$args $process_id
 
 	# Confirm the process is on the remote and the same.
 	let local_process = tg get $process_id --pretty
@@ -58,7 +58,7 @@ def test [path: string, ...args] {
 	}
 
 	# Push the process again now with commands.
-	tg push "--recursive" "--commands" ...$args $process_id
+	tg push "--process-children" "--process-commands" ...$args $process_id
 
 	# Index on the remote.
 	tg --url $remote.url index

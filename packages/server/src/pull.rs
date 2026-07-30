@@ -13,7 +13,10 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
-		if !arg.force
+		if arg
+			.items
+			.iter()
+			.all(|item| item.item.kind() == tg::id::Kind::Process || item.item.kind().is_object())
 			&& self
 				.pull_items_stored(&arg)
 				.await
@@ -45,18 +48,12 @@ impl Session {
 		let object_ids = arg
 			.items
 			.iter()
-			.filter_map(|item| match item_id(item) {
-				tg::Either::Left(object) => Some(object.clone()),
-				tg::Either::Right(_) => None,
-			})
+			.filter_map(|item| tg::object::Id::try_from(item.item.clone()).ok())
 			.collect::<Vec<_>>();
 		let process_ids = arg
 			.items
 			.iter()
-			.filter_map(|item| match item_id(item) {
-				tg::Either::Left(_) => None,
-				tg::Either::Right(process) => Some(process.clone()),
-			})
+			.filter_map(|item| tg::process::Id::try_from(item.item.clone()).ok())
 			.collect::<Vec<_>>();
 		let touch_objects_future = async {
 			self.server
@@ -90,17 +87,17 @@ impl Session {
 				return false;
 			};
 			let stored = process.stored;
-			if arg.recursive {
+			if arg.process_children {
 				stored.subtree
-					&& (!arg.commands || stored.subtree_command)
-					&& (!arg.errors || stored.subtree_error)
-					&& (!arg.logs || stored.subtree_log)
-					&& (!arg.outputs || stored.subtree_output)
+					&& (!arg.process_commands || stored.subtree_command)
+					&& (!arg.process_errors || stored.subtree_error)
+					&& (!arg.process_logs || stored.subtree_log)
+					&& (!arg.process_outputs || stored.subtree_output)
 			} else {
-				(!arg.commands || stored.node_command)
-					&& (!arg.errors || stored.node_error)
-					&& (!arg.logs || stored.node_log)
-					&& (!arg.outputs || stored.node_output)
+				(!arg.process_commands || stored.node_command)
+					&& (!arg.process_errors || stored.node_error)
+					&& (!arg.process_logs || stored.node_log)
+					&& (!arg.process_outputs || stored.node_output)
 			}
 		});
 		let stored = objects_stored && processes_stored;
@@ -156,10 +153,4 @@ impl Session {
 
 		Ok(response)
 	}
-}
-
-fn item_id(
-	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	&item.item
 }

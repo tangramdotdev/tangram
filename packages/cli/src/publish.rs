@@ -3,7 +3,11 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	petgraph::algo::tarjan_scc,
 	radix_trie::TrieCommon as _,
-	std::{collections::HashMap, path::Path, path::PathBuf},
+	std::{
+		collections::{BTreeMap, BTreeSet, HashMap},
+		path::Path,
+		path::PathBuf,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -13,9 +17,6 @@ use {
 pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
-
-	#[arg(long, short)]
-	pub force: bool,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
@@ -148,7 +149,6 @@ impl Cli {
 					items.push(item);
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
-						force: args.force,
 						item: id.into(),
 						location: None,
 						public: false,
@@ -168,7 +168,6 @@ impl Cli {
 						let checked_in = publish_checkin(&client, path, false).await?;
 						let id = checked_in.item;
 						let arg = tg::tag::put::Arg {
-							force: args.force,
 							item: id.into(),
 							location: None,
 							public: false,
@@ -187,7 +186,6 @@ impl Cli {
 						items.push(item);
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
-							force: true,
 							item: id.into(),
 							location: None,
 							public: false,
@@ -209,19 +207,19 @@ impl Cli {
 			})
 		});
 
+		// Push the tag ancestors.
+		self.push_tag_ancestors(&client, &location, &tags).await?;
+
 		// Push.
 		let arg = tg::push::Arg {
-			commands: false,
 			destination: Some(location.clone()),
 			eager: true,
-			errors: true,
-			force: false,
-			items: items.into_iter().map(push_item).collect(),
-			logs: false,
+			items: items.into_iter().map(|item| item.map(Into::into)).collect(),
 			metadata: false,
-			outputs: true,
-			recursive: false,
+			process_errors: true,
+			process_outputs: true,
 			source: None,
+			..Default::default()
 		};
 		let stream = client
 			.push(arg)
@@ -249,9 +247,8 @@ impl Cli {
 		let tags = tags
 			.into_iter()
 			.map(|(tag, item)| tg::tag::batch::Item {
-				specifier: tag,
 				item: item.into(),
-				force: args.force,
+				specifier: tag,
 			})
 			.collect::<Vec<_>>();
 		let arg = tg::tag::batch::Arg {
@@ -265,6 +262,68 @@ impl Cli {
 		for item in &tags {
 			let message = format!("tagged {} {:?}", item.specifier, item.item);
 			self.print_info_message(&message);
+		}
+
+		Ok(())
+	}
+
+	async fn push_tag_ancestors(
+		&mut self,
+		client: &tg::Client,
+		destination: &tg::Location,
+		tags: &[(tg::Specifier, tg::object::Id)],
+	) -> tg::Result<()> {
+		if destination.is_local() {
+			return Ok(());
+		}
+
+		// Collect the ancestors by depth so that parents are pushed before children.
+		let mut ancestors = BTreeMap::<usize, BTreeSet<tg::Specifier>>::new();
+		for (specifier, _) in tags {
+			for ancestor in specifier.ancestors() {
+				let depth = ancestor.components().count();
+				ancestors.entry(depth).or_default().insert(ancestor);
+			}
+		}
+
+		// Push each depth.
+		for ancestors in ancestors.into_values() {
+			let mut items = Vec::with_capacity(ancestors.len());
+			for ancestor in ancestors {
+				let options = tg::reference::Options {
+					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					..Default::default()
+				};
+				let reference = tg::Reference::with_item_and_options(
+					tg::reference::Item::Specifier(ancestor.clone().into()),
+					options,
+				);
+				let referent = self
+					.get_reference_with_arg(&reference, tg::get::Arg::default())
+					.await
+					.map_err(
+						|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"),
+					)?;
+				let tg::get::Item::Id(id) = referent.item else {
+					return Err(tg::error!(%ancestor, "expected a tag ancestor id"));
+				};
+				let item = tg::Referent::with_item_and_token(id, referent.options.token);
+				items.push(item);
+			}
+			let arg = tg::push::Arg {
+				destination: Some(destination.clone()),
+				items,
+				source: Some(tg::Location::Local(tg::location::Local::default())),
+				tag_items: false,
+				..Default::default()
+			};
+			let stream = client
+				.push(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
+			self.render_progress_stream(stream)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;
 		}
 
 		Ok(())
@@ -768,10 +827,4 @@ async fn publish_checkin(
 	let id = artifact.id().into();
 	let item = tg::Referent::with_item_and_token(id, artifact.state().token());
 	Ok(item)
-}
-
-fn push_item(
-	item: tg::Referent<tg::object::Id>,
-) -> tg::Referent<tg::Either<tg::object::Id, tg::process::Id>> {
-	item.map(tg::Either::Left)
 }

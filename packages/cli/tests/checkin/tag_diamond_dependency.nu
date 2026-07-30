@@ -3,6 +3,7 @@ use ../../test.nu *
 # Checking in a package with a diamond of tagged dependencies converging on a shared dependency resolves and writes the expected lockfile.
 
 let server = spawn
+tg group create d
 
 # Tag the dependencies.
 let d1_path = artifact {

@@ -57,7 +57,6 @@ impl Session {
 					let mut batch = tangram_index::batch::Arg::default();
 					for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 						let arg = tg::tag::put::Arg {
-							force: item.force,
 							item: item.item,
 							location: None,
 							public: false,
@@ -105,6 +104,8 @@ impl Session {
 			.post_tag_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tags"))?;
+		self.delete_remote_cache(&remote.name).await?;
+
 		Ok(())
 	}
 

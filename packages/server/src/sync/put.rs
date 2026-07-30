@@ -1,16 +1,18 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
-	futures::{future, stream::BoxStream},
+	futures::stream::BoxStream,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tracing::Instrument as _,
 };
 
+mod database;
 mod index;
 mod input;
 mod queue;
+mod sandbox;
 mod store;
 
 struct State {
@@ -33,11 +35,20 @@ impl Session {
 		let progress = Progress::new();
 
 		// Create the queue.
+		let (queue_database_sender, queue_database_receiver) =
+			async_channel::unbounded::<super::queue::DatabaseItem>();
 		let (queue_object_sender, queue_object_receiver) =
 			async_channel::unbounded::<super::queue::ObjectItem>();
 		let (queue_process_sender, queue_process_receiver) =
 			async_channel::unbounded::<super::queue::ProcessItem>();
-		let queue = Queue::new(queue_object_sender, queue_process_sender);
+		let (queue_sandbox_sender, queue_sandbox_receiver) =
+			async_channel::unbounded::<super::queue::SandboxItem>();
+		let queue = Queue::new(
+			queue_database_sender,
+			queue_object_sender,
+			queue_process_sender,
+			queue_sandbox_sender,
+		);
 
 		// Create the state.
 		let state = Arc::new(State {
@@ -51,31 +62,14 @@ impl Session {
 		// Enqueue the items.
 		for item in &state.arg.put {
 			let token = item.options.token.clone();
-			let item = &item.item;
-			match item {
-				tg::Either::Left(object) => {
-					let item = super::queue::ObjectItem {
-						eager: state.arg.eager,
-						id: object.clone(),
-						kind: None,
-						parent: None,
-						token,
-					};
-					state.queue.enqueue_object(item);
-				},
-				tg::Either::Right(process) => {
-					let item = super::queue::ProcessItem {
-						eager: state.arg.eager,
-						id: process.clone(),
-						parent: None,
-						token,
-					};
-					state.queue.enqueue_process(item);
-				},
-			}
+			state
+				.queue
+				.enqueue(state.arg.eager, item.item.clone(), token)?;
 		}
 
 		// Create the channels.
+		let (database_sender, database_receiver) =
+			tokio::sync::mpsc::channel::<self::database::Item>(256);
 		let (index_object_sender, index_object_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
 		let (index_process_sender, index_process_receiver) =
@@ -84,6 +78,8 @@ impl Session {
 			tokio::sync::mpsc::channel::<self::store::ObjectItem>(256);
 		let (store_process_sender, store_process_receiver) =
 			tokio::sync::mpsc::channel::<self::store::ProcessItem>(256);
+		let (sandbox_sender, sandbox_receiver) =
+			tokio::sync::mpsc::channel::<self::sandbox::Item>(256);
 
 		// Spawn the input task.
 		let input_task = Task::spawn({
@@ -97,16 +93,25 @@ impl Session {
 
 		// Create the queue future.
 		let queue_arg = self::queue::SyncPutQueueArg {
+			database_sender,
 			state: state.clone(),
+			queue_database_receiver,
 			queue_object_receiver,
 			queue_process_receiver,
+			queue_sandbox_receiver,
 			index_object_sender,
 			index_process_sender,
+			sandbox_sender,
 			store_object_sender,
 			store_process_sender,
 		};
 		let queue_future = self
 			.sync_put_queue(queue_arg)
+			.instrument(tracing::Span::current());
+
+		// Create the database future.
+		let database_future = self
+			.sync_put_database(state.clone(), database_receiver)
 			.instrument(tracing::Span::current());
 
 		// Create the index future.
@@ -117,6 +122,11 @@ impl Session {
 		// Create the store future.
 		let store_future = self
 			.sync_put_store(state.clone(), store_object_receiver, store_process_receiver)
+			.instrument(tracing::Span::current());
+
+		// Create the sandbox future.
+		let sandbox_future = self
+			.sync_put_sandbox(state.clone(), sandbox_receiver)
 			.instrument(tracing::Span::current());
 
 		// Spawn the progress task.
@@ -134,7 +144,13 @@ impl Session {
 		});
 
 		// Await the futures.
-		future::try_join3(queue_future, index_future, store_future).await?;
+		futures::try_join!(
+			database_future,
+			index_future,
+			queue_future,
+			sandbox_future,
+			store_future
+		)?;
 
 		// Send the put end message after all futures complete.
 		state

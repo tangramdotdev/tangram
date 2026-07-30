@@ -6,6 +6,7 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+tg --url $local.url group create test-pkg
 
 let path = artifact {
 	tangram.ts: '

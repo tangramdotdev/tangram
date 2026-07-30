@@ -42,10 +42,22 @@ impl Cli {
 			metadata: args.metadata,
 			print: args.print,
 			reference: args.reference,
-			resolve: true,
 			stored: args.stored,
 			ttl: args.ttl,
 		};
-		self.command_get(args).await
+		let mut options = args.reference.options().clone();
+		if let Some(location) = args.locations.get() {
+			options.location = Some(location);
+		}
+		let reference =
+			tg::Reference::with_item_and_options(args.reference.item().clone(), options);
+		let arg = tg::resolve::Arg {
+			cached: args.cached,
+			ttl: args.ttl.get(),
+			..Default::default()
+		};
+		let referent = self.resolve_reference_with_arg(&reference, arg).await?;
+
+		self.print_get_output(args, referent).await
 	}
 }

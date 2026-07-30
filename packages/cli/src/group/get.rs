@@ -4,6 +4,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
+
 	#[arg(index = 1)]
 	pub group: tg::group::Selector,
 
@@ -12,13 +16,18 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub ttl: crate::get::Ttl,
 }
 
 impl Cli {
 	pub async fn command_group_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::group::get::Arg {
+			cached: args.cached,
 			location: args.location.get(),
+			ttl: args.ttl.get(),
 		};
 		let group = client
 			.try_get_group(&args.group, arg)

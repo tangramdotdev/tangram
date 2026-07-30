@@ -11,6 +11,7 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 	fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
 
 	fn delete_tags(
@@ -31,8 +32,9 @@ impl tg::handle::Tag for tg::Client {
 	async fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.session(&self.context).try_get_tag(tag).await
+		self.session(&self.context).try_get_tag(tag, arg).await
 	}
 
 	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {

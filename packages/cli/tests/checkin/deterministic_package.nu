@@ -3,6 +3,7 @@ use ../../test.nu *
 # A deterministic checkin resolves tag dependencies strictly from the provided lockfile without consulting the tag store.
 
 let server = spawn
+tg group create a
 
 # Tag the a dependency.
 let a_path = artifact {

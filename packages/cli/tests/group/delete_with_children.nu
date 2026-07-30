@@ -6,6 +6,7 @@ let server = spawn --config { authentication: { users: { providers: { insecure: 
 
 let alice = tg login --verbose alice | from json
 
+tg --token $alice.token group create parent
 tg --token $alice.token group create parent/child
 
 let output = tg --token $alice.token group delete parent | complete

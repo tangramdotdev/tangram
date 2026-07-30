@@ -5,6 +5,6 @@ use ../../test.nu *
 let server = spawn
 
 let pattern = "test"
-let output = tg list --no-groups $pattern
+let output = tg match --no-groups $pattern
 
 snapshot --name output $output

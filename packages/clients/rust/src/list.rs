@@ -13,6 +13,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub groups: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -20,10 +23,10 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub groups: bool,
+	pub organizations: bool,
 
-	#[serde(default, skip_serializing_if = "tg::specifier::Pattern::is_empty")]
-	pub pattern: tg::specifier::Pattern,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::grant::Resource>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
@@ -37,6 +40,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub users: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -49,18 +55,52 @@ pub struct Output {
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Entry {
 	Group {
+		id: tg::group::Id,
+
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,
 
-		group: tg::Specifier,
+		name: String,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		parent: Option<tg::Id>,
+
+		specifier: tg::Specifier,
+	},
+	Organization {
+		id: tg::organization::Id,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		location: Option<tg::Location>,
+
+		name: String,
+
+		specifier: tg::Specifier,
 	},
 	Tag {
+		id: tg::tag::Id,
+
 		item: tg::Either<tg::object::Id, tg::process::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,
 
-		tag: tg::Specifier,
+		name: String,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		parent: Option<tg::Id>,
+
+		specifier: tg::Specifier,
+	},
+	User {
+		id: tg::user::Id,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		location: Option<tg::Location>,
+
+		name: String,
+
+		specifier: tg::Specifier,
 	},
 }
 
@@ -71,11 +111,53 @@ impl Default for Arg {
 			length: None,
 			location: None,
 			groups: true,
-			pattern: tg::specifier::Pattern::default(),
+			organizations: true,
+			parent: None,
 			recursive: false,
 			reverse: false,
 			tags: true,
 			ttl: None,
+			users: true,
+		}
+	}
+}
+
+impl Entry {
+	#[must_use]
+	pub fn id(&self) -> tg::Id {
+		match self {
+			Self::Group { id, .. } => id.clone().into(),
+			Self::Organization { id, .. } => id.clone().into(),
+			Self::Tag { id, .. } => id.clone().into(),
+			Self::User { id, .. } => id.clone().into(),
+		}
+	}
+
+	#[must_use]
+	pub fn location(&self) -> Option<&tg::Location> {
+		match self {
+			Self::Group { location, .. }
+			| Self::Organization { location, .. }
+			| Self::Tag { location, .. }
+			| Self::User { location, .. } => location.as_ref(),
+		}
+	}
+
+	#[must_use]
+	pub fn parent(&self) -> Option<&tg::Id> {
+		match self {
+			Self::Group { parent, .. } | Self::Tag { parent, .. } => parent.as_ref(),
+			Self::Organization { .. } | Self::User { .. } => None,
+		}
+	}
+
+	#[must_use]
+	pub fn specifier(&self) -> &tg::Specifier {
+		match self {
+			Self::Group { specifier, .. }
+			| Self::Organization { specifier, .. }
+			| Self::Tag { specifier, .. }
+			| Self::User { specifier, .. } => specifier,
 		}
 	}
 }

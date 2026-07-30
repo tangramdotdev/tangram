@@ -1,0 +1,246 @@
+use {
+	crate::{Session, sync::put::State},
+	indoc::formatdoc,
+	std::sync::Arc,
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_index::prelude::*,
+};
+
+pub struct Item {
+	pub eager: bool,
+	pub id: tg::Id,
+	pub token: Option<tg::grant::Token>,
+}
+
+struct Output {
+	children: Vec<tg::Id>,
+	message: tg::sync::PutItemMessage,
+}
+
+impl Session {
+	pub(super) async fn sync_put_database(
+		&self,
+		state: Arc<State>,
+		mut receiver: tokio::sync::mpsc::Receiver<Item>,
+	) -> tg::Result<()> {
+		while let Some(item) = receiver.recv().await {
+			self.sync_put_database_item(&state, item).await?;
+		}
+
+		Ok(())
+	}
+
+	async fn sync_put_database_item(&self, state: &State, item: Item) -> tg::Result<()> {
+		// Authorize the item.
+		let permission = Self::sync_put_database_read_permission(&item.id)?;
+		let resource = tg::grant::Resource::Id(item.id.clone());
+		let resource = tg::Referent::with_item_and_token(resource, item.token.clone());
+		let authorized = self
+			.authorize(resource, permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission));
+		let visible = if item.id.kind() == tg::id::Kind::Tag {
+			self.server
+				.index
+				.visible(std::slice::from_ref(&item.id), &self.context.principal)
+				.await?
+				.pop()
+				.unwrap()
+		} else {
+			false
+		};
+		if !authorized && !visible {
+			self.sync_put_database_missing(state, &item.id).await;
+			return Ok(());
+		}
+
+		// Read the item.
+		let output = self.sync_put_database_read(state, &item.id).await?;
+		let Some(output) = output else {
+			self.sync_put_database_missing(state, &item.id).await;
+			return Ok(());
+		};
+
+		// Send the item.
+		let message = tg::sync::PutMessage::Item(output.message);
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the item"))?;
+
+		// Update the graph and enqueue the children.
+		state
+			.graph
+			.lock()
+			.unwrap()
+			.update_item_remote_sent(&item.id, &output.children);
+		for child in output.children {
+			state.queue.enqueue(item.eager, child, None)?;
+		}
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
+			state.queue.close();
+		}
+
+		Ok(())
+	}
+
+	async fn sync_put_database_read(
+		&self,
+		state: &State,
+		id: &tg::Id,
+	) -> tg::Result<Option<Output>> {
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let Some(item) = Self::try_get_specifier_by_id_with_transaction(&transaction, id).await?
+		else {
+			return Ok(None);
+		};
+		if item.id != *id {
+			return Ok(None);
+		}
+		let children = self
+			.sync_put_database_read_children(state, &transaction, &item.id)
+			.await?;
+		let message = match item.id.kind() {
+			tg::id::Kind::Group => {
+				let id = item.id.try_into()?;
+				tg::sync::PutItemMessage::Group(tg::sync::PutItemGroupMessage {
+					id,
+					name: item.name,
+					parent: item.parent,
+					specifier: item.specifier,
+				})
+			},
+			tg::id::Kind::Organization => {
+				let id = item.id.try_into()?;
+				tg::sync::PutItemMessage::Organization(tg::sync::PutItemOrganizationMessage {
+					id,
+					name: item.name,
+					specifier: item.specifier,
+				})
+			},
+			tg::id::Kind::Tag => {
+				let data = Self::get_tag_data_with_transaction(&transaction, &item).await?;
+				let id = data.id;
+				let item = match data.item {
+					tg::tag::data::Item::Object(id) => id.into(),
+					tg::tag::data::Item::Process(id) => id.into(),
+				};
+				tg::sync::PutItemMessage::Tag(tg::sync::PutItemTagMessage {
+					id,
+					item,
+					name: data.name,
+					parent: data.parent,
+					permissions: data.permissions,
+					specifier: data.specifier,
+				})
+			},
+			tg::id::Kind::User => {
+				let id = item.id.try_into()?;
+				tg::sync::PutItemMessage::User(tg::sync::PutItemUserMessage {
+					id,
+					name: item.name,
+					specifier: item.specifier,
+				})
+			},
+			_ => return Err(tg::error!(%id, "invalid database item kind")),
+		};
+		let output = Output { children, message };
+
+		Ok(Some(output))
+	}
+
+	async fn sync_put_database_read_children(
+		&self,
+		state: &State,
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::Id,
+	) -> tg::Result<Vec<tg::Id>> {
+		let enabled = match id.kind() {
+			tg::id::Kind::Group => state.arg.group_children,
+			tg::id::Kind::Organization => state.arg.organization_children,
+			tg::id::Kind::Tag => state.arg.tag_items,
+			tg::id::Kind::User => state.arg.user_children,
+			_ => false,
+		};
+		if !enabled {
+			return Ok(Vec::new());
+		}
+		if id.kind() == tg::id::Kind::Tag {
+			let item = Self::get_tag_data_with_transaction(
+				transaction,
+				&Self::try_get_specifier_by_id_with_transaction(transaction, id)
+					.await?
+					.unwrap(),
+			)
+			.await?
+			.item;
+			let id = match item {
+				tg::tag::data::Item::Object(id) => id.into(),
+				tg::tag::data::Item::Process(id) => id.into(),
+			};
+
+			return Ok(vec![id]);
+		}
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+		}
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select id from groups where parent = {p}1
+				union all
+				select id from tags where parent = {p}1
+				order by id;
+			"
+		);
+		let rows = transaction
+			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let children = rows.into_iter().map(|row| row.id).collect();
+
+		Ok(children)
+	}
+
+	async fn sync_put_database_missing(&self, state: &State, id: &tg::Id) {
+		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage { id: id.clone() });
+		state.sender.send(Ok(message)).await.ok();
+		state.graph.lock().unwrap().update_item_remote_sent(id, &[]);
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
+			state.queue.close();
+		}
+	}
+
+	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::grant::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => {
+				tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read)
+			},
+			tg::id::Kind::Organization => tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => {
+				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
+			},
+			tg::id::Kind::User => {
+				tg::grant::Permission::User(tg::grant::permission::user::Permission::Read)
+			},
+			_ => return Err(tg::error!(%id, "invalid database item kind")),
+		};
+
+		Ok(permission)
+	}
+}

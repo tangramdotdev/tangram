@@ -641,7 +641,7 @@ impl Session {
 				let tg::list::Entry::Tag {
 					item,
 					location,
-					tag,
+					specifier: tag,
 					..
 				} = output
 				else {

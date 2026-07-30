@@ -3,7 +3,7 @@ use {
 		Session,
 		sync::{
 			put::State,
-			queue::{ObjectItem, ProcessItem},
+			queue::{DatabaseItem, ObjectItem, ProcessItem, SandboxItem},
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},
@@ -12,11 +12,15 @@ use {
 };
 
 pub(super) struct SyncPutQueueArg {
-	pub state: Arc<State>,
-	pub queue_object_receiver: async_channel::Receiver<ObjectItem>,
-	pub queue_process_receiver: async_channel::Receiver<ProcessItem>,
+	pub database_sender: tokio::sync::mpsc::Sender<super::database::Item>,
 	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
 	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
+	pub queue_database_receiver: async_channel::Receiver<DatabaseItem>,
+	pub queue_object_receiver: async_channel::Receiver<ObjectItem>,
+	pub queue_process_receiver: async_channel::Receiver<ProcessItem>,
+	pub queue_sandbox_receiver: async_channel::Receiver<SandboxItem>,
+	pub sandbox_sender: tokio::sync::mpsc::Sender<super::sandbox::Item>,
+	pub state: Arc<State>,
 	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
 	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 }
@@ -25,14 +29,46 @@ impl Session {
 	#[tracing::instrument(err, level = "trace", name = "queue", ret, skip_all)]
 	pub(super) async fn sync_put_queue(&self, arg: SyncPutQueueArg) -> tg::Result<()> {
 		let SyncPutQueueArg {
-			state,
-			queue_object_receiver,
-			queue_process_receiver,
+			database_sender,
 			index_object_sender,
 			index_process_sender,
+			queue_database_receiver,
+			queue_object_receiver,
+			queue_process_receiver,
+			queue_sandbox_receiver,
+			sandbox_sender,
+			state,
 			store_object_sender,
 			store_process_sender,
 		} = arg;
+
+		// Create the database future.
+		let database_future = queue_database_receiver.map(Ok).try_for_each(|item| {
+			let database_sender = database_sender.clone();
+			let state = state.clone();
+			async move {
+				if !state
+					.graph
+					.lock()
+					.unwrap()
+					.update_item_remote(&item.id, item.token.clone())
+				{
+					return Ok(());
+				}
+				let item = super::database::Item {
+					eager: item.eager,
+					id: item.id,
+					token: item.token,
+				};
+				database_sender
+					.send(item)
+					.await
+					.map_err(|_| tg::error!("failed to send the item to the database task"))?;
+
+				Ok(())
+			}
+		});
+
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.put.queue.object_batch_size;
 		let object_batch_timeout = self.server.config.sync.put.queue.object_batch_timeout;
@@ -87,8 +123,41 @@ impl Session {
 			}
 		});
 
-		// Join the objects and processes futures.
-		futures::try_join!(objects_future, processes_future)?;
+		// Create the sandboxes future.
+		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|item| {
+			let sandbox_sender = sandbox_sender.clone();
+			let state = state.clone();
+			async move {
+				let id = item.id.clone().into();
+				if !state
+					.graph
+					.lock()
+					.unwrap()
+					.update_item_remote(&id, item.token.clone())
+				{
+					return Ok(());
+				}
+				let item = super::sandbox::Item {
+					eager: item.eager,
+					id: item.id,
+					token: item.token,
+				};
+				sandbox_sender
+					.send(item)
+					.await
+					.map_err(|_| tg::error!("failed to send the sandbox to the sandbox task"))?;
+
+				Ok(())
+			}
+		});
+
+		// Join the futures.
+		futures::try_join!(
+			database_future,
+			objects_future,
+			processes_future,
+			sandboxes_future
+		)?;
 
 		Ok(())
 	}
@@ -103,10 +172,7 @@ impl Session {
 		// Update the graph.
 		let mut statuses = Vec::with_capacity(items.len());
 		for item in &items {
-			let parent = item.parent.clone().map(|either| match either {
-				tg::Either::Left(id) => crate::sync::graph::Id::Object(id),
-				tg::Either::Right(id) => crate::sync::graph::Id::Process(id),
-			});
+			let parent = item.parent.clone();
 			let (inserted, stored) = {
 				let mut graph = state.graph.lock().unwrap();
 				if let Some(token) = &item.token {
@@ -165,9 +231,9 @@ impl Session {
 				.unwrap()
 				.get_object_local_authorization(&item.id, node);
 			if !authorization.permissions.contains(node) {
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
-					tg::sync::PutMissingObjectMessage { id: item.id },
-				));
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+					id: item.id.into(),
+				});
 				state.sender.send(Ok(message)).await.ok();
 				continue;
 			}
@@ -208,7 +274,7 @@ impl Session {
 		// Update the graph.
 		let mut statuses = Vec::with_capacity(items.len());
 		for item in &items {
-			let parent = item.parent.clone().map(crate::sync::graph::Id::Process);
+			let parent = item.parent.clone().map(Into::into);
 			let (inserted, stored) = {
 				let mut graph = state.graph.lock().unwrap();
 				if let Some(token) = &item.token {
@@ -217,17 +283,17 @@ impl Session {
 				graph.update_process_remote(&item.id, parent, None)
 			};
 			let stored = stored.is_some_and(|stored| {
-				if state.arg.recursive {
+				if state.arg.process_children {
 					stored.subtree
-						&& (!state.arg.commands || stored.subtree_command)
-						&& (!state.arg.errors || stored.subtree_error)
-						&& (!state.arg.logs || stored.subtree_log)
-						&& (!state.arg.outputs || stored.subtree_output)
+						&& (!state.arg.process_commands || stored.subtree_command)
+						&& (!state.arg.process_errors || stored.subtree_error)
+						&& (!state.arg.process_logs || stored.subtree_log)
+						&& (!state.arg.process_outputs || stored.subtree_output)
 				} else {
-					(!state.arg.commands || stored.node_command)
-						&& (!state.arg.errors || stored.node_error)
-						&& (!state.arg.logs || stored.node_log)
-						&& (!state.arg.outputs || stored.node_output)
+					(!state.arg.process_commands || stored.node_command)
+						&& (!state.arg.process_errors || stored.node_error)
+						&& (!state.arg.process_logs || stored.node_log)
+						&& (!state.arg.process_outputs || stored.node_output)
 				}
 			});
 			statuses.push((inserted, stored));
@@ -280,9 +346,9 @@ impl Session {
 				.unwrap()
 				.get_process_local_authorization(&item.id, node);
 			if !authorization.permissions.contains(node) {
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
-					tg::sync::PutMissingProcessMessage { id: item.id },
-				));
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+					id: item.id.into(),
+				});
 				state.sender.send(Ok(message)).await.ok();
 				continue;
 			}
@@ -339,34 +405,34 @@ impl Session {
 				tg::grant::Permission::Process(permission),
 			));
 		};
-		if arg.recursive {
+		if arg.process_children {
 			insert(tg::grant::permission::process::Permission::Subtree);
 		}
 		for (enabled, node, subtree) in [
 			(
-				arg.commands,
+				arg.process_commands,
 				tg::grant::permission::process::Permission::NodeCommand,
 				tg::grant::permission::process::Permission::SubtreeCommand,
 			),
 			(
-				arg.errors,
+				arg.process_errors,
 				tg::grant::permission::process::Permission::NodeError,
 				tg::grant::permission::process::Permission::SubtreeError,
 			),
 			(
-				arg.logs,
+				arg.process_logs,
 				tg::grant::permission::process::Permission::NodeLog,
 				tg::grant::permission::process::Permission::SubtreeLog,
 			),
 			(
-				arg.outputs,
+				arg.process_outputs,
 				tg::grant::permission::process::Permission::NodeOutput,
 				tg::grant::permission::process::Permission::SubtreeOutput,
 			),
 		] {
 			if enabled {
 				insert(node);
-				if arg.recursive {
+				if arg.process_children {
 					insert(subtree);
 				}
 			}

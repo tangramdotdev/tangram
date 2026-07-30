@@ -1005,11 +1005,20 @@ pub struct IpRange {
 	pub min: Ipv4Addr,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sync {
 	#[serde(default)]
 	pub get: SyncGet,
+
+	#[serde(default = "default_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+
+	#[serde(default = "default_time_to_touch")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_touch: Duration,
 
 	#[serde(default = "default_sync_max_frame_size")]
 	pub max_frame_size: u64,
@@ -1685,6 +1694,8 @@ impl Default for Sync {
 	fn default() -> Self {
 		Self {
 			get: SyncGet::default(),
+			grant_time_to_live: default_time_to_live(),
+			grant_time_to_touch: default_time_to_touch(),
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),

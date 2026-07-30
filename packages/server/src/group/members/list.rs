@@ -44,10 +44,10 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let group = Self::try_get_node_by_selector_with_transaction(&transaction, group)
+		let group = Self::try_get_specifier_by_selector_with_transaction(&transaction, group)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if group.kind != tg::id::Kind::Group {
+		if group.kind() != tg::id::Kind::Group {
 			return Err(tg::error!("failed to find the group"));
 		}
 		#[derive(db::row::Deserialize)]

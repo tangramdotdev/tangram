@@ -9,6 +9,8 @@ use {
 	tangram_uri::Uri,
 };
 
+pub(crate) mod cache;
+
 pub mod delete;
 pub mod get;
 pub mod list;
@@ -90,24 +92,30 @@ impl Session {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::grant::Principal::Group(id) => {
 					let id = id.clone();
-					let node =
-						Self::try_get_node_by_id_with_transaction(&transaction, &id.clone().into())
-							.await?;
+					let node = Self::try_get_specifier_by_id_with_transaction(
+						&transaction,
+						&id.clone().into(),
+					)
+					.await?;
 					Ok(node.map(|_| Some(tg::grant::Principal::Group(id))))
 				},
 				tg::grant::Principal::Organization(id) => {
 					let id = id.clone();
-					let node =
-						Self::try_get_node_by_id_with_transaction(&transaction, &id.clone().into())
-							.await?;
+					let node = Self::try_get_specifier_by_id_with_transaction(
+						&transaction,
+						&id.clone().into(),
+					)
+					.await?;
 					Ok(node.map(|_| Some(tg::grant::Principal::Organization(id))))
 				},
 				tg::grant::Principal::Root => Ok(Some(None)),
 				tg::grant::Principal::User(id) => {
 					let id = id.clone();
-					let node =
-						Self::try_get_node_by_id_with_transaction(&transaction, &id.clone().into())
-							.await?;
+					let node = Self::try_get_specifier_by_id_with_transaction(
+						&transaction,
+						&id.clone().into(),
+					)
+					.await?;
 					Ok(node.map(|_| Some(tg::grant::Principal::User(id))))
 				},
 				tg::grant::Principal::Process(_)
@@ -117,12 +125,11 @@ impl Session {
 			},
 			tg::principal::Selector::Specifier(specifier) => {
 				let Some(node) =
-					Self::try_get_node_by_specifier_with_transaction(&transaction, specifier)
-						.await?
+					Self::try_get_specifier_with_transaction(&transaction, specifier).await?
 				else {
 					return Ok(None);
 				};
-				let principal = match node.kind {
+				let principal = match node.kind() {
 					tg::id::Kind::Group => Some(tg::grant::Principal::Group(node.id.try_into()?)),
 					tg::id::Kind::Organization => {
 						Some(tg::grant::Principal::Organization(node.id.try_into()?))

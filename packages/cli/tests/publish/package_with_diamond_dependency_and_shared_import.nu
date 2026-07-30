@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [test-bottom test-left test-main test-right] {
+	tg --url $local.url group create $group
+}
 
 # Create the bottom package (D) - no dependencies.
 let bottom_path = artifact {

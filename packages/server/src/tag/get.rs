@@ -12,10 +12,34 @@ impl Session {
 	pub(crate) async fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
+		let resource = tag.clone().into();
+		let Some(entry) = self
+			.try_get_named_entry(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let tg::list::Entry::Tag { id, location, .. } = entry else {
+			return Ok(None);
+		};
+		let tag = tg::tag::Selector::Id(id);
+		let location =
+			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		match location {
+			tg::Location::Local(_) => self.try_get_tag_local(&tag).await,
+			tg::Location::Remote(remote) => self.try_get_tag_remote(&tag, arg, remote).await,
+		}
+	}
+
+	async fn try_get_tag_local(
+		&self,
+		tag: &tg::tag::Selector,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let mut connection = self
 			.server
 			.database
@@ -26,11 +50,12 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) = Self::try_get_node_by_selector_with_transaction(&transaction, tag).await?
+		let Some(node) =
+			Self::try_get_specifier_by_selector_with_transaction(&transaction, tag).await?
 		else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Tag {
+		if node.kind() != tg::id::Kind::Tag {
 			return Ok(None);
 		}
 		let visible = self
@@ -54,7 +79,58 @@ impl Session {
 			return Ok(None);
 		}
 		let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
-		Ok(Some(tg::tag::get::Output { data }))
+		Ok(Some(tg::tag::get::Output {
+			data,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+		}))
+	}
+
+	async fn try_get_tag_remote(
+		&self,
+		tag: &tg::tag::Selector,
+		mut arg: tg::tag::get::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		let request = crate::remote::cache::request("tag.get", &(tag, &remote.region));
+		if let Some(mut output) = self
+			.try_get_cached_remote_response::<Option<tg::tag::get::Output>>(
+				&remote.name,
+				&request,
+				arg.ttl,
+			)
+			.await?
+		{
+			if let Some(tag) = &mut output {
+				tag.location = Some(tg::Location::Remote(remote));
+			}
+
+			return Ok(output);
+		}
+		if arg.cached {
+			return Ok(None);
+		}
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		arg.cached = false;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		arg.ttl = None;
+		let mut output = client
+			.try_get_tag(tag, arg)
+			.await
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the tag"))?;
+		self.put_cached_remote_response(&remote.name, &request, &output)
+			.await?;
+		if let Some(tag) = &mut output {
+			tag.location = Some(tg::Location::Remote(remote));
+		}
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_tag_request(
@@ -66,8 +142,13 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let tag = path.join("/").replace(':', "/").parse()?;
-		let Some(output) = self.try_get_tag(&tag).await? else {
+		let Some(output) = self.try_get_tag(&tag, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()
 				.empty()

@@ -174,23 +174,23 @@ impl Session {
 			}
 		}
 
-		// Delete the list cache.
+		// Delete the remote cache.
 		self.server
 			.database
 			.run(|transaction| {
-				async move { Self::delete_list_cache_with_transaction(transaction).await }.boxed()
+				async move { Self::delete_remote_cache_with_transaction(transaction).await }.boxed()
 			})
 			.await?;
 
 		Ok::<_, tg::Error>(output)
 	}
 
-	async fn delete_list_cache_with_transaction(
+	async fn delete_remote_cache_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
-		let statement = "delete from list_cache;";
+		let statement = "delete from remote_cache;";
 		let result = transaction.execute(statement.into(), db::params![]).await;
-		crate::database::retry!(result, "failed to delete the list cache");
+		crate::database::retry!(result, "failed to delete the remote cache");
 		Ok(ControlFlow::Break(()))
 	}
 }

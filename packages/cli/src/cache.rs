@@ -13,7 +13,7 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Resolve the references to artifact IDs.
-		let referents = self.get_references(&args.references).await?;
+		let referents = self.resolve_references(&args.references).await?;
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {

@@ -9,13 +9,16 @@ let path = artifact 'test'
 let id = tg checkin $path
 
 # Create a nested tag structure: test/a/b/c, test/a/b/d, test/a/e
+tg group create test
+tg group create test/a
+tg group create test/a/b
 let tags = ["test/a/b/c" "test/a/b/d" "test/a/e"]
 for tag in $tags {
 	tg tag put $tag $id
 }
 
 # Verify tags exist.
-let output = tg list --no-groups --recursive "test/*"
+let output = tg list --no-groups --recursive test
 assert (($output | from json | length) > 0) "the tags should exist"
 
 # Recursively delete from the root - should delete all children in correct order.
@@ -23,5 +26,5 @@ let output = tg tag delete --recursive "test/*" | from json | get deleted.specif
 snapshot --name deleted $output
 
 # Verify all tags are deleted.
-let output = tg list --no-groups --recursive "test/*"
+let output = tg list --no-groups --recursive test
 snapshot --name list $output

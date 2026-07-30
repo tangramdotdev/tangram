@@ -3,6 +3,10 @@ use ../test.nu *
 # Updating a package against an existing lockfile reports added, updated, and removed dependencies, including transitive changes, matching the snapshot.
 
 let server = spawn
+tg group create added
+tg group create dep
+tg group create removed
+tg group create transitive
 
 # Create the transitive dependency (version 1).
 let transitive_1_0_0 = artifact {

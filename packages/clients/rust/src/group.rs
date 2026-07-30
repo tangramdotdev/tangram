@@ -15,6 +15,9 @@ pub use self::{data::Data, id::Id, member::Member, selector::Selector};
 pub struct Group {
 	pub id: Id,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
 	pub name: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

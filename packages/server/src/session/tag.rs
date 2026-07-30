@@ -12,8 +12,9 @@ impl tg::handle::Tag for Session {
 	async fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.try_get_tag(tag).await
+		self.try_get_tag(tag, arg).await
 	}
 
 	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {

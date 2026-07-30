@@ -89,7 +89,10 @@ impl Session {
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to add the organization member"),
-			)
+			)?;
+		self.delete_remote_cache(&remote.name).await?;
+
+		Ok(())
 	}
 
 	async fn add_organization_member_with_transaction(
@@ -100,14 +103,14 @@ impl Session {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		let organization =
-			Self::try_get_node_by_selector_with_transaction(transaction, organization)
+			Self::try_get_specifier_by_selector_with_transaction(transaction, organization)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the organization"))?;
-		if organization.kind != tg::id::Kind::Organization {
+		if organization.kind() != tg::id::Kind::Organization {
 			return Err(tg::error!("failed to find the organization"));
 		}
 		let member_id: tg::Id = member.clone().into();
-		if Self::try_get_node_by_id_with_transaction(transaction, &member_id)
+		if Self::try_get_specifier_by_id_with_transaction(transaction, &member_id)
 			.await?
 			.is_none()
 		{

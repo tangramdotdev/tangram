@@ -9,38 +9,50 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub destination: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub errors: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub force: bool,
+	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub items: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
+	pub items: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
+	pub organization_children: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub recursive: bool,
+	pub process_children: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub destination: Option<tg::Location>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_errors: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_logs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub tag_items: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub user_children: bool,
 }
 
 pub type Output = tg::push::Output;
@@ -48,20 +60,24 @@ pub type Output = tg::push::Output;
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
-			commands: false,
-			eager: true,
-			errors: false,
-			force: false,
-			items: Vec::new(),
-			logs: false,
-			metadata: false,
-			outputs: true,
-			recursive: false,
 			destination: Some(tg::Location::Local(tg::location::Local::default())),
+			eager: true,
+			group_children: false,
+			items: Vec::new(),
+			metadata: false,
+			organization_children: false,
+			process_children: false,
+			process_commands: false,
+			process_errors: false,
+			process_logs: false,
+			process_outputs: true,
+			sandbox_processes: false,
 			source: Some(tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
 				region: None,
 			})),
+			tag_items: true,
+			user_children: false,
 		}
 	}
 }
@@ -69,17 +85,21 @@ impl Default for Arg {
 impl From<tg::pull::Arg> for tg::push::Arg {
 	fn from(value: tg::pull::Arg) -> Self {
 		Self {
-			commands: value.commands,
-			eager: value.eager,
-			errors: value.errors,
-			force: value.force,
-			items: value.items,
-			logs: value.logs,
-			metadata: value.metadata,
-			outputs: value.outputs,
-			recursive: value.recursive,
 			destination: value.destination,
+			eager: value.eager,
+			group_children: value.group_children,
+			items: value.items,
+			metadata: value.metadata,
+			organization_children: value.organization_children,
+			process_children: value.process_children,
+			process_commands: value.process_commands,
+			process_errors: value.process_errors,
+			process_logs: value.process_logs,
+			process_outputs: value.process_outputs,
+			sandbox_processes: value.sandbox_processes,
 			source: value.source,
+			tag_items: value.tag_items,
+			user_children: value.user_children,
 		}
 	}
 }

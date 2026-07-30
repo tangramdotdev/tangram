@@ -3,6 +3,7 @@ use ../../test.nu *
 # The update command bumps a tagged dependency in an existing lockfile to a newly tagged version.
 
 let server = spawn
+tg group create a
 
 # Tag the old version of a.
 let old_path = artifact {

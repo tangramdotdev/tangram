@@ -3,6 +3,7 @@ use ../../test.nu *
 # --update with --lock=file writes a sibling lockfile.
 
 let server = spawn
+tg group create a
 
 # Tag the a dependency versions.
 let a_path = artifact {

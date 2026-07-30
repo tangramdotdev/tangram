@@ -64,9 +64,13 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.create_organization(arg).await.map_err(
+		let mut output = client.create_organization(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the organization"),
-		)
+		)?;
+		self.delete_remote_cache(&remote.name).await?;
+		output.organization.location = Some(tg::Location::Remote(remote));
+
+		Ok(output)
 	}
 
 	async fn create_organization_with_transaction(
@@ -78,19 +82,18 @@ impl Session {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
 		}
-		if Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier)
+		if Self::try_get_specifier_with_transaction(transaction, &arg.specifier)
 			.await?
 			.is_some()
 		{
 			return Err(tg::error!("specifier is already in use"));
 		}
 		let id = tg::organization::Id::new();
-		let node = Self::create_node_with_transaction(
+		let item = Self::create_specifier_with_transaction(
 			transaction,
 			&id.clone().into(),
-			tg::id::Kind::Organization,
-			&arg.specifier,
 			None,
+			&arg.specifier,
 		)
 		.await?;
 		let p = transaction.p();
@@ -103,7 +106,7 @@ impl Session {
 		transaction
 			.execute(
 				statement.into(),
-				db::params![id.to_string(), node.name.clone()],
+				db::params![id.to_string(), item.name.clone()],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -112,7 +115,7 @@ impl Session {
 			.push(tangram_index::batch::Item::PutOrganization(
 				tangram_index::organization::put::Arg {
 					id: id.clone(),
-					specifier: node.specifier.clone(),
+					specifier: item.specifier.clone(),
 				},
 			));
 		if !matches!(
@@ -134,9 +137,10 @@ impl Session {
 				.await?;
 		}
 		Ok(tg::Organization {
-			id: node.id.try_into()?,
-			name: node.name,
-			specifier: node.specifier,
+			id: item.id.try_into()?,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			name: item.name,
+			specifier: item.specifier,
 		})
 	}
 

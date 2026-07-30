@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [test-main test-multi-file test-single-file] {
+	tg --url $local.url group create $group
+}
 
 # Create a single-file package.
 let single_file_content = '

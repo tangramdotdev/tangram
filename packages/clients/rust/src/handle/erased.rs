@@ -86,6 +86,8 @@ pub trait Handle:
 
 	fn list(&self, arg: tg::list::Arg) -> BoxFuture<'_, tg::Result<tg::list::Output>>;
 
+	fn match_(&self, arg: tg::match_::Arg) -> BoxFuture<'_, tg::Result<tg::match_::Output>>;
+
 	fn lsp<'a>(
 		&'a self,
 		input: BoxAsyncBufRead<'static>,
@@ -121,6 +123,17 @@ pub trait Handle:
 	) -> BoxFuture<
 		'a,
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>,
+	>;
+
+	fn try_resolve<'a>(
+		&'a self,
+		reference: &'a tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>,
+		>,
 	>;
 
 	fn try_read_stream(
@@ -205,6 +218,10 @@ where
 		self.list(arg).boxed()
 	}
 
+	fn match_(&self, arg: tg::match_::Arg) -> BoxFuture<'_, tg::Result<tg::match_::Output>> {
+		self.match_(arg).boxed()
+	}
+
 	fn lsp<'a>(
 		&'a self,
 		input: BoxAsyncBufRead<'static>,
@@ -252,6 +269,21 @@ where
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>,
 	> {
 		self.try_get(reference, arg)
+			.map_ok(futures::StreamExt::boxed)
+			.boxed()
+	}
+
+	fn try_resolve<'a>(
+		&'a self,
+		reference: &'a tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>,
+		>,
+	> {
+		self.try_resolve(reference, arg)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
 	}

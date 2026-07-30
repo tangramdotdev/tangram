@@ -853,9 +853,12 @@ impl Session {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::grant::Principal::Group(id) => {
 					let id = id.clone();
-					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
-						.await?
-						.is_none()
+					if Self::try_get_specifier_by_id_with_transaction(
+						transaction,
+						&id.clone().into(),
+					)
+					.await?
+					.is_none()
 					{
 						return Ok(None);
 					}
@@ -863,9 +866,12 @@ impl Session {
 				},
 				tg::grant::Principal::Organization(id) => {
 					let id = id.clone();
-					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
-						.await?
-						.is_none()
+					if Self::try_get_specifier_by_id_with_transaction(
+						transaction,
+						&id.clone().into(),
+					)
+					.await?
+					.is_none()
 					{
 						return Ok(None);
 					}
@@ -878,9 +884,12 @@ impl Session {
 				tg::grant::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
 				tg::grant::Principal::User(id) => {
 					let id = id.clone();
-					if Self::try_get_node_by_id_with_transaction(transaction, &id.clone().into())
-						.await?
-						.is_none()
+					if Self::try_get_specifier_by_id_with_transaction(
+						transaction,
+						&id.clone().into(),
+					)
+					.await?
+					.is_none()
 					{
 						return Ok(None);
 					}
@@ -889,12 +898,11 @@ impl Session {
 			},
 			tg::principal::Selector::Specifier(specifier) => {
 				let Some(node) =
-					Self::try_get_node_by_specifier_with_transaction(transaction, specifier)
-						.await?
+					Self::try_get_specifier_with_transaction(transaction, specifier).await?
 				else {
 					return Ok(None);
 				};
-				match node.kind {
+				match node.kind() {
 					tg::id::Kind::Group => tg::grant::Principal::Group(node.id.try_into()?),
 					tg::id::Kind::Organization => {
 						tg::grant::Principal::Organization(node.id.try_into()?)

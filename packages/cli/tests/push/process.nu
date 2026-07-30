@@ -39,27 +39,27 @@ export def test [path: string, ...args] {
 	}
 
 	# Confirm commands are present if --commmands.
-	if "--commands" in $args {
+	if "--process-commands" in $args {
 		tg --url $remote.url get $output.command --pretty
 	}
 
-	# Confirm children are present if --recursive.
-	if "--recursive" in $args {
+	# Confirm children are present if --process-children.
+	if "--process-children" in $args {
 		for child in $children {
 			tg --url $remote.url get $child.process
 		}
 	}
 
-	# Confirm children commands are present if --recursive and --commands.
-	if "--commands" in $args and "--recursive" in $args {
+	# Confirm children commands are present if --process-children and --process-commands.
+	if "--process-commands" in $args and "--process-children" in $args {
 		for child in $children {
 			let output = tg --url $remote.url get $child.process | from json
 			tg --url $remote.url get $output.command --pretty
 		}
 	}
 
-	# Confirm children output is present if --recursive.
-	if "--recursive" in $args {
+	# Confirm children output is present if --process-children.
+	if "--process-children" in $args {
 		for child in $children {
 			let output = tg get $child.process | from json
 			if (($output.output | describe) | str starts-with 'record') {

@@ -10,35 +10,14 @@ use {
 #[derive(Default)]
 pub struct Graph {
 	pub get_end_received: bool,
-	pub local_roots: HashSet<Id, fnv::FnvBuildHasher>,
-	pub nodes: IndexMap<Id, Node, fnv::FnvBuildHasher>,
-	pub remote_roots: HashSet<Id, fnv::FnvBuildHasher>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	derive_more::Display,
-	derive_more::From,
-	derive_more::IsVariant,
-	derive_more::TryInto,
-	derive_more::TryUnwrap,
-	derive_more::Unwrap,
-)]
-#[try_unwrap(ref)]
-#[unwrap(ref)]
-pub enum Id {
-	Object(tg::object::Id),
-	Process(tg::process::Id),
+	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
+	pub nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
+	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Parent {
+	Item(usize),
 	Object(usize),
 	Process(usize),
 	ProcessObject {
@@ -57,8 +36,24 @@ struct PermissionState {
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Node {
+	Group(ItemNode),
 	Object(ObjectNode),
+	Organization(ItemNode),
 	Process(ProcessNode),
+	Sandbox(ItemNode),
+	Tag(ItemNode),
+	User(ItemNode),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ItemNode {
+	pub children: Option<Vec<usize>>,
+	pub local_applied: bool,
+	pub local_requested: bool,
+	pub parents: SmallVec<[Parent; 1]>,
+	pub remote_requested: bool,
+	pub remote_sent: bool,
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -123,38 +118,34 @@ pub struct UpdateProcessLocalArg<'a> {
 	pub stored: Option<tangram_index::process::Stored>,
 }
 
-// Remaining grant sync work: seed graph grant state from sent items and authorized touches, propagate grants separately from stored state, emit reduced grants in the final sync index batch, and add focused authorization, stored, and grant propagation tests.
-
 impl Graph {
 	pub fn new(
-		local_roots: &[tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>],
-		remote_roots: &[tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>],
+		local_roots: &[tg::Referent<tg::Id>],
+		remote_roots: &[tg::Referent<tg::Id>],
 	) -> Self {
 		let mut graph = Graph {
 			get_end_received: false,
-			local_roots: local_roots
-				.iter()
-				.map(|id| match id.item() {
-					tg::Either::Left(id) => Id::Object(id.clone()),
-					tg::Either::Right(id) => Id::Process(id.clone()),
-				})
-				.collect(),
+			local_roots: local_roots.iter().map(|item| item.item.clone()).collect(),
 			nodes: IndexMap::default(),
-			remote_roots: remote_roots
-				.iter()
-				.map(|id| match id.item() {
-					tg::Either::Left(id) => Id::Object(id.clone()),
-					tg::Either::Right(id) => Id::Process(id.clone()),
-				})
-				.collect(),
+			remote_roots: remote_roots.iter().map(|item| item.item.clone()).collect(),
 		};
 		for root in local_roots.iter().chain(remote_roots) {
 			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
-			match &root.item {
-				tg::Either::Left(id) => graph.update_object_token(id, token),
-				tg::Either::Right(id) => graph.update_process_token(id, token),
+			match root.item.kind() {
+				tg::id::Kind::Process => {
+					graph.update_process_token(&root.item.clone().try_into().unwrap(), token);
+				},
+				tg::id::Kind::Group
+				| tg::id::Kind::Organization
+				| tg::id::Kind::Sandbox
+				| tg::id::Kind::Tag
+				| tg::id::Kind::User => graph.update_item_token(&root.item, token),
+				_ if tg::object::Id::try_from(root.item.clone()).is_ok() => {
+					graph.update_object_token(&root.item.clone().try_into().unwrap(), token);
+				},
+				_ => {},
 			}
 		}
 
@@ -163,6 +154,76 @@ impl Graph {
 
 	pub fn mark_get_end_received(&mut self) {
 		self.get_end_received = true;
+	}
+
+	pub fn update_item_local_applied(&mut self, id: &tg::Id) {
+		let node = self
+			.nodes
+			.entry(id.clone())
+			.or_insert_with(|| Node::for_id(id));
+		node.unwrap_item_mut().local_applied = true;
+	}
+
+	pub fn update_item_local_requested(
+		&mut self,
+		id: &tg::Id,
+		token: Option<tg::grant::Token>,
+	) -> bool {
+		let node = self
+			.nodes
+			.entry(id.clone())
+			.or_insert_with(|| Node::for_id(id));
+		let node = node.unwrap_item_mut();
+		if let Some(token) = token {
+			node.token.get_or_insert(token);
+		}
+		let inserted = !node.local_requested;
+		node.local_requested = true;
+
+		inserted
+	}
+
+	pub fn update_item_remote(&mut self, id: &tg::Id, token: Option<tg::grant::Token>) -> bool {
+		let node = self
+			.nodes
+			.entry(id.clone())
+			.or_insert_with(|| Node::for_id(id));
+		let node = node.unwrap_item_mut();
+		if let Some(token) = token {
+			node.token.get_or_insert(token);
+		}
+		let inserted = !node.remote_requested;
+		node.remote_requested = true;
+
+		inserted
+	}
+
+	pub fn update_item_remote_sent(&mut self, id: &tg::Id, children: &[tg::Id]) {
+		let index = self.nodes.get_index_of(id).unwrap();
+		let children = children
+			.iter()
+			.map(|child| {
+				let entry = self.nodes.entry(child.clone());
+				let child_index = entry.index();
+				let child_node = entry.or_insert_with(|| Node::for_id(child));
+				let parent = Parent::Item(index);
+				if !child_node.parents().contains(&parent) {
+					child_node.parents_mut().push(parent);
+				}
+				child_index
+			})
+			.collect();
+		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		node.children = Some(children);
+		node.remote_sent = true;
+	}
+
+	pub fn update_item_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
+		let node = self
+			.nodes
+			.entry(id.clone())
+			.or_insert_with(|| Node::for_id(id));
+		node.unwrap_item_mut().token.get_or_insert(token);
 	}
 
 	pub fn update_object_local(&mut self, update: UpdateObjectLocalArg) {
@@ -538,7 +599,7 @@ impl Graph {
 	pub fn update_object_remote(
 		&mut self,
 		id: &tg::object::Id,
-		parent: Option<Id>,
+		parent: Option<tg::Id>,
 		kind: Option<crate::sync::queue::ObjectKind>,
 		stored: Option<&tangram_index::object::Stored>,
 	) -> (bool, Option<tangram_index::object::Stored>) {
@@ -569,16 +630,22 @@ impl Graph {
 		if let Some(parent) = parent {
 			// Get the parent index and node.
 			let (parent_index, _, parent_node) = self.nodes.get_full_mut(&parent).unwrap();
-			let parent = match parent {
-				Id::Object(_) => Parent::Object(parent_index),
-				Id::Process(_) => Parent::ProcessObject {
+			let parent = if parent.kind() == tg::id::Kind::Process {
+				Parent::ProcessObject {
 					index: parent_index,
 					kind: kind.unwrap(),
-				},
+				}
+			} else {
+				Parent::Object(parent_index)
 			};
 
 			// Add the node as a child of the parent.
 			match parent_node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => {},
 				Node::Object(node) => {
 					if let Some(children) = node.children.as_mut()
 						&& !children.contains(&index)
@@ -615,6 +682,11 @@ impl Graph {
 				for index in path {
 					let (_, node) = self.nodes.get_index_mut(index).unwrap();
 					match node {
+						Node::Group(_)
+						| Node::Organization(_)
+						| Node::Sandbox(_)
+						| Node::Tag(_)
+						| Node::User(_) => {},
 						Node::Object(object) => {
 							object.remote_stored =
 								Some(tangram_index::object::Stored { subtree: true });
@@ -670,7 +742,7 @@ impl Graph {
 	pub fn update_process_remote(
 		&mut self,
 		id: &tg::process::Id,
-		parent: Option<Id>,
+		parent: Option<tg::Id>,
 		stored: Option<&tangram_index::process::Stored>,
 	) -> (bool, Option<tangram_index::process::Stored>) {
 		let entry = self.nodes.entry(id.clone().into());
@@ -835,7 +907,7 @@ impl Graph {
 		id: &tg::process::Id,
 	) -> Option<&tangram_index::process::Stored> {
 		self.nodes
-			.get(&Id::Process(id.clone()))
+			.get(&tg::Id::from(id.clone()))
 			.and_then(|node| node.unwrap_process_ref().local_stored.as_ref())
 	}
 
@@ -844,7 +916,7 @@ impl Graph {
 		id: &tg::process::Id,
 	) -> tangram_index::process::Stored {
 		self.nodes
-			.get_index_of(&Id::Process(id.clone()))
+			.get_index_of(&tg::Id::from(id.clone()))
 			.map(|index| self.process_local_visible(index))
 			.unwrap_or_default()
 	}
@@ -853,7 +925,7 @@ impl Graph {
 		tangram_index::object::Stored {
 			subtree: self
 				.nodes
-				.get_index_of(&Id::Object(id.clone()))
+				.get_index_of(&tg::Id::from(id.clone()))
 				.is_some_and(|index| self.object_local_visible(index)),
 		}
 	}
@@ -863,7 +935,7 @@ impl Graph {
 		id: &tg::object::Id,
 		required: tg::grant::permission::Set,
 	) -> Authorization {
-		let Some(index) = self.nodes.get_index_of(&Id::Object(id.clone())) else {
+		let Some(index) = self.nodes.get_index_of(&tg::Id::from(id.clone())) else {
 			let permissions =
 				tg::grant::permission::Set::Object(tg::grant::permission::object::Set::empty());
 			return Authorization {
@@ -879,7 +951,7 @@ impl Graph {
 		id: &tg::process::Id,
 		required: tg::grant::permission::Set,
 	) -> Authorization {
-		let Some(index) = self.nodes.get_index_of(&Id::Process(id.clone())) else {
+		let Some(index) = self.nodes.get_index_of(&tg::Id::from(id.clone())) else {
 			let permissions =
 				tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
 			return Authorization {
@@ -944,13 +1016,13 @@ impl Graph {
 
 	pub fn get_object_requested(&self, id: &tg::object::Id) -> Option<Requested> {
 		self.nodes
-			.get(&Id::Object(id.clone()))
+			.get(&tg::Id::from(id.clone()))
 			.and_then(|node| node.unwrap_object_ref().requested.clone())
 	}
 
 	pub fn get_process_requested(&self, id: &tg::process::Id) -> Option<Requested> {
 		self.nodes
-			.get(&Id::Process(id.clone()))
+			.get(&tg::Id::from(id.clone()))
 			.and_then(|node| node.unwrap_process_ref().requested.clone())
 	}
 
@@ -960,23 +1032,28 @@ impl Graph {
 				return false;
 			};
 			match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => node.local_applied,
 				Node::Object(_) => {
 					self.object_local_visible(self.nodes.get_index_of(root).unwrap())
 				},
 				Node::Process(_) => {
 					let visible =
 						self.process_local_visible(self.nodes.get_index_of(root).unwrap());
-					if arg.recursive {
+					if arg.process_children {
 						visible.subtree
-							&& (!arg.commands || visible.subtree_command)
-							&& (!arg.errors || visible.subtree_error)
-							&& (!arg.logs || visible.subtree_log)
-							&& (!arg.outputs || visible.subtree_output)
+							&& (!arg.process_commands || visible.subtree_command)
+							&& (!arg.process_errors || visible.subtree_error)
+							&& (!arg.process_logs || visible.subtree_log)
+							&& (!arg.process_outputs || visible.subtree_output)
 					} else {
-						(!arg.commands || visible.node_command)
-							&& (!arg.errors || visible.node_error)
-							&& (!arg.logs || visible.node_log)
-							&& (!arg.outputs || visible.node_output)
+						(!arg.process_commands || visible.node_command)
+							&& (!arg.process_errors || visible.node_error)
+							&& (!arg.process_logs || visible.node_log)
+							&& (!arg.process_outputs || visible.node_output)
 					}
 				},
 			}
@@ -987,31 +1064,56 @@ impl Graph {
 		if !self.get_end_received {
 			return false;
 		}
-		self.remote_roots.iter().all(|root| {
-			let Some(node) = self.nodes.get(root) else {
-				return false;
-			};
-			match node {
-				Node::Object(node) => node
-					.remote_stored
-					.as_ref()
-					.is_some_and(|stored| stored.subtree),
-				Node::Process(node) => node.remote_stored.as_ref().is_some_and(|stored| {
-					if arg.recursive {
-						stored.subtree
-							&& (!arg.commands || stored.subtree_command)
-							&& (!arg.errors || stored.subtree_error)
-							&& (!arg.logs || stored.subtree_log)
-							&& (!arg.outputs || stored.subtree_output)
-					} else {
-						(!arg.commands || stored.node_command)
-							&& (!arg.errors || stored.node_error)
-							&& (!arg.logs || stored.node_log)
-							&& (!arg.outputs || stored.node_output)
-					}
-				}),
-			}
-		})
+		self.remote_roots
+			.iter()
+			.all(|root| self.remote_complete(root, arg, &mut HashSet::new()))
+	}
+
+	fn remote_complete(
+		&self,
+		id: &tg::Id,
+		arg: &tg::sync::Arg,
+		visited: &mut HashSet<tg::Id>,
+	) -> bool {
+		if !visited.insert(id.clone()) {
+			return false;
+		}
+		let Some(node) = self.nodes.get(id) else {
+			return false;
+		};
+		match node {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => {
+				node.remote_sent
+					&& node.children.as_ref().is_some_and(|children| {
+						children.iter().all(|index| {
+							let id = self.nodes.get_index(*index).unwrap().0;
+							self.remote_complete(id, arg, &mut visited.clone())
+						})
+					})
+			},
+			Node::Object(node) => node
+				.remote_stored
+				.as_ref()
+				.is_some_and(|stored| stored.subtree),
+			Node::Process(node) => node.remote_stored.as_ref().is_some_and(|stored| {
+				if arg.process_children {
+					stored.subtree
+						&& (!arg.process_commands || stored.subtree_command)
+						&& (!arg.process_errors || stored.subtree_error)
+						&& (!arg.process_logs || stored.subtree_log)
+						&& (!arg.process_outputs || stored.subtree_output)
+				} else {
+					(!arg.process_commands || stored.node_command)
+						&& (!arg.process_errors || stored.node_error)
+						&& (!arg.process_logs || stored.node_log)
+						&& (!arg.process_outputs || stored.node_output)
+				}
+			}),
+		}
 	}
 
 	fn get_local_authorization(
@@ -1117,9 +1219,14 @@ impl Graph {
 	fn update_local_permission(&mut self, index: usize, permission: tg::grant::Permission) {
 		let id = self.nodes.get_index(index).unwrap().0.clone();
 		let permissions = tg::grant::permission::Set::from_permission(permission);
-		match id {
-			Id::Object(id) => self.update_object_local_permissions(&id, permissions),
-			Id::Process(id) => self.update_process_local_permissions(&id, permissions),
+		match id.kind() {
+			tg::id::Kind::Process => {
+				self.update_process_local_permissions(&id.try_into().unwrap(), permissions);
+			},
+			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
+				self.update_object_local_permissions(&id.try_into().unwrap(), permissions);
+			},
+			_ => (),
 		}
 	}
 
@@ -1128,6 +1235,7 @@ impl Graph {
 		permission: tg::grant::Permission,
 	) -> Option<tg::grant::Permission> {
 		match parent {
+			Parent::Item(_) => None,
 			Parent::Object(_) => match permission {
 				tg::grant::Permission::Object(_) => Some(tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
@@ -1157,6 +1265,7 @@ impl Graph {
 		permission: tg::grant::Permission,
 	) -> tg::grant::Permission {
 		match parent {
+			Parent::Item(_) => unreachable!(),
 			Parent::Object(_) => match permission {
 				tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
@@ -1546,6 +1655,11 @@ impl Graph {
 	fn try_propagate_local_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
 		let (_, node) = self.nodes.get_index(index)?;
 		match node {
+			Node::Group(_)
+			| Node::Organization(_)
+			| Node::Sandbox(_)
+			| Node::Tag(_)
+			| Node::User(_) => None,
 			Node::Object(_) => self.try_propagate_object_local_stored(index),
 			Node::Process(_) => self.try_propagate_process_local_stored(index),
 		}
@@ -1722,6 +1836,11 @@ impl Graph {
 			let index = *path.last().unwrap();
 			let node = self.nodes.get_index(index).unwrap().1;
 			let stored = match node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => false,
 				Node::Object(object) => object
 					.remote_stored
 					.as_ref()
@@ -1770,7 +1889,10 @@ impl Graph {
 				break None;
 			};
 			let index = *path.last().unwrap();
-			let node = self.nodes.get_index(index).unwrap().1.unwrap_process_ref();
+			let node = self.nodes.get_index(index).unwrap().1;
+			let Ok(node) = node.try_unwrap_process_ref() else {
+				continue;
+			};
 			let stored = node.remote_stored.as_ref().is_some_and(&f);
 			if stored {
 				break Some(path);
@@ -1803,16 +1925,37 @@ impl Parent {
 	#[must_use]
 	pub fn index(&self) -> usize {
 		match self {
-			Self::Object(index) | Self::Process(index) | Self::ProcessObject { index, .. } => {
-				*index
-			},
+			Self::Item(index)
+			| Self::Object(index)
+			| Self::Process(index)
+			| Self::ProcessObject { index, .. } => *index,
 		}
 	}
 }
 
 impl Node {
+	fn for_id(id: &tg::Id) -> Self {
+		match id.kind() {
+			tg::id::Kind::Group => Self::Group(ItemNode::default()),
+			tg::id::Kind::Organization => Self::Organization(ItemNode::default()),
+			tg::id::Kind::Process => Self::Process(ProcessNode::default()),
+			tg::id::Kind::Sandbox => Self::Sandbox(ItemNode::default()),
+			tg::id::Kind::Tag => Self::Tag(ItemNode::default()),
+			tg::id::Kind::User => Self::User(ItemNode::default()),
+			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
+				Self::Object(ObjectNode::default())
+			},
+			_ => unreachable!(),
+		}
+	}
+
 	fn local_permissions(&self) -> Option<tg::grant::permission::Set> {
 		match self {
+			Self::Group(_)
+			| Self::Organization(_)
+			| Self::Sandbox(_)
+			| Self::Tag(_)
+			| Self::User(_) => None,
 			Self::Object(node) => node.local_permissions,
 			Self::Process(node) => node.local_permissions,
 		}
@@ -1820,13 +1963,34 @@ impl Node {
 
 	fn token(&self) -> Option<&tg::grant::Token> {
 		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.token.as_ref(),
 			Self::Object(node) => node.token.as_ref(),
 			Self::Process(node) => node.token.as_ref(),
 		}
 	}
 
+	fn unwrap_item_mut(&mut self) -> &mut ItemNode {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node,
+			Self::Object(_) | Self::Process(_) => unreachable!(),
+		}
+	}
+
 	pub fn parents(&self) -> &SmallVec<[Parent; 1]> {
 		match self {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => &node.parents,
 			Node::Object(node) => &node.parents,
 			Node::Process(node) => &node.parents,
 		}
@@ -1834,6 +1998,11 @@ impl Node {
 
 	pub fn parents_mut(&mut self) -> &mut SmallVec<[Parent; 1]> {
 		match self {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => &mut node.parents,
 			Node::Object(node) => &mut node.parents,
 			Node::Process(node) => &mut node.parents,
 		}
@@ -1841,6 +2010,11 @@ impl Node {
 
 	pub fn children(&self) -> Option<&Vec<usize>> {
 		match self {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => node.children.as_ref(),
 			Node::Object(node) => node.children.as_ref(),
 			Node::Process(node) => node.children.as_ref(),
 		}
@@ -1848,6 +2022,11 @@ impl Node {
 
 	pub fn children_mut(&mut self) -> &mut Option<Vec<usize>> {
 		match self {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => &mut node.children,
 			Node::Object(node) => &mut node.children,
 			Node::Process(node) => &mut node.children,
 		}
@@ -1855,6 +2034,11 @@ impl Node {
 
 	pub fn marked(&self) -> bool {
 		match self {
+			Node::Group(_)
+			| Node::Organization(_)
+			| Node::Sandbox(_)
+			| Node::Tag(_)
+			| Node::User(_) => false,
 			Node::Object(node) => node.marked,
 			Node::Process(node) => node.marked,
 		}
@@ -1895,6 +2079,11 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
 		let (_, node) = self.nodes.get_index(id).unwrap();
 		match &node {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => node.children.iter().flatten().copied().boxed(),
 			Node::Object(node) => node.children.iter().flatten().copied().boxed(),
 			Node::Process(node) => std::iter::empty()
 				.chain(node.children.iter().flatten())
@@ -1918,6 +2107,11 @@ impl<'a> petgraph::visit::IntoNeighborsDirected for &'a Graph {
 			petgraph::Direction::Incoming => {
 				let (_, node) = self.nodes.get_index(id).unwrap();
 				match node {
+					Node::Group(node)
+					| Node::Organization(node)
+					| Node::Sandbox(node)
+					| Node::Tag(node)
+					| Node::User(node) => node.parents.iter().map(Parent::index).boxed(),
 					Node::Object(node) => node.parents.iter().map(Parent::index).boxed(),
 					Node::Process(node) => node.parents.iter().map(Parent::index).boxed(),
 				}

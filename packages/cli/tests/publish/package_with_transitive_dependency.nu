@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [test-dep test-main test-transitive] {
+	tg --url $local.url group create $group
+}
 
 # Create the transitive dependency (C) - no dependencies.
 let transitive_path = artifact {

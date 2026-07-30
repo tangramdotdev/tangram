@@ -456,7 +456,6 @@ impl Cli {
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
-				force: false,
 				item: id.into(),
 				location: location.clone(),
 				public: false,
@@ -578,12 +577,11 @@ impl Cli {
 		};
 
 		// Get the reference.
-		let arg = tg::get::Arg {
+		let arg = tg::resolve::Arg {
 			checkin: options.checkin.to_options(),
-			resolve: true,
 			..Default::default()
 		};
-		let referent = self.get_reference_with_arg(&reference, arg).await?;
+		let referent = self.resolve_reference_with_arg(&reference, arg).await?;
 		let mut referent = referent.into_graph_edge()?;
 
 		// Create the command builder.

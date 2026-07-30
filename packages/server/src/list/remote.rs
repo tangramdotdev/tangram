@@ -2,13 +2,12 @@ use {
 	crate::{Session, location::Remote},
 	std::time::Duration,
 	tangram_client::prelude::*,
-	time::OffsetDateTime,
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct Key {
-	pub remote: String,
 	pub arg: tg::list::Arg,
+	pub remote: String,
 }
 
 pub type Tasks =
@@ -18,39 +17,30 @@ impl Session {
 	pub(super) async fn list_remote(
 		&self,
 		remote: Remote,
-		arg: &tg::list::Arg,
+		cached: bool,
+		request: &str,
+		ttl: Option<Duration>,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let remote_arg = remote_arg(arg, remote.regions.clone());
+		let arg = snapshot_arg(remote.regions.clone());
 		let key = Key {
+			arg: arg.clone(),
 			remote: remote.name.clone(),
-			arg: remote_arg.clone(),
 		};
-		let key_json = serde_json::to_string(&key).unwrap();
-		let use_cache = self.server.config().authentication.users.is_none();
-		if use_cache
-			&& arg.ttl != Some(Duration::ZERO)
-			&& let Some((cached_output, timestamp)) = self
-				.list_cache_get(&key_json)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the list cache"))?
+		let request = crate::remote::cache::request("entries", &(request, &remote.regions));
+		if let Some(mut entries) = self
+			.try_get_cached_remote_response::<Vec<tg::list::Entry>>(&remote.name, &request, ttl)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
-			let now = OffsetDateTime::now_utc().unix_timestamp();
-			let age = u64::try_from((now - timestamp).max(0))
-				.map(Duration::from_secs)
-				.map_err(|error| tg::error!(!error, "invalid list cache age"))?;
-			if arg.ttl.is_none_or(|ttl| age < ttl) {
-				let mut entries: Vec<tg::list::Entry> = serde_json::from_str(&cached_output)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the cached list"))?;
-				for entry in &mut entries {
-					set_entry_location(entry, &remote.name);
-				}
-				return Ok(entries);
+			for entry in &mut entries {
+				set_entry_location(entry, &remote.name);
 			}
+
+			return Ok(entries);
 		}
-		if arg.cached {
+		if cached {
 			return Ok(Vec::new());
 		}
-
 		let task = self
 			.server
 			.remote_list_tasks
@@ -62,6 +52,9 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the remote list task panicked"))??;
+		self.put_cached_remote_response(&remote.name, &request, &entries)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
@@ -74,7 +67,7 @@ impl Session {
 	}
 
 	async fn list_remote_task(&self, key: Key) -> tg::Result<Vec<tg::list::Entry>> {
-		let Key { remote, arg } = key;
+		let Key { arg, remote } = key;
 		let client = self
 			.get_remote_session(&remote)
 			.await
@@ -83,38 +76,13 @@ impl Session {
 			.list(arg.clone())
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
-		if self.server.config().authentication.users.is_none() {
-			let key = serde_json::to_string(&Key { remote, arg }).unwrap();
-			let output_json = serde_json::to_string(&output.data).unwrap();
-			let now = OffsetDateTime::now_utc().unix_timestamp();
-			self.list_cache_put(&key, &output_json, now)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the list cache"))?;
-		}
 
 		Ok(output.data)
 	}
 }
 
-fn remote_arg(arg: &tg::list::Arg, regions: Option<Vec<String>>) -> tg::list::Arg {
-	tg::list::Arg {
-		cached: false,
-		length: None,
-		location: Some(tg::location::Arg(vec![
-			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
-		])),
-		reverse: false,
-		ttl: None,
-		..arg.clone()
-	}
-}
-
 fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
-	let location = match entry {
-		tg::list::Entry::Group { location, .. } | tg::list::Entry::Tag { location, .. } => {
-			location.take()
-		},
-	};
+	let location = entry.location().cloned();
 	let region = match location {
 		Some(tg::Location::Local(local)) => local.region,
 		_ => None,
@@ -128,9 +96,35 @@ fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
 			location: entry_location,
 			..
 		}
+		| tg::list::Entry::Organization {
+			location: entry_location,
+			..
+		}
 		| tg::list::Entry::Tag {
 			location: entry_location,
 			..
+		}
+		| tg::list::Entry::User {
+			location: entry_location,
+			..
 		} => *entry_location = location,
+	}
+}
+
+fn snapshot_arg(regions: Option<Vec<String>>) -> tg::list::Arg {
+	tg::list::Arg {
+		cached: false,
+		groups: true,
+		length: None,
+		location: Some(tg::location::Arg(vec![
+			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
+		])),
+		organizations: true,
+		parent: None,
+		recursive: true,
+		reverse: false,
+		tags: true,
+		ttl: None,
+		users: true,
 	}
 }

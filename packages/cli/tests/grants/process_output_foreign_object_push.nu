@@ -31,7 +31,7 @@ let eve_process = tg --url $eve_local.url build --detach $eve_path | str trim
 tg --url $eve_local.url wait $eve_process | complete
 
 # Eve pushes her process and its output to the remote.
-tg --url $eve_local.url push $eve_process --output | complete
+tg --url $eve_local.url push $eve_process --process-outputs | complete
 tg --url $remote.url index
 
 # Eve must not gain the subtree of Alice's private file on the remote by naming it as her process output.

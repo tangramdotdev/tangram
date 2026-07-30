@@ -88,15 +88,15 @@ impl Session {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
 		let parent = self
-			.ensure_parent_for_specifier(transaction, &arg.specifier, batch)
+			.resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
 			.await?;
 		let existing =
-			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
+			Self::try_get_specifier_with_transaction(transaction, &arg.specifier).await?;
 		let item = Self::tag_item_to_string(&arg.item);
 		let permissions_json = serde_json::to_string(&permissions)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 		let (node, permissions) = if let Some(node) = existing {
-			if node.kind != tg::id::Kind::Tag {
+			if node.kind() != tg::id::Kind::Tag {
 				return Err(tg::error!("specifier is already in use"));
 			}
 			let p = transaction.p();
@@ -104,26 +104,18 @@ impl Session {
 			let statement = formatdoc!(
 				"
 					update tags
-					set permissions = case when item = {p}1 then permissions else {p}4 end,
+					set permissions = case when item = {p}1 then permissions else {p}3 end,
 						item = {p}1
-					where id = {p}2 and ({p}3 or item = {p}1);
+					where id = {p}2;
 				"
 			);
-			let n = transaction
+			transaction
 				.execute(
 					statement.into(),
-					db::params![
-						item.clone(),
-						node.id.to_string(),
-						arg.force,
-						permissions_json
-					],
+					db::params![item.clone(), node.id.to_string(), permissions_json],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			if n == 0 {
-				return Err(tg::error!("the tag already exists with a different item"));
-			}
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				permissions: String,
@@ -144,12 +136,11 @@ impl Session {
 			(node, permissions)
 		} else {
 			let id = tg::tag::Id::new();
-			let node = Self::create_node_with_transaction(
+			let node = Self::create_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
-				tg::id::Kind::Tag,
-				&arg.specifier,
 				parent.as_ref(),
+				&arg.specifier,
 			)
 			.await?;
 			let p = transaction.p();
@@ -221,6 +212,8 @@ impl Session {
 			.put_tag(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tag"))?;
+		self.delete_remote_cache(&remote.name).await?;
+
 		Ok(())
 	}
 
@@ -262,7 +255,7 @@ impl Session {
 		prefixes.reverse();
 		for prefix in prefixes {
 			if let Some(node) =
-				Self::try_get_node_by_specifier_with_transaction(&transaction, &prefix).await?
+				Self::try_get_specifier_with_transaction(&transaction, &prefix).await?
 			{
 				return Self::write_permission_for_resource(&node.id).map(Some);
 			}
@@ -272,37 +265,24 @@ impl Session {
 }
 
 impl Session {
-	async fn ensure_parent_for_specifier(
+	async fn resolve_parent_for_specifier_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
-		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<tg::Id>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
-		let Some(_) = specifier.parent() else {
+		let Some(parent) = specifier.parent() else {
 			return Ok(None);
 		};
-		let mut parent = None;
-		let mut node = None;
-		for ancestor in specifier.ancestors() {
-			if let Some(existing) =
-				Self::try_get_node_by_specifier_with_transaction(transaction, &ancestor).await?
-			{
-				if existing.kind == tg::id::Kind::Tag {
-					return Err(tg::error!("specifier is already in use"));
-				}
-				parent = Some(existing.id.clone());
-				node = Some(existing);
-				continue;
-			}
-			let created = self
-				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref(), batch)
-				.await?;
-			parent = Some(created.id.clone());
-			node = Some(created);
+		let parent = Self::try_get_specifier_with_transaction(transaction, &parent)
+			.await?
+			.ok_or_else(|| tg::error!("the parent does not exist"))?;
+		if parent.kind() == tg::id::Kind::Tag {
+			return Err(tg::error!("a tag cannot be a parent"));
 		}
-		Ok(node.map(|node| node.id))
+
+		Ok(Some(parent.id))
 	}
 }

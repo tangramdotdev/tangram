@@ -1,5 +1,5 @@
 use {
-	crate::{Session, node::Node},
+	crate::{Session, specifier::Item},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -14,19 +14,22 @@ impl Session {
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
 	) -> tg::Result<Option<tg::User>> {
-		let location = self
-			.server
-			.location(arg.location.as_ref())
-			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		let resource = user.clone().into();
+		let Some(entry) = self
+			.try_get_named_entry(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let tg::list::Entry::User { id, location, .. } = entry else {
+			return Ok(None);
+		};
+		let user = tg::user::Selector::Id(id);
+		let location =
+			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_user_local(user).await,
-			tg::Location::Remote(remote) => {
-				let client = self.get_remote_session(&remote.name).await?;
-				let arg = tg::user::get::Arg {
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-				};
-				client.try_get_user(user, arg).await
-			},
+			tg::Location::Local(_) => self.try_get_user_local(&user).await,
+			tg::Location::Remote(remote) => self.try_get_user_remote(&user, arg, remote).await,
 		}
 	}
 
@@ -47,11 +50,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(&transaction, user).await?
+			Self::try_get_specifier_by_selector_with_transaction(&transaction, user).await?
 		else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::User {
+		if node.kind() != tg::id::Kind::User {
 			return Ok(None);
 		}
 		Self::user_from_node_with_transaction(&transaction, node)
@@ -61,7 +64,7 @@ impl Session {
 
 	pub(crate) async fn user_from_node_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		node: Node,
+		node: Item,
 	) -> tg::Result<tg::User> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -83,10 +86,54 @@ impl Session {
 		Ok(tg::User {
 			emails: rows.into_iter().map(|row| row.email).collect(),
 			id: node.id.try_into()?,
-			location: None,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: node.name,
 			specifier: node.specifier,
 		})
+	}
+
+	async fn try_get_user_remote(
+		&self,
+		user: &tg::user::Selector,
+		mut arg: tg::user::get::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::User>> {
+		let request = crate::remote::cache::request("user.get", &(user, &remote.region));
+		if let Some(mut output) = self
+			.try_get_cached_remote_response::<Option<tg::User>>(&remote.name, &request, arg.ttl)
+			.await?
+		{
+			if let Some(user) = &mut output {
+				user.location = Some(tg::Location::Remote(remote));
+			}
+
+			return Ok(output);
+		}
+		if arg.cached {
+			return Ok(None);
+		}
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		arg.cached = false;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		arg.ttl = None;
+		let mut output = client
+			.try_get_user(user, arg)
+			.await
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the user"))?;
+		self.put_cached_remote_response(&remote.name, &request, &output)
+			.await?;
+		if let Some(user) = &mut output {
+			user.location = Some(tg::Location::Remote(remote));
+		}
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_user_request(
@@ -102,7 +149,7 @@ impl Session {
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or(tg::user::get::Arg { location: None });
+			.unwrap_or_default();
 		let user = user.replace(':', "/").parse()?;
 		let Some(output) = self.try_get_user(&user, arg).await? else {
 			let response = http::Response::builder()

@@ -3,6 +3,7 @@ use ../../test.nu *
 # --watch with --no-solve skips dependency resolution.
 
 let server = spawn
+tg group create a
 
 # Tag the a dependency.
 let a_path = artifact {

@@ -3,6 +3,7 @@ use ../../test.nu *
 # Outdated prints nothing when every dependency is on its latest version.
 
 let server = spawn
+tg group create dep
 
 let dep = artifact { tangram.ts: 'export default function () { return "dep"; }' }
 tg tag dep/1.0.0 $dep

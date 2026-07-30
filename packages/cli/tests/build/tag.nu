@@ -3,6 +3,7 @@ use ../../test.nu *
 # Building with the tag flag tags the resulting process.
 
 let server = spawn
+tg group create built
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "hello"; }'

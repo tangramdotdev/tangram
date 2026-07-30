@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -14,10 +13,8 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Item {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub force: bool,
-	pub specifier: tg::Specifier,
 	pub item: tg::tag::data::Item,
+	pub specifier: tg::Specifier,
 }
 
 impl tg::Session {

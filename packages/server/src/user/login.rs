@@ -88,7 +88,7 @@ impl Session {
 						)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let node = Self::try_get_node_by_id_with_transaction(
+					let node = Self::try_get_specifier_by_id_with_transaction(
 						transaction,
 						&user.id.clone().into(),
 					)
@@ -137,7 +137,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			{
 				let id = row.user.parse::<tg::user::Id>()?;
-				let node = Self::try_get_node_by_id_with_transaction(transaction, &id.into())
+				let node = Self::try_get_specifier_by_id_with_transaction(transaction, &id.into())
 					.await?
 					.ok_or_else(|| tg::error!("invalid user identity"))?;
 				return Self::user_from_node_with_transaction(transaction, node).await;
@@ -175,20 +175,19 @@ impl Session {
 
 		// Get or create the user.
 		let user = if let Some(node) =
-			Self::try_get_node_by_specifier_with_transaction(transaction, &specifier).await?
+			Self::try_get_specifier_with_transaction(transaction, &specifier).await?
 		{
-			if node.kind != tg::id::Kind::User {
+			if node.kind() != tg::id::Kind::User {
 				return Err(tg::error!("specifier is already in use"));
 			}
 			Self::user_from_node_with_transaction(transaction, node).await?
 		} else {
 			let id = tg::user::Id::new();
-			let node = Self::create_node_with_transaction(
+			let item = Self::create_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
-				tg::id::Kind::User,
-				&specifier,
 				None,
+				&specifier,
 			)
 			.await?;
 			let p = transaction.p();
@@ -201,17 +200,17 @@ impl Session {
 			transaction
 				.execute(
 					statement.into(),
-					db::params![id.to_string(), node.name.clone()],
+					db::params![id.to_string(), item.name.clone()],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			batch.items.push(tangram_index::batch::Item::PutUser(
 				tangram_index::user::put::Arg {
 					id: id.clone(),
-					specifier: node.specifier.clone(),
+					specifier: item.specifier.clone(),
 				},
 			));
-			Self::user_from_node_with_transaction(transaction, node).await?
+			Self::user_from_node_with_transaction(transaction, item).await?
 		};
 
 		// Insert the identity.

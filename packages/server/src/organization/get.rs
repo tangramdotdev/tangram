@@ -13,14 +13,23 @@ impl Session {
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
 	) -> tg::Result<Option<tg::Organization>> {
-		let location = self
-			.server
-			.location(arg.location.as_ref())
-			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		let resource = organization.clone().into();
+		let Some(entry) = self
+			.try_get_named_entry(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let tg::list::Entry::Organization { id, location, .. } = entry else {
+			return Ok(None);
+		};
+		let organization = tg::organization::Selector::Id(id);
+		let location =
+			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_organization_local(organization).await,
+			tg::Location::Local(_) => self.try_get_organization_local(&organization).await,
 			tg::Location::Remote(remote) => {
-				self.try_get_organization_remote(organization, arg, remote)
+				self.try_get_organization_remote(&organization, arg, remote)
 					.await
 			},
 		}
@@ -48,15 +57,17 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(&transaction, organization).await?
+			Self::try_get_specifier_by_selector_with_transaction(&transaction, organization)
+				.await?
 		else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Organization {
+		if node.kind() != tg::id::Kind::Organization {
 			return Ok(None);
 		}
 		Ok(Some(tg::Organization {
 			id: node.id.try_into()?,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: node.name,
 			specifier: node.specifier,
 		}))
@@ -68,16 +79,49 @@ impl Session {
 		mut arg: tg::organization::get::Arg,
 		remote: tg::location::Remote,
 	) -> tg::Result<Option<tg::Organization>> {
+		let request =
+			crate::remote::cache::request("organization.get", &(organization, &remote.region));
+		if let Some(mut output) = self
+			.try_get_cached_remote_response::<Option<tg::Organization>>(
+				&remote.name,
+				&request,
+				arg.ttl,
+			)
+			.await?
+		{
+			if let Some(organization) = &mut output {
+				organization.location = Some(tg::Location::Remote(remote));
+			}
+
+			return Ok(output);
+		}
+		if arg.cached {
+			return Ok(None);
+		}
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
+		arg.cached = false;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		arg.ttl = None;
+		let mut output = client
 			.try_get_organization(organization, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the organization"),
-			)
+			)?;
+		self.put_cached_remote_response(&remote.name, &request, &output)
+			.await?;
+		if let Some(organization) = &mut output {
+			organization.location = Some(tg::Location::Remote(remote));
+		}
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_organization_request(

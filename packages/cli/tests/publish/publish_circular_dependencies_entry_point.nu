@@ -6,6 +6,9 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+for group in [a b c] {
+	tg --url $local.url group create $group
+}
 
 # Create a cycle: A -> B -> C -> A
 let root = artifact {
@@ -36,7 +39,7 @@ tg publish ($root | path join "packages/a")
 let a_from_a = tg tag get a/0 | from json | get item.id
 
 # Publish from B (without deleting tags).
-tg publish --force ($root | path join "packages/b")
+tg publish ($root | path join "packages/b")
 let a_from_b = tg tag get a/0 | from json | get item.id
 
 # A should have the same ID regardless of entry point.
