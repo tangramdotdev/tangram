@@ -61,7 +61,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static build(...args: any): any {
-		return build.builder(...args).js(typeof args[0] === "function");
+		return build.builder(...args);
 	}
 
 	static exec<
@@ -83,7 +83,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"exec", Array<tg.Value>, never>;
 	static exec(...args: any): any {
-		return exec.builder(...args).js(typeof args[0] === "function");
+		return exec.builder(...args);
 	}
 
 	static run<
@@ -107,7 +107,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static run(...args: any): any {
-		return run.builder(...args).js(typeof args[0] === "function");
+		return run.builder(...args);
 	}
 
 	static spawn<
@@ -131,7 +131,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		...args: tg.Args<tg.Process.Arg>
 	): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
 	static spawn(...args: any): any {
-		return spawn.builder(...args).js(typeof args[0] === "function");
+		return spawn.builder(...args);
 	}
 
 	static async arg(
@@ -726,16 +726,16 @@ export namespace Process {
 	> extends Function {
 		#args: tg.Args<tg.Process.Arg>;
 		#envMapper: tg.Process.Builder.EnvMapper<E>;
-		#js: boolean;
+		#js: Promise<boolean>;
 		#mode: M;
 		#validate?: (arg: tg.Process.ArgObject) => void;
 
 		constructor(mode: M, ...args: tg.Args<tg.Process.Arg>) {
 			super();
-			this.#args = args;
 			this.#envMapper = ((env: tg.Command.Arg.Env) =>
 				env) as tg.Process.Builder.EnvMapper<E>;
-			this.#js = false;
+			this.#js = isJsProcessBuilderArg(args);
+			this.#args = args.map((arg) => this.builderArg(arg));
 			this.#mode = mode;
 			return new Proxy(this, {
 				get(this_: any, prop, _receiver) {
@@ -812,11 +812,6 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string> | null>): this {
 			this.#args.push({ host });
-			return this;
-		}
-
-		js(js: boolean): this {
-			this.#js = js;
 			return this;
 		}
 
@@ -943,7 +938,6 @@ export namespace Process {
 				...this.#args,
 			);
 			output.envMapper<E>(this.#envMapper);
-			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -953,7 +947,6 @@ export namespace Process {
 		run(): tg.Process.Builder<"run", A, O, E> {
 			let output = new tg.Process.Builder<"run", A, O, E>("run", ...this.#args);
 			output.envMapper<E>(this.#envMapper);
-			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -966,7 +959,6 @@ export namespace Process {
 				...this.#args,
 			);
 			output.envMapper<E>(this.#envMapper);
-			output.js(this.#js);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -1006,29 +998,35 @@ export namespace Process {
 			return await process.output();
 		}
 
-		private argsArg(
-			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
-		): tg.Unresolved<tg.Process.ArgObject> {
-			if (!this.#js) {
-				return { args };
+		private async builderArg(
+			arg: tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Process.Arg>>,
+		): Promise<tg.ValueOrMaybeMutationMap<tg.Process.Arg>> {
+			let [js, arg_] = await Promise.all([this.#js, tg.resolve(arg)]);
+			if (
+				!js ||
+				arg_ instanceof tg.Command ||
+				typeof arg_ !== "object" ||
+				arg_ === null ||
+				!("args" in arg_) ||
+				!Array.isArray(arg_.args)
+			) {
+				return arg_;
 			}
-			return tg.resolve(args).then((args) => {
-				if (args === null) {
-					return { args: null };
-				}
-				return {
-					args: args.flatMap((value) => {
-						let value_ =
-							value instanceof tg.Command.Value
-								? value
-								: tg.Command.Value.value(value);
-						return [
-							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
-							value_,
-						];
-					}),
-				};
-			});
+			let args = encodeJsArgs(arg_.args);
+
+			return { ...arg_, args };
+		}
+
+		private async argsArg(
+			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
+		): Promise<tg.Process.ArgObject> {
+			let [js, args_] = await Promise.all([this.#js, tg.resolve(args)]);
+			if (!js || args_ === null) {
+				return { args: args_ };
+			}
+			let output = encodeJsArgs(args_);
+
+			return { args: output };
 		}
 
 		private envArg(
@@ -1577,4 +1575,70 @@ export namespace Process {
 			return output;
 		};
 	}
+}
+
+async function isJsProcessBuilderArg(
+	args: tg.Args<tg.Process.Arg>,
+): Promise<boolean> {
+	let args_ = await Promise.all(args.map(tg.resolve));
+	for (let arg of args_) {
+		let command: tg.Command | undefined;
+		if (arg instanceof tg.Command) {
+			command = arg;
+		} else if (
+			typeof arg === "object" &&
+			arg !== null &&
+			"command" in arg &&
+			arg.command !== undefined &&
+			arg.command !== null
+		) {
+			let command_ = arg.command;
+			let item =
+				typeof command_ === "object" && command_ !== null && "item" in command_
+					? command_.item
+					: command_;
+			if (item instanceof tg.Command) {
+				command = item;
+			}
+		}
+		if (
+			command !== undefined &&
+			tg.Command.Object.isJs(await command.object())
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function encodeJsArgs(
+	args: Array<tg.Command.Arg.Value>,
+): Array<tg.Command.Value> {
+	let encoded =
+		args.length % 2 === 0 &&
+		args.every((value, index) => {
+			if (index % 2 !== 0) {
+				return value instanceof tg.Command.Value;
+			}
+			let next = args[index + 1];
+			return (
+				value instanceof tg.Command.Value &&
+				value.kind === "string" &&
+				(value.value === "-a" || value.value === "-A") &&
+				next instanceof tg.Command.Value &&
+				value.value === (next.kind === "string" ? "-a" : "-A")
+			);
+		});
+	if (encoded) {
+		return args as Array<tg.Command.Value>;
+	}
+	return args.flatMap((value) => {
+		let value_ =
+			value instanceof tg.Command.Value ? value : tg.Command.Value.value(value);
+		return [
+			tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+			value_,
+		];
+	});
 }
