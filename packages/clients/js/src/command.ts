@@ -25,7 +25,7 @@ export function command(...args: any): any {
 		let command = tg.Command.js(args[0], args.slice(1)).then(
 			(referent) => referent.item,
 		);
-		return new tg.Command.Builder(command).js(true);
+		return new tg.Command.Builder(command);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -533,6 +533,16 @@ export namespace Command {
 	};
 
 	export namespace Object {
+		export let isJs = (object: tg.Command.Object): boolean => {
+			let firstArg = object.args[0];
+			return (
+				object.executable.artifact === null &&
+				object.executable.path === "tg" &&
+				firstArg?.kind === "string" &&
+				firstArg.value === "js"
+			);
+		};
+
 		export let toData = (object: tg.Command.Object): tg.Command.Data => {
 			let output: Data = {
 				args: object.args.map(tg.Command.Value.toData),
@@ -707,14 +717,14 @@ export namespace Command {
 	> extends Function {
 		#args: tg.Args<tg.Command.Arg.Object>;
 		#envMapper: tg.Command.Builder.EnvMapper<E>;
-		#js: boolean;
+		#js: Promise<boolean>;
 
 		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 			super();
-			this.#args = args;
 			this.#envMapper = ((env: tg.Command.Arg.Env) =>
 				env) as tg.Command.Builder.EnvMapper<E>;
-			this.#js = false;
+			this.#js = isJsCommandBuilderArg(args);
+			this.#args = args.map((arg) => this.builderArg(arg));
 			return new Proxy(this, {
 				get(this_: any, prop, _receiver) {
 					if (typeof this_[prop] === "function") {
@@ -772,16 +782,10 @@ export namespace Command {
 			return this;
 		}
 
-		js(js: boolean): this {
-			this.#js = js;
-			return this;
-		}
-
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O, E> {
 			return tg
 				.build(...this.#args, this.argsArg(args))
-				.js(this.#js)
 				.envMapper<E>(this.#envMapper) as tg.Process.Builder<"run", [], O, E>;
 		}
 
@@ -789,7 +793,6 @@ export namespace Command {
 		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O, E> {
 			return tg
 				.run(...this.#args, this.argsArg(args))
-				.js(this.#js)
 				.envMapper<E>(this.#envMapper) as tg.Process.Builder<"run", [], O, E>;
 		}
 
@@ -799,7 +802,6 @@ export namespace Command {
 		): tg.Process.Builder<"spawn", [], O, E> {
 			return tg
 				.spawn(...this.#args, this.argsArg(args))
-				.js(this.#js)
 				.envMapper<E>(this.#envMapper) as tg.Process.Builder<"spawn", [], O, E>;
 		}
 
@@ -809,7 +811,6 @@ export namespace Command {
 		): tg.Process.Builder<"exec", [], never, E> {
 			return tg
 				.exec(...this.#args, this.argsArg(args))
-				.js(this.#js)
 				.envMapper<E>(this.#envMapper) as tg.Process.Builder<
 				"exec",
 				[],
@@ -833,29 +834,35 @@ export namespace Command {
 				.then(onfulfilled, onrejected);
 		}
 
-		private argsArg(
-			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
-		): tg.Unresolved<tg.Command.Arg.Object> {
-			if (!this.#js) {
-				return { args };
+		private async builderArg(
+			arg: tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Command.Arg.Object>>,
+		): Promise<tg.ValueOrMaybeMutationMap<tg.Command.Arg.Object>> {
+			let [js, arg_] = await Promise.all([this.#js, tg.resolve(arg)]);
+			if (
+				!js ||
+				arg_ instanceof tg.Command ||
+				typeof arg_ !== "object" ||
+				arg_ === null ||
+				!("args" in arg_) ||
+				!Array.isArray(arg_.args)
+			) {
+				return arg_;
 			}
-			return tg.resolve(args).then((args) => {
-				if (args === null) {
-					return { args: null };
-				}
-				return {
-					args: args.flatMap((value) => {
-						let value_ =
-							value instanceof tg.Command.Value
-								? value
-								: tg.Command.Value.value(value);
-						return [
-							tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
-							value_,
-						];
-					}),
-				};
-			});
+			let args = encodeJsArgs(arg_.args);
+
+			return { ...arg_, args };
+		}
+
+		private async argsArg(
+			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
+		): Promise<tg.Command.Arg.Object> {
+			let [js, args_] = await Promise.all([this.#js, tg.resolve(args)]);
+			if (!js || args_ === null) {
+				return { args: args_ };
+			}
+			let output = encodeJsArgs(args_);
+
+			return { args: output };
 		}
 
 		private envArg(
@@ -875,4 +882,51 @@ export namespace Command {
 	export namespace Builder {
 		export type EnvMapper<E> = (env: E) => tg.Unresolved<tg.Command.Arg.Env>;
 	}
+}
+
+async function isJsCommandBuilderArg(
+	args: tg.Args<tg.Command.Arg.Object>,
+): Promise<boolean> {
+	let args_ = await Promise.all(args.map(tg.resolve));
+	for (let arg of args_) {
+		if (
+			arg instanceof tg.Command &&
+			tg.Command.Object.isJs(await arg.object())
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function encodeJsArgs(
+	args: Array<tg.Command.Arg.Value>,
+): Array<tg.Command.Value> {
+	let encoded =
+		args.length % 2 === 0 &&
+		args.every((value, index) => {
+			if (index % 2 !== 0) {
+				return value instanceof tg.Command.Value;
+			}
+			let next = args[index + 1];
+			return (
+				value instanceof tg.Command.Value &&
+				value.kind === "string" &&
+				(value.value === "-a" || value.value === "-A") &&
+				next instanceof tg.Command.Value &&
+				value.value === (next.kind === "string" ? "-a" : "-A")
+			);
+		});
+	if (encoded) {
+		return args as Array<tg.Command.Value>;
+	}
+	return args.flatMap((value) => {
+		let value_ =
+			value instanceof tg.Command.Value ? value : tg.Command.Value.value(value);
+		return [
+			tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
+			value_,
+		];
+	});
 }
