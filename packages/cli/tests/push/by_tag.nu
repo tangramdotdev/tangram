@@ -35,6 +35,8 @@ let local_id = tg put 'tg.file("local update")' | str trim
 tg tag put test/1.0.0 $local_id
 let remote_id = tg --url $remote.url put 'tg.file("remote update")' | str trim
 tg --url $remote.url tag put test/1.0.0 $remote_id
+failure (tg --url $remote.url object get $local_id | complete)
 tg push test/1.0.0
 let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
 assert equal $remote_tag.item.id $local_id "the local tag should overwrite the remote tag"
+success (tg --url $remote.url object get $local_id | complete)

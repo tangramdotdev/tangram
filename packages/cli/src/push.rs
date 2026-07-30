@@ -144,10 +144,25 @@ impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let destination = args.destination.to_location()?;
+		let source = tg::Location::Local(tg::location::Local::default());
 
 		// Get the references.
-		let mut items = Vec::with_capacity(args.references.len());
-		for reference in &args.references {
+		let reference_location = Some(source.clone().into());
+		let references = args
+			.references
+			.iter()
+			.map(|reference| {
+				let mut options = reference.options().clone();
+				options.location.clone_from(&reference_location);
+				tg::Reference::new(
+					reference.item().clone(),
+					options,
+					reference.export().map(ToOwned::to_owned),
+				)
+			})
+			.collect::<Vec<_>>();
+		let mut items = Vec::with_capacity(references.len());
+		for reference in &references {
 			let referent = if reference.item().is_specifier() {
 				self.get_reference_with_arg(reference, tg::get::Arg::default())
 					.await?
@@ -175,7 +190,7 @@ impl Cli {
 			process_logs: args.process_logs,
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,
-			source: None,
+			source: Some(source),
 			tag_items: args.tag_items.get(),
 			user_children: args.user_children,
 		};
