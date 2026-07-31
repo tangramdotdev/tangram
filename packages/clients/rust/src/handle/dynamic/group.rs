@@ -12,7 +12,7 @@ impl tg::handle::Group for Handle {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Group>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::group::get::Output>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_group(group, arg)) }
 	}
 

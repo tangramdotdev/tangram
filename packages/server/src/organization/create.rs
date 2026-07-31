@@ -67,7 +67,7 @@ impl Session {
 		let mut output = client.create_organization(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the organization"),
 		)?;
-		self.delete_remote_cache(&remote.name).await?;
+		self.invalidate_remote_cache(&remote.name).await;
 		output.organization.location = Some(tg::Location::Remote(remote));
 
 		Ok(output)
@@ -82,20 +82,16 @@ impl Session {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
 		}
-		if Self::try_get_specifier_with_transaction(transaction, &arg.specifier)
+		if Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
 			.await?
 			.is_some()
 		{
 			return Err(tg::error!("specifier is already in use"));
 		}
 		let id = tg::organization::Id::new();
-		let item = Self::create_specifier_with_transaction(
-			transaction,
-			&id.clone().into(),
-			None,
-			&arg.specifier,
-		)
-		.await?;
+		Self::insert_specifier_with_transaction(transaction, &id.clone().into(), &arg.specifier)
+			.await?;
+		let name = arg.specifier.name().to_owned();
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -104,10 +100,7 @@ impl Session {
 			"
 		);
 		transaction
-			.execute(
-				statement.into(),
-				db::params![id.to_string(), item.name.clone()],
-			)
+			.execute(statement.into(), db::params![id.to_string(), name.clone()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		batch
@@ -115,7 +108,7 @@ impl Session {
 			.push(tangram_index::batch::Item::PutOrganization(
 				tangram_index::organization::put::Arg {
 					id: id.clone(),
-					specifier: item.specifier.clone(),
+					specifier: arg.specifier.clone(),
 				},
 			));
 		if !matches!(
@@ -136,12 +129,12 @@ impl Session {
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;
 		}
-		let token = self.create_read_token(&item.id)?;
+		let token = self.create_read_token(&id.clone().into())?;
 		Ok(tg::Organization {
-			id: item.id.try_into()?,
+			id,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			name: item.name,
-			specifier: item.specifier,
+			name,
+			specifier: arg.specifier,
 			token,
 		})
 	}

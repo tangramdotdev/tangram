@@ -17,35 +17,35 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let resource = tag.clone().into();
-		let Some(item) = self
-			.try_get_specifier(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+		let selector = match tag {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some(output) = self
+			.try_get_with_selector(&selector, arg.location.as_ref(), arg.cached, arg.ttl)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let crate::get::SpecifierOutput {
-			id,
-			location,
-			token,
-		} = item;
+		let tg::get::Item::Id(id) = output.referent.item else {
+			unreachable!();
+		};
 		let Ok(id) = tg::tag::Id::try_from(id) else {
 			return Ok(None);
 		};
-		let location =
-			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let location = output
+			.location
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let token = output.referent.options.token;
 		match location {
-			tg::Location::Local(_) => {
-				let tag = tg::tag::Selector::Id(id);
-				self.try_get_tag_local(&tag, token).await
-			},
+			tg::Location::Local(_) => self.try_get_tag_local(&id, token).await,
 			tg::Location::Remote(remote) => self.try_get_tag_remote(&id, arg, remote, token).await,
 		}
 	}
 
 	async fn try_get_tag_local(
 		&self,
-		tag: &tg::tag::Selector,
+		id: &tg::tag::Id,
 		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let mut connection = self
@@ -58,23 +58,22 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_specifier_by_selector_with_transaction(&transaction, tag).await?
-		else {
-			return Ok(None);
-		};
-		if node.kind() != tg::id::Kind::Tag {
+		if Self::try_get_specifier_for_id_with_transaction(&transaction, &id.clone().into())
+			.await?
+			.is_none()
+		{
 			return Ok(None);
 		}
+		let id = id.clone().into();
 		let visible = self
 			.server
 			.index
-			.visible(std::slice::from_ref(&node.id), &self.context.principal)
+			.visible(std::slice::from_ref(&id), &self.context.principal)
 			.await?
 			.pop()
 			.unwrap() || self
 			.authorize(
-				tg::grant::Resource::Id(node.id.clone()),
+				tg::grant::Resource::Id(id.clone()),
 				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
 			)
 			.await?
@@ -86,7 +85,7 @@ impl Session {
 		if !visible {
 			return Ok(None);
 		}
-		let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
+		let data = Self::get_tag_data_with_transaction(&transaction, &id.try_into()?).await?;
 		Ok(Some(tg::tag::get::Output {
 			data,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -115,10 +114,11 @@ impl Session {
 			arg: arg.clone(),
 			id: id.clone(),
 		});
-		if let Some(crate::remote::cache::Response::TagGet(mut output)) = self
+		if let Some(crate::remote::cache::Response::TagGet(response)) = self
 			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await?
 		{
+			let mut output = response.output;
 			if let Some(tag) = &mut output {
 				tag.token = tag.token.take().or_else(|| token.clone());
 			}
@@ -150,7 +150,10 @@ impl Session {
 		if let Some(tag) = &mut output {
 			tag.token = tag.token.take().or(token);
 		}
-		let response = crate::remote::cache::Response::TagGet(output.clone());
+		let response =
+			crate::remote::cache::Response::TagGet(crate::remote::cache::TagGetResponse {
+				output: output.clone(),
+			});
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(tag) = &mut output {

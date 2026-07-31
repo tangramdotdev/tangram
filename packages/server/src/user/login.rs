@@ -88,13 +88,9 @@ impl Session {
 						)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let node = Self::try_get_specifier_by_id_with_transaction(
-						transaction,
-						&user.id.clone().into(),
-					)
-					.await?
-					.unwrap();
-					let user = Self::user_from_node_with_transaction(transaction, node).await?;
+					let user = Self::try_get_user_with_transaction(transaction, &user.id)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the user"))?;
 					current
 						.server
 						.enqueue_database_outbox_with_transaction(transaction, &batch)
@@ -137,10 +133,11 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 			{
 				let id = row.user.parse::<tg::user::Id>()?;
-				let node = Self::try_get_specifier_by_id_with_transaction(transaction, &id.into())
+				let user = Self::try_get_user_with_transaction(transaction, &id)
 					.await?
 					.ok_or_else(|| tg::error!("invalid user identity"))?;
-				return Self::user_from_node_with_transaction(transaction, node).await;
+
+				return Ok(user);
 			}
 		}
 
@@ -174,22 +171,20 @@ impl Session {
 		}
 
 		// Get or create the user.
-		let user = if let Some(node) =
-			Self::try_get_specifier_with_transaction(transaction, &specifier).await?
+		let user = if let Some(id) =
+			Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
 		{
-			if node.kind() != tg::id::Kind::User {
+			let Ok(id) = id.try_into() else {
 				return Err(tg::error!("specifier is already in use"));
-			}
-			Self::user_from_node_with_transaction(transaction, node).await?
+			};
+			Self::try_get_user_with_transaction(transaction, &id)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the user"))?
 		} else {
 			let id = tg::user::Id::new();
-			let item = Self::create_specifier_with_transaction(
-				transaction,
-				&id.clone().into(),
-				None,
-				&specifier,
-			)
-			.await?;
+			Self::insert_specifier_with_transaction(transaction, &id.clone().into(), &specifier)
+				.await?;
+			let name = specifier.name().to_owned();
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
@@ -198,19 +193,18 @@ impl Session {
 				"
 			);
 			transaction
-				.execute(
-					statement.into(),
-					db::params![id.to_string(), item.name.clone()],
-				)
+				.execute(statement.into(), db::params![id.to_string(), name])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			batch.items.push(tangram_index::batch::Item::PutUser(
 				tangram_index::user::put::Arg {
 					id: id.clone(),
-					specifier: item.specifier.clone(),
+					specifier: specifier.clone(),
 				},
 			));
-			Self::user_from_node_with_transaction(transaction, item).await?
+			Self::try_get_user_with_transaction(transaction, &id)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the user"))?
 		};
 
 		// Insert the identity.

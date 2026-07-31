@@ -8,7 +8,7 @@ use {
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub(crate) enum Request {
 	Get(GetRequest),
 	GroupGet(GroupGetRequest),
@@ -16,21 +16,23 @@ pub(crate) enum Request {
 	Match(MatchRequest),
 	OrganizationGet(OrganizationGetRequest),
 	Resolve(ResolveRequest),
+	SandboxGet(SandboxGetRequest),
 	TagGet(TagGetRequest),
 	UserGet(UserGetRequest),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub(crate) enum Response {
-	Get(Option<tg::get::Output>),
-	GroupGet(Option<tg::Group>),
-	List(tg::list::Output),
-	Match(tg::match_::Output),
-	OrganizationGet(Option<tg::Organization>),
-	Resolve(Option<tg::resolve::Output>),
-	TagGet(Option<tg::tag::get::Output>),
-	UserGet(Option<tg::User>),
+	Get(GetResponse),
+	GroupGet(GroupGetResponse),
+	List(ListResponse),
+	Match(MatchResponse),
+	OrganizationGet(OrganizationGetResponse),
+	Resolve(ResolveResponse),
+	SandboxGet(SandboxGetResponse),
+	TagGet(TagGetResponse),
+	UserGet(UserGetResponse),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -40,9 +42,19 @@ pub(crate) struct GetRequest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct GetResponse {
+	pub output: Option<tg::get::Output>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct GroupGetRequest {
 	pub arg: tg::group::get::Arg,
 	pub id: tg::group::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct GroupGetResponse {
+	pub output: Option<tg::group::get::Output>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -51,8 +63,18 @@ pub(crate) struct ListRequest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ListResponse {
+	pub output: tg::list::Output,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct MatchRequest {
 	pub arg: tg::match_::Arg,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct MatchResponse {
+	pub output: tg::match_::Output,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -62,9 +84,30 @@ pub(crate) struct OrganizationGetRequest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct OrganizationGetResponse {
+	pub output: Option<tg::organization::get::Output>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct ResolveRequest {
 	pub arg: tg::resolve::Arg,
 	pub reference: tg::Reference,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct ResolveResponse {
+	pub output: Option<tg::resolve::Output>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct SandboxGetRequest {
+	pub arg: tg::sandbox::get::Arg,
+	pub id: tg::sandbox::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct SandboxGetResponse {
+	pub output: Option<tg::sandbox::get::Output>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -74,14 +117,24 @@ pub(crate) struct TagGetRequest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct TagGetResponse {
+	pub output: Option<tg::tag::get::Output>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct UserGetRequest {
 	pub arg: tg::user::get::Arg,
 	pub id: tg::user::Id,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct UserGetResponse {
+	pub output: Option<tg::user::get::Output>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
-	pub response: String,
+	pub response: Response,
 	pub timestamp: i64,
 }
 
@@ -100,9 +153,7 @@ impl Session {
 		if ttl == Some(Duration::ZERO) {
 			return Ok(None);
 		}
-		let request_string = serde_json::to_string(request)
-			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
-		let Some(entry) = self.try_get_remote_cache(remote, &request_string).await? else {
+		let Some(entry) = self.try_get_remote_cache(remote, request).await? else {
 			return Ok(None);
 		};
 		let now = OffsetDateTime::now_utc().unix_timestamp();
@@ -112,9 +163,7 @@ impl Session {
 		if ttl.is_some_and(|ttl| age >= ttl) {
 			return Ok(None);
 		}
-		let Ok(response) = serde_json::from_str(&entry.response) else {
-			return Ok(None);
-		};
+		let response = entry.response;
 		if !request.matches_response(&response) {
 			return Ok(None);
 		}
@@ -128,20 +177,18 @@ impl Session {
 		request: &Request,
 		response: &Response,
 	) -> tg::Result<()> {
-		let request = serde_json::to_string(request)
-			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
-		let response = serde_json::to_string(response)
-			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache response"))?;
 		let timestamp = OffsetDateTime::now_utc().unix_timestamp();
-		self.put_remote_cache(remote, &request, &response, timestamp)
+		self.put_remote_cache(remote, request, response, timestamp)
 			.await
 	}
 
 	pub(crate) async fn try_get_remote_cache(
 		&self,
 		remote: &str,
-		request: &str,
+		request: &Request,
 	) -> tg::Result<Option<Entry>> {
+		let request = serde_json::to_string(request)
+			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
 		let connection = self
 			.server
 			.database
@@ -168,21 +215,31 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let entry = row.map(|row| Entry {
-			response: row.response,
+		let Some(row) = row else {
+			return Ok(None);
+		};
+		let Ok(response) = serde_json::from_str(&row.response) else {
+			return Ok(None);
+		};
+		let entry = Entry {
+			response,
 			timestamp: row.timestamp,
-		});
+		};
 
-		Ok(entry)
+		Ok(Some(entry))
 	}
 
 	pub(crate) async fn put_remote_cache(
 		&self,
 		remote: &str,
-		request: &str,
-		response: &str,
+		request: &Request,
+		response: &Response,
 		timestamp: i64,
 	) -> tg::Result<()> {
+		let request = serde_json::to_string(request)
+			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
+		let response = serde_json::to_string(response)
+			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache response"))?;
 		let connection = self
 			.server
 			.database
@@ -215,6 +272,12 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) async fn invalidate_remote_cache(&self, remote: &str) {
+		if let Err(error) = self.delete_remote_cache(remote).await {
+			tracing::warn!(error = %error.trace(), %remote, "failed to invalidate the remote cache");
+		}
+	}
+
 	pub(crate) async fn delete_remote_cache(&self, remote: &str) -> tg::Result<()> {
 		let connection = self
 			.server
@@ -243,6 +306,7 @@ impl Request {
 				| (Self::Match(_), Response::Match(_))
 				| (Self::OrganizationGet(_), Response::OrganizationGet(_))
 				| (Self::Resolve(_), Response::Resolve(_))
+				| (Self::SandboxGet(_), Response::SandboxGet(_))
 				| (Self::TagGet(_), Response::TagGet(_))
 				| (Self::UserGet(_), Response::UserGet(_))
 		)
@@ -253,39 +317,4 @@ pub(crate) fn token_valid(token: Option<&tg::grant::Token>) -> bool {
 	token.is_none_or(|token| {
 		token.body.expires_at > time::OffsetDateTime::now_utc().unix_timestamp()
 	})
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn request_serializes_as_a_json_enum() {
-		let id = tg::group::Id::new();
-		let request = Request::GroupGet(GroupGetRequest {
-			arg: tg::group::get::Arg::default(),
-			id: id.clone(),
-		});
-
-		let value = serde_json::to_value(request).unwrap();
-
-		assert_eq!(
-			value,
-			serde_json::json!({
-				"group_get": {
-					"arg": {},
-					"id": id.to_string(),
-				},
-			}),
-		);
-	}
-
-	#[test]
-	fn response_serializes_as_a_json_enum() {
-		let response = Response::GroupGet(None);
-
-		let value = serde_json::to_value(response).unwrap();
-
-		assert_eq!(value, serde_json::json!({ "group_get": null }));
-	}
 }

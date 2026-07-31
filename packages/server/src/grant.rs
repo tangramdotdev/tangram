@@ -391,6 +391,31 @@ impl Session {
 			.ok_or_else(|| tg::error!("failed to find the resource"))
 	}
 
+	async fn resolve_resource_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		resource: &tg::grant::Resource,
+	) -> tg::Result<Option<tg::Id>> {
+		match resource {
+			tg::grant::Resource::Id(id) => {
+				// Objects, processes, and sandboxes do not have specifiers, so their IDs resolve directly.
+				if id.kind() == tg::id::Kind::Process
+					|| id.kind() == tg::id::Kind::Sandbox
+					|| tg::object::Id::try_from(id.clone()).is_ok()
+				{
+					return Ok(Some(id.clone()));
+				}
+				let specifier =
+					Self::try_get_specifier_for_id_with_transaction(transaction, id).await?;
+				let id = specifier.map(|_| id.clone());
+
+				Ok(id)
+			},
+			tg::grant::Resource::Specifier(specifier) => {
+				Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await
+			},
+		}
+	}
+
 	fn normalize_grant_permissions(
 		resource: &tg::Id,
 		permissions: tg::Either<tg::grant::permission::Set, String>,
@@ -853,7 +878,7 @@ impl Session {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::grant::Principal::Group(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_by_id_with_transaction(
+					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -866,7 +891,7 @@ impl Session {
 				},
 				tg::grant::Principal::Organization(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_by_id_with_transaction(
+					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -884,7 +909,7 @@ impl Session {
 				tg::grant::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
 				tg::grant::Principal::User(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_by_id_with_transaction(
+					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
@@ -897,17 +922,17 @@ impl Session {
 				},
 			},
 			tg::principal::Selector::Specifier(specifier) => {
-				let Some(node) =
-					Self::try_get_specifier_with_transaction(transaction, specifier).await?
+				let Some(id) =
+					Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await?
 				else {
 					return Ok(None);
 				};
-				match node.kind() {
-					tg::id::Kind::Group => tg::grant::Principal::Group(node.id.try_into()?),
+				match id.kind() {
+					tg::id::Kind::Group => tg::grant::Principal::Group(id.try_into()?),
 					tg::id::Kind::Organization => {
-						tg::grant::Principal::Organization(node.id.try_into()?)
+						tg::grant::Principal::Organization(id.try_into()?)
 					},
-					tg::id::Kind::User => tg::grant::Principal::User(node.id.try_into()?),
+					tg::id::Kind::User => tg::grant::Principal::User(id.try_into()?),
 					_ => return Ok(None),
 				}
 			},

@@ -168,11 +168,12 @@ impl Session {
 			});
 
 		// Get a cached response.
-		if let Some(crate::remote::cache::Response::Resolve(mut output)) = self
+		if let Some(crate::remote::cache::Response::Resolve(response)) = self
 			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
+			let mut output = response.output;
 			let valid = output
 				.as_ref()
 				.is_none_or(|output| crate::remote::cache::token_valid(output.referent.token()));
@@ -220,7 +221,10 @@ impl Session {
 				output = event_output;
 			}
 		}
-		let response = crate::remote::cache::Response::Resolve(output.clone());
+		let response =
+			crate::remote::cache::Response::Resolve(crate::remote::cache::ResolveResponse {
+				output: output.clone(),
+			});
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
@@ -251,10 +255,7 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let node = Self::try_get_specifier_by_id_with_transaction(&transaction, &id.clone().into())
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the tag"))?;
-		let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
+		let data = Self::get_tag_data_with_transaction(&transaction, id).await?;
 		let actual: tg::Id = match data.item {
 			tg::tag::data::Item::Object(id) => id.into(),
 			tg::tag::data::Item::Process(id) => id.into(),
@@ -290,16 +291,19 @@ impl Session {
 		let mut pattern = pattern.clone();
 		if !pattern.is_empty() && !pattern.contains_operators() {
 			let specifier = pattern.to_specifier();
-			let item = self
-				.try_get_specifier(
-					&tg::grant::Resource::Specifier(specifier.clone()),
+			let output = self
+				.try_get_with_selector(
+					&tg::Selector::Specifier(specifier.clone()),
 					location,
 					cached,
 					ttl,
 				)
 				.await?;
-			if let Some(item) = item {
-				match item.id.kind() {
+			if let Some(output) = output {
+				let tg::get::Item::Id(id) = output.referent.item else {
+					unreachable!();
+				};
+				match id.kind() {
 					tg::id::Kind::Group => {
 						pattern = tg::specifier::Pattern::any_in_parent(Some(specifier));
 					},
@@ -307,10 +311,10 @@ impl Session {
 						return Ok(tg::match_::Output { data: Vec::new() });
 					},
 					tg::id::Kind::Tag => {
-						let id = tg::tag::Id::try_from(item.id)?;
+						let id = tg::tag::Id::try_from(id)?;
 						let arg = tg::tag::get::Arg {
 							cached,
-							location: item.location.map(Into::into),
+							location: output.location.map(Into::into),
 							ttl,
 						};
 						let Some(output) =

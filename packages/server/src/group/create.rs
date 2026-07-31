@@ -1,5 +1,5 @@
 use {
-	crate::{Session, specifier::Item},
+	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -78,7 +78,7 @@ impl Session {
 		let mut output = client.create_group(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the group"),
 		)?;
-		self.delete_remote_cache(&remote.name).await?;
+		self.invalidate_remote_cache(&remote.name).await;
 		output.group.location = Some(tg::Location::Remote(remote));
 
 		Ok(output)
@@ -90,19 +90,17 @@ impl Session {
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::Group> {
-		if let Some(item) =
-			Self::try_get_specifier_with_transaction(transaction, &arg.specifier).await?
+		if let Some(id) =
+			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?
 		{
-			if arg.parents && item.kind() == tg::id::Kind::Group {
-				let token = self.create_read_token(&item.id)?;
-				return Ok(tg::Group {
-					id: item.id.try_into()?,
-					location: Some(tg::Location::Local(tg::location::Local::default())),
-					name: item.name,
-					parent: item.parent,
-					specifier: item.specifier,
-					token,
-				});
+			if arg.parents && id.kind() == tg::id::Kind::Group {
+				let id = id.try_into()?;
+				let mut group = Self::try_get_group_with_transaction(transaction, &id)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the group"))?;
+				group.token = self.create_read_token(&id.clone().into())?;
+
+				return Ok(group);
 			}
 			return Err(tg::error!("specifier is already in use"));
 		}
@@ -112,18 +110,12 @@ impl Session {
 		} else {
 			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
 		};
-		let item = self
+		let mut group = self
 			.create_group_item_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
 			.await?;
-		let token = self.create_read_token(&item.id)?;
-		Ok(tg::Group {
-			id: item.id.try_into()?,
-			location: Some(tg::Location::Local(tg::location::Local::default())),
-			name: item.name,
-			parent: item.parent,
-			specifier: item.specifier,
-			token,
-		})
+		group.token = self.create_read_token(&group.id.clone().into())?;
+
+		Ok(group)
 	}
 
 	pub(crate) async fn create_parent_groups_with_transaction(
@@ -137,23 +129,25 @@ impl Session {
 		}
 		let mut parent = None;
 		for specifier in specifier.ancestors() {
-			let item =
-				match Self::try_get_specifier_with_transaction(transaction, &specifier).await? {
-					Some(item) => item,
-					None => {
-						self.create_group_item_with_transaction(
-							transaction,
-							&specifier,
-							parent.as_ref(),
-							batch,
-						)
-						.await?
-					},
-				};
-			if item.kind() == tg::id::Kind::Tag {
+			let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
+				.await?
+			{
+				Some(id) => id,
+				None => self
+					.create_group_item_with_transaction(
+						transaction,
+						&specifier,
+						parent.as_ref(),
+						batch,
+					)
+					.await?
+					.id
+					.into(),
+			};
+			if id.kind() == tg::id::Kind::Tag {
 				return Err(tg::error!("a tag cannot be a parent"));
 			}
-			parent = Some(item.id);
+			parent = Some(id);
 		}
 
 		Ok(parent)
@@ -165,15 +159,10 @@ impl Session {
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Item> {
+	) -> tg::Result<tg::Group> {
 		let id = tg::group::Id::new();
-		let item = Self::create_specifier_with_transaction(
-			transaction,
-			&id.clone().into(),
-			parent,
-			specifier,
-		)
-		.await?;
+		Self::insert_specifier_with_transaction(transaction, &id.clone().into(), specifier).await?;
+		let name = specifier.name().to_owned();
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -186,8 +175,8 @@ impl Session {
 				statement.into(),
 				db::params![
 					id.to_string(),
-					item.name.clone(),
-					item.parent.as_ref().map(ToString::to_string)
+					name.clone(),
+					parent.map(ToString::to_string)
 				],
 			)
 			.await
@@ -195,8 +184,8 @@ impl Session {
 		batch.items.push(tangram_index::batch::Item::PutGroup(
 			tangram_index::group::put::Arg {
 				id: id.clone(),
-				parent: item.parent.clone(),
-				specifier: item.specifier.clone(),
+				parent: parent.cloned(),
+				specifier: specifier.clone(),
 			},
 		));
 		if !matches!(
@@ -215,7 +204,16 @@ impl Session {
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;
 		}
-		Ok(item)
+		let group = tg::Group {
+			id,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			name,
+			parent: parent.cloned(),
+			specifier: specifier.clone(),
+			token: None,
+		};
+
+		Ok(group)
 	}
 
 	pub(crate) async fn resolve_parent_for_specifier_with_transaction(
@@ -228,14 +226,14 @@ impl Session {
 		let Some(parent) = specifier.parent() else {
 			return Ok(None);
 		};
-		let parent = Self::try_get_specifier_with_transaction(transaction, &parent)
+		let parent = Self::try_get_id_for_specifier_with_transaction(transaction, &parent)
 			.await?
 			.ok_or_else(|| tg::error!("the parent does not exist"))?;
 		if parent.kind() == tg::id::Kind::Tag {
 			return Err(tg::error!("a tag cannot be a parent"));
 		}
 
-		Ok(Some(parent.id))
+		Ok(Some(parent))
 	}
 
 	pub(crate) async fn create_group_request(

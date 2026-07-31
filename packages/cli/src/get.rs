@@ -67,7 +67,7 @@ impl Cli {
 			ttl: args.ttl.get(),
 			..Default::default()
 		};
-		let referent = self.get_reference_with_arg(&reference, arg).await?;
+		let referent = self.get_with_arg(&reference, arg).await?.referent;
 
 		self.print_get_output(args, referent).await
 	}
@@ -180,9 +180,11 @@ impl Cli {
 				},
 				tg::id::Kind::Sandbox => {
 					let args = crate::sandbox::get::Args {
+						cached: args.cached,
 						locations,
 						print,
 						sandbox: id.try_into()?,
+						ttl: args.ttl,
 					};
 					self.command_sandbox_get(args).await?;
 				},
@@ -197,11 +199,11 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn resolve_reference(
+	pub(crate) async fn resolve(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::get::Item>> {
-		self.resolve_reference_with_arg(reference, tg::resolve::Arg::default())
+		self.resolve_with_arg(reference, tg::resolve::Arg::default())
 			.boxed()
 			.await
 	}
@@ -210,7 +212,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::artifact::Id>> {
-		let referent = self.resolve_reference(reference).await?;
+		let referent = self.resolve(reference).await?;
 		let referent = referent.try_map(|item| match item {
 			tg::get::Item::Id(id) => id
 				.try_into()
@@ -224,7 +226,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::object::Id>> {
-		let referent = self.resolve_reference(reference).await?;
+		let referent = self.resolve(reference).await?;
 		let referent = referent.try_map(|item| match item {
 			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
 			tg::get::Item::Pointer(_) => Err(tg::error!("expected an object")),
@@ -236,7 +238,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::process::Id>> {
-		let referent = self.resolve_reference(reference).await?;
+		let referent = self.resolve(reference).await?;
 		let referent = referent.try_map(|item| match item {
 			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
 			tg::get::Item::Pointer(_) => Err(tg::error!("expected a process")),
@@ -244,17 +246,13 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn get_reference_with_arg(
-		&mut self,
-		reference: &tg::Reference,
-		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<tg::get::Item>> {
-		let output = self.get_reference_output_with_arg(reference, arg).await?;
-
-		Ok(output.referent)
+	pub(crate) async fn get(&mut self, reference: &tg::Reference) -> tg::Result<tg::get::Output> {
+		self.get_with_arg(reference, tg::get::Arg::default())
+			.boxed()
+			.await
 	}
 
-	pub(crate) async fn get_reference_output_with_arg(
+	pub(crate) async fn get_with_arg(
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
@@ -343,7 +341,7 @@ impl Cli {
 		Ok(output)
 	}
 
-	pub(crate) async fn resolve_reference_with_arg(
+	pub(crate) async fn resolve_with_arg(
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::resolve::Arg,
@@ -421,7 +419,7 @@ impl Cli {
 	) -> tg::Result<Vec<tg::Referent<tg::get::Item>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
-			let referent = self.resolve_reference(reference).await?;
+			let referent = self.resolve(reference).await?;
 			referents.push(referent);
 		}
 		Ok(referents)
@@ -443,7 +441,7 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Get the reference.
-		let referent = self.resolve_reference(reference).await?;
+		let referent = self.resolve(reference).await?;
 		let mut referent = referent.into_graph_edge()?;
 		let module = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {

@@ -36,7 +36,7 @@ where
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.try_get_user(user, arg).left_future(),
 			tg::Either::Right(s) => s.try_get_user(user, arg).right_future(),

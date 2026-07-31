@@ -13,7 +13,5 @@ snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
 	   reference = nonexistent/1.0.0
-	-> failed to get the reference
-	   reference = nonexistent/1.0.0
 
 '

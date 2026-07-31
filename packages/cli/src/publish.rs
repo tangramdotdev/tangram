@@ -303,11 +303,10 @@ impl Cli {
 					options,
 				);
 				let referent = self
-					.get_reference_with_arg(&reference, tg::get::Arg::default())
+					.get(&reference)
 					.await
-					.map_err(
-						|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"),
-					)?;
+					.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
+					.referent;
 				let tg::get::Item::Id(id) = referent.item else {
 					return Err(tg::error!(%ancestor, "expected a tag ancestor id"));
 				};

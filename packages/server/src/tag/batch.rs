@@ -105,7 +105,7 @@ impl Session {
 			.post_tag_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tags"))?;
-		self.delete_remote_cache(&remote.name).await?;
+		self.invalidate_remote_cache(&remote.name).await;
 
 		Ok(())
 	}

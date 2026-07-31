@@ -163,12 +163,7 @@ impl Cli {
 			.collect::<Vec<_>>();
 		let mut items = Vec::with_capacity(references.len());
 		for reference in &references {
-			let referent = if reference.item().is_specifier() {
-				self.get_reference_with_arg(reference, tg::get::Arg::default())
-					.await?
-			} else {
-				self.resolve_reference(reference).await?
-			};
+			let referent = self.get(reference).await?.referent;
 			let tg::get::Item::Id(id) = referent.item else {
 				return Err(tg::error!("expected an item id"));
 			};

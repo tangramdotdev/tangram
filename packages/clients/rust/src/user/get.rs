@@ -17,12 +17,29 @@ pub struct Arg {
 	pub ttl: tg::remote::cache::Ttl,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub emails: Vec<String>,
+
+	pub id: tg::user::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	pub name: String,
+
+	pub specifier: tg::Specifier,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+}
+
 impl tg::Session {
 	pub async fn try_get_user(
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		let path = format!("/users/{}", user.to_string().replace('/', ":"));
 		let uri = Uri::builder()
 			.path(&path)

@@ -1,5 +1,5 @@
 use {
-	crate::{Session, specifier::Item},
+	crate::Session,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -13,40 +13,42 @@ impl Session {
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> tg::Result<Option<tg::User>> {
-		let resource = user.clone().into();
-		let Some(item) = self
-			.try_get_specifier(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+	) -> tg::Result<Option<tg::user::get::Output>> {
+		let selector = match user {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some(output) = self
+			.try_get_with_selector(&selector, arg.location.as_ref(), arg.cached, arg.ttl)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let crate::get::SpecifierOutput {
-			id,
-			location,
-			token,
-		} = item;
+		let tg::get::Item::Id(id) = output.referent.item else {
+			unreachable!();
+		};
 		let Ok(id) = tg::user::Id::try_from(id) else {
 			return Ok(None);
 		};
-		let location =
-			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let location = output
+			.location
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let token = output.referent.options.token;
 		match location {
-			tg::Location::Local(_) => {
-				let user = tg::user::Selector::Id(id);
-				self.try_get_user_local(&user, token).await
-			},
+			tg::Location::Local(_) => self.try_get_user_local(&id, token).await,
 			tg::Location::Remote(remote) => self.try_get_user_remote(&id, arg, remote, token).await,
 		}
 	}
 
 	async fn try_get_user_local(
 		&self,
-		user: &tg::user::Selector,
+		id: &tg::user::Id,
 		token: Option<tg::grant::Token>,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		let permission = tg::grant::Permission::User(tg::grant::permission::user::Permission::Read);
-		let authorized = self.authorize(user.clone(), permission).await?;
+		let authorized = self
+			.authorize(tg::user::Selector::Id(id.clone()), permission)
+			.await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
@@ -60,29 +62,49 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_specifier_by_selector_with_transaction(&transaction, user).await?
-		else {
+		let Some(mut user) = Self::try_get_user_with_transaction(&transaction, id).await? else {
 			return Ok(None);
 		};
-		if node.kind() != tg::id::Kind::User {
-			return Ok(None);
-		}
-		let mut user = Self::user_from_node_with_transaction(&transaction, node).await?;
 		user.token = token;
 
 		Ok(Some(user))
 	}
 
-	pub(crate) async fn user_from_node_with_transaction(
+	pub(crate) async fn try_get_user_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		node: Item,
-	) -> tg::Result<tg::User> {
+		id: &tg::user::Id,
+	) -> tg::Result<Option<tg::User>> {
 		#[derive(db::row::Deserialize)]
-		struct Row {
+		struct EmailRow {
 			email: String,
 		}
+
+		#[derive(db::row::Deserialize)]
+		struct UserRow {
+			name: String,
+		}
+
+		let Some(specifier) =
+			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
+				.await?
+		else {
+			return Ok(None);
+		};
 		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from users
+				where id = {p}1;
+			"
+		);
+		let Some(user) = transaction
+			.query_optional_into::<UserRow>(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
 		let statement = formatdoc!(
 			r#"
 				select email
@@ -92,17 +114,19 @@ impl Session {
 			"#
 		);
 		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![node.id.to_string()])
+			.query_all_into::<EmailRow>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(tg::User {
+		let user = tg::User {
 			emails: rows.into_iter().map(|row| row.email).collect(),
-			id: node.id.try_into()?,
+			id: id.clone(),
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			name: node.name,
-			specifier: node.specifier,
+			name: user.name,
+			specifier,
 			token: None,
-		})
+		};
+
+		Ok(Some(user))
 	}
 
 	async fn try_get_user_remote(
@@ -111,7 +135,7 @@ impl Session {
 		mut arg: tg::user::get::Arg,
 		remote: tg::location::Remote,
 		token: Option<tg::grant::Token>,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;
 		arg.cached = false;
@@ -127,10 +151,11 @@ impl Session {
 				arg: arg.clone(),
 				id: id.clone(),
 			});
-		if let Some(crate::remote::cache::Response::UserGet(mut output)) = self
+		if let Some(crate::remote::cache::Response::UserGet(response)) = self
 			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await?
 		{
+			let mut output = response.output;
 			if let Some(user) = &mut output {
 				user.token = user.token.take().or_else(|| token.clone());
 			}
@@ -162,7 +187,10 @@ impl Session {
 		if let Some(user) = &mut output {
 			user.token = user.token.take().or(token);
 		}
-		let response = crate::remote::cache::Response::UserGet(output.clone());
+		let response =
+			crate::remote::cache::Response::UserGet(crate::remote::cache::UserGetResponse {
+				output: output.clone(),
+			});
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(user) = &mut output {

@@ -19,7 +19,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let referent = self.resolve_reference(&args.reference).await?;
+		let referent = self.resolve(&args.reference).await?;
 		let object = referent
 			.into_graph_edge()?
 			.item

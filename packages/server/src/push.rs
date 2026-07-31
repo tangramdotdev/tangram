@@ -421,7 +421,7 @@ impl Session {
 		.await?;
 
 		if let tg::Location::Remote(remote) = &destination {
-			self.delete_remote_cache(&remote.name).await?;
+			self.invalidate_remote_cache(&remote.name).await;
 		}
 		for name in [
 			"groups",

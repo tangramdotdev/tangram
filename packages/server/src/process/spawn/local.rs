@@ -261,6 +261,7 @@ impl Session {
 					sandbox,
 					tg::sandbox::get::Arg {
 						location: arg.location.clone(),
+						..tg::sandbox::get::Arg::default()
 					},
 				)
 				.boxed()

@@ -20,7 +20,7 @@ impl tg::handle::User for Session {
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		self.try_get_user(user, arg).await
 	}
 

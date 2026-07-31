@@ -19,11 +19,11 @@ pub fn metadata(text: &str) -> tg::Result<Option<serde_json::Map<String, serde_j
 	}
 
 	for statement in &output.program.body {
-		let Statement::ExportNamedDeclaration(export) = statement else {
+		let Statement::ExportDeclaration(export) = statement else {
 			continue;
 		};
 
-		let Some(Declaration::VariableDeclaration(var_decl)) = &export.declaration else {
+		let Declaration::VariableDeclaration(var_decl) = &export.declaration else {
 			continue;
 		};
 

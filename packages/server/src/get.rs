@@ -6,9 +6,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-mod specifier;
-
-pub(crate) use specifier::Output as SpecifierOutput;
+mod selector;
 
 impl Session {
 	pub(crate) async fn try_get(
@@ -55,18 +53,14 @@ impl Session {
 					| tg::id::Kind::Tag
 					| tg::id::Kind::User
 			) {
-			let item = self
-				.try_get_specifier(
-					&tg::grant::Resource::Id(id.clone()),
+			let output = self
+				.try_get_with_selector(
+					&tg::Selector::Id(id.clone()),
 					options.location.as_ref(),
 					arg.cached,
 					arg.ttl,
 				)
 				.await?;
-			let output = item.map(|item| tg::get::Output {
-				location: item.location,
-				referent: tg::Referent::with_item_and_token(tg::get::Item::Id(item.id), item.token),
-			});
 			let event = tg::progress::Event::Output(output);
 			let stream = stream::once(future::ok(event));
 
@@ -78,7 +72,9 @@ impl Session {
 				.try_get_sandbox(
 					&id,
 					tg::sandbox::get::Arg {
+						cached: arg.cached,
 						location: options.location.clone(),
+						ttl: arg.ttl,
 					},
 				)
 				.await?;
@@ -202,21 +198,17 @@ impl Session {
 			return Ok(stream.boxed());
 		}
 		let specifier = specifier.to_specifier();
-		let item = self
-			.try_get_specifier(
-				&tg::grant::Resource::Specifier(specifier),
+		let output = self
+			.try_get_with_selector(
+				&tg::Selector::Specifier(specifier),
 				options.location.as_ref(),
 				arg.cached,
 				arg.ttl,
 			)
 			.await?;
-		let Some(item) = item else {
+		let Some(output) = output else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
-		};
-		let output = tg::get::Output {
-			location: item.location,
-			referent: tg::Referent::with_item_and_token(tg::get::Item::Id(item.id), item.token),
 		};
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())

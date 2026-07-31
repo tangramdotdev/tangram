@@ -12,7 +12,7 @@ impl tg::handle::Organization for Session {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<Option<tg::organization::get::Output>> {
 		self.try_get_organization(organization, arg).await
 	}
 

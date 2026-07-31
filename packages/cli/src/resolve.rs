@@ -56,7 +56,7 @@ impl Cli {
 			ttl: args.ttl.get(),
 			..Default::default()
 		};
-		let referent = self.resolve_reference_with_arg(&reference, arg).await?;
+		let referent = self.resolve_with_arg(&reference, arg).await?;
 
 		self.print_get_output(args, referent).await
 	}

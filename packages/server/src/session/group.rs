@@ -12,7 +12,7 @@ impl tg::handle::Group for Session {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::Group>> {
+	) -> tg::Result<Option<tg::group::get::Output>> {
 		self.try_get_group(group, arg).await
 	}
 

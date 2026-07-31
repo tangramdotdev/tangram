@@ -19,7 +19,7 @@ where
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Organization>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::organization::get::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.try_get_organization(organization, arg).left_future(),
 			tg::Either::Right(s) => s.try_get_organization(organization, arg).right_future(),

@@ -12,7 +12,7 @@ impl tg::handle::Organization for tg::Session {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Organization>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::organization::get::Output>>> {
 		self.try_get_organization(organization, arg)
 	}
 

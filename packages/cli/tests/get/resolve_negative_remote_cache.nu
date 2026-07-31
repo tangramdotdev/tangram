@@ -26,7 +26,8 @@ let response = (
 	| first
 	| from json
 )
-assert equal $response { resolve: null }
+assert equal $response.kind resolve
+assert equal $response.output null
 
 # The same negative response should be available after the remote stops.
 let pid = open ($remote.directory | path join lock) | into int

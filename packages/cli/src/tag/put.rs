@@ -32,9 +32,7 @@ impl Cli {
 			checkin: args.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self
-			.resolve_reference_with_arg(&args.reference, arg)
-			.await?;
+		let referent = self.resolve_with_arg(&args.reference, arg).await?;
 		let item = match referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => id
 				.try_into()

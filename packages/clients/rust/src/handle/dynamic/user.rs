@@ -23,7 +23,7 @@ impl tg::handle::User for Handle {
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user(user, arg)) }
 	}
 

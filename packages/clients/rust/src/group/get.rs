@@ -17,12 +17,30 @@ pub struct Arg {
 	pub ttl: tg::remote::cache::Ttl,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub id: tg::group::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	pub name: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Id>,
+
+	pub specifier: tg::Specifier,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+}
+
 impl tg::Session {
 	pub async fn try_get_group(
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::Group>> {
+	) -> tg::Result<Option<tg::group::get::Output>> {
 		let path = format!("/groups/{}", group.to_string().replace('/', ":"));
 		let uri = Uri::builder()
 			.path(&path)

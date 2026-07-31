@@ -101,36 +101,41 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(item) = Self::try_get_specifier_by_id_with_transaction(&transaction, id).await?
+		let Some(specifier) =
+			Self::try_get_specifier_for_id_with_transaction(&transaction, id).await?
 		else {
 			return Ok(None);
 		};
-		if item.id != *id {
-			return Ok(None);
-		}
 		let children = self
-			.sync_put_database_read_children(state, &transaction, &item.id)
+			.sync_put_database_read_children(state, &transaction, id)
 			.await?;
-		let message = match item.id.kind() {
+		let message = match id.kind() {
 			tg::id::Kind::Group => {
-				let id = item.id.try_into()?;
+				let id = id.clone().try_into()?;
+				let group = Self::try_get_group_with_transaction(&transaction, &id)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the group"))?;
 				tg::sync::PutItemMessage::Group(tg::sync::PutItemGroupMessage {
 					id,
-					name: item.name,
-					parent: item.parent,
-					specifier: item.specifier,
+					name: group.name,
+					parent: group.parent,
+					specifier,
 				})
 			},
 			tg::id::Kind::Organization => {
-				let id = item.id.try_into()?;
+				let id = id.clone().try_into()?;
+				let organization = Self::try_get_organization_with_transaction(&transaction, &id)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the organization"))?;
 				tg::sync::PutItemMessage::Organization(tg::sync::PutItemOrganizationMessage {
 					id,
-					name: item.name,
-					specifier: item.specifier,
+					name: organization.name,
+					specifier,
 				})
 			},
 			tg::id::Kind::Tag => {
-				let data = Self::get_tag_data_with_transaction(&transaction, &item).await?;
+				let id = id.clone().try_into()?;
+				let data = Self::get_tag_data_with_transaction(&transaction, &id).await?;
 				let id = data.id;
 				let item = match data.item {
 					tg::tag::data::Item::Object(id) => id.into(),
@@ -146,11 +151,15 @@ impl Session {
 				})
 			},
 			tg::id::Kind::User => {
-				let id = item.id.try_into()?;
+				let id = id.clone().try_into()?;
+				let user = Self::try_get_user_with_transaction(&transaction, &id)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the user"))?;
 				tg::sync::PutItemMessage::User(tg::sync::PutItemUserMessage {
+					emails: user.emails,
 					id,
-					name: item.name,
-					specifier: item.specifier,
+					name: user.name,
+					specifier,
 				})
 			},
 			_ => return Err(tg::error!(%id, "invalid database item kind")),
@@ -177,14 +186,10 @@ impl Session {
 			return Ok(Vec::new());
 		}
 		if id.kind() == tg::id::Kind::Tag {
-			let item = Self::get_tag_data_with_transaction(
-				transaction,
-				&Self::try_get_specifier_by_id_with_transaction(transaction, id)
-					.await?
-					.unwrap(),
-			)
-			.await?
-			.item;
+			let id = id.clone().try_into()?;
+			let item = Self::get_tag_data_with_transaction(transaction, &id)
+				.await?
+				.item;
 			let id = match item {
 				tg::tag::data::Item::Object(id) => id.into(),
 				tg::tag::data::Item::Process(id) => id.into(),

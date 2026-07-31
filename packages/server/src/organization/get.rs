@@ -12,29 +12,29 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> tg::Result<Option<tg::Organization>> {
-		let resource = organization.clone().into();
-		let Some(item) = self
-			.try_get_specifier(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+	) -> tg::Result<Option<tg::organization::get::Output>> {
+		let selector = match organization {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some(output) = self
+			.try_get_with_selector(&selector, arg.location.as_ref(), arg.cached, arg.ttl)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let crate::get::SpecifierOutput {
-			id,
-			location,
-			token,
-		} = item;
+		let tg::get::Item::Id(id) = output.referent.item else {
+			unreachable!();
+		};
 		let Ok(id) = tg::organization::Id::try_from(id) else {
 			return Ok(None);
 		};
-		let location =
-			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let location = output
+			.location
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let token = output.referent.options.token;
 		match location {
-			tg::Location::Local(_) => {
-				let organization = tg::organization::Selector::Id(id);
-				self.try_get_organization_local(&organization, token).await
-			},
+			tg::Location::Local(_) => self.try_get_organization_local(&id, token).await,
 			tg::Location::Remote(remote) => {
 				self.try_get_organization_remote(&id, arg, remote, token)
 					.await
@@ -44,13 +44,15 @@ impl Session {
 
 	async fn try_get_organization_local(
 		&self,
-		organization: &tg::organization::Selector,
+		id: &tg::organization::Id,
 		token: Option<tg::grant::Token>,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let permission = tg::grant::Permission::Organization(
 			tg::grant::permission::organization::Permission::Read,
 		);
-		let authorized = self.authorize(organization.clone(), permission).await?;
+		let authorized = self
+			.authorize(tg::organization::Selector::Id(id.clone()), permission)
+			.await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
@@ -64,22 +66,14 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_specifier_by_selector_with_transaction(&transaction, organization)
-				.await?
+		let Some(mut organization) =
+			Self::try_get_organization_with_transaction(&transaction, id).await?
 		else {
 			return Ok(None);
 		};
-		if node.kind() != tg::id::Kind::Organization {
-			return Ok(None);
-		}
-		Ok(Some(tg::Organization {
-			id: node.id.try_into()?,
-			location: Some(tg::Location::Local(tg::location::Local::default())),
-			name: node.name,
-			specifier: node.specifier,
-			token,
-		}))
+		organization.token = token;
+
+		Ok(Some(organization))
 	}
 
 	async fn try_get_organization_remote(
@@ -88,7 +82,7 @@ impl Session {
 		mut arg: tg::organization::get::Arg,
 		remote: tg::location::Remote,
 		token: Option<tg::grant::Token>,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;
 		arg.cached = false;
@@ -105,10 +99,11 @@ impl Session {
 				id: id.clone(),
 			},
 		);
-		if let Some(crate::remote::cache::Response::OrganizationGet(mut output)) = self
+		if let Some(crate::remote::cache::Response::OrganizationGet(response)) = self
 			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await?
 		{
+			let mut output = response.output;
 			if let Some(organization) = &mut output {
 				organization.token = organization.token.take().or_else(|| token.clone());
 			}
@@ -142,7 +137,11 @@ impl Session {
 		if let Some(organization) = &mut output {
 			organization.token = organization.token.take().or(token);
 		}
-		let response = crate::remote::cache::Response::OrganizationGet(output.clone());
+		let response = crate::remote::cache::Response::OrganizationGet(
+			crate::remote::cache::OrganizationGetResponse {
+				output: output.clone(),
+			},
+		);
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(organization) = &mut output {

@@ -12,7 +12,7 @@ impl tg::handle::Organization for Server {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<Option<tg::organization::get::Output>> {
 		self.session(&self.context)
 			.try_get_organization(organization, arg)
 			.await

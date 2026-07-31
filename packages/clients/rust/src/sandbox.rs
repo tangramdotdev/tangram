@@ -178,6 +178,7 @@ impl Sandbox {
 		}
 		let arg = tg::sandbox::get::Arg {
 			location: self.location(),
+			..tg::sandbox::get::Arg::default()
 		};
 		let Some(output) = handle.try_get_sandbox(self.id(), arg).await? else {
 			return Ok(None);

@@ -111,9 +111,7 @@ impl AlternateScreen {
 impl Cli {
 	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
 		// Get the item.
-		let output = self
-			.get_reference_output_with_arg(&args.reference, tg::get::Arg::default())
-			.await?;
+		let output = self.get(&args.reference).await?;
 		let client = self.client().await?;
 		let root = get_item(&client, output).await?;
 
@@ -243,6 +241,7 @@ async fn get_item(
 				let id = id.try_into()?;
 				let arg = tg::sandbox::get::Arg {
 					location: location.clone(),
+					..tg::sandbox::get::Arg::default()
 				};
 				let output = client
 					.try_get_sandbox(&id, arg)

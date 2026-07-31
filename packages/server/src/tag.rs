@@ -14,35 +14,43 @@ use {
 impl Session {
 	pub(crate) async fn get_tag_data_with_transaction(
 		transaction: &Transaction<'_>,
-		node: &crate::specifier::Item,
+		id: &tg::tag::Id,
 	) -> tg::Result<tg::tag::Data> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			item: String,
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
 			permissions: String,
 		}
+
+		let specifier =
+			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the tag"))?;
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select item, permissions
+				select item, name, parent, permissions
 				from tags
 				where id = {p}1;
 			"
 		);
 		let row = transaction
-			.query_one_into::<Row>(statement.into(), db::params![node.id.to_string()])
+			.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let item = Self::parse_tag_item(&row.item)?;
 		let permissions = serde_json::from_str(&row.permissions)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 		Ok(tg::tag::Data {
-			id: node.id.clone().try_into()?,
+			id: id.clone(),
 			item,
-			name: node.name.clone(),
-			parent: node.parent.clone(),
+			name: row.name,
+			parent: row.parent,
 			permissions,
-			specifier: node.specifier.clone(),
+			specifier,
 		})
 	}
 

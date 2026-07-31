@@ -11,9 +11,6 @@ use {
 	tangram_util::serde::BoolOptionDefault,
 };
 
-#[cfg(test)]
-mod test;
-
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]

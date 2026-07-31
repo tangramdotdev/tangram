@@ -20,7 +20,7 @@ pub trait User: Send + Sync + 'static {
 		&'a self,
 		user: &'a tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::User>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::user::get::Output>>>;
 
 	fn wait_login(
 		&self,
@@ -54,7 +54,7 @@ where
 		&'a self,
 		user: &'a tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::User>>> {
+	) -> BoxFuture<'a, tg::Result<Option<tg::user::get::Output>>> {
 		self.try_get_user(user, arg).boxed()
 	}
 

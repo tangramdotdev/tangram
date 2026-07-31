@@ -302,12 +302,15 @@ pub struct PutItemTagMessage {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutItemUserMessage {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::user::Id,
+	pub emails: Vec<String>,
 
 	#[tangram_serialize(id = 1)]
-	pub name: String,
+	pub id: tg::user::Id,
 
 	#[tangram_serialize(id = 2)]
+	pub name: String,
+
+	#[tangram_serialize(id = 3)]
 	pub specifier: tg::Specifier,
 }
 

@@ -126,9 +126,9 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let by_id = Self::try_get_specifier_by_id_with_transaction(&transaction, &id).await?;
+		let by_id = Self::try_get_specifier_for_id_with_transaction(&transaction, &id).await?;
 		let by_specifier =
-			Self::try_get_specifier_with_transaction(&transaction, item.specifier()).await?;
+			Self::try_get_id_for_specifier_with_transaction(&transaction, item.specifier()).await?;
 		Self::sync_get_database_validate_id_and_specifier(
 			&id,
 			item.specifier(),
@@ -167,8 +167,9 @@ impl Session {
 		// Validate the ID and specifier.
 		let id = item.id();
 		let specifier = item.specifier();
-		let by_id = Self::try_get_specifier_by_id_with_transaction(transaction, &id).await?;
-		let by_specifier = Self::try_get_specifier_with_transaction(transaction, specifier).await?;
+		let by_id = Self::try_get_specifier_for_id_with_transaction(transaction, &id).await?;
+		let by_specifier =
+			Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await?;
 		Self::sync_get_database_validate_id_and_specifier(
 			&id,
 			specifier,
@@ -189,13 +190,14 @@ impl Session {
 			));
 		}
 		let parent = if let Some(parent_specifier) = specifier.parent() {
-			let parent = Self::try_get_specifier_with_transaction(transaction, &parent_specifier)
-				.await?
-				.ok_or_else(|| tg::error!("the parent does not exist"))?;
+			let parent =
+				Self::try_get_id_for_specifier_with_transaction(transaction, &parent_specifier)
+					.await?
+					.ok_or_else(|| tg::error!("the parent does not exist"))?;
 			if parent.kind() == tg::id::Kind::Tag {
 				return Err(tg::error!("a tag cannot be a parent"));
 			}
-			Some(parent.id)
+			Some(parent)
 		} else {
 			None
 		};
@@ -205,8 +207,7 @@ impl Session {
 
 		// Create the specifier.
 		if created {
-			Self::create_specifier_with_transaction(transaction, &id, parent.as_ref(), specifier)
-				.await?;
+			Self::insert_specifier_with_transaction(transaction, &id, specifier).await?;
 		}
 
 		// Upsert the concrete item and create the index mutation.
@@ -328,6 +329,26 @@ impl Session {
 					)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				let statement = format!(r#"delete from user_emails where "user" = {p}1;"#);
+				transaction
+					.execute(statement.into(), db::params![message.id.to_string()])
+					.await
+					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				for email in &message.emails {
+					let statement = formatdoc!(
+						r#"
+							insert into user_emails ("user", email)
+							values ({p}1, {p}2);
+						"#
+					);
+					transaction
+						.execute(
+							statement.into(),
+							db::params![message.id.to_string(), email.clone()],
+						)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				}
 				batch.items.push(tangram_index::batch::Item::PutUser(
 					tangram_index::user::put::Arg {
 						id: message.id.clone(),
@@ -343,13 +364,13 @@ impl Session {
 	fn sync_get_database_validate_id_and_specifier(
 		id: &tg::Id,
 		specifier: &tg::Specifier,
-		by_id: Option<&crate::specifier::Item>,
-		by_specifier: Option<&crate::specifier::Item>,
+		by_id: Option<&tg::Specifier>,
+		by_specifier: Option<&tg::Id>,
 	) -> tg::Result<()> {
-		if by_id.is_some_and(|item| item.specifier != *specifier) {
+		if by_id.is_some_and(|candidate| candidate != specifier) {
 			return Err(tg::error!("the id is already in use"));
 		}
-		if by_specifier.is_some_and(|item| item.id != *id) {
+		if by_specifier.is_some_and(|candidate| candidate != id) {
 			return Err(tg::error!("the specifier is already in use"));
 		}
 

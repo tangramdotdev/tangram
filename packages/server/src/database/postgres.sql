@@ -7,7 +7,8 @@ create unique index specifiers_specifier_index on specifiers (specifier);
 
 create table users (
 	id text primary key,
-	name text not null
+	name text not null,
+	foreign key (id) references specifiers (id)
 );
 
 create table user_emails (
@@ -70,21 +71,25 @@ create table github_identities (
 create table groups (
 	id text primary key,
 	name text not null,
-	parent text
+	parent text,
+	foreign key (id) references specifiers (id),
+	foreign key (parent) references specifiers (id)
 );
 
 create index groups_parent_index on groups (parent);
 
 create table organizations (
 	id text primary key,
-	name text not null
+	name text not null,
+	foreign key (id) references specifiers (id)
 );
 
 create table group_members (
 	"group" text not null,
 	member text not null,
 	primary key ("group", member),
-	foreign key ("group") references groups (id)
+	foreign key ("group") references groups (id),
+	foreign key (member) references specifiers (id)
 );
 
 create index group_members_member_index on group_members (member);
@@ -93,7 +98,8 @@ create table organization_members (
 	organization text not null,
 	member text not null,
 	primary key (organization, member),
-	foreign key (organization) references organizations (id)
+	foreign key (organization) references organizations (id),
+	foreign key (member) references specifiers (id)
 );
 
 create index organization_members_member_index on organization_members (member);
@@ -116,7 +122,9 @@ create table tags (
 	name text not null,
 	parent text,
 	item text not null,
-	permissions text not null
+	permissions text not null,
+	foreign key (id) references specifiers (id),
+	foreign key (parent) references specifiers (id)
 );
 
 create index tags_parent_index on tags (parent);

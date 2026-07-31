@@ -116,16 +116,16 @@ impl Session {
 	) -> tg::Result<Vec<tg::tag::Data>> {
 		if !recursive && !pattern.contains_operators() {
 			let specifier = pattern.clone().try_into()?;
-			let Some(node) =
-				Self::try_get_specifier_with_transaction(transaction, &specifier).await?
+			let Some(id) =
+				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
 			else {
 				return Ok(Vec::new());
 			};
-			if node.kind() != tg::id::Kind::Tag {
+			let Ok(id) = id.try_into() else {
 				return Ok(Vec::new());
-			}
+			};
 			return Ok(vec![
-				Self::get_tag_data_with_transaction(transaction, &node).await?,
+				Self::get_tag_data_with_transaction(transaction, &id).await?,
 			]);
 		}
 		let entries = self
@@ -147,12 +147,15 @@ impl Session {
 			if !matches {
 				continue;
 			}
-			let Some(node) =
-				Self::try_get_specifier_with_transaction(transaction, &specifier).await?
+			let Some(id) =
+				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
 			else {
 				continue;
 			};
-			tags.push(Self::get_tag_data_with_transaction(transaction, &node).await?);
+			let Ok(id) = id.try_into() else {
+				continue;
+			};
+			tags.push(Self::get_tag_data_with_transaction(transaction, &id).await?);
 		}
 		tags.sort_by(|a, b| {
 			let a_depth = a.specifier.components().count();
@@ -176,7 +179,7 @@ impl Session {
 		let output = client.delete_tags(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to delete the tags"),
 		)?;
-		self.delete_remote_cache(&remote.name).await?;
+		self.invalidate_remote_cache(&remote.name).await;
 
 		Ok(output)
 	}

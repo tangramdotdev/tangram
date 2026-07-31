@@ -582,7 +582,7 @@ impl Cli {
 			checkin: options.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self.resolve_reference_with_arg(&reference, arg).await?;
+		let referent = self.resolve_with_arg(&reference, arg).await?;
 		let mut referent = referent.into_graph_edge()?;
 
 		// Create the command builder.

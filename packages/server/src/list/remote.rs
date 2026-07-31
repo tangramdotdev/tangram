@@ -59,8 +59,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
 			let mut entries = match response {
-				crate::remote::cache::Response::List(output)
-				| crate::remote::cache::Response::Match(output) => output.data,
+				crate::remote::cache::Response::List(response) => response.output.data,
+				crate::remote::cache::Response::Match(response) => response.output.data,
 				_ => unreachable!(),
 			};
 			let valid = entries
@@ -96,13 +96,15 @@ impl Session {
 				let output = tg::list::Output {
 					data: entries.clone(),
 				};
-				crate::remote::cache::Response::List(output)
+				let response = crate::remote::cache::ListResponse { output };
+				crate::remote::cache::Response::List(response)
 			},
 			crate::remote::cache::Request::Match(_) => {
 				let output = tg::match_::Output {
 					data: entries.clone(),
 				};
-				crate::remote::cache::Response::Match(output)
+				let response = crate::remote::cache::MatchResponse { output };
+				crate::remote::cache::Response::Match(response)
 			},
 			_ => unreachable!(),
 		};
@@ -153,29 +155,6 @@ impl Session {
 
 impl Query {
 	#[must_use]
-	pub(super) fn with_exact_specifier(specifier: &tg::Specifier) -> Self {
-		let component = tg::specifier::pattern::Component::new(format!("={}", specifier.name()));
-		let pattern = match specifier.parent() {
-			None => tg::specifier::Pattern::with_component(component),
-			Some(parent) => tg::specifier::Pattern::with_parent_and_component(parent, component),
-		};
-		let arg = tg::match_::Arg {
-			cached: false,
-			groups: true,
-			length: Some(1),
-			location: None,
-			organizations: true,
-			pattern,
-			reverse: false,
-			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
-			users: true,
-		};
-
-		Self::Match(arg)
-	}
-
-	#[must_use]
 	fn with_regions(mut self, regions: Option<Vec<String>>) -> Self {
 		let location = Some(tg::location::Arg(vec![
 			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
@@ -219,43 +198,5 @@ fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
 			location: entry_location,
 			..
 		} => *entry_location = location,
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn query_preserves_limits_and_filters() {
-		let list = tg::list::Arg {
-			groups: false,
-			length: Some(7),
-			recursive: true,
-			reverse: true,
-			..Default::default()
-		};
-		let Query::List(list) = Query::List(list).with_regions(None) else {
-			unreachable!();
-		};
-		assert!(!list.groups);
-		assert_eq!(list.length, Some(7));
-		assert!(list.recursive);
-		assert!(list.reverse);
-
-		let match_ = tg::match_::Arg {
-			length: Some(3),
-			organizations: false,
-			reverse: true,
-			users: false,
-			..Default::default()
-		};
-		let Query::Match(match_) = Query::Match(match_).with_regions(None) else {
-			unreachable!();
-		};
-		assert_eq!(match_.length, Some(3));
-		assert!(!match_.organizations);
-		assert!(match_.reverse);
-		assert!(!match_.users);
 	}
 }

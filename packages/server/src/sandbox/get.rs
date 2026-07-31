@@ -44,7 +44,7 @@ impl Session {
 		}
 
 		if let Some(output) = self
-			.try_get_sandbox_remotes(id, &locations.remotes)
+			.try_get_sandbox_remotes(id, &locations.remotes, arg.cached, arg.ttl)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))?
 		{
@@ -227,6 +227,7 @@ impl Session {
 		});
 		let arg = tg::sandbox::get::Arg {
 			location: Some(location.clone().into()),
+			..tg::sandbox::get::Arg::default()
 		};
 		let Some(mut output) = client
 			.try_get_sandbox(id, arg)
@@ -243,56 +244,100 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		remotes: &[crate::location::Remote],
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let mut futures = remotes
+		let results = remotes
 			.iter()
-			.map(|remote| self.try_get_sandbox_remote(id, remote))
-			.collect::<FuturesUnordered<_>>();
-		let mut result = Ok(None);
-		while let Some(next) = futures.next().await {
-			match next {
-				Ok(Some(output)) => {
-					result = Ok(Some(output));
-					break;
-				},
-				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
-				},
+			.map(|remote| async move {
+				let name = remote.name.clone();
+				let result = self.try_get_sandbox_remote(id, remote, cached, ttl).await;
+				(name, result)
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
+		let mut results = results;
+		results.sort_by(|a, b| a.0.cmp(&b.0));
+		let mut output = None;
+		for (name, result) in results {
+			let result = result
+				.map_err(|error| tg::error!(!error, remote = %name, "failed to get the sandbox"))?;
+			if output.is_none() {
+				output = result;
 			}
 		}
-		let Some(output) = result? else {
-			return Ok(None);
-		};
-		Ok(Some(output))
+
+		Ok(output)
 	}
 
 	async fn try_get_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
 		remote: &crate::location::Remote,
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
-		)?;
+		// Create the remote request.
 		let arg = tg::sandbox::get::Arg {
+			cached: false,
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			ttl: tg::remote::cache::Ttl::default(),
 		};
-		let Some(mut output) = client.try_get_sandbox(id, arg).await.map_err(
-			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the sandbox"),
-		)?
-		else {
+		let request =
+			crate::remote::cache::Request::SandboxGet(crate::remote::cache::SandboxGetRequest {
+				arg: arg.clone(),
+				id: id.clone(),
+			});
+
+		// Get a cached response.
+		if let Some(crate::remote::cache::Response::SandboxGet(response)) = self
+			.try_get_cached_remote_response(&remote.name, &request, ttl)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
+		{
+			let mut output = response.output;
+			let valid = output
+				.as_ref()
+				.is_none_or(|output| crate::remote::cache::token_valid(output.token.as_ref()));
+			if valid || cached {
+				if let Some(output) = &mut output {
+					if !crate::remote::cache::token_valid(output.token.as_ref()) {
+						output.token = None;
+					}
+					set_remote_location(output, remote);
+				}
+
+				return Ok(output);
+			}
+		}
+		if cached {
 			return Ok(None);
-		};
-		output.location = Some(tg::Location::Remote(tg::location::Remote {
-			name: remote.name.clone(),
-			region: None,
-		}));
-		Ok(Some(output))
+		}
+
+		// Get the sandbox from the remote.
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let mut output = client.try_get_sandbox(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the sandbox"),
+		)?;
+		let response =
+			crate::remote::cache::Response::SandboxGet(crate::remote::cache::SandboxGetResponse {
+				output: output.clone(),
+			});
+		self.put_cached_remote_response(&remote.name, &request, &response)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		if let Some(output) = &mut output {
+			set_remote_location(output, remote);
+		}
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_sandbox_request(
@@ -340,4 +385,15 @@ impl Session {
 		}
 		Ok(response.body(body).unwrap())
 	}
+}
+
+fn set_remote_location(output: &mut tg::sandbox::get::Output, remote: &crate::location::Remote) {
+	let region = match output.location.as_ref() {
+		Some(tg::Location::Local(local)) => local.region.clone(),
+		_ => None,
+	};
+	output.location = Some(tg::Location::Remote(tg::location::Remote {
+		name: remote.name.clone(),
+		region,
+	}));
 }

@@ -20,7 +20,7 @@ let requests = (
 	| get request
 	| each { from json }
 )
-let request_kinds = $requests | each { columns | first }
+let request_kinds = $requests | get kind
 assert (
 	$request_kinds | all { $in in [get group_get] }
 ) "an exact get should not use list or match"
