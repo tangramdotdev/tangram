@@ -121,6 +121,28 @@ pub(crate) async fn spawn(
 			.arg("--guest-ip")
 			.arg(network.guest_ip().to_string());
 	}
+	if let Some(fuse_fd) = &arg.fuse_fd {
+		command
+			.arg("--fuse-fd")
+			.arg(fuse_fd.as_raw_fd().to_string())
+			.arg("--fuse-path")
+			.arg(&arg.artifacts_path);
+		// Clear CLOEXEC on the FUSE socket after forking so only the sandbox inherits it.
+		let raw = fuse_fd.as_raw_fd();
+		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
+		unsafe {
+			command.pre_exec(move || {
+				let flags = libc::fcntl(raw, libc::F_GETFD);
+				if flags < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+				if libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+					return Err(std::io::Error::last_os_error());
+				}
+				Ok(())
+			});
+		}
+	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
 	}

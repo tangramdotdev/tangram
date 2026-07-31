@@ -1110,6 +1110,8 @@ fn build_cloud_hypervisor_mount_arg(
 		command: Vec::new(),
 		devs: Vec::new(),
 		die_with_parent: false,
+		fuse_fd: None,
+		fuse_path: None,
 		gateway_ip: None,
 		gid: 0,
 		guest_ip: None,

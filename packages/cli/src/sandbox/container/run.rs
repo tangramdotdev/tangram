@@ -38,6 +38,12 @@ pub struct Args {
 	pub die_with_parent: bool,
 
 	#[arg(long)]
+	pub fuse_fd: Option<i32>,
+
+	#[arg(long)]
+	pub fuse_path: Option<PathBuf>,
+
+	#[arg(long)]
 	pub gateway_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
@@ -124,6 +130,8 @@ impl Args {
 			command: self.command,
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,
+			fuse_fd: self.fuse_fd,
+			fuse_path: self.fuse_path,
 			gateway_ip: self.gateway_ip,
 			gid: self.gid,
 			guest_ip: self.guest_ip,

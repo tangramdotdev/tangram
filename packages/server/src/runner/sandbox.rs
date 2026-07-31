@@ -67,9 +67,6 @@ struct CreateSandboxOutput {
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
 	#[cfg(target_os = "linux")]
-	vfs_mount: Option<std::path::PathBuf>,
-	/// The principal served by the per-sandbox VFS, initially unbound.
-	#[cfg(target_os = "linux")]
 	vfs_principal: Option<Arc<std::sync::Mutex<Option<tg::Principal>>>>,
 }
 
@@ -517,7 +514,7 @@ impl Session {
 		#[cfg(target_os = "linux")]
 		let principal = Arc::new(std::sync::Mutex::new(None));
 		#[cfg(target_os = "linux")]
-		let (vfs, vfs_mount) = match &isolation {
+		let (vfs, vfs_task, vfs_mount, fuse_sendfd) = match &isolation {
 			tangram_sandbox::Isolation::Vm(vm) => {
 				let socket = temp.path().join("vfs.sock");
 				let vfs = crate::vfs::Server::start_virtiofs(
@@ -530,7 +527,7 @@ impl Session {
 				.map_err(|error| {
 					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
 				})?;
-				(Some(vfs), None)
+				(Some(vfs), None, None, None)
 			},
 			tangram_sandbox::Isolation::Container(_) if self.server.config.vfs.is_some() => {
 				let mount_path = temp.path().join("artifacts");
@@ -539,24 +536,38 @@ impl Session {
 					.map_err(|error| {
 						tg::error!(!error, "failed to create the artifacts mount directory")
 					})?;
-				let options = self.server.config.vfs.clone().unwrap_or_default();
-				let vfs = crate::vfs::Server::start(
-					&self.server,
-					crate::vfs::Kind::Fuse,
-					&mount_path,
-					options,
-					principal.clone(),
+
+				// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
+				let (sendfd, recvfd) = rustix::net::socketpair(
+					rustix::net::AddressFamily::UNIX,
+					rustix::net::SocketType::STREAM,
+					rustix::net::SocketFlags::CLOEXEC,
+					None,
 				)
-				.await
-				.map_err(|error| {
-					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
-				})?;
-				(Some(vfs), Some(mount_path))
+				.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
+
+				// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
+				let options = self.server.config.vfs.clone().unwrap_or_default();
+				let vfs_task = Task::spawn({
+					let server = self.server.clone();
+					let principal = principal.clone();
+					let mount_path = mount_path.clone();
+					move |_| async move {
+						crate::vfs::Server::start(
+							&server,
+							crate::vfs::Kind::Fuse,
+							&mount_path,
+							options,
+							principal,
+							Some(recvfd),
+						)
+						.await
+					}
+				});
+				(None, Some(vfs_task), Some(mount_path), Some(sendfd))
 			},
-			_ => (None, None),
+			_ => (None, None, None, None),
 		};
-		#[cfg(target_os = "linux")]
-		let vfs_principal = vfs.is_some().then_some(principal);
 
 		// Create the listener.
 		let (listener, guest_url, tangram_socket_path) =
@@ -603,6 +614,8 @@ impl Session {
 				},
 				crate::config::SandboxNetworkFirewall::Nft => tangram_sandbox::Firewall::Nft,
 			},
+			#[cfg(target_os = "linux")]
+			fuse_fd: fuse_sendfd.map(Arc::new),
 			hostname: arg.hostname,
 			id: self.server.runner.state.create_sandbox_id(),
 			identity: self.server.path.clone(),
@@ -622,6 +635,24 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, ?expected_id, "failed to create the sandbox"))?;
 
+		// Wait for the per-sandbox VFS, which finishes starting once the sandbox mounts the filesystem and sends the FUSE descriptor.
+		#[cfg(target_os = "linux")]
+		let vfs = match vfs_task {
+			None => vfs,
+			Some(vfs_task) => {
+				let vfs = vfs_task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the VFS startup task panicked"))?
+					.map_err(|error| {
+						tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+					})?;
+				Some(vfs)
+			},
+		};
+		#[cfg(target_os = "linux")]
+		let vfs_principal = vfs.is_some().then_some(principal);
+
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
 			let server = self.server.clone();
@@ -640,8 +671,6 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
-			#[cfg(target_os = "linux")]
-			vfs_mount,
 			#[cfg(target_os = "linux")]
 			vfs_principal,
 		};
@@ -672,8 +701,6 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
-			#[cfg(target_os = "linux")]
-			vfs_mount,
 			#[cfg(target_os = "linux")]
 			vfs_principal,
 		} = create_output;
@@ -720,19 +747,11 @@ impl Session {
 		};
 		let result = self.run_sandbox_task(arg).boxed().await;
 
-		// Stop the per-sandbox VFS before retaining the destroyed sandbox state.
+		// Stop the VFS.
 		#[cfg(target_os = "linux")]
-		{
-			if let Some(mount_path) = vfs_mount
-				&& let Err(error) =
-					crate::vfs::Server::unmount(crate::vfs::Kind::Fuse, &mount_path).await
-			{
-				tracing::error!(?error, %id, "failed to unmount the per-sandbox VFS");
-			}
-			if let Some(vfs) = vfs {
-				vfs.stop();
-				vfs.wait().await;
-			}
+		if let Some(vfs) = vfs {
+			vfs.stop();
+			vfs.wait().await;
 		}
 		drop(temp);
 

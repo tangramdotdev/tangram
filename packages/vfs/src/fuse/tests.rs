@@ -114,6 +114,7 @@ where
 {
 	Server(Arc::new(State {
 		active_requests: Mutex::new(HashMap::new()),
+		auto_unmount: true,
 		no_opendir_support: false,
 		passthrough_backings: Mutex::new(PassthroughBackings::default()),
 		passthrough_enabled,
@@ -233,8 +234,7 @@ fn parses_fuse_connection_ids_without_accessing_the_mount() {
 		"21 20 0:42 / /tmp/mount\\040point rw - fuse tangram rw\n",
 	);
 	let connection_id =
-		Server::<TestProvider>::parse_connection_id(mountinfo, Path::new("/tmp/mount point"))
-			.unwrap();
+		connection::parse_connection_id(mountinfo, Path::new("/tmp/mount point")).unwrap();
 
 	assert_eq!(connection_id, libc::makedev(0, 42));
 }

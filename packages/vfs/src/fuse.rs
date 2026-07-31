@@ -14,8 +14,8 @@ use {
 		io::{Errno, FdFlags, IoSlice, IoSliceMut},
 		ioctl,
 		net::{
-			AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SocketFlags,
-			SocketType,
+			AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags,
+			SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketFlags, SocketType,
 		},
 	},
 	std::{
@@ -24,7 +24,7 @@ use {
 		io::Error,
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
-		os::fd::{AsRawFd as _, OwnedFd, RawFd},
+		os::fd::{AsFd as _, AsRawFd as _, OwnedFd, RawFd},
 		os::unix::ffi::OsStringExt as _,
 		os::unix::process::CommandExt as _,
 		path::Path,
@@ -89,6 +89,7 @@ pub struct Server<P>(Arc<State<P>>);
 
 pub struct State<P> {
 	active_requests: Mutex<HashMap<u64, CancellationToken>>,
+	auto_unmount: bool,
 	no_opendir_support: bool,
 	passthrough_backings: Mutex<PassthroughBackings>,
 	passthrough_enabled: bool,
@@ -259,6 +260,95 @@ struct FuseDirentPlusHeader {
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
 	value: &'a mut T,
+}
+
+pub fn mount_dev_fuse(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
+	// Open the FUSE device.
+	let fd: OwnedFd = std::fs::File::options()
+		.read(true)
+		.write(true)
+		.open("/dev/fuse")?
+		.into();
+
+	// Mount the filesystem.
+	let uid = rustix::process::getuid().as_raw();
+	let gid = rustix::process::getgid().as_raw();
+	let options = format!(
+		"fd={},rootmode=40755,user_id={uid},group_id={gid},default_permissions",
+		fd.as_raw_fd(),
+	);
+	let options = CString::new(options).map_err(|_| Error::other("invalid mount options"))?;
+	rustix::mount::mount(
+		"/dev/fuse",
+		path,
+		"fuse",
+		rustix::mount::MountFlags::RDONLY
+			| rustix::mount::MountFlags::NOSUID
+			| rustix::mount::MountFlags::NODEV,
+		options.as_c_str(),
+	)
+	.map_err(Error::from)?;
+
+	// Find the connection ID in the mount table. Statting the mountpoint instead would block until the server answers the init request, which it cannot do before it receives the descriptor.
+	let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")?;
+	let connection_id = connection::parse_connection_id(&mountinfo, path)?;
+
+	// Send the descriptor and the connection ID to the server.
+	let payload = connection_id.to_le_bytes();
+	let iovecs = [IoSlice::new(&payload)];
+	let fds = [fd.as_fd()];
+	let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+	let mut cmsg_buffer = SendAncillaryBuffer::new(&mut cmsg_space);
+	cmsg_buffer.push(SendAncillaryMessage::ScmRights(&fds));
+	rustix::net::sendmsg(sendfd, &iovecs, &mut cmsg_buffer, SendFlags::empty())
+		.map_err(Error::from)?;
+
+	Ok(())
+}
+
+pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
+	// Create the helper control socket.
+	let (fuse_commfd, recvfd) = rustix::net::socketpair(
+		AddressFamily::UNIX,
+		SocketType::STREAM,
+		SocketFlags::CLOEXEC,
+		None,
+	)
+	.map_err(Error::from)?;
+
+	// Start the mount helper.
+	let commfd_raw = fuse_commfd.as_raw_fd();
+	let uid = rustix::process::getuid().as_raw();
+	let gid = rustix::process::getgid().as_raw();
+	let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions,ro");
+	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
+	let child = unsafe {
+		std::process::Command::new("fusermount3")
+			.args(["-o", &options, "--"])
+			.arg(path)
+			.env("_FUSE_COMMFD", commfd_raw.to_string())
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::piped())
+			.pre_exec(move || {
+				// Clear CLOEXEC on the communication FD so fusermount3 inherits it.
+				rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
+				Ok(())
+			})
+			.spawn()?
+	};
+
+	// Reap the mount helper and log its error output if it fails.
+	std::thread::spawn(move || {
+		if let Ok(output) = child.wait_with_output()
+			&& !output.status.success()
+		{
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			tracing::error!(status = %output.status, stderr = %stderr.trim(), "the FUSE mount helper failed");
+		}
+	});
+
+	Ok(recvfd)
 }
 
 impl<'a, const OPCODE: rustix::ioctl::Opcode, T> IoctlPointerInt<'a, OPCODE, T> {

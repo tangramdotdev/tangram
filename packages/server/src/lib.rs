@@ -928,6 +928,7 @@ impl Server {
 				&artifacts_path,
 				options,
 				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
+				None,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;

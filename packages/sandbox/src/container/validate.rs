@@ -8,9 +8,17 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if arg.hostname.is_some() {
 			return Err(tg::error!("--hostname requires --unshare-all"));
 		}
+		if arg.fuse_fd.is_some() {
+			return Err(tg::error!("--fuse-fd requires --unshare-all"));
+		}
 		if has_mounts(arg) {
 			return Err(tg::error!("mount operations require --unshare-all"));
 		}
+	}
+	if arg.fuse_fd.is_some() != arg.fuse_path.is_some() {
+		return Err(tg::error!(
+			"--fuse-fd and --fuse-path must be provided together"
+		));
 	}
 	if arg.command.is_empty() {
 		return Err(tg::error!("a command is required"));

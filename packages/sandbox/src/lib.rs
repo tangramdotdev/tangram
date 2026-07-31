@@ -4,6 +4,7 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		net::Ipv4Addr,
+		os::fd::OwnedFd,
 		path::{Path, PathBuf},
 		sync::{
 			Arc,
@@ -71,6 +72,8 @@ pub struct Arg {
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
+	#[cfg(target_os = "linux")]
+	pub fuse_fd: Option<Arc<OwnedFd>>,
 	pub hostname: Option<String>,
 	pub id: u64,
 	pub identity: PathBuf,
@@ -275,6 +278,13 @@ impl Sandbox {
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
 				(process, network)
 			},
+		};
+
+		// Drop the FUSE socket now that the sandbox has inherited it.
+		#[cfg(target_os = "linux")]
+		let arg = Arg {
+			fuse_fd: None,
+			..arg
 		};
 		#[cfg(target_os = "macos")]
 		let mut process = match &arg.isolation {
