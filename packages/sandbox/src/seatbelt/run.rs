@@ -14,7 +14,7 @@ unsafe extern "C" {
 		flags: u64,
 		errorbuf: *mut *const libc::c_char,
 	) -> libc::c_int;
-	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
+	fn sandbox_free_error(errorbuf: *const libc::c_char);
 }
 
 #[derive(Clone, Debug)]

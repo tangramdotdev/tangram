@@ -84,6 +84,7 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
         CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
         OTHER_SWIFT_FLAGS: -parse-as-library
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx27*]: $(inherited) TANGRAM_FSKIT_DATA_CACHE
         SWIFT_OBJC_BRIDGING_HEADER: TangramFSKit/provider.h
         OTHER_LDFLAGS: -ltangram_vfs_provider -llzma -liconv -framework CoreFoundation -framework Security -framework SystemConfiguration
       configs:
