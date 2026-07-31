@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::{
 		FutureExt as _, StreamExt as _, future,
-		stream::{BoxStream, FuturesUnordered},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,7 +14,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Session {
@@ -108,6 +108,10 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ());
+			let wakeups = stream::select(wakeups, interval);
 			let wakeups = match timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),

@@ -14,10 +14,12 @@ pub use self::{data::Data, id::Id, selector::Selector};
 pub struct Tag {
 	pub id: tg::tag::Id,
 	pub item: tg::tag::Item,
+	pub location: Option<tg::Location>,
 	pub name: String,
 	pub parent: Option<tg::Id>,
 	pub permissions: Vec<tg::grant::Permission>,
 	pub specifier: tg::Specifier,
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +46,45 @@ impl From<tg::object::Id> for tg::tag::Item {
 impl From<tg::process::Id> for tg::tag::Item {
 	fn from(value: tg::process::Id) -> Self {
 		Self::Process(tg::Process::new(value, tg::process::Options::default()))
+	}
+}
+
+impl From<tg::tag::get::Output> for Tag {
+	fn from(value: tg::tag::get::Output) -> Self {
+		let tg::tag::get::Output {
+			data,
+			location,
+			token,
+		} = value;
+		let tg::tag::Data {
+			id,
+			item,
+			name,
+			parent,
+			permissions,
+			specifier,
+		} = data;
+		let item = match item {
+			tg::tag::data::Item::Object(id) => tg::tag::Item::Object(tg::Object::with_id(id)),
+			tg::tag::data::Item::Process(id) => tg::tag::Item::Process(tg::Process::new(
+				id,
+				tg::process::Options {
+					location: location.clone().map(Into::into),
+					..tg::process::Options::default()
+				},
+			)),
+		};
+
+		Self {
+			id,
+			item,
+			location,
+			name,
+			parent,
+			permissions,
+			specifier,
+			token,
+		}
 	}
 }
 

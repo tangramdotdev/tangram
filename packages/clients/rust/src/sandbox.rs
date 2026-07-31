@@ -26,6 +26,7 @@ pub mod create;
 pub mod destroy;
 pub mod get;
 pub mod list;
+pub mod processes;
 pub mod status;
 
 #[derive(Clone, Debug)]
@@ -39,18 +40,30 @@ struct Inner {
 	location: RwLock<Option<tg::location::Arg>>,
 	owned: AtomicBool,
 	state: RwLock<Option<Arc<tg::sandbox::get::Output>>>,
+	token: RwLock<Option<tg::grant::Token>>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<tg::sandbox::get::Output>,
+	pub token: Option<tg::grant::Token>,
 }
 
 impl Sandbox {
 	#[must_use]
 	pub fn builder() -> tg::sandbox::Builder {
 		tg::sandbox::Builder::new()
+	}
+
+	#[must_use]
+	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
+		let options = tg::sandbox::Options {
+			token: referent.options.token,
+			..tg::sandbox::Options::default()
+		};
+
+		Self::new(referent.item, options)
 	}
 
 	#[must_use]
@@ -69,15 +82,23 @@ impl Sandbox {
 		options: tg::sandbox::Options,
 		handle: Option<tg::handle::dynamic::Handle>,
 	) -> Self {
-		let location = RwLock::new(options.location);
+		let tg::sandbox::Options {
+			location,
+			state,
+			token,
+		} = options;
+		let location = RwLock::new(location);
 		let owned = AtomicBool::new(handle.is_some());
-		let state = RwLock::new(options.state.map(Arc::new));
+		let token = token.or_else(|| state.as_ref().and_then(|state| state.token.clone()));
+		let state = RwLock::new(state.map(Arc::new));
+		let token = RwLock::new(token);
 		let inner = Inner {
 			handle,
 			id,
 			location,
 			owned,
 			state,
+			token,
 		};
 
 		Self(Arc::new(inner))
@@ -96,6 +117,11 @@ impl Sandbox {
 	#[must_use]
 	pub fn state(&self) -> &RwLock<Option<Arc<tg::sandbox::get::Output>>> {
 		&self.0.state
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<tg::grant::Token> {
+		self.0.token.read().unwrap().clone()
 	}
 
 	pub async fn destroy(&self) -> tg::Result<()> {
@@ -163,6 +189,9 @@ impl Sandbox {
 				.unwrap()
 				.replace(location.clone().into());
 		}
+		if let Some(token) = &output.token {
+			self.0.token.write().unwrap().replace(token.clone());
+		}
 		let state = Arc::new(output);
 		self.0.state.write().unwrap().replace(state.clone());
 
@@ -200,10 +229,77 @@ impl Sandbox {
 		let options = tg::sandbox::Options {
 			location,
 			state: None,
+			token: None,
 		};
 		let sandbox = Self::new_inner(output.id, options, Some(handle));
 
 		Ok(sandbox)
+	}
+
+	pub async fn processes(
+		&self,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static> {
+		let handle = tg::handle()?;
+		self.processes_with_handle(handle, arg).await
+	}
+
+	pub async fn processes_with_handle<H>(
+		&self,
+		handle: &H,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_processes_with_handle(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the sandbox"))
+	}
+
+	pub async fn try_get_processes(
+		&self,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
+	{
+		let handle = tg::handle()?;
+		self.try_get_processes_with_handle(handle, arg).await
+	}
+
+	pub async fn try_get_processes_with_handle<H>(
+		&self,
+		handle: &H,
+		mut arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
+	where
+		H: tg::Handle,
+	{
+		use {futures::TryStreamExt as _, tg::handle::Ext as _};
+
+		if arg.location.is_none() {
+			arg.location = self.location();
+		}
+		if arg.token.is_none() {
+			arg.token = self.token();
+		}
+		let location = arg.location.clone();
+		let Some(stream) = handle.try_get_sandbox_processes(self.id(), arg).await? else {
+			return Ok(None);
+		};
+		let stream = stream
+			.map_ok(move |chunk| {
+				let location = location.clone();
+				futures::stream::iter(chunk.data.into_iter().map(move |id| {
+					let options = tg::process::Options {
+						location: location.clone(),
+						..tg::process::Options::default()
+					};
+					Ok(tg::Process::new(id, options))
+				}))
+			})
+			.try_flatten();
+
+		Ok(Some(stream))
 	}
 
 	pub async fn run(&self, arg: tg::process::Arg) -> tg::Result<tg::Value> {

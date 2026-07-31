@@ -1,8 +1,9 @@
 use {
+	super::Output,
 	crate::Session,
 	futures::{
-		FutureExt as _, StreamExt as _, future,
-		stream::{self, BoxStream, FuturesUnordered},
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream, FuturesOrdered, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -11,16 +12,17 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Session {
-	pub async fn try_get_process_children_stream(
+	pub async fn try_get_sandbox_processes_stream(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -29,20 +31,20 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_get_process_children_local(id, arg.clone())
+					.try_get_sandbox_processes_local(id, arg.clone())
 					.await
-					.map_err(|error| tg::error!(!error, "failed to get the process children"))?
+					.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))?
 			{
 				return Ok(Some(stream));
 			}
 
 			if let Some(stream) = self
-				.try_get_process_children_regions(id, arg.clone(), &local.regions)
+				.try_get_sandbox_processes_regions(id, arg.clone(), &local.regions)
 				.await
 				.map_err(|error| {
 					tg::error!(
 						!error,
-						"failed to get the process children from another region"
+						"failed to get the sandbox processes from another region"
 					)
 				})? {
 				return Ok(Some(stream));
@@ -50,10 +52,10 @@ impl Session {
 		}
 
 		if let Some(stream) = self
-			.try_get_process_children_remotes(id, arg, &locations.remotes)
+			.try_get_sandbox_processes_remotes(id, arg, &locations.remotes)
 			.await
 			.map_err(|error| {
-				tg::error!(!error, "failed to get the process children from a remote")
+				tg::error!(!error, "failed to get the sandbox processes from a remote")
 			})? {
 			return Ok(Some(stream));
 		}
@@ -61,19 +63,26 @@ impl Session {
 		Ok(None)
 	}
 
-	async fn try_get_process_children_local(
+	async fn try_get_sandbox_processes_local(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let token = arg.token.clone();
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+		let permission =
+			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+		let resource = tg::Referent::with_item_and_token(id.clone(), arg.token.clone());
 		let check_future = async move {
-			self.try_get_process_local(id, false, false, token.as_ref())
+			let authorized = self.authorize(resource, permission).await?;
+			let authorized = authorized.is_some_and(|permissions| permissions.contains(permission));
+			if !authorized {
+				return Ok(false);
+			}
+			self.try_get_sandbox_local_inner(id)
 				.await
 				.map(|output| output.is_some())
 		}
 		.boxed();
-		let create_future = self.create_process_children_stream_local(id, arg).boxed();
+		let create_future = self.create_sandbox_processes_stream_local(id, arg).boxed();
 		let stream = match future::select(check_future, create_future).await {
 			future::Either::Left((checked, create_future)) => {
 				if checked? {
@@ -93,28 +102,28 @@ impl Session {
 		let Some(stream) = stream else {
 			return Ok(None);
 		};
-		let stream = stream?;
-		Ok(Some(stream))
+
+		Ok(Some(stream?))
 	}
 
-	async fn create_process_children_stream_local(
+	async fn create_sandbox_processes_stream_local(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::children::get::Event>>> {
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>> {
 		// Create the wakeups stream.
 		let wakeups = if arg.timeout == Some(Duration::ZERO) {
 			None
 		} else {
-			let subject = format!("processes.{id}.children");
-			let children_wakeups = self
+			let subject = format!("sandboxes.{id}.processes");
+			let process_wakeups = self
 				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
-			let subject = format!("processes.{id}.status");
+			let subject = format!("sandboxes.{id}.status");
 			let status_wakeups = self
 				.server
 				.messenger
@@ -122,7 +131,7 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
-			let wakeups = stream::select(children_wakeups, status_wakeups);
+			let wakeups = stream::select(process_wakeups, status_wakeups);
 			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
 				.skip(1)
 				.map(|_| ());
@@ -142,7 +151,7 @@ impl Session {
 		let id = id.clone();
 		let task = Task::spawn(|_| async move {
 			let result = session
-				.try_get_process_children_local_task(&id, arg, sender.clone(), wakeups)
+				.try_get_sandbox_processes_local_task(&id, arg, sender.clone(), wakeups)
 				.await;
 			if let Err(error) = result {
 				sender.send(Err(error)).await.ok();
@@ -154,18 +163,18 @@ impl Session {
 		Ok(stream)
 	}
 
-	async fn try_get_process_children_local_task(
+	async fn try_get_sandbox_processes_local_task(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::children::get::Event>>,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sandbox::processes::get::Event>>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
 		// Get the position.
 		let position = match arg.position {
 			Some(std::io::SeekFrom::Start(seek)) => seek,
 			Some(std::io::SeekFrom::End(seek) | std::io::SeekFrom::Current(seek)) => self
-				.get_process_children_local(id, 0, 0)
+				.get_sandbox_processes_local(id, 0, 0)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the current position"))?
 				.length
@@ -194,15 +203,15 @@ impl Session {
 				};
 
 				// Read the chunk.
-				let output = self.get_process_children_local(id, position, size).await?;
+				let output = self.get_sandbox_processes_local(id, position, size).await?;
 
 				// If the chunk is empty, then break.
-				if output.children.is_empty() {
+				if output.processes.is_empty() {
 					break output.status;
 				}
-				let chunk = tg::process::children::get::Chunk {
+				let chunk = tg::sandbox::processes::get::Chunk {
+					data: output.processes,
 					position,
-					data: output.children,
 				};
 
 				// Update the state.
@@ -210,30 +219,29 @@ impl Session {
 				read += chunk.data.len().to_u64().unwrap();
 
 				// Send the data.
-				let result = sender
-					.send(Ok(tg::process::children::get::Event::Chunk(chunk)))
-					.await;
-				if result.is_err() {
+				if sender
+					.send(Ok(tg::sandbox::processes::get::Event::Chunk(chunk)))
+					.await
+					.is_err()
+				{
 					return Ok(());
 				}
 			};
 
-			// If the process is finished or the length is reached, then send the end event and break.
+			// End when the sandbox is destroyed or the requested length is reached.
 			let end = arg.length.is_some_and(|length| read >= length);
-			if end || status.is_finished() {
-				let result = sender
-					.send(Ok(tg::process::children::get::Event::End))
-					.await;
-				if result.is_err() {
-					return Ok(());
-				}
+			if end || status.is_destroyed() {
+				sender
+					.send(Ok(tg::sandbox::processes::get::Event::End))
+					.await
+					.ok();
 				break;
 			}
 
 			// Wait for an event before returning to the top of the loop.
 			let Some(wakeups) = &mut wakeups else {
 				sender
-					.send(Ok(tg::process::children::get::Event::End))
+					.send(Ok(tg::sandbox::processes::get::Event::End))
 					.await
 					.ok();
 				break;
@@ -246,41 +254,56 @@ impl Session {
 		Ok(())
 	}
 
-	async fn get_process_children_local(
+	async fn get_sandbox_processes_local(
 		&self,
-		id: &tg::process::Id,
+		id: &tg::sandbox::Id,
 		position: u64,
 		length: u64,
-	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
-		let output = self
-			.try_get_process_local_inner(id, false)
+	) -> tg::Result<Output> {
+		if let Some(output) = self
+			.server
+			.runner
+			.state()
+			.try_get_sandbox_processes(id, position, length)
+		{
+			return Ok(output);
+		}
+
+		let status = self
+			.try_get_sandbox_status_local(id)
 			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let status = output.data.status;
-		let children = output.data.children.unwrap_or_default();
-		let children_length = children.len().to_u64().unwrap();
-		let output = tg::process::control::GetChildrenClientResponseOutput {
-			children: children
+			.unwrap_or(tg::sandbox::Status::Destroyed);
+		let mut processes = self
+			.server
+			.index
+			.get_sandbox_processes(id)
+			.await?
+			.into_iter()
+			.map(|(id, _)| id)
+			.collect::<Vec<_>>();
+		processes.sort();
+		let output = Output {
+			length: processes.len().to_u64().unwrap(),
+			processes: processes
 				.into_iter()
 				.skip(position.to_usize().unwrap())
 				.take(length.to_usize().unwrap())
-				.map(tg::process::data::Child::without_tokens)
 				.collect(),
-			length: children_length,
 			status,
 		};
+
 		Ok(output)
 	}
 
-	async fn try_get_process_children_regions(
+	async fn try_get_sandbox_processes_regions(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_children_region(id, arg.clone(), region))
+			.map(|region| self.try_get_sandbox_processes_region(id, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -298,76 +321,69 @@ impl Session {
 		let Some(stream) = result? else {
 			return Ok(None);
 		};
+
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_children_region(
+	async fn try_get_sandbox_processes_region(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
 		region: &str,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let arg = tg::process::children::get::Arg {
+		let arg = tg::sandbox::processes::get::Arg {
 			location: Some(location.into()),
 			..arg
 		};
 		let Some(stream) = client
-			.try_get_process_children_stream(id, arg)
+			.try_get_sandbox_processes_stream(id, arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, region = %region, "failed to get the process children"),
+				|error| tg::error!(!error, region = %region, "failed to get the sandbox processes"),
 			)?
 		else {
 			return Ok(None);
 		};
+
 		Ok(Some(stream.boxed()))
 	}
 
-	async fn try_get_process_children_remotes(
+	async fn try_get_sandbox_processes_remotes(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let mut futures = remotes
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
+		let mut remotes = remotes.to_owned();
+		remotes.sort_by(|a, b| a.name.cmp(&b.name));
+		let futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_children_remote(id, arg.clone(), remote))
-			.collect::<FuturesUnordered<_>>();
-		let mut result = Ok(None);
-		while let Some(next) = futures.next().await {
-			match next {
-				Ok(Some(stream)) => {
-					result = Ok(Some(stream));
-					break;
-				},
-				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
-				},
-			}
-		}
-		let Some(stream) = result? else {
+			.map(|remote| self.try_get_sandbox_processes_remote(id, arg.clone(), remote))
+			.collect::<FuturesOrdered<_>>();
+		let streams = futures.try_collect::<Vec<_>>().await?;
+		let Some(stream) = streams.into_iter().flatten().next() else {
 			return Ok(None);
 		};
+
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_children_remote(
+	async fn try_get_sandbox_processes_remote(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		let arg = tg::process::children::get::Arg {
+		let arg = tg::sandbox::processes::get::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
@@ -376,18 +392,19 @@ impl Session {
 			..arg
 		};
 		let Some(stream) = client
-			.try_get_process_children_stream(id, arg)
+			.try_get_sandbox_processes_stream(id, arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, remote = %remote.name, "failed to get the process children"),
+				|error| tg::error!(!error, remote = %remote.name, "failed to get the sandbox processes"),
 			)?
 		else {
 			return Ok(None);
 		};
+
 		Ok(Some(stream.boxed()))
 	}
 
-	pub(crate) async fn try_get_process_children_stream_request(
+	pub(crate) async fn try_get_sandbox_processes_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
 		id: &str,
@@ -395,7 +412,7 @@ impl Session {
 		// Parse the ID.
 		let id = id
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
 
 		// Get the query.
 		let arg = request
@@ -411,7 +428,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_process_children_stream(&id, arg).await? else {
+		let Some(stream) = self.try_get_sandbox_processes_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -432,7 +449,6 @@ impl Session {
 				});
 				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
-
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},

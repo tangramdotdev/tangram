@@ -1,10 +1,10 @@
 use {
-	super::{Item, Log, Options, Package, data},
+	super::{Item, Log, Options, data},
 	crossterm::{
 		self as ct,
 		event::{KeyModifiers, MouseEventKind},
 	},
-	futures::{TryFutureExt as _, TryStreamExt as _, future, stream::FuturesUnordered},
+	futures::{TryStreamExt as _, future, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
@@ -15,7 +15,7 @@ use {
 		rc::{Rc, Weak},
 		sync::{
 			Arc,
-			atomic::{AtomicU32, Ordering},
+			atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 		},
 	},
 	tangram_client::prelude::*,
@@ -25,6 +25,7 @@ use {
 };
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const PROCESS_LOG_LINE_LIMIT: usize = 16 * 1024;
 
 pub struct Tree {
 	client: tg::Client,
@@ -33,9 +34,10 @@ pub struct Tree {
 	num_rendered_columns: usize,
 	rect: Option<Rect>,
 	roots: Vec<(Rc<RefCell<Node>>, (usize, usize))>,
+	scroll: (usize, usize),
 	selected: Rc<RefCell<Node>>,
 	selected_task: Option<Task<()>>,
-	scroll: (usize, usize),
+	selection_generation: Arc<AtomicU64>,
 	viewer: super::UpdateSender,
 }
 
@@ -59,13 +61,14 @@ struct Node {
 	update_task: Option<Task<()>>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum NodeID {
-	Group(String),
-	Object(tg::object::Id),
-	Package(tg::object::Id),
-	Process(tg::process::Id),
+#[derive(Default)]
+struct ProcessLogUpdates {
+	line: std::sync::Mutex<Option<String>>,
+	queued: AtomicBool,
 }
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct NodeID(tg::Id);
 
 #[derive(Clone)]
 struct UpdateCounter {
@@ -76,6 +79,23 @@ struct UpdateCounter {
 struct UpdateGuard {
 	num_pending: Arc<AtomicU32>,
 	watch: tokio::sync::watch::Sender<()>,
+}
+
+impl ProcessLogUpdates {
+	fn push(&self, line: String) -> bool {
+		let mut latest = self.line.lock().unwrap();
+		latest.replace(line);
+
+		!self.queued.swap(true, Ordering::AcqRel)
+	}
+
+	fn take(&self) -> Option<String> {
+		let mut latest = self.line.lock().unwrap();
+		let line = latest.take();
+		self.queued.store(false, Ordering::Release);
+
+		line
+	}
 }
 
 impl UpdateCounter {
@@ -148,7 +168,7 @@ impl Tree {
 				.borrow()
 				.parent
 				.clone()
-				.map(|parent| parent.upgrade().unwrap())
+				.and_then(|parent| parent.upgrade())
 			else {
 				break;
 			};
@@ -172,7 +192,7 @@ impl Tree {
 				.borrow()
 				.parent
 				.as_ref()
-				.map(|parent| parent.upgrade().unwrap());
+				.and_then(Weak::upgrade);
 			if let Some(parent) = parent {
 				let index = self
 					.nodes()
@@ -183,6 +203,66 @@ impl Tree {
 				self.set_selected(parent);
 			}
 		}
+	}
+
+	fn expand_enabled(item: &Item, options: &Options) -> bool {
+		match item {
+			Item::Group(_) => options.expand_groups,
+			Item::Organization(_) => options.expand_organizations,
+			Item::Process(_) => options.expand_processes,
+			Item::Sandbox(_) => options.expand_sandboxes,
+			Item::Tag(_) => options.expand_tags,
+			Item::User(_) => options.expand_users,
+			Item::Value(tg::Value::Object(_)) => options.expand_objects,
+			Item::Value(_) => options.expand_values,
+		}
+	}
+
+	fn expandable(item: &Item) -> bool {
+		matches!(
+			item,
+			Item::Group(_)
+				| Item::Organization(_)
+				| Item::Process(_)
+				| Item::Sandbox(_)
+				| Item::Tag(_)
+				| Item::User(_)
+				| Item::Value(
+					tg::Value::Array(_)
+						| tg::Value::Map(_)
+						| tg::Value::Mutation(_)
+						| tg::Value::Object(_)
+						| tg::Value::Template(_),
+				)
+		)
+	}
+
+	fn item_id(item: &Item) -> Option<tg::Id> {
+		match item {
+			Item::Group(group) => Some(group.id.clone().into()),
+			Item::Organization(organization) => Some(organization.id.clone().into()),
+			Item::Process(process) => process.id().right().cloned().map(Into::into),
+			Item::Sandbox(sandbox) => Some(sandbox.id().clone().into()),
+			Item::Tag(tag) => Some(tag.id.clone().into()),
+			Item::User(user) => Some(user.id.clone().into()),
+			Item::Value(tg::Value::Object(object)) => Some(object.id().into()),
+			Item::Value(_) => None,
+		}
+	}
+
+	fn should_expand(
+		item: &Item,
+		options: &Options,
+		expanded_nodes: &Rc<RefCell<HashSet<NodeID>>>,
+	) -> bool {
+		if !Self::expand_enabled(item, options) {
+			return false;
+		}
+		let Some(id) = Self::item_id(item) else {
+			return true;
+		};
+
+		expanded_nodes.borrow_mut().insert(NodeID(id))
 	}
 
 	fn create_node(
@@ -198,25 +278,10 @@ impl Tree {
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
 		let title = referent.as_ref().map_or(String::new(), Self::item_title);
-		let expand = match referent.as_ref().map(tg::Referent::item) {
-			Some(Item::Package(package)) if options.expand_packages => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Package(package.0.id())),
-			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Process(process.id().unwrap_right().clone())),
-			Some(Item::Group(group)) if options.expand_groups => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Group(group.to_string())),
-			Some(Item::Value(tg::Value::Object(object))) if options.expand_objects => {
-				expanded_nodes
-					.borrow_mut()
-					.insert(NodeID::Object(object.id()))
-			},
-			Some(Item::Value(tg::Value::Object(_))) => false,
-			Some(Item::Value(_)) => options.expand_values,
-			_ => false,
-		};
+		let expand = options.depth.is_none_or(|max_depth| depth < max_depth)
+			&& referent.as_ref().is_some_and(|referent| {
+				Self::should_expand(referent.item(), &options, &expanded_nodes)
+			});
 
 		let expand_task = match (&referent, expand) {
 			(Some(referent), true) => {
@@ -235,22 +300,13 @@ impl Tree {
 			_ => None,
 		};
 
-		let expanded = match referent.as_ref().map(|r| &r.item) {
-			Some(
-				Item::Process(_)
-				| Item::Value(
-					tg::Value::Array(_)
-					| tg::Value::Map(_)
-					| tg::Value::Mutation(_)
-					| tg::Value::Object(_)
-					| tg::Value::Template(_),
-				),
-			) => Some(expand),
-			_ => None,
-		};
+		let expanded = referent
+			.as_ref()
+			.filter(|referent| Self::expandable(referent.item()))
+			.map(|_| expand);
 
 		let guard = Some(counter.guard());
-		Rc::new(RefCell::new(Node {
+		let node = Rc::new(RefCell::new(Node {
 			children: Vec::new(),
 			counter,
 			depth,
@@ -268,7 +324,36 @@ impl Tree {
 			update_receiver,
 			update_sender,
 			update_task: None,
-		}))
+		}));
+		let update_task = Self::create_process_update_task(client, &node);
+		node.borrow_mut().update_task = update_task;
+
+		node
+	}
+
+	fn create_process_update_task(
+		client: &tg::Client,
+		node: &Rc<RefCell<Node>>,
+	) -> Option<Task<()>> {
+		let referent = node.borrow().referent.clone()?;
+		let Item::Process(process) = referent.item() else {
+			return None;
+		};
+		let process = process.clone();
+		let client = client.clone();
+		let counter = node.borrow().counter.clone();
+		let guard = counter.guard();
+		let options = node.borrow().options.clone();
+		let process = referent.map(|_| process);
+		let update_sender = node.borrow().update_sender.clone();
+		let task = Task::spawn_local(|_| async move {
+			Self::process_update_task(&client, counter, &process, options.as_ref(), update_sender)
+				.await
+				.ok();
+			drop(guard);
+		});
+
+		Some(task)
 	}
 
 	pub fn display(&self) -> Display {
@@ -297,48 +382,51 @@ impl Tree {
 		// Clear the guard.
 		node.borrow_mut().guard.take();
 
-		// Recurse over the children.
-		let children = node
-			.borrow()
-			.children
-			.iter()
-			.filter_map(|node| Self::display_node(node, now))
-			.collect();
-
-		// Display the node if we haven't reached the maximum depth.
-		if node
-			.borrow()
-			.options
-			.depth
-			.is_none_or(|max_depth| node.borrow().depth <= max_depth)
-		{
-			let mut title = String::new();
-			let indicator = match node.borrow().indicator {
-				None => None,
-				Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
-				Some(Indicator::Started) => {
-					let position = (now / (1000 / 10)) % 10;
-					let position = position.to_usize().unwrap();
-					Some(crossterm::style::Stylize::blue(SPINNER[position]))
-				},
-				Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
-				Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
-				Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
-				Some(Indicator::Error) => Some(crossterm::style::Stylize::red('?')),
-			};
-			if let Some(indicator) = indicator {
-				title.push_str(&indicator.to_string());
-				title.push(' ');
-			}
-			if let Some(label) = node.borrow().label.clone() {
-				title.push_str(&label);
-				title.push_str(": ");
-			}
-			title.push_str(&node.borrow().title);
-			return Some(Display { title, children });
+		// Skip nodes beyond the maximum depth.
+		let depth = node.borrow().depth;
+		let max_depth = node.borrow().options.depth;
+		if max_depth.is_some_and(|max_depth| depth > max_depth) {
+			return None;
 		}
 
-		None
+		// Recurse over the children.
+		let descend = !matches!(node.borrow().expanded, Some(false))
+			&& max_depth.is_none_or(|max_depth| depth < max_depth);
+		let children = if descend {
+			node.borrow()
+				.children
+				.iter()
+				.filter_map(|node| Self::display_node(node, now))
+				.collect()
+		} else {
+			Vec::new()
+		};
+
+		let mut title = String::new();
+		let indicator = match node.borrow().indicator {
+			None => None,
+			Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
+			Some(Indicator::Started) => {
+				let position = (now / (1000 / 10)) % 10;
+				let position = position.to_usize().unwrap();
+				Some(crossterm::style::Stylize::blue(SPINNER[position]))
+			},
+			Some(Indicator::Canceled) => Some(crossterm::style::Stylize::yellow('⦻')),
+			Some(Indicator::Failed) => Some(crossterm::style::Stylize::red('✗')),
+			Some(Indicator::Succeeded) => Some(crossterm::style::Stylize::green('✓')),
+			Some(Indicator::Error) => Some(crossterm::style::Stylize::red('?')),
+		};
+		if let Some(indicator) = indicator {
+			title.push_str(&indicator.to_string());
+			title.push(' ');
+		}
+		if let Some(label) = node.borrow().label.clone() {
+			title.push_str(&label);
+			title.push_str(": ");
+		}
+		title.push_str(&node.borrow().title);
+
+		Some(Display { title, children })
 	}
 
 	fn down(&mut self) {
@@ -353,7 +441,11 @@ impl Tree {
 	}
 
 	fn clamp_scroll(&mut self, index: usize) {
-		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
+		let height = self.rect.map_or(0, |rect| rect.height.to_usize().unwrap());
+		if height == 0 {
+			self.scroll.0 = index;
+			return;
+		}
 		if index >= self.scroll.0 + height {
 			self.scroll.0 = index.saturating_sub(height.saturating_sub(1));
 		}
@@ -388,6 +480,13 @@ impl Tree {
 		let Some(referent) = node.referent.as_ref() else {
 			return;
 		};
+		if node
+			.options
+			.depth
+			.is_some_and(|max_depth| node.depth >= max_depth)
+		{
+			return;
+		}
 		if matches!(node.expanded, Some(true) | None) {
 			return;
 		}
@@ -1299,60 +1398,11 @@ impl Tree {
 		Ok(())
 	}
 
-	async fn expand_package(
+	async fn expand_parent(
 		client: &tg::Client,
 		counter: UpdateCounter,
-		package: tg::Referent<tg::Object>,
-		update_sender: NodeUpdateSender,
-	) -> tg::Result<()> {
-		let mut visitor = PackageVisitor {
-			dependencies: BTreeMap::new(),
-			package: package.clone(),
-		};
-		tg::object::visit(client, &mut visitor, &package, true).await?;
-		let dependencies = visitor
-			.dependencies
-			.into_iter()
-			.map(|(reference, option)| {
-				let item = option.and_then(|dependency| {
-					dependency.0.item.map(|object| tg::Referent {
-						item: Item::Package(Package(object)),
-						options: dependency.0.options,
-					})
-				});
-				(reference.without_token().to_string(), item)
-			})
-			.collect::<Vec<_>>();
-		let guard = counter.guard();
-		let client = client.clone();
-		let update = move |node: Rc<RefCell<Node>>| {
-			node.borrow_mut().guard.replace(guard);
-
-			// Add the dependencies.
-			for (label, item) in dependencies {
-				let child = if let Some(item) = item {
-					let label = Self::item_label(&item);
-					Self::create_node(&client, &node, label, Some(item))
-				} else {
-					Self::create_node(
-						&client,
-						&node,
-						Some(label),
-						Some(tg::Referent::with_item(Item::Value(tg::Value::Null))),
-					)
-				};
-				node.borrow_mut().children.push(child);
-			}
-		};
-		update_sender.send(Box::new(update)).ok();
-
-		Ok(())
-	}
-
-	async fn expand_group(
-		client: &tg::Client,
-		counter: UpdateCounter,
-		group: &tg::Specifier,
+		location: Option<tg::location::Arg>,
+		parent: &tg::Id,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		// List the direct child groups and tags.
@@ -1360,9 +1410,9 @@ impl Tree {
 			cached: false,
 			groups: true,
 			length: None,
-			location: None,
+			location,
 			organizations: false,
-			parent: Some(tg::grant::Resource::Specifier(group.clone())),
+			parent: Some(tg::grant::Resource::Id(parent.clone())),
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -1372,49 +1422,185 @@ impl Tree {
 		let output = client
 			.list(arg)
 			.await
-			.map_err(|error| tg::error!(!error, group = %group, "failed to list entries"))?;
+			.map_err(|error| tg::error!(!error, %parent, "failed to list entries"))?;
 
 		// Get the children of this group.
 		let mut children = output
 			.data
 			.into_iter()
-			.filter_map(move |entry| match entry {
-				tg::list::Entry::Group { specifier, .. } => {
-					Some((None, tg::Referent::with_item(Item::Group(specifier))))
+			.filter_map(|entry| match entry {
+				tg::list::Entry::Group {
+					id,
+					location,
+					name,
+					parent,
+					specifier,
+					token,
+				} => {
+					let referent_token = token.clone();
+					let group = tg::Group {
+						id,
+						location,
+						name,
+						parent,
+						specifier,
+						token,
+					};
+					Some(tg::Referent::with_item_and_token(
+						Item::Group(group),
+						referent_token,
+					))
 				},
 				tg::list::Entry::Tag {
-					item, specifier, ..
+					id,
+					item,
+					location,
+					name,
+					parent,
+					specifier,
+					token,
 				} => {
-					let options = tg::referent::Options {
-						tag: Some(specifier.clone()),
-						..tg::referent::Options::default()
-					};
+					let referent_token = token.clone();
 					let item = match item {
-						tg::Either::Left(object) => {
-							Item::Value(tg::Value::Object(tg::Object::with_id(object)))
-						},
-						tg::Either::Right(process) => Item::Process(tg::Process::new(
-							process,
-							tg::process::Options::default(),
+						tg::Either::Left(id) => tg::tag::Item::Object(tg::Object::with_id(id)),
+						tg::Either::Right(id) => tg::tag::Item::Process(tg::Process::new(
+							id,
+							tg::process::Options {
+								location: location.clone().map(Into::into),
+								..tg::process::Options::default()
+							},
 						)),
 					};
-					Some((Some(specifier.to_string()), tg::Referent { item, options }))
+					let tag = tg::Tag {
+						id,
+						item,
+						location,
+						name,
+						parent,
+						permissions: Vec::new(),
+						specifier,
+						token,
+					};
+					Some(tg::Referent::with_item_and_token(
+						Item::Tag(tag),
+						referent_token,
+					))
 				},
 				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
 			})
 			.collect::<Vec<_>>();
-		children.sort_by(|(a, _), (b, _)| a.cmp(b));
+		children.sort_by(|a, b| Self::item_title(a).cmp(&Self::item_title(b)));
 		let guard = counter.guard();
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			let children = children
 				.into_iter()
-				.map(|(label, referent)| Self::create_node(&client, &node, label, Some(referent)))
+				.map(|referent| Self::create_node(&client, &node, None, Some(referent)))
 				.collect();
 			node.borrow_mut().children = children;
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).ok();
+
+		Ok(())
+	}
+
+	async fn expand_sandbox(
+		client: &tg::Client,
+		counter: UpdateCounter,
+		sandbox: &tg::Sandbox,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		let arg = tg::sandbox::processes::get::Arg::default();
+		let processes = sandbox.processes_with_handle(client, arg).await?;
+		let mut processes = pin!(processes);
+		while let Some(process) = processes.try_next().await? {
+			let guard = counter.guard();
+			let client = client.clone();
+			let update = move |node: Rc<RefCell<Node>>| {
+				let process = tg::Referent::with_item(Item::Process(process));
+				let child = Self::create_node(&client, &node, None, Some(process));
+				node.borrow_mut().children.push(child);
+				node.borrow_mut().guard.replace(guard);
+			};
+			update_sender.send(Box::new(update)).ok();
+		}
+
+		Ok(())
+	}
+
+	async fn expand_tag(
+		client: &tg::Client,
+		counter: UpdateCounter,
+		tag: &tg::Tag,
+		token: Option<tg::grant::Token>,
+		update_sender: NodeUpdateSender,
+	) -> tg::Result<()> {
+		// Resolve the tag to acquire access to its item.
+		let location = tag.location.clone().map(Into::into);
+		let token = token.or_else(|| tag.token.clone());
+		let options = tg::reference::Options {
+			location: location.clone(),
+			token,
+			..tg::reference::Options::default()
+		};
+		let reference = tg::Reference::new(
+			tg::reference::Item::Specifier(tag.specifier.clone().into()),
+			options,
+			None,
+		);
+		let stream = client
+			.resolve(&reference, tg::resolve::Arg::default())
+			.await?;
+		let mut stream = pin!(stream);
+		let mut output = None;
+		while let Some(event) = stream.try_next().await? {
+			if let tg::progress::Event::Output(referent) = event {
+				output.replace(referent);
+			}
+		}
+		let referent = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
+		let tg::Referent { item, options } = referent;
+		let item = match item {
+			tg::resolve::Item::Id(id) if id.kind().is_object() => {
+				let id = id.try_into()?;
+				let object = tg::Object::with_referent(tg::Referent::new(id, options.clone()));
+				Item::Value(object.into())
+			},
+			tg::resolve::Item::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
+				let id: tg::process::Id = id.try_into()?;
+				let process = tg::Process::new(
+					id,
+					tg::process::Options {
+						location,
+						token: options.token.clone(),
+						..tg::process::Options::default()
+					},
+				);
+				Item::Process(process)
+			},
+			tg::resolve::Item::Id(id) => {
+				return Err(tg::error!(%id, "expected an object or a process"));
+			},
+			tg::resolve::Item::Pointer(pointer) => {
+				let graph = pointer
+					.graph
+					.clone()
+					.ok_or_else(|| tg::error!("expected a graph"))?;
+				let graph = tg::Graph::with_referent(tg::Referent::new(graph, options.clone()));
+				Item::Value(tg::Object::from(graph).into())
+			},
+		};
+		let referent = tg::Referent { item, options };
+		let guard = counter.guard();
+		let client = client.clone();
+		let update = move |node: Rc<RefCell<Node>>| {
+			let child = Self::create_node(&client, &node, Some("item".to_owned()), Some(referent));
+			node.borrow_mut().children.push(child);
+			node.borrow_mut().guard.replace(guard);
+		};
+		update_sender.send(Box::new(update)).ok();
+
 		Ok(())
 	}
 
@@ -1431,19 +1617,18 @@ impl Tree {
 		// the attached root process. Reading a piped or tty stream of a descendant
 		// process would destructively consume it, stealing the data from the
 		// process that spawned it and is reading it through a pipe.
-		let logged = force_log
-			|| match process.load_with_handle(client).await {
-				Ok(state) => state.log.is_some() || state.stdout.is_log() || state.stderr.is_log(),
-				Err(_) => false,
-			};
-		if logged {
+		let streams = process.load_with_handle(client).await.map_or_else(
+			|_| Vec::new(),
+			|state| Self::process_log_streams(&state.stderr, &state.stdout, force_log),
+		);
+		if !streams.is_empty() {
 			let log_task = Task::spawn_local({
 				let process = process.clone();
 				let client = client.clone();
 				let guard = counter.guard();
 				let update_sender = update_sender.clone();
 				|_| async move {
-					Self::process_log_task(&client, process, update_sender)
+					Self::process_log_task(&client, process, streams, update_sender)
 						.await
 						.ok();
 					drop(guard);
@@ -1484,7 +1669,7 @@ impl Tree {
 					}
 				})
 			})
-			.unwrap();
+			.ok();
 
 		tokio::task::spawn({
 			let client = client.clone();
@@ -1574,34 +1759,12 @@ impl Tree {
 				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-				let child = child.clone();
 				let child_node =
-					Self::create_node(&client, &node, None, Some(child.clone().map(Item::Process)));
-
-				// Create the update task.
-				let update_task = Task::spawn_local({
-					node.borrow_mut().guard.replace(guard);
-					let counter = child_node.borrow().counter.clone();
-					let guard = counter.guard();
-					let options = child_node.borrow().options.clone();
-					let update_sender = child_node.borrow().update_sender.clone();
-					|_| async move {
-						Self::process_update_task(
-							&client,
-							counter,
-							&child,
-							options.as_ref(),
-							update_sender,
-						)
-						.await
-						.ok();
-						drop(guard);
-					}
-				});
-				child_node.borrow_mut().update_task.replace(update_task);
+					Self::create_node(&client, &node, None, Some(child.map(Item::Process)));
 
 				// Add the child to the children node.
 				node.borrow_mut().children.push(child_node);
+				node.borrow_mut().guard.replace(guard);
 			};
 			update_sender.send(Box::new(update)).ok();
 		}
@@ -1622,7 +1785,7 @@ impl Tree {
 				};
 				node.children.remove(position);
 			}))
-			.unwrap();
+			.ok();
 
 		Ok(())
 	}
@@ -1704,6 +1867,26 @@ impl Tree {
 		force_log: bool,
 	) {
 		let result = match referent.item() {
+			Item::Group(group) => {
+				Self::expand_parent(
+					client,
+					counter.clone(),
+					group.location.clone().map(Into::into),
+					&group.id.clone().into(),
+					update_sender.clone(),
+				)
+				.await
+			},
+			Item::Organization(organization) => {
+				Self::expand_parent(
+					client,
+					counter.clone(),
+					organization.location.clone().map(Into::into),
+					&organization.id.clone().into(),
+					update_sender.clone(),
+				)
+				.await
+			},
 			Item::Process(process) => {
 				let referent = referent.clone().map(|_| process.clone());
 				Self::expand_process(
@@ -1715,6 +1898,29 @@ impl Tree {
 				)
 				.await
 			},
+			Item::Sandbox(sandbox) => {
+				Self::expand_sandbox(client, counter.clone(), sandbox, update_sender.clone()).await
+			},
+			Item::Tag(tag) => {
+				Self::expand_tag(
+					client,
+					counter.clone(),
+					tag,
+					referent.token().cloned(),
+					update_sender.clone(),
+				)
+				.await
+			},
+			Item::User(user) => {
+				Self::expand_parent(
+					client,
+					counter.clone(),
+					user.location.clone().map(Into::into),
+					&user.id.clone().into(),
+					update_sender.clone(),
+				)
+				.await
+			},
 			Item::Value(value) => {
 				Self::expand_value(
 					client,
@@ -1723,13 +1929,6 @@ impl Tree {
 					update_sender.clone(),
 				)
 				.await
-			},
-			Item::Package(package) => {
-				let referent = referent.clone().map(|_| package.0.clone());
-				Self::expand_package(client, counter.clone(), referent, update_sender.clone()).await
-			},
-			Item::Group(group) => {
-				Self::expand_group(client, counter.clone(), group, update_sender.clone()).await
 			},
 		};
 		if let Err(error) = result {
@@ -1896,10 +2095,11 @@ impl Tree {
 		else {
 			return true;
 		};
-		if Rc::ptr_eq(parent.borrow().children.last().unwrap(), node) {
-			return true;
-		}
-		false
+		parent
+			.borrow()
+			.children
+			.last()
+			.is_none_or(|child| Rc::ptr_eq(child, node))
 	}
 
 	fn item_label(referent: &tg::Referent<Item>) -> Option<String> {
@@ -1917,8 +2117,12 @@ impl Tree {
 
 	fn item_title(referent: &tg::Referent<Item>) -> String {
 		match referent.item() {
-			Item::Group(group) => group.to_string(),
-			Item::Package(package) => package.0.id().to_string(),
+			Item::Group(group) => group.specifier.to_string(),
+			Item::Organization(organization) => organization.specifier.to_string(),
+			Item::Process(process) => process.id().to_string(),
+			Item::Sandbox(sandbox) => sandbox.id().to_string(),
+			Item::Tag(tag) => tag.specifier.to_string(),
+			Item::User(user) => user.specifier.to_string(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
 				tg::Value::Bool(bool) => {
@@ -1941,7 +2145,6 @@ impl Tree {
 					format!("placeholder(\"{}\")", placeholder.name)
 				},
 			},
-			Item::Process(_) => String::new(),
 		}
 	}
 
@@ -1958,22 +2161,8 @@ impl Tree {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let label = Self::item_label(&referent);
 		let title = Self::item_title(&referent);
-		let expand = match referent.item() {
-			Item::Package(package) if options.expand_packages => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Package(package.0.id())),
-			Item::Process(process) if options.expand_processes => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Process(process.id().unwrap_right().clone())),
-			Item::Group(group) if options.expand_groups => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Group(group.to_string())),
-			Item::Value(tg::Value::Object(object)) if options.expand_objects => expanded_nodes
-				.borrow_mut()
-				.insert(NodeID::Object(object.id())),
-			Item::Value(_) => true,
-			_ => false,
-		};
+		let expand = options.depth.is_none_or(|max_depth| max_depth > 0)
+			&& Self::should_expand(referent.item(), &options, &expanded_nodes);
 
 		let expand_task = if expand {
 			let counter = counter.clone();
@@ -2023,7 +2212,7 @@ impl Tree {
 			counter: counter.clone(),
 			children: Vec::new(),
 			depth: 0,
-			expanded: Some(expand),
+			expanded: Self::expandable(referent.item()).then_some(expand),
 			expanded_nodes,
 			expand_task,
 			guard: displayed_at_least_once,
@@ -2049,21 +2238,31 @@ impl Tree {
 			scroll: (0, 0),
 			selected: root.clone(),
 			selected_task: None,
+			selection_generation: Arc::new(AtomicU64::new(0)),
 			viewer,
 		}
 	}
 
 	pub fn ensure_root_selected(&mut self) {
-		let root = self.roots.first().unwrap().0.clone();
+		let root = self.roots.last().unwrap().0.clone();
 		self.set_selected(root);
 	}
 
-	fn nodes(&mut self) -> Vec<Rc<RefCell<Node>>> {
+	fn nodes(&self) -> Vec<Rc<RefCell<Node>>> {
 		let mut nodes = Vec::new();
 		let mut stack = vec![self.roots.last().unwrap().0.clone()];
 		while let Some(node) = stack.pop() {
+			let depth = node.borrow().depth;
+			let max_depth = node.borrow().options.depth;
+			if max_depth.is_some_and(|max_depth| depth > max_depth) {
+				continue;
+			}
 			nodes.push(node.clone());
-			stack.extend(node.borrow().children.iter().rev().cloned());
+			let descend = !matches!(node.borrow().expanded, Some(false))
+				&& max_depth.is_none_or(|max_depth| depth < max_depth);
+			if descend {
+				stack.extend(node.borrow().children.iter().rev().cloned());
+			}
 		}
 		nodes
 	}
@@ -2085,57 +2284,111 @@ impl Tree {
 	async fn process_log_task(
 		client: &tg::Client,
 		process: tg::Process,
+		streams: Vec<tg::process::stdio::Stream>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let arg = tg::process::stdio::read::Arg {
-			streams: vec![
-				tg::process::stdio::Stream::Stdout,
-				tg::process::stdio::Stream::Stderr,
-			],
+			streams,
 			..Default::default()
 		};
 		let mut log = process
 			.try_read_stdio_all(client, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process log"))?;
+		let mut line = Vec::new();
+		let updates = Arc::new(ProcessLogUpdates::default());
 		while let Some(event) = log.try_next().await? {
 			let tg::process::stdio::read::Event::Chunk(chunk) = event else {
 				break;
 			};
-			let chunk = String::from_utf8_lossy(&chunk.bytes);
-			for line in chunk.lines() {
-				let line = line.to_owned();
-				let client = client.clone();
-				let update = move |node: Rc<RefCell<Node>>| {
-					// Create the log node if necessary.
-					let log_node = node
+
+			// Preserve a partial line across chunk boundaries and retain only the latest line.
+			let mut latest = Vec::new();
+			let mut updated = false;
+			for segment in chunk.bytes.split_inclusive(|byte| *byte == b'\n') {
+				let complete = segment.ends_with(b"\n");
+				let segment = if complete {
+					&segment[..segment.len() - 1]
+				} else {
+					segment
+				};
+				extend_process_log_line(&mut line, segment);
+				if complete {
+					if line.last() == Some(&b'\r') {
+						line.pop();
+					}
+					std::mem::swap(&mut latest, &mut line);
+					line.clear();
+				} else {
+					latest.clear();
+					latest.extend_from_slice(&line);
+				}
+				updated = true;
+			}
+			if !updated {
+				continue;
+			}
+			let line = String::from_utf8_lossy(&latest).into_owned();
+			if !updates.push(line) {
+				continue;
+			}
+			let client = client.clone();
+			let updates = updates.clone();
+			let update = move |node: Rc<RefCell<Node>>| {
+				let Some(line) = updates.take() else {
+					return;
+				};
+
+				// Create the log node if necessary.
+				let log_node = node
+					.borrow()
+					.children
+					.iter()
+					.position(|node| node.borrow().label.as_deref() == Some("log"));
+				let log_node = log_node.unwrap_or_else(|| {
+					let child = Self::create_node(&client, &node, Some("log".to_owned()), None);
+					let has_children_node = node
 						.borrow()
 						.children
-						.iter()
-						.position(|node| node.borrow().label.as_deref() == Some("log"));
-					let log_node = log_node.unwrap_or_else(|| {
-						// Create the log node.
-						let child = Self::create_node(&client, &node, Some("log".to_owned()), None);
-
-						// Find where to insert it.
-						let has_children_node =
-							node.borrow().children.first().is_some_and(|node| {
-								node.borrow().label.as_deref() == Some("children")
-							});
-						let index = if has_children_node { 1 } else { 0 };
-
-						// Insert the new node and return the index.
-						node.borrow_mut().children.insert(index, child);
-						index
-					});
-
-					let log_node = &node.borrow().children[log_node];
-					log_node.borrow_mut().title = line;
-				};
-				update_sender.send(Box::new(update)).ok();
+						.first()
+						.is_some_and(|node| node.borrow().label.as_deref() == Some("children"));
+					let index = usize::from(has_children_node);
+					node.borrow_mut().children.insert(index, child);
+					index
+				});
+				let log_node = &node.borrow().children[log_node];
+				log_node.borrow_mut().title = line;
+			};
+			if update_sender.send(Box::new(update)).is_err() {
+				break;
 			}
 		}
 		Ok(())
+	}
+
+	fn process_log_streams(
+		stderr: &tg::process::Stdio,
+		stdout: &tg::process::Stdio,
+		force: bool,
+	) -> Vec<tg::process::stdio::Stream> {
+		let streams = [
+			(tg::process::stdio::Stream::Stderr, stderr),
+			(tg::process::stdio::Stream::Stdout, stdout),
+		];
+		let logged = streams
+			.iter()
+			.filter_map(|(stream, stdio)| stdio.is_log().then_some(*stream))
+			.collect::<Vec<_>>();
+		if !logged.is_empty() || !force {
+			return logged;
+		}
+		streams
+			.into_iter()
+			.filter_map(|(stream, stdio)| {
+				matches!(stdio, tg::process::Stdio::Pipe | tg::process::Stdio::Tty)
+					.then_some(stream)
+			})
+			.collect()
 	}
 
 	async fn process_title(
@@ -2183,6 +2436,11 @@ impl Tree {
 				}
 			},
 		};
+		let title = if title.is_empty() {
+			process.item.id().to_string()
+		} else {
+			title
+		};
 
 		// Handle exports.
 		if module.is_some()
@@ -2213,7 +2471,7 @@ impl Tree {
 					node.borrow_mut().title = title;
 					node.borrow_mut().guard.replace(guard);
 				}))
-				.unwrap();
+				.ok();
 		}
 
 		// Create the status stream.
@@ -2271,7 +2529,12 @@ impl Tree {
 		}
 
 		// Check if the process was canceled.
-		let arg = tg::process::get::Arg::default();
+		let arg = tg::process::get::Arg {
+			location: process.item.location(),
+			metadata: false,
+			stored: false,
+			token: process.item.token(),
+		};
 		if client
 			.try_get_process(process.item.id().unwrap_right(), arg)
 			.await?
@@ -2308,11 +2571,15 @@ impl Tree {
 		// Get the expanded nodes.
 		let nodes = self.nodes();
 
-		// Filter by the scroll and height.
-		let nodes = nodes
-			.into_iter()
-			.skip(self.scroll.0)
-			.take(rect.height.to_usize().unwrap());
+		// Mark all visible nodes as displayed, including those outside the viewport.
+		for node in &nodes {
+			node.borrow_mut().guard.take();
+		}
+
+		// Clamp the scroll and filter by the viewport.
+		let height = rect.height.to_usize().unwrap();
+		self.scroll.0 = self.scroll.0.min(nodes.len().saturating_sub(height));
+		let nodes = nodes.into_iter().skip(self.scroll.0).take(height);
 
 		// Render the nodes.
 		let mut num_rendered_columns = 0;
@@ -2398,7 +2665,7 @@ impl Tree {
 			.saturating_sub(rect.width.to_usize().unwrap());
 		self.scroll.1 = self.scroll.1.min(max);
 		tui::widgets::Paragraph::new(lines)
-			.scroll((0, self.scroll.1.to_u16().unwrap()))
+			.scroll((0, self.scroll.1.to_u16().unwrap_or(u16::MAX)))
 			.render(rect, buffer);
 
 		self.rect.replace(rect);
@@ -2412,14 +2679,41 @@ impl Tree {
 	}
 
 	fn set_selected(&mut self, node: Rc<RefCell<Node>>) {
+		let generation = self
+			.selection_generation
+			.fetch_add(1, Ordering::AcqRel)
+			.wrapping_add(1);
+		if let Some(task) = self.selected_task.take() {
+			task.abort();
+		}
 		self.selected = node.clone();
+
+		// Clear stale details immediately.
+		let selection_generation = self.selection_generation.clone();
+		self.data
+			.send(Box::new(move |data| {
+				if selection_generation.load(Ordering::Acquire) == generation {
+					data.set_contents(String::new());
+				}
+			}))
+			.ok();
+		let selection_generation = self.selection_generation.clone();
+		self.viewer
+			.send(Box::new(move |viewer| {
+				if selection_generation.load(Ordering::Acquire) == generation {
+					viewer.log.take();
+				}
+			}))
+			.ok();
+
 		let Some(referent) = node.borrow().referent.clone() else {
 			return;
 		};
 		let client = self.client.clone();
 		let data = self.data.clone();
+		let selection_generation = self.selection_generation.clone();
 		let viewer = self.viewer.clone();
-		let task = Task::spawn_local(|_| {
+		let task = Task::spawn_local(move |_| {
 			async move {
 				// Update the log view if the selected item is a process.
 				let process =
@@ -2432,19 +2726,18 @@ impl Tree {
 						});
 				if let Some(process) = process.clone()
 					&& let Ok(state) = process.load_with_handle(&client).await
-					&& (state.log.is_some() || state.stdout.is_log() || state.stderr.is_log())
+					&& let streams = Self::process_log_streams(&state.stderr, &state.stdout, false)
+					&& !streams.is_empty()
 				{
 					let client = client.clone();
+					let selection_generation = selection_generation.clone();
 					let update = move |viewer: &mut super::Viewer| {
-						let log = Log::new(&client, &process);
-						viewer.log.replace(log);
+						if selection_generation.load(Ordering::Acquire) == generation {
+							let log = Log::new(&client, &process, streams);
+							viewer.log.replace(log);
+						}
 					};
-					viewer.send(Box::new(update)).unwrap();
-				} else {
-					let update = move |viewer: &mut super::Viewer| {
-						viewer.log.take();
-					};
-					viewer.send(Box::new(update)).unwrap();
+					viewer.send(Box::new(update)).ok();
 				}
 
 				// Update the data view.
@@ -2452,29 +2745,53 @@ impl Tree {
 					let client = client.clone();
 					async move {
 						match referent.item {
-							Item::Process(process) => client
-								.get_process(process.id().unwrap_right())
-								.and_then(async |output: tg::process::get::Output| {
-									#[derive(serde::Serialize)]
-									struct ProcessData {
-										data: tg::process::get::Output,
-										metadata: Option<tg::process::Metadata>,
-									}
-									let metadata = client
-										.try_get_process_metadata(
-											process.id().unwrap_right(),
-											tg::process::metadata::Arg::default(),
-										)
-										.await?;
-									let data = ProcessData {
-										data: output,
-										metadata,
-									};
-									let output = serde_json::to_string_pretty(&data).unwrap();
-									Ok::<_, tg::Error>(output)
-								})
-								.await
-								.unwrap_or_else(|error| error.to_string()),
+							Item::Group(group) => serde_json::to_string_pretty(&group).unwrap(),
+							Item::Organization(organization) => {
+								serde_json::to_string_pretty(&organization).unwrap()
+							},
+							Item::Process(process) => {
+								let arg = tg::process::get::Arg {
+									location: process.location(),
+									metadata: true,
+									stored: false,
+									token: process.token(),
+								};
+								client
+									.try_get_process(process.id().unwrap_right(), arg)
+									.await
+									.and_then(|output| {
+										let output = output.ok_or_else(|| {
+											tg::error!("failed to find the process")
+										})?;
+										let output = serde_json::to_string_pretty(&output).unwrap();
+										Ok(output)
+									})
+									.unwrap_or_else(|error| error.to_string())
+							},
+							Item::Sandbox(sandbox) => {
+								sandbox.load_with_handle(&client).await.map_or_else(
+									|error| error.to_string(),
+									|output| serde_json::to_string_pretty(output.as_ref()).unwrap(),
+								)
+							},
+							Item::Tag(tag) => {
+								let arg = tg::tag::get::Arg {
+									cached: false,
+									location: tag.location.clone().map(Into::into),
+									ttl: tg::remote::cache::Ttl::default(),
+								};
+								client
+									.try_get_tag(&tg::tag::Selector::Id(tag.id), arg)
+									.await
+									.and_then(|output| {
+										let output = output
+											.ok_or_else(|| tg::error!("failed to find the tag"))?;
+										let output = serde_json::to_string_pretty(&output).unwrap();
+										Ok(output)
+									})
+									.unwrap_or_else(|error| error.to_string())
+							},
+							Item::User(user) => serde_json::to_string_pretty(&user).unwrap(),
 							Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
 								super::util::format_blob(&client, &blob)
 									.await
@@ -2510,65 +2827,48 @@ impl Tree {
 								};
 								value.print(options)
 							},
-							Item::Package(package) => {
-								package.0.load_with_handle(&client).await.ok();
-								let metadata =
-									get_object_metadata_as_value(&client, package.0.id())
-										.await
-										.unwrap_or_else(|error| {
-											tg::Value::String(error.to_string())
-										});
-								let value = [
-									("data".into(), tg::Value::Object(package.0)),
-									("metadata".into(), metadata),
-								]
-								.into_iter()
-								.collect();
-								let value = tg::Value::Map(value);
-								let options = tg::value::print::Options {
-									blobs: false,
-									color: false,
-									depth: Some(1),
-									indent: 0,
-									indentation: Some("  "),
-									tokens: false,
-								};
-								value.print(options)
-							},
-							Item::Group(group) => group.to_string(),
 						}
 					}
 				};
 				let timeout = tokio::time::sleep(std::time::Duration::from_millis(20));
 				match future::select(pin!(content_future), pin!(timeout)).await {
 					future::Either::Left((content, _)) => {
-						data.send(Box::new(move |this| this.set_contents(content)))
-							.unwrap();
+						let selection_generation = selection_generation.clone();
+						data.send(Box::new(move |this| {
+							if selection_generation.load(Ordering::Acquire) == generation {
+								this.set_contents(content);
+							}
+						}))
+						.ok();
 					},
 					future::Either::Right(((), future)) => {
+						let loading_selection_generation = selection_generation.clone();
 						data.send(Box::new(move |this| {
-							this.set_contents("...loading...".to_owned());
+							if loading_selection_generation.load(Ordering::Acquire) == generation {
+								this.set_contents("...loading...".to_owned());
+							}
 						}))
-						.unwrap();
+						.ok();
 						let contents = future.await;
+						let selection_generation = selection_generation.clone();
 						data.send(Box::new(move |this| {
-							this.set_contents(contents);
+							if selection_generation.load(Ordering::Acquire) == generation {
+								this.set_contents(contents);
+							}
 						}))
-						.unwrap();
+						.ok();
 					},
 				}
 			}
 		});
 
-		if let Some(task) = self.selected_task.replace(task) {
-			task.abort();
-		}
+		self.selected_task.replace(task);
 	}
 
 	fn bottom(&mut self) {
 		let nodes = self.nodes();
 		self.select(nodes.last().unwrap().clone());
-		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
+		let height = self.rect.map_or(0, |rect| rect.height.to_usize().unwrap());
 		self.scroll.0 = nodes.len().saturating_sub(height);
 	}
 
@@ -2589,8 +2889,9 @@ impl Tree {
 		self.clamp_scroll(index);
 	}
 
-	pub fn update(&mut self) {
+	pub fn update(&mut self) -> bool {
 		// Note we can't use .nodes() here because update() may create new ones.
+		let mut changed = false;
 		let mut stack = vec![self.roots.last().unwrap().0.clone()];
 		while let Some(node) = stack.pop() {
 			loop {
@@ -2598,14 +2899,68 @@ impl Tree {
 					break;
 				};
 				update(node.clone());
+				changed = true;
 			}
 			stack.extend(node.borrow().children.iter().rev().cloned());
+		}
+		if changed {
+			self.reconcile_selection();
+		}
+
+		changed
+	}
+
+	fn reconcile_selection(&mut self) {
+		if self.selection_visible() {
+			return;
+		}
+		let nodes = self.nodes();
+		let selected = Self::ancestors(&self.selected)
+			.into_iter()
+			.skip(1)
+			.find(|ancestor| nodes.iter().any(|node| Rc::ptr_eq(node, ancestor)))
+			.unwrap_or_else(|| self.roots.last().unwrap().0.clone());
+		let index = nodes
+			.iter()
+			.position(|node| Rc::ptr_eq(node, &selected))
+			.unwrap_or_default();
+		self.set_selected(selected);
+		self.clamp_scroll(index);
+	}
+
+	fn selection_visible(&self) -> bool {
+		let root = &self.roots.last().unwrap().0;
+		let mut node = self.selected.clone();
+		loop {
+			let depth = node.borrow().depth;
+			let max_depth = node.borrow().options.depth;
+			if max_depth.is_some_and(|max_depth| depth > max_depth) {
+				return false;
+			}
+			if Rc::ptr_eq(&node, root) {
+				return true;
+			}
+			let Some(parent) = node.borrow().parent.as_ref().and_then(Weak::upgrade) else {
+				return false;
+			};
+			if matches!(parent.borrow().expanded, Some(false))
+				|| !parent
+					.borrow()
+					.children
+					.iter()
+					.any(|child| Rc::ptr_eq(child, &node))
+			{
+				return false;
+			}
+			node = parent;
 		}
 	}
 
 	pub fn clear_guards(&mut self) {
-		for node in self.nodes() {
+		let mut stack = vec![self.roots.last().unwrap().0.clone()];
+		while let Some(node) = stack.pop() {
 			node.borrow_mut().guard.take();
+			stack.extend(node.borrow().children.iter().rev().cloned());
 		}
 	}
 
@@ -2614,9 +2969,12 @@ impl Tree {
 			return;
 		};
 		let contents = match referent.item() {
-			Item::Group(group) => group.to_string(),
-			Item::Package(package) => package.0.id().to_string(),
+			Item::Group(group) => group.specifier.to_string(),
+			Item::Organization(organization) => organization.specifier.to_string(),
 			Item::Process(process) => process.id().to_string(),
+			Item::Sandbox(sandbox) => sandbox.id().to_string(),
+			Item::Tag(tag) => tag.specifier.to_string(),
+			Item::User(user) => user.specifier.to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
 					Self::object_id(object)
@@ -2693,45 +3051,20 @@ impl std::fmt::Display for Display {
 	}
 }
 
-struct PackageVisitor {
-	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
-	package: tg::Referent<tg::Object>,
-}
-
-impl tg::object::Visitor<tg::Client> for PackageVisitor {
-	async fn visit_directory(
-		&mut self,
-		_client: &tg::Client,
-		_directory: tg::Referent<&tg::Directory>,
-	) -> tg::Result<bool> {
-		Ok(true)
+fn extend_process_log_line(line: &mut Vec<u8>, segment: &[u8]) {
+	if segment.len() >= PROCESS_LOG_LINE_LIMIT {
+		line.clear();
+		line.extend_from_slice(&segment[segment.len() - PROCESS_LOG_LINE_LIMIT..]);
+		return;
 	}
-	async fn visit_file(
-		&mut self,
-		client: &tg::Client,
-		file: tg::Referent<&tg::File>,
-	) -> tg::Result<bool> {
-		if file.path().is_some()
-			&& ((file.tag().is_some() && file.tag() != self.package.tag())
-				|| (file.id().is_some() && file.id() != self.package.id()))
-		{
-			return Ok(false);
-		}
-		let dependencies = file.item().dependencies_with_handle(client).await?;
-		self.dependencies.extend(
-			dependencies
-				.into_iter()
-				.filter(|(reference, _)| reference.item().is_specifier()),
-		);
-		Ok(true)
+	let excess = line
+		.len()
+		.saturating_add(segment.len())
+		.saturating_sub(PROCESS_LOG_LINE_LIMIT);
+	if excess > 0 {
+		line.drain(..excess);
 	}
-	async fn visit_symlink(
-		&mut self,
-		_client: &tg::Client,
-		_symlink: tg::Referent<&tg::Symlink>,
-	) -> tg::Result<bool> {
-		Ok(false)
-	}
+	line.extend_from_slice(segment);
 }
 
 async fn get_process_metadata_as_value(
@@ -2835,4 +3168,57 @@ fn subtree_to_value(subtree: &tg::object::metadata::Subtree) -> tg::Value {
 	.into_iter()
 	.collect();
 	tg::Value::Map(subtree)
+}
+
+#[cfg(test)]
+mod tests {
+	use {
+		super::{PROCESS_LOG_LINE_LIMIT, ProcessLogUpdates, Tree, extend_process_log_line},
+		tangram_client::prelude::*,
+		tg::process::{
+			Stdio,
+			stdio::Stream::{Stderr, Stdout},
+		},
+	};
+
+	#[test]
+	fn process_log_updates_coalesce_pending_lines() {
+		let updates = ProcessLogUpdates::default();
+		assert!(updates.push("first".to_owned()));
+		assert!(!updates.push("second".to_owned()));
+		assert_eq!(updates.take().as_deref(), Some("second"));
+		assert!(updates.push("third".to_owned()));
+		assert_eq!(updates.take().as_deref(), Some("third"));
+	}
+
+	#[test]
+	fn process_log_streams_excludes_piped_streams_when_a_log_exists() {
+		assert_eq!(
+			Tree::process_log_streams(&Stdio::Log, &Stdio::Pipe, false),
+			vec![Stderr]
+		);
+		assert_eq!(
+			Tree::process_log_streams(&Stdio::Pipe, &Stdio::Log, false),
+			vec![Stdout]
+		);
+	}
+
+	#[test]
+	fn process_log_streams_includes_attached_streams_when_forced() {
+		assert_eq!(
+			Tree::process_log_streams(&Stdio::Tty, &Stdio::Pipe, true),
+			vec![Stderr, Stdout]
+		);
+	}
+
+	#[test]
+	fn process_log_line_retains_only_the_suffix() {
+		let mut line = vec![b'a'; PROCESS_LOG_LINE_LIMIT - 1];
+		extend_process_log_line(&mut line, b"bc");
+		assert_eq!(line.len(), PROCESS_LOG_LINE_LIMIT);
+		assert_eq!(&line[line.len() - 2..], b"bc");
+
+		extend_process_log_line(&mut line, &vec![b'd'; PROCESS_LOG_LINE_LIMIT + 1]);
+		assert_eq!(line, vec![b'd'; PROCESS_LOG_LINE_LIMIT]);
+	}
 }

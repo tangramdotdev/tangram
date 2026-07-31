@@ -15,6 +15,15 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>>;
 
+	fn try_get_sandbox_processes_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>,
+	>;
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -62,6 +71,23 @@ where
 		arg: tg::sandbox::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>> {
 		self.try_get_sandbox(id, arg).boxed()
+	}
+
+	fn try_get_sandbox_processes_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>>,
+	> {
+		async move {
+			Ok(self
+				.try_get_sandbox_processes_stream(id, arg)
+				.await?
+				.map(futures::StreamExt::boxed))
+		}
+		.boxed()
 	}
 
 	fn list_sandboxes(

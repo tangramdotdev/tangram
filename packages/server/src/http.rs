@@ -737,6 +737,9 @@ impl Server {
 			(http::Method::POST, ["sandboxes", "control"]) => {
 				session.get_sandbox_control_stream_request(request).boxed()
 			},
+			(http::Method::GET, ["sandboxes", sandbox, "processes"]) => session
+				.try_get_sandbox_processes_stream_request(request, sandbox)
+				.boxed(),
 			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),
