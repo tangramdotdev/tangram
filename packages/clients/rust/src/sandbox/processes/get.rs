@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{Stream, TryStreamExt as _, future},
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
@@ -40,99 +40,22 @@ pub enum Event {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
+	pub data: Vec<tg::process::Id>,
 	pub position: u64,
-	pub data: Vec<tg::process::data::Child>,
-}
-
-impl<O> tg::Process<O> {
-	pub async fn children(
-		&self,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle, arg).await
-	}
-
-	pub async fn children_with_handle<H>(
-		&self,
-		handle: &H,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>
-	where
-		H: tg::Handle,
-	{
-		self.try_get_children_with_handle(handle, arg)
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the process"))
-	}
-
-	pub async fn try_get_children(
-		&self,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
-	> {
-		let handle = tg::handle()?;
-		self.try_get_children_with_handle(handle, arg).await
-	}
-
-	pub async fn try_get_children_with_handle<H>(
-		&self,
-		handle: &H,
-		arg: tg::process::children::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
-	>
-	where
-		H: tg::Handle,
-	{
-		let mut arg = arg;
-		if arg.location.is_none() {
-			arg.location = self.location();
-		}
-		if arg.token.is_none() {
-			arg.token = self.token();
-		}
-		let location = arg.location.clone();
-		let token = arg.token.clone();
-		let Some(id) = self.id().right() else {
-			return Err(tg::error!(
-				"getting the process children is not supported for unsandboxed processes"
-			));
-		};
-		Ok(handle
-			.try_get_process_children(id, arg)
-			.await?
-			.map(move |stream| {
-				stream
-					.map_ok(move |chunk| {
-						let location = location.clone();
-						let token = token.clone();
-						stream::iter(chunk.data.into_iter().map(move |data| {
-							let child = tg::process::state::Child::try_from_data(data)?;
-							child.process.inherit_location(location.clone());
-							child.process.inherit_token(token.clone());
-							Ok(child)
-						}))
-					})
-					.try_flatten()
-					.boxed()
-			}))
-	}
 }
 
 impl tg::Session {
-	pub async fn try_get_process_children_stream(
+	pub async fn try_get_sandbox_processes_stream(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<
 		Option<
-			impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static + use<>,
+			impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static + use<>,
 		>,
 	> {
 		let method = http::Method::GET;
-		let path = format!("/processes/{id}/children");
+		let path = format!("/sandboxes/{id}/processes");
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params_strict(&arg)
@@ -186,6 +109,7 @@ impl tg::Session {
 					},
 				)
 			});
+
 		Ok(Some(stream))
 	}
 }
@@ -208,6 +132,7 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 				..Default::default()
 			},
 		};
+
 		Ok(event)
 	}
 }

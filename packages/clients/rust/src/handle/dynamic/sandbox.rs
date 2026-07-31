@@ -20,6 +20,27 @@ impl tg::handle::Sandbox for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_sandbox(id, arg)) }
 	}
 
+	fn try_get_sandbox_processes_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl futures::Stream<Item = tg::Result<tg::sandbox::processes::get::Event>>
+				+ Send
+				+ 'static,
+			>,
+		>,
+	> {
+		// SAFETY: The erased handle returns the same boxed future and stream output types.
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_get_sandbox_processes_stream(id, arg),
+			)
+		}
+	}
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

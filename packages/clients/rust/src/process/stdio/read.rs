@@ -134,6 +134,9 @@ impl<O> tg::Process<O> {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
+		if arg.location.is_none() {
+			arg.location = self.location();
+		}
 		if arg.token.is_none() {
 			arg.token = self.token();
 		}

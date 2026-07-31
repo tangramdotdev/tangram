@@ -13,6 +13,7 @@ impl Help {
 	pub fn render(&mut self, rect: tui::layout::Rect, buffer: &mut tui::buffer::Buffer) {
 		let commands = [
 			("?", "help", "Show this help view."),
+			("Ctrl+C", "interrupt", "Interrupt the current process."),
 			("q", "exit", "Close the TUI."),
 			("Shift+G", "bottom", "Go to bottom."),
 			("g", "top", "Go to top."),

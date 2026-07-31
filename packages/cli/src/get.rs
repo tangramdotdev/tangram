@@ -243,6 +243,16 @@ impl Cli {
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
 	) -> tg::Result<tg::Referent<tg::get::Item>> {
+		let output = self.get_reference_output_with_arg(reference, arg).await?;
+
+		Ok(output.referent)
+	}
+
+	pub(crate) async fn get_reference_output_with_arg(
+		&mut self,
+		reference: &tg::Reference,
+		arg: tg::get::Arg,
+	) -> tg::Result<tg::get::Output> {
 		let token = reference.options().token.clone();
 		let direct_reference =
 			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
@@ -253,14 +263,24 @@ impl Cli {
 						tg::get::Item::Id(id.clone()),
 						token.clone(),
 					);
-					return Ok(referent);
+					let output = tg::get::Output {
+						location: None,
+						referent,
+					};
+
+					return Ok(output);
 				},
 				tg::reference::Item::Pointer(pointer) => {
 					let referent = tg::Referent::with_item_and_token(
 						tg::get::Item::Pointer(pointer.clone()),
 						token,
 					);
-					return Ok(referent);
+					let output = tg::get::Output {
+						location: None,
+						referent,
+					};
+
+					return Ok(output);
 				},
 				_ => (),
 			}
@@ -286,25 +306,26 @@ impl Cli {
 
 		// Get the reference.
 		let stream = client
-			.get(&reference, arg)
+			.try_get(&reference, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
-		let mut referent = self
+		let mut output = self
 			.render_progress_stream(stream)
 			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?;
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the reference"))?
+			.ok_or_else(|| tg::error!(%reference, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
-		if relative && let Some(path) = referent.path() {
+		if relative && let Some(path) = output.referent.path() {
 			let current_dir = std::env::current_dir()
 				.map_err(|error| tg::error!(!error, "failed to get the working directory"))?;
 			let path = tangram_util::path::diff(&current_dir, path)
 				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
 				.unwrap_or_default();
-			referent.options.path = Some(path);
+			output.referent.options.path = Some(path);
 		}
 
-		Ok(referent)
+		Ok(output)
 	}
 
 	pub(crate) async fn resolve_reference_with_arg(

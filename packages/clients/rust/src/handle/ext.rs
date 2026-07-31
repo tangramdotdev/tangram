@@ -176,6 +176,112 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
+	fn get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::sandbox::processes::get::Chunk>> + Send + 'static,
+		>,
+	> + Send {
+		self.try_get_sandbox_processes(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the sandbox")))
+		})
+	}
+
+	fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::sandbox::processes::get::Chunk>> + Send + 'static,
+			>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle
+				.try_get_sandbox_processes_stream(&id, arg.clone())
+				.await?
+			else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			struct State {
+				arg: tg::sandbox::processes::get::Arg,
+				end: bool,
+				stream: Option<
+					stream::BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>,
+				>,
+			}
+			let state = Arc::new(Mutex::new(State {
+				arg,
+				end: false,
+				stream: Some(stream),
+			}));
+			let stream = stream::try_unfold(state.clone(), move |state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				async move {
+					if state.lock().unwrap().end {
+						return Ok(None);
+					}
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						let arg = state.lock().unwrap().arg.clone();
+						handle
+							.try_get_sandbox_processes_stream(&id, arg)
+							.await?
+							.ok_or_else(|| tg::error!("failed to find the sandbox"))?
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_while(|event| {
+				future::ready(!matches!(
+					event,
+					Ok(tg::sandbox::processes::get::Event::End)
+				))
+			})
+			.map(|event| match event {
+				Ok(tg::sandbox::processes::get::Event::Chunk(chunk)) => Ok(chunk),
+				Err(error) => Err(error),
+				_ => unreachable!(),
+			})
+			.inspect_ok({
+				let state = state.clone();
+				move |chunk| {
+					let mut state = state.lock().unwrap();
+
+					// If the chunk is empty, then end the stream.
+					if chunk.data.is_empty() {
+						state.end = true;
+						return;
+					}
+
+					// Update the length argument if necessary.
+					if let Some(length) = &mut state.arg.length {
+						*length -= chunk.data.len().to_u64().unwrap();
+					}
+
+					// Update the position argument.
+					let position = chunk.position + chunk.data.len().to_u64().unwrap();
+					state.arg.position = Some(SeekFrom::Start(position));
+				}
+			});
+
+			Ok(Some(stream))
+		}
+	}
+
 	fn get_process_status(
 		&self,
 		id: &tg::process::Id,

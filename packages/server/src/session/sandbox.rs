@@ -20,6 +20,16 @@ impl tg::handle::Sandbox for Session {
 		self.try_get_sandbox(id, arg).boxed().await
 	}
 
+	async fn try_get_sandbox_processes_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static>,
+	> {
+		self.try_get_sandbox_processes_stream(id, arg).await
+	}
+
 	async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

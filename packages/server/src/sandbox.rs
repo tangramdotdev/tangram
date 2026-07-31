@@ -17,6 +17,7 @@ pub mod finalize;
 pub mod get;
 pub mod isolation;
 pub mod list;
+pub mod processes;
 pub mod status;
 
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
