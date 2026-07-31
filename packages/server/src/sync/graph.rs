@@ -65,7 +65,10 @@ pub struct ObjectNode {
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[Parent; 1]>,
+	pub remote_eager: bool,
+	pub remote_missing: bool,
 	pub remote_requested: bool,
+	pub remote_sent: bool,
 	pub remote_stored: Option<tangram_index::object::Stored>,
 	pub requested: Option<Requested>,
 	pub token: Option<tg::grant::Token>,
@@ -776,6 +779,25 @@ impl Graph {
 		(inserted, remote_stored)
 	}
 
+	pub fn update_object_remote_missing(&mut self, id: &tg::object::Id) {
+		let node = self
+			.nodes
+			.entry(id.clone().into())
+			.or_insert_with(|| Node::Object(ObjectNode::default()))
+			.unwrap_object_mut();
+		node.remote_missing = true;
+	}
+
+	pub fn update_object_remote_sent(&mut self, id: &tg::object::Id, eager: bool) {
+		let node = self
+			.nodes
+			.entry(id.clone().into())
+			.or_insert_with(|| Node::Object(ObjectNode::default()))
+			.unwrap_object_mut();
+		node.remote_eager |= eager;
+		node.remote_sent = true;
+	}
+
 	pub fn update_process_remote(
 		&mut self,
 		id: &tg::process::Id,
@@ -1132,10 +1154,24 @@ impl Graph {
 						})
 					})
 			},
-			Node::Object(node) => node
-				.remote_stored
-				.as_ref()
-				.is_some_and(|stored| stored.subtree),
+			Node::Object(node) => {
+				if node
+					.remote_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree)
+					|| node.remote_missing
+				{
+					return true;
+				}
+				node.remote_sent
+					&& (!node.remote_eager
+						|| node.children.as_ref().is_some_and(|children| {
+							children.iter().all(|index| {
+								let id = self.nodes.get_index(*index).unwrap().0;
+								self.remote_complete(id, arg, &mut visited.clone())
+							})
+						}))
+			},
 			Node::Process(node) => {
 				let Some(stored) = node.remote_stored.as_ref() else {
 					return false;

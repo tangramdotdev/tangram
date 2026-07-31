@@ -232,9 +232,14 @@ impl Session {
 				.get_object_local_authorization(&item.id, node);
 			if !authorization.permissions.contains(node) {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-					id: item.id.into(),
+					id: item.id.clone().into(),
 				});
 				state.sender.send(Ok(message)).await.ok();
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_object_remote_missing(&item.id);
 				continue;
 			}
 			if !inserted || stored {

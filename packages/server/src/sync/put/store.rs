@@ -88,6 +88,11 @@ impl Session {
 					id: item.id.clone().into(),
 				});
 				state.sender.send(Ok(message)).await.ok();
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_object_remote_missing(&item.id);
 				continue;
 			};
 
@@ -134,12 +139,11 @@ impl Session {
 				.send(Ok(message))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to send the put message"))?;
-			state.graph.lock().unwrap().update_object_remote(
-				&item.id,
-				None,
-				item.kind,
-				Some(&tangram_index::object::Stored { subtree: true }),
-			);
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.update_object_remote_sent(&item.id, item.eager);
 
 			// Enqueue the children.
 			if item.eager {
