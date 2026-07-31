@@ -141,7 +141,7 @@ impl Index {
 		let mut authorization = HashMap::new();
 		let mut outputs = Vec::with_capacity(args.len());
 		for arg in args {
-			let Some(id) = Self::try_resolve_resource_with_transaction(
+			let Some((id, exact)) = Self::try_resolve_resource_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -151,7 +151,18 @@ impl Index {
 				outputs.push(None);
 				continue;
 			};
-			if crate::authorize::validate(&id, arg.permissions).is_err() {
+			let permissions = if exact {
+				arg.permissions
+			} else {
+				let Some(permissions) =
+					crate::authorize::permissions_for_specifier_prefix(&id, arg.permissions)?
+				else {
+					outputs.push(None);
+					continue;
+				};
+				permissions
+			};
+			if crate::authorize::validate(&id, permissions).is_err() {
 				outputs.push(None);
 				continue;
 			}
@@ -169,7 +180,7 @@ impl Index {
 					transaction,
 					&body.resource,
 				)?
-				.map(|resource| (body, resource))
+				.map(|(resource, _)| (body, resource))
 			} else {
 				None
 			};
@@ -189,7 +200,14 @@ impl Index {
 				token,
 				transaction,
 			};
-			let permissions = Self::authorize_with_transaction(&mut context, &id, arg.permissions)?;
+			let authorized = Self::authorize_with_transaction(&mut context, &id, permissions)?;
+			let permissions = if permissions == arg.permissions {
+				authorized
+			} else if authorized.contains(permissions) {
+				arg.permissions
+			} else {
+				arg.permissions.empty_like()
+			};
 			outputs.push(Some(crate::authorize::Output { permissions }));
 		}
 
@@ -733,7 +751,7 @@ impl Index {
 						if let Some(owner) = owner {
 							dependencies.push((
 								owner.clone(),
-								Self::write_permission_for_resource(&owner)?,
+								crate::authorize::write_permission_for_resource(&owner)?,
 							));
 						}
 					}
@@ -1034,30 +1052,6 @@ impl Index {
 		}
 		cache.item_tags.insert(key, parents.clone());
 		Ok(parents)
-	}
-
-	fn write_permission_for_resource(resource: &tg::Id) -> tg::Result<tg::grant::Permission> {
-		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Write,
-			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Write,
-			)),
-			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Write,
-			)),
-			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Write,
-			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Write,
-			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Write,
-			)),
-			_ => Err(tg::error!("invalid resource")),
-		}
 	}
 
 	fn get_cached_object_parents_with_transaction(

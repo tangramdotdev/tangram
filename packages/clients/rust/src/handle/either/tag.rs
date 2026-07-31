@@ -22,10 +22,11 @@ where
 	fn try_get_tag(
 		&self,
 		tag: &tg::tag::Selector,
+		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_tag(tag).left_future(),
-			tg::Either::Right(s) => s.try_get_tag(tag).right_future(),
+			tg::Either::Left(s) => s.try_get_tag(tag, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_tag(tag, arg).right_future(),
 		}
 	}
 

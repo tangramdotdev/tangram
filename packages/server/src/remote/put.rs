@@ -45,6 +45,7 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote"))?;
+		self.delete_remote_cache(&name).await?;
 
 		Ok(())
 	}

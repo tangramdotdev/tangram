@@ -202,37 +202,18 @@ impl Token {
 
 impl Body {
 	pub fn validate(&self) -> tg::Result<()> {
-		match &self.resource {
-			tg::grant::Resource::Id(id)
-				if matches!(
-					id.kind(),
-					tg::id::Kind::Blob
-						| tg::id::Kind::Directory
-						| tg::id::Kind::File
-						| tg::id::Kind::Symlink
-						| tg::id::Kind::Graph
-						| tg::id::Kind::Command
-						| tg::id::Kind::Error
-				) =>
-			{
-				if !self
-					.permissions
-					.iter()
-					.all(|permission| matches!(permission, tg::grant::Permission::Object(_)))
-				{
-					return Err(tg::error!("invalid permissions"));
-				}
-			},
-			tg::grant::Resource::Id(id) if id.kind() == tg::id::Kind::Process => {
-				if !self
-					.permissions
-					.iter()
-					.all(|permission| matches!(permission, tg::grant::Permission::Process(_)))
-				{
-					return Err(tg::error!("invalid permissions"));
-				}
-			},
-			_ => return Err(tg::error!("invalid resource")),
+		let tg::grant::Resource::Id(id) = &self.resource else {
+			return Err(tg::error!("invalid resource"));
+		};
+		let Some(kind) = tg::grant::resource::Kind::from_id_kind(id.kind()) else {
+			return Err(tg::error!("invalid resource"));
+		};
+		if !self
+			.permissions
+			.iter()
+			.all(|permission| permission.kind() == kind)
+		{
+			return Err(tg::error!("invalid permissions"));
 		}
 		Ok(())
 	}
@@ -332,6 +313,51 @@ mod tests {
 			"ed25519".parse::<tg::grant::Algorithm>().unwrap(),
 			tg::grant::Algorithm::Ed25519,
 		);
+	}
+
+	#[test]
+	fn body_accepts_matching_permissions_for_all_resource_kinds() {
+		let cases = [
+			(
+				tg::id::Kind::Group,
+				tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read),
+			),
+			(
+				tg::id::Kind::File,
+				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node),
+			),
+			(
+				tg::id::Kind::Organization,
+				tg::grant::Permission::Organization(
+					tg::grant::permission::organization::Permission::Read,
+				),
+			),
+			(
+				tg::id::Kind::Process,
+				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Read),
+			),
+			(
+				tg::id::Kind::Sandbox,
+				tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read),
+			),
+			(
+				tg::id::Kind::Tag,
+				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
+			),
+			(
+				tg::id::Kind::User,
+				tg::grant::Permission::User(tg::grant::permission::user::Permission::Read),
+			),
+		];
+		for (kind, permission) in cases {
+			let body = tg::grant::Body {
+				expires_at: 20,
+				permissions: vec![permission],
+				resource: tg::grant::Resource::Id(tg::Id::new_uuidv7(kind)),
+			};
+
+			body.validate().unwrap();
+		}
 	}
 
 	#[test]

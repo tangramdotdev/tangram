@@ -31,16 +31,15 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		if let Some(permission) = self.write_permission_for_specifier(&arg.specifier).await? {
-			let authorized = self
-				.authorize(
-					tg::grant::Resource::Specifier(arg.specifier.clone()),
-					permission,
-				)
-				.await?;
-			if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
-				return Err(tg::error!("unauthorized"));
-			}
+		let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
+		let authorized = self
+			.authorize(
+				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				permission,
+			)
+			.await?;
+		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
+			return Err(tg::error!("unauthorized"));
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
@@ -87,43 +86,38 @@ impl Session {
 		permissions: Vec<tg::grant::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
-		let parent = self
-			.ensure_parent_for_specifier(transaction, &arg.specifier, batch)
-			.await?;
+		let parent = if arg.parents {
+			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
+				.await?
+		} else {
+			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
+		};
 		let existing =
-			Self::try_get_node_by_specifier_with_transaction(transaction, &arg.specifier).await?;
+			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?;
 		let item = Self::tag_item_to_string(&arg.item);
 		let permissions_json = serde_json::to_string(&permissions)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
-		let (node, permissions) = if let Some(node) = existing {
-			if node.kind != tg::id::Kind::Tag {
+		let (id, permissions) = if let Some(id) = existing {
+			let Ok(id) = tg::tag::Id::try_from(id) else {
 				return Err(tg::error!("specifier is already in use"));
-			}
+			};
 			let p = transaction.p();
 			// Keep the recorded permissions when the item is unchanged, and record the new permissions when the item is replaced.
 			let statement = formatdoc!(
 				"
 					update tags
-					set permissions = case when item = {p}1 then permissions else {p}4 end,
+					set permissions = case when item = {p}1 then permissions else {p}3 end,
 						item = {p}1
-					where id = {p}2 and ({p}3 or item = {p}1);
+					where id = {p}2;
 				"
 			);
-			let n = transaction
+			transaction
 				.execute(
 					statement.into(),
-					db::params![
-						item.clone(),
-						node.id.to_string(),
-						arg.force,
-						permissions_json
-					],
+					db::params![item.clone(), id.to_string(), permissions_json],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-			if n == 0 {
-				return Err(tg::error!("the tag already exists with a different item"));
-			}
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				permissions: String,
@@ -136,22 +130,21 @@ impl Session {
 				"
 			);
 			let row = transaction
-				.query_one_into::<Row>(statement.into(), db::params![node.id.to_string()])
+				.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			let permissions = serde_json::from_str(&row.permissions)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
-			(node, permissions)
+			(id, permissions)
 		} else {
 			let id = tg::tag::Id::new();
-			let node = Self::create_node_with_transaction(
+			Self::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
-				tg::id::Kind::Tag,
 				&arg.specifier,
-				parent.as_ref(),
 			)
 			.await?;
+			let name = arg.specifier.name().to_owned();
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
@@ -164,8 +157,8 @@ impl Session {
 					statement.into(),
 					db::params![
 						id.to_string(),
-						node.name.clone(),
-						node.parent.as_ref().map(ToString::to_string),
+						name,
+						parent.as_ref().map(ToString::to_string),
 						item.clone(),
 						permissions_json
 					],
@@ -196,15 +189,15 @@ impl Session {
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
 			}
-			(node, permissions)
+			(id, permissions)
 		};
 		Ok(tg::tag::Data {
-			id: node.id.try_into()?,
+			id,
 			item: arg.item,
-			name: node.name,
-			parent: node.parent,
+			name: arg.specifier.name().to_owned(),
+			parent,
 			permissions,
-			specifier: node.specifier,
+			specifier: arg.specifier,
 		})
 	}
 
@@ -221,6 +214,8 @@ impl Session {
 			.put_tag(arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to put the tag"))?;
+		self.invalidate_remote_cache(&remote.name).await;
+
 		Ok(())
 	}
 
@@ -242,67 +237,5 @@ impl Session {
 			tg::Principal::User(user) => Some(tg::grant::Principal::User(user.clone())),
 			_ => None,
 		}
-	}
-
-	pub(crate) async fn write_permission_for_specifier(
-		&self,
-		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::grant::Permission>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-		prefixes.reverse();
-		for prefix in prefixes {
-			if let Some(node) =
-				Self::try_get_node_by_specifier_with_transaction(&transaction, &prefix).await?
-			{
-				return Self::write_permission_for_resource(&node.id).map(Some);
-			}
-		}
-		Ok(None)
-	}
-}
-
-impl Session {
-	async fn ensure_parent_for_specifier(
-		&self,
-		transaction: &Transaction<'_>,
-		specifier: &tg::Specifier,
-		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Option<tg::Id>> {
-		if specifier.components().next().is_none() {
-			return Err(tg::error!("invalid specifier"));
-		}
-		let Some(_) = specifier.parent() else {
-			return Ok(None);
-		};
-		let mut parent = None;
-		let mut node = None;
-		for ancestor in specifier.ancestors() {
-			if let Some(existing) =
-				Self::try_get_node_by_specifier_with_transaction(transaction, &ancestor).await?
-			{
-				if existing.kind == tg::id::Kind::Tag {
-					return Err(tg::error!("specifier is already in use"));
-				}
-				parent = Some(existing.id.clone());
-				node = Some(existing);
-				continue;
-			}
-			let created = self
-				.create_group_node_with_transaction(transaction, &ancestor, parent.as_ref(), batch)
-				.await?;
-			parent = Some(created.id.clone());
-			node = Some(created);
-		}
-		Ok(node.map(|node| node.id))
 	}
 }

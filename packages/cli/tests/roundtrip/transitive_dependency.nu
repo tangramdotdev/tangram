@@ -8,12 +8,12 @@ let server = spawn
 let foo_1_0_0_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo 1.0.0"); }'
 }
-tg tag foo/1.0.0 $foo_1_0_0_path
+tg tag -p foo/1.0.0 $foo_1_0_0_path
 
 let foo_1_1_0_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo 1.1.0"); }'
 }
-tg tag foo/1.1.0 $foo_1_1_0_path
+tg tag -p foo/1.1.0 $foo_1_1_0_path
 
 let bar_path = artifact {
 	tangram.ts: '

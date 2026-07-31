@@ -166,6 +166,13 @@ where
 		}
 	}
 
+	fn match_(&self, arg: tg::match_::Arg) -> impl Future<Output = tg::Result<tg::match_::Output>> {
+		match self {
+			tg::Either::Left(s) => s.match_(arg.clone()).left_future(),
+			tg::Either::Right(s) => s.match_(arg).right_future(),
+		}
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -254,6 +261,29 @@ where
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_get(reference, arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
+	fn try_resolve(
+		&self,
+		reference: &tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_resolve(reference, arg.clone())
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_resolve(reference, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

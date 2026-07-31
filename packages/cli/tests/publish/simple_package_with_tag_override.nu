@@ -6,7 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 let path = artifact {
 	tangram.ts: '
 		export default function () { return "Hello, World!"; }

@@ -20,7 +20,7 @@ let alice_local = spawn --name alice-local --config {
 }
 
 # Alice pulls her own process with its logs. The on-demand compaction must run for her, since she is authorized to read her own log.
-tg --url $alice_local.url pull $process --logs | complete
+tg --url $alice_local.url pull $process --process-logs | complete
 
 # Alice reads her own log on her own server.
 let alice_log = tg --url $alice_local.url process log $process | complete

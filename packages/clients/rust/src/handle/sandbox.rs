@@ -27,6 +27,18 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::sandbox::get::Output>>> + Send;
 
+	fn try_get_sandbox_processes_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -88,6 +100,18 @@ impl tg::handle::Sandbox for tg::Client {
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		self.session(&self.context).try_get_sandbox(id, arg).await
+	}
+
+	async fn try_get_sandbox_processes_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::sandbox::processes::get::Event>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_sandbox_processes_stream(id, arg)
+			.await
 	}
 
 	async fn list_sandboxes(

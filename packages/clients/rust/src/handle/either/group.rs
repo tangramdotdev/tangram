@@ -19,7 +19,7 @@ where
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Group>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::group::get::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.try_get_group(group, arg).left_future(),
 			tg::Either::Right(s) => s.try_get_group(group, arg).right_future(),

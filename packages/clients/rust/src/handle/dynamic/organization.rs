@@ -12,7 +12,7 @@ impl tg::handle::Organization for Handle {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Organization>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::organization::get::Output>>> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, _>>(
 				self.0.try_get_organization(organization, arg),

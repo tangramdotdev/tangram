@@ -4,14 +4,21 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub sandbox: tg::sandbox::Id,
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
 
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[arg(index = 1)]
+	pub sandbox: tg::sandbox::Id,
+
+	#[command(flatten)]
+	pub ttl: crate::get::Ttl,
 }
 
 impl Cli {
@@ -21,7 +28,9 @@ impl Cli {
 			.try_get_sandbox(
 				&args.sandbox,
 				tg::sandbox::get::Arg {
+					cached: args.cached,
 					location: args.locations.get(),
+					ttl: args.ttl.get(),
 				},
 			)
 			.await

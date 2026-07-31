@@ -37,6 +37,7 @@ mod js;
 mod list;
 mod location;
 mod lsp;
+mod match_;
 mod metadata;
 mod new;
 mod object;
@@ -313,6 +314,8 @@ enum Command {
 	Logout(self::user::logout::Args),
 
 	Lsp(self::lsp::Args),
+
+	Match(self::match_::Args),
 
 	Metadata(self::metadata::Args),
 
@@ -658,6 +661,7 @@ impl Cli {
 			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
 			Command::Logout(args) => self.command_user_logout(args).boxed_local(),
 			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
+			Command::Match(args) => self.command_match(args).boxed_local(),
 			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
 			Command::New(args) => self.command_new(args).boxed_local(),
 			Command::Object(args) => self.command_object(args).boxed_local(),

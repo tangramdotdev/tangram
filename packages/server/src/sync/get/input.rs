@@ -7,19 +7,34 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub(super) struct SyncGetInputArg {
+	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
+	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
+	pub state: std::sync::Arc<State>,
+	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
+	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
+	pub stream: BoxStream<'static, tg::sync::PutMessage>,
+}
+
 impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
-	pub(super) async fn sync_get_input(
-		&self,
-		state: &State,
-		mut stream: BoxStream<'static, tg::sync::PutMessage>,
-		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
-		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
-		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
-		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
-	) -> tg::Result<()> {
+	pub(super) async fn sync_get_input(&self, arg: SyncGetInputArg) -> tg::Result<()> {
+		let SyncGetInputArg {
+			index_object_sender,
+			index_process_sender,
+			state,
+			store_object_sender,
+			store_process_sender,
+			mut stream,
+		} = arg;
+		let state = &state;
 		while let Some(message) = stream.next().await {
 			match message {
+				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Group(message)) => {
+					let message = tg::sync::PutItemMessage::Group(message);
+					Self::sync_get_input_item(state, message)?;
+				},
+
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
 					// Deserialize the object.
 					let data =
@@ -92,6 +107,11 @@ impl Session {
 						.map_err(|_| tg::error!("failed to send the object to the store task"))?;
 				},
 
+				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Organization(message)) => {
+					let message = tg::sync::PutItemMessage::Organization(message);
+					Self::sync_get_input_item(state, message)?;
+				},
+
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
 					let eager = state
 						.graph
@@ -160,48 +180,71 @@ impl Session {
 						.map_err(|_| tg::error!("failed to send the process to the store task"))?;
 				},
 
-				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(message)) => {
-					let eager = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_object_requested(&message.id)
-						.is_none_or(|requested| requested.eager);
-
-					if eager {
-						// Send to the index task.
-						let item = super::index::ObjectItem {
-							id: message.id.clone(),
-							missing: true,
-						};
-						index_object_sender.send(item).await.map_err(|_| {
-							tg::error!("failed to send the object to the index task")
-						})?;
-					} else {
-						return Err(tg::error!(id = %message.id, "failed to find the object"));
+				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Sandbox(message)) => {
+					let mut message = message;
+					if message.data.id != message.id {
+						return Err(tg::error!(
+							expected = %message.id,
+							actual = %message.data.id,
+							"invalid sandbox id"
+						));
 					}
+					if !message.data.status.is_destroyed() {
+						return Err(tg::error!(id = %message.id, "cannot sync a running sandbox"));
+					}
+					message.data.location =
+						Some(tg::Location::Local(tg::location::Local::default()));
+					message.data.token = None;
+					let message = tg::sync::PutItemMessage::Sandbox(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
-				tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(message)) => {
-					let eager = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_process_requested(&message.id)
-						.is_none_or(|requested| requested.eager);
+				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Tag(message)) => {
+					let message = tg::sync::PutItemMessage::Tag(message);
+					Self::sync_get_input_item(state, message)?;
+				},
 
-					if eager {
-						// Send to the index task.
-						let item = super::index::ProcessItem {
-							id: message.id.clone(),
-							missing: true,
-						};
+				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::User(message)) => {
+					let message = tg::sync::PutItemMessage::User(message);
+					Self::sync_get_input_item(state, message)?;
+				},
+
+				tg::sync::PutMessage::Missing(message) => match message.id.kind() {
+					tg::id::Kind::Process => {
+						let id = message.id.try_into()?;
+						let eager = state
+							.graph
+							.lock()
+							.unwrap()
+							.get_process_requested(&id)
+							.is_none_or(|requested| requested.eager);
+						if !eager {
+							return Err(tg::error!(%id, "failed to find the process"));
+						}
+						let item = super::index::ProcessItem { id, missing: true };
 						index_process_sender.send(item).await.map_err(|_| {
 							tg::error!("failed to send the process to the index task")
 						})?;
-					} else {
-						return Err(tg::error!(id = %message.id, "failed to find the process"));
-					}
+					},
+					kind if kind.is_object() => {
+						let id = message.id.try_into()?;
+						let eager = state
+							.graph
+							.lock()
+							.unwrap()
+							.get_object_requested(&id)
+							.is_none_or(|requested| requested.eager);
+						if !eager {
+							return Err(tg::error!(%id, "failed to find the object"));
+						}
+						let item = super::index::ObjectItem { id, missing: true };
+						index_object_sender.send(item).await.map_err(|_| {
+							tg::error!("failed to send the object to the index task")
+						})?;
+					},
+					_ => {
+						return Err(tg::error!(id = %message.id, "failed to find the item"));
+					},
 				},
 
 				tg::sync::PutMessage::Progress(_) => (),
@@ -213,5 +256,29 @@ impl Session {
 			}
 		}
 		Err(tg::error!("failed to receive the put end message"))
+	}
+
+	fn sync_get_input_item(state: &State, message: tg::sync::PutItemMessage) -> tg::Result<()> {
+		let id = match &message {
+			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
+				return Err(tg::error!("invalid sync item kind"));
+			},
+			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Sandbox(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+		};
+		state
+			.graph
+			.lock()
+			.unwrap()
+			.update_item_local_message(message)?;
+		state.progress.increment_transferred_item(&id);
+		if state.graph.lock().unwrap().end_local(&state.arg) {
+			state.queue.close();
+		}
+
+		Ok(())
 	}
 }

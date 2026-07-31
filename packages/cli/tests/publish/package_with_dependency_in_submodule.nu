@@ -6,7 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # Import a dependency in a submodule (helper.tg.ts), not in the root tangram.ts.
 # Also import another internal submodule to verify it is not treated as a separate package.
 let shared_path = artifact {

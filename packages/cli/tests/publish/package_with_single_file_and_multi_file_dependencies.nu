@@ -6,7 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # Create a single-file package.
 let single_file_content = '
 	export default function () { return "I am a single-file package!"; }
@@ -21,7 +20,7 @@ let single_file_path = $single_file_dir | path join "package.tg.ts"
 $single_file_content | save $single_file_path
 
 let single_file_id = tg checkin $single_file_path
-tg tag put test-single-file/1.0.0 $single_file_id | complete
+tg tag put -p test-single-file/1.0.0 $single_file_id | complete
 
 # Create a multi-file package with submodules.
 let multi_file_path = artifact {
@@ -46,7 +45,7 @@ let multi_file_path = artifact {
 }
 
 let multi_file_id = tg checkin $multi_file_path
-tg tag put test-multi-file/1.0.0 $multi_file_id | complete
+tg tag put -p test-multi-file/1.0.0 $multi_file_id | complete
 
 # Create a main package that imports both.
 let main_path = artifact {

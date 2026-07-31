@@ -10,7 +10,7 @@ let transitive_1_0_0 = artifact {
 		export default function () { return "transitive v1"; }
 	'
 }
-tg tag transitive/1.0.0 $transitive_1_0_0
+tg tag -p transitive/1.0.0 $transitive_1_0_0
 tg index
 # Create the direct dependency (version 1) which depends on transitive.
 let dep_1_0_0 = artifact {
@@ -19,7 +19,7 @@ let dep_1_0_0 = artifact {
 		export default function () { return transitive(); }
 	'
 }
-tg tag dep/1.0.0 $dep_1_0_0
+tg tag -p dep/1.0.0 $dep_1_0_0
 tg index
 # Create a dependency that will be removed in the next version.
 let removed = artifact {
@@ -27,7 +27,7 @@ let removed = artifact {
 		export default function () { return "removed"; }
 	'
 }
-tg tag removed/1.0.0 $removed
+tg tag -p removed/1.0.0 $removed
 tg index
 # Create the initial root package which depends on dep and removed.
 let old_root = artifact {
@@ -47,7 +47,7 @@ let transitive_1_1_0 = artifact {
 		export default function () { return "transitive v2"; }
 	'
 }
-tg tag transitive/1.1.0 $transitive_1_1_0
+tg tag -p transitive/1.1.0 $transitive_1_1_0
 tg index
 
 # Create a new dependency that will be added.
@@ -56,7 +56,7 @@ let added_path = artifact {
 		export default function () { return "added"; }
 	'
 }
-tg tag added/1.0.0 $added_path
+tg tag -p added/1.0.0 $added_path
 tg index
 
 let dep_1_1_0 = artifact {
@@ -66,7 +66,7 @@ let dep_1_1_0 = artifact {
 		export default function () { return transitive(); }
 	'
 }
-tg tag dep/1.1.0 $dep_1_1_0
+tg tag -p dep/1.1.0 $dep_1_1_0
 tg index
 
 # Create the updated root package which drops removed and adds added.

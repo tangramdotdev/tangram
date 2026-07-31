@@ -117,10 +117,9 @@ impl Session {
 					.user
 					.ok_or_else(|| tg::error!("missing login user"))?
 					.parse::<tg::user::Id>()?;
-				let node = Self::try_get_node_by_id_with_transaction(&transaction, &user.into())
+				let user = Self::try_get_user_with_transaction(&transaction, &user)
 					.await?
 					.ok_or_else(|| tg::error!("missing login user"))?;
-				let user = Self::user_from_node_with_transaction(&transaction, node).await?;
 				WaitLogin::Output(tg::user::login::wait::Output { token, user })
 			},
 			_ => return Err(tg::error!("invalid login status")),

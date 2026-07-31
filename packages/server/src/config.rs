@@ -11,9 +11,6 @@ use {
 	tangram_util::serde::BoolOptionDefault,
 };
 
-#[cfg(test)]
-mod test;
-
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +62,9 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub regions: Option<Vec<Region>>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub remote_cache: RemoteCache,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
@@ -787,6 +787,14 @@ pub struct Remote {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct RemoteCache {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
@@ -1005,11 +1013,20 @@ pub struct IpRange {
 	pub min: Ipv4Addr,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sync {
 	#[serde(default)]
 	pub get: SyncGet,
+
+	#[serde(default = "default_time_to_live")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_live: Duration,
+
+	#[serde(default = "default_time_to_touch")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub grant_time_to_touch: Duration,
 
 	#[serde(default = "default_sync_max_frame_size")]
 	pub max_frame_size: u64,
@@ -1264,6 +1281,7 @@ impl Default for Config {
 			process: Process::default(),
 			region: None,
 			regions: None,
+			remote_cache: RemoteCache::default(),
 			remotes: None,
 			roles: default_roles(),
 			runner: Runner::default(),
@@ -1584,6 +1602,14 @@ impl Default for Finalizer {
 	}
 }
 
+impl Default for RemoteCache {
+	fn default() -> Self {
+		Self {
+			time_to_live: Duration::from_mins(5),
+		}
+	}
+}
+
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
@@ -1685,6 +1711,8 @@ impl Default for Sync {
 	fn default() -> Self {
 		Self {
 			get: SyncGet::default(),
+			grant_time_to_live: default_time_to_live(),
+			grant_time_to_touch: default_time_to_touch(),
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),

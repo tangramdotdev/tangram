@@ -107,7 +107,7 @@ impl Cli {
 		};
 
 		// Get the artifact.
-		let referent = self.get_resolved_reference(&args.reference).await?;
+		let referent = self.resolve(&args.reference).await?;
 		let edge = referent.into_graph_edge()?.item;
 		let object = edge
 			.try_unwrap_object()

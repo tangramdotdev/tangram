@@ -533,10 +533,14 @@ impl Server {
 			(http::Method::GET, ["health"]) => session.health_request(request).boxed(),
 			(http::Method::POST, ["index"]) => session.index_request(request).boxed(),
 			(http::Method::GET, ["list"]) => session.list_request(request).boxed(),
+			(http::Method::GET, ["match"]) => session.match_request(request).boxed(),
 			(http::Method::POST, ["lsp"]) => session.lsp_request(request).boxed(),
 			(http::Method::POST, ["pull"]) => session.pull_request(request).boxed(),
 			(http::Method::POST, ["push"]) => session.push_request(request).boxed(),
 			(http::Method::GET, ["read"]) => session.try_read_stream_request(request).boxed(),
+			(http::Method::GET, ["resolve", path @ ..]) => {
+				session.try_resolve_request(request, path).boxed()
+			},
 			(http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
@@ -733,6 +737,9 @@ impl Server {
 			(http::Method::POST, ["sandboxes", "control"]) => {
 				session.get_sandbox_control_stream_request(request).boxed()
 			},
+			(http::Method::GET, ["sandboxes", sandbox, "processes"]) => session
+				.try_get_sandbox_processes_stream_request(request, sandbox)
+				.boxed(),
 			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),

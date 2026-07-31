@@ -25,6 +25,7 @@ impl Session {
 					&selector,
 					tg::user::get::Arg {
 						location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+						..Default::default()
 					},
 				)
 				.await

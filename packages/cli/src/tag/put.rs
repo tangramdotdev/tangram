@@ -7,11 +7,11 @@ pub struct Args {
 	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
 
-	#[arg(id = "put.force", long = "force", short = 'f')]
-	pub force: bool,
-
 	#[command(flatten)]
 	pub location: crate::location::Args,
+
+	#[arg(short = 'p', long)]
+	pub parents: bool,
 
 	#[arg(id = "put.public", long = "public")]
 	pub public: bool,
@@ -28,12 +28,11 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Get the reference.
-		let arg = tg::get::Arg {
+		let arg = tg::resolve::Arg {
 			checkin: args.checkin.to_options(),
-			resolve: true,
 			..Default::default()
 		};
-		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
+		let referent = self.resolve_with_arg(&args.reference, arg).await?;
 		let item = match referent.item {
 			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => id
 				.try_into()
@@ -46,9 +45,9 @@ impl Cli {
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
-			force: args.force,
 			item,
 			location: args.location.get(),
+			parents: args.parents,
 			public: args.public,
 			specifier: args
 				.specifier

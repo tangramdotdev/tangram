@@ -18,7 +18,7 @@ let id = tg build --detach $path | str trim
 tg wait $id
 
 tg remote put default $remote.url
-tg push --lazy --logs $id
+tg push --lazy --process-logs $id
 
 let remote_combined = tg --url $remote.url process log $id o+e>| complete
 let remote_combined = $remote_combined.stdout | lines | where $it != "" | sort | str join "\n"
@@ -41,5 +41,5 @@ let no_log_path = artifact {
 let no_log_id = tg build --detach $no_log_path | str trim
 tg wait $no_log_id
 
-let output = tg push --lazy --logs $no_log_id | complete
+let output = tg push --lazy --process-logs $no_log_id | complete
 success $output

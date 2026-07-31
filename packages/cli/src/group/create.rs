@@ -7,6 +7,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
+	#[arg(short = 'p', long)]
+	pub parents: bool,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
@@ -19,6 +22,7 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::group::create::Arg {
 			location: args.location.get(),
+			parents: args.parents,
 			specifier: args.specifier.clone(),
 		};
 		let output = client.create_group(arg).await.map_err(

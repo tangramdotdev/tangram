@@ -22,7 +22,7 @@ snapshot --name object_before $object1
 let a = artifact {
 	tangram.ts: ''
 }
-tg tag a/1.0.0 $a
+tg tag -p a/1.0.0 $a
 
 # Check in again without --unsolved-dependencies. The dependency should now be resolved.
 let id2 = tg checkin --watch $path

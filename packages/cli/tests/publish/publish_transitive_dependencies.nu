@@ -7,7 +7,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # 1. Create a monorepo with packages A, B, C where A -> B -> C using source dependencies.
 let root = artifact {
 	packages: {
@@ -39,7 +38,7 @@ let a_v1 = tg tag get a/0 | from json | get item.id
 "// v2\nexport let metadata = { tag: \"c/0\" };" | save --force ($root | path join "packages/c/tangram.ts")
 
 # 4. Republish A. This should republish C with new content, then B with new C, then A with new B.
-tg publish --force ($root | path join "packages/a")
+tg publish ($root | path join "packages/a")
 let a_v2 = tg tag get a/0 | from json | get item.id
 
 # 5. A should have a new ID because its transitive dependency C changed.

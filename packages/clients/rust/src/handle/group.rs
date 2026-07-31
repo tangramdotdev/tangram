@@ -10,7 +10,7 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Group>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::group::get::Output>>> + Send;
 
 	fn delete_group(
 		&self,
@@ -62,7 +62,7 @@ impl tg::handle::Group for tg::Client {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::Group>> {
+	) -> tg::Result<Option<tg::group::get::Output>> {
 		self.session(&self.context).try_get_group(group, arg).await
 	}
 

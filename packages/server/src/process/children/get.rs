@@ -12,7 +12,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Session {
@@ -123,6 +123,10 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let wakeups = stream::select(children_wakeups, status_wakeups);
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ());
+			let wakeups = stream::select(wakeups, interval);
 			let wakeups = match arg.timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),

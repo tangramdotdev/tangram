@@ -266,11 +266,23 @@ impl Index {
 			.buffered(config.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
-		let token_requests = std::iter::zip(args, &resources)
+		let permissions = std::iter::zip(args, &resources)
+			.map(|(arg, resource)| {
+				let Some((resource, exact)) = resource else {
+					return Ok(None);
+				};
+				if *exact {
+					return Ok(Some(arg.permissions));
+				}
+				crate::authorize::permissions_for_specifier_prefix(resource, arg.permissions)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let token_requests = std::iter::zip(args, std::iter::zip(&resources, &permissions))
 			.enumerate()
-			.filter_map(|(index, (arg, resource))| {
-				let resource = resource.as_ref()?;
-				if crate::authorize::validate(resource, arg.permissions).is_err()
+			.filter_map(|(index, (arg, (resource, permissions)))| {
+				let (resource, _) = resource.as_ref()?;
+				let permissions = (*permissions)?;
+				if crate::authorize::validate(resource, permissions).is_err()
 					|| matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 				{
 					return None;
@@ -282,7 +294,8 @@ impl Index {
 			.map(|(index, body)| async move {
 				let resource =
 					Self::try_resolve_resource_with_transaction(txn, subspace, &body.resource)
-						.await?;
+						.await?
+						.map(|(resource, _)| resource);
 				Ok::<_, tg::Error>((index, resource))
 			})
 			.buffered(config.concurrency)
@@ -295,12 +308,16 @@ impl Index {
 		let mut cache = Cache::default();
 		let mut authorization = HashMap::new();
 		let mut outputs = Vec::with_capacity(args.len());
-		for (index, (arg, id)) in std::iter::zip(args, resources).enumerate() {
-			let Some(id) = id else {
+		for (index, (arg, resource)) in std::iter::zip(args, resources).enumerate() {
+			let Some((id, _)) = resource else {
 				outputs.push(None);
 				continue;
 			};
-			if crate::authorize::validate(&id, arg.permissions).is_err() {
+			let Some(permissions) = permissions[index] else {
+				outputs.push(None);
+				continue;
+			};
+			if crate::authorize::validate(&id, permissions).is_err() {
 				outputs.push(None);
 				continue;
 			}
@@ -325,14 +342,21 @@ impl Index {
 				token,
 				txn,
 			};
-			let permissions = Self::authorize_with_transaction(
+			let authorized = Self::authorize_with_transaction(
 				context,
 				&id,
-				arg.permissions,
+				permissions,
 				authorization,
 				&mut cache,
 			)
 			.await?;
+			let permissions = if permissions == arg.permissions {
+				authorized
+			} else if authorized.contains(permissions) {
+				arg.permissions
+			} else {
+				arg.permissions.empty_like()
+			};
 			outputs.push(Some(crate::authorize::Output { permissions }));
 		}
 
@@ -987,7 +1011,7 @@ impl Index {
 						if let Some(owner) = owner {
 							dependencies.push((
 								owner.clone(),
-								Self::write_permission_for_resource(&owner)?,
+								crate::authorize::write_permission_for_resource(&owner)?,
 							));
 						}
 					}
@@ -1285,30 +1309,6 @@ impl Index {
 		}
 		cache.item_tags.insert(key, parents.clone());
 		Ok(parents)
-	}
-
-	fn write_permission_for_resource(resource: &tg::Id) -> tg::Result<tg::grant::Permission> {
-		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Write,
-			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Write,
-			)),
-			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Write,
-			)),
-			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Write,
-			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Write,
-			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Write,
-			)),
-			_ => Err(tg::error!("invalid resource")),
-		}
 	}
 
 	async fn get_cached_object_children_limited_with_transaction(

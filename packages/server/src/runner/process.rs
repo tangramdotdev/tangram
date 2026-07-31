@@ -534,6 +534,17 @@ impl Session {
 				sandbox.processes.remove(&id_for_cleanup);
 			}
 		}
+		session
+			.server
+			.messenger
+			.publish(format!("sandboxes.{sandbox_id}.processes"), ())
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to publish the sandbox process spawned notification"
+				)
+			})?;
 		if let Err(error) = session
 			.spawn_grant_process_command_task(&process, &id, &location)
 			.await
@@ -787,7 +798,7 @@ impl Session {
 				})),
 				items: objects
 					.into_iter()
-					.map(|object| object.map(tg::Either::Left))
+					.map(|object| object.map(Into::into))
 					.collect(),
 				..Default::default()
 			};

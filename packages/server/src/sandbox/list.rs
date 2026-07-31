@@ -133,6 +133,7 @@ impl Session {
 					network: data.network,
 					owner: Some(data.owner.unwrap_or(tg::Principal::Root)),
 					status: data.status,
+					token: None,
 					ttl: data.ttl,
 				})
 			})
@@ -152,14 +153,15 @@ impl Session {
 			.authorize_batch(authorizations)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
-		let data = std::iter::zip(data, authorizations)
-			.filter_map(|(item, permissions)| {
-				permissions
-					.is_some_and(|permissions| permissions.contains(permission))
-					.then_some(item)
-			})
-			.collect();
-		Ok(data)
+		let mut authorized = Vec::new();
+		for (mut item, permissions) in std::iter::zip(data, authorizations) {
+			if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+				continue;
+			}
+			item.token = self.create_read_token(&item.id.clone().into())?;
+			authorized.push(item);
+		}
+		Ok(authorized)
 	}
 
 	async fn list_sandboxes_regions(

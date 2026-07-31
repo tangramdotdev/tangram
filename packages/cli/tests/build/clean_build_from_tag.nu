@@ -28,8 +28,8 @@ let output_id = tg --url $local1.url build $id
 print 'first build succeeded'
 
 # Push the tag.
-tg --url $local1.url tag test-pkg/1.0.0 $id
-tg --url $local1.url push test-pkg/1.0.0
+tg --url $local1.url tag -p test-pkg/1.0.0 $id
+tg --url $local1.url push --group-children test-pkg
 
 # Build from the tag. This should pull the artifact from the remote.
 let output_two_id = tg --url $local2.url build test-pkg/1.0.0

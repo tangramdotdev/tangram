@@ -2,7 +2,7 @@ use {
 	super::Compiler,
 	oxc::{
 		ast::ast::{
-			ExportAllDeclaration, ExportNamedDeclaration, Expression, ImportAttributeKey,
+			ExportAllDeclaration, ExportFromDeclaration, Expression, ImportAttributeKey,
 			ImportDeclaration, ObjectPropertyKind, PropertyKey, WithClause,
 		},
 		ast_visit::Visit as _,
@@ -174,16 +174,14 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 		self.add_import(specifier, attributes.as_ref(), declaration.span);
 	}
 
-	fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'a>) {
-		if let Some(source) = &declaration.source {
-			let specifier = source.value.as_str();
-			let attributes = declaration
-				.with_clause
-				.as_ref()
-				.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
-			self.add_import(specifier, attributes.as_ref(), declaration.span);
-		}
-		oxc::ast_visit::walk::walk_export_named_declaration(self, declaration);
+	fn visit_export_from_declaration(&mut self, declaration: &ExportFromDeclaration<'a>) {
+		let specifier = declaration.source.value.as_str();
+		let attributes = declaration
+			.with_clause
+			.as_ref()
+			.map(|with_clause| Self::get_import_attributes_from_with_clause(with_clause));
+		self.add_import(specifier, attributes.as_ref(), declaration.span);
+		oxc::ast_visit::walk::walk_export_from_declaration(self, declaration);
 	}
 
 	fn visit_export_all_declaration(&mut self, declaration: &ExportAllDeclaration<'a>) {

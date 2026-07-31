@@ -11,7 +11,7 @@ let id = tg checkin $path
 # Create a mix of leaf tags and nested structure.
 let tags = ["test/1.0.0" "test/2.0.0" "test/foo/bar" "test/foo/baz"]
 for tag in $tags {
-	tg tag put $tag $id
+	tg tag put -p $tag $id
 }
 
 # Delete with star should fail.

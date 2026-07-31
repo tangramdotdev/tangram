@@ -12,16 +12,17 @@ impl Session {
 		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let list = self
-			.list(tg::list::Arg {
+			.match_(tg::match_::Arg {
 				cached: false,
+				groups: false,
 				length: None,
 				location,
-				groups: false,
+				organizations: false,
 				pattern: pattern.clone(),
-				recursive: false,
 				reverse: false,
 				tags: true,
-				ttl: None,
+				ttl: tg::remote::cache::Ttl::default(),
+				users: false,
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list entries"))?
@@ -37,7 +38,7 @@ impl Session {
 				Some(async move {
 					let arg = tg::pull::Arg {
 						source: Some(location),
-						items: vec![tg::Referent::with_item(tg::Either::Left(directory.into()))],
+						items: vec![tg::Referent::with_item(directory.into())],
 						..Default::default()
 					};
 					let stream = session.pull(arg).await?;

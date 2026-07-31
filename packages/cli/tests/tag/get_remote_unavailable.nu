@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 
 # Create and tag an object on the remote.
 let id = tg --url $remote.url put 'tg.file("test")' | str trim
-tg --url $remote.url tag remote-only/1.0.0 $id
+tg --url $remote.url tag -p remote-only/1.0.0 $id
 
 # Kill the remote server.
 let pid = open ($remote.directory | path join 'lock') | into int

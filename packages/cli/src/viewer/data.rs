@@ -7,12 +7,12 @@ use {
 
 pub struct Data {
 	contents: String,
-	num_lines: usize,
-	scroll: (usize, usize),
 	num_columns: usize,
-	update_sender: UpdateSender,
-	update_receiver: UpdateReceiver,
+	num_lines: usize,
 	rect: Option<Rect>,
+	scroll: (usize, usize),
+	update_receiver: UpdateReceiver,
+	update_sender: UpdateSender,
 }
 
 pub type UpdateSender = std::sync::mpsc::Sender<Box<dyn Send + FnOnce(&mut Data)>>;
@@ -20,11 +20,12 @@ pub type UpdateSender = std::sync::mpsc::Sender<Box<dyn Send + FnOnce(&mut Data)
 pub type UpdateReceiver = std::sync::mpsc::Receiver<Box<dyn Send + FnOnce(&mut Data)>>;
 
 impl Data {
-	fn calculate_size(_width: Option<usize>, contents: &str) -> (usize, usize) {
+	fn calculate_size(contents: &str) -> (usize, usize) {
 		let mut num_lines = 0;
 		let mut num_columns = 0;
-		for line in contents.lines() {
+		for line in contents.split('\n') {
 			num_lines += 1;
+			let line = line.strip_suffix('\r').unwrap_or(line);
 			let mut c = 0;
 			for grapheme in line.graphemes(false) {
 				c += grapheme.width();
@@ -54,22 +55,21 @@ impl Data {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		Self {
 			contents: String::new(),
-			update_sender,
-			update_receiver,
-			scroll: (0, 0),
 			num_columns: 0,
-			num_lines: 0,
+			num_lines: 1,
 			rect: None,
+			scroll: (0, 0),
+			update_receiver,
+			update_sender,
 		}
 	}
 
 	pub fn render(&mut self, rect: Rect, buffer: &mut Buffer) {
 		self.rect.replace(rect);
-		tui::widgets::Paragraph::new(self.contents.clone())
-			.scroll((
-				self.scroll.0.to_u16().unwrap(),
-				self.scroll.1.to_u16().unwrap(),
-			))
+		let row = self.scroll.0.to_u16().unwrap_or(u16::MAX);
+		let column = self.scroll.1.to_u16().unwrap_or(u16::MAX);
+		tui::widgets::Paragraph::new(self.contents.as_str())
+			.scroll((row, column))
 			.render(rect, buffer);
 	}
 
@@ -83,8 +83,7 @@ impl Data {
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn set_contents(&mut self, contents: String) {
 		self.contents = contents.replace('\t', "    ");
-		let width = self.rect.map(|rect| rect.width.to_usize().unwrap());
-		let (num_lines, num_columns) = Self::calculate_size(width, &self.contents);
+		let (num_lines, num_columns) = Self::calculate_size(&self.contents);
 		self.num_lines = num_lines;
 		self.num_columns = num_columns;
 		self.scroll = (0, 0);
@@ -94,10 +93,14 @@ impl Data {
 		self.scroll.0 = self.scroll.0.saturating_sub(1);
 	}
 
-	pub fn update(&mut self) {
+	pub fn update(&mut self) -> bool {
+		let mut changed = false;
 		while let Ok(update) = self.update_receiver.try_recv() {
 			update(self);
+			changed = true;
 		}
+
+		changed
 	}
 
 	pub fn update_sender(&self) -> UpdateSender {

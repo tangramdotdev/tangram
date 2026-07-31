@@ -1,6 +1,24 @@
 use {crate::Session, num::ToPrimitive as _, tangram_client::prelude::*};
 
 impl Session {
+	pub(crate) fn create_read_token(&self, id: &tg::Id) -> tg::Result<Option<tg::grant::Token>> {
+		let permission = Self::read_permission_for_resource(id)?;
+		let expires_at = time::OffsetDateTime::now_utc().unix_timestamp()
+			+ self
+				.server
+				.config
+				.sync
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		self.create_token(
+			tg::grant::Resource::Id(id.clone()),
+			vec![permission],
+			expires_at,
+		)
+	}
+
 	pub(crate) fn add_tokens_to_value_data(&self, data: &mut tg::value::Data) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let expires_at = now

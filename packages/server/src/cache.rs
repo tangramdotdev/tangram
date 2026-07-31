@@ -228,7 +228,7 @@ impl Session {
 				items: artifacts
 					.iter()
 					.cloned()
-					.map(|artifact| artifact.map(|artifact| tg::Either::Left(artifact.into())))
+					.map(|artifact| artifact.map(tg::Id::from))
 					.collect(),
 				..Default::default()
 			})

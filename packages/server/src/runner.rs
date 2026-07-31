@@ -479,6 +479,26 @@ impl State {
 	}
 
 	#[must_use]
+	pub fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: u64,
+		length: u64,
+	) -> Option<crate::sandbox::processes::Output> {
+		let sandbox = self.sandboxes.get(id)?;
+		let mut processes = sandbox.processes.keys().cloned().collect::<Vec<_>>();
+		processes.sort();
+		let processes_length = u64::try_from(processes.len()).unwrap();
+		let start = usize::try_from(position.min(processes_length)).unwrap();
+		let end = usize::try_from(position.saturating_add(length).min(processes_length)).unwrap();
+		Some(crate::sandbox::processes::Output {
+			length: processes_length,
+			processes: processes[start..end].to_vec(),
+			status: sandbox.data.status,
+		})
+	}
+
+	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get(&sandbox)?;

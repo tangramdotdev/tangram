@@ -10,7 +10,7 @@ pub trait Organization: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::Organization>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::organization::get::Output>>> + Send;
 
 	fn delete_organization(
 		&self,
@@ -62,7 +62,7 @@ impl tg::handle::Organization for tg::Client {
 		&self,
 		organization: &tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<Option<tg::organization::get::Output>> {
 		self.session(&self.context)
 			.try_get_organization(organization, arg)
 			.await

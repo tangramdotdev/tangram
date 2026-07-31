@@ -4,11 +4,18 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub ttl: crate::get::Ttl,
 
 	#[arg(index = 1)]
 	pub user: tg::user::Selector,
@@ -18,7 +25,9 @@ impl Cli {
 	pub async fn command_user_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::user::get::Arg {
+			cached: args.cached,
 			location: args.location.get(),
+			ttl: args.ttl.get(),
 		};
 		let user = client
 			.try_get_user(&args.user, arg)

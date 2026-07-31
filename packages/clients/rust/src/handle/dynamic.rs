@@ -109,6 +109,10 @@ impl tg::Handle for Handle {
 		self.0.list(arg)
 	}
 
+	fn match_(&self, arg: tg::match_::Arg) -> impl Future<Output = tg::Result<tg::match_::Output>> {
+		self.0.match_(arg)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -163,6 +167,24 @@ impl tg::Handle for Handle {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
 				self.0.try_get(reference, arg),
+			)
+		}
+	}
+
+	fn try_resolve(
+		&self,
+		reference: &tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
+				self.0.try_resolve(reference, arg),
 			)
 		}
 	}

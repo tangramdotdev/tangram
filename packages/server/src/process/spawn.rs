@@ -395,12 +395,12 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<()> {
 		let push_arg = tg::push::Arg {
-			commands: true,
 			destination: location,
 			items: vec![tg::Referent::with_item_and_token(
-				tg::Either::Left(command.item.clone().into()),
+				command.item.clone().into(),
 				command.token().cloned(),
 			)],
+			process_commands: true,
 			..Default::default()
 		};
 		let stream = self

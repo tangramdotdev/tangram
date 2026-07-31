@@ -17,7 +17,7 @@ let path = artifact {
 let id = tg build --detach $path | str trim
 tg wait $id
 tg remote put default $remote.url | complete
-tg push --logs $id
+tg push --process-logs $id
 
 # Read from remote blob should not fail with early eof.
 let output = tg --url $remote.url process log $id | complete

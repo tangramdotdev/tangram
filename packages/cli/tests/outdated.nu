@@ -12,13 +12,13 @@ let id = tg checkin $path
 
 # Tag it a couple times.
 for version in ["1.0.0" "1.1.0" "2.0.0"] {
-	tg tag put $"hello/($version)" $id
+	tg tag put -p $"hello/($version)" $id
 }
 
 # Create another dependency that is already on the latest version.
 let another = artifact 'Hello again!'
 let another_id = tg checkin $another
-tg tag put "another/1.0.0" $another_id
+tg tag put -p "another/1.0.0" $another_id
 
 # Create something that uses it.
 let path = artifact {

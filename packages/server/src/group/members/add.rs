@@ -74,7 +74,10 @@ impl Session {
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client.add_group_member(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to add the group member"),
-		)
+		)?;
+		self.invalidate_remote_cache(&remote.name).await;
+
+		Ok(())
 	}
 
 	pub(crate) async fn add_group_member_with_transaction(
@@ -84,21 +87,31 @@ impl Session {
 		member: &tg::group::Member,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
-		let group = Self::try_get_node_by_selector_with_transaction(transaction, group)
+		let id = match group {
+			tg::Selector::Id(id) => Some(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+					.await?
+					.and_then(|id| id.try_into().ok())
+			},
+		}
+		.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if Self::try_get_group_with_transaction(transaction, &id)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if group.kind != tg::id::Kind::Group {
+			.is_none()
+		{
 			return Err(tg::error!("failed to find the group"));
 		}
+		let group_id: tg::Id = id.into();
 		let member_id: tg::Id = member.clone().into();
-		if Self::try_get_node_by_id_with_transaction(transaction, &member_id)
+		if Self::try_get_specifier_for_id_with_transaction(transaction, &member_id)
 			.await?
 			.is_none()
 		{
 			return Err(tg::error!("failed to find the member"));
 		}
 		if matches!(member, tg::group::Member::Group(_))
-			&& Self::group_contains_group_with_transaction(transaction, &member_id, &group.id)
+			&& Self::group_contains_group_with_transaction(transaction, &member_id, &group_id)
 				.await?
 		{
 			return Err(tg::error!("membership cycle"));
@@ -114,7 +127,7 @@ impl Session {
 		let inserted = transaction
 			.execute(
 				statement.into(),
-				db::params![group.id.to_string(), member_id.to_string()],
+				db::params![group_id.to_string(), member_id.to_string()],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -123,7 +136,7 @@ impl Session {
 		}
 		batch.items.push(tangram_index::batch::Item::PutGroupMember(
 			tangram_index::group::member::put::Arg {
-				group: group.id.clone().try_into()?,
+				group: group_id.clone().try_into()?,
 				member: member.clone(),
 			},
 		));
@@ -137,7 +150,7 @@ impl Session {
 				tg::grant::Permission::Group(tg::grant::permission::group::Permission::Write)
 					.into(),
 			),
-			resource: tg::Referent::with_item(tg::grant::Resource::Id(group.id.clone())),
+			resource: tg::Referent::with_item(tg::grant::Resource::Id(group_id)),
 		};
 		self.create_grant_with_transaction(transaction, arg, batch)
 			.await?;

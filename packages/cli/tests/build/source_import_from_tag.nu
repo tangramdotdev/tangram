@@ -7,7 +7,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 let path = artifact {
 	"main.tg.ts": '
 		import dep from "dep" with { source: "./dep.tg.ts" };

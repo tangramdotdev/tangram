@@ -1,8 +1,8 @@
 use {
 	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
 	num::ToPrimitive as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -11,107 +11,38 @@ use {
 
 pub mod remote;
 
+pub(crate) struct Kinds {
+	pub groups: bool,
+	pub organizations: bool,
+	pub tags: bool,
+	pub users: bool,
+}
+
 impl Session {
-	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list", skip_all)]
+	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
-
-		self.list_inner(arg).await
-	}
-
-	async fn list_inner(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		let mut data = Vec::new();
-		let locations = self
-			.locations(arg.location.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-
-		if locations.local.is_some() {
-			let output = self
-				.list_local(tg::list::Arg {
-					length: None,
-					..arg.clone()
-				})
-				.await
-				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			data.extend(output.data);
-		}
-
-		let remote_results = locations
-			.remotes
-			.into_iter()
-			.map(|remote| {
-				let arg = arg.clone();
-				async move { self.list_remote(remote, &arg).await }
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
+		let local_arg = arg.clone();
+		let entries = self
+			.query_specifier_entries(
+				arg.location.as_ref(),
+				arg.cached,
+				arg.ttl,
+				remote::Query::List(arg.clone()),
+				move |entries| {
+					let data = filter_list_entries(entries, &local_arg);
+					sort_and_truncate(data, local_arg.reverse, local_arg.length)
+				},
+			)
 			.await?;
-		data.extend(remote_results.into_iter().flatten());
+		let data = sort_and_truncate(entries, arg.reverse, arg.length);
 
-		data.sort_by(|a, b| compare_entries(a, b, arg.reverse));
-
-		Ok(truncate(tg::list::Output { data }, arg.length))
+		Ok(tg::list::Output { data })
 	}
 
-	pub(super) async fn list_cache_get(&self, arg: &str) -> tg::Result<Option<(String, i64)>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			output: String,
-			timestamp: i64,
-		}
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select output, timestamp
-				from list_cache
-				where arg = {p}1;
-			"
-		);
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), db::params![arg])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(row.map(|row| (row.output, row.timestamp)))
-	}
-
-	pub(super) async fn list_cache_put(
-		&self,
-		arg: &str,
-		output: &str,
-		timestamp: i64,
-	) -> tg::Result<()> {
-		let connection = self
-			.server
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into list_cache (arg, output, timestamp)
-				values ({p}1, {p}2, {p}3)
-				on conflict (arg) do update
-				set output = excluded.output, timestamp = excluded.timestamp;
-			"
-		);
-		connection
-			.execute(statement.into(), db::params![arg, output, timestamp])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
-	}
-
-	pub(crate) async fn list_local(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
 		let mut connection = self
 			.server
 			.database
@@ -123,34 +54,73 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let mut entries = Vec::new();
-		if arg.groups {
-			entries.extend(Self::list_local_groups(&transaction, &arg).await?);
+		entries.extend(Self::list_local_groups(&transaction).await?);
+		entries.extend(Self::list_local_organizations(&transaction).await?);
+		entries.extend(Self::list_local_tags(&transaction).await?);
+		entries.extend(Self::list_local_users(&transaction).await?);
+		let entries = self.filter_visible_entries(entries).await?;
+
+		Ok(entries)
+	}
+
+	pub(crate) async fn query_specifier_entries<F>(
+		&self,
+		location: Option<&tg::location::Arg>,
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
+		query: remote::Query,
+		filter_local: F,
+	) -> tg::Result<Vec<tg::list::Entry>>
+	where
+		F: FnOnce(Vec<tg::list::Entry>) -> Vec<tg::list::Entry>,
+	{
+		let locations = self
+			.locations(location)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut sources = Vec::new();
+		if locations.local.is_some() {
+			let entries = self
+				.list_local_entries()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
+			let entries = filter_local(entries);
+			sources.push(entries);
 		}
-		if arg.tags {
-			entries.extend(Self::list_local_tags(&transaction, &arg).await?);
-		}
-		let mut data = self.filter_visible_entries(&arg, entries).await?;
-		data.sort_by(|a, b| compare_entries(a, b, arg.reverse));
-		Ok(truncate(tg::list::Output { data }, arg.length))
+		let mut remotes = locations.remotes;
+		remotes.sort_by(|a, b| a.name.cmp(&b.name));
+		let remote_results = remotes
+			.into_iter()
+			.map(|remote| {
+				let query = query.clone();
+				async move {
+					let name = remote.name.clone();
+					let data = self
+						.list_remote(remote.clone(), cached, ttl, query)
+						.await
+						.map_err(
+							|error| tg::error!(!error, remote = %name, "failed to query remote entries"),
+						)?;
+					Ok::<_, tg::Error>((name, data))
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		let mut remote_results = remote_results;
+		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
+		sources.extend(remote_results.into_iter().map(|(_, entries)| entries));
+		let entries = merge_entries(sources);
+
+		Ok(entries)
 	}
 
 	async fn filter_visible_entries(
 		&self,
-		arg: &tg::list::Arg,
 		entries: Vec<(tg::Id, tg::list::Entry)>,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		if entries.is_empty() {
 			return Ok(Vec::new());
-		}
-		if !arg.pattern.is_empty() && !arg.pattern.contains_operators() {
-			let resource = tg::grant::Resource::Specifier(arg.pattern.to_specifier());
-			if let Ok(id) = self.resolve_resource(&resource).await {
-				let permission = Self::read_permission_for_resource(&id)?;
-				let authorized = self.authorize(resource, permission).await?;
-				if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-					return Ok(entries.into_iter().map(|(_, entry)| entry).collect());
-				}
-			}
 		}
 		let ids = entries.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
 		let visible = self
@@ -158,32 +128,134 @@ impl Session {
 			.index
 			.visible(&ids, &self.context.principal)
 			.await?;
-		let entries = entries
-			.into_iter()
-			.zip(visible)
-			.filter_map(|((_, entry), visible)| visible.then_some(entry))
-			.collect();
-		Ok(entries)
+		let mut output = Vec::new();
+		for ((id, mut entry), visible) in std::iter::zip(entries, visible) {
+			let authorized = if visible {
+				true
+			} else {
+				let permission = Self::read_permission_for_resource(&id)?;
+				self.authorize(tg::grant::Resource::Id(id.clone()), permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+			};
+			if authorized {
+				let token = self.create_read_token(&id)?;
+				entry.set_token(token);
+				output.push(entry);
+			}
+		}
+
+		Ok(output)
 	}
 
 	async fn list_local_groups(
 		transaction: &crate::database::Transaction<'_>,
-		arg: &tg::list::Arg,
 	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::Id,
+			id: tg::group::Id,
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
 		let rows = transaction
 			.query_all_into::<Row>(
 				"
-					select id, specifier
-					from nodes
-					where kind = 'group'
-					order by specifier;
+					select groups.id, groups.name, groups.parent, specifiers.specifier
+					from groups
+					join specifiers on specifiers.id = groups.id
+					order by specifiers.specifier;
+				"
+				.into(),
+				db::params![],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let entries = rows
+			.into_iter()
+			.map(|row| {
+				let id = row.id.clone().into();
+				let entry = tg::list::Entry::Group {
+					id: row.id,
+					location: Some(tg::Location::Local(tg::location::Local::default())),
+					name: row.name,
+					parent: row.parent,
+					specifier: row.specifier,
+					token: None,
+				};
+				(id, entry)
+			})
+			.collect();
+
+		Ok(entries)
+	}
+
+	async fn list_local_organizations(
+		transaction: &crate::database::Transaction<'_>,
+	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::organization::Id,
+			name: String,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+		}
+		let rows = transaction
+			.query_all_into::<Row>(
+				"
+					select organizations.id, organizations.name, specifiers.specifier
+					from organizations
+					join specifiers on specifiers.id = organizations.id
+					order by specifiers.specifier;
+				"
+				.into(),
+				db::params![],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let entries = rows
+			.into_iter()
+			.map(|row| {
+				let id = row.id.clone().into();
+				let entry = tg::list::Entry::Organization {
+					id: row.id,
+					location: Some(tg::Location::Local(tg::location::Local::default())),
+					name: row.name,
+					specifier: row.specifier,
+					token: None,
+				};
+				(id, entry)
+			})
+			.collect();
+
+		Ok(entries)
+	}
+
+	async fn list_local_tags(
+		transaction: &crate::database::Transaction<'_>,
+	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::tag::Id,
+			item: String,
+			name: String,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+		}
+		let rows = transaction
+			.query_all_into::<Row>(
+				"
+					select tags.id, tags.item, tags.name, tags.parent, specifiers.specifier
+					from tags
+					join specifiers on specifiers.id = tags.id
+					order by specifiers.specifier;
 				"
 				.into(),
 				db::params![],
@@ -192,69 +264,66 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut entries = Vec::new();
 		for row in rows {
-			if !matches_pattern(&row.specifier, arg) {
-				continue;
-			}
-			let entry = tg::list::Entry::Group {
-				location: None,
-				group: row.specifier,
-			};
-			entries.push((row.id, entry));
-		}
-		Ok(entries)
-	}
-
-	async fn list_local_tags(
-		transaction: &crate::database::Transaction<'_>,
-		arg: &tg::list::Arg,
-	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::Id,
-			item: String,
-			#[tangram_database(as = "db::value::FromStr")]
-			specifier: tg::Specifier,
-		}
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select nodes.id, tags.item, nodes.specifier
-				from nodes
-				join tags on tags.id = nodes.id
-				where nodes.kind = 'tag'
-				order by nodes.specifier
-				limit {p}1;
-			"
-		);
-		let rows = transaction
-			.query_all_into::<Row>(
-				statement.into(),
-				db::params![
-					arg.length
-						.and_then(|length| length.to_i64())
-						.unwrap_or(i64::MAX)
-				],
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let mut entries = Vec::new();
-		for row in rows {
-			if !matches_pattern(&row.specifier, arg) {
-				continue;
-			}
 			let item = Self::parse_tag_item(&row.item)?;
 			let item = match item {
 				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
 			};
+			let id = row.id.clone().into();
 			let entry = tg::list::Entry::Tag {
+				id: row.id,
 				item,
-				location: None,
-				tag: row.specifier,
+				location: Some(tg::Location::Local(tg::location::Local::default())),
+				name: row.name,
+				parent: row.parent,
+				specifier: row.specifier,
+				token: None,
 			};
-			entries.push((row.id, entry));
+			entries.push((id, entry));
 		}
+
+		Ok(entries)
+	}
+
+	async fn list_local_users(
+		transaction: &crate::database::Transaction<'_>,
+	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::user::Id,
+			name: String,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+		}
+		let rows = transaction
+			.query_all_into::<Row>(
+				"
+					select users.id, users.name, specifiers.specifier
+					from users
+					join specifiers on specifiers.id = users.id
+					order by specifiers.specifier;
+				"
+				.into(),
+				db::params![],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let entries = rows
+			.into_iter()
+			.map(|row| {
+				let id = row.id.clone().into();
+				let entry = tg::list::Entry::User {
+					id: row.id,
+					location: Some(tg::Location::Local(tg::location::Local::default())),
+					name: row.name,
+					specifier: row.specifier,
+					token: None,
+				};
+				(id, entry)
+			})
+			.collect();
+
 		Ok(entries)
 	}
 
@@ -290,94 +359,114 @@ impl Session {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }
 
-fn truncate(mut output: tg::list::Output, length: Option<u64>) -> tg::list::Output {
-	if let Some(length) = length {
-		output.data.truncate(length.to_usize().unwrap());
+pub(crate) fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
+	match entry {
+		tg::list::Entry::Group { .. } => kinds.groups,
+		tg::list::Entry::Organization { .. } => kinds.organizations,
+		tg::list::Entry::Tag { .. } => kinds.tags,
+		tg::list::Entry::User { .. } => kinds.users,
 	}
+}
+
+pub(crate) fn sort_and_truncate(
+	mut data: Vec<tg::list::Entry>,
+	reverse: bool,
+	length: Option<u64>,
+) -> Vec<tg::list::Entry> {
+	data.sort_by(|a, b| compare_entries(a, b, reverse));
+	if let Some(length) = length {
+		data.truncate(length.to_usize().unwrap());
+	}
+
+	data
+}
+
+fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Vec<tg::list::Entry> {
+	let kinds = Kinds {
+		groups: arg.groups,
+		organizations: arg.organizations,
+		tags: arg.tags,
+		users: arg.users,
+	};
+	let parent = arg.parent.as_ref().and_then(|parent| match parent {
+		tg::grant::Resource::Id(id) => Some(id.clone()),
+		tg::grant::Resource::Specifier(specifier) => entries
+			.iter()
+			.find(|entry| entry.specifier() == specifier)
+			.map(tg::list::Entry::id),
+	});
+	if arg.parent.is_some() && parent.is_none() {
+		return Vec::new();
+	}
+	let descendants = if arg.recursive {
+		let mut descendants = BTreeSet::new();
+		if let Some(parent) = &parent {
+			descendants.insert(parent.clone());
+		}
+		loop {
+			let length = descendants.len();
+			for entry in &entries {
+				let include = match (parent.as_ref(), entry.parent()) {
+					(None, _) => true,
+					(Some(_), Some(parent)) => descendants.contains(parent),
+					(Some(_), None) => false,
+				};
+				if include {
+					descendants.insert(entry.id());
+				}
+			}
+			if descendants.len() == length {
+				break;
+			}
+		}
+		Some(descendants)
+	} else {
+		None
+	};
+	entries
+		.into_iter()
+		.filter(|entry| {
+			let matches_parent = if let Some(descendants) = &descendants {
+				(parent.is_none() || descendants.contains(&entry.id()))
+					&& parent.as_ref() != Some(&entry.id())
+			} else {
+				entry.parent() == parent.as_ref()
+			};
+			matches_parent && entry_kind_enabled(entry, &kinds)
+		})
+		.collect()
+}
+
+fn merge_entries(sources: Vec<Vec<tg::list::Entry>>) -> Vec<tg::list::Entry> {
+	let mut emitted = BTreeSet::new();
+	let mut output = Vec::new();
+	for entries in sources {
+		output.extend(
+			entries
+				.into_iter()
+				.filter(|entry| emitted.insert(entry.specifier().clone())),
+		);
+	}
+
 	output
 }
 
 fn compare_entries(a: &tg::list::Entry, b: &tg::list::Entry, reverse: bool) -> std::cmp::Ordering {
-	let order = compare_entry_names(a, b);
+	let order = tg::list::compare(&a.specifier().to_string(), &b.specifier().to_string());
 	let order = if reverse { order.reverse() } else { order };
-	order
-		.then_with(|| compare_entry_kinds(a, b))
-		.then_with(|| compare_entry_locations(a, b))
+	order.then_with(|| entry_kind(a).cmp(&entry_kind(b)))
 }
 
-fn compare_entry_names(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Ordering {
-	match (a, b) {
-		(tg::list::Entry::Group { group: a, .. }, tg::list::Entry::Group { group: b, .. }) => {
-			a.cmp(b)
-		},
-		(tg::list::Entry::Group { group: a, .. }, tg::list::Entry::Tag { tag: b, .. })
-		| (tg::list::Entry::Tag { tag: a, .. }, tg::list::Entry::Group { group: b, .. }) => {
-			a.to_string().cmp(&b.to_string())
-		},
-		(tg::list::Entry::Tag { tag: a, .. }, tg::list::Entry::Tag { tag: b, .. }) => a.cmp(b),
-	}
-}
-
-fn compare_entry_kinds(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Ordering {
-	match (a, b) {
-		(tg::list::Entry::Group { .. }, tg::list::Entry::Tag { .. }) => std::cmp::Ordering::Less,
-		(tg::list::Entry::Tag { .. }, tg::list::Entry::Group { .. }) => std::cmp::Ordering::Greater,
-		_ => std::cmp::Ordering::Equal,
-	}
-}
-
-fn compare_entry_locations(a: &tg::list::Entry, b: &tg::list::Entry) -> std::cmp::Ordering {
-	let a = entry_location(a);
-	let b = entry_location(b);
-	match (a, b) {
-		(None, None) | (Some(tg::Location::Local(_)), Some(tg::Location::Local(_))) => {
-			std::cmp::Ordering::Equal
-		},
-		(None, Some(_)) | (Some(tg::Location::Local(_)), Some(tg::Location::Remote(_))) => {
-			std::cmp::Ordering::Less
-		},
-		(Some(_), None) => std::cmp::Ordering::Greater,
-		(Some(tg::Location::Remote(a)), Some(tg::Location::Remote(b))) => a.cmp(b),
-		(Some(tg::Location::Remote(_)), Some(tg::Location::Local(_))) => {
-			std::cmp::Ordering::Greater
-		},
-	}
-}
-
-fn entry_location(entry: &tg::list::Entry) -> Option<&tg::Location> {
+fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {
 	match entry {
-		tg::list::Entry::Group { location, .. } | tg::list::Entry::Tag { location, .. } => {
-			location.as_ref()
-		},
+		tg::list::Entry::Group { .. } => tg::id::Kind::Group,
+		tg::list::Entry::Organization { .. } => tg::id::Kind::Organization,
+		tg::list::Entry::Tag { .. } => tg::id::Kind::Tag,
+		tg::list::Entry::User { .. } => tg::id::Kind::User,
 	}
-}
-
-fn matches_pattern(specifier: &tg::Specifier, arg: &tg::list::Arg) -> bool {
-	if arg.pattern.is_empty() {
-		return true;
-	}
-	if !arg.recursive {
-		return arg.pattern.matches_specifier_for_list(specifier);
-	}
-	pattern_matches_specifier_or_ancestor(&arg.pattern, specifier)
-		|| arg
-			.pattern
-			.children()
-			.is_some_and(|pattern| pattern_matches_specifier_or_ancestor(&pattern, specifier))
-}
-
-fn pattern_matches_specifier_or_ancestor(
-	pattern: &tg::specifier::Pattern,
-	specifier: &tg::Specifier,
-) -> bool {
-	for ancestor in specifier.prefixes() {
-		if pattern.matches_specifier(&ancestor) {
-			return true;
-		}
-	}
-	false
 }

@@ -230,6 +230,12 @@ impl<O> Process<O> {
 		self.wait.lock().unwrap().as_ref().map(Wait::to_data)
 	}
 
+	pub(crate) fn inherit_location(&self, location: Option<tg::location::Arg>) {
+		if self.location().is_none() {
+			*self.location.write().unwrap() = location;
+		}
+	}
+
 	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
 		if self.token().is_none() {
 			*self.token.write().unwrap() = token;
@@ -333,6 +339,8 @@ impl<O> Process<O> {
 			self.location.write().unwrap().replace(location.into());
 		}
 		let state = tg::process::State::try_from(output.data)?;
+		let location = self.location();
+		state.inherit_location(location.as_ref());
 		let token = self.token();
 		state.inherit_token(token.as_ref());
 		let state = Arc::new(state);

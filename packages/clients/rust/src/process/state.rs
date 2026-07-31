@@ -32,6 +32,14 @@ pub struct Child {
 }
 
 impl State {
+	pub(crate) fn inherit_location(&self, location: Option<&tg::location::Arg>) {
+		if let Some(children) = &self.children {
+			for child in children {
+				child.process.inherit_location(location.cloned());
+			}
+		}
+	}
+
 	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
 		self.command.state().inherit_token(token.cloned());
 		if let Some(children) = &self.children {

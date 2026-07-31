@@ -10,7 +10,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # Create a package "inner" where nodes in a cycle reference nodes outside the cycle.
 # - a.tg.ts and b.tg.ts form a cycle AND both reference helper.tg.ts
 # - helper.tg.ts is outside the cycle

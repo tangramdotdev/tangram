@@ -135,6 +135,10 @@ impl tg::Handle for tg::Session {
 		self.list(arg)
 	}
 
+	fn match_(&self, arg: tg::match_::Arg) -> impl Future<Output = tg::Result<tg::match_::Output>> {
+		self.match_(arg)
+	}
+
 	fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
@@ -187,6 +191,20 @@ impl tg::Handle for tg::Session {
 		>,
 	> {
 		self.try_get(reference, arg)
+	}
+
+	fn try_resolve(
+		&self,
+		reference: &tg::Reference,
+		arg: tg::resolve::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		self.try_resolve(reference, arg)
 	}
 
 	fn try_read_stream(

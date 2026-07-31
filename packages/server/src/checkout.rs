@@ -273,11 +273,7 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![
-					artifact
-						.clone()
-						.map(|artifact| tg::Either::Left(artifact.into())),
-				],
+				items: vec![artifact.clone().map(tg::Id::from)],
 				..Default::default()
 			})
 			.await

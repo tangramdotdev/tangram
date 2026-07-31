@@ -25,30 +25,18 @@ pub struct Config {
 pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands: bool,
-
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub errors: bool,
-
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
-
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub force: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Arg>,
+	pub get: Vec<tg::Referent<tg::Id>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
+	pub group_children: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -56,15 +44,43 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
-
-	#[serde_as(as = "CommaSeparatedString")]
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub put: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
+	pub organization_children: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub recursive: bool,
+	pub process_children: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_commands: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_errors: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_logs: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_outputs: bool,
+
+	#[serde_as(as = "CommaSeparatedString")]
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub put: Vec<tg::Referent<tg::Id>>,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub sandbox_processes: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub tag_items: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub user_children: bool,
 }
 
 #[derive(
@@ -101,33 +117,12 @@ pub enum GetMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum GetItemMessage {
-	#[tangram_serialize(id = 0)]
-	Object(GetItemObjectMessage),
-
-	#[tangram_serialize(id = 1)]
-	Process(GetItemProcessMessage),
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetItemObjectMessage {
+pub struct GetItemMessage {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[tangram_serialize(id = 0)]
-	pub id: tg::object::Id,
-
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
-}
-
-#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetItemProcessMessage {
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub eager: bool,
-
-	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
+	pub id: tg::Id,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub token: Option<tg::grant::Token>,
@@ -199,10 +194,40 @@ pub enum PutMessage {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutItemMessage {
 	#[tangram_serialize(id = 0)]
-	Object(PutItemObjectMessage),
+	Group(PutItemGroupMessage),
 
 	#[tangram_serialize(id = 1)]
+	Object(PutItemObjectMessage),
+
+	#[tangram_serialize(id = 2)]
+	Organization(PutItemOrganizationMessage),
+
+	#[tangram_serialize(id = 3)]
 	Process(PutItemProcessMessage),
+
+	#[tangram_serialize(id = 4)]
+	Sandbox(PutItemSandboxMessage),
+
+	#[tangram_serialize(id = 5)]
+	Tag(PutItemTagMessage),
+
+	#[tangram_serialize(id = 6)]
+	User(PutItemUserMessage),
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct PutItemGroupMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::group::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub name: String,
+
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Id>,
+
+	#[tangram_serialize(id = 3)]
+	pub specifier: tg::Specifier,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -218,6 +243,18 @@ pub struct PutItemObjectMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct PutItemOrganizationMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::organization::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub name: String,
+
+	#[tangram_serialize(id = 2)]
+	pub specifier: tg::Specifier,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutItemProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
@@ -230,24 +267,54 @@ pub struct PutItemProcessMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum PutMissingMessage {
+pub struct PutItemSandboxMessage {
 	#[tangram_serialize(id = 0)]
-	Object(PutMissingObjectMessage),
+	pub created_at: i64,
 
 	#[tangram_serialize(id = 1)]
-	Process(PutMissingProcessMessage),
+	pub data: tg::sandbox::get::Output,
+
+	#[tangram_serialize(id = 2)]
+	pub id: tg::sandbox::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutMissingObjectMessage {
+pub struct PutItemTagMessage {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::object::Id,
+	pub id: tg::tag::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub item: tg::Id,
+
+	#[tangram_serialize(id = 2)]
+	pub name: String,
+
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Id>,
+
+	#[tangram_serialize(id = 4)]
+	pub specifier: tg::Specifier,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutMissingProcessMessage {
+pub struct PutItemUserMessage {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
+	pub emails: Vec<String>,
+
+	#[tangram_serialize(id = 1)]
+	pub id: tg::user::Id,
+
+	#[tangram_serialize(id = 2)]
+	pub name: String,
+
+	#[tangram_serialize(id = 3)]
+	pub specifier: tg::Specifier,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct PutMissingMessage {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::Id,
 }
 
 #[derive(
@@ -277,14 +344,29 @@ pub struct ProgressMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessageAmounts {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "num::Zero::is_zero")]
-	pub processes: u64,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "num::Zero::is_zero")]
+	pub bytes: u64,
+
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "num::Zero::is_zero")]
+	pub groups: u64,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "num::Zero::is_zero")]
 	pub objects: u64,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "num::Zero::is_zero")]
-	pub bytes: u64,
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "num::Zero::is_zero")]
+	pub organizations: u64,
+
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "num::Zero::is_zero")]
+	pub processes: u64,
+
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "num::Zero::is_zero")]
+	pub sandboxes: u64,
+
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "num::Zero::is_zero")]
+	pub tags: u64,
+
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "num::Zero::is_zero")]
+	pub users: u64,
 }
 
 impl tg::Session {

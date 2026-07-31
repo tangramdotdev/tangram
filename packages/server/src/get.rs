@@ -3,10 +3,10 @@ use {
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 };
+
+mod selector;
 
 impl Session {
 	pub(crate) async fn try_get(
@@ -20,7 +20,9 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		let stream = match reference.item() {
-			tg::reference::Item::Id(id) => self.try_get_with_id(id, reference.options()).await?,
+			tg::reference::Item::Id(id) => {
+				self.try_get_with_id(id, reference.options(), &arg).await?
+			},
 			tg::reference::Item::Path(path) => {
 				self.try_get_with_path(path, reference.options(), arg)
 					.await?
@@ -41,9 +43,61 @@ impl Session {
 		&self,
 		id: &tg::Id,
 		options: &tg::reference::Options,
+		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		if options.token.is_none()
+			&& matches!(
+				id.kind(),
+				tg::id::Kind::Group
+					| tg::id::Kind::Organization
+					| tg::id::Kind::Tag
+					| tg::id::Kind::User
+			) {
+			let output = self
+				.try_get_with_selector(
+					&tg::Selector::Id(id.clone()),
+					options.location.as_ref(),
+					arg.cached,
+					arg.ttl,
+				)
+				.await?;
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(future::ok(event));
+
+			return Ok(stream.boxed());
+		}
+		if options.token.is_none() && id.kind() == tg::id::Kind::Sandbox {
+			let id = tg::sandbox::Id::try_from(id.clone())?;
+			let sandbox = self
+				.try_get_sandbox(
+					&id,
+					tg::sandbox::get::Arg {
+						cached: arg.cached,
+						location: options.location.clone(),
+						ttl: arg.ttl,
+					},
+				)
+				.await?;
+			let output = sandbox.map(|sandbox| tg::get::Output {
+				location: sandbox.location,
+				referent: tg::Referent::with_item_and_token(
+					tg::get::Item::Id(sandbox.id.into()),
+					sandbox.token,
+				),
+			});
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(future::ok(event));
+
+			return Ok(stream.boxed());
+		}
 		let referent = tg::Referent::new(tg::get::Item::Id(id.clone()), options.clone().into());
-		let output = tg::get::Output { referent };
+		let output = tg::get::Output {
+			location: options
+				.location
+				.as_ref()
+				.and_then(tg::location::Arg::to_location),
+			referent,
+		};
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
 			.await?;
@@ -88,7 +142,12 @@ impl Session {
 									tg::get::Item::Id(id),
 									checkin_output.artifact.options,
 								);
-								let output = tg::get::Output { referent };
+								let output = tg::get::Output {
+									location: Some(tg::Location::Local(
+										tg::location::Local::default(),
+									)),
+									referent,
+								};
 								let output = session
 									.try_get_apply_get(output, options.get.as_deref())
 									.await?;
@@ -110,7 +169,13 @@ impl Session {
 			tg::get::Item::Pointer(pointer.clone()),
 			options.token.clone(),
 		);
-		let output = tg::get::Output { referent };
+		let output = tg::get::Output {
+			location: options
+				.location
+				.as_ref()
+				.and_then(tg::location::Arg::to_location),
+			referent,
+		};
 		if options.path.is_some() {
 			return Err(tg::error!("cannot get path in pointer"));
 		}
@@ -128,47 +193,22 @@ impl Session {
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		if arg.resolve {
-			return self.try_resolve_specifier(specifier, options, arg).await;
-		}
 		if specifier.is_empty() || specifier.contains_operators() {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		}
 		let specifier = specifier.to_specifier();
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_node_by_specifier_with_transaction(&transaction, &specifier).await?
-		else {
+		let output = self
+			.try_get_with_selector(
+				&tg::Selector::Specifier(specifier),
+				options.location.as_ref(),
+				arg.cached,
+				arg.ttl,
+			)
+			.await?;
+		let Some(output) = output else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
-		};
-		let permission = Self::read_permission_for_resource(&node.id)?;
-		let visible = self
-			.server
-			.index
-			.visible(std::slice::from_ref(&node.id), &self.context.principal)
-			.await?
-			.pop()
-			.unwrap() || self
-			.authorize(tg::grant::Resource::Id(node.id.clone()), permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission));
-		if !visible {
-			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
-			return Ok(stream.boxed());
-		}
-		let output = tg::get::Output {
-			referent: tg::Referent::with_item(tg::get::Item::Id(node.id)),
 		};
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
@@ -177,104 +217,7 @@ impl Session {
 		Ok(stream.boxed())
 	}
 
-	async fn try_resolve_specifier(
-		&self,
-		specifier: &tg::specifier::Pattern,
-		options: &tg::reference::Options,
-		arg: &tg::get::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let mut pattern = specifier.clone();
-		if !specifier.is_empty() && !specifier.contains_operators() {
-			let specifier = specifier.to_specifier();
-			let mut connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			if let Some(node) =
-				Self::try_get_node_by_specifier_with_transaction(&transaction, &specifier).await?
-			{
-				let permission = Self::read_permission_for_resource(&node.id)?;
-				let visible = self
-					.server
-					.index
-					.visible(std::slice::from_ref(&node.id), &self.context.principal)
-					.await?
-					.pop()
-					.unwrap() || self
-					.authorize(tg::grant::Resource::Id(node.id.clone()), permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission));
-				if !visible {
-					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
-					return Ok(stream.boxed());
-				}
-				if node.kind == tg::id::Kind::Tag {
-					let data = Self::get_tag_data_with_transaction(&transaction, &node).await?;
-					let id = tag_data_item_to_id(data.item);
-					let output = tg::get::Output {
-						referent: tg::Referent::new(
-							tg::get::Item::Id(id),
-							tg::referent::Options {
-								tag: Some(specifier),
-								..tg::referent::Options::default()
-							},
-						),
-					};
-					let output = self
-						.try_get_apply_get(output, options.get.as_deref())
-						.await?;
-					let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
-					return Ok(stream.boxed());
-				}
-				pattern = tg::specifier::Pattern::any_in_parent(Some(specifier.clone()));
-			}
-		}
-		let list_arg = tg::list::Arg {
-			cached: arg.cached,
-			groups: false,
-			length: Some(1),
-			location: options.location.clone(),
-			pattern,
-			recursive: false,
-			reverse: true,
-			tags: true,
-			ttl: arg.ttl,
-		};
-		let tg::list::Output { data } = self
-			.list(list_arg)
-			.await
-			.map_err(|error| tg::error!(!error, %specifier, "failed to list entries"))?;
-		let output = data.into_iter().find_map(|entry| {
-			let tg::list::Entry::Tag { item, tag, .. } = entry else {
-				return None;
-			};
-			Some(tg::get::Output {
-				referent: tg::Referent::new(
-					tg::get::Item::Id(list_item_to_id(item)),
-					tg::referent::Options {
-						tag: Some(tag),
-						..tg::referent::Options::default()
-					},
-				),
-			})
-		});
-		let output = if let Some(output) = output {
-			self.try_get_apply_get(output, options.get.as_deref())
-				.await?
-		} else {
-			None
-		};
-		let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
-		Ok(stream.boxed())
-	}
-
-	async fn try_get_apply_get(
+	pub(crate) async fn try_get_apply_get(
 		&self,
 		mut output: tg::get::Output,
 		get: Option<&Path>,
@@ -396,19 +339,5 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-fn list_item_to_id(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::Id {
-	match item {
-		tg::Either::Left(id) => id.into(),
-		tg::Either::Right(id) => id.into(),
-	}
-}
-
-fn tag_data_item_to_id(item: tg::tag::data::Item) -> tg::Id {
-	match item {
-		tg::tag::data::Item::Object(id) => id.into(),
-		tg::tag::data::Item::Process(id) => id.into(),
 	}
 }

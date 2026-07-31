@@ -10,38 +10,50 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub commands: bool,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub errors: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub destination: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub force: bool,
+	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub items: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub logs: bool,
+	pub items: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub outputs: bool,
+	pub organization_children: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub recursive: bool,
+	pub process_children: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub destination: Option<tg::Location>,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_errors: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_logs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub process_outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub tag_items: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub user_children: bool,
 }
 
 #[serde_as]
@@ -49,7 +61,7 @@ pub struct Arg {
 pub struct Output {
 	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub items: Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
+	pub items: Vec<tg::Referent<tg::Id>>,
 
 	pub skipped: Amounts,
 	pub transferred: Amounts,
@@ -57,9 +69,14 @@ pub struct Output {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Amounts {
-	pub processes: u64,
-	pub objects: u64,
 	pub bytes: u64,
+	pub groups: u64,
+	pub objects: u64,
+	pub organizations: u64,
+	pub processes: u64,
+	pub sandboxes: u64,
+	pub tags: u64,
+	pub users: u64,
 }
 
 impl tg::Session {
@@ -127,20 +144,24 @@ impl tg::Session {
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
-			commands: false,
-			eager: true,
-			errors: false,
-			force: false,
-			items: Vec::new(),
-			logs: false,
-			metadata: false,
-			outputs: true,
-			recursive: false,
 			destination: Some(tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
 				region: None,
 			})),
+			eager: true,
+			group_children: false,
+			items: Vec::new(),
+			metadata: false,
+			organization_children: false,
+			process_children: false,
+			process_commands: false,
+			process_errors: false,
+			process_logs: false,
+			process_outputs: true,
+			sandbox_processes: false,
 			source: Some(tg::Location::Local(tg::location::Local::default())),
+			tag_items: true,
+			user_children: false,
 		}
 	}
 }
@@ -154,8 +175,13 @@ impl AddAssign<&tg::sync::ProgressMessage> for Output {
 
 impl AddAssign<&tg::sync::ProgressMessageAmounts> for Amounts {
 	fn add_assign(&mut self, other: &tg::sync::ProgressMessageAmounts) {
-		self.processes += other.processes;
-		self.objects += other.objects;
 		self.bytes += other.bytes;
+		self.groups += other.groups;
+		self.objects += other.objects;
+		self.organizations += other.organizations;
+		self.processes += other.processes;
+		self.sandboxes += other.sandboxes;
+		self.tags += other.tags;
+		self.users += other.users;
 	}
 }

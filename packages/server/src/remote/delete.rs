@@ -55,6 +55,9 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
+		if n != 0 {
+			self.delete_remote_cache(&name).await?;
+		}
 
 		Ok(n != 0)
 	}

@@ -2,12 +2,37 @@ use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ttl: tg::remote::cache::Ttl,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub id: tg::group::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	pub name: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Id>,
+
+	pub specifier: tg::Specifier,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 impl tg::Session {
@@ -15,7 +40,7 @@ impl tg::Session {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::Group>> {
+	) -> tg::Result<Option<tg::group::get::Output>> {
 		let path = format!("/groups/{}", group.to_string().replace('/', ":"));
 		let uri = Uri::builder()
 			.path(&path)

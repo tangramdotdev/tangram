@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::FutureExt as _,
+	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -67,9 +68,12 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client.try_delete_group(group, arg).await.map_err(
+		let output = client.try_delete_group(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to delete the group"),
-		)
+		)?;
+		self.invalidate_remote_cache(&remote.name).await;
+
+		Ok(output)
 	}
 
 	async fn delete_group_with_transaction(
@@ -78,18 +82,44 @@ impl Session {
 		group: &tg::group::Selector,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<()>> {
-		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(transaction, group).await?
-		else {
+		let id = match group {
+			tg::Selector::Id(id) => Some(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+					.await?
+					.and_then(|id| id.try_into().ok())
+			},
+		};
+		let Some(id) = id else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Group {
+		if Self::try_get_group_with_transaction(transaction, &id)
+			.await?
+			.is_none()
+		{
 			return Ok(None);
 		}
-		if Self::node_has_children_with_transaction(transaction, &node.id).await? {
+		let id: tg::Id = id.into();
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select 1
+				from groups
+				where parent = {p}1
+				union all
+				select 1
+				from tags
+				where parent = {p}1
+				limit 1;
+			"
+		);
+		let child = transaction
+			.query_optional(statement.into(), db::params![id.to_string()])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		if child.is_some() {
 			return Err(tg::error!("cannot delete a group with children"));
 		}
-		let p = transaction.p();
 		#[derive(db::row::Deserialize)]
 		struct GroupMemberRow {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -105,7 +135,7 @@ impl Session {
 			"#
 		);
 		let group_members = transaction
-			.query_all_into::<GroupMemberRow>(statement.into(), db::params![node.id.to_string()])
+			.query_all_into::<GroupMemberRow>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in group_members {
@@ -133,10 +163,7 @@ impl Session {
 			"
 		);
 		let organization_members = transaction
-			.query_all_into::<OrganizationMemberRow>(
-				statement.into(),
-				db::params![node.id.to_string()],
-			)
+			.query_all_into::<OrganizationMemberRow>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in organization_members {
@@ -149,19 +176,19 @@ impl Session {
 					},
 				));
 		}
-		self.delete_node_grants_with_transaction(transaction, &node.id, batch)
+		self.delete_node_grants_with_transaction(transaction, &id, batch)
 			.await?;
 		batch.items.push(tangram_index::batch::Item::DeleteGroup(
-			node.id.clone().try_into()?,
+			id.clone().try_into()?,
 		));
 		for statement in [
 			format!("delete from group_members where \"group\" = {p}1 or member = {p}1;"),
 			format!("delete from organization_members where member = {p}1;"),
 			format!("delete from groups where id = {p}1;"),
-			format!("delete from nodes where id = {p}1;"),
+			format!("delete from specifiers where id = {p}1;"),
 		] {
 			transaction
-				.execute(statement.into(), db::params![node.id.to_string()])
+				.execute(statement.into(), db::params![id.to_string()])
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		}

@@ -14,7 +14,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_extract(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let blob = self.get_resolved_object(&args.blob).await?;
+		let blob = self.resolve_object(&args.blob).await?;
 		let blob = tg::Object::with_referent(blob)
 			.try_unwrap_blob()
 			.map_err(|_| tg::error!("expected a blob"))?;

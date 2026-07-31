@@ -12,5 +12,5 @@ let path = artifact {
 	'#
 }
 
-test $path "--errors"
-test $path "--errors" "--eager"
+test $path "--process-errors"
+test $path "--process-errors" "--eager"

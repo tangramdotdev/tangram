@@ -360,6 +360,7 @@ impl Session {
 			network: arg.network,
 			owner: arg.owner,
 			status: tg::sandbox::Status::Started,
+			token: None,
 			ttl: arg.ttl,
 		};
 		let context = Context {

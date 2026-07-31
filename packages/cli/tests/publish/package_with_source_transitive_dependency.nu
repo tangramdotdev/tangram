@@ -6,7 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # Create a shared directory with all three packages as siblings.
 let shared_path = artifact {
 	transitive: {

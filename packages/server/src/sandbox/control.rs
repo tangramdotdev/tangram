@@ -191,6 +191,7 @@ impl Session {
 			network: data.arg.network,
 			owner: data.arg.owner,
 			status: tg::sandbox::Status::Started,
+			token: None,
 			ttl: data.arg.ttl,
 		});
 		let runner = arg.runner;

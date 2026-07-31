@@ -337,19 +337,9 @@ impl Session {
 		let output = if prefetch.arg.options.deterministic {
 			tg::list::Output { data: Vec::new() }
 		} else {
-			self.list(tg::list::Arg {
-				cached: false,
-				length: None,
-				location: None,
-				groups: false,
-				pattern: pattern.clone(),
-				recursive: false,
-				reverse: true,
-				tags: true,
-				ttl: prefetch.arg.options.tag_ttl,
-			})
-			.await
-			.map_err(|error| tg::error!(!error, %pattern, "failed to list entries"))?
+			self.match_tags_for_resolve(pattern, None, false, None, prefetch.arg.options.tag_ttl)
+				.await
+				.map_err(|error| tg::error!(!error, %pattern, "failed to list entries"))?
 		};
 
 		// Prefetch the first candidate's object.

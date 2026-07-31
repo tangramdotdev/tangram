@@ -86,11 +86,15 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		let token = self.token();
 		let mut arg = arg;
-		if arg.token.is_none() {
-			arg.token = token.clone();
+		if arg.location.is_none() {
+			arg.location = self.location();
 		}
+		if arg.token.is_none() {
+			arg.token = self.token();
+		}
+		let location = arg.location.clone();
+		let token = arg.token.clone();
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"getting the process children is not supported for unsandboxed processes"
@@ -102,9 +106,11 @@ impl<O> tg::Process<O> {
 			.map(move |stream| {
 				stream
 					.map_ok(move |chunk| {
+						let location = location.clone();
 						let token = token.clone();
 						stream::iter(chunk.data.into_iter().map(move |data| {
 							let child = tg::process::state::Child::try_from_data(data)?;
+							child.process.inherit_location(location.clone());
 							child.process.inherit_token(token.clone());
 							Ok(child)
 						}))

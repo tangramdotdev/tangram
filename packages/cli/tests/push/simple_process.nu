@@ -14,4 +14,4 @@ let path = artifact {
 
 test $path "--eager"
 test $path "--lazy"
-test $path "--lazy" "--commands"
+test $path "--lazy" "--process-commands"

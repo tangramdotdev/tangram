@@ -11,7 +11,7 @@ let id = tg checkin $path
 # Create a deep hierarchy to test sorting by length.
 let tags = ["test/1/2/3/4/5"]
 for tag in $tags {
-	tg tag put $tag $id
+	tg tag put -p $tag $id
 }
 
 # Recursively delete - should process in order from deepest to shallowest.

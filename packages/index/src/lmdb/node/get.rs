@@ -10,10 +10,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::grant::Resource,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<Option<(tg::Id, bool)>> {
 		match resource {
 			tg::grant::Resource::Id(id) => {
 				Self::try_resolve_id_with_transaction(db, subspace, transaction, id)
+					.map(|id| id.map(|id| (id, true)))
 			},
 			tg::grant::Resource::Specifier(specifier) => {
 				// Resolve the deepest existing prefix of the specifier.
@@ -23,7 +24,8 @@ impl Index {
 					let id =
 						Self::try_get_node_with_transaction(db, subspace, transaction, prefix)?;
 					if let Some(id) = id {
-						return Ok(Some(id));
+						let exact = prefix == specifier;
+						return Ok(Some((id, exact)));
 					}
 				}
 				Ok(None)

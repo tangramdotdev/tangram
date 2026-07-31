@@ -30,7 +30,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let object = self.get_resolved_object(&args.object).await?;
+		let object = self.resolve_object(&args.object).await?;
 		let id = object.item.clone();
 		let token = object.options.token.clone();
 		if args.bytes {

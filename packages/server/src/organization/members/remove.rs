@@ -87,12 +87,15 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
+		let output = client
 			.remove_organization_member(organization, member, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to remove the organization member"),
-			)
+			)?;
+		self.invalidate_remote_cache(&remote.name).await;
+
+		Ok(output)
 	}
 
 	async fn remove_organization_member_with_transaction(
@@ -102,11 +105,24 @@ impl Session {
 		member: &tg::organization::Member,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<()>> {
-		let Some(organization) =
-			Self::try_get_node_by_selector_with_transaction(transaction, organization).await?
-		else {
+		let id = match organization {
+			tg::Selector::Id(id) => Some(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+					.await?
+					.and_then(|id| id.try_into().ok())
+			},
+		};
+		let Some(id) = id else {
 			return Ok(None);
 		};
+		if Self::try_get_organization_with_transaction(transaction, &id)
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let organization_id: tg::Id = id.into();
 		let member_id: tg::Id = member.clone().into();
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -118,7 +134,7 @@ impl Session {
 		let deleted = transaction
 			.execute(
 				statement.into(),
-				db::params![organization.id.to_string(), member_id.to_string()],
+				db::params![organization_id.to_string(), member_id.to_string()],
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -130,7 +146,7 @@ impl Session {
 			.push(tangram_index::batch::Item::DeleteOrganizationMember(
 				tangram_index::organization::member::delete::Arg {
 					member: member.clone(),
-					organization: organization.id.clone().try_into()?,
+					organization: organization_id.clone().try_into()?,
 				},
 			));
 		let principal = match member {
@@ -145,7 +161,7 @@ impl Session {
 				)
 				.into(),
 			),
-			resource: tg::Referent::with_item(tg::grant::Resource::Id(organization.id.clone())),
+			resource: tg::Referent::with_item(tg::grant::Resource::Id(organization_id)),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)
 			.await?;

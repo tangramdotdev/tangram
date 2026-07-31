@@ -8,7 +8,7 @@ let server = spawn
 let foo_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo"); }'
 }
-tg tag foo/1.0.0 $foo_path
+tg tag -p foo/1.0.0 $foo_path
 
 # Create and build the main artifact.
 let artifact = artifact {

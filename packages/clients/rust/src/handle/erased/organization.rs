@@ -13,7 +13,7 @@ pub trait Organization: Send + Sync + 'static {
 		&'a self,
 		organization: &'a tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Organization>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::organization::get::Output>>>;
 
 	fn try_delete_organization<'a>(
 		&'a self,
@@ -56,7 +56,7 @@ where
 		&'a self,
 		organization: &'a tg::organization::Selector,
 		arg: tg::organization::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Organization>>> {
+	) -> BoxFuture<'a, tg::Result<Option<tg::organization::get::Output>>> {
 		self.try_get_organization(organization, arg).boxed()
 	}
 

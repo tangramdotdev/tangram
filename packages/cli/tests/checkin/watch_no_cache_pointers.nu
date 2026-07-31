@@ -29,7 +29,7 @@ snapshot $object1 '
 let a = artifact {
 	tangram.ts: ''
 }
-tg tag a/1.0.0 $a
+tg tag -p a/1.0.0 $a
 
 let id2 = tg checkin --watch --no-cache-pointers $path
 tg index

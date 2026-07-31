@@ -14,9 +14,14 @@ pub struct Progress {
 
 #[derive(Debug)]
 struct Amounts {
-	processes: AtomicU64,
-	objects: AtomicU64,
 	bytes: AtomicU64,
+	groups: AtomicU64,
+	objects: AtomicU64,
+	organizations: AtomicU64,
+	processes: AtomicU64,
+	sandboxes: AtomicU64,
+	tags: AtomicU64,
+	users: AtomicU64,
 }
 
 impl Session {
@@ -71,14 +76,24 @@ impl Progress {
 	pub fn new() -> Self {
 		Self {
 			skipped: Amounts {
-				processes: AtomicU64::new(0),
-				objects: AtomicU64::new(0),
 				bytes: AtomicU64::new(0),
+				groups: AtomicU64::new(0),
+				objects: AtomicU64::new(0),
+				organizations: AtomicU64::new(0),
+				processes: AtomicU64::new(0),
+				sandboxes: AtomicU64::new(0),
+				tags: AtomicU64::new(0),
+				users: AtomicU64::new(0),
 			},
 			transferred: Amounts {
-				processes: AtomicU64::new(0),
-				objects: AtomicU64::new(0),
 				bytes: AtomicU64::new(0),
+				groups: AtomicU64::new(0),
+				objects: AtomicU64::new(0),
+				organizations: AtomicU64::new(0),
+				processes: AtomicU64::new(0),
+				sandboxes: AtomicU64::new(0),
+				tags: AtomicU64::new(0),
+				users: AtomicU64::new(0),
 			},
 		}
 	}
@@ -119,33 +134,87 @@ impl Progress {
 		}
 	}
 
+	pub fn increment_transferred_item(&self, id: &tg::Id) {
+		let amount = match id.kind() {
+			tg::id::Kind::Group => &self.transferred.groups,
+			tg::id::Kind::Organization => &self.transferred.organizations,
+			tg::id::Kind::Process => &self.transferred.processes,
+			tg::id::Kind::Sandbox => &self.transferred.sandboxes,
+			tg::id::Kind::Tag => &self.transferred.tags,
+			tg::id::Kind::User => &self.transferred.users,
+			kind if kind.is_object() => &self.transferred.objects,
+			_ => return,
+		};
+		amount.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+	}
+
 	pub fn reset(&self) -> tg::sync::ProgressMessage {
 		let skipped = tg::sync::ProgressMessageAmounts {
-			processes: self
+			bytes: self
 				.skipped
-				.processes
+				.bytes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			groups: self
+				.skipped
+				.groups
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
 			objects: self
 				.skipped
 				.objects
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
-			bytes: self
+			organizations: self
 				.skipped
-				.bytes
+				.organizations
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			processes: self
+				.skipped
+				.processes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			sandboxes: self
+				.skipped
+				.sandboxes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			tags: self
+				.skipped
+				.tags
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			users: self
+				.skipped
+				.users
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
 		};
 		let transferred = tg::sync::ProgressMessageAmounts {
-			processes: self
+			bytes: self
 				.transferred
-				.processes
+				.bytes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			groups: self
+				.transferred
+				.groups
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
 			objects: self
 				.transferred
 				.objects
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
-			bytes: self
+			organizations: self
 				.transferred
-				.bytes
+				.organizations
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			processes: self
+				.transferred
+				.processes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			sandboxes: self
+				.transferred
+				.sandboxes
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			tags: self
+				.transferred
+				.tags
+				.swap(0, std::sync::atomic::Ordering::SeqCst),
+			users: self
+				.transferred
+				.users
 				.swap(0, std::sync::atomic::Ordering::SeqCst),
 		};
 		tg::sync::ProgressMessage {

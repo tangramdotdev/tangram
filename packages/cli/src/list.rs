@@ -1,6 +1,6 @@
 use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
 
-/// List groups and tags.
+/// List items.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -14,8 +14,8 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
-	#[arg(default_value = "*", index = 1)]
-	pub pattern: tg::specifier::Pattern,
+	#[arg(index = 1)]
+	pub parent: Option<tg::grant::Resource>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -51,6 +51,23 @@ pub struct Entries {
 
 	#[arg(
 		default_missing_value = "true",
+		id = "list.entries.organizations",
+		long = "organizations",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_organizations",
+		require_equals = true,
+	)]
+	organizations: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_organizations",
+		long = "no-organizations",
+		overrides_with = "list.entries.organizations"
+	)]
+	no_organizations: bool,
+
+	#[arg(
+		default_missing_value = "true",
 		id = "list.entries.tags",
 		long = "tags",
 		num_args = 0..=1,
@@ -65,6 +82,23 @@ pub struct Entries {
 		overrides_with = "list.entries.tags"
 	)]
 	no_tags: bool,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "list.entries.users",
+		long = "users",
+		num_args = 0..=1,
+		overrides_with = "list.entries.no_users",
+		require_equals = true,
+	)]
+	users: Option<bool>,
+
+	#[arg(
+		id = "list.entries.no_users",
+		long = "no-users",
+		overrides_with = "list.entries.users"
+	)]
+	no_users: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -81,7 +115,7 @@ pub struct Ttl {
 }
 
 impl Entries {
-	fn groups(&self) -> bool {
+	pub(crate) fn groups(&self) -> bool {
 		if self.no_groups {
 			false
 		} else {
@@ -89,18 +123,40 @@ impl Entries {
 		}
 	}
 
-	fn tags(&self) -> bool {
+	pub(crate) fn organizations(&self) -> bool {
+		if self.no_organizations {
+			false
+		} else {
+			self.organizations.unwrap_or(true)
+		}
+	}
+
+	pub(crate) fn tags(&self) -> bool {
 		if self.no_tags {
 			false
 		} else {
 			self.tags.unwrap_or(true)
 		}
 	}
+
+	pub(crate) fn users(&self) -> bool {
+		if self.no_users {
+			false
+		} else {
+			self.users.unwrap_or(true)
+		}
+	}
 }
 
 impl Ttl {
-	fn get(&self) -> Option<Duration> {
-		if self.no_ttl { None } else { self.ttl }
+	pub(crate) fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
 	}
 }
 
@@ -112,15 +168,18 @@ impl Cli {
 			length: None,
 			location: args.locations.get(),
 			groups: args.entries.groups(),
-			pattern: args.pattern.clone(),
+			organizations: args.entries.organizations(),
+			parent: args.parent.clone(),
 			recursive: args.recursive,
 			reverse: args.reverse,
 			tags: args.entries.tags(),
 			ttl: args.ttl.get(),
+			users: args.entries.users(),
 		};
-		let output = client.list(arg).await.map_err(
-			|error| tg::error!(!error, pattern = %args.pattern, "failed to list entries"),
-		)?;
+		let output = client
+			.list(arg)
+			.await
+			.map_err(|error| tg::error!(!error, parent = ?args.parent, "failed to list entries"))?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

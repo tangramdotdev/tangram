@@ -13,7 +13,7 @@ pub trait Group: Send + Sync + 'static {
 		&'a self,
 		group: &'a tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Group>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::group::get::Output>>>;
 
 	fn try_delete_group<'a>(
 		&'a self,
@@ -56,7 +56,7 @@ where
 		&'a self,
 		group: &'a tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::Group>>> {
+	) -> BoxFuture<'a, tg::Result<Option<tg::group::get::Output>>> {
 		self.try_get_group(group, arg).boxed()
 	}
 

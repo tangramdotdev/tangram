@@ -50,3 +50,51 @@ pub fn validate(resource: &tg::Id, permissions: tg::grant::permission::Set) -> t
 	}
 	Ok(())
 }
+
+pub(crate) fn permissions_for_specifier_prefix(
+	resource: &tg::Id,
+	permissions: tg::grant::permission::Set,
+) -> tg::Result<Option<tg::grant::permission::Set>> {
+	let mut permissions_ = permissions.iter();
+	let Some(permission) = permissions_.next() else {
+		return Ok(None);
+	};
+	if permissions_.next().is_some()
+		|| !matches!(
+			permission,
+			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Write)
+				| tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write)
+		) {
+		return Ok(None);
+	}
+	let permission = write_permission_for_resource(resource)?;
+	let permissions = tg::grant::permission::Set::from_permission(permission);
+
+	Ok(Some(permissions))
+}
+
+pub(crate) fn write_permission_for_resource(
+	resource: &tg::Id,
+) -> tg::Result<tg::grant::Permission> {
+	match resource.kind() {
+		tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+			tg::grant::permission::group::Permission::Write,
+		)),
+		tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+			tg::grant::permission::organization::Permission::Write,
+		)),
+		tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
+			tg::grant::permission::process::Permission::Write,
+		)),
+		tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
+			tg::grant::permission::sandbox::Permission::Write,
+		)),
+		tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+			tg::grant::permission::tag::Permission::Write,
+		)),
+		tg::id::Kind::User => Ok(tg::grant::Permission::User(
+			tg::grant::permission::user::Permission::Write,
+		)),
+		_ => Err(tg::error!(%resource, "invalid resource")),
+	}
+}

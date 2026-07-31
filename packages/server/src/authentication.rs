@@ -330,9 +330,9 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, nodes.name, nodes.specifier
+				select users.id, users.name, specifiers.specifier
 				from users
-				join nodes on nodes.id = users.id
+				join specifiers on specifiers.id = users.id
 				join user_tokens on user_tokens."user" = users.id
 				where user_tokens.token = {p}1;
 			"#
@@ -370,6 +370,7 @@ impl Server {
 			location: None,
 			name: user.name,
 			specifier: user.specifier,
+			token: None,
 		};
 
 		Ok(Some(user))

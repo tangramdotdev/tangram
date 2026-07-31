@@ -44,10 +44,18 @@ impl Session {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
-		if arg.items.iter().any(|item| item_id(item).is_right()) {
+		for name in [
+			"groups",
+			"objects",
+			"organizations",
+			"processes",
+			"sandboxes",
+			"tags",
+			"users",
+		] {
 			progress.start(
-				"processes".to_owned(),
-				"processes".to_owned(),
+				name.to_owned(),
+				name.to_owned(),
 				tg::progress::IndicatorFormat::Normal,
 				Some(0),
 				None,
@@ -130,74 +138,71 @@ impl Session {
 		let mut metadata_futures = arg
 			.items
 			.iter()
-			.map(|item| {
+			.filter_map(|item| {
+				if item.item.kind() != tg::id::Kind::Process && !item.item.kind().is_object() {
+					return None;
+				}
 				let session = self.clone();
 				let source = source.clone();
-				async move {
+				Some(async move {
 					loop {
-						match item_id(item) {
-							tg::Either::Left(object) => {
-								let metadata_arg = tg::object::metadata::Arg {
-									location: Some(source.clone().into()),
-									token: item_token(item).cloned(),
-								};
-								let metadata = session
-									.try_get_object_metadata(object, metadata_arg)
-									.await?
-									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
-								if metadata.subtree.count.is_some()
-									&& metadata.subtree.size.is_some()
-								{
-									break Ok::<_, tg::Error>(tg::Either::Left(metadata));
+						if let Ok(object) = tg::object::Id::try_from(item.item.clone()) {
+							let metadata_arg = tg::object::metadata::Arg {
+								location: Some(source.clone().into()),
+								token: item.options.token.clone(),
+							};
+							let metadata = session
+								.try_get_object_metadata(&object, metadata_arg)
+								.await?
+								.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
+							if metadata.subtree.count.is_some() && metadata.subtree.size.is_some() {
+								break Ok::<_, tg::Error>(tg::Either::Left(metadata));
+							}
+						} else {
+							let process = tg::process::Id::try_from(item.item.clone())?;
+							let metadata_arg = tg::process::metadata::Arg {
+								location: Some(source.clone().into()),
+								token: item.options.token.clone(),
+							};
+							let Some(metadata) = session
+								.try_get_process_metadata(&process, metadata_arg)
+								.await
+								.map_err(|error| tg::error!(!error, "failed to get the process"))?
+							else {
+								return Err(tg::error!("failed to get the process"));
+							};
+							let mut stored = true;
+							if arg.process_children {
+								stored = stored && metadata.subtree.count.is_some();
+								if arg.process_commands {
+									stored = stored
+										&& metadata.subtree.command.count.is_some()
+										&& metadata.subtree.command.size.is_some();
 								}
-							},
-							tg::Either::Right(process) => {
-								let metadata_arg = tg::process::metadata::Arg {
-									location: Some(source.clone().into()),
-									token: item_token(item).cloned(),
-								};
-								let Some(metadata) = session
-									.try_get_process_metadata(process, metadata_arg)
-									.await
-									.map_err(|error| {
-										tg::error!(!error, "failed to get the process")
-									})?
-								else {
-									return Err(tg::error!("failed to get the process"));
-								};
-								let mut stored = true;
-								if arg.recursive {
-									stored = stored && metadata.subtree.count.is_some();
-									if arg.commands {
-										stored = stored
-											&& metadata.subtree.command.count.is_some()
-											&& metadata.subtree.command.size.is_some();
-									}
-									if arg.outputs {
-										stored = stored
-											&& metadata.subtree.output.count.is_some()
-											&& metadata.subtree.output.size.is_some();
-									}
-								} else {
-									if arg.commands {
-										stored = stored
-											&& metadata.node.command.count.is_some()
-											&& metadata.node.command.size.is_some();
-									}
-									if arg.outputs {
-										stored = stored
-											&& metadata.node.output.count.is_some()
-											&& metadata.node.output.size.is_some();
-									}
+								if arg.process_outputs {
+									stored = stored
+										&& metadata.subtree.output.count.is_some()
+										&& metadata.subtree.output.size.is_some();
 								}
-								if stored {
-									break Ok::<_, tg::Error>(tg::Either::Right(metadata));
+							} else {
+								if arg.process_commands {
+									stored = stored
+										&& metadata.node.command.count.is_some()
+										&& metadata.node.command.size.is_some();
 								}
-							},
+								if arg.process_outputs {
+									stored = stored
+										&& metadata.node.output.count.is_some()
+										&& metadata.node.output.size.is_some();
+								}
+							}
+							if stored {
+								break Ok::<_, tg::Error>(tg::Either::Right(metadata));
+							}
 						}
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
-				}
+				})
 			})
 			.collect::<FuturesUnordered<_>>();
 		let mut processes: Option<u64> = None;
@@ -214,11 +219,11 @@ impl Session {
 					}
 				},
 				tg::Either::Right(metadata) => {
-					if arg.recursive {
+					if arg.process_children {
 						if let Some(count) = metadata.subtree.count {
 							*processes.get_or_insert(0) += count;
 						}
-						if arg.commands {
+						if arg.process_commands {
 							if let Some(commands_count) = metadata.subtree.command.count {
 								*objects.get_or_insert(0) += commands_count;
 							}
@@ -226,7 +231,7 @@ impl Session {
 								*bytes.get_or_insert(0) += commands_size;
 							}
 						}
-						if arg.outputs {
+						if arg.process_outputs {
 							if let Some(outputs_count) = metadata.subtree.output.count {
 								*objects.get_or_insert(0) += outputs_count;
 							}
@@ -235,7 +240,7 @@ impl Session {
 							}
 						}
 					} else {
-						if arg.commands {
+						if arg.process_commands {
 							if let Some(command_count) = metadata.node.command.count {
 								*objects.get_or_insert(0) += command_count;
 							}
@@ -243,7 +248,7 @@ impl Session {
 								*bytes.get_or_insert(0) += command_size;
 							}
 						}
-						if arg.outputs {
+						if arg.process_outputs {
 							if let Some(output_count) = metadata.node.output.count {
 								*objects.get_or_insert(0) += output_count;
 							}
@@ -286,8 +291,17 @@ impl Session {
 				let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
 				// Set the progress to zero.
-				progress.set("processes", 0);
-				progress.set("objects", 0);
+				for name in [
+					"groups",
+					"objects",
+					"organizations",
+					"processes",
+					"sandboxes",
+					"tags",
+					"users",
+				] {
+					progress.set(name, 0);
+				}
 				progress.set("bytes", 0);
 
 				// Create the channels.
@@ -296,17 +310,21 @@ impl Session {
 
 				// Start the push.
 				let push_arg = tg::sync::Arg {
-					commands: arg.commands,
-					errors: arg.errors,
 					eager: arg.eager,
-					force: arg.force,
 					get: Vec::new(),
+					group_children: arg.group_children,
 					location: Some(source.clone().into()),
-					logs: arg.logs,
 					metadata: arg.metadata,
-					outputs: arg.outputs,
+					organization_children: arg.organization_children,
+					process_children: arg.process_children,
+					process_commands: arg.process_commands,
+					process_errors: arg.process_errors,
+					process_logs: arg.process_logs,
+					process_outputs: arg.process_outputs,
 					put: Vec::new(),
-					recursive: arg.recursive,
+					sandbox_processes: arg.sandbox_processes,
+					tag_items: arg.tag_items,
+					user_children: arg.user_children,
 				};
 				let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
 				let push_output_stream = session
@@ -316,17 +334,21 @@ impl Session {
 
 				// Start the pull.
 				let pull_arg = tg::sync::Arg {
-					commands: arg.commands,
-					errors: arg.errors,
 					eager: arg.eager,
-					force: arg.force,
 					get: arg.items.clone(),
+					group_children: arg.group_children,
 					location: Some(destination.clone().into()),
-					logs: arg.logs,
 					metadata: arg.metadata,
-					outputs: arg.outputs,
+					organization_children: arg.organization_children,
+					process_children: arg.process_children,
+					process_commands: arg.process_commands,
+					process_errors: arg.process_errors,
+					process_logs: arg.process_logs,
+					process_outputs: arg.process_outputs,
 					put: Vec::new(),
-					recursive: arg.recursive,
+					sandbox_processes: arg.sandbox_processes,
+					tag_items: arg.tag_items,
+					user_children: arg.user_children,
 				};
 				let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
 				let pull_output_stream = session
@@ -340,13 +362,7 @@ impl Session {
 					while let Some(message) = push_output_stream.try_next().await? {
 						match message {
 							tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
-								let processes =
-									message.skipped.processes + message.transferred.processes;
-								let objects = message.skipped.objects + message.transferred.objects;
-								let bytes = message.skipped.bytes + message.transferred.bytes;
-								progress.increment("processes", processes);
-								progress.increment("objects", objects);
-								progress.increment("bytes", bytes);
+								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
 							},
 							tg::sync::Message::End => {
@@ -369,13 +385,7 @@ impl Session {
 					while let Some(message) = pull_output_stream.try_next().await? {
 						match message {
 							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
-								let processes =
-									message.skipped.processes + message.transferred.processes;
-								let objects = message.skipped.objects + message.transferred.objects;
-								let bytes = message.skipped.bytes + message.transferred.bytes;
-								progress.increment("processes", processes);
-								progress.increment("objects", objects);
-								progress.increment("bytes", bytes);
+								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
 							},
 							tg::sync::Message::End => {
@@ -410,25 +420,56 @@ impl Session {
 		})
 		.await?;
 
-		progress.finish("processes");
-		progress.finish("objects");
+		if let tg::Location::Remote(remote) = &destination {
+			self.invalidate_remote_cache(&remote.name).await;
+		}
+		for name in [
+			"groups",
+			"objects",
+			"organizations",
+			"processes",
+			"sandboxes",
+			"tags",
+			"users",
+		] {
+			progress.finish(name);
+		}
 		progress.finish("bytes");
 
 		Ok(output)
 	}
 
+	fn push_or_pull_increment_progress(
+		progress: &crate::progress::Handle<tg::push::Output>,
+		message: &tg::sync::ProgressMessage,
+	) {
+		let skipped = &message.skipped;
+		let transferred = &message.transferred;
+		progress.increment("bytes", skipped.bytes + transferred.bytes);
+		progress.increment("groups", skipped.groups + transferred.groups);
+		progress.increment("objects", skipped.objects + transferred.objects);
+		progress.increment(
+			"organizations",
+			skipped.organizations + transferred.organizations,
+		);
+		progress.increment("processes", skipped.processes + transferred.processes);
+		progress.increment("sandboxes", skipped.sandboxes + transferred.sandboxes);
+		progress.increment("tags", skipped.tags + transferred.tags);
+		progress.increment("users", skipped.users + transferred.users);
+	}
+
 	fn create_sync_output_items(
 		&self,
 		arg: &tg::push::Arg,
-	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		arg.items
 			.iter()
 			.map(|item| {
-				let item = item_id(item).clone();
-				let (resource, permissions, expires_at) = match &item {
-					tg::Either::Left(object) => (
-						tg::grant::Resource::Id(object.clone().into()),
+				let id = item.item.clone();
+				let resource = tg::grant::Resource::Id(id.clone());
+				let (permissions, expires_at) = if id.kind().is_object() {
+					(
 						vec![tg::grant::Permission::Object(
 							tg::grant::permission::object::Permission::Subtree,
 						)],
@@ -440,47 +481,56 @@ impl Session {
 							.as_secs()
 							.to_i64()
 							.unwrap(),
-					),
-					tg::Either::Right(process) => {
-						let mut permissions = vec![tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::Subtree,
-						)];
-						if arg.commands {
-							permissions.push(tg::grant::Permission::Process(
-								tg::grant::permission::process::Permission::SubtreeCommand,
-							));
-						}
-						if arg.errors {
-							permissions.push(tg::grant::Permission::Process(
-								tg::grant::permission::process::Permission::SubtreeError,
-							));
-						}
-						if arg.logs {
-							permissions.push(tg::grant::Permission::Process(
-								tg::grant::permission::process::Permission::SubtreeLog,
-							));
-						}
-						if arg.outputs {
-							permissions.push(tg::grant::Permission::Process(
-								tg::grant::permission::process::Permission::SubtreeOutput,
-							));
-						}
-						(
-							tg::grant::Resource::Id(process.clone().into()),
-							permissions,
-							now + self
-								.server
-								.config
-								.process
-								.grant_time_to_live
-								.as_secs()
-								.to_i64()
-								.unwrap(),
-						)
-					},
+					)
+				} else if id.kind() == tg::id::Kind::Process {
+					let mut permissions = vec![tg::grant::Permission::Process(
+						tg::grant::permission::process::Permission::Subtree,
+					)];
+					if arg.process_commands {
+						permissions.push(tg::grant::Permission::Process(
+							tg::grant::permission::process::Permission::SubtreeCommand,
+						));
+					}
+					if arg.process_errors {
+						permissions.push(tg::grant::Permission::Process(
+							tg::grant::permission::process::Permission::SubtreeError,
+						));
+					}
+					if arg.process_logs {
+						permissions.push(tg::grant::Permission::Process(
+							tg::grant::permission::process::Permission::SubtreeLog,
+						));
+					}
+					if arg.process_outputs {
+						permissions.push(tg::grant::Permission::Process(
+							tg::grant::permission::process::Permission::SubtreeOutput,
+						));
+					}
+					let expires_at = now
+						+ self
+							.server
+							.config
+							.process
+							.grant_time_to_live
+							.as_secs()
+							.to_i64()
+							.unwrap();
+					(permissions, expires_at)
+				} else if matches!(
+					id.kind(),
+					tg::id::Kind::Group
+						| tg::id::Kind::Organization
+						| tg::id::Kind::Sandbox
+						| tg::id::Kind::Tag
+						| tg::id::Kind::User
+				) {
+					let token = self.create_read_token(&id)?;
+					return Ok(tg::Referent::with_item_and_token(id, token));
+				} else {
+					return Ok(tg::Referent::with_item(id));
 				};
 				let token = self.create_token(resource, permissions, expires_at)?;
-				let item = tg::Referent::with_item_and_token(item, token);
+				let item = tg::Referent::with_item_and_token(id, token);
 				Ok(item)
 			})
 			.collect()
@@ -535,16 +585,4 @@ impl Session {
 
 		Ok(response)
 	}
-}
-
-fn item_id(
-	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-) -> &tg::Either<tg::object::Id, tg::process::Id> {
-	&item.item
-}
-
-fn item_token(
-	item: &tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-) -> Option<&tg::grant::Token> {
-	item.options.token.as_ref()
 }

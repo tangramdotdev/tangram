@@ -4,7 +4,7 @@ use {
 		sync::{
 			get::State,
 			graph::{Graph, Requested, UpdateObjectLocalArg, UpdateProcessLocalArg},
-			queue::{ObjectItem, ProcessItem},
+			queue::{DatabaseItem, ObjectItem, ProcessItem, SandboxItem},
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},
@@ -16,9 +16,17 @@ impl Session {
 	pub(super) async fn sync_get_queue(
 		&self,
 		state: Arc<State>,
+		queue_database_receiver: async_channel::Receiver<DatabaseItem>,
 		queue_object_receiver: async_channel::Receiver<ObjectItem>,
 		queue_process_receiver: async_channel::Receiver<ProcessItem>,
+		queue_sandbox_receiver: async_channel::Receiver<SandboxItem>,
 	) -> tg::Result<()> {
+		// Create the database future.
+		let database_future = queue_database_receiver.map(Ok).try_for_each(|item| {
+			let state = state.clone();
+			async move { Self::sync_get_queue_item(&state, item.eager, item.id, item.token).await }
+		});
+
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.get.queue.object_batch_size;
 		let object_batch_timeout = self.server.config.sync.get.queue.object_batch_timeout;
@@ -51,8 +59,22 @@ impl Session {
 			async move { session.sync_get_queue_process_batch(&state, items).await }
 		});
 
-		// Join the objects and processes futures.
-		futures::try_join!(objects_future, processes_future)?;
+		// Create the sandboxes future.
+		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|item| {
+			let state = state.clone();
+			async move {
+				let id = item.id.into();
+				Self::sync_get_queue_item(&state, item.eager, id, item.token).await
+			}
+		});
+
+		// Join the futures.
+		futures::try_join!(
+			database_future,
+			objects_future,
+			processes_future,
+			sandboxes_future
+		)?;
 
 		// Send the get end message.
 		state
@@ -60,6 +82,30 @@ impl Session {
 			.send(Ok(tg::sync::GetMessage::End))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the get end message"))?;
+
+		Ok(())
+	}
+
+	async fn sync_get_queue_item(
+		state: &State,
+		eager: bool,
+		id: tg::Id,
+		token: Option<tg::grant::Token>,
+	) -> tg::Result<()> {
+		let requested = state
+			.graph
+			.lock()
+			.unwrap()
+			.update_item_local_requested(&id, token.clone());
+		if !requested {
+			return Ok(());
+		}
+		let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage { eager, id, token });
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 
 		Ok(())
 	}
@@ -84,18 +130,15 @@ impl Session {
 
 		// Authorize and touch the objects, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let (outputs, permissions) = if state.arg.force {
-			(vec![None; ids.len()], vec![None; ids.len()])
-		} else {
-			self.sync_get_touch_authorized_objects(
+		let (outputs, permissions) = self
+			.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?
-		};
+			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 
 		// Handle each item and output.
 		for ((item, output), permissions) in
@@ -128,13 +171,11 @@ impl Session {
 					if requested {
 						continue;
 					}
-					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Object(
-						tg::sync::GetItemObjectMessage {
-							eager: item.eager,
-							id: item.id.clone(),
-							token: item.token,
-						},
-					));
+					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+						eager: item.eager,
+						id: item.id.clone().into(),
+						token: item.token,
+					});
 					state
 						.sender
 						.send(Ok(message))
@@ -248,10 +289,8 @@ impl Session {
 
 		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let (outputs, permissions) = if state.arg.force {
-			(vec![None; ids.len()], vec![None; ids.len()])
-		} else {
-			self.sync_get_touch_authorized_processes(
+		let (outputs, permissions) = self
+			.sync_get_touch_authorized_processes(
 				&state.graph,
 				&ids,
 				&state.arg,
@@ -259,8 +298,7 @@ impl Session {
 				self.server.config.process.time_to_touch,
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?
-		};
+			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 
 		// Handle each item and output.
 		for ((item, output), permissions) in
@@ -293,13 +331,11 @@ impl Session {
 					if requested {
 						continue;
 					}
-					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage::Process(
-						tg::sync::GetItemProcessMessage {
-							eager: item.eager,
-							id: item.id.clone(),
-							token: item.token,
-						},
-					));
+					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+						eager: item.eager,
+						id: item.id.clone().into(),
+						token: item.token,
+					});
 					state
 						.sender
 						.send(Ok(message))
@@ -392,7 +428,7 @@ impl Session {
 				eager: state.arg.eager,
 				id: object,
 				kind,
-				parent: Some(tg::Either::Left(id.clone())),
+				parent: Some(id.clone().into()),
 				token: token.cloned(),
 			}));
 	}
@@ -405,12 +441,14 @@ impl Session {
 		token: Option<&tg::grant::Token>,
 	) {
 		// Enqueue the children if necessary.
-		if state.arg.recursive
+		if state.arg.process_children
 			&& (!stored.is_some_and(|stored| stored.subtree)
-				|| (state.arg.commands && !stored.is_some_and(|stored| stored.subtree_command))
-				|| (state.arg.errors && !stored.is_some_and(|stored| stored.subtree_error))
-				|| (state.arg.logs && !stored.is_some_and(|stored| stored.subtree_log))
-				|| (state.arg.outputs && !stored.is_some_and(|stored| stored.subtree_output)))
+				|| (state.arg.process_commands
+					&& !stored.is_some_and(|stored| stored.subtree_command))
+				|| (state.arg.process_errors && !stored.is_some_and(|stored| stored.subtree_error))
+				|| (state.arg.process_logs && !stored.is_some_and(|stored| stored.subtree_log))
+				|| (state.arg.process_outputs
+					&& !stored.is_some_and(|stored| stored.subtree_output)))
 			&& let Some(children) = &data.children
 		{
 			for child in children {
@@ -424,19 +462,19 @@ impl Session {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.commands && !stored.is_some_and(|stored| stored.node_command) {
+		if state.arg.process_commands && !stored.is_some_and(|stored| stored.node_command) {
 			let item = ObjectItem {
 				eager: state.arg.eager,
 				id: data.command.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
-				parent: Some(tg::Either::Right(id.clone())),
+				parent: Some(id.clone().into()),
 				token: token.cloned(),
 			};
 			state.queue.enqueue_object(item);
 		}
 
 		// Enqueue the error if necessary.
-		if state.arg.errors
+		if state.arg.process_errors
 			&& !stored.is_some_and(|stored| stored.node_error)
 			&& let Some(error) = &data.error
 		{
@@ -450,7 +488,7 @@ impl Session {
 							eager: state.arg.eager,
 							id: object,
 							kind: Some(crate::sync::queue::ObjectKind::Error),
-							parent: Some(tg::Either::Right(id.clone())),
+							parent: Some(id.clone().into()),
 							token: token.cloned(),
 						}));
 				},
@@ -459,7 +497,7 @@ impl Session {
 						eager: state.arg.eager,
 						id: error.clone().item.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
-						parent: Some(tg::Either::Right(id.clone())),
+						parent: Some(id.clone().into()),
 						token: token.cloned(),
 					};
 					state.queue.enqueue_object(item);
@@ -468,7 +506,7 @@ impl Session {
 		}
 
 		// Enqueue the log if necessary.
-		if state.arg.logs
+		if state.arg.process_logs
 			&& !stored.is_some_and(|stored| stored.node_log)
 			&& let Some(log) = data.log.clone()
 		{
@@ -476,14 +514,14 @@ impl Session {
 				eager: state.arg.eager,
 				id: log.item.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
-				parent: Some(tg::Either::Right(id.clone())),
+				parent: Some(id.clone().into()),
 				token: token.cloned(),
 			};
 			state.queue.enqueue_object(item);
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.outputs && !stored.is_some_and(|stored| stored.node_output))
+		if (state.arg.process_outputs && !stored.is_some_and(|stored| stored.node_output))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();
@@ -494,7 +532,7 @@ impl Session {
 					eager: state.arg.eager,
 					id: object,
 					kind: Some(crate::sync::queue::ObjectKind::Output),
-					parent: Some(tg::Either::Right(id.clone())),
+					parent: Some(id.clone().into()),
 					token: token.cloned(),
 				}));
 		}

@@ -50,7 +50,8 @@ export namespace Checkin {
 				options.source_dependencies = arg.options.localDependencies;
 			}
 			if (arg.options.ttl !== undefined) {
-				options.tag_ttl = arg.options.ttl;
+				options.tag_ttl =
+					arg.options.ttl === null ? "infinite" : `${arg.options.ttl}s`;
 			}
 			if (arg.options.unsolvedDependencies) {
 				options.unsolved_dependencies = arg.options.unsolvedDependencies;

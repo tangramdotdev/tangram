@@ -84,12 +84,15 @@ impl Session {
 		for (item, output) in std::iter::zip(items, outputs) {
 			// If the object is missing, then send a missing message.
 			let Some(mut output) = output else {
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Object(
-					tg::sync::PutMissingObjectMessage {
-						id: item.id.clone(),
-					},
-				));
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+					id: item.id.clone().into(),
+				});
 				state.sender.send(Ok(message)).await.ok();
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_object_remote_missing(&item.id);
 				continue;
 			};
 
@@ -136,12 +139,11 @@ impl Session {
 				.send(Ok(message))
 				.await
 				.map_err(|error| tg::error!(!error, "failed to send the put message"))?;
-			state.graph.lock().unwrap().update_object_remote(
-				&item.id,
-				None,
-				item.kind,
-				Some(&tangram_index::object::Stored { subtree: true }),
-			);
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.update_object_remote_sent(&item.id, item.eager);
 
 			// Enqueue the children.
 			if item.eager {
@@ -153,7 +155,7 @@ impl Session {
 						eager: item.eager,
 						id: child,
 						kind: item.kind,
-						parent: Some(tg::Either::Left(item.id.clone())),
+						parent: Some(item.id.clone().into()),
 						token: None,
 					});
 				state.queue.enqueue_objects(items);
@@ -185,17 +187,15 @@ impl Session {
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
 			let Some(mut output) = output else {
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
-					tg::sync::PutMissingProcessMessage {
-						id: item.id.clone(),
-					},
-				));
+				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+					id: item.id.clone().into(),
+				});
 				state.sender.send(Ok(message)).await.ok();
 				continue;
 			};
 
 			// Compact the log if needed before sending the process data.
-			if state.arg.logs && output.data.log.is_none() {
+			if state.arg.process_logs && output.data.log.is_none() {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::NodeLog,
 				);
@@ -225,6 +225,7 @@ impl Session {
 					)?
 					.data;
 			}
+			Self::validate_process_data(&output.data)?;
 
 			// Update the graph.
 			let update = crate::sync::graph::UpdateProcessLocalArg {
@@ -275,7 +276,7 @@ impl Session {
 				.update_process_remote(&item.id, None, Some(&stored));
 
 			// Enqueue the children.
-			if state.arg.recursive && item.eager {
+			if state.arg.process_children && item.eager {
 				let children = output
 					.data
 					.children
@@ -293,12 +294,12 @@ impl Session {
 			}
 
 			// Enqueue the command.
-			if item.eager && state.arg.commands {
+			if item.eager && state.arg.process_commands {
 				let item = crate::sync::queue::ObjectItem {
 					eager: item.eager,
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
-					parent: Some(tg::Either::Right(item.id.clone())),
+					parent: Some(item.id.clone().into()),
 					token: None,
 				};
 				state.queue.enqueue_object(item);
@@ -306,7 +307,7 @@ impl Session {
 
 			// Enqueue the error.
 			if item.eager
-				&& state.arg.errors
+				&& state.arg.process_errors
 				&& let Some(error) = &output.data.error
 			{
 				match error {
@@ -320,7 +321,7 @@ impl Session {
 									eager: item.eager,
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
-									parent: Some(tg::Either::Right(item.id.clone())),
+									parent: Some(item.id.clone().into()),
 									token: None,
 								});
 						state.queue.enqueue_objects(items);
@@ -330,7 +331,7 @@ impl Session {
 							eager: item.eager,
 							id: id.item.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
-							parent: Some(tg::Either::Right(item.id.clone())),
+							parent: Some(item.id.clone().into()),
 							token: None,
 						};
 						state.queue.enqueue_object(item);
@@ -340,14 +341,14 @@ impl Session {
 
 			// Enqueue the log.
 			if item.eager
-				&& state.arg.logs
+				&& state.arg.process_logs
 				&& let Some(log) = output.data.log.clone()
 			{
 				let item = crate::sync::queue::ObjectItem {
 					eager: item.eager,
 					id: log.item.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
-					parent: Some(tg::Either::Right(item.id.clone())),
+					parent: Some(item.id.clone().into()),
 					token: None,
 				};
 				state.queue.enqueue_object(item);
@@ -355,7 +356,7 @@ impl Session {
 
 			// Enqueue the outputs.
 			if item.eager
-				&& state.arg.outputs
+				&& state.arg.process_outputs
 				&& let Some(output) = &output.data.output
 			{
 				let mut children = BTreeSet::new();
@@ -366,7 +367,7 @@ impl Session {
 						eager: item.eager,
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
-						parent: Some(tg::Either::Right(item.id.clone())),
+						parent: Some(item.id.clone().into()),
 						token: None,
 					});
 				state.queue.enqueue_objects(items);

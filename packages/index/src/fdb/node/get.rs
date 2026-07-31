@@ -10,11 +10,11 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::grant::Resource,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<Option<(tg::Id, bool)>> {
 		match resource {
-			tg::grant::Resource::Id(id) => {
-				Self::try_resolve_id_with_transaction(txn, subspace, id).await
-			},
+			tg::grant::Resource::Id(id) => Self::try_resolve_id_with_transaction(txn, subspace, id)
+				.await
+				.map(|id| id.map(|id| (id, true))),
 			tg::grant::Resource::Specifier(specifier) => {
 				// Resolve the deepest existing prefix of the specifier.
 				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
@@ -22,7 +22,8 @@ impl Index {
 				for prefix in &prefixes {
 					let id = Self::try_get_node_with_transaction(txn, subspace, prefix).await?;
 					if let Some(id) = id {
-						return Ok(Some(id));
+						let exact = prefix == specifier;
+						return Ok(Some((id, exact)));
 					}
 				}
 				Ok(None)

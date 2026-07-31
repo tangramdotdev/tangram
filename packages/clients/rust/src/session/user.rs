@@ -23,7 +23,7 @@ impl tg::handle::User for tg::Session {
 		&self,
 		user: &tg::user::Selector,
 		arg: tg::user::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> {
 		self.try_get_user(user, arg)
 	}
 

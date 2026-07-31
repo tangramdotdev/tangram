@@ -10,8 +10,8 @@ let local = spawn --name local --config {
 let path = artifact 'Hello, World!'
 let id = tg --url $remote.url checkin $path
 let old = tg --url $remote.url get $id | str trim
-tg --url $remote.url tag put "a/b" $id
-tg --url $remote.url tag put "a/c/d" $id
+tg --url $remote.url tag put -p "a/b" $id
+tg --url $remote.url tag put -p "a/c/d" $id
 
 # Cache a remote tag tree by resolving through the local server.
 tg --url $local.url resolve "a/b" | ignore

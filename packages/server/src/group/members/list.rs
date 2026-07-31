@@ -44,10 +44,19 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let group = Self::try_get_node_by_selector_with_transaction(&transaction, group)
+		let id = match group {
+			tg::Selector::Id(id) => Some(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				Self::try_get_id_for_specifier_with_transaction(&transaction, specifier)
+					.await?
+					.and_then(|id| id.try_into().ok())
+			},
+		}
+		.ok_or_else(|| tg::error!("failed to find the group"))?;
+		if Self::try_get_group_with_transaction(&transaction, &id)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if group.kind != tg::id::Kind::Group {
+			.is_none()
+		{
 			return Err(tg::error!("failed to find the group"));
 		}
 		#[derive(db::row::Deserialize)]
@@ -65,7 +74,7 @@ impl Session {
 			"#
 		);
 		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![group.id.to_string()])
+			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let data = rows

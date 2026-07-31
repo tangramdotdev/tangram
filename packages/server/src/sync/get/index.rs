@@ -275,6 +275,30 @@ impl Session {
 	}
 
 	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {
+		let (put_sandbox_args, put_sandbox_grant_args) =
+			self.sync_get_index_sandbox_args(&graph).await?;
+		self.sync_get_index_put_inner(graph, put_sandbox_args, put_sandbox_grant_args)
+			.await?;
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_index_put_partial(
+		&self,
+		graph: Arc<Mutex<Graph>>,
+	) -> tg::Result<()> {
+		self.sync_get_index_put_inner(graph, Vec::new(), Vec::new())
+			.await?;
+
+		Ok(())
+	}
+
+	async fn sync_get_index_put_inner(
+		&self,
+		graph: Arc<Mutex<Graph>>,
+		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
+		put_sandbox_grant_args: Vec<tangram_index::grant::put::Arg>,
+	) -> tg::Result<()> {
 		// Flush the store.
 		self.server
 			.object_store
@@ -282,12 +306,28 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
-		// Create the index args.
-		let (put_grant_args, put_object_args, put_process_args) = self
-			.sync_get_index_create_args(&mut graph.lock().unwrap())
-			.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
+		// Create the index args and update the graph with the permissions being granted.
+		let (put_grant_args, put_object_args, put_process_args) = {
+			let mut graph = graph.lock().unwrap();
+			let args = self
+				.sync_get_index_create_args(&mut graph)
+				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
+			for arg in &args.0 {
+				match arg.resource.kind() {
+					tg::id::Kind::Process => graph.update_process_local_permissions(
+						&arg.resource.clone().try_into()?,
+						arg.permissions,
+					),
+					_ => graph.update_object_local_permissions(
+						&arg.resource.clone().try_into()?,
+						arg.permissions,
+					),
+				}
+			}
+			args
+		};
 
-		// Index the objects and processes.
+		// Index the objects, processes, and sandboxes.
 		let arg = tangram_index::batch::Arg {
 			items: put_object_args
 				.into_iter()
@@ -298,8 +338,14 @@ impl Session {
 						.map(tangram_index::batch::Item::PutProcess),
 				)
 				.chain(
+					put_sandbox_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutSandbox),
+				)
+				.chain(
 					put_grant_args
 						.into_iter()
+						.chain(put_sandbox_grant_args)
 						.map(tangram_index::batch::Item::PutGrant),
 				)
 				.collect(),
@@ -310,6 +356,65 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index the sync"))?;
 
 		Ok(())
+	}
+
+	async fn sync_get_index_sandbox_args(
+		&self,
+		graph: &Arc<Mutex<Graph>>,
+	) -> tg::Result<(
+		Vec<tangram_index::sandbox::put::Arg>,
+		Vec<tangram_index::grant::put::Arg>,
+	)> {
+		// Get the sandbox messages.
+		let messages = graph
+			.lock()
+			.unwrap()
+			.local_messages()
+			.into_iter()
+			.filter_map(|message| match message {
+				tg::sync::PutItemMessage::Sandbox(message) => Some(message),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		if messages.is_empty() {
+			return Ok((Vec::new(), Vec::new()));
+		}
+		if matches!(self.context.principal, tg::Principal::Anonymous) {
+			return Err(tg::error!("unauthorized"));
+		}
+
+		// Create the sandbox and grant args.
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let mut put_grant_args = Vec::new();
+		let mut put_sandbox_args = Vec::with_capacity(messages.len());
+		for message in messages {
+			let existing = self
+				.try_get_sandbox_from_index(&message.id)
+				.await?
+				.is_some();
+			if existing {
+				let permission = tg::grant::Permission::Sandbox(
+					tg::grant::permission::sandbox::Permission::Write,
+				);
+				let authorized = self.authorize(message.id.clone(), permission).await?;
+				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+					return Err(tg::error!("unauthorized"));
+				}
+			} else if let Some(arg) =
+				self.sync_get_create_temporary_grant(&message.id.clone().into())?
+			{
+				put_grant_args.push(arg);
+			}
+			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
+				created_at: message.created_at,
+				data: Some(message.data),
+				id: message.id,
+				runner: None,
+				touched_at,
+			});
+		}
+
+		Ok((put_sandbox_args, put_grant_args))
 	}
 
 	fn sync_get_index_create_args(
@@ -333,6 +438,11 @@ impl Session {
 		for index in indices.iter().copied() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => {},
 				Node::Object(node) => {
 					let Some(children) = &node.children else {
 						continue;
@@ -945,6 +1055,11 @@ impl Session {
 			for index in indices.iter().rev().copied() {
 				let (id, node) = graph.nodes.get_index(index).unwrap();
 				match node {
+					Node::Group(_)
+					| Node::Organization(_)
+					| Node::Sandbox(_)
+					| Node::Tag(_)
+					| Node::User(_) => {},
 					Node::Object(node) => {
 						let visible = node
 							.local_visible
@@ -966,7 +1081,7 @@ impl Session {
 									tg::grant::permission::object::Set::from_permission(permission),
 								),
 								principal: grant_principal.clone(),
-								resource: id.clone().unwrap_object().into(),
+								resource: tg::object::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 							});
 						}
@@ -995,7 +1110,7 @@ impl Session {
 								expires_at: Some(process_expires_at),
 								permissions: tg::grant::permission::Set::Process(permissions),
 								principal: grant_principal.clone(),
-								resource: id.clone().unwrap_process().into(),
+								resource: tg::process::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 							});
 						}
@@ -1029,8 +1144,17 @@ impl Session {
 			}
 			let (id, node) = graph.nodes.get_index(index).unwrap();
 			match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => {
+					if let Some(children) = node.children.as_ref() {
+						stack.extend(children.iter().copied());
+					}
+				},
 				Node::Object(node) => {
-					let id = id.unwrap_object_ref().clone();
+					let id = tg::object::Id::try_from(id.clone())?;
 					if node.marked {
 						let children = node
 							.children
@@ -1038,15 +1162,9 @@ impl Session {
 							.unwrap()
 							.iter()
 							.map(|index| {
-								graph
-									.nodes
-									.get_index(*index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_object()
+								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
 							})
-							.collect();
+							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
 						let metadata = node.metadata.clone().unwrap();
 						let stored = node.local_stored.clone().unwrap();
 						let arg = tangram_index::object::put::Arg {
@@ -1065,7 +1183,7 @@ impl Session {
 					}
 				},
 				Node::Process(node) => {
-					let id = id.unwrap_process_ref().clone();
+					let id = tg::process::Id::try_from(id.clone())?;
 					if node.marked {
 						let children = node
 							.children
@@ -1073,15 +1191,9 @@ impl Session {
 							.unwrap()
 							.iter()
 							.map(|index| {
-								graph
-									.nodes
-									.get_index(*index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_process()
+								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
 							})
-							.collect();
+							.collect::<tg::Result<Vec<_>>>()?;
 						let stored = node.local_stored.clone().unwrap();
 						let metadata = node.metadata.clone().unwrap();
 						let objects = node
@@ -1091,16 +1203,11 @@ impl Session {
 							.iter()
 							.copied()
 							.map(|(index, kind)| {
-								let id = graph
-									.nodes
-									.get_index(index)
-									.unwrap()
-									.0
-									.clone()
-									.unwrap_object();
-								(id, kind)
+								let id =
+									graph.nodes.get_index(index).unwrap().0.clone().try_into()?;
+								Ok((id, kind))
 							})
-							.collect::<Vec<_>>();
+							.collect::<tg::Result<Vec<_>>>()?;
 						let mut command = None;
 						let mut error = Vec::new();
 						let mut log = None;

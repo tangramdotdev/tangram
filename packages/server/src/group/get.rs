@@ -12,24 +12,45 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 		arg: tg::group::get::Arg,
-	) -> tg::Result<Option<tg::Group>> {
-		let location = self
-			.server
-			.location(arg.location.as_ref())
-			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+	) -> tg::Result<Option<tg::group::get::Output>> {
+		let selector = match group {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some(output) = self
+			.try_get_with_selector(&selector, arg.location.as_ref(), arg.cached, arg.ttl)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let tg::get::Item::Id(id) = output.referent.item else {
+			unreachable!();
+		};
+		let Ok(id) = tg::group::Id::try_from(id) else {
+			return Ok(None);
+		};
+		let location = output
+			.location
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let token = output.referent.options.token;
 		match location {
-			tg::Location::Local(_) => self.try_get_group_local(group).await,
-			tg::Location::Remote(remote) => self.try_get_group_remote(group, arg, remote).await,
+			tg::Location::Local(_) => self.try_get_group_local(&id, token).await,
+			tg::Location::Remote(remote) => {
+				self.try_get_group_remote(&id, arg, remote, token).await
+			},
 		}
 	}
 
 	async fn try_get_group_local(
 		&self,
-		group: &tg::group::Selector,
-	) -> tg::Result<Option<tg::Group>> {
+		id: &tg::group::Id,
+		token: Option<tg::grant::Token>,
+	) -> tg::Result<Option<tg::group::get::Output>> {
 		let permission =
 			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read);
-		let authorized = self.authorize(group.clone(), permission).await?;
+		let authorized = self
+			.authorize(tg::group::Selector::Id(id.clone()), permission)
+			.await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
@@ -43,36 +64,82 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(node) =
-			Self::try_get_node_by_selector_with_transaction(&transaction, group).await?
-		else {
+		let Some(mut group) = Self::try_get_group_with_transaction(&transaction, id).await? else {
 			return Ok(None);
 		};
-		if node.kind != tg::id::Kind::Group {
-			return Ok(None);
-		}
-		Ok(Some(tg::Group {
-			id: node.id.try_into()?,
-			name: node.name,
-			parent: node.parent,
-			specifier: node.specifier,
-		}))
+		group.token = token;
+
+		Ok(Some(group))
 	}
 
 	async fn try_get_group_remote(
 		&self,
-		group: &tg::group::Selector,
+		id: &tg::group::Id,
 		mut arg: tg::group::get::Arg,
 		remote: tg::location::Remote,
-	) -> tg::Result<Option<tg::Group>> {
+		token: Option<tg::grant::Token>,
+	) -> tg::Result<Option<tg::group::get::Output>> {
+		let cached = arg.cached;
+		let ttl = arg.ttl;
+		arg.cached = false;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		arg.ttl = tg::remote::cache::Ttl::default();
+		let request =
+			crate::remote::cache::Request::GroupGet(crate::remote::cache::GroupGetRequest {
+				arg: arg.clone(),
+				id: id.clone(),
+			});
+		if let Some(crate::remote::cache::Response::GroupGet(response)) = self
+			.try_get_cached_remote_response(&remote.name, &request, ttl)
+			.await?
+		{
+			let mut output = response.output;
+			if let Some(group) = &mut output {
+				group.token = group.token.take().or_else(|| token.clone());
+			}
+			let valid = output
+				.as_ref()
+				.is_none_or(|group| crate::remote::cache::token_valid(group.token.as_ref()));
+			if valid || cached {
+				if let Some(group) = &mut output {
+					if !crate::remote::cache::token_valid(group.token.as_ref()) {
+						group.token = None;
+					}
+					group.location = Some(tg::Location::Remote(remote));
+				}
+
+				return Ok(output);
+			}
+		}
+		if cached {
+			return Ok(None);
+		}
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		client
-			.try_get_group(group, arg)
-			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the group"))
+		let group = tg::group::Selector::Id(id.clone());
+		let mut output = client.try_get_group(&group, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the group"),
+		)?;
+		if let Some(group) = &mut output {
+			group.token = group.token.take().or(token);
+		}
+		let response =
+			crate::remote::cache::Response::GroupGet(crate::remote::cache::GroupGetResponse {
+				output: output.clone(),
+			});
+		self.put_cached_remote_response(&remote.name, &request, &response)
+			.await?;
+		if let Some(group) = &mut output {
+			group.location = Some(tg::Location::Remote(remote));
+		}
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_group_request(

@@ -4,18 +4,33 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
+
+	#[command(flatten)]
+	pub location: crate::location::Args,
+
 	#[arg(index = 1)]
 	pub tag: tg::tag::Selector,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[command(flatten)]
+	pub ttl: crate::get::Ttl,
 }
 
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let arg = tg::tag::get::Arg {
+			cached: args.cached,
+			location: args.location.get(),
+			ttl: args.ttl.get(),
+		};
 		let tag = client
-			.try_get_tag(&args.tag)
+			.try_get_tag(&args.tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to get the tag"))?
 			.ok_or_else(|| tg::error!("failed to find the tag"))?;

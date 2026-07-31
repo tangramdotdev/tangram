@@ -6,7 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-
 # Create and publish the dependency package.
 let dep_path = artifact {
 	tangram.ts: '

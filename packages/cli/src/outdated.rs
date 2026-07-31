@@ -86,49 +86,50 @@ impl Cli {
 					},
 					Edge::Tag(tag) => tag.clone(),
 				};
-				let arg = tg::list::Arg {
+				let arg = tg::match_::Arg {
 					cached: false,
+					groups: false,
 					length: Some(1),
 					location: None,
-					groups: false,
+					organizations: false,
 					pattern: pattern.clone(),
-					recursive: false,
 					reverse: true,
 					tags: true,
-					ttl: None,
+					ttl: tg::remote::cache::Ttl::default(),
+					users: false,
 				};
-				let compatible =
-					client
-						.list(arg)
-						.await?
-						.data
-						.into_iter()
-						.find_map(|entry| match entry {
-							tg::list::Entry::Tag { tag, .. } => Some(tag),
-							tg::list::Entry::Group { .. } => None,
-						});
+				let compatible = client
+					.match_(arg)
+					.await?
+					.data
+					.into_iter()
+					.find_map(|entry| match entry {
+						tg::match_::Entry::Tag { specifier, .. } => Some(specifier),
+						_ => None,
+					});
 
 				let pattern = tg::specifier::Pattern::any_in_parent(pattern.parent.clone());
-				let arg = tg::list::Arg {
+				let arg = tg::match_::Arg {
 					cached: false,
+					groups: false,
 					length: Some(1),
 					location: None,
-					groups: false,
+					organizations: false,
 					pattern,
-					recursive: false,
 					reverse: true,
 					tags: true,
-					ttl: None,
+					ttl: tg::remote::cache::Ttl::default(),
+					users: false,
 				};
 				let latest =
 					client
-						.list(arg)
+						.match_(arg)
 						.await?
 						.data
 						.into_iter()
 						.find_map(|entry| match entry {
-							tg::list::Entry::Tag { tag, .. } => Some(tag),
-							tg::list::Entry::Group { .. } => None,
+							tg::match_::Entry::Tag { specifier, .. } => Some(specifier),
+							_ => None,
 						});
 
 				let entry = Entry {

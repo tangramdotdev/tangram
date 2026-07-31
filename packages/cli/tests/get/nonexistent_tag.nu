@@ -10,7 +10,5 @@ snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
 	   reference = nonexistent-tag
-	-> failed to get the reference
-	   reference = nonexistent-tag
 
 '

@@ -29,6 +29,31 @@ where
 		}
 	}
 
+	fn try_get_sandbox_processes_stream(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::processes::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl futures::Stream<Item = tg::Result<tg::sandbox::processes::get::Event>>
+				+ Send
+				+ 'static,
+			>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_get_sandbox_processes_stream(id, arg.clone())
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_sandbox_processes_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

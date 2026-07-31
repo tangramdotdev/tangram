@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# The checkin and update commands honor the tag list cache TTL, keeping the cached version by default and picking up a newer remote version only with --tag-ttl 0.
+# The checkin and update commands honor the remote cache TTL, keeping the cached version by default and picking up a newer remote version only with --tag-ttl 0.
 
 let remote = spawn --name remote
 let local = spawn --name local --config {
@@ -13,7 +13,7 @@ let checkin_old_path = artifact {
 		export default function () { return "checkin/a/1.0.0"; }
 	'
 }
-tg --url $remote.url tag checkin/a/1.0.0 $checkin_old_path
+tg --url $remote.url tag -p checkin/a/1.0.0 $checkin_old_path
 
 # Create a package that depends on checkin/a/^1.
 let checkin_package_path = artifact {
@@ -23,7 +23,7 @@ let checkin_package_path = artifact {
 	'
 }
 
-# Check in once to create the lock and warm the remote list cache.
+# Check in once to create the lock and warm the remote cache.
 tg --url $local.url checkin $checkin_package_path
 
 let checkin_lockfile_path = $checkin_package_path | path join 'tangram.lock'
@@ -37,13 +37,13 @@ let checkin_new_path = artifact {
 		export default function () { return "checkin/a/1.1.0"; }
 	'
 }
-tg --url $remote.url tag checkin/a/1.1.0 $checkin_new_path
+tg --url $remote.url tag -p checkin/a/1.1.0 $checkin_new_path
 
-# Run checkin --update with the default TTL. The cached list should keep checkin/a/1.0.0.
+# Run checkin --update with the default TTL. The cached response should keep checkin/a/1.0.0.
 tg --url $local.url checkin $checkin_package_path --update checkin/a
 let checkin_stale_lock = open $checkin_lockfile_path | from json
 let checkin_stale_tag = $checkin_stale_lock.nodes.1.dependencies."checkin/a/^1".options.tag
-assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the cached list"
+assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the remote cache"
 
 # Run checkin --update with --tag-ttl 0. The fresh list should now use checkin/a/1.1.0.
 tg --url $local.url checkin $checkin_package_path --update checkin/a --tag-ttl 0
@@ -57,7 +57,7 @@ let update_old_path = artifact {
 		export default function () { return "update/a/1.0.0"; }
 	'
 }
-tg --url $remote.url tag update/a/1.0.0 $update_old_path
+tg --url $remote.url tag -p update/a/1.0.0 $update_old_path
 
 # Create a package that depends on update/a/^1.
 let update_package_path = artifact {
@@ -67,7 +67,7 @@ let update_package_path = artifact {
 	'
 }
 
-# Check in once to create the lock and warm the remote list cache.
+# Check in once to create the lock and warm the remote cache.
 tg --url $local.url checkin $update_package_path
 
 let update_lockfile_path = $update_package_path | path join 'tangram.lock'
@@ -81,13 +81,13 @@ let update_new_path = artifact {
 		export default function () { return "update/a/1.1.0"; }
 	'
 }
-tg --url $remote.url tag update/a/1.1.0 $update_new_path
+tg --url $remote.url tag -p update/a/1.1.0 $update_new_path
 
-# Run update with the default TTL. The cached list should keep update/a/1.0.0.
+# Run update with the default TTL. The cached response should keep update/a/1.0.0.
 tg --url $local.url update $update_package_path
 let update_stale_lock = open $update_lockfile_path | from json
 let update_stale_tag = $update_stale_lock.nodes.1.dependencies."update/a/^1".options.tag
-assert ($update_stale_tag == "update/a/1.0.0") "without a ttl override, update should use the cached list"
+assert ($update_stale_tag == "update/a/1.0.0") "without a ttl override, update should use the remote cache"
 
 # Run update with --tag-ttl 0. The fresh list should now use update/a/1.1.0.
 tg --url $local.url update $update_package_path --tag-ttl 0

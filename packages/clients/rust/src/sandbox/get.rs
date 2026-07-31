@@ -4,12 +4,19 @@ use {
 	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ttl: tg::remote::cache::Ttl,
 }
 
 #[serde_as]
@@ -65,10 +72,14 @@ pub struct Output {
 	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(
 		deserialize_with = "deserialize_duration",
-		id = 11,
+		id = 12,
 		serialize_with = "serialize_duration"
 	)]
 	pub ttl: Option<Duration>,
