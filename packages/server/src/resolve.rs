@@ -139,15 +139,42 @@ impl Session {
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<tg::get::Output> {
-		// Get a cached response.
+		// Create the remote request.
+		let options = tg::reference::Options {
+			location: Some(
+				tg::Location::Local(tg::location::Local {
+					region: remote.region.clone(),
+				})
+				.into(),
+			),
+			..tg::reference::Options::default()
+		};
+		let reference = tg::Reference::with_item_and_options(
+			tg::reference::Item::Specifier(specifier.clone().into()),
+			options.clone(),
+		);
+		let arg = tg::resolve::Arg {
+			options,
+			..tg::resolve::Arg::default()
+		};
 		let request =
-			crate::remote::cache::request("resolve", &(&specifier, remote.region.as_ref()));
-		if let Some(mut output) = self
-			.try_get_cached_remote_response::<tg::resolve::Output>(&remote.name, &request, ttl)
+			crate::remote::cache::Request::Resolve(crate::remote::cache::ResolveRequest {
+				arg: arg.clone(),
+				reference: reference.clone(),
+			});
+
+		// Get a cached response.
+		if let Some(crate::remote::cache::Response::Resolve(Some(mut output))) = self
+			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
-			.filter(|output| crate::remote::cache::token_valid(output.referent.token()))
-		{
+			.filter(|response| {
+				matches!(
+					response,
+					crate::remote::cache::Response::Resolve(Some(output))
+						if crate::remote::cache::token_valid(output.referent.token())
+				)
+			}) {
 			output.location = Some(tg::Location::Remote(remote));
 			let output = tg::get::Output {
 				location: output.location,
@@ -174,25 +201,9 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		let options = tg::reference::Options {
-			location: Some(
-				tg::Location::Local(tg::location::Local {
-					region: remote.region.clone(),
-				})
-				.into(),
-			),
-			..tg::reference::Options::default()
-		};
-		let reference = tg::Reference::with_item_and_options(
-			tg::reference::Item::Specifier(specifier.clone().into()),
-			options,
-		);
-		let stream = client
-			.try_resolve(&reference, tg::resolve::Arg::default())
-			.await
-			.map_err(
-				|error| tg::error!(!error, remote = %remote.name, "failed to resolve the tag"),
-			)?;
+		let stream = client.try_resolve(&reference, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to resolve the tag"),
+		)?;
 		let mut stream = pin!(stream);
 		let mut output = None;
 		while let Some(event) = stream.next().await {
@@ -200,10 +211,11 @@ impl Session {
 				output = event_output;
 			}
 		}
-		let mut output = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
-		self.put_cached_remote_response(&remote.name, &request, &output)
+		let response = crate::remote::cache::Response::Resolve(output.clone());
+		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		let mut output = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
 		output.location = Some(tg::Location::Remote(remote));
 		let output = tg::get::Output {
 			location: output.location,

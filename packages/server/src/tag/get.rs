@@ -33,12 +33,14 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tag = tg::tag::Selector::Id(id);
 		let location =
 			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_tag_local(&tag, token).await,
-			tg::Location::Remote(remote) => self.try_get_tag_remote(&tag, arg, remote, token).await,
+			tg::Location::Local(_) => {
+				let tag = tg::tag::Selector::Id(id);
+				self.try_get_tag_local(&tag, token).await
+			},
+			tg::Location::Remote(remote) => self.try_get_tag_remote(&id, arg, remote, token).await,
 		}
 	}
 
@@ -95,18 +97,27 @@ impl Session {
 
 	async fn try_get_tag_remote(
 		&self,
-		tag: &tg::tag::Selector,
+		id: &tg::tag::Id,
 		mut arg: tg::tag::get::Arg,
 		remote: tg::location::Remote,
 		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		let request = crate::remote::cache::request("tag.get", &(tag, &remote.region));
-		if let Some(mut output) = self
-			.try_get_cached_remote_response::<Option<tg::tag::get::Output>>(
-				&remote.name,
-				&request,
-				arg.ttl,
-			)
+		let cached = arg.cached;
+		let ttl = arg.ttl;
+		arg.cached = false;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
+		arg.ttl = tg::remote::cache::Ttl::default();
+		let request = crate::remote::cache::Request::TagGet(crate::remote::cache::TagGetRequest {
+			arg: arg.clone(),
+			id: id.clone(),
+		});
+		if let Some(crate::remote::cache::Response::TagGet(mut output)) = self
+			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await?
 		{
 			if let Some(tag) = &mut output {
@@ -115,7 +126,7 @@ impl Session {
 			let valid = output
 				.as_ref()
 				.is_none_or(|tag| crate::remote::cache::token_valid(tag.token.as_ref()));
-			if valid || arg.cached {
+			if valid || cached {
 				if let Some(tag) = &mut output {
 					if !crate::remote::cache::token_valid(tag.token.as_ref()) {
 						tag.token = None;
@@ -126,28 +137,22 @@ impl Session {
 				return Ok(output);
 			}
 		}
-		if arg.cached {
+		if cached {
 			return Ok(None);
 		}
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		arg.cached = false;
-		arg.location = Some(
-			tg::Location::Local(tg::location::Local {
-				region: remote.region.clone(),
-			})
-			.into(),
-		);
-		arg.ttl = tg::remote::cache::Ttl::default();
+		let tag = tg::tag::Selector::Id(id.clone());
 		let mut output = client
-			.try_get_tag(tag, arg)
+			.try_get_tag(&tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the tag"))?;
 		if let Some(tag) = &mut output {
 			tag.token = tag.token.take().or(token);
 		}
-		self.put_cached_remote_response(&remote.name, &request, &output)
+		let response = crate::remote::cache::Response::TagGet(output.clone());
+		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(tag) = &mut output {
 			tag.location = Some(tg::Location::Remote(remote));

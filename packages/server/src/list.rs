@@ -213,20 +213,12 @@ impl Session {
 		}
 		let mut remotes = locations.remotes;
 		remotes.sort_by(|a, b| a.name.cmp(&b.name));
-		let request = crate::remote::cache::request("entry.get", resource);
-		let request = &request;
 		let remote_results = remotes
 			.into_iter()
 			.map(|remote| async move {
 				let name = remote.name.clone();
 				let result = self
-					.list_remote_with_request(
-						remote,
-						cached,
-						request,
-						ttl,
-						remote::Query::with_snapshot(),
-					)
+					.list_remote(remote, cached, ttl, remote::Query::with_snapshot())
 					.await;
 				(name, result)
 			})

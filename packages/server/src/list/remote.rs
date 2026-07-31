@@ -3,13 +3,13 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Query {
 	List(tg::list::Arg),
 	Match(tg::match_::Arg),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Key {
 	pub principal: tg::Principal,
 	pub query: Query,
@@ -27,45 +27,42 @@ impl Session {
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		self.list_remote_inner(remote, cached, None, ttl, query)
-			.await
-	}
-
-	pub(super) async fn list_remote_with_request(
-		&self,
-		remote: Remote,
-		cached: bool,
-		request: &str,
-		ttl: tg::remote::cache::Ttl,
-		query: Query,
-	) -> tg::Result<Vec<tg::list::Entry>> {
-		self.list_remote_inner(remote, cached, Some(request), ttl, query)
-			.await
+		self.list_remote_inner(remote, cached, ttl, query).await
 	}
 
 	async fn list_remote_inner(
 		&self,
 		remote: Remote,
 		cached: bool,
-		request: Option<&str>,
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		let query = query.with_regions(remote.regions.clone());
+		let request = match &query {
+			Query::List(arg) => {
+				let arg = arg.clone();
+				crate::remote::cache::Request::List(crate::remote::cache::ListRequest { arg })
+			},
+			Query::Match(arg) => {
+				let arg = arg.clone();
+				crate::remote::cache::Request::Match(crate::remote::cache::MatchRequest { arg })
+			},
+		};
 		let key = Key {
 			principal: self.context.principal.clone(),
 			query: query.clone(),
 			remote: remote.name.clone(),
 		};
-		let request = match request {
-			None => crate::remote::cache::request("entries", &query),
-			Some(request) => crate::remote::cache::request("entries", &(request, &query)),
-		};
-		if let Some(mut entries) = self
-			.try_get_cached_remote_response::<Vec<tg::list::Entry>>(&remote.name, &request, ttl)
+		if let Some(response) = self
+			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
+			let mut entries = match response {
+				crate::remote::cache::Response::List(output)
+				| crate::remote::cache::Response::Match(output) => output.data,
+				_ => unreachable!(),
+			};
 			let valid = entries
 				.iter()
 				.all(|entry| crate::remote::cache::token_valid(entry.token()));
@@ -94,7 +91,22 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the remote list task panicked"))??;
-		self.put_cached_remote_response(&remote.name, &request, &entries)
+		let response = match &request {
+			crate::remote::cache::Request::List(_) => {
+				let output = tg::list::Output {
+					data: entries.clone(),
+				};
+				crate::remote::cache::Response::List(output)
+			},
+			crate::remote::cache::Request::Match(_) => {
+				let output = tg::match_::Output {
+					data: entries.clone(),
+				};
+				crate::remote::cache::Response::Match(output)
+			},
+			_ => unreachable!(),
+		};
+		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		let entries = entries
