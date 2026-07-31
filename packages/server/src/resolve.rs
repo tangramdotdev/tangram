@@ -87,12 +87,16 @@ impl Session {
 			let output = self
 				.try_resolve_tag(id, item, location, specifier, arg.cached, arg.ttl)
 				.await?;
-			self.try_get_apply_get(output, options.get.as_deref())
-				.await?
-				.map(|output| tg::resolve::Output {
-					location: output.location,
-					referent: output.referent,
-				})
+			match output {
+				None => None,
+				Some(output) => self
+					.try_get_apply_get(output, options.get.as_deref())
+					.await?
+					.map(|output| tg::resolve::Output {
+						location: output.location,
+						referent: output.referent,
+					}),
+			}
 		} else {
 			None
 		};
@@ -109,7 +113,7 @@ impl Session {
 		specifier: tg::Specifier,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
-	) -> tg::Result<tg::get::Output> {
+	) -> tg::Result<Option<tg::get::Output>> {
 		if let Some(tg::Location::Remote(remote)) = location {
 			return self
 				.try_resolve_remote_tag(item, remote, specifier, cached, ttl)
@@ -128,7 +132,7 @@ impl Session {
 		);
 		let output = tg::get::Output { location, referent };
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	async fn try_resolve_remote_tag(
@@ -138,7 +142,7 @@ impl Session {
 		specifier: tg::Specifier,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
-	) -> tg::Result<tg::get::Output> {
+	) -> tg::Result<Option<tg::get::Output>> {
 		// Create the remote request.
 		let options = tg::reference::Options {
 			location: Some(
@@ -164,23 +168,28 @@ impl Session {
 			});
 
 		// Get a cached response.
-		if let Some(crate::remote::cache::Response::Resolve(Some(mut output))) = self
+		if let Some(crate::remote::cache::Response::Resolve(mut output)) = self
 			.try_get_cached_remote_response(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
-			.filter(|response| {
-				matches!(
-					response,
-					crate::remote::cache::Response::Resolve(Some(output))
-						if crate::remote::cache::token_valid(output.referent.token())
-				)
-			}) {
-			output.location = Some(tg::Location::Remote(remote));
-			let output = tg::get::Output {
-				location: output.location,
-				referent: output.referent,
-			};
-			return Ok(output);
+		{
+			let valid = output
+				.as_ref()
+				.is_none_or(|output| crate::remote::cache::token_valid(output.referent.token()));
+			if valid || cached {
+				if let Some(output) = &mut output {
+					if !crate::remote::cache::token_valid(output.referent.token()) {
+						output.referent.options.token = None;
+					}
+					output.location = Some(tg::Location::Remote(remote));
+				}
+				let output = output.map(|output| tg::get::Output {
+					location: output.location,
+					referent: output.referent,
+				});
+
+				return Ok(output);
+			}
 		}
 		if cached {
 			let referent = tg::Referent::new(
@@ -194,7 +203,7 @@ impl Session {
 				location: Some(tg::Location::Remote(remote)),
 				referent,
 			};
-			return Ok(output);
+			return Ok(Some(output));
 		}
 
 		// Resolve the tag on the remote.
@@ -215,12 +224,13 @@ impl Session {
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
-		let mut output = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
-		output.location = Some(tg::Location::Remote(remote));
-		let output = tg::get::Output {
-			location: output.location,
-			referent: output.referent,
-		};
+		let output = output.map(|mut output| {
+			output.location = Some(tg::Location::Remote(remote));
+			tg::get::Output {
+				location: output.location,
+				referent: output.referent,
+			}
+		});
 
 		Ok(output)
 	}
@@ -280,25 +290,55 @@ impl Session {
 		let mut pattern = pattern.clone();
 		if !pattern.is_empty() && !pattern.contains_operators() {
 			let specifier = pattern.to_specifier();
-			let entry = self
-				.try_get_named_entry(
+			let item = self
+				.try_get_specifier(
 					&tg::grant::Resource::Specifier(specifier.clone()),
 					location,
 					cached,
 					ttl,
 				)
 				.await?;
-			if let Some(entry) = entry {
-				match entry {
-					tg::list::Entry::Group { .. } => {
+			if let Some(item) = item {
+				match item.id.kind() {
+					tg::id::Kind::Group => {
 						pattern = tg::specifier::Pattern::any_in_parent(Some(specifier));
 					},
-					tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => {
+					tg::id::Kind::Organization | tg::id::Kind::User => {
 						return Ok(tg::match_::Output { data: Vec::new() });
 					},
-					entry @ tg::list::Entry::Tag { .. } => {
+					tg::id::Kind::Tag => {
+						let id = tg::tag::Id::try_from(item.id)?;
+						let arg = tg::tag::get::Arg {
+							cached,
+							location: item.location.map(Into::into),
+							ttl,
+						};
+						let Some(output) =
+							self.try_get_tag(&tg::tag::Selector::Id(id), arg).await?
+						else {
+							return Ok(tg::match_::Output { data: Vec::new() });
+						};
+						let tg::tag::get::Output {
+							data,
+							location,
+							token,
+						} = output;
+						let item = match data.item {
+							tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+							tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+						};
+						let entry = tg::list::Entry::Tag {
+							id: data.id,
+							item,
+							location,
+							name: data.name,
+							parent: data.parent,
+							specifier: data.specifier,
+							token,
+						};
 						return Ok(tg::match_::Output { data: vec![entry] });
 					},
+					_ => return Ok(tg::match_::Output { data: Vec::new() }),
 				}
 			}
 		}

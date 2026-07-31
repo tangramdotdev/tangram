@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Getting a named item fails when any queried remote fails, even if the preferred remote has the item.
+# Getting a group fails when any queried remote fails, even if the preferred remote has the group.
 
 let alpha = spawn --cloud --name alpha
 let zeta = spawn --cloud --name zeta

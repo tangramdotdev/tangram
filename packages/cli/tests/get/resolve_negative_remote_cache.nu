@@ -1,0 +1,38 @@
+use ../../test.nu *
+
+# A negative remote resolve can be served from the principal-scoped remote cache.
+
+let remote = spawn --cloud --name remote
+let local = spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+
+let id = tg --url $remote.url put 'tg.file("test")' | str trim
+tg --url $remote.url tag foo $id
+
+# Cache the tag without resolving it.
+let tag = tg --url $local.url tag get foo | from json
+tg --url $local.url get $tag.id | ignore
+
+# Resolve the cached tag after deleting it on the remote to cache a negative response.
+tg --url $remote.url tag delete foo | ignore
+let first = tg --url $local.url resolve foo | complete
+failure $first
+
+let response = (
+	open ($local.directory | path join database)
+	| query db `select response from remote_cache where request like '%"resolve"%'`
+	| get response
+	| first
+	| from json
+)
+assert equal $response { resolve: null }
+
+# The same negative response should be available after the remote stops.
+let pid = open ($remote.directory | path join lock) | into int
+kill --signal 2 $pid
+wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
+
+let second = tg --url $local.url resolve foo | complete
+failure $second
+assert equal $second.stderr $first.stderr

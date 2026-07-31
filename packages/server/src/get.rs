@@ -6,6 +6,10 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
+mod specifier;
+
+pub(crate) use specifier::Output as SpecifierOutput;
+
 impl Session {
 	pub(crate) async fn try_get(
 		&self,
@@ -51,20 +55,17 @@ impl Session {
 					| tg::id::Kind::Tag
 					| tg::id::Kind::User
 			) {
-			let entry = self
-				.try_get_named_entry(
+			let item = self
+				.try_get_specifier(
 					&tg::grant::Resource::Id(id.clone()),
 					options.location.as_ref(),
 					arg.cached,
 					arg.ttl,
 				)
 				.await?;
-			let output = entry.map(|entry| tg::get::Output {
-				location: entry.location().cloned(),
-				referent: tg::Referent::with_item_and_token(
-					tg::get::Item::Id(entry.id()),
-					entry.token().cloned(),
-				),
+			let output = item.map(|item| tg::get::Output {
+				location: item.location,
+				referent: tg::Referent::with_item_and_token(tg::get::Item::Id(item.id), item.token),
 			});
 			let event = tg::progress::Event::Output(output);
 			let stream = stream::once(future::ok(event));
@@ -201,24 +202,21 @@ impl Session {
 			return Ok(stream.boxed());
 		}
 		let specifier = specifier.to_specifier();
-		let entry = self
-			.try_get_named_entry(
+		let item = self
+			.try_get_specifier(
 				&tg::grant::Resource::Specifier(specifier),
 				options.location.as_ref(),
 				arg.cached,
 				arg.ttl,
 			)
 			.await?;
-		let Some(entry) = entry else {
+		let Some(item) = item else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};
 		let output = tg::get::Output {
-			location: entry.location().cloned(),
-			referent: tg::Referent::with_item_and_token(
-				tg::get::Item::Id(entry.id()),
-				entry.token().cloned(),
-			),
+			location: item.location,
+			referent: tg::Referent::with_item_and_token(tg::get::Item::Id(item.id), item.token),
 		};
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())

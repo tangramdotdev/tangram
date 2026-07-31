@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Users and organizations preserve their identities when synced.
+# Users and organizations retain their IDs when synced.
 
 let source = spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
 let source_user = tg --url $source.url login --verbose source-user | from json

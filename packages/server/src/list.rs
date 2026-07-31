@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, TryStreamExt as _, stream::FuturesUnordered},
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
@@ -33,7 +33,7 @@ impl Session {
 		}
 		let local_arg = arg.clone();
 		let entries = self
-			.query_named_entries(
+			.query_specifier_entries(
 				arg.location.as_ref(),
 				arg.cached,
 				arg.ttl,
@@ -70,7 +70,7 @@ impl Session {
 		Ok(entries)
 	}
 
-	pub(crate) async fn query_named_entries<F>(
+	pub(crate) async fn query_specifier_entries<F>(
 		&self,
 		location: Option<&tg::location::Arg>,
 		cached: bool,
@@ -138,8 +138,8 @@ impl Session {
 			}
 		}
 
-		// Fetch the missing context concurrently.
-		let context_queries = sources
+		// Fetch the missing specifiers concurrently.
+		let missing_specifier_queries = sources
 			.iter()
 			.enumerate()
 			.filter_map(|(index, source)| {
@@ -153,7 +153,7 @@ impl Session {
 			})
 			.flatten()
 			.collect::<Vec<_>>();
-		let contexts = context_queries
+		let specifier_results = missing_specifier_queries
 			.into_iter()
 			.map(|(index, remote, specifier)| async move {
 				let name = remote.name.clone();
@@ -166,7 +166,7 @@ impl Session {
 								!error,
 								remote = %name,
 								%specifier,
-								"failed to query remote context"
+								"failed to get a remote specifier"
 							)
 						})?;
 				let id = entries
@@ -178,7 +178,7 @@ impl Session {
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		for (id, index, specifier) in contexts {
+		for (id, index, specifier) in specifier_results {
 			if let Some(id) = id {
 				sources[index].ids.insert(specifier, id);
 			}
@@ -186,63 +186,6 @@ impl Session {
 		let entries = merge_entries(sources);
 
 		Ok(entries)
-	}
-
-	pub(crate) async fn try_get_named_entry(
-		&self,
-		resource: &tg::grant::Resource,
-		location: Option<&tg::location::Arg>,
-		cached: bool,
-		ttl: tg::remote::cache::Ttl,
-	) -> tg::Result<Option<tg::list::Entry>> {
-		let locations = self
-			.locations(location)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let mut sources = Vec::new();
-		if locations.local.is_some() {
-			let entries = self
-				.list_local_entries()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			sources.push(Source::with_data(entries));
-			let entries = merge_entries(sources.clone());
-			if let Some(entry) = find_entry(entries, resource) {
-				return Ok(Some(entry));
-			}
-		}
-		let mut remotes = locations.remotes;
-		remotes.sort_by(|a, b| a.name.cmp(&b.name));
-		let remote_results = remotes
-			.into_iter()
-			.map(|remote| async move {
-				let name = remote.name.clone();
-				let result = self
-					.list_remote(remote, cached, ttl, remote::Query::with_snapshot())
-					.await;
-				(name, result)
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
-		let mut remote_results = remote_results;
-		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
-		let mut remote_entries = Vec::with_capacity(remote_results.len());
-		for (name, result) in remote_results {
-			let entries = result.map_err(
-				|error| tg::error!(!error, remote = %name, "failed to list remote entries"),
-			)?;
-			remote_entries.push(entries);
-		}
-		for entries in remote_entries {
-			sources.push(Source::with_data(entries));
-			let entries = merge_entries(sources.clone());
-			if let Some(entry) = find_entry(entries, resource) {
-				return Ok(Some(entry));
-			}
-		}
-
-		Ok(None)
 	}
 
 	async fn filter_visible_entries(
@@ -584,13 +527,13 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 	entries
 		.into_iter()
 		.filter(|entry| {
-			let structural = if let Some(descendants) = &descendants {
+			let matches_parent = if let Some(descendants) = &descendants {
 				(parent.is_none() || descendants.contains(&entry.id()))
 					&& parent.as_ref() != Some(&entry.id())
 			} else {
 				entry.parent() == parent.as_ref()
 			};
-			structural && entry_kind_enabled(entry, &kinds)
+			matches_parent && entry_kind_enabled(entry, &kinds)
 		})
 		.collect()
 }
@@ -633,16 +576,6 @@ fn merge_entries(sources: Vec<Source>) -> Vec<tg::list::Entry> {
 	}
 
 	output
-}
-
-fn find_entry(
-	entries: Vec<tg::list::Entry>,
-	resource: &tg::grant::Resource,
-) -> Option<tg::list::Entry> {
-	entries.into_iter().find(|entry| match resource {
-		tg::grant::Resource::Id(id) => entry.id() == *id,
-		tg::grant::Resource::Specifier(specifier) => entry.specifier() == specifier,
-	})
 }
 
 fn compare_entries(a: &tg::list::Entry, b: &tg::list::Entry, reverse: bool) -> std::cmp::Ordering {

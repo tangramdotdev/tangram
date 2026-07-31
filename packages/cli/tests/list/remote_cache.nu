@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# List caches store the filtered remote response and honor TTL overrides.
+# The remote cache stores filtered list responses and honors TTL overrides.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
@@ -18,7 +18,7 @@ tg --url $remote.url tag foo/b $item
 
 let cached = tg --url $local.url list --no-groups foo | from json
 assert equal ($cached | get specifier) [foo/a]
-assert (($cached.0 | get --optional token) != null) "cached list should preserve the token"
+assert (($cached.0 | get --optional token) != null) "the cached response should preserve the token"
 
 let fresh = tg --url $local.url list --no-groups --ttl 0 foo | from json
 assert equal ($fresh | get specifier) [foo/a foo/b]

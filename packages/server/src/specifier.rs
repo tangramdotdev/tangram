@@ -77,14 +77,14 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::Id,
 	) -> tg::Result<Option<Item>> {
-		Self::try_get_specifier_item_with_transaction(transaction, "id", id.to_string()).await
+		Self::try_get_specifier_with_transaction_inner(transaction, "id", id.to_string()).await
 	}
 
 	pub(crate) async fn try_get_specifier_with_transaction(
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
 	) -> tg::Result<Option<Item>> {
-		Self::try_get_specifier_item_with_transaction(
+		Self::try_get_specifier_with_transaction_inner(
 			transaction,
 			"specifier",
 			specifier.to_string(),
@@ -92,7 +92,7 @@ impl Session {
 		.await
 	}
 
-	async fn try_get_specifier_item_with_transaction(
+	async fn try_get_specifier_with_transaction_inner(
 		transaction: &Transaction<'_>,
 		column: &str,
 		value: String,

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Sync does not discover named ancestors, so pushing a nested tag requires its parent to exist.
+# Pushing a nested tag does not also push its parent group.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local

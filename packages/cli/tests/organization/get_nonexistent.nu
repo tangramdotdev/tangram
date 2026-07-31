@@ -10,11 +10,6 @@ let output = tg --token $alice.token organization get ghost | complete
 failure $output "getting a nonexistent organization should fail"
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to get the organization
-	   organization = ghost
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to list local entries
-	-> invalid resource
+	-> failed to find the organization
 
 '

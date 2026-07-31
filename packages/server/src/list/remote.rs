@@ -176,25 +176,6 @@ impl Query {
 	}
 
 	#[must_use]
-	pub(super) fn with_snapshot() -> Self {
-		let arg = tg::list::Arg {
-			cached: false,
-			groups: true,
-			length: None,
-			location: None,
-			organizations: true,
-			parent: None,
-			recursive: true,
-			reverse: false,
-			tags: true,
-			ttl: tg::remote::cache::Ttl::default(),
-			users: true,
-		};
-
-		Self::List(arg)
-	}
-
-	#[must_use]
 	fn with_regions(mut self, regions: Option<Vec<String>>) -> Self {
 		let location = Some(tg::location::Arg(vec![
 			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),

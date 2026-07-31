@@ -11,11 +11,7 @@ let output = tg --token $eve.token user get $alice.user.id | complete
 failure $output "a user without read permission should not be able to get another user"
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to get the user
+	-> failed to find the user
 	   user = usr_0000000000000000000000000000
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to list local entries
-	-> invalid resource
 
 '

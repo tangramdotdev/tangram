@@ -16,7 +16,7 @@ tg --url $remote.url tag put -p $tag $path
 # Tag the object on the remote server from the local server.
 tg tag put --remote -p $tag $path
 
-# Get tag from remote server by switching to remote context.
+# Get the tag directly from the remote server.
 let remote_output = tg --url $remote.url tag get $tag | from json
 
 assert equal $remote_output.item.kind object

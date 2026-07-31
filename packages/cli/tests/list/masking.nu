@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Local items mask remote items with the same specifier, including their subtrees.
+# A local item masks remote items with the same specifier, including their subtrees.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {

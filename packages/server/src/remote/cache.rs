@@ -10,6 +10,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Request {
+	Get(GetRequest),
 	GroupGet(GroupGetRequest),
 	List(ListRequest),
 	Match(MatchRequest),
@@ -22,6 +23,7 @@ pub(crate) enum Request {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Response {
+	Get(Option<tg::get::Output>),
 	GroupGet(Option<tg::Group>),
 	List(tg::list::Output),
 	Match(tg::match_::Output),
@@ -29,6 +31,12 @@ pub(crate) enum Response {
 	Resolve(Option<tg::resolve::Output>),
 	TagGet(Option<tg::tag::get::Output>),
 	UserGet(Option<tg::User>),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct GetRequest {
+	pub arg: tg::get::Arg,
+	pub reference: tg::Reference,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -229,7 +237,8 @@ impl Request {
 	fn matches_response(&self, response: &Response) -> bool {
 		matches!(
 			(self, response),
-			(Self::GroupGet(_), Response::GroupGet(_))
+			(Self::Get(_), Response::Get(_))
+				| (Self::GroupGet(_), Response::GroupGet(_))
 				| (Self::List(_), Response::List(_))
 				| (Self::Match(_), Response::Match(_))
 				| (Self::OrganizationGet(_), Response::OrganizationGet(_))

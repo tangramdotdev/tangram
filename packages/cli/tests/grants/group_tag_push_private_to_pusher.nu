@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Pushing named items to a shared remote grants the pusher access without exposing them to other users.
+# Pushing a group and tag to a shared remote grants the pusher access without exposing them to other users.
 
 let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg --url $remote.url login --verbose alice | from json

@@ -129,7 +129,7 @@ impl Session {
 		let by_id = Self::try_get_specifier_by_id_with_transaction(&transaction, &id).await?;
 		let by_specifier =
 			Self::try_get_specifier_with_transaction(&transaction, item.specifier()).await?;
-		Self::sync_get_database_validate_identity(
+		Self::sync_get_database_validate_id_and_specifier(
 			&id,
 			item.specifier(),
 			by_id.as_ref(),
@@ -164,12 +164,12 @@ impl Session {
 		item: &Item,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<bool> {
-		// Validate the identity.
+		// Validate the ID and specifier.
 		let id = item.id();
 		let specifier = item.specifier();
 		let by_id = Self::try_get_specifier_by_id_with_transaction(transaction, &id).await?;
 		let by_specifier = Self::try_get_specifier_with_transaction(transaction, specifier).await?;
-		Self::sync_get_database_validate_identity(
+		Self::sync_get_database_validate_id_and_specifier(
 			&id,
 			specifier,
 			by_id.as_ref(),
@@ -184,7 +184,9 @@ impl Session {
 		if matches!(item, Item::Organization(_) | Item::User(_))
 			&& specifier.components().count() != 1
 		{
-			return Err(tg::error!("invalid root specifier"));
+			return Err(tg::error!(
+				"a user or organization specifier must contain one component"
+			));
 		}
 		let parent = if let Some(parent_specifier) = specifier.parent() {
 			let parent = Self::try_get_specifier_with_transaction(transaction, &parent_specifier)
@@ -338,7 +340,7 @@ impl Session {
 		Ok(created)
 	}
 
-	fn sync_get_database_validate_identity(
+	fn sync_get_database_validate_id_and_specifier(
 		id: &tg::Id,
 		specifier: &tg::Specifier,
 		by_id: Option<&crate::specifier::Item>,

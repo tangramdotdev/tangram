@@ -18,19 +18,18 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		let resource = tag.clone().into();
-		let Some(entry) = self
-			.try_get_named_entry(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+		let Some(item) = self
+			.try_get_specifier(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::Tag {
+		let crate::get::SpecifierOutput {
 			id,
 			location,
 			token,
-			..
-		} = entry
-		else {
+		} = item;
+		let Ok(id) = tg::tag::Id::try_from(id) else {
 			return Ok(None);
 		};
 		let location =

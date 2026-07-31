@@ -24,7 +24,7 @@ assert equal $remote_tag.specifier "test/1.0.0" "the remote tag should keep its 
 let local_tag = tg tag get test/1.0.0 | from json
 assert equal $remote_tag.id $local_tag.id "the remote tag should keep its id"
 
-# The group also keeps its identity.
+# The group also retains its ID.
 let local_group = tg group get test | from json
 let remote_group = tg --url $remote.url group get test | from json
 assert equal $remote_group.id $local_group.id "the remote group should keep its id"

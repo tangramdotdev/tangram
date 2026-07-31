@@ -12,7 +12,7 @@ impl Session {
 		}
 		let local_arg = arg.clone();
 		let entries = self
-			.query_named_entries(
+			.query_specifier_entries(
 				arg.location.as_ref(),
 				arg.cached,
 				arg.ttl,

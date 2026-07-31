@@ -15,19 +15,18 @@ impl Session {
 		arg: tg::user::get::Arg,
 	) -> tg::Result<Option<tg::User>> {
 		let resource = user.clone().into();
-		let Some(entry) = self
-			.try_get_named_entry(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
+		let Some(item) = self
+			.try_get_specifier(&resource, arg.location.as_ref(), arg.cached, arg.ttl)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::User {
+		let crate::get::SpecifierOutput {
 			id,
 			location,
 			token,
-			..
-		} = entry
-		else {
+		} = item;
+		let Ok(id) = tg::user::Id::try_from(id) else {
 			return Ok(None);
 		};
 		let location =

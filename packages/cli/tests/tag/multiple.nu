@@ -70,11 +70,11 @@ snapshot --normalize $output.stderr r#'
 let output = tg match --no-groups "test/=0.0.1"
 snapshot --normalize --name "list_test_exact" $output
 
-# List all tag descendants structurally.
+# List all tag descendants.
 let output = tg list --no-groups --recursive test
 snapshot --normalize --name "list_test_star_recursive" $output
 
-# List all tag descendants structurally.
+# List all tag descendants.
 let output = tg list --no-groups --recursive test
 snapshot --normalize --name "list_test_recursive" $output
 
