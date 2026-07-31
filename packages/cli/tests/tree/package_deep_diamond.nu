@@ -3,24 +3,21 @@ use ../../test.nu *
 # The tree command with the package kind renders the expected dependency tree for a diamond of tagged packages where two dependents share a common bottom dependency.
 
 let server = spawn
-tg group create bottom
-tg group create left
-tg group create right
 
 let bottom_path = artifact {
 	tangram.ts: '// bottom package'
 }
-tg tag bottom/1.0.0 $bottom_path
+tg tag -p bottom/1.0.0 $bottom_path
 
 let left_path = artifact {
 	tangram.ts: 'import * as bottom from "bottom/^1"'
 }
-tg tag left/1.0.0 $left_path
+tg tag -p left/1.0.0 $left_path
 
 let right_path = artifact {
 	tangram.ts: 'import * as bottom from "bottom/^1"'
 }
-tg tag right/2.0.0 $right_path
+tg tag -p right/2.0.0 $right_path
 
 let root_path = artifact {
 	tangram.ts: '

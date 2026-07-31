@@ -9,14 +9,9 @@ let path = artifact 'test'
 let id = tg checkin $path
 
 # Create a deep hierarchy to test sorting by length.
-tg group create test
-tg group create test/1
-tg group create test/1/2
-tg group create test/1/2/3
-tg group create test/1/2/3/4
 let tags = ["test/1/2/3/4/5"]
 for tag in $tags {
-	tg tag put $tag $id
+	tg tag put -p $tag $id
 }
 
 # Recursively delete - should process in order from deepest to shallowest.

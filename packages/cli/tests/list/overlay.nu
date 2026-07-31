@@ -27,8 +27,15 @@ assert equal $group.location local
 let children = tg --url $local.url list --no-groups foo | from json
 assert ($children | is-empty)
 
+let matches = tg --url $local.url match --no-groups "foo/*" | from json
+assert ($matches | is-empty)
+
 tg --url $local.url group delete foo
 
 let children = tg --url $local.url list --no-groups foo | from json
 assert equal ($children | get specifier) [foo/a]
 assert equal ($children | get location) [remote]
+
+let matches = tg --url $local.url match --no-groups "foo/*" | from json
+assert equal ($matches | get specifier) [foo/a]
+assert equal ($matches | get location) [remote]

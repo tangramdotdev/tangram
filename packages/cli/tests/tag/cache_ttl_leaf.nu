@@ -10,8 +10,7 @@ let local = spawn --name local --config {
 let path = artifact 'Hello, World!'
 let id = tg --url $remote.url checkin $path
 let old = tg --url $remote.url get $id | str trim
-tg --url $remote.url group create a
-tg --url $remote.url tag put "a/b" $id
+tg --url $remote.url tag put -p "a/b" $id
 
 # Prime the cache by resolving the tag through the local server.
 tg --url $local.url resolve "a/b" | ignore
@@ -20,7 +19,7 @@ tg --url $local.url resolve "a/b" | ignore
 let path2 = artifact 'Goodbye, World!'
 let id2 = tg --url $remote.url checkin $path2
 let new = tg --url $remote.url get $id2 | str trim
-tg --url $remote.url tag put "a/b" $id2
+tg --url $remote.url tag put -p "a/b" $id2
 
 # Within the TTL the cached item is returned.
 let cached = tg --url $local.url resolve "a/b" | str trim

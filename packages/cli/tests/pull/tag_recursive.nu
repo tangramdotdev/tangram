@@ -5,7 +5,6 @@ use ../../test.nu *
 let remote = spawn --cloud --name remote
 let local = spawn --name local
 tg remote put default $remote.url
-tg --url $remote.url group create tree
 
 let path = artifact {
 	tangram.ts: '
@@ -18,7 +17,7 @@ let path = artifact {
 }
 let process = tg --url $remote.url build --detach $path | str trim
 tg --url $remote.url wait $process
-tg --url $remote.url tag tree/1.0.0 $process
+tg --url $remote.url tag -p tree/1.0.0 $process
 let child = tg --url $remote.url get $process | from json | get children | first | get process
 
 tg pull --group-children --process-children tree

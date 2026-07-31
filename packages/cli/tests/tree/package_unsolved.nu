@@ -3,12 +3,11 @@ use ../../test.nu *
 # The tree command with the package kind renders an unresolved dependency as null when a package imports both an existing tagged dependency and a missing one.
 
 let server = spawn
-tg group create existing
 
 let existing_path = artifact {
 	tangram.ts: '// existing package'
 }
-tg tag existing/1.0.0 $existing_path
+tg tag -p existing/1.0.0 $existing_path
 
 let root_path = artifact {
 	tangram.ts: '

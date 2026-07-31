@@ -20,16 +20,22 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::Organization { id, location, .. } = entry else {
+		let tg::list::Entry::Organization {
+			id,
+			location,
+			token,
+			..
+		} = entry
+		else {
 			return Ok(None);
 		};
 		let organization = tg::organization::Selector::Id(id);
 		let location =
 			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_organization_local(&organization).await,
+			tg::Location::Local(_) => self.try_get_organization_local(&organization, token).await,
 			tg::Location::Remote(remote) => {
-				self.try_get_organization_remote(&organization, arg, remote)
+				self.try_get_organization_remote(&organization, arg, remote, token)
 					.await
 			},
 		}
@@ -38,6 +44,7 @@ impl Session {
 	async fn try_get_organization_local(
 		&self,
 		organization: &tg::organization::Selector,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::Organization>> {
 		let permission = tg::grant::Permission::Organization(
 			tg::grant::permission::organization::Permission::Read,
@@ -70,6 +77,7 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: node.name,
 			specifier: node.specifier,
+			token,
 		}))
 	}
 
@@ -78,6 +86,7 @@ impl Session {
 		organization: &tg::organization::Selector,
 		mut arg: tg::organization::get::Arg,
 		remote: tg::location::Remote,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::Organization>> {
 		let request =
 			crate::remote::cache::request("organization.get", &(organization, &remote.region));
@@ -90,10 +99,21 @@ impl Session {
 			.await?
 		{
 			if let Some(organization) = &mut output {
-				organization.location = Some(tg::Location::Remote(remote));
+				organization.token = organization.token.take().or_else(|| token.clone());
 			}
+			let valid = output.as_ref().is_none_or(|organization| {
+				crate::remote::cache::token_valid(organization.token.as_ref())
+			});
+			if valid || arg.cached {
+				if let Some(organization) = &mut output {
+					if !crate::remote::cache::token_valid(organization.token.as_ref()) {
+						organization.token = None;
+					}
+					organization.location = Some(tg::Location::Remote(remote));
+				}
 
-			return Ok(output);
+				return Ok(output);
+			}
 		}
 		if arg.cached {
 			return Ok(None);
@@ -108,13 +128,16 @@ impl Session {
 			})
 			.into(),
 		);
-		arg.ttl = None;
+		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut output = client
 			.try_get_organization(organization, arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the organization"),
 			)?;
+		if let Some(organization) = &mut output {
+			organization.token = organization.token.take().or(token);
+		}
 		self.put_cached_remote_response(&remote.name, &request, &output)
 			.await?;
 		if let Some(organization) = &mut output {

@@ -10,9 +10,7 @@ let local = spawn --name local --config {
 let path = artifact 'Hello, World!'
 let id = tg --url $remote.url checkin $path
 let old = tg --url $remote.url get $id | str trim
-tg --url $remote.url group create a
-tg --url $remote.url group create a/c
-tg --url $remote.url tag put "a/c/d" $id
+tg --url $remote.url tag put -p "a/c/d" $id
 
 # Prime the cache by resolving the branch through the local server.
 let c1 = tg --url $local.url resolve "a/c" | str trim
@@ -22,7 +20,7 @@ assert equal $c1 $old "the branch should resolve to its only child"
 let path2 = artifact 'Goodbye, World!'
 let id2 = tg --url $remote.url checkin $path2
 let new = tg --url $remote.url get $id2 | str trim
-tg --url $remote.url tag put "a/c/h" $id2
+tg --url $remote.url tag put -p "a/c/h" $id2
 
 # Within the TTL the cached resolution is returned.
 let c2 = tg --url $local.url resolve "a/c" | str trim

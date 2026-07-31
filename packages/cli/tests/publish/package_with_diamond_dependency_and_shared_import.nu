@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [test-bottom test-left test-main test-right] {
-	tg --url $local.url group create $group
-}
-
 # Create the bottom package (D) - no dependencies.
 let bottom_path = artifact {
 	tangram.ts: '
@@ -24,7 +20,7 @@ let bottom_path = artifact {
 let bottom_id = tg checkin $bottom_path
 
 # Create a tag for the bottom package on the local server so it can be resolved.
-tg tag put test-bottom/1.0.0 $bottom_id | complete
+tg tag put -p test-bottom/1.0.0 $bottom_id | complete
 
 # Create the left package (A) - depends on bottom.
 let left_path = artifact {
@@ -42,7 +38,7 @@ let left_path = artifact {
 let left_id = tg checkin $left_path
 
 # Create a tag for the left package on the local server so it can be resolved.
-tg tag put test-left/1.0.0 $left_id | complete
+tg tag put -p test-left/1.0.0 $left_id | complete
 
 # Create the right package (B) - depends on bottom.
 let right_path = artifact {
@@ -60,7 +56,7 @@ let right_path = artifact {
 let right_id = tg checkin $right_path
 
 # Create a tag for the right package on the local server so it can be resolved.
-tg tag put test-right/1.0.0 $right_id | complete
+tg tag put -p test-right/1.0.0 $right_id | complete
 
 # Create the main package - depends on left, right, AND bottom directly.
 let main_path = artifact {

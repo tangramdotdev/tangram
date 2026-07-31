@@ -1,13 +1,10 @@
 use {
 	crate::prelude::*,
-	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{is_false, is_true, return_true},
+	tangram_util::serde::{is_default, is_false, is_true, return_true},
 };
 
-#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -33,9 +30,8 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub ttl: Option<Duration>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ttl: tg::remote::cache::Ttl,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub users: bool,
@@ -55,7 +51,7 @@ impl Default for Arg {
 			pattern: tg::specifier::Pattern::default(),
 			reverse: false,
 			tags: true,
-			ttl: None,
+			ttl: tg::remote::cache::Ttl::default(),
 			users: true,
 		}
 	}

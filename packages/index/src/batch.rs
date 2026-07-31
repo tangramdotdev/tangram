@@ -109,6 +109,7 @@ mod tests {
 			})),
 			owner: Some(tg::Principal::Root),
 			status: tg::sandbox::Status::Started,
+			token: None,
 			ttl: Some(std::time::Duration::new(60, 123)),
 		};
 		let arg = Arg {

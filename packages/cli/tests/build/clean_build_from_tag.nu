@@ -10,7 +10,6 @@ let local1 = spawn --name local_one --config {
 let local2 = spawn --name local_two --config {
 	remotes: { default: { url: $remote.url } }
 }
-tg --url $local1.url group create test-pkg
 
 # Create a package with metadata for publishing.
 let path = artifact {
@@ -29,7 +28,7 @@ let output_id = tg --url $local1.url build $id
 print 'first build succeeded'
 
 # Push the tag.
-tg --url $local1.url tag test-pkg/1.0.0 $id
+tg --url $local1.url tag -p test-pkg/1.0.0 $id
 tg --url $local1.url push --group-children test-pkg
 
 # Build from the tag. This should pull the artifact from the remote.

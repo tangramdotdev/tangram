@@ -68,9 +68,12 @@ impl Session {
 		}
 		.boxed();
 		let get_future = self.try_get_sandbox_local_inner(id).boxed();
-		let (authorized, output) = future::try_join(authorize_future, get_future).await?;
+		let (authorized, mut output) = future::try_join(authorize_future, get_future).await?;
 		if !authorized {
 			return Ok(None);
+		}
+		if let Some(output) = &mut output {
+			output.token = self.create_read_token(&id.clone().into())?;
 		}
 		Ok(output)
 	}

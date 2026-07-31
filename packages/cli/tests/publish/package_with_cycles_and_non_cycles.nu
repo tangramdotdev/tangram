@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [test-cycle-a test-cycle-b test-independent test-leaf1 test-leaf2 test-main] {
-	tg --url $local.url group create $group
-}
-
 # Create a complex graph with both cycles and non-cycles:
 #
 #              main

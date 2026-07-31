@@ -3,10 +3,9 @@ use ../../test.nu *
 # The json flag prints updates as structured data.
 
 let server = spawn
-tg group create a
 
 let a1 = artifact { tangram.ts: 'export default function () { return "a1"; }' }
-tg tag a/1.0.0 $a1
+tg tag -p a/1.0.0 $a1
 
 let root = artifact {
 	tangram.ts: 'import a from "a/^1";'
@@ -14,7 +13,7 @@ let root = artifact {
 tg checkin $root
 
 let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }
-tg tag a/1.1.0 $a2
+tg tag -p a/1.1.0 $a2
 tg index
 
 let output = do --env { cd $root; tg update . --json } | complete

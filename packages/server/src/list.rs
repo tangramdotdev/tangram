@@ -18,18 +18,33 @@ pub(crate) struct Kinds {
 	pub users: bool,
 }
 
+#[derive(Clone)]
+struct Source {
+	data: Vec<tg::list::Entry>,
+	ids: BTreeMap<tg::Specifier, tg::Id>,
+	remote: Option<crate::location::Remote>,
+}
+
 impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let request = list_cache_request(&arg);
+		let local_arg = arg.clone();
 		let entries = self
-			.named_entries(arg.location.as_ref(), arg.cached, &request, arg.ttl)
+			.query_named_entries(
+				arg.location.as_ref(),
+				arg.cached,
+				arg.ttl,
+				remote::Query::List(arg.clone()),
+				move |entries| {
+					let data = filter_list_entries(entries, &local_arg);
+					sort_and_truncate(data, local_arg.reverse, local_arg.length)
+				},
+			)
 			.await?;
-		let data = filter_list_entries(entries, &arg);
-		let data = sort_and_truncate(data, arg.reverse, arg.length);
+		let data = sort_and_truncate(entries, arg.reverse, arg.length);
 
 		Ok(tg::list::Output { data })
 	}
@@ -55,40 +70,119 @@ impl Session {
 		Ok(entries)
 	}
 
-	pub(crate) async fn named_entries(
+	pub(crate) async fn query_named_entries<F>(
 		&self,
 		location: Option<&tg::location::Arg>,
 		cached: bool,
-		request: &str,
-		ttl: Option<std::time::Duration>,
-	) -> tg::Result<Vec<tg::list::Entry>> {
+		ttl: tg::remote::cache::Ttl,
+		query: remote::Query,
+		filter_local: F,
+	) -> tg::Result<Vec<tg::list::Entry>>
+	where
+		F: FnOnce(Vec<tg::list::Entry>) -> Vec<tg::list::Entry>,
+	{
 		let locations = self
 			.locations(location)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let mut local_entries = None;
 		let mut sources = Vec::new();
 		if locations.local.is_some() {
 			let entries = self
 				.list_local_entries()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			sources.push(entries);
+			let data = filter_local(entries.clone());
+			sources.push(Source::with_data(data));
+			local_entries = Some(entries);
 		}
 		let mut remotes = locations.remotes;
 		remotes.sort_by(|a, b| a.name.cmp(&b.name));
 		let remote_results = remotes
 			.into_iter()
-			.map(|remote| async move {
-				let name = remote.name.clone();
-				let entries = self.list_remote(remote, cached, request, ttl).await?;
-				Ok::<_, tg::Error>((name, entries))
+			.map(|remote| {
+				let query = query.clone();
+				async move {
+					let name = remote.name.clone();
+					let data = self
+						.list_remote(remote.clone(), cached, ttl, query)
+						.await
+						.map_err(
+							|error| tg::error!(!error, remote = %name, "failed to query remote entries"),
+						)?;
+					Ok::<_, tg::Error>((name, Source::with_remote(data, remote)))
+				}
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		let mut remote_results = remote_results;
 		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
-		sources.extend(remote_results.into_iter().map(|(_, entries)| entries));
+		sources.extend(remote_results.into_iter().map(|(_, source)| source));
+
+		// Collect the exact specifiers needed to apply precedence to the candidates.
+		let specifiers = sources
+			.iter()
+			.flat_map(|source| {
+				source
+					.data
+					.iter()
+					.flat_map(|entry| entry.specifier().prefixes())
+			})
+			.collect::<BTreeSet<_>>();
+		if let (Some(entries), Some(source)) = (local_entries, sources.first_mut()) {
+			for entry in entries {
+				if specifiers.contains(entry.specifier()) {
+					source.ids.insert(entry.specifier().clone(), entry.id());
+				}
+			}
+		}
+
+		// Fetch the missing context concurrently.
+		let context_queries = sources
+			.iter()
+			.enumerate()
+			.filter_map(|(index, source)| {
+				source.remote.as_ref().map(|remote| {
+					specifiers
+						.iter()
+						.filter(|specifier| !source.ids.contains_key(*specifier))
+						.map(|specifier| (index, remote.clone(), specifier.clone()))
+						.collect::<Vec<_>>()
+				})
+			})
+			.flatten()
+			.collect::<Vec<_>>();
+		let contexts = context_queries
+			.into_iter()
+			.map(|(index, remote, specifier)| async move {
+				let name = remote.name.clone();
+				let query = remote::Query::with_exact_specifier(&specifier);
+				let entries =
+					self.list_remote(remote, cached, ttl, query)
+						.await
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								remote = %name,
+								%specifier,
+								"failed to query remote context"
+							)
+						})?;
+				let id = entries
+					.into_iter()
+					.find(|entry| entry.specifier() == &specifier)
+					.map(|entry| entry.id());
+				Ok::<_, tg::Error>((id, index, specifier))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		for (id, index, specifier) in contexts {
+			if let Some(id) = id {
+				sources[index].ids.insert(specifier, id);
+			}
+		}
 		let entries = merge_entries(sources);
 
 		Ok(entries)
@@ -99,7 +193,7 @@ impl Session {
 		resource: &tg::grant::Resource,
 		location: Option<&tg::location::Arg>,
 		cached: bool,
-		ttl: Option<std::time::Duration>,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::list::Entry>> {
 		let locations = self
 			.locations(location)
@@ -111,7 +205,7 @@ impl Session {
 				.list_local_entries()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
-			sources.push(entries);
+			sources.push(Source::with_data(entries));
 			let entries = merge_entries(sources.clone());
 			if let Some(entry) = find_entry(entries, resource) {
 				return Ok(Some(entry));
@@ -125,7 +219,15 @@ impl Session {
 			.into_iter()
 			.map(|remote| async move {
 				let name = remote.name.clone();
-				let result = self.list_remote(remote, cached, request, ttl).await;
+				let result = self
+					.list_remote_with_request(
+						remote,
+						cached,
+						request,
+						ttl,
+						remote::Query::with_snapshot(),
+					)
+					.await;
 				(name, result)
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -133,11 +235,15 @@ impl Session {
 			.await;
 		let mut remote_results = remote_results;
 		remote_results.sort_by(|a, b| a.0.cmp(&b.0));
+		let mut remote_entries = Vec::with_capacity(remote_results.len());
 		for (name, result) in remote_results {
 			let entries = result.map_err(
 				|error| tg::error!(!error, remote = %name, "failed to list remote entries"),
 			)?;
-			sources.push(entries);
+			remote_entries.push(entries);
+		}
+		for entries in remote_entries {
+			sources.push(Source::with_data(entries));
 			let entries = merge_entries(sources.clone());
 			if let Some(entry) = find_entry(entries, resource) {
 				return Ok(Some(entry));
@@ -161,17 +267,18 @@ impl Session {
 			.visible(&ids, &self.context.principal)
 			.await?;
 		let mut output = Vec::new();
-		for ((id, entry), visible) in std::iter::zip(entries, visible) {
-			if visible {
-				output.push(entry);
-				continue;
-			}
-			let permission = Self::read_permission_for_resource(&id)?;
-			let authorized = self
-				.authorize(tg::grant::Resource::Id(id), permission)
-				.await?
-				.is_some_and(|permissions| permissions.contains(permission));
+		for ((id, mut entry), visible) in std::iter::zip(entries, visible) {
+			let authorized = if visible {
+				true
+			} else {
+				let permission = Self::read_permission_for_resource(&id)?;
+				self.authorize(tg::grant::Resource::Id(id.clone()), permission)
+					.await?
+					.is_some_and(|permissions| permissions.contains(permission))
+			};
 			if authorized {
+				let token = self.create_read_token(&id)?;
+				entry.set_token(token);
 				output.push(entry);
 			}
 		}
@@ -215,6 +322,7 @@ impl Session {
 					name: row.name,
 					parent: row.parent,
 					specifier: row.specifier,
+					token: None,
 				};
 				(id, entry)
 			})
@@ -256,6 +364,7 @@ impl Session {
 					location: Some(tg::Location::Local(tg::location::Local::default())),
 					name: row.name,
 					specifier: row.specifier,
+					token: None,
 				};
 				(id, entry)
 			})
@@ -306,6 +415,7 @@ impl Session {
 				name: row.name,
 				parent: row.parent,
 				specifier: row.specifier,
+				token: None,
 			};
 			entries.push((id, entry));
 		}
@@ -346,6 +456,7 @@ impl Session {
 					location: Some(tg::Location::Local(tg::location::Local::default())),
 					name: row.name,
 					specifier: row.specifier,
+					token: None,
 				};
 				(id, entry)
 			})
@@ -388,6 +499,29 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Source {
+	#[must_use]
+	fn with_data(data: Vec<tg::list::Entry>) -> Self {
+		let ids = data
+			.iter()
+			.map(|entry| (entry.specifier().clone(), entry.id()))
+			.collect();
+		Self {
+			data,
+			ids,
+			remote: None,
+		}
+	}
+
+	#[must_use]
+	fn with_remote(data: Vec<tg::list::Entry>, remote: crate::location::Remote) -> Self {
+		let mut source = Self::with_data(data);
+		source.remote = Some(remote);
+
+		source
 	}
 }
 
@@ -469,35 +603,39 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 		.collect()
 }
 
-fn merge_entries(sources: Vec<Vec<tg::list::Entry>>) -> Vec<tg::list::Entry> {
+fn merge_entries(sources: Vec<Source>) -> Vec<tg::list::Entry> {
+	let mut emitted = BTreeSet::new();
 	let mut output = Vec::new();
 	let mut winners = BTreeMap::<tg::Specifier, tg::Id>::new();
-	for mut source in sources {
-		source.sort_by(|a, b| {
-			a.specifier()
-				.components()
+	for source in sources {
+		let mut ids = source.ids.iter().collect::<Vec<_>>();
+		ids.sort_by(|(a, _), (b, _)| {
+			a.components()
 				.count()
-				.cmp(&b.specifier().components().count())
-				.then_with(|| a.specifier().cmp(b.specifier()))
+				.cmp(&b.components().count())
+				.then_with(|| a.cmp(b))
 		});
-		let source_ids = source
-			.iter()
-			.map(|entry| (entry.specifier().clone(), entry.id()))
-			.collect::<BTreeMap<_, _>>();
-		for entry in source {
-			if winners.contains_key(entry.specifier()) {
+		for (specifier, id) in ids {
+			if winners.contains_key(specifier) {
 				continue;
 			}
-			let hidden = entry.specifier().ancestors().any(|ancestor| {
+			let hidden = specifier.ancestors().any(|ancestor| {
 				let Some(winner) = winners.get(&ancestor) else {
 					return false;
 				};
-				source_ids.get(&ancestor) != Some(winner)
+				source.ids.get(&ancestor) != Some(winner)
 			});
 			if hidden {
 				continue;
 			}
-			winners.insert(entry.specifier().clone(), entry.id());
+			winners.insert(specifier.clone(), id.clone());
+		}
+		for entry in source.data {
+			if winners.get(entry.specifier()) != Some(&entry.id())
+				|| !emitted.insert(entry.specifier().clone())
+			{
+				continue;
+			}
 			output.push(entry);
 		}
 	}
@@ -530,11 +668,67 @@ fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {
 	}
 }
 
-fn list_cache_request(arg: &tg::list::Arg) -> String {
-	let mut arg = arg.clone();
-	arg.cached = false;
-	arg.location = None;
-	arg.ttl = None;
+#[cfg(test)]
+mod tests {
+	use super::*;
 
-	crate::remote::cache::request("list", &arg)
+	#[test]
+	fn merge_allows_a_descendant_with_the_same_ancestor() {
+		let parent = tg::group::Id::new();
+		let child = tg::group::Id::new();
+		let local = source_with_id("foo", parent.clone().into());
+		let mut remote = Source::with_data(vec![group_entry(
+			child,
+			"foo/a",
+			Some(parent.clone().into()),
+		)]);
+		remote.ids.insert("foo".parse().unwrap(), parent.into());
+		let entries = merge_entries(vec![local, remote]);
+
+		assert_eq!(entries.len(), 1);
+		assert_eq!(entries[0].specifier().to_string(), "foo/a");
+	}
+
+	#[test]
+	fn merge_hides_a_descendant_with_a_different_ancestor() {
+		let local_parent = tg::group::Id::new();
+		let remote_parent = tg::group::Id::new();
+		let child = tg::group::Id::new();
+		let local = source_with_id("foo", local_parent.into());
+		let mut remote = Source::with_data(vec![group_entry(
+			child,
+			"foo/a",
+			Some(remote_parent.clone().into()),
+		)]);
+		remote
+			.ids
+			.insert("foo".parse().unwrap(), remote_parent.into());
+		let entries = merge_entries(vec![local, remote]);
+
+		assert!(entries.is_empty());
+	}
+
+	fn group_entry(id: tg::group::Id, specifier: &str, parent: Option<tg::Id>) -> tg::list::Entry {
+		let specifier = specifier.parse::<tg::Specifier>().unwrap();
+		let name = specifier.name().to_owned();
+
+		tg::list::Entry::Group {
+			id,
+			location: None,
+			name,
+			parent,
+			specifier,
+			token: None,
+		}
+	}
+
+	fn source_with_id(specifier: &str, id: tg::Id) -> Source {
+		let ids = BTreeMap::from([(specifier.parse().unwrap(), id)]);
+
+		Source {
+			data: Vec::new(),
+			ids,
+			remote: None,
+		}
+	}
 }

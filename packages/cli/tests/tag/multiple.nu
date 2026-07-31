@@ -11,13 +11,6 @@ let path = artifact 'Hello, World!'
 let id = tg checkin $path
 
 # Tag the objects.
-tg group create test
-tg group create test/0.0.1
-tg group create test/0.0.1/foo
-tg group create test/foo
-tg group create test/foo/bar
-tg group create test/hello
-tg group create test/world
 let tags = [
 	"foo"
 	"bar"
@@ -32,7 +25,7 @@ let tags = [
 ]
 
 for tag in $tags {
-	tg tag put $tag $id
+	tg tag put -p $tag $id
 }
 
 # Empty pattern is not valid.

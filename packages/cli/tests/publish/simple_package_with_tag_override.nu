@@ -6,9 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-tg --url $local.url group create test-pkg
-tg --url $local.url group create overridden-pkg
-
 let path = artifact {
 	tangram.ts: '
 		export default function () { return "Hello, World!"; }

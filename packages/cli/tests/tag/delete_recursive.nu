@@ -9,12 +9,9 @@ let path = artifact 'test'
 let id = tg checkin $path
 
 # Create a nested tag structure: test/a/b/c, test/a/b/d, test/a/e
-tg group create test
-tg group create test/a
-tg group create test/a/b
 let tags = ["test/a/b/c" "test/a/b/d" "test/a/e"]
 for tag in $tags {
-	tg tag put $tag $id
+	tg tag put -p $tag $id
 }
 
 # Verify tags exist.

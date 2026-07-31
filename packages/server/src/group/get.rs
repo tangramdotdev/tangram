@@ -20,21 +20,30 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::Group { id, location, .. } = entry else {
+		let tg::list::Entry::Group {
+			id,
+			location,
+			token,
+			..
+		} = entry
+		else {
 			return Ok(None);
 		};
 		let group = tg::group::Selector::Id(id);
 		let location =
 			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_group_local(&group).await,
-			tg::Location::Remote(remote) => self.try_get_group_remote(&group, arg, remote).await,
+			tg::Location::Local(_) => self.try_get_group_local(&group, token).await,
+			tg::Location::Remote(remote) => {
+				self.try_get_group_remote(&group, arg, remote, token).await
+			},
 		}
 	}
 
 	async fn try_get_group_local(
 		&self,
 		group: &tg::group::Selector,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::Group>> {
 		let permission =
 			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read);
@@ -66,6 +75,7 @@ impl Session {
 			name: node.name,
 			parent: node.parent,
 			specifier: node.specifier,
+			token,
 		}))
 	}
 
@@ -74,6 +84,7 @@ impl Session {
 		group: &tg::group::Selector,
 		mut arg: tg::group::get::Arg,
 		remote: tg::location::Remote,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::Group>> {
 		let request = crate::remote::cache::request("group.get", &(group, &remote.region));
 		if let Some(mut output) = self
@@ -81,10 +92,21 @@ impl Session {
 			.await?
 		{
 			if let Some(group) = &mut output {
-				group.location = Some(tg::Location::Remote(remote));
+				group.token = group.token.take().or_else(|| token.clone());
 			}
+			let valid = output
+				.as_ref()
+				.is_none_or(|group| crate::remote::cache::token_valid(group.token.as_ref()));
+			if valid || arg.cached {
+				if let Some(group) = &mut output {
+					if !crate::remote::cache::token_valid(group.token.as_ref()) {
+						group.token = None;
+					}
+					group.location = Some(tg::Location::Remote(remote));
+				}
 
-			return Ok(output);
+				return Ok(output);
+			}
 		}
 		if arg.cached {
 			return Ok(None);
@@ -99,10 +121,13 @@ impl Session {
 			})
 			.into(),
 		);
-		arg.ttl = None;
+		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut output = client.try_get_group(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the group"),
 		)?;
+		if let Some(group) = &mut output {
+			group.token = group.token.take().or(token);
+		}
 		self.put_cached_remote_response(&remote.name, &request, &output)
 			.await?;
 		if let Some(group) = &mut output {

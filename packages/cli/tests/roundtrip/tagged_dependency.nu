@@ -3,13 +3,12 @@ use ../../test.nu *
 # Building an artifact that uses a tagged dependency, checking it out with dependencies, deleting the tag and cleaning, and checking it back in yields the same artifact ID.
 
 let server = spawn
-tg group create foo
 
 # Create and tag the foo dependency.
 let foo_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo"); }'
 }
-tg tag foo/1.0.0 $foo_path
+tg tag -p foo/1.0.0 $foo_path
 
 # Create and build the main artifact.
 let artifact = artifact {

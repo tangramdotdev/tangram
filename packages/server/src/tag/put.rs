@@ -87,9 +87,12 @@ impl Session {
 		permissions: Vec<tg::grant::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
-		let parent = self
-			.resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
-			.await?;
+		let parent = if arg.parents {
+			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
+				.await?
+		} else {
+			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
+		};
 		let existing =
 			Self::try_get_specifier_with_transaction(transaction, &arg.specifier).await?;
 		let item = Self::tag_item_to_string(&arg.item);
@@ -261,28 +264,5 @@ impl Session {
 			}
 		}
 		Ok(None)
-	}
-}
-
-impl Session {
-	async fn resolve_parent_for_specifier_with_transaction(
-		&self,
-		transaction: &Transaction<'_>,
-		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::Id>> {
-		if specifier.components().next().is_none() {
-			return Err(tg::error!("invalid specifier"));
-		}
-		let Some(parent) = specifier.parent() else {
-			return Ok(None);
-		};
-		let parent = Self::try_get_specifier_with_transaction(transaction, &parent)
-			.await?
-			.ok_or_else(|| tg::error!("the parent does not exist"))?;
-		if parent.kind() == tg::id::Kind::Tag {
-			return Err(tg::error!("a tag cannot be a parent"));
-		}
-
-		Ok(Some(parent.id))
 	}
 }

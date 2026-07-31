@@ -66,6 +66,9 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub regions: Option<Vec<Region>>,
 
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub remote_cache: RemoteCache,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
@@ -787,6 +790,14 @@ pub struct Remote {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct RemoteCache {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
@@ -1273,6 +1284,7 @@ impl Default for Config {
 			process: Process::default(),
 			region: None,
 			regions: None,
+			remote_cache: RemoteCache::default(),
 			remotes: None,
 			roles: default_roles(),
 			runner: Runner::default(),
@@ -1589,6 +1601,14 @@ impl Default for Finalizer {
 			message_batch_timeout: Duration::from_millis(100),
 			partition_end: 256,
 			partition_start: 0,
+		}
+	}
+}
+
+impl Default for RemoteCache {
+	fn default() -> Self {
+		Self {
+			time_to_live: Duration::from_mins(5),
 		}
 	}
 }

@@ -19,11 +19,16 @@ impl Session {
 		&self,
 		remote: &str,
 		request: &str,
-		ttl: Option<Duration>,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<T>>
 	where
 		T: DeserializeOwned,
 	{
+		let ttl = match ttl {
+			tg::remote::cache::Ttl::Default => Some(self.server.config.remote_cache.time_to_live),
+			tg::remote::cache::Ttl::Duration(duration) => Some(duration),
+			tg::remote::cache::Ttl::Infinite => None,
+		};
 		if ttl == Some(Duration::ZERO) {
 			return Ok(None);
 		}
@@ -158,4 +163,10 @@ impl Session {
 pub(crate) fn request(operation: &str, arg: &impl Serialize) -> String {
 	let arg = serde_json::to_string(arg).unwrap();
 	format!("{operation}:{arg}")
+}
+
+pub(crate) fn token_valid(token: Option<&tg::grant::Token>) -> bool {
+	token.is_none_or(|token| {
+		token.body.expires_at > time::OffsetDateTime::now_utc().unix_timestamp()
+	})
 }

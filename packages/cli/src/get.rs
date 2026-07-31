@@ -43,8 +43,14 @@ pub struct Ttl {
 }
 
 impl Ttl {
-	pub(crate) fn get(&self) -> Option<Duration> {
-		if self.no_ttl { None } else { self.ttl }
+	pub(crate) fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
 	}
 }
 
@@ -248,7 +254,16 @@ impl Cli {
 			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
 		if reference == &direct_reference {
 			match reference.item() {
-				tg::reference::Item::Id(id) => {
+				tg::reference::Item::Id(id)
+					if token.is_some()
+						|| !matches!(
+							id.kind(),
+							tg::id::Kind::Group
+								| tg::id::Kind::Organization
+								| tg::id::Kind::Sandbox | tg::id::Kind::Tag
+								| tg::id::Kind::User
+						) =>
+				{
 					let referent = tg::Referent::with_item_and_token(
 						tg::get::Item::Id(id.clone()),
 						token.clone(),
@@ -317,7 +332,16 @@ impl Cli {
 			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
 		if reference == &direct_reference {
 			match reference.item() {
-				tg::reference::Item::Id(id) => {
+				tg::reference::Item::Id(id)
+					if token.is_some()
+						|| !matches!(
+							id.kind(),
+							tg::id::Kind::Group
+								| tg::id::Kind::Organization
+								| tg::id::Kind::Sandbox | tg::id::Kind::Tag
+								| tg::id::Kind::User
+						) =>
+				{
 					let referent = tg::Referent::with_item_and_token(
 						tg::resolve::Item::Id(id.clone()),
 						token.clone(),

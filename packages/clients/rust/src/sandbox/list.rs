@@ -47,6 +47,9 @@ pub struct Item {
 	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub ttl: Option<Duration>,
 }

@@ -9,16 +9,17 @@ let local = spawn --name local --config {
 }
 
 # Tag an object on the remote server.
-let tag = "foo"
+let tag = "foo/bar"
 let path = artifact 'foo'
-tg --url $remote.url tag put $tag $path
+tg --url $remote.url tag put -p $tag $path
 
 # Tag the object on the remote server from the local server.
-tg tag put --remote $tag $path
+tg tag put --remote -p $tag $path
 
 # Get tag from remote server by switching to remote context.
 let remote_output = tg --url $remote.url tag get $tag | from json
 
 assert equal $remote_output.item.kind object
-assert equal $remote_output.name foo
-assert equal $remote_output.specifier foo
+assert equal $remote_output.name bar
+assert equal $remote_output.specifier foo/bar
+assert equal (tg --url $remote.url group get foo | from json | get specifier) foo

@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [test-dep test-main test-transitive] {
-	tg --url $local.url group create $group
-}
-
 # Create the transitive dependency (C) - no dependencies.
 let transitive_path = artifact {
 	tangram.ts: '
@@ -24,7 +20,7 @@ let transitive_path = artifact {
 let transitive_id = tg checkin $transitive_path
 
 # Create a tag for the transitive dependency on the local server so it can be resolved.
-tg tag put test-transitive/1.0.0 $transitive_id | complete
+tg tag put -p test-transitive/1.0.0 $transitive_id | complete
 
 # Create the intermediate dependency (B) - depends on C.
 let dep_path = artifact {
@@ -42,7 +38,7 @@ let dep_path = artifact {
 let dep_id = tg checkin $dep_path
 
 # Create a tag for the dependency on the local server so it can be resolved.
-tg tag put test-dep/1.0.0 $dep_id | complete
+tg tag put -p test-dep/1.0.0 $dep_id | complete
 
 # Create the main package (A) - depends on B.
 let main_path = artifact {

@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [a b c] {
-	tg --url $local.url group create $group
-}
-
 # Create a cycle: A -> B -> C -> A
 let root = artifact {
 	packages: {

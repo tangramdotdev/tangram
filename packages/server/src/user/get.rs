@@ -21,19 +21,31 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::User { id, location, .. } = entry else {
+		let tg::list::Entry::User {
+			id,
+			location,
+			token,
+			..
+		} = entry
+		else {
 			return Ok(None);
 		};
 		let user = tg::user::Selector::Id(id);
 		let location =
 			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_user_local(&user).await,
-			tg::Location::Remote(remote) => self.try_get_user_remote(&user, arg, remote).await,
+			tg::Location::Local(_) => self.try_get_user_local(&user, token).await,
+			tg::Location::Remote(remote) => {
+				self.try_get_user_remote(&user, arg, remote, token).await
+			},
 		}
 	}
 
-	async fn try_get_user_local(&self, user: &tg::user::Selector) -> tg::Result<Option<tg::User>> {
+	async fn try_get_user_local(
+		&self,
+		user: &tg::user::Selector,
+		token: Option<tg::grant::Token>,
+	) -> tg::Result<Option<tg::User>> {
 		let permission = tg::grant::Permission::User(tg::grant::permission::user::Permission::Read);
 		let authorized = self.authorize(user.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -57,9 +69,10 @@ impl Session {
 		if node.kind() != tg::id::Kind::User {
 			return Ok(None);
 		}
-		Self::user_from_node_with_transaction(&transaction, node)
-			.await
-			.map(Some)
+		let mut user = Self::user_from_node_with_transaction(&transaction, node).await?;
+		user.token = token;
+
+		Ok(Some(user))
 	}
 
 	pub(crate) async fn user_from_node_with_transaction(
@@ -89,6 +102,7 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: node.name,
 			specifier: node.specifier,
+			token: None,
 		})
 	}
 
@@ -97,6 +111,7 @@ impl Session {
 		user: &tg::user::Selector,
 		mut arg: tg::user::get::Arg,
 		remote: tg::location::Remote,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::User>> {
 		let request = crate::remote::cache::request("user.get", &(user, &remote.region));
 		if let Some(mut output) = self
@@ -104,10 +119,21 @@ impl Session {
 			.await?
 		{
 			if let Some(user) = &mut output {
-				user.location = Some(tg::Location::Remote(remote));
+				user.token = user.token.take().or_else(|| token.clone());
 			}
+			let valid = output
+				.as_ref()
+				.is_none_or(|user| crate::remote::cache::token_valid(user.token.as_ref()));
+			if valid || arg.cached {
+				if let Some(user) = &mut output {
+					if !crate::remote::cache::token_valid(user.token.as_ref()) {
+						user.token = None;
+					}
+					user.location = Some(tg::Location::Remote(remote));
+				}
 
-			return Ok(output);
+				return Ok(output);
+			}
 		}
 		if arg.cached {
 			return Ok(None);
@@ -122,11 +148,14 @@ impl Session {
 			})
 			.into(),
 		);
-		arg.ttl = None;
+		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut output = client
 			.try_get_user(user, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the user"))?;
+		if let Some(user) = &mut output {
+			user.token = user.token.take().or(token);
+		}
 		self.put_cached_remote_response(&remote.name, &request, &output)
 			.await?;
 		if let Some(user) = &mut output {

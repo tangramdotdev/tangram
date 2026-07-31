@@ -1,11 +1,13 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
-	serde_with::{DisplayFromStr, DurationSecondsWithFrac, PickFirst, serde_as},
-	std::{path::PathBuf, pin::pin, time::Duration},
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
+	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{CommaSeparatedString, is_false, is_true, return_false, return_true},
+	tangram_util::serde::{
+		CommaSeparatedString, is_default, is_false, is_true, return_false, return_true,
+	},
 };
 
 #[serde_as]
@@ -58,9 +60,8 @@ pub struct Options {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub source_dependencies: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub tag_ttl: Option<Duration>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub tag_ttl: tg::remote::cache::Ttl,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_false", skip_serializing_if = "is_false")]
@@ -196,7 +197,7 @@ impl Default for Options {
 			root: false,
 			solve: true,
 			source_dependencies: true,
-			tag_ttl: None,
+			tag_ttl: tg::remote::cache::Ttl::default(),
 			unsolved_dependencies: false,
 			watch: false,
 		}

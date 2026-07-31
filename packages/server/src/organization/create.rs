@@ -136,11 +136,13 @@ impl Session {
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;
 		}
+		let token = self.create_read_token(&item.id)?;
 		Ok(tg::Organization {
 			id: item.id.try_into()?,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: item.name,
 			specifier: item.specifier,
+			token,
 		})
 	}
 

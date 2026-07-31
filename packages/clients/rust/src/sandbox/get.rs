@@ -65,10 +65,14 @@ pub struct Output {
 	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[tangram_serialize(
 		deserialize_with = "deserialize_duration",
-		id = 11,
+		id = 12,
 		serialize_with = "serialize_duration"
 	)]
 	pub ttl: Option<Duration>,

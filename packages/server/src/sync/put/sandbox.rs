@@ -43,7 +43,7 @@ impl Session {
 			self.sync_put_sandbox_missing(state, &item.id).await;
 			return Ok(());
 		};
-		let data = sandbox
+		let mut data = sandbox
 			.data
 			.ok_or_else(|| tg::error!(id = %item.id, "missing the sandbox data"))?;
 		if data.id != item.id {
@@ -56,6 +56,7 @@ impl Session {
 		if !data.status.is_destroyed() {
 			return Err(tg::error!(id = %item.id, "cannot sync a running sandbox"));
 		}
+		data.token = None;
 
 		// Get the processes.
 		let children = if state.arg.sandbox_processes {

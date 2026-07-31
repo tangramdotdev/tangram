@@ -108,7 +108,7 @@ impl Session {
 		location: Option<tg::Location>,
 		specifier: tg::Specifier,
 		cached: bool,
-		ttl: Option<std::time::Duration>,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<tg::get::Output> {
 		if let Some(tg::Location::Remote(remote)) = location {
 			return self
@@ -137,7 +137,7 @@ impl Session {
 		remote: tg::location::Remote,
 		specifier: tg::Specifier,
 		cached: bool,
-		ttl: Option<std::time::Duration>,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<tg::get::Output> {
 		// Get a cached response.
 		let request =
@@ -146,7 +146,7 @@ impl Session {
 			.try_get_cached_remote_response::<tg::resolve::Output>(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
-			.filter(resolve_output_token_valid)
+			.filter(|output| crate::remote::cache::token_valid(output.referent.token()))
 		{
 			output.location = Some(tg::Location::Remote(remote));
 			let output = tg::get::Output {
@@ -263,7 +263,7 @@ impl Session {
 		location: Option<&tg::location::Arg>,
 		cached: bool,
 		length: Option<u64>,
-		ttl: Option<std::time::Duration>,
+		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<tg::match_::Output> {
 		let mut pattern = pattern.clone();
 		if !pattern.is_empty() && !pattern.contains_operators() {
@@ -357,12 +357,6 @@ impl Session {
 
 		Ok(response)
 	}
-}
-
-fn resolve_output_token_valid(output: &tg::resolve::Output) -> bool {
-	output.referent.options.token.as_ref().is_none_or(|token| {
-		token.body.expires_at > time::OffsetDateTime::now_utc().unix_timestamp()
-	})
 }
 
 fn list_item_to_id(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::Id {

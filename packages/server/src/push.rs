@@ -516,6 +516,16 @@ impl Session {
 							.to_i64()
 							.unwrap();
 					(permissions, expires_at)
+				} else if matches!(
+					id.kind(),
+					tg::id::Kind::Group
+						| tg::id::Kind::Organization
+						| tg::id::Kind::Sandbox
+						| tg::id::Kind::Tag
+						| tg::id::Kind::User
+				) {
+					let token = self.create_read_token(&id)?;
+					return Ok(tg::Referent::with_item_and_token(id, token));
 				} else {
 					return Ok(tg::Referent::with_item(id));
 				};

@@ -24,21 +24,28 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::list::Entry::Tag { id, location, .. } = entry else {
+		let tg::list::Entry::Tag {
+			id,
+			location,
+			token,
+			..
+		} = entry
+		else {
 			return Ok(None);
 		};
 		let tag = tg::tag::Selector::Id(id);
 		let location =
 			location.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		match location {
-			tg::Location::Local(_) => self.try_get_tag_local(&tag).await,
-			tg::Location::Remote(remote) => self.try_get_tag_remote(&tag, arg, remote).await,
+			tg::Location::Local(_) => self.try_get_tag_local(&tag, token).await,
+			tg::Location::Remote(remote) => self.try_get_tag_remote(&tag, arg, remote, token).await,
 		}
 	}
 
 	async fn try_get_tag_local(
 		&self,
 		tag: &tg::tag::Selector,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let mut connection = self
 			.server
@@ -82,6 +89,7 @@ impl Session {
 		Ok(Some(tg::tag::get::Output {
 			data,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
+			token,
 		}))
 	}
 
@@ -90,6 +98,7 @@ impl Session {
 		tag: &tg::tag::Selector,
 		mut arg: tg::tag::get::Arg,
 		remote: tg::location::Remote,
+		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let request = crate::remote::cache::request("tag.get", &(tag, &remote.region));
 		if let Some(mut output) = self
@@ -101,10 +110,21 @@ impl Session {
 			.await?
 		{
 			if let Some(tag) = &mut output {
-				tag.location = Some(tg::Location::Remote(remote));
+				tag.token = tag.token.take().or_else(|| token.clone());
 			}
+			let valid = output
+				.as_ref()
+				.is_none_or(|tag| crate::remote::cache::token_valid(tag.token.as_ref()));
+			if valid || arg.cached {
+				if let Some(tag) = &mut output {
+					if !crate::remote::cache::token_valid(tag.token.as_ref()) {
+						tag.token = None;
+					}
+					tag.location = Some(tg::Location::Remote(remote));
+				}
 
-			return Ok(output);
+				return Ok(output);
+			}
 		}
 		if arg.cached {
 			return Ok(None);
@@ -119,11 +139,14 @@ impl Session {
 			})
 			.into(),
 		);
-		arg.ttl = None;
+		arg.ttl = tg::remote::cache::Ttl::default();
 		let mut output = client
 			.try_get_tag(tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the tag"))?;
+		if let Some(tag) = &mut output {
+			tag.token = tag.token.take().or(token);
+		}
 		self.put_cached_remote_response(&remote.name, &request, &output)
 			.await?;
 		if let Some(tag) = &mut output {

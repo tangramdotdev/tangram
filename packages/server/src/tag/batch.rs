@@ -59,6 +59,7 @@ impl Session {
 						let arg = tg::tag::put::Arg {
 							item: item.item,
 							location: None,
+							parents: arg.parents,
 							public: false,
 							specifier: item.specifier,
 						};

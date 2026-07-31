@@ -1366,7 +1366,7 @@ impl Tree {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: None,
+			ttl: tg::remote::cache::Ttl::default(),
 			users: false,
 		};
 		let output = client

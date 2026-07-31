@@ -3,14 +3,12 @@ use ../../test.nu *
 # Checking in a package whose tagged dependencies form a cycle through their versions resolves and writes the expected lockfile.
 
 let server = spawn
-tg group create a
-tg group create b
 
 # Tag the dependencies.
 let a1_path = artifact {
 	tangram.ts: ''
 }
-tg tag a/1.0.0 $a1_path
+tg tag -p a/1.0.0 $a1_path
 
 let b_path = artifact {
 	foo.tg.ts: '
@@ -21,14 +19,14 @@ let b_path = artifact {
 		import * as foo from "./foo.tg.ts";
 	'
 }
-tg tag b/1.0.0 $b_path
+tg tag -p b/1.0.0 $b_path
 
 let a11_path = artifact {
 	tangram.ts: '
 		import * as b from "b/*";
 	'
 }
-tg tag a/1.1.0 $a11_path
+tg tag -p a/1.1.0 $a11_path
 
 let path = artifact {
 	tangram.ts: '

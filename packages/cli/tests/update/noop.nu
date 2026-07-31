@@ -3,10 +3,9 @@ use ../../test.nu *
 # Updating a package with nothing to update prints nothing and leaves the lockfile unchanged.
 
 let server = spawn
-tg group create dep
 
 let dep = artifact { tangram.ts: 'export default function () { return "dep"; }' }
-tg tag dep/1.0.0 $dep
+tg tag -p dep/1.0.0 $dep
 
 let root = artifact {
 	tangram.ts: 'import dep from "dep/^1";'

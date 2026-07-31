@@ -3,17 +3,16 @@ use ../../test.nu *
 # The default lock mode reuses an existing lockattr for a file dependency lock.
 
 let server = spawn
-tg group create a
 
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'
 }
-tg tag a/1.0.0 $a_path
+tg tag -p a/1.0.0 $a_path
 
 let a_path = artifact {
 	tangram.ts: '// a 1.1.0'
 }
-tg tag a/1.1.0 $a_path
+tg tag -p a/1.1.0 $a_path
 
 let a_id = tg tag get a/1.0.0 | from json | get item.id
 let lock = {

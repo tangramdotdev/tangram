@@ -16,6 +16,13 @@ fn roles_are_an_exact_allowlist() {
 }
 
 #[test]
+fn remote_cache_time_to_live_defaults() {
+	let config = serde_json::from_str::<Config>("{}").unwrap();
+
+	assert_eq!(config.remote_cache.time_to_live, Duration::from_mins(5));
+}
+
+#[test]
 fn scheduler_heartbeat_defaults() {
 	let config = serde_json::from_str::<Config>(r#"{"scheduler":{}}"#).unwrap();
 

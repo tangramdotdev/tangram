@@ -3,24 +3,22 @@ use ../../test.nu *
 # Checking in with --update for a single tag updates only that dependency in the lockfile and leaves the others pinned.
 
 let server = spawn
-tg group create a
-tg group create b
 
 # Tag the a dependency.
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'
 }
-tg tag a/1.0.0 $a_path
+tg tag -p a/1.0.0 $a_path
 
 let a_path = artifact {
 	tangram.ts: '// a 1.1.0'
 }
-tg tag a/1.1.0 $a_path
+tg tag -p a/1.1.0 $a_path
 
 let b_path = artifact {
 	tangram.ts: '// b 1.0.0'
 }
-tg tag b/1.0.0 $b_path
+tg tag -p b/1.0.0 $b_path
 
 let a_id = tg tag get a/1.0.0 | from json | get item.id
 let b_id = tg tag get b/1.0.0 | from json | get item.id

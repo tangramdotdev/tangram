@@ -3,13 +3,11 @@ use ../../test.nu *
 # The tree command with the package kind renders an unresolved transitive dependency as null while still resolving the solved siblings deeper in the dependency tree.
 
 let server = spawn
-tg group create leaf
-tg group create middle
 
 let leaf_path = artifact {
 	tangram.ts: '// leaf package'
 }
-tg tag leaf/1.0.0 $leaf_path
+tg tag -p leaf/1.0.0 $leaf_path
 
 let middle_path = artifact {
 	tangram.ts: '
@@ -18,7 +16,7 @@ let middle_path = artifact {
 	'
 }
 let middle_id = tg checkin --unsolved-dependencies $middle_path
-tg tag middle/1.0.0 $middle_id
+tg tag -p middle/1.0.0 $middle_id
 
 let root_path = artifact {
 	tangram.ts: 'import * as middle from "middle/^1"'

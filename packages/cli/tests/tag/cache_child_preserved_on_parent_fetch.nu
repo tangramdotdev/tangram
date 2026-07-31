@@ -9,11 +9,8 @@ let local = spawn --name local --config {
 
 let path = artifact 'Hello, World!'
 let id = tg --url $remote.url checkin $path
-tg --url $remote.url group create a
-tg --url $remote.url group create a/q
-tg --url $remote.url group create a/q/r
-tg --url $remote.url tag put "a/q/r/s" $id
-tg --url $remote.url tag put "a/q/t" $id
+tg --url $remote.url tag put -p "a/q/r/s" $id
+tg --url $remote.url tag put -p "a/q/t" $id
 
 # Cache the child, then fetch its parent.
 let s1 = tg --url $local.url resolve "a/q/r/s" | str trim

@@ -24,4 +24,7 @@ pub struct Group {
 	pub parent: Option<tg::Id>,
 
 	pub specifier: tg::Specifier,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }

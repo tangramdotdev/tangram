@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [test-dep test-main] {
-	tg --url $local.url group create $group
-}
-
 # Create a dependency package but do not publish it yet.
 let dep_path = artifact {
 	tangram.ts: '
@@ -24,7 +20,7 @@ let dep_path = artifact {
 let dep_id = tg checkin $dep_path
 
 # Create a tag for the dependency on the local server so it can be resolved.
-tg tag put test-dep/1.0.0 $dep_id | complete
+tg tag put -p test-dep/1.0.0 $dep_id | complete
 
 # Create a package that depends on the unpublished package.
 let main_path = artifact {

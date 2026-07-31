@@ -18,7 +18,9 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		let stream = match reference.item() {
-			tg::reference::Item::Id(id) => self.try_get_with_id(id, reference.options()).await?,
+			tg::reference::Item::Id(id) => {
+				self.try_get_with_id(id, reference.options(), &arg).await?
+			},
 			tg::reference::Item::Path(path) => {
 				self.try_get_with_path(path, reference.options(), arg)
 					.await?
@@ -39,7 +41,58 @@ impl Session {
 		&self,
 		id: &tg::Id,
 		options: &tg::reference::Options,
+		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		if options.token.is_none()
+			&& matches!(
+				id.kind(),
+				tg::id::Kind::Group
+					| tg::id::Kind::Organization
+					| tg::id::Kind::Tag
+					| tg::id::Kind::User
+			) {
+			let entry = self
+				.try_get_named_entry(
+					&tg::grant::Resource::Id(id.clone()),
+					options.location.as_ref(),
+					arg.cached,
+					arg.ttl,
+				)
+				.await?;
+			let output = entry.map(|entry| tg::get::Output {
+				location: entry.location().cloned(),
+				referent: tg::Referent::with_item_and_token(
+					tg::get::Item::Id(entry.id()),
+					entry.token().cloned(),
+				),
+			});
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(future::ok(event));
+
+			return Ok(stream.boxed());
+		}
+		if options.token.is_none() && id.kind() == tg::id::Kind::Sandbox {
+			let id = tg::sandbox::Id::try_from(id.clone())?;
+			let sandbox = self
+				.try_get_sandbox(
+					&id,
+					tg::sandbox::get::Arg {
+						location: options.location.clone(),
+					},
+				)
+				.await?;
+			let output = sandbox.map(|sandbox| tg::get::Output {
+				location: sandbox.location,
+				referent: tg::Referent::with_item_and_token(
+					tg::get::Item::Id(sandbox.id.into()),
+					sandbox.token,
+				),
+			});
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(future::ok(event));
+
+			return Ok(stream.boxed());
+		}
 		let referent = tg::Referent::new(tg::get::Item::Id(id.clone()), options.clone().into());
 		let output = tg::get::Output {
 			location: options
@@ -162,7 +215,10 @@ impl Session {
 		};
 		let output = tg::get::Output {
 			location: entry.location().cloned(),
-			referent: tg::Referent::with_item(tg::get::Item::Id(entry.id())),
+			referent: tg::Referent::with_item_and_token(
+				tg::get::Item::Id(entry.id()),
+				entry.token().cloned(),
+			),
 		};
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())

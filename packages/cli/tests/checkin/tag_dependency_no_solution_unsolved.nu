@@ -3,33 +3,30 @@ use ../../test.nu *
 # Checking in a package with conflicting tag version constraints succeeds under --unsolved-dependencies, leaving the conflict unresolved in the lockfile.
 
 let server = spawn
-tg group create a
-tg group create b
-tg group create c
 
 let c1 = artifact {
 	tangram.ts: ''
 }
-tg tag c/1.0.0 $c1
+tg tag -p c/1.0.0 $c1
 
 let c2 = artifact {
 	tangram.ts: ''
 }
-tg tag c/2.0.0 $c2
+tg tag -p c/2.0.0 $c2
 
 let a = artifact {
 	tangram.ts: '
 		import * as c from "c/^1"
 	'
 }
-tg tag a/1.0.0 $a
+tg tag -p a/1.0.0 $a
 
 let b = artifact {
 	tangram.ts: '
 		import * as c from "c/^2"
 	'
 }
-tg tag b/1.0.0 $b
+tg tag -p b/1.0.0 $b
 
 let path = artifact {
 	tangram.ts: '

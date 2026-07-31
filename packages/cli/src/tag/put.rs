@@ -10,6 +10,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
+	#[arg(short = 'p', long)]
+	pub parents: bool,
+
 	#[arg(id = "put.public", long = "public")]
 	pub public: bool,
 
@@ -46,6 +49,7 @@ impl Cli {
 		let arg = tg::tag::put::Arg {
 			item,
 			location: args.location.get(),
+			parents: args.parents,
 			public: args.public,
 			specifier: args
 				.specifier

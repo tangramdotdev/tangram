@@ -3,7 +3,6 @@ use ../../test.nu *
 # A watched package checked in with --no-cache-pointers resolves a tag dependency once it is created and the module contents remain readable.
 
 let server = spawn
-tg group create a
 
 let path = artifact {
 	tangram.ts: '
@@ -30,7 +29,7 @@ snapshot $object1 '
 let a = artifact {
 	tangram.ts: ''
 }
-tg tag a/1.0.0 $a
+tg tag -p a/1.0.0 $a
 
 let id2 = tg checkin --watch --no-cache-pointers $path
 tg index

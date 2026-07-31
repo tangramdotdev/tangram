@@ -370,6 +370,7 @@ impl Server {
 			location: None,
 			name: user.name,
 			specifier: user.specifier,
+			token: None,
 		};
 
 		Ok(Some(user))

@@ -36,6 +36,7 @@ impl Session {
 			return Err(tg::error!(id = %item.message.id, "cannot sync a running sandbox"));
 		}
 		data.location = Some(tg::Location::Local(tg::location::Local::default()));
+		data.token = None;
 
 		// Authorize the write.
 		if matches!(self.context.principal, tg::Principal::Anonymous) {

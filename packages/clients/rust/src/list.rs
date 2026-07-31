@@ -1,13 +1,11 @@
 use {
 	crate::prelude::*,
-	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{cmp::Ordering, time::Duration},
+	std::cmp::Ordering,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{is_false, is_true, return_true},
+	tangram_util::serde::{is_default, is_false, is_true, return_true},
 };
 
-#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -37,9 +35,8 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	pub ttl: Option<Duration>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ttl: tg::remote::cache::Ttl,
 
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub users: bool,
@@ -66,6 +63,9 @@ pub enum Entry {
 		parent: Option<tg::Id>,
 
 		specifier: tg::Specifier,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		token: Option<tg::grant::Token>,
 	},
 	Organization {
 		id: tg::organization::Id,
@@ -76,6 +76,9 @@ pub enum Entry {
 		name: String,
 
 		specifier: tg::Specifier,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		token: Option<tg::grant::Token>,
 	},
 	Tag {
 		id: tg::tag::Id,
@@ -91,6 +94,9 @@ pub enum Entry {
 		parent: Option<tg::Id>,
 
 		specifier: tg::Specifier,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		token: Option<tg::grant::Token>,
 	},
 	User {
 		id: tg::user::Id,
@@ -101,6 +107,9 @@ pub enum Entry {
 		name: String,
 
 		specifier: tg::Specifier,
+
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		token: Option<tg::grant::Token>,
 	},
 }
 
@@ -116,7 +125,7 @@ impl Default for Arg {
 			recursive: false,
 			reverse: false,
 			tags: true,
-			ttl: None,
+			ttl: tg::remote::cache::Ttl::default(),
 			users: true,
 		}
 	}
@@ -158,6 +167,25 @@ impl Entry {
 			| Self::Organization { specifier, .. }
 			| Self::Tag { specifier, .. }
 			| Self::User { specifier, .. } => specifier,
+		}
+	}
+
+	#[must_use]
+	pub fn token(&self) -> Option<&tg::grant::Token> {
+		match self {
+			Self::Group { token, .. }
+			| Self::Organization { token, .. }
+			| Self::Tag { token, .. }
+			| Self::User { token, .. } => token.as_ref(),
+		}
+	}
+
+	pub fn set_token(&mut self, value: Option<tg::grant::Token>) {
+		match self {
+			Self::Group { token, .. }
+			| Self::Organization { token, .. }
+			| Self::Tag { token, .. }
+			| Self::User { token, .. } => *token = value,
 		}
 	}
 }

@@ -6,10 +6,6 @@ let remote = spawn --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-tg --url $remote.url group create checkin
-tg --url $remote.url group create checkin/a
-tg --url $remote.url group create update
-tg --url $remote.url group create update/a
 
 # Tag the old version of checkin/a on the remote.
 let checkin_old_path = artifact {
@@ -17,7 +13,7 @@ let checkin_old_path = artifact {
 		export default function () { return "checkin/a/1.0.0"; }
 	'
 }
-tg --url $remote.url tag checkin/a/1.0.0 $checkin_old_path
+tg --url $remote.url tag -p checkin/a/1.0.0 $checkin_old_path
 
 # Create a package that depends on checkin/a/^1.
 let checkin_package_path = artifact {
@@ -41,7 +37,7 @@ let checkin_new_path = artifact {
 		export default function () { return "checkin/a/1.1.0"; }
 	'
 }
-tg --url $remote.url tag checkin/a/1.1.0 $checkin_new_path
+tg --url $remote.url tag -p checkin/a/1.1.0 $checkin_new_path
 
 # Run checkin --update with the default TTL. The cached list should keep checkin/a/1.0.0.
 tg --url $local.url checkin $checkin_package_path --update checkin/a
@@ -61,7 +57,7 @@ let update_old_path = artifact {
 		export default function () { return "update/a/1.0.0"; }
 	'
 }
-tg --url $remote.url tag update/a/1.0.0 $update_old_path
+tg --url $remote.url tag -p update/a/1.0.0 $update_old_path
 
 # Create a package that depends on update/a/^1.
 let update_package_path = artifact {
@@ -85,7 +81,7 @@ let update_new_path = artifact {
 		export default function () { return "update/a/1.1.0"; }
 	'
 }
-tg --url $remote.url tag update/a/1.1.0 $update_new_path
+tg --url $remote.url tag -p update/a/1.1.0 $update_new_path
 
 # Run update with the default TTL. The cached list should keep update/a/1.0.0.
 tg --url $local.url update $update_package_path

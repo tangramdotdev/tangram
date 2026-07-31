@@ -3,18 +3,17 @@ use ../../test.nu *
 # Building an artifact whose tagged dependencies form a transitive chain with version constraints, checking it out with dependencies, deleting the tags and cleaning, and checking it back in yields the same artifact ID.
 
 let server = spawn
-tg group create foo
 
 # Create and tag dependencies.
 let foo_1_0_0_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo 1.0.0"); }'
 }
-tg tag foo/1.0.0 $foo_1_0_0_path
+tg tag -p foo/1.0.0 $foo_1_0_0_path
 
 let foo_1_1_0_path = artifact {
 	tangram.ts: 'export default function () { return tg.file("foo 1.1.0"); }'
 }
-tg tag foo/1.1.0 $foo_1_1_0_path
+tg tag -p foo/1.1.0 $foo_1_1_0_path
 
 let bar_path = artifact {
 	tangram.ts: '

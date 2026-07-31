@@ -5,11 +5,10 @@ use ../../test.nu *
 let remote = spawn --cloud --name remote
 let local = spawn --name local
 tg remote put default $remote.url | complete
-tg group create test
 
 let path = artifact 'hello'
 let id = tg checkin $path
-tg tag put test/1.0.0 $id
+tg tag put -p test/1.0.0 $id
 
 # Push the group and its children.
 tg push --group-children test

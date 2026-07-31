@@ -149,8 +149,14 @@ impl Entries {
 }
 
 impl Ttl {
-	pub(crate) fn get(&self) -> Option<Duration> {
-		if self.no_ttl { None } else { self.ttl }
+	pub(crate) fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
 	}
 }
 

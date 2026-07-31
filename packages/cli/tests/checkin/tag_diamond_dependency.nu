@@ -3,7 +3,6 @@ use ../../test.nu *
 # Checking in a package with a diamond of tagged dependencies converging on a shared dependency resolves and writes the expected lockfile.
 
 let server = spawn
-tg group create d
 
 # Tag the dependencies.
 let d1_path = artifact {
@@ -11,14 +10,14 @@ let d1_path = artifact {
 		export default () => "d/1.0.0";
 	'
 }
-tg tag d/1.0.0 $d1_path
+tg tag -p d/1.0.0 $d1_path
 
 let d11_path = artifact {
 	tangram.ts: '
 		export default () => "d/1.1.0";
 	'
 }
-tg tag d/1.1.0 $d11_path
+tg tag -p d/1.1.0 $d11_path
 
 let b_path = artifact {
 	tangram.ts: '

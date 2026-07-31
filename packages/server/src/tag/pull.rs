@@ -21,7 +21,7 @@ impl Session {
 				pattern: pattern.clone(),
 				reverse: false,
 				tags: true,
-				ttl: None,
+				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			})
 			.await

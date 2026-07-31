@@ -151,6 +151,7 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						item: id.into(),
 						location: None,
+						parents: true,
 						public: false,
 						specifier: tag.clone(),
 					};
@@ -170,6 +171,7 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							item: id.into(),
 							location: None,
+							parents: true,
 							public: false,
 							specifier: item.tag.clone(),
 						};
@@ -188,6 +190,7 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							item: id.into(),
 							location: None,
+							parents: true,
 							public: false,
 							specifier: tag.clone(),
 						};
@@ -253,6 +256,7 @@ impl Cli {
 			.collect::<Vec<_>>();
 		let arg = tg::tag::batch::Arg {
 			location: Some(location.into()),
+			parents: true,
 			tags: tags.clone(),
 		};
 		client

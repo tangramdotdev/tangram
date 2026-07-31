@@ -7,10 +7,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [a b c] {
-	tg --url $local.url group create $group
-}
-
 # 1. Create a monorepo with packages A, B, C where A -> B -> C using source dependencies.
 let root = artifact {
 	packages: {

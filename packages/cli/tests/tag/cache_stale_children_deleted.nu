@@ -12,10 +12,8 @@ let id = tg --url $remote.url checkin $path
 let old = tg --url $remote.url get $id | str trim
 
 # Create a branch with two children and cache it.
-tg --url $remote.url group create a
-tg --url $remote.url group create a/k
-tg --url $remote.url tag put "a/k/l" $id
-tg --url $remote.url tag put "a/k/m" $id
+tg --url $remote.url tag put -p "a/k/l" $id
+tg --url $remote.url tag put -p "a/k/m" $id
 let k = tg --url $local.url resolve "a/k" | str trim
 assert equal $k $old "the branch should resolve to its newest child"
 

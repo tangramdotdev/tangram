@@ -10,9 +10,18 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Process(_)) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let request = match_cache_request(&arg);
+		let local_arg = arg.clone();
 		let entries = self
-			.named_entries(arg.location.as_ref(), arg.cached, &request, arg.ttl)
+			.query_named_entries(
+				arg.location.as_ref(),
+				arg.cached,
+				arg.ttl,
+				crate::list::remote::Query::Match(arg.clone()),
+				move |entries| {
+					let data = filter_entries(entries, &local_arg);
+					crate::list::sort_and_truncate(data, local_arg.reverse, local_arg.length)
+				},
+			)
 			.await?;
 		let data = filter_entries(entries, &arg);
 		let data = crate::list::sort_and_truncate(data, arg.reverse, arg.length);
@@ -74,13 +83,4 @@ fn filter_entries(
 				&& crate::list::entry_kind_enabled(entry, &kinds)
 		})
 		.collect()
-}
-
-fn match_cache_request(arg: &tg::match_::Arg) -> String {
-	let mut arg = arg.clone();
-	arg.cached = false;
-	arg.location = None;
-	arg.ttl = None;
-
-	crate::remote::cache::request("match", &arg)
 }

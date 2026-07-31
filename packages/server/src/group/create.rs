@@ -90,33 +90,73 @@ impl Session {
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::Group> {
-		if Self::try_get_specifier_with_transaction(transaction, &arg.specifier)
-			.await?
-			.is_some()
+		if let Some(item) =
+			Self::try_get_specifier_with_transaction(transaction, &arg.specifier).await?
 		{
+			if arg.parents && item.kind() == tg::id::Kind::Group {
+				let token = self.create_read_token(&item.id)?;
+				return Ok(tg::Group {
+					id: item.id.try_into()?,
+					location: Some(tg::Location::Local(tg::location::Local::default())),
+					name: item.name,
+					parent: item.parent,
+					specifier: item.specifier,
+					token,
+				});
+			}
 			return Err(tg::error!("specifier is already in use"));
 		}
-		let parent = if let Some(parent) = arg.specifier.parent() {
-			let parent = Self::try_get_specifier_with_transaction(transaction, &parent)
+		let parent = if arg.parents {
+			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
 				.await?
-				.ok_or_else(|| tg::error!("the parent does not exist"))?;
-			if parent.kind() == tg::id::Kind::Tag {
-				return Err(tg::error!("a tag cannot be a parent"));
-			}
-			Some(parent.id)
 		} else {
-			None
+			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
 		};
 		let item = self
 			.create_group_item_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
 			.await?;
+		let token = self.create_read_token(&item.id)?;
 		Ok(tg::Group {
 			id: item.id.try_into()?,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: item.name,
 			parent: item.parent,
 			specifier: item.specifier,
+			token,
 		})
+	}
+
+	pub(crate) async fn create_parent_groups_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+		batch: &mut tangram_index::batch::Arg,
+	) -> tg::Result<Option<tg::Id>> {
+		if specifier.components().next().is_none() {
+			return Err(tg::error!("invalid specifier"));
+		}
+		let mut parent = None;
+		for specifier in specifier.ancestors() {
+			let item =
+				match Self::try_get_specifier_with_transaction(transaction, &specifier).await? {
+					Some(item) => item,
+					None => {
+						self.create_group_item_with_transaction(
+							transaction,
+							&specifier,
+							parent.as_ref(),
+							batch,
+						)
+						.await?
+					},
+				};
+			if item.kind() == tg::id::Kind::Tag {
+				return Err(tg::error!("a tag cannot be a parent"));
+			}
+			parent = Some(item.id);
+		}
+
+		Ok(parent)
 	}
 
 	async fn create_group_item_with_transaction(
@@ -176,6 +216,26 @@ impl Session {
 				.await?;
 		}
 		Ok(item)
+	}
+
+	pub(crate) async fn resolve_parent_for_specifier_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Option<tg::Id>> {
+		if specifier.components().next().is_none() {
+			return Err(tg::error!("invalid specifier"));
+		}
+		let Some(parent) = specifier.parent() else {
+			return Ok(None);
+		};
+		let parent = Self::try_get_specifier_with_transaction(transaction, &parent)
+			.await?
+			.ok_or_else(|| tg::error!("the parent does not exist"))?;
+		if parent.kind() == tg::id::Kind::Tag {
+			return Err(tg::error!("a tag cannot be a parent"));
+		}
+
+		Ok(Some(parent.id))
 	}
 
 	pub(crate) async fn create_group_request(

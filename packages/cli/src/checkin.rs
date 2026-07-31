@@ -84,8 +84,14 @@ pub struct TagTtl {
 }
 
 impl TagTtl {
-	fn get(&self) -> Option<Duration> {
-		if self.no_tag_ttl { None } else { self.tag_ttl }
+	fn get(&self) -> tg::remote::cache::Ttl {
+		if self.no_tag_ttl {
+			tg::remote::cache::Ttl::Infinite
+		} else {
+			self.tag_ttl
+				.map(tg::remote::cache::Ttl::Duration)
+				.unwrap_or_default()
+		}
 	}
 }
 

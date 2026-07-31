@@ -95,7 +95,7 @@ impl Cli {
 					pattern: pattern.clone(),
 					reverse: true,
 					tags: true,
-					ttl: None,
+					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
 				let compatible = client
@@ -118,7 +118,7 @@ impl Cli {
 					pattern,
 					reverse: true,
 					tags: true,
-					ttl: None,
+					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
 				let latest =

@@ -6,10 +6,6 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-for group in [directory file root] {
-	tg --url $local.url group create $group
-}
-
 # Create a single file (not a directory).
 let path = artifact {
 	root.tg.ts: '

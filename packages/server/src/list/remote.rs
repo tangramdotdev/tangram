@@ -1,12 +1,18 @@
 use {
 	crate::{Session, location::Remote},
-	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+pub(crate) enum Query {
+	List(tg::list::Arg),
+	Match(tg::match_::Arg),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct Key {
-	pub arg: tg::list::Arg,
+	pub principal: tg::Principal,
+	pub query: Query,
 	pub remote: String,
 }
 
@@ -18,25 +24,61 @@ impl Session {
 		&self,
 		remote: Remote,
 		cached: bool,
-		request: &str,
-		ttl: Option<Duration>,
+		ttl: tg::remote::cache::Ttl,
+		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let arg = snapshot_arg(remote.regions.clone());
+		self.list_remote_inner(remote, cached, None, ttl, query)
+			.await
+	}
+
+	pub(super) async fn list_remote_with_request(
+		&self,
+		remote: Remote,
+		cached: bool,
+		request: &str,
+		ttl: tg::remote::cache::Ttl,
+		query: Query,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		self.list_remote_inner(remote, cached, Some(request), ttl, query)
+			.await
+	}
+
+	async fn list_remote_inner(
+		&self,
+		remote: Remote,
+		cached: bool,
+		request: Option<&str>,
+		ttl: tg::remote::cache::Ttl,
+		query: Query,
+	) -> tg::Result<Vec<tg::list::Entry>> {
+		let query = query.with_regions(remote.regions.clone());
 		let key = Key {
-			arg: arg.clone(),
+			principal: self.context.principal.clone(),
+			query: query.clone(),
 			remote: remote.name.clone(),
 		};
-		let request = crate::remote::cache::request("entries", &(request, &remote.regions));
+		let request = match request {
+			None => crate::remote::cache::request("entries", &query),
+			Some(request) => crate::remote::cache::request("entries", &(request, &query)),
+		};
 		if let Some(mut entries) = self
 			.try_get_cached_remote_response::<Vec<tg::list::Entry>>(&remote.name, &request, ttl)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
-			for entry in &mut entries {
-				set_entry_location(entry, &remote.name);
-			}
+			let valid = entries
+				.iter()
+				.all(|entry| crate::remote::cache::token_valid(entry.token()));
+			if valid || cached {
+				for entry in &mut entries {
+					if !crate::remote::cache::token_valid(entry.token()) {
+						entry.set_token(None);
+					}
+					set_entry_location(entry, &remote.name);
+				}
 
-			return Ok(entries);
+				return Ok(entries);
+			}
 		}
 		if cached {
 			return Ok(Vec::new());
@@ -67,17 +109,93 @@ impl Session {
 	}
 
 	async fn list_remote_task(&self, key: Key) -> tg::Result<Vec<tg::list::Entry>> {
-		let Key { arg, remote } = key;
+		let Key {
+			principal: _,
+			query,
+			remote,
+		} = key;
 		let client = self
 			.get_remote_session(&remote)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
-		let output = client
-			.list(arg.clone())
-			.await
-			.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?;
+		let data = match query {
+			Query::List(arg) => {
+				client
+					.list(arg)
+					.await
+					.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?
+					.data
+			},
+			Query::Match(arg) => {
+				client
+					.match_(arg)
+					.await
+					.map_err(|error| tg::error!(!error, %remote, "failed to match entries"))?
+					.data
+			},
+		};
 
-		Ok(output.data)
+		Ok(data)
+	}
+}
+
+impl Query {
+	#[must_use]
+	pub(super) fn with_exact_specifier(specifier: &tg::Specifier) -> Self {
+		let component = tg::specifier::pattern::Component::new(format!("={}", specifier.name()));
+		let pattern = match specifier.parent() {
+			None => tg::specifier::Pattern::with_component(component),
+			Some(parent) => tg::specifier::Pattern::with_parent_and_component(parent, component),
+		};
+		let arg = tg::match_::Arg {
+			cached: false,
+			groups: true,
+			length: Some(1),
+			location: None,
+			organizations: true,
+			pattern,
+			reverse: false,
+			tags: true,
+			ttl: tg::remote::cache::Ttl::default(),
+			users: true,
+		};
+
+		Self::Match(arg)
+	}
+
+	#[must_use]
+	pub(super) fn with_snapshot() -> Self {
+		let arg = tg::list::Arg {
+			cached: false,
+			groups: true,
+			length: None,
+			location: None,
+			organizations: true,
+			parent: None,
+			recursive: true,
+			reverse: false,
+			tags: true,
+			ttl: tg::remote::cache::Ttl::default(),
+			users: true,
+		};
+
+		Self::List(arg)
+	}
+
+	#[must_use]
+	fn with_regions(mut self, regions: Option<Vec<String>>) -> Self {
+		let location = Some(tg::location::Arg(vec![
+			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
+		]));
+		let (cached, query_location, ttl) = match &mut self {
+			Self::List(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
+			Self::Match(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
+		};
+		*cached = false;
+		*query_location = location;
+		*ttl = tg::remote::cache::Ttl::default();
+
+		self
 	}
 }
 
@@ -111,20 +229,40 @@ fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
 	}
 }
 
-fn snapshot_arg(regions: Option<Vec<String>>) -> tg::list::Arg {
-	tg::list::Arg {
-		cached: false,
-		groups: true,
-		length: None,
-		location: Some(tg::location::Arg(vec![
-			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
-		])),
-		organizations: true,
-		parent: None,
-		recursive: true,
-		reverse: false,
-		tags: true,
-		ttl: None,
-		users: true,
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn query_preserves_limits_and_filters() {
+		let list = tg::list::Arg {
+			groups: false,
+			length: Some(7),
+			recursive: true,
+			reverse: true,
+			..Default::default()
+		};
+		let Query::List(list) = Query::List(list).with_regions(None) else {
+			unreachable!();
+		};
+		assert!(!list.groups);
+		assert_eq!(list.length, Some(7));
+		assert!(list.recursive);
+		assert!(list.reverse);
+
+		let match_ = tg::match_::Arg {
+			length: Some(3),
+			organizations: false,
+			reverse: true,
+			users: false,
+			..Default::default()
+		};
+		let Query::Match(match_) = Query::Match(match_).with_regions(None) else {
+			unreachable!();
+		};
+		assert_eq!(match_.length, Some(3));
+		assert!(!match_.organizations);
+		assert!(match_.reverse);
+		assert!(!match_.users);
 	}
 }
