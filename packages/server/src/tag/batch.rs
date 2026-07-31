@@ -29,18 +29,23 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		for item in &arg.tags {
-			if let Some(permission) = self.write_permission_for_specifier(&item.specifier).await? {
-				let authorized = self
-					.authorize(
-						tg::grant::Resource::Specifier(item.specifier.clone()),
-						permission,
-					)
-					.await?;
-				if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
-					return Err(tg::error!("unauthorized"));
-				}
-			}
+		let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
+		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let authorizations = arg
+			.tags
+			.iter()
+			.map(|item| {
+				(
+					tg::grant::Resource::Specifier(item.specifier.clone()),
+					permissions,
+				)
+			})
+			.collect::<Vec<_>>();
+		let authorized = self.authorize_batch(authorizations).await?;
+		if authorized.into_iter().any(|permissions| {
+			permissions.is_some_and(|permissions| !permissions.contains(permission))
+		}) {
+			return Err(tg::error!("unauthorized"));
 		}
 		let mut permissions = Vec::with_capacity(arg.tags.len());
 		for item in &arg.tags {

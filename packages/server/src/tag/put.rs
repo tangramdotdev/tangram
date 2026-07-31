@@ -31,16 +31,15 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		if let Some(permission) = self.write_permission_for_specifier(&arg.specifier).await? {
-			let authorized = self
-				.authorize(
-					tg::grant::Resource::Specifier(arg.specifier.clone()),
-					permission,
-				)
-				.await?;
-			if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
-				return Err(tg::error!("unauthorized"));
-			}
+		let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
+		let authorized = self
+			.authorize(
+				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				permission,
+			)
+			.await?;
+		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
+			return Err(tg::error!("unauthorized"));
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
@@ -238,31 +237,5 @@ impl Session {
 			tg::Principal::User(user) => Some(tg::grant::Principal::User(user.clone())),
 			_ => None,
 		}
-	}
-
-	pub(crate) async fn write_permission_for_specifier(
-		&self,
-		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::grant::Permission>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-		prefixes.reverse();
-		for prefix in prefixes {
-			if let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(&transaction, &prefix).await?
-			{
-				return Self::write_permission_for_resource(&id).map(Some);
-			}
-		}
-		Ok(None)
 	}
 }

@@ -8,10 +8,8 @@ use {
 };
 
 pub(super) struct SyncGetInputArg {
-	pub database_sender: tokio::sync::mpsc::Sender<super::database::Item>,
 	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
 	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
-	pub sandbox_sender: tokio::sync::mpsc::Sender<super::sandbox::Item>,
 	pub state: std::sync::Arc<State>,
 	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
 	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
@@ -22,10 +20,8 @@ impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(&self, arg: SyncGetInputArg) -> tg::Result<()> {
 		let SyncGetInputArg {
-			database_sender,
 			index_object_sender,
 			index_process_sender,
-			sandbox_sender,
 			state,
 			store_object_sender,
 			store_process_sender,
@@ -35,11 +31,8 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Group(message)) => {
-					let item = super::database::Item::Group(message);
-					database_sender
-						.send(item)
-						.await
-						.map_err(|_| tg::error!("failed to send the group to the database task"))?;
+					let message = tg::sync::PutItemMessage::Group(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
@@ -115,10 +108,8 @@ impl Session {
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Organization(message)) => {
-					let item = super::database::Item::Organization(message);
-					database_sender.send(item).await.map_err(|_| {
-						tg::error!("failed to send the organization to the database task")
-					})?;
+					let message = tg::sync::PutItemMessage::Organization(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
@@ -190,26 +181,32 @@ impl Session {
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Sandbox(message)) => {
-					let item = super::sandbox::Item { message };
-					sandbox_sender.send(item).await.map_err(|_| {
-						tg::error!("failed to send the sandbox to the sandbox task")
-					})?;
+					let mut message = message;
+					if message.data.id != message.id {
+						return Err(tg::error!(
+							expected = %message.id,
+							actual = %message.data.id,
+							"invalid sandbox id"
+						));
+					}
+					if !message.data.status.is_destroyed() {
+						return Err(tg::error!(id = %message.id, "cannot sync a running sandbox"));
+					}
+					message.data.location =
+						Some(tg::Location::Local(tg::location::Local::default()));
+					message.data.token = None;
+					let message = tg::sync::PutItemMessage::Sandbox(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Tag(message)) => {
-					let item = super::database::Item::Tag(message);
-					database_sender
-						.send(item)
-						.await
-						.map_err(|_| tg::error!("failed to send the tag to the database task"))?;
+					let message = tg::sync::PutItemMessage::Tag(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::User(message)) => {
-					let item = super::database::Item::User(message);
-					database_sender
-						.send(item)
-						.await
-						.map_err(|_| tg::error!("failed to send the user to the database task"))?;
+					let message = tg::sync::PutItemMessage::User(message);
+					Self::sync_get_input_item(state, message)?;
 				},
 
 				tg::sync::PutMessage::Missing(message) => match message.id.kind() {
@@ -259,5 +256,29 @@ impl Session {
 			}
 		}
 		Err(tg::error!("failed to receive the put end message"))
+	}
+
+	fn sync_get_input_item(state: &State, message: tg::sync::PutItemMessage) -> tg::Result<()> {
+		let id = match &message {
+			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
+				return Err(tg::error!("invalid sync item kind"));
+			},
+			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Sandbox(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+		};
+		state
+			.graph
+			.lock()
+			.unwrap()
+			.update_item_local_message(message)?;
+		state.progress.increment_transferred_item(&id);
+		if state.graph.lock().unwrap().end_local(&state.arg) {
+			state.queue.close();
+		}
+
+		Ok(())
 	}
 }

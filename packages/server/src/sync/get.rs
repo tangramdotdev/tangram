@@ -13,7 +13,6 @@ mod database;
 mod index;
 mod input;
 mod queue;
-mod sandbox;
 mod store;
 
 struct State {
@@ -74,8 +73,6 @@ impl Session {
 		}
 
 		// Create the channels.
-		let (database_sender, database_receiver) =
-			tokio::sync::mpsc::channel::<self::database::Item>(256);
 		let (store_object_sender, store_object_receiver) =
 			tokio::sync::mpsc::channel::<self::store::ObjectItem>(256);
 		let (store_process_sender, store_process_receiver) =
@@ -84,17 +81,12 @@ impl Session {
 			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
 		let (index_process_sender, index_process_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ProcessItem>(256);
-		let (sandbox_sender, sandbox_receiver) =
-			tokio::sync::mpsc::channel::<self::sandbox::Item>(256);
-
 		// Create the input future.
 		let input_future = {
 			let session = self.clone();
 			let arg = self::input::SyncGetInputArg {
-				database_sender,
 				index_object_sender,
 				index_process_sender,
-				sandbox_sender,
 				state: state.clone(),
 				store_object_sender,
 				store_process_sender,
@@ -114,11 +106,6 @@ impl Session {
 			)
 			.instrument(tracing::Span::current());
 
-		// Create the database future.
-		let database_future = self
-			.sync_get_database(state.clone(), database_receiver)
-			.instrument(tracing::Span::current());
-
 		// Create the index future.
 		let index_future = self
 			.sync_get_index(state.clone(), index_object_receiver, index_process_receiver)
@@ -135,11 +122,6 @@ impl Session {
 			}
 			.instrument(tracing::Span::current())
 		};
-
-		// Create the sandbox future.
-		let sandbox_future = self
-			.sync_get_sandbox(state.clone(), sandbox_receiver)
-			.instrument(tracing::Span::current());
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
@@ -162,7 +144,7 @@ impl Session {
 			move |graph| {
 				tokio::spawn(
 					async move {
-						if let Err(error) = session.sync_get_index_put(graph).await {
+						if let Err(error) = session.sync_get_index_put_partial(graph).await {
 							tracing::error!(error = %error.trace(), "failed to index the partial sync");
 						}
 					}
@@ -172,18 +154,11 @@ impl Session {
 		});
 
 		// Await the futures.
-		futures::try_join!(
-			database_future,
-			index_future,
-			input_future,
-			queue_future,
-			sandbox_future,
-			store_future
-		)?;
+		futures::try_join!(index_future, input_future, queue_future, store_future)?;
 
-		// Index the objects and processes.
+		// Index the objects, processes, and sandboxes and finalize the graph permissions.
 		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
-		self.sync_get_index_put(graph).await?;
+		self.sync_get_index_put(graph.clone()).await?;
 
 		// Stop and await the progress task.
 		progress_task.stop();
@@ -191,6 +166,9 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
+
+		// Commit the database items.
+		self.sync_get_database(&graph).await?;
 
 		Ok(())
 	}

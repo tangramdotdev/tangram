@@ -255,7 +255,17 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let data = Self::get_tag_data_with_transaction(&transaction, id).await?;
+		self.create_tag_item_token_with_transaction(&transaction, id, item)
+			.await
+	}
+
+	pub(crate) async fn create_tag_item_token_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::tag::Id,
+		item: &tg::Id,
+	) -> tg::Result<Option<tg::grant::Token>> {
+		let data = Self::get_tag_data_with_transaction(transaction, id).await?;
 		let actual: tg::Id = match data.item {
 			tg::tag::data::Item::Object(id) => id.into(),
 			tg::tag::data::Item::Process(id) => id.into(),

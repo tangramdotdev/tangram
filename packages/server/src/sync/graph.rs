@@ -48,7 +48,7 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ItemNode {
 	pub children: Option<Vec<usize>>,
-	pub local_applied: bool,
+	pub local_message: Option<tg::sync::PutItemMessage>,
 	pub local_requested: bool,
 	pub parents: SmallVec<[Parent; 1]>,
 	pub remote_requested: bool,
@@ -156,12 +156,49 @@ impl Graph {
 		self.get_end_received = true;
 	}
 
-	pub fn update_item_local_applied(&mut self, id: &tg::Id) {
+	pub fn insert_remote_root(&mut self, id: tg::Id) {
+		self.remote_roots.insert(id);
+	}
+
+	pub fn local_messages(&self) -> Vec<tg::sync::PutItemMessage> {
+		self.nodes
+			.values()
+			.filter_map(|node| match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => node.local_message.clone(),
+				Node::Object(_) | Node::Process(_) => None,
+			})
+			.collect()
+	}
+
+	pub fn update_item_local_message(
+		&mut self,
+		message: tg::sync::PutItemMessage,
+	) -> tg::Result<()> {
+		let id = match &message {
+			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
+				return Err(tg::error!("invalid sync item kind"));
+			},
+			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Sandbox(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+		};
 		let node = self
 			.nodes
-			.entry(id.clone())
-			.or_insert_with(|| Node::for_id(id));
-		node.unwrap_item_mut().local_applied = true;
+			.entry(id)
+			.or_insert_with_key(Node::for_id)
+			.unwrap_item_mut();
+		if node.local_message.is_some() {
+			return Err(tg::error!("received the item more than once"));
+		}
+		node.local_message = Some(message);
+
+		Ok(())
 	}
 
 	pub fn update_item_local_requested(
@@ -1036,7 +1073,7 @@ impl Graph {
 				| Node::Organization(node)
 				| Node::Sandbox(node)
 				| Node::Tag(node)
-				| Node::User(node) => node.local_applied,
+				| Node::User(node) => node.local_message.is_some(),
 				Node::Object(_) => {
 					self.object_local_visible(self.nodes.get_index_of(root).unwrap())
 				},
@@ -1099,20 +1136,65 @@ impl Graph {
 				.remote_stored
 				.as_ref()
 				.is_some_and(|stored| stored.subtree),
-			Node::Process(node) => node.remote_stored.as_ref().is_some_and(|stored| {
-				if arg.process_children {
-					stored.subtree
-						&& (!arg.process_commands || stored.subtree_command)
-						&& (!arg.process_errors || stored.subtree_error)
-						&& (!arg.process_logs || stored.subtree_log)
-						&& (!arg.process_outputs || stored.subtree_output)
-				} else {
-					(!arg.process_commands || stored.node_command)
-						&& (!arg.process_errors || stored.node_error)
-						&& (!arg.process_logs || stored.node_log)
-						&& (!arg.process_outputs || stored.node_output)
-				}
-			}),
+			Node::Process(node) => {
+				let Some(stored) = node.remote_stored.as_ref() else {
+					return false;
+				};
+				let children_complete = !arg.process_children
+					|| stored.subtree
+					|| node.children.as_ref().is_some_and(|children| {
+						children.iter().all(|index| {
+							let id = self.nodes.get_index(*index).unwrap().0;
+							self.remote_complete(id, arg, &mut visited.clone())
+						})
+					});
+				let object_complete = |kind| {
+					node.objects
+						.iter()
+						.flatten()
+						.filter(|(_, candidate)| std::mem::discriminant(candidate) == kind)
+						.all(|(index, _)| {
+							let id = self.nodes.get_index(*index).unwrap().0;
+							self.remote_complete(id, arg, &mut visited.clone())
+						})
+				};
+				let command_complete = !arg.process_commands
+					|| if arg.process_children {
+						stored.subtree_command
+					} else {
+						stored.node_command
+					} || object_complete(std::mem::discriminant(
+					&tangram_index::process::object::Kind::Command,
+				));
+				let error_complete = !arg.process_errors
+					|| if arg.process_children {
+						stored.subtree_error
+					} else {
+						stored.node_error
+					} || object_complete(std::mem::discriminant(
+					&tangram_index::process::object::Kind::Error,
+				));
+				let log_complete = !arg.process_logs
+					|| if arg.process_children {
+						stored.subtree_log
+					} else {
+						stored.node_log
+					} || object_complete(std::mem::discriminant(
+					&tangram_index::process::object::Kind::Log,
+				));
+				let output_complete = !arg.process_outputs
+					|| if arg.process_children {
+						stored.subtree_output
+					} else {
+						stored.node_output
+					} || object_complete(std::mem::discriminant(
+					&tangram_index::process::object::Kind::Output,
+				));
+				children_complete
+					&& command_complete
+					&& error_complete
+					&& log_complete && output_complete
+			},
 		}
 	}
 

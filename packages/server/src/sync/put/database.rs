@@ -14,7 +14,7 @@ pub struct Item {
 }
 
 struct Output {
-	children: Vec<tg::Id>,
+	children: Vec<tg::Referent<tg::Id>>,
 	message: tg::sync::PutItemMessage,
 }
 
@@ -71,13 +71,18 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to send the item"))?;
 
 		// Update the graph and enqueue the children.
-		state
-			.graph
-			.lock()
-			.unwrap()
-			.update_item_remote_sent(&item.id, &output.children);
+		state.graph.lock().unwrap().update_item_remote_sent(
+			&item.id,
+			&output
+				.children
+				.iter()
+				.map(|child| child.item.clone())
+				.collect::<Vec<_>>(),
+		);
 		for child in output.children {
-			state.queue.enqueue(item.eager, child, None)?;
+			state
+				.queue
+				.enqueue(item.eager, child.item, child.options.token)?;
 		}
 		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
@@ -146,7 +151,6 @@ impl Session {
 					item,
 					name: data.name,
 					parent: data.parent,
-					permissions: data.permissions,
 					specifier: data.specifier,
 				})
 			},
@@ -174,7 +178,7 @@ impl Session {
 		state: &State,
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::Id,
-	) -> tg::Result<Vec<tg::Id>> {
+	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
 		let enabled = match id.kind() {
 			tg::id::Kind::Group => state.arg.group_children,
 			tg::id::Kind::Organization => state.arg.organization_children,
@@ -186,16 +190,20 @@ impl Session {
 			return Ok(Vec::new());
 		}
 		if id.kind() == tg::id::Kind::Tag {
-			let id = id.clone().try_into()?;
-			let item = Self::get_tag_data_with_transaction(transaction, &id)
+			let tag = id.clone().try_into()?;
+			let item = Self::get_tag_data_with_transaction(transaction, &tag)
 				.await?
 				.item;
 			let id = match item {
 				tg::tag::data::Item::Object(id) => id.into(),
 				tg::tag::data::Item::Process(id) => id.into(),
 			};
+			let token = self
+				.create_tag_item_token_with_transaction(transaction, &tag, &id)
+				.await?;
+			let item = tg::Referent::with_item_and_token(id, token);
 
-			return Ok(vec![id]);
+			return Ok(vec![item]);
 		}
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -215,7 +223,10 @@ impl Session {
 			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let children = rows.into_iter().map(|row| row.id).collect();
+		let children = rows
+			.into_iter()
+			.map(|row| tg::Referent::with_item(row.id))
+			.collect();
 
 		Ok(children)
 	}

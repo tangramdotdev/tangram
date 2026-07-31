@@ -16,6 +16,11 @@ impl Session {
 				tg::sync::GetMessage::Item(message) => {
 					tracing::trace!(id = %message.id, "received get item");
 					state
+						.graph
+						.lock()
+						.unwrap()
+						.insert_remote_root(message.id.clone());
+					state
 						.queue
 						.enqueue(message.eager, message.id, message.token)?;
 				},

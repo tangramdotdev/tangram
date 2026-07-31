@@ -292,10 +292,7 @@ pub struct PutItemTagMessage {
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
 
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub permissions: Vec<tg::grant::Permission>,
-
-	#[tangram_serialize(id = 5)]
+	#[tangram_serialize(id = 4)]
 	pub specifier: tg::Specifier,
 }
 

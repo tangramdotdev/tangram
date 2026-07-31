@@ -233,6 +233,86 @@ async fn deny_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id
 }
 
 #[tokio::test]
+async fn authorize_new_specifier_with_parent_write_permission() {
+	let (_dir, index) = new_index();
+	let alice = tg::user::Id::new();
+	let group = tg::group::Id::new();
+	let outsider = tg::user::Id::new();
+	let writer = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	Index::put_users_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut txn,
+		&[crate::user::put::Arg {
+			id: alice.clone(),
+			specifier: "alice".parse().unwrap(),
+		}],
+	)
+	.unwrap();
+	Index::put_groups_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut txn,
+		&[crate::group::put::Arg {
+			id: group,
+			parent: Some(alice.clone().into()),
+			specifier: "alice/taken".parse().unwrap(),
+		}],
+	)
+	.unwrap();
+	put_resource_grant(
+		&index,
+		&mut txn,
+		alice.into(),
+		tg::grant::Principal::User(writer.clone()),
+		tg::grant::Permission::User(tg::grant::permission::user::Permission::Write),
+	);
+	txn.commit().unwrap();
+
+	let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
+	let permissions = tg::grant::permission::Set::from_permission(permission);
+	let args = [
+		crate::authorize::Arg {
+			permissions,
+			resource: tg::grant::Resource::Specifier("alice/new".parse().unwrap()),
+			token: None,
+		},
+		crate::authorize::Arg {
+			permissions,
+			resource: tg::grant::Resource::Specifier("alice/taken".parse().unwrap()),
+			token: None,
+		},
+		crate::authorize::Arg {
+			permissions,
+			resource: tg::grant::Resource::Specifier("unclaimed/new".parse().unwrap()),
+			token: None,
+		},
+	];
+	let outputs = index
+		.authorize_batch(&args, &tg::Principal::User(writer))
+		.await
+		.unwrap();
+	assert!(
+		outputs[0]
+			.as_ref()
+			.is_some_and(|output| output.permissions.contains(permission))
+	);
+	assert!(outputs[1].is_none());
+	assert!(outputs[2].is_none());
+
+	let outputs = index
+		.authorize_batch(&args[..1], &tg::Principal::User(outsider))
+		.await
+		.unwrap();
+	assert!(
+		outputs[0]
+			.as_ref()
+			.is_some_and(|output| !output.permissions.contains(permission))
+	);
+}
+
+#[tokio::test]
 async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	let (_dir, index) = new_index();
 	let node_reader = tg::user::Id::new();
