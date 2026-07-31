@@ -280,7 +280,7 @@ impl Sandbox {
 			},
 		};
 
-		// Drop the fuse socket now that the sandbox has inherited it.
+		// Drop the FUSE socket now that the sandbox has inherited it.
 		#[cfg(target_os = "linux")]
 		let arg = Arg {
 			fuse_fd: None,

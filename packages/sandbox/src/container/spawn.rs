@@ -127,7 +127,7 @@ pub(crate) async fn spawn(
 			.arg(fuse_fd.as_raw_fd().to_string())
 			.arg("--fuse-path")
 			.arg(&arg.artifacts_path);
-		// Clear CLOEXEC on the fuse socket after forking so only the sandbox inherits it.
+		// Clear CLOEXEC on the FUSE socket after forking so only the sandbox inherits it.
 		let raw = fuse_fd.as_raw_fd();
 		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 		unsafe {

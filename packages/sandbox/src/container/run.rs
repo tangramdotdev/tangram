@@ -185,19 +185,19 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		}
 		unshare(flags, "failed to unshare the sandbox namespaces")?;
 
-		// Mount the fuse filesystem in the new namespaces and send its descriptor to the host.
+		// Mount the FUSE filesystem in the new namespaces and send its descriptor to the host.
 		if let Some(fuse_fd) = arg.fuse_fd {
 			let path = arg
 				.fuse_path
 				.as_ref()
-				.ok_or_else(|| tg::error!("the fuse mount requires a path"))?;
+				.ok_or_else(|| tg::error!("the FUSE mount requires a path"))?;
 			if fuse_fd < 0 {
-				return Err(tg::error!(fd = %fuse_fd, "the fuse mount requires a valid socket fd"));
+				return Err(tg::error!(fd = %fuse_fd, "the FUSE mount requires a valid socket fd"));
 			}
 			// SAFETY: The descriptor is inherited from the host and is exclusively owned here.
 			let sendfd = unsafe { OwnedFd::from_raw_fd(fuse_fd) };
 			tangram_vfs::fuse::mount_dev_fuse(&sendfd, path)
-				.map_err(|error| tg::error!(!error, "failed to mount the fuse filesystem"))?;
+				.map_err(|error| tg::error!(!error, "failed to mount the FUSE filesystem"))?;
 		}
 	}
 

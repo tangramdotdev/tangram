@@ -96,7 +96,7 @@ impl Server {
 						None => {
 							vfs::fuse::Server::<Provider>::unmount(path).await.ok();
 							vfs::fuse::fusermount3(path).map_err(|error| {
-								tg::error!(!error, "failed to start the fuse mount helper")
+								tg::error!(!error, "failed to start the FUSE mount helper")
 							})?
 						},
 						Some(recvfd) => recvfd,

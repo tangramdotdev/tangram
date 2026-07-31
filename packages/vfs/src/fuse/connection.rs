@@ -47,10 +47,10 @@ where
 				}
 			}
 		}
-		let fd = fd.ok_or_else(|| std::io::Error::other("failed to receive the fuse fd"))?;
+		let fd = fd.ok_or_else(|| std::io::Error::other("failed to receive the FUSE fd"))?;
 		rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(Error::from)?;
 
-		// A sandbox sends the connection id with the descriptor, while fusermount3 sends a single byte.
+		// A sandbox sends the connection ID with the descriptor, while fusermount3 sends a single byte.
 		let connection_id = (recv.bytes == 8).then(|| u64::from_le_bytes(read_buffer));
 
 		Ok((Arc::new(fd), connection_id))

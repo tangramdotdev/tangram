@@ -10,6 +10,11 @@ const SQPOLL_IDLE_MS: u32 = 2_000;
 
 type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
+struct Mount {
+	connection_id: Option<u64>,
+	fd: Arc<OwnedFd>,
+}
+
 struct StartupConfig {
 	limits: RequestLimits,
 	options: Options,
@@ -32,12 +37,10 @@ where
 		recvfd: OwnedFd,
 	) -> Result<Self> {
 		// Receive the mounted FUSE descriptor.
-		let (fd, connection_id) = tokio::task::spawn_blocking(move || Self::mount(&recvfd))
-			.await
-			.map_err(Error::other)?
-			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+		let mount = Self::receive_mount(recvfd).await?;
+		let connection_id = mount.connection_id;
 
-		let result = Self::start_inner(provider, path, options, fd, connection_id).await;
+		let result = Self::start_inner(provider, path, options, mount).await;
 
 		// Unmount if we encounter an error. A sandbox's mount lives in its mount namespace and cannot be unmounted from the host.
 		if result.is_err() && connection_id.is_none() {
@@ -47,29 +50,37 @@ where
 		result
 	}
 
+	async fn receive_mount(recvfd: OwnedFd) -> Result<Mount> {
+		let (fd, connection_id) = tokio::task::spawn_blocking(move || Self::mount(&recvfd))
+			.await
+			.map_err(Error::other)?
+			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+		let mount = Mount { connection_id, fd };
+		Ok(mount)
+	}
+
 	async fn start_inner(
 		provider: P,
 		path: &Path,
-		options: Options,
-		fd: Arc<OwnedFd>,
-		connection_id: Option<u64>,
+		mut options: Options,
+		mount: Mount,
 	) -> Result<Self> {
+		// Select ReadWrite before initializing an external connection because it cannot be remounted for a fallback.
+		let auto_unmount = mount.connection_id.is_none();
+		if !auto_unmount && options.io == Io::Auto {
+			options.io = Io::ReadWrite;
+		}
+
 		// Prepare the FUSE connection.
 		let supports_no_opendir = provider.supports_no_opendir();
 		let mut config = Self::startup_config(options)?;
-		let (mut connection, mut sqpoll_ring) = Self::prepare_connection(
-			path,
-			supports_no_opendir,
-			&mut config,
-			fd.clone(),
-			connection_id,
-		)
-		.await?;
+		let (mut connection, mut sqpoll_ring) =
+			Self::prepare_connection(path, supports_no_opendir, &mut config, mount).await?;
 
 		// Create the server state.
 		let server = Self(Arc::new(State {
 			active_requests: Mutex::new(HashMap::new()),
-			auto_unmount: connection_id.is_none(),
+			auto_unmount,
 			no_opendir_support: connection.features.no_opendir_support,
 			passthrough_backings: Mutex::new(PassthroughBackings::default()),
 			passthrough_enabled: connection.features.passthrough,
@@ -114,13 +125,14 @@ where
 					config.options.io = Io::ReadWrite;
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
+					let mount = Self::remount(path).await?;
 					connection = Self::connect(
 						path,
 						config.options,
 						config.limits,
 						supports_no_opendir,
-						fd.clone(),
-						connection_id,
+						mount.fd,
+						mount.connection_id,
 					)
 					.await?;
 					server.validate_fallback_features(connection.features)?;
@@ -239,8 +251,7 @@ where
 		path: &Path,
 		supports_no_opendir: bool,
 		config: &mut StartupConfig,
-		fd: Arc<OwnedFd>,
-		connection_id: Option<u64>,
+		mut mount: Mount,
 	) -> Result<(Connection, Option<SqpollRing>)> {
 		// Attempt to connect.
 		loop {
@@ -250,8 +261,8 @@ where
 				config.options,
 				config.limits,
 				supports_no_opendir,
-				fd.clone(),
-				connection_id,
+				mount.fd.clone(),
+				mount.connection_id,
 			)
 			.await?;
 
@@ -271,6 +282,7 @@ where
 					config.ring_config = None;
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
+					mount = Self::remount(path).await?;
 				},
 				Err(error) => return Err(error),
 				Ok(ring) => return Ok((connection, Some(ring))),
@@ -284,6 +296,13 @@ where
 		builder
 			.build(IO_URING_ENTRIES)
 			.map_err(|error| Error::other(format!("failed to build an SQPOLL ring: {error}")))
+	}
+
+	async fn remount(path: &Path) -> Result<Mount> {
+		Self::unmount(path).await.ok();
+		let recvfd = fusermount3(path)?;
+		let mount = Self::receive_mount(recvfd).await?;
+		Ok(mount)
 	}
 
 	fn validate_fallback_features(&self, features: Features) -> Result<()> {

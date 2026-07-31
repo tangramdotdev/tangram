@@ -537,22 +537,22 @@ impl Session {
 						tg::error!(!error, "failed to create the artifacts mount directory")
 					})?;
 
-				// Create the socket pair over which the sandbox sends the mounted fuse descriptor.
+				// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
 				let (sendfd, recvfd) = rustix::net::socketpair(
 					rustix::net::AddressFamily::UNIX,
 					rustix::net::SocketType::STREAM,
 					rustix::net::SocketFlags::CLOEXEC,
 					None,
 				)
-				.map_err(|error| tg::error!(!error, "failed to create the fuse socket pair"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
 
 				// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
 				let options = self.server.config.vfs.clone().unwrap_or_default();
-				let vfs_task = tokio::spawn({
+				let vfs_task = Task::spawn({
 					let server = self.server.clone();
 					let principal = principal.clone();
 					let mount_path = mount_path.clone();
-					async move {
+					move |_| async move {
 						crate::vfs::Server::start(
 							&server,
 							crate::vfs::Kind::Fuse,
@@ -635,12 +635,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, ?expected_id, "failed to create the sandbox"))?;
 
-		// Wait for the per-sandbox VFS, which finishes starting once the sandbox mounts the filesystem and sends the fuse descriptor.
+		// Wait for the per-sandbox VFS, which finishes starting once the sandbox mounts the filesystem and sends the FUSE descriptor.
 		#[cfg(target_os = "linux")]
 		let vfs = match vfs_task {
 			None => vfs,
 			Some(vfs_task) => {
 				let vfs = vfs_task
+					.wait()
 					.await
 					.map_err(|error| tg::error!(!error, "the VFS startup task panicked"))?
 					.map_err(|error| {
