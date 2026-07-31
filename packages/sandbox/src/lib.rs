@@ -4,7 +4,6 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		net::Ipv4Addr,
-		os::fd::OwnedFd,
 		path::{Path, PathBuf},
 		sync::{
 			Arc,
@@ -73,7 +72,7 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
 	#[cfg(target_os = "linux")]
-	pub fuse_fd: Option<Arc<OwnedFd>>,
+	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,
 	pub hostname: Option<String>,
 	pub id: u64,
 	pub identity: PathBuf,

@@ -65,10 +65,10 @@ pub struct ObjectNode {
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[Parent; 1]>,
-	pub remote_eager: bool,
 	pub remote_missing: bool,
 	pub remote_requested: bool,
 	pub remote_sent: bool,
+	pub remote_sent_eager: bool,
 	pub remote_stored: Option<tangram_index::object::Stored>,
 	pub requested: Option<Requested>,
 	pub token: Option<tg::grant::Token>,
@@ -794,8 +794,8 @@ impl Graph {
 			.entry(id.clone().into())
 			.or_insert_with(|| Node::Object(ObjectNode::default()))
 			.unwrap_object_mut();
-		node.remote_eager |= eager;
 		node.remote_sent = true;
+		node.remote_sent_eager |= eager;
 	}
 
 	pub fn update_process_remote(
@@ -1164,7 +1164,7 @@ impl Graph {
 					return true;
 				}
 				node.remote_sent
-					&& (!node.remote_eager
+					&& (!node.remote_sent_eager
 						|| node.children.as_ref().is_some_and(|children| {
 							children.iter().all(|index| {
 								let id = self.nodes.get_index(*index).unwrap().0;

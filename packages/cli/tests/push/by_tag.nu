@@ -6,16 +6,21 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local
 tg remote put default $remote.url | complete
 
-let path = artifact 'hello'
+let path = artifact {
+	nested: {
+		'hello.txt': 'hello'
+	}
+}
 let id = tg checkin $path
 tg tag put -p test/1.0.0 $id
 
 # Push the group and its children.
 tg push --group-children test
 
-# The object is present on the remote.
-let object = tg --url $remote.url object get $id | complete
-success $object
+# The complete object subtree is present on the remote.
+let local_object = tg get $id --blobs --depth=inf --pretty
+let remote_object = tg --url $remote.url get $id --blobs --depth=inf --pretty
+assert equal $local_object $remote_object
 
 # The tag is present on the remote and points to the same item.
 let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
