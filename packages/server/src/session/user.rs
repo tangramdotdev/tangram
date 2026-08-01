@@ -24,6 +24,13 @@ impl tg::handle::User for Session {
 		self.try_get_user(user, arg).await
 	}
 
+	async fn manage_user_billing(
+		&self,
+		arg: tg::user::billing::manage::Arg,
+	) -> tg::Result<tg::user::billing::manage::Output> {
+		self.manage_user_billing(arg).await
+	}
+
 	async fn wait_login(
 		&self,
 		arg: tg::user::login::wait::Arg,

@@ -19,6 +19,11 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::user::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> + Send;
 
+	fn manage_user_billing(
+		&self,
+		arg: tg::user::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::billing::manage::Output>> + Send;
+
 	fn wait_login(
 		&self,
 		arg: tg::user::login::wait::Arg,
@@ -47,6 +52,13 @@ impl tg::handle::User for tg::Client {
 		arg: tg::user::get::Arg,
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		self.session(&self.context).try_get_user(user, arg).await
+	}
+
+	async fn manage_user_billing(
+		&self,
+		arg: tg::user::billing::manage::Arg,
+	) -> tg::Result<tg::user::billing::manage::Output> {
+		self.session(&self.context).manage_user_billing(arg).await
 	}
 
 	async fn wait_login(

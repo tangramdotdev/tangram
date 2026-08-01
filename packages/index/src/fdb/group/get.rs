@@ -7,6 +7,36 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_groups(
+		&self,
+		ids: &[tg::group::Id],
+	) -> tg::Result<Vec<Option<crate::group::Group>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetGroups {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetGroups(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_groups_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::group::Id],
+	) -> tg::Result<Vec<Option<crate::group::Group>>> {
+		futures::future::try_join_all(
+			ids.iter()
+				.map(|id| Self::try_get_group_with_transaction(txn, subspace, id)),
+		)
+		.await
+	}
+
 	pub(crate) async fn try_get_group_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,

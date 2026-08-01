@@ -49,4 +49,12 @@ impl tg::handle::Organization for Session {
 		self.remove_organization_member(organization, member, arg)
 			.await
 	}
+
+	async fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		self.manage_organization_billing(organization, arg).await
+	}
 }

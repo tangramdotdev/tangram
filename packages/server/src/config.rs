@@ -21,8 +21,8 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub authentication: Authentication,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub grants: Grants,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub billing: Option<Billing>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
@@ -35,6 +35,9 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub grants: Grants,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub http: Http,
@@ -205,6 +208,26 @@ pub struct Github {
 	pub redirect_url: String,
 
 	pub token_url: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Billing {
+	pub stripe: Stripe,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stripe {
+	pub secret_key: String,
+
+	#[serde(
+		default = "default_stripe_url",
+		skip_serializing_if = "is_default_stripe_url"
+	)]
+	pub url: Uri,
+
+	pub webhook_secret: String,
 }
 
 #[serde_as]
@@ -1267,6 +1290,7 @@ impl Default for Config {
 		Self {
 			advanced: Advanced::default(),
 			authentication: Authentication::default(),
+			billing: None,
 			checkin: Checkin::default(),
 			cleaner: Cleaner::default(),
 			database: Database::default(),
@@ -2007,6 +2031,10 @@ fn default_authentication_token_ttl() -> Duration {
 	Duration::from_hours(24)
 }
 
+fn default_stripe_url() -> Uri {
+	"https://api.stripe.com".parse().unwrap()
+}
+
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
 }
@@ -2082,6 +2110,10 @@ fn is_default_grant_tokens(value: &Option<TokenKeys>) -> bool {
 
 fn is_default_roles(value: &BTreeSet<Role>) -> bool {
 	*value == default_roles()
+}
+
+fn is_default_stripe_url(value: &Uri) -> bool {
+	*value == default_stripe_url()
 }
 
 #[expect(clippy::ref_option)]

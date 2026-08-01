@@ -43,6 +43,16 @@ where
 		}
 	}
 
+	fn manage_user_billing(
+		&self,
+		arg: tg::user::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::billing::manage::Output>> {
+		match self {
+			tg::Either::Left(s) => s.manage_user_billing(arg).left_future(),
+			tg::Either::Right(s) => s.manage_user_billing(arg).right_future(),
+		}
+	}
+
 	fn wait_login(
 		&self,
 		arg: tg::user::login::wait::Arg,

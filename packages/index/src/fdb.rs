@@ -247,6 +247,24 @@ impl crate::Index for Index {
 		self.try_get_cache_entries(ids).await
 	}
 
+	async fn try_get_groups(
+		&self,
+		ids: &[tg::group::Id],
+	) -> tg::Result<Vec<Option<crate::group::Group>>> {
+		self.try_get_groups(ids).await
+	}
+
+	async fn try_get_nodes(&self, specifiers: &[tg::Specifier]) -> tg::Result<Vec<Option<tg::Id>>> {
+		self.try_get_nodes(specifiers).await
+	}
+
+	async fn try_get_organizations(
+		&self,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+		self.try_get_organizations(ids).await
+	}
+
 	async fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
@@ -348,6 +366,13 @@ impl crate::Index for Index {
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
 		self.try_get_sandboxes(ids).await
+	}
+
+	async fn try_get_users(
+		&self,
+		ids: &[tg::user::Id],
+	) -> tg::Result<Vec<Option<crate::user::User>>> {
+		self.try_get_users(ids).await
 	}
 
 	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {

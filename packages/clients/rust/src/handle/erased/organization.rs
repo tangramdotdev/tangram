@@ -39,6 +39,12 @@ pub trait Organization: Send + Sync + 'static {
 		member: &'a tg::organization::Member,
 		arg: tg::organization::members::remove::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn manage_organization_billing<'a>(
+		&'a self,
+		organization: &'a tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::organization::billing::manage::Output>>;
 }
 
 impl<T> Organization for T
@@ -92,5 +98,13 @@ where
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.remove_organization_member(organization, member, arg)
 			.boxed()
+	}
+
+	fn manage_organization_billing<'a>(
+		&'a self,
+		organization: &'a tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::organization::billing::manage::Output>> {
+		self.manage_organization_billing(organization, arg).boxed()
 	}
 }

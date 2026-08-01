@@ -27,6 +27,13 @@ impl tg::handle::User for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user(user, arg)) }
 	}
 
+	fn manage_user_billing(
+		&self,
+		arg: tg::user::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::billing::manage::Output>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.manage_user_billing(arg)) }
+	}
+
 	fn wait_login(
 		&self,
 		arg: tg::user::login::wait::Arg,

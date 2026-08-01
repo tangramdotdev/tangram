@@ -39,11 +39,7 @@ impl Cli {
 
 		// Open the URL.
 		if let Some(url) = &login.url {
-			self.print_info_message(&format!("open {url}"));
-			let result = webbrowser::open(url);
-			if let Err(error) = result {
-				tracing::debug!(%error, "failed to open the browser");
-			}
+			self.open_url(url);
 		}
 
 		// Await the login.

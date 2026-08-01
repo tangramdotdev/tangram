@@ -1,3 +1,4 @@
+pub mod billing;
 pub mod current;
 pub mod get;
 pub mod login;

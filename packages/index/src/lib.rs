@@ -7,6 +7,7 @@ pub mod lmdb;
 
 pub mod authorize;
 pub mod batch;
+pub mod billing;
 pub mod cache;
 pub mod clean;
 pub mod finalization;
@@ -71,6 +72,45 @@ pub trait Index {
 		id: &tg::artifact::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::cache::Entry>>> + Send {
 		self.try_get_cache_entries(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_groups(
+		&self,
+		ids: &[tg::group::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::group::Group>>>> + Send;
+
+	fn try_get_group(
+		&self,
+		id: &tg::group::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::group::Group>>> + Send {
+		self.try_get_groups(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_nodes(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> impl Future<Output = tg::Result<Vec<Option<tg::Id>>>> + Send;
+
+	fn try_get_node(
+		&self,
+		specifier: &tg::Specifier,
+	) -> impl Future<Output = tg::Result<Option<tg::Id>>> + Send {
+		self.try_get_nodes(std::slice::from_ref(specifier))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_organizations(
+		&self,
+		ids: &[tg::organization::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::organization::Organization>>>> + Send;
+
+	fn try_get_organization(
+		&self,
+		id: &tg::organization::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::organization::Organization>>> + Send {
+		self.try_get_organizations(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -184,6 +224,19 @@ pub trait Index {
 		id: &tg::sandbox::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::sandbox::Sandbox>>> + Send {
 		self.try_get_sandboxes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_users(
+		&self,
+		ids: &[tg::user::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::user::User>>>> + Send;
+
+	fn try_get_user(
+		&self,
+		id: &tg::user::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::user::User>>> + Send {
+		self.try_get_users(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 

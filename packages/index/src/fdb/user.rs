@@ -1,4 +1,5 @@
 mod delete;
+mod get;
 mod key;
 mod put;
 

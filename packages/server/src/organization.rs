@@ -5,6 +5,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
+pub mod billing;
 pub mod create;
 pub mod delete;
 pub mod get;

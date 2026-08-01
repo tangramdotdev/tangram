@@ -217,6 +217,17 @@ impl Index {
 				.await?;
 				crate::read::Response::TryGetCachedProcesses(output)
 			},
+			crate::read::Request::TryGetGroups { ids } => {
+				let output =
+					Self::try_get_groups_with_transaction(transaction, subspace, &ids).await?;
+				crate::read::Response::TryGetGroups(output)
+			},
+			crate::read::Request::TryGetNodes { specifiers } => {
+				let output =
+					Self::try_get_nodes_with_transaction(transaction, subspace, &specifiers)
+						.await?;
+				crate::read::Response::TryGetNodes(output)
+			},
 			crate::read::Request::TryGetObjects { ids } => {
 				let output =
 					Self::try_get_objects_with_transaction(transaction, subspace, &ids).await?;
@@ -241,6 +252,12 @@ impl Index {
 				.await?;
 				crate::read::Response::TryGetOldestUpdateTransactionId(output)
 			},
+			crate::read::Request::TryGetOrganizations { ids } => {
+				let output =
+					Self::try_get_organizations_with_transaction(transaction, subspace, &ids)
+						.await?;
+				crate::read::Response::TryGetOrganizations(output)
+			},
 			crate::read::Request::TryGetProcesses { ids } => {
 				let output =
 					Self::try_get_processes_with_transaction(transaction, subspace, &ids).await?;
@@ -250,6 +267,11 @@ impl Index {
 				let output =
 					Self::try_get_sandboxes_with_transaction(transaction, subspace, &ids).await?;
 				crate::read::Response::TryGetSandboxes(output)
+			},
+			crate::read::Request::TryGetUsers { ids } => {
+				let output =
+					Self::try_get_users_with_transaction(transaction, subspace, &ids).await?;
+				crate::read::Response::TryGetUsers(output)
 			},
 			crate::read::Request::Visible { ids, principal } => {
 				let output =

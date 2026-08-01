@@ -326,6 +326,7 @@ impl Server {
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
+						billing: None,
 						id: None,
 						principal: tg::Principal::Anonymous,
 						sandbox,
@@ -503,7 +504,7 @@ impl Server {
 		let token = request.token(None).map(str::to_owned);
 		let result = self.authenticate(context.sandbox, token.as_deref()).await;
 		context.token = token;
-		context.principal = match result {
+		let authentication = match result {
 			Ok(authentication) => authentication,
 			Err(error) => {
 				let bytes = match error.to_data_or_id() {
@@ -518,6 +519,8 @@ impl Server {
 				return response;
 			},
 		};
+		context.billing = authentication.billing;
+		context.principal = authentication.principal;
 
 		let session = self.session(&context);
 
@@ -544,6 +547,11 @@ impl Server {
 			(http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
+
+			// Billing.
+			(http::Method::POST, ["billing", "stripe", "webhook"]) => {
+				session.handle_stripe_webhook_request(request).boxed()
+			},
 
 			// Checkpoints.
 			(http::Method::POST, ["checkpoints", checkpoint, "watches"]) => session
@@ -662,6 +670,9 @@ impl Server {
 			(http::Method::DELETE, ["organizations", organization, "members", member]) => session
 				.remove_organization_member_request(request, organization, member)
 				.boxed(),
+			(http::Method::POST, ["organizations", organization, "billing", "manage"]) => session
+				.manage_organization_billing_request(request, organization)
+				.boxed(),
 
 			// Processes.
 			(http::Method::POST, ["processes", "spawn"]) => {
@@ -759,6 +770,9 @@ impl Server {
 				session.try_get_user_request(request, user).boxed()
 			},
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
+			(http::Method::POST, ["user", "billing", "manage"]) => {
+				session.manage_user_billing_request(request).boxed()
+			},
 
 			// Watches.
 			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),

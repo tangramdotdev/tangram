@@ -5,6 +5,38 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_nodes(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<Vec<Option<tg::Id>>> {
+		if specifiers.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetNodes {
+			specifiers: specifiers.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetNodes(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_nodes_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<Vec<Option<tg::Id>>> {
+		specifiers
+			.iter()
+			.map(|specifier| {
+				Self::try_get_node_with_transaction(db, subspace, transaction, specifier)
+			})
+			.collect()
+	}
+
 	pub(crate) fn try_resolve_resource_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

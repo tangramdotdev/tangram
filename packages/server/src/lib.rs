@@ -24,6 +24,7 @@ use {
 
 mod authentication;
 mod authorization;
+mod billing;
 mod cache;
 mod check;
 mod checkin;
@@ -94,6 +95,7 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	authentication_tokens: Tokens,
+	billing: Option<self::billing::Stripe>,
 	cache_graph_tasks: self::cache::GraphTasks,
 	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
@@ -743,9 +745,16 @@ impl Server {
 			load_token_keys(Some(&config.authentication.tokens.keys)).await?;
 		let grant_tokens = load_token_keys(config.grants.tokens.as_ref()).await?;
 
+		// Create the billing provider.
+		let billing = config
+			.billing
+			.as_ref()
+			.map(|billing| self::billing::Stripe::new(&billing.stripe));
+
 		// Create the server.
 		let server = Self(Arc::new(State {
 			authentication_tokens,
+			billing,
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
