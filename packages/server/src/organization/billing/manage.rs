@@ -8,7 +8,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
@@ -53,12 +52,11 @@ impl Session {
 
 		// Get or create the Stripe customer.
 		let organization = organization.clone();
-		let (batch, stripe_customer_id) = self
+		let stripe_customer_id = self
 			.server
 			.database
 			.run(|transaction| {
 				let organization = organization.clone();
-				let server = self.server.clone();
 				let stripe = stripe.clone();
 				async move {
 					let id = match &organization {
@@ -77,20 +75,14 @@ impl Session {
 					#[derive(db::row::Deserialize)]
 					struct Row {
 						name: String,
-						#[tangram_database(as = "db::value::FromStr")]
-						specifier: tg::Specifier,
 						stripe_customer_id: Option<String>,
-						stripe_default_payment_method_id: Option<String>,
 					}
 
 					let p = transaction.p();
 					let statement = formatdoc!(
 						"
-							select organizations.name, specifiers.specifier,
-								organizations.stripe_customer_id,
-								organizations.stripe_default_payment_method_id
+							select organizations.name, organizations.stripe_customer_id
 							from organizations
-							join specifiers on specifiers.id = organizations.id
 							where organizations.id = {p}1;
 						"
 					);
@@ -98,8 +90,6 @@ impl Session {
 						.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the organization"))?;
-					let billing = row.stripe_customer_id.is_some()
-						&& row.stripe_default_payment_method_id.is_some();
 					let stripe_customer_id =
 						if let Some(stripe_customer_id) = row.stripe_customer_id {
 							stripe_customer_id
@@ -133,25 +123,11 @@ impl Session {
 							stripe_customer_id
 						};
 
-					let batch = tangram_index::batch::Arg {
-						items: vec![tangram_index::batch::Item::PutOrganization(
-							tangram_index::organization::put::Arg {
-								billing,
-								id,
-								specifier: row.specifier,
-							},
-						)],
-					};
-					server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break((batch, stripe_customer_id)))
+					Ok::<_, crate::database::Error>(ControlFlow::Break(stripe_customer_id))
 				}
 				.boxed()
 			})
 			.await?;
-		self.server.index.batch(batch).await?;
 
 		// Create the Stripe portal session.
 		let url = stripe

@@ -288,7 +288,7 @@ impl Session {
 			Some(self.context.principal.clone())
 		};
 		if matches!(arg.sandbox, Some(tg::Either::Left(_))) {
-			self.require_billing(owner.as_ref()).await?;
+			self.verify_billing(owner.as_ref()).await?;
 		}
 
 		let id = tg::process::Id::new();

@@ -122,7 +122,8 @@ impl Index {
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
-					)?;
+					)
+					.await?;
 				},
 				crate::batch::Item::PutOrganizationMember(arg) => {
 					Self::put_organization_members_with_transaction(
@@ -159,7 +160,8 @@ impl Index {
 					.await?;
 				},
 				crate::batch::Item::PutUser(arg) => {
-					Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg))?;
+					Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg))
+						.await?;
 				},
 			}
 		}

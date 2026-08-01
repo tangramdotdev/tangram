@@ -9,7 +9,6 @@ create table users (
 	id text primary key,
 	name text not null,
 	stripe_customer_id text unique,
-	stripe_customer_synced_at integer,
 	stripe_default_payment_method_id text,
 	foreign key (id) references specifiers (id)
 );
@@ -85,7 +84,6 @@ create table organizations (
 	id text primary key,
 	name text not null,
 	stripe_customer_id text unique,
-	stripe_customer_synced_at integer,
 	stripe_default_payment_method_id text,
 	foreign key (id) references specifiers (id)
 );

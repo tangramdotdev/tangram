@@ -412,7 +412,7 @@ impl Session {
 						batch.items.extend(organizations.into_iter().map(|row| {
 							tangram_index::batch::Item::PutOrganization(
 								tangram_index::organization::put::Arg {
-									billing,
+									billing: Some(billing),
 									id: row.id,
 									specifier: row.specifier,
 								},
@@ -421,7 +421,7 @@ impl Session {
 						batch.items.extend(users.into_iter().map(|row| {
 							tangram_index::batch::Item::PutUser(
 								tangram_index::user::put::Arg {
-									billing,
+									billing: Some(billing),
 									id: row.id,
 									specifier: row.specifier,
 								},
@@ -429,21 +429,19 @@ impl Session {
 						}));
 
 						// Update the database projection.
-						let now = time::OffsetDateTime::now_utc().unix_timestamp();
 						for table in ["organizations", "users"] {
 							let p = transaction.p();
 							let (params, statement) = if update.deleted {
 								let statement = format!(
-									"update {table} set stripe_customer_id = null, stripe_customer_synced_at = {p}1, stripe_default_payment_method_id = null where stripe_customer_id = {p}2;"
+									"update {table} set stripe_customer_id = null, stripe_default_payment_method_id = null where stripe_customer_id = {p}1;"
 								);
-								let params = db::params![now, update.customer.clone()];
+								let params = db::params![update.customer.clone()];
 								(params, statement)
 							} else {
 								let statement = format!(
-									"update {table} set stripe_customer_synced_at = {p}1, stripe_default_payment_method_id = {p}2 where stripe_customer_id = {p}3;"
+									"update {table} set stripe_default_payment_method_id = {p}1 where stripe_customer_id = {p}2;"
 								);
 								let params = db::params![
-									now,
 									update.default_payment_method.clone(),
 									update.customer.clone()
 								];

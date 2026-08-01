@@ -26,6 +26,79 @@ fn try_get_group(index: &Index, id: &tg::group::Id) -> Option<crate::group::Grou
 	Index::try_get_group_with_transaction(&index.db, &index.subspace, &transaction, id).unwrap()
 }
 
+fn try_get_organization(
+	index: &Index,
+	id: &tg::organization::Id,
+) -> Option<crate::organization::Organization> {
+	let transaction = index.env.read_txn().unwrap();
+	Index::try_get_organization_with_transaction(&index.db, &index.subspace, &transaction, id)
+		.unwrap()
+}
+
+fn try_get_user(index: &Index, id: &tg::user::Id) -> Option<crate::user::User> {
+	let transaction = index.env.read_txn().unwrap();
+	Index::try_get_user_with_transaction(&index.db, &index.subspace, &transaction, id).unwrap()
+}
+
+#[tokio::test]
+async fn partial_account_updates_preserve_billing() {
+	let (_dir, index) = new_index();
+	let new_organization = tg::organization::Id::new();
+	let new_user = tg::user::Id::new();
+	let organization = tg::organization::Id::new();
+	let user = tg::user::Id::new();
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutOrganization(crate::organization::put::Arg {
+				billing: None,
+				id: new_organization.clone(),
+				specifier: tg::Specifier::from_str("new_organization").unwrap(),
+			}),
+			crate::batch::Item::PutOrganization(crate::organization::put::Arg {
+				billing: Some(true),
+				id: organization.clone(),
+				specifier: tg::Specifier::from_str("organization").unwrap(),
+			}),
+			crate::batch::Item::PutUser(crate::user::put::Arg {
+				billing: None,
+				id: new_user.clone(),
+				specifier: tg::Specifier::from_str("new_user").unwrap(),
+			}),
+			crate::batch::Item::PutUser(crate::user::put::Arg {
+				billing: Some(true),
+				id: user.clone(),
+				specifier: tg::Specifier::from_str("user").unwrap(),
+			}),
+		],
+	};
+	index.batch(arg).await.unwrap();
+
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutOrganization(crate::organization::put::Arg {
+				billing: None,
+				id: organization.clone(),
+				specifier: tg::Specifier::from_str("organization").unwrap(),
+			}),
+			crate::batch::Item::PutUser(crate::user::put::Arg {
+				billing: None,
+				id: user.clone(),
+				specifier: tg::Specifier::from_str("user").unwrap(),
+			}),
+		],
+	};
+	index.batch(arg).await.unwrap();
+
+	assert!(
+		!try_get_organization(&index, &new_organization)
+			.unwrap()
+			.billing
+	);
+	assert!(try_get_organization(&index, &organization).unwrap().billing);
+	assert!(!try_get_user(&index, &new_user).unwrap().billing);
+	assert!(try_get_user(&index, &user).unwrap().billing);
+}
+
 #[tokio::test]
 async fn preserves_order_and_transaction_boundary() {
 	let (_dir, index) = new_index();

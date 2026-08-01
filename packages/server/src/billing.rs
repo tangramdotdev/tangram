@@ -5,7 +5,7 @@ mod stripe;
 pub(super) use stripe::{CreateCustomerArg, Stripe};
 
 impl Session {
-	pub(crate) async fn require_billing(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
+	pub(crate) async fn verify_billing(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
 		if self.server.billing.is_none() {
 			return Ok(());
 		}

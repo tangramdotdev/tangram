@@ -306,27 +306,11 @@ impl Session {
 					)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-				#[derive(db::row::Deserialize)]
-				struct Row {
-					stripe_customer_id: Option<String>,
-					stripe_default_payment_method_id: Option<String>,
-				}
-				let statement = format!(
-					"select stripe_customer_id, stripe_default_payment_method_id from organizations where id = {p}1;"
-				);
-				let row = transaction
-					.query_one_into::<Row>(statement.into(), db::params![message.id.to_string()])
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to get the organization billing status")
-					})?;
-				let billing = row.stripe_customer_id.is_some()
-					&& row.stripe_default_payment_method_id.is_some();
 				batch
 					.items
 					.push(tangram_index::batch::Item::PutOrganization(
 						tangram_index::organization::put::Arg {
-							billing,
+							billing: None,
 							id: message.id.clone(),
 							specifier: message.specifier.clone(),
 						},
@@ -454,23 +438,9 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 				}
-				#[derive(db::row::Deserialize)]
-				struct Row {
-					stripe_customer_id: Option<String>,
-					stripe_default_payment_method_id: Option<String>,
-				}
-				let statement = format!(
-					"select stripe_customer_id, stripe_default_payment_method_id from users where id = {p}1;"
-				);
-				let row = transaction
-					.query_one_into::<Row>(statement.into(), db::params![message.id.to_string()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the user billing status"))?;
-				let billing = row.stripe_customer_id.is_some()
-					&& row.stripe_default_payment_method_id.is_some();
 				batch.items.push(tangram_index::batch::Item::PutUser(
 					tangram_index::user::put::Arg {
-						billing,
+						billing: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
 					},
