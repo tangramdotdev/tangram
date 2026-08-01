@@ -8,7 +8,7 @@ use {
 mod token;
 
 pub(crate) struct Authentication {
-	pub billing: Option<tangram_index::billing::Status>,
+	pub billing_ready: bool,
 	pub principal: tg::Principal,
 }
 
@@ -231,13 +231,13 @@ impl Server {
 				.unwrap_or(tg::Principal::Anonymous);
 			if sandbox && !matches!(principal, tg::Principal::Process(_)) {
 				return Ok(Authentication {
-					billing: None,
+					billing_ready: false,
 					principal: tg::Principal::Anonymous,
 				});
 			}
 
 			return Ok(Authentication {
-				billing: None,
+				billing_ready: false,
 				principal,
 			});
 		}
@@ -252,13 +252,13 @@ impl Server {
 			loop {
 				if let Some(id) = process.borrow().clone() {
 					return Ok(Authentication {
-						billing: None,
+						billing_ready: false,
 						principal: tg::Principal::Process(id),
 					});
 				}
 				if process.changed().await.is_err() {
 					return Ok(Authentication {
-						billing: None,
+						billing_ready: false,
 						principal: tg::Principal::Anonymous,
 					});
 				}
@@ -267,16 +267,16 @@ impl Server {
 
 		if sandbox {
 			return Ok(Authentication {
-				billing: None,
+				billing_ready: false,
 				principal: tg::Principal::Anonymous,
 			});
 		}
 
 		if let Some(token) = token {
 			match self.authenticate_user(token).await {
-				Ok(Some((billing, user))) => {
+				Ok(Some((billing_ready, user))) => {
 					return Ok(Authentication {
-						billing: Some(billing),
+						billing_ready,
 						principal: tg::Principal::User(user.id),
 					});
 				},
@@ -289,13 +289,13 @@ impl Server {
 
 		if self.config().authentication.users.is_none() {
 			return Ok(Authentication {
-				billing: None,
+				billing_ready: false,
 				principal: tg::Principal::Root,
 			});
 		}
 
 		Ok(Authentication {
-			billing: None,
+			billing_ready: false,
 			principal: tg::Principal::Anonymous,
 		})
 	}
@@ -341,7 +341,7 @@ impl Server {
 	pub(crate) async fn authenticate_user(
 		&self,
 		token: &str,
-	) -> tg::Result<Option<(tangram_index::billing::Status, tg::user::User)>> {
+	) -> tg::Result<Option<(bool, tg::user::User)>> {
 		let connection = self
 			.database
 			.connection()
@@ -396,10 +396,8 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
-		let billing = tangram_index::billing::Status::from_parts(
-			user.stripe_customer_id.is_some(),
-			user.stripe_default_payment_method_id.is_some(),
-		);
+		let billing_ready =
+			user.stripe_customer_id.is_some() && user.stripe_default_payment_method_id.is_some();
 		let user = tg::User {
 			emails,
 			id: user.id,
@@ -409,6 +407,6 @@ impl Server {
 			token: None,
 		};
 
-		Ok(Some((billing, user)))
+		Ok(Some((billing_ready, user)))
 	}
 }

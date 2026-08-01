@@ -320,15 +320,13 @@ impl Session {
 					.map_err(|error| {
 						tg::error!(!error, "failed to get the organization billing status")
 					})?;
-				let billing = tangram_index::billing::Status::from_parts(
-					row.stripe_customer_id.is_some(),
-					row.stripe_default_payment_method_id.is_some(),
-				);
+				let billing_ready = row.stripe_customer_id.is_some()
+					&& row.stripe_default_payment_method_id.is_some();
 				batch
 					.items
 					.push(tangram_index::batch::Item::PutOrganization(
 						tangram_index::organization::put::Arg {
-							billing,
+							billing_ready,
 							id: message.id.clone(),
 							specifier: message.specifier.clone(),
 						},
@@ -468,13 +466,11 @@ impl Session {
 					.query_one_into::<Row>(statement.into(), db::params![message.id.to_string()])
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the user billing status"))?;
-				let billing = tangram_index::billing::Status::from_parts(
-					row.stripe_customer_id.is_some(),
-					row.stripe_default_payment_method_id.is_some(),
-				);
+				let billing_ready = row.stripe_customer_id.is_some()
+					&& row.stripe_default_payment_method_id.is_some();
 				batch.items.push(tangram_index::batch::Item::PutUser(
 					tangram_index::user::put::Arg {
-						billing,
+						billing_ready,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
 					},

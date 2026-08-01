@@ -326,7 +326,7 @@ impl Server {
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
-						billing: None,
+						billing_ready: false,
 						id: None,
 						principal: tg::Principal::Anonymous,
 						sandbox,
@@ -519,7 +519,7 @@ impl Server {
 				return response;
 			},
 		};
-		context.billing = authentication.billing;
+		context.billing_ready = authentication.billing_ready;
 		context.principal = authentication.principal;
 
 		let session = self.session(&context);

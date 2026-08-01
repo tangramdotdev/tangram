@@ -22,7 +22,7 @@ with-env { BROWSER: 'false' } {
 
 let incomplete = tg --token $alice.token sandbox create --no-network | complete
 failure $incomplete "a user without a default payment method should not create a sandbox"
-assert ($incomplete.stderr | str contains 'billing setup is incomplete') "the error should explain that billing setup is incomplete"
+assert ($incomplete.stderr | str contains 'billing is not ready') "the error should explain that billing is not ready"
 
 let event = {
 	created: 1,

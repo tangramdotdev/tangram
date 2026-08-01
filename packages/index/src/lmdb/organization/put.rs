@@ -48,7 +48,7 @@ impl Index {
 				Key::Organization(crate::lmdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let value = crate::organization::Organization {
-				billing: arg.billing,
+				billing_ready: arg.billing_ready,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

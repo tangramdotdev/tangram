@@ -407,14 +407,12 @@ impl Session {
 							})?;
 
 						// Create the index projection.
-						let billing = tangram_index::billing::Status::from_parts(
-							!update.deleted,
-							update.default_payment_method.is_some(),
-						);
+						let billing_ready =
+							!update.deleted && update.default_payment_method.is_some();
 						batch.items.extend(organizations.into_iter().map(|row| {
 							tangram_index::batch::Item::PutOrganization(
 								tangram_index::organization::put::Arg {
-									billing,
+									billing_ready,
 									id: row.id,
 									specifier: row.specifier,
 								},
@@ -423,7 +421,7 @@ impl Session {
 						batch.items.extend(users.into_iter().map(|row| {
 							tangram_index::batch::Item::PutUser(
 								tangram_index::user::put::Arg {
-									billing,
+									billing_ready,
 									id: row.id,
 									specifier: row.specifier,
 								},

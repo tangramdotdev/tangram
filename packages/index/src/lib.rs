@@ -7,7 +7,6 @@ pub mod lmdb;
 
 pub mod authorize;
 pub mod batch;
-pub mod billing;
 pub mod cache;
 pub mod clean;
 pub mod finalization;

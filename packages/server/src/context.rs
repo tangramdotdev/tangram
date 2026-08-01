@@ -2,7 +2,7 @@ use {tangram_client::prelude::*, tangram_futures::task::Stopper};
 
 #[derive(Clone, Debug)]
 pub struct Context {
-	pub billing: Option<tangram_index::billing::Status>,
+	pub billing_ready: bool,
 	pub id: Option<String>,
 	pub principal: tg::Principal,
 	pub sandbox: bool,
@@ -14,7 +14,7 @@ impl Context {
 	#[must_use]
 	pub fn root() -> Self {
 		Self {
-			billing: None,
+			billing_ready: false,
 			id: None,
 			principal: tg::Principal::Root,
 			sandbox: false,

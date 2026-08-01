@@ -107,7 +107,7 @@ impl Session {
 			.items
 			.push(tangram_index::batch::Item::PutOrganization(
 				tangram_index::organization::put::Arg {
-					billing: tangram_index::billing::Status::Unconfigured,
+					billing_ready: false,
 					id: id.clone(),
 					specifier: arg.specifier.clone(),
 				},
