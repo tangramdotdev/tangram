@@ -245,7 +245,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		&index.subspace,
 		&mut txn,
 		&[crate::user::put::Arg {
-			billing_ready: false,
+			billing: false,
 			id: alice.clone(),
 			specifier: "alice".parse().unwrap(),
 		}],

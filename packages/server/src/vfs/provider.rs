@@ -744,7 +744,7 @@ impl Provider {
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		let context = Context {
-			billing_ready: false,
+			billing: false,
 			id: None,
 			principal,
 			sandbox: true,

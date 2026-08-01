@@ -47,7 +47,7 @@ impl Index {
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let value = crate::organization::Organization {
-				billing_ready: arg.billing_ready,
+				billing: arg.billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

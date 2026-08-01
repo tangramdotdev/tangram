@@ -28,7 +28,7 @@ impl Index {
 			let key = Key::User(crate::fdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let value = crate::user::User {
-				billing_ready: arg.billing_ready,
+				billing: arg.billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

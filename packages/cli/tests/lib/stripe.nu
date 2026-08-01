@@ -62,7 +62,7 @@ export def send_stripe_webhook [server: record, secret: string, event: record] {
 				'Stripe-Signature': $signature,
 			}
 			--unix-socket $socket
-			'http://localhost/billing/stripe/webhook'
+			'http://localhost/webhooks/stripe'
 		| metadata
 		| get http_response.status
 	)
@@ -83,7 +83,7 @@ export def send_invalid_stripe_webhook [server: record, event: record] {
 				'Stripe-Signature': 't=0,v1=invalid',
 			}
 			--unix-socket $socket
-			'http://localhost/billing/stripe/webhook'
+			'http://localhost/webhooks/stripe'
 		| metadata
 		| get http_response.status
 	)

@@ -70,7 +70,7 @@ impl Session {
 						.query_one_into::<Row>(statement.into(), db::params![user.to_string()])
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the user"))?;
-					let billing_ready = row.stripe_customer_id.is_some()
+					let billing = row.stripe_customer_id.is_some()
 						&& row.stripe_default_payment_method_id.is_some();
 					let stripe_customer_id = if let Some(stripe_customer_id) =
 						row.stripe_customer_id
@@ -128,7 +128,7 @@ impl Session {
 					let batch = tangram_index::batch::Arg {
 						items: vec![tangram_index::batch::Item::PutUser(
 							tangram_index::user::put::Arg {
-								billing_ready,
+								billing,
 								id: user,
 								specifier: row.specifier,
 							},

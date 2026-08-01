@@ -326,7 +326,7 @@ impl Server {
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
-						billing_ready: false,
+						billing: false,
 						id: None,
 						principal: tg::Principal::Anonymous,
 						sandbox,
@@ -519,7 +519,7 @@ impl Server {
 				return response;
 			},
 		};
-		context.billing_ready = authentication.billing_ready;
+		context.billing = authentication.billing;
 		context.principal = authentication.principal;
 
 		let session = self.session(&context);
@@ -547,11 +547,6 @@ impl Server {
 			(http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
 			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
-
-			// Billing.
-			(http::Method::POST, ["billing", "stripe", "webhook"]) => {
-				session.handle_stripe_webhook_request(request).boxed()
-			},
 
 			// Checkpoints.
 			(http::Method::POST, ["checkpoints", checkpoint, "watches"]) => session
@@ -616,12 +611,6 @@ impl Server {
 			(http::Method::POST, ["logins"]) => session.create_login_request(request).boxed(),
 			(http::Method::POST, ["login", "wait"]) => session.wait_login_request(request).boxed(),
 			(http::Method::POST, ["logout"]) => session.logout_request(request).boxed(),
-			(http::Method::GET, ["oauth", "github", "authorize"]) => {
-				session.oauth_github_authorize_request(request).boxed()
-			},
-			(http::Method::GET, ["oauth", "github", "callback"]) => {
-				session.oauth_github_callback_request(request).boxed()
-			},
 
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
@@ -629,6 +618,14 @@ impl Server {
 			},
 			(http::Method::POST, ["modules", "resolve"]) => {
 				session.resolve_module_request(request).boxed()
+			},
+
+			// OAuth.
+			(http::Method::GET, ["oauth", "github", "authorize"]) => {
+				session.oauth_github_authorize_request(request).boxed()
+			},
+			(http::Method::GET, ["oauth", "github", "callback"]) => {
+				session.oauth_github_callback_request(request).boxed()
 			},
 
 			// Objects.
@@ -781,6 +778,11 @@ impl Server {
 			},
 			(http::Method::POST, ["watches", "touch"]) => {
 				session.touch_watch_request(request).boxed()
+			},
+
+			// Webhooks.
+			(http::Method::POST, ["webhooks", "stripe"]) => {
+				session.handle_stripe_webhook_request(request).boxed()
 			},
 
 			(_, _) => future::ok(

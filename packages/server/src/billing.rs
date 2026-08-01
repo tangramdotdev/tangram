@@ -16,8 +16,8 @@ impl Session {
 			return Ok(());
 		}
 
-		let (billing_ready, command) = self.billing_ready(owner.clone()).await?;
-		if !billing_ready {
+		let (billing, command) = self.billing(owner.clone()).await?;
+		if !billing {
 			return Err(tg::error!(
 				"billing is not ready for the sandbox owner; run `{command}`"
 			));
@@ -26,7 +26,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn billing_ready(&self, mut owner: tg::Principal) -> tg::Result<(bool, String)> {
+	async fn billing(&self, mut owner: tg::Principal) -> tg::Result<(bool, String)> {
 		loop {
 			match owner {
 				tg::Principal::Group(id) => {
@@ -68,22 +68,21 @@ impl Session {
 						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox owner"))?;
 					let command = format!("tg organization billing manage {id}");
 
-					return Ok((organization.billing_ready, command));
+					return Ok((organization.billing, command));
 				},
 				tg::Principal::User(id) => {
-					let billing_ready = if self.context.principal == tg::Principal::User(id.clone())
-					{
-						self.context.billing_ready
+					let billing = if self.context.principal == tg::Principal::User(id.clone()) {
+						self.context.billing
 					} else {
 						self.server
 							.index
 							.try_get_user(&id)
 							.await?
 							.ok_or_else(|| tg::error!(%id, "failed to find the sandbox owner"))?
-							.billing_ready
+							.billing
 					};
 
-					return Ok((billing_ready, "tg user billing manage".to_owned()));
+					return Ok((billing, "tg user billing manage".to_owned()));
 				},
 				tg::Principal::Anonymous
 				| tg::Principal::Process(_)
