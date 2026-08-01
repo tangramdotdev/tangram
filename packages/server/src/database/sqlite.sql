@@ -88,10 +88,12 @@ create table organizations (
 	foreign key (id) references specifiers (id)
 );
 
-create table stripe_webhook_events (
+create table stripe_webhooks (
 	id text primary key,
 	created_at integer not null
 );
+
+create index stripe_webhooks_created_at_index on stripe_webhooks (created_at);
 
 create table group_members (
 	"group" text not null,

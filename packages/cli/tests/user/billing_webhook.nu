@@ -39,8 +39,18 @@ assert equal ($requests | length) 3 "the duplicate webhook should not retrieve t
 assert equal $requests.2.method 'GET' "the webhook should retrieve the latest customer state"
 assert equal $requests.2.path '/v1/customers/cus_mock' "the webhook should retrieve the affected customer"
 
+let deleted_event = {
+	created: 1,
+	data: { object: { id: 'cus_mock' } },
+	id: 'evt_user_deleted',
+	type: 'customer.deleted',
+}
+assert equal (send_stripe_webhook $server $webhook_secret $deleted_event) 200 "a customer deletion webhook should be ignored"
+let requests = stripe_requests $stripe
+assert equal ($requests | length) 3 "an ignored webhook should not retrieve the customer"
+
 let created = tg --token $alice.token sandbox create --no-network | complete
-success $created "a user with a default payment method should create a sandbox"
+success $created "an ignored webhook should not change the user's billing status"
 tg --token $alice.token sandbox destroy ($created.stdout | str trim)
 
 stop_stripe $stripe
