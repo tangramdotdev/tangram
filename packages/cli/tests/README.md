@@ -1,6 +1,6 @@
 # CLI tests
 
-These are the end-to-end tests for the `tg` command line interface. Each `.nu`
+These are the end-to-end tests for tangram. Each `.nu`
 file is one self-contained test, run by the harness in `packages/cli/test.nu`.
 Run them with `nu packages/cli/test.nu [pattern]`, where `pattern` is an
 optional regex matched against each test's path. Pass `--accept` to accept new
@@ -50,7 +50,7 @@ snapshot --normalize --redact $path $output.stderr '
 ```
 
 Use the snapshot normalization and redaction flags (see the next convention) so
-the snapshot is stable. A check for the *absence* of a string becomes a snapshot
+the snapshot is stable. A check for the _absence_ of a string becomes a snapshot
 of the whole output, which verifies the absence implicitly: if the output no
 longer contains the string, the snapshot will not either.
 
@@ -65,7 +65,7 @@ snapshot $tagged '…'
 ```
 
 `str contains` is fine for non-assertion control flow, such as a `where` filter
-that selects lines. It is the *assertion* that must be a snapshot.
+that selects lines. It is the _assertion_ that must be a snapshot.
 
 ### 4. Normalize nondeterministic output before snapshotting
 
@@ -155,7 +155,9 @@ In test artifacts, invoke commands with the tagged template form rather than
 the object form:
 
 ```typescript
-await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`
+	.env(tg.build(busybox))
+	.sandbox();
 ```
 
 Use the object form (`tg.run({ args, env, executable, host })`) only when the

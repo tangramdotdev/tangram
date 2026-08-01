@@ -1,7 +1,18 @@
 use ../../test.nu *
 
-const mock_path = path self mock_stripe.ts
-const signature_path = path self stripe_signature.ts
+const signature_source = r#'
+import { createHmac } from "node:crypto";
+
+const [secret, timestamp, payload] = process.argv.slice(1);
+if (secret === undefined || timestamp === undefined || payload === undefined) {
+	throw new Error("expected the secret, timestamp, and payload");
+}
+const signature = createHmac("sha256", secret)
+	.update(`${timestamp}.${payload}`)
+	.digest("hex");
+process.stdout.write(`t=${timestamp},v1=${signature}`);
+'#
+const stripe_path = path self stripe.ts
 
 export def spawn_stripe [] {
 	let port_path = mktemp
@@ -16,7 +27,7 @@ export def spawn_stripe [] {
 				done
 				kill -TERM -\$SELF_PID 2>/dev/null || true
 			\) &
-			exec bun run \"($mock_path)\" \"($port_path)\" \"($requests_path)\"
+			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\"
 		"
 	}
 	wait_until {
@@ -39,47 +50,45 @@ export def stripe_requests [stripe: record] {
 export def send_stripe_webhook [server: record, secret: string, event: record] {
 	let body = $event | to json --raw
 	let timestamp = date now | into int | $in / 1_000_000_000 | math floor
-	let signature = bun run $signature_path $secret $timestamp $body
+	let signature = ^bun --eval $signature_source $secret ($timestamp | into string) $body
 	let socket = $server.url | str replace 'http+unix://' '' | url decode
-	let output = (
-		^curl
-			--silent
-			--show-error
-			--output /dev/null
-			--write-out '%{http_code}'
+	let status = (
+		$body
+		| into binary
+		| http post
+			--allow-errors
+			--headers {
+				'Content-Type': 'application/json',
+				'Stripe-Signature': $signature,
+			}
 			--unix-socket $socket
-			--request POST
-			--header 'Content-Type: application/json'
-			--header $'Stripe-Signature: ($signature)'
-			--data-binary $body
 			'http://localhost/billing/stripe/webhook'
-		| complete
+		| metadata
+		| get http_response.status
 	)
-	assert equal $output.exit_code 0 "sending the Stripe webhook should succeed"
 
-	$output.stdout | into int
+	$status
 }
 
 export def send_invalid_stripe_webhook [server: record, event: record] {
 	let body = $event | to json --raw
 	let socket = $server.url | str replace 'http+unix://' '' | url decode
-	let output = (
-		^curl
-			--silent
-			--show-error
-			--output /dev/null
-			--write-out '%{http_code}'
+	let status = (
+		$body
+		| into binary
+		| http post
+			--allow-errors
+			--headers {
+				'Content-Type': 'application/json',
+				'Stripe-Signature': 't=0,v1=invalid',
+			}
 			--unix-socket $socket
-			--request POST
-			--header 'Content-Type: application/json'
-			--header 'Stripe-Signature: t=0,v1=invalid'
-			--data-binary $body
 			'http://localhost/billing/stripe/webhook'
-		| complete
+		| metadata
+		| get http_response.status
 	)
-	assert equal $output.exit_code 0 "sending the invalid Stripe webhook should succeed"
 
-	$output.stdout | into int
+	$status
 }
 
 export def stop_stripe [stripe: record] {
