@@ -44,6 +44,12 @@ pub(crate) enum Request {
 	TryGetCachedProcesses {
 		command: tg::object::Id,
 	},
+	TryGetGroups {
+		ids: Vec<tg::group::Id>,
+	},
+	TryGetNodes {
+		specifiers: Vec<tg::Specifier>,
+	},
 	TryGetObjects {
 		ids: Vec<tg::object::Id>,
 	},
@@ -51,11 +57,17 @@ pub(crate) enum Request {
 		kind: crate::finalization::Kind,
 	},
 	TryGetOldestUpdateTransactionId,
+	TryGetOrganizations {
+		ids: Vec<tg::organization::Id>,
+	},
 	TryGetProcesses {
 		ids: Vec<tg::process::Id>,
 	},
 	TryGetSandboxes {
 		ids: Vec<tg::sandbox::Id>,
+	},
+	TryGetUsers {
+		ids: Vec<tg::user::Id>,
 	},
 	Visible {
 		ids: Vec<tg::Id>,
@@ -74,10 +86,14 @@ pub(crate) enum Response {
 	ProcessHasAncestor(bool),
 	TryGetCacheEntries(Vec<Option<crate::cache::Entry>>),
 	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
+	TryGetGroups(Vec<Option<crate::group::Group>>),
+	TryGetNodes(Vec<Option<tg::Id>>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
 	TryGetOldestFinalizationTransactionId(Option<u64>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
+	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
+	TryGetUsers(Vec<Option<crate::user::User>>),
 	Visible(Vec<bool>),
 }

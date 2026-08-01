@@ -8,6 +8,8 @@ create unique index specifiers_specifier_index on specifiers (specifier);
 create table users (
 	id text primary key,
 	name text not null,
+	stripe_customer_id text unique,
+	stripe_default_payment_method_id text,
 	foreign key (id) references specifiers (id)
 );
 
@@ -81,8 +83,17 @@ create index groups_parent_index on groups (parent);
 create table organizations (
 	id text primary key,
 	name text not null,
+	stripe_customer_id text unique,
+	stripe_default_payment_method_id text,
 	foreign key (id) references specifiers (id)
 );
+
+create table stripe_webhooks (
+	id text primary key,
+	created_at int8 not null
+);
+
+create index stripe_webhooks_created_at_index on stripe_webhooks (created_at);
 
 create table group_members (
 	"group" text not null,

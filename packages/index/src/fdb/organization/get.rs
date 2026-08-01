@@ -7,6 +7,55 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_organizations(
+		&self,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetOrganizations {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetOrganizations(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_organizations_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+		futures::future::try_join_all(
+			ids.iter()
+				.map(|id| Self::try_get_organization_with_transaction(txn, subspace, id)),
+		)
+		.await
+	}
+
+	pub(crate) async fn try_get_organization_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::organization::Id,
+	) -> tg::Result<Option<crate::organization::Organization>> {
+		let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let bytes = txn
+			.get(&key, false)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the organization"))?;
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
+		Ok(Some(crate::organization::Organization::deserialize(
+			&bytes,
+		)?))
+	}
+
 	pub(crate) async fn get_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,

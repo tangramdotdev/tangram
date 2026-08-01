@@ -198,6 +198,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			batch.items.push(tangram_index::batch::Item::PutUser(
 				tangram_index::user::put::Arg {
+					billing: Some(false),
 					id: id.clone(),
 					specifier: specifier.clone(),
 				},

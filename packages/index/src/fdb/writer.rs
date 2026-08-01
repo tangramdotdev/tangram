@@ -1001,7 +1001,7 @@ impl Index {
 				Ok(Response::Unit)
 			},
 			Request::PutOrganizations(args) => {
-				Self::put_organizations_with_transaction(txn, subspace, args)?;
+				Self::put_organizations_with_transaction(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::PutProcesses(args) => {
@@ -1018,7 +1018,7 @@ impl Index {
 					.map(|()| Response::Unit)
 			},
 			Request::PutUsers(args) => {
-				Self::put_users_with_transaction(txn, subspace, args)?;
+				Self::put_users_with_transaction(txn, subspace, args).await?;
 				Ok(Response::Unit)
 			},
 			Request::TouchCacheEntries(crate::fdb::TouchCacheEntries {

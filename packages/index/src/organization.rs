@@ -7,6 +7,9 @@ pub mod put;
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Organization {
+	#[tangram_serialize(id = 1)]
+	pub billing: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub specifier: tg::Specifier,
 }

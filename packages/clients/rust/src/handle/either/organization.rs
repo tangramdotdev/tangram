@@ -76,4 +76,19 @@ where
 				.right_future(),
 		}
 	}
+
+	fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::organization::billing::manage::Output>> {
+		match self {
+			tg::Either::Left(s) => s
+				.manage_organization_billing(organization, arg)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.manage_organization_billing(organization, arg)
+				.right_future(),
+		}
+	}
 }

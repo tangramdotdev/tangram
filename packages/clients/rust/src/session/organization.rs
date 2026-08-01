@@ -48,4 +48,12 @@ impl tg::handle::Organization for tg::Session {
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		self.remove_organization_member(organization, member, arg)
 	}
+
+	fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::organization::billing::manage::Output>> {
+		self.manage_organization_billing(organization, arg)
+	}
 }

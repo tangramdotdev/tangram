@@ -7,6 +7,7 @@ use {
 };
 
 mod archive;
+mod browser;
 mod builtin;
 mod bundle;
 mod cache;

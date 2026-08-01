@@ -4,9 +4,12 @@ use {
 	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
+
+const STRIPE_WEBHOOK_TIME_TO_LIVE: Duration = Duration::from_hours(35 * 24);
 
 pub(crate) struct CleanerTaskInnerArg {
 	pub n: usize,
@@ -60,8 +63,10 @@ impl Server {
 				})
 			});
 
-			match future::try_join_all(futures).await {
-				Ok(outputs) => {
+			let clean_database_future = self.clean_stripe_webhooks(now);
+			let clean_index_future = future::try_join_all(futures);
+			match future::try_join(clean_database_future, clean_index_future).await {
+				Ok(((), outputs)) => {
 					if outputs.iter().all(|output| output.done) {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
@@ -72,6 +77,24 @@ impl Server {
 				},
 			}
 		}
+	}
+
+	async fn clean_stripe_webhooks(&self, now: i64) -> tg::Result<()> {
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let ttl = STRIPE_WEBHOOK_TIME_TO_LIVE.as_secs().to_i64().unwrap();
+		let max_created_at = now.saturating_sub(ttl);
+		let p = connection.p();
+		let statement = format!("delete from stripe_webhooks where created_at < {p}1;");
+		connection
+			.execute(statement.into(), db::params![max_created_at])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to clean the Stripe webhook events"))?;
+
+		Ok(())
 	}
 
 	pub(crate) async fn cleaner_task_inner(

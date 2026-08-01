@@ -47,7 +47,18 @@ impl Index {
 			let key =
 				Key::Organization(crate::lmdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
+			let billing = match arg.billing {
+				Some(billing) => billing,
+				None => db
+					.get(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+					.map_or(Ok(false), |bytes| {
+						crate::organization::Organization::deserialize(bytes)
+							.map(|organization| organization.billing)
+					})?,
+			};
 			let value = crate::organization::Organization {
+				billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

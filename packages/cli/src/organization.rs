@@ -1,5 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
+pub mod billing;
 pub mod create;
 pub mod delete;
 pub mod get;
@@ -15,6 +16,8 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	Billing(self::billing::Args),
+
 	#[command(alias = "add")]
 	Create(self::create::Args),
 
@@ -29,6 +32,7 @@ pub enum Command {
 impl Cli {
 	pub async fn command_organization(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Billing(args) => self.command_organization_billing(args).await?,
 			Command::Create(args) => self.command_organization_create(args).await?,
 			Command::Delete(args) => self.command_organization_delete(args).await?,
 			Command::Get(args) => self.command_organization_get(args).await?,

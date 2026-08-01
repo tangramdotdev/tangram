@@ -6,6 +6,52 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_organizations(
+		&self,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetOrganizations {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetOrganizations(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) fn try_get_organizations_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+		ids.iter()
+			.map(|id| Self::try_get_organization_with_transaction(db, subspace, transaction, id))
+			.collect()
+	}
+
+	pub(crate) fn try_get_organization_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::organization::Id,
+	) -> tg::Result<Option<crate::organization::Organization>> {
+		let key = Key::Organization(crate::lmdb::organization::Key::Organization(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let bytes = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the organization"))?;
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
+		Ok(Some(crate::organization::Organization::deserialize(bytes)?))
+	}
+
 	pub(crate) fn get_organization_members_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

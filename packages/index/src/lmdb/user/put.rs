@@ -27,7 +27,17 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::lmdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
+			let billing = match arg.billing {
+				Some(billing) => billing,
+				None => db
+					.get(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to get the user"))?
+					.map_or(Ok(false), |bytes| {
+						crate::user::User::deserialize(bytes).map(|user| user.billing)
+					})?,
+			};
 			let value = crate::user::User {
+				billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

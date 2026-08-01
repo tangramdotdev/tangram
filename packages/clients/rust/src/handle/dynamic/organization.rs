@@ -70,4 +70,16 @@ impl tg::handle::Organization for Handle {
 			))
 		}
 	}
+
+	fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::organization::billing::manage::Output>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(
+				self.0.manage_organization_billing(organization, arg),
+			)
+		}
+	}
 }

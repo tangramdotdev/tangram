@@ -48,6 +48,12 @@ pub trait Organization: Clone + Unpin + Send + Sync + 'static {
 		member: &tg::organization::Member,
 		arg: tg::organization::members::remove::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> impl Future<Output = tg::Result<tg::organization::billing::manage::Output>> + Send;
 }
 
 impl tg::handle::Organization for tg::Client {
@@ -106,6 +112,16 @@ impl tg::handle::Organization for tg::Client {
 	) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.remove_organization_member(organization, member, arg)
+			.await
+	}
+
+	async fn manage_organization_billing(
+		&self,
+		organization: &tg::organization::Selector,
+		arg: tg::organization::billing::manage::Arg,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		self.session(&self.context)
+			.manage_organization_billing(organization, arg)
 			.await
 	}
 }

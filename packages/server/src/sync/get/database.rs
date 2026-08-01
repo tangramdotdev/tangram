@@ -310,6 +310,7 @@ impl Session {
 					.items
 					.push(tangram_index::batch::Item::PutOrganization(
 						tangram_index::organization::put::Arg {
+							billing: None,
 							id: message.id.clone(),
 							specifier: message.specifier.clone(),
 						},
@@ -439,6 +440,7 @@ impl Session {
 				}
 				batch.items.push(tangram_index::batch::Item::PutUser(
 					tangram_index::user::put::Arg {
+						billing: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
 					},

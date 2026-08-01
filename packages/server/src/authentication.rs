@@ -7,6 +7,11 @@ use {
 
 mod token;
 
+pub(crate) struct Authentication {
+	pub billing: bool,
+	pub principal: tg::Principal,
+}
+
 #[derive(Clone)]
 pub(crate) struct Process {
 	pub debug: Option<tg::process::Debug>,
@@ -219,16 +224,22 @@ impl Server {
 		&self,
 		sandbox: bool,
 		token: Option<&str>,
-	) -> tg::Result<tg::Principal> {
+	) -> tg::Result<Authentication> {
 		if let Some(value) = token.filter(|value| token::Token::has_prefix(value)) {
 			let principal = self
 				.authenticate_token(value)
 				.unwrap_or(tg::Principal::Anonymous);
 			if sandbox && !matches!(principal, tg::Principal::Process(_)) {
-				return Ok(tg::Principal::Anonymous);
+				return Ok(Authentication {
+					billing: false,
+					principal: tg::Principal::Anonymous,
+				});
 			}
 
-			return Ok(principal);
+			return Ok(Authentication {
+				billing: false,
+				principal,
+			});
 		}
 
 		if let Some(mut process) = token.and_then(|token| {
@@ -240,22 +251,34 @@ impl Server {
 		}) {
 			loop {
 				if let Some(id) = process.borrow().clone() {
-					return Ok(tg::Principal::Process(id));
+					return Ok(Authentication {
+						billing: false,
+						principal: tg::Principal::Process(id),
+					});
 				}
 				if process.changed().await.is_err() {
-					return Ok(tg::Principal::Anonymous);
+					return Ok(Authentication {
+						billing: false,
+						principal: tg::Principal::Anonymous,
+					});
 				}
 			}
 		}
 
 		if sandbox {
-			return Ok(tg::Principal::Anonymous);
+			return Ok(Authentication {
+				billing: false,
+				principal: tg::Principal::Anonymous,
+			});
 		}
 
 		if let Some(token) = token {
 			match self.authenticate_user(token).await {
-				Ok(Some(user)) => {
-					return Ok(tg::Principal::User(user.id));
+				Ok(Some((billing, user))) => {
+					return Ok(Authentication {
+						billing,
+						principal: tg::Principal::User(user.id),
+					});
 				},
 				Ok(None) => (),
 				Err(error) => {
@@ -265,10 +288,16 @@ impl Server {
 		}
 
 		if self.config().authentication.users.is_none() {
-			return Ok(tg::Principal::Root);
+			return Ok(Authentication {
+				billing: false,
+				principal: tg::Principal::Root,
+			});
 		}
 
-		Ok(tg::Principal::Anonymous)
+		Ok(Authentication {
+			billing: false,
+			principal: tg::Principal::Anonymous,
+		})
 	}
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
@@ -312,7 +341,7 @@ impl Server {
 	pub(crate) async fn authenticate_user(
 		&self,
 		token: &str,
-	) -> tg::Result<Option<tg::user::User>> {
+	) -> tg::Result<Option<(bool, tg::user::User)>> {
 		let connection = self
 			.database
 			.connection()
@@ -326,11 +355,14 @@ impl Server {
 			name: String,
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
+			stripe_customer_id: Option<String>,
+			stripe_default_payment_method_id: Option<String>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.name, specifiers.specifier
+				select users.id, users.name, specifiers.specifier, users.stripe_customer_id,
+					users.stripe_default_payment_method_id
 				from users
 				join specifiers on specifiers.id = users.id
 				join user_tokens on user_tokens."user" = users.id
@@ -364,6 +396,8 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
+		let billing =
+			user.stripe_customer_id.is_some() && user.stripe_default_payment_method_id.is_some();
 		let user = tg::User {
 			emails,
 			id: user.id,
@@ -373,6 +407,6 @@ impl Server {
 			token: None,
 		};
 
-		Ok(Some(user))
+		Ok(Some((billing, user)))
 	}
 }

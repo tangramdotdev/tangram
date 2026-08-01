@@ -19,7 +19,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn put_users_with_transaction(
+	pub(crate) async fn put_users_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::user::put::Arg],
@@ -27,7 +27,18 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::fdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
+			let billing = match arg.billing {
+				Some(billing) => billing,
+				None => txn
+					.get(&key, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the user"))?
+					.map_or(Ok(false), |bytes| {
+						crate::user::User::deserialize(&bytes).map(|user| user.billing)
+					})?,
+			};
 			let value = crate::user::User {
+				billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

@@ -75,6 +75,39 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_groups(
+		&self,
+		ids: &[tg::group::Id],
+	) -> tg::Result<Vec<Option<index::group::Group>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_groups(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_groups(ids).await,
+		}
+	}
+
+	async fn try_get_nodes(&self, specifiers: &[tg::Specifier]) -> tg::Result<Vec<Option<tg::Id>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_nodes(specifiers).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_nodes(specifiers).await,
+		}
+	}
+
+	async fn try_get_organizations(
+		&self,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<Vec<Option<index::organization::Organization>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_organizations(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_organizations(ids).await,
+		}
+	}
+
 	async fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
@@ -252,6 +285,18 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_sandboxes(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_sandboxes(ids).await,
+		}
+	}
+
+	async fn try_get_users(
+		&self,
+		ids: &[tg::user::Id],
+	) -> tg::Result<Vec<Option<index::user::User>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_users(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_users(ids).await,
 		}
 	}
 

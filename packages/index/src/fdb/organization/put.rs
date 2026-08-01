@@ -37,7 +37,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn put_organizations_with_transaction(
+	pub(crate) async fn put_organizations_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::put::Arg],
@@ -46,7 +46,19 @@ impl Index {
 			let key =
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
+			let billing = match arg.billing {
+				Some(billing) => billing,
+				None => txn
+					.get(&key, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+					.map_or(Ok(false), |bytes| {
+						crate::organization::Organization::deserialize(&bytes)
+							.map(|organization| organization.billing)
+					})?,
+			};
 			let value = crate::organization::Organization {
+				billing,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;
