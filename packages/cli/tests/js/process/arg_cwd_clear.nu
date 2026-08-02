@@ -16,8 +16,7 @@ let path = artifact {
 				cwd: null,
 				sandbox: true,
 			});
-			let command = tg.Command.withId(arg.command.item);
-			return (await command.cwd) === null;
+			return typeof arg.command.item !== "string" && arg.command.item.cwd === null;
 		}
 	'
 }
