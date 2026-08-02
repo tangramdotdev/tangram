@@ -82,7 +82,7 @@ impl Server {
 	async fn clean_stripe_webhooks(&self, now: i64) -> tg::Result<()> {
 		let connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let ttl = STRIPE_WEBHOOK_TIME_TO_LIVE.as_secs().to_i64().unwrap();
