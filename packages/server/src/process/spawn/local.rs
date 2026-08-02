@@ -175,11 +175,11 @@ impl Session {
 
 	pub(super) async fn spawn_process_authorize_command(
 		&self,
-		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 	) -> tg::Result<()> {
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let command = arg.command.clone().map(tg::object::Id::from);
+		let command = command.clone().map(tg::object::Id::from);
 		if !self
 			.authorize(command, permission)
 			.await?
@@ -192,9 +192,9 @@ impl Session {
 
 	pub(super) async fn spawn_process_get_command_host(
 		&self,
-		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 	) -> tg::Result<String> {
-		let command = tg::Command::with_referent(arg.command.clone());
+		let command = tg::Command::with_referent(command.clone());
 		let host = command
 			.host_with_handle(self)
 			.await
@@ -230,13 +230,14 @@ impl Session {
 	pub(super) async fn spawn_process_get_or_create_local_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
-			let host = self.spawn_process_get_command_host(arg).await?;
+			let host = self.spawn_process_get_command_host(command).await?;
 			return self
-				.spawn_process_create_local_process(arg, parent_sandbox, cacheable, &host)
+				.spawn_process_create_local_process(arg, command, parent_sandbox, cacheable, &host)
 				.boxed()
 				.await
 				.map(Some);
@@ -250,6 +251,7 @@ impl Session {
 	async fn spawn_process_create_local_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 		host: &str,
@@ -333,7 +335,7 @@ impl Session {
 			actual_checksum: None,
 			cacheable,
 			children: None,
-			command: arg.command.item.clone(),
+			command: command.item.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,
@@ -387,6 +389,7 @@ impl Session {
 	pub(super) async fn spawn_process_add_child(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		output: &tg::process::spawn::Output,
 	) -> tg::Result<()> {
 		let Some(parent) = &arg.parent else {
@@ -402,17 +405,17 @@ impl Session {
 			"process.spawn.child.add",
 			cached = output.cached,
 			child = %child,
-			command = %arg.command.item,
+			command = %command.item,
 			parent = %parent,
 		)
 		.await;
 		self.add_process_child(AddProcessChildArg {
 			cached: output.cached,
 			child,
-			command: &arg.command.item,
+			command: &command.item,
 			lease: output.lease.as_deref(),
 			location: output.location.as_ref(),
-			options: &arg.command.options,
+			options: &command.options,
 			parent,
 			sandbox: sandbox.as_ref(),
 			token: output.token.as_ref(),

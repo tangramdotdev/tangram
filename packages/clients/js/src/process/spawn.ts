@@ -149,16 +149,56 @@ let spawnArgFromResolvedWithSandbox = async (
 	if (commandStdin !== undefined) {
 		commandArgs.push({ stdin: commandStdin });
 	}
-	let command = await tg.command(...commandArgs);
-
-	let commandId = await command.store();
-	if (command.state.token !== null) {
-		options.token = command.state.token;
+	let resolvedCommand = await tg.Command.arg(...commandArgs);
+	let executable_: tg.Command.Executable;
+	if (tg.Artifact.is(resolvedCommand.executable)) {
+		executable_ = { artifact: resolvedCommand.executable, path: null };
+	} else if (typeof resolvedCommand.executable === "string") {
+		executable_ = { artifact: null, path: resolvedCommand.executable };
+	} else if (
+		resolvedCommand.executable !== undefined &&
+		resolvedCommand.executable !== null
+	) {
+		executable_ = {
+			artifact: resolvedCommand.executable.artifact ?? null,
+			path: resolvedCommand.executable.path ?? null,
+		};
+	} else {
+		throw new Error("cannot create a command without an executable");
 	}
-	let commandReferent = {
-		item: commandId,
-		options: options,
+	let command: tg.Process.Spawn.CommandArgObject = {
+		args: resolvedCommand.args ?? [],
+		cwd: resolvedCommand.cwd ?? null,
+		env: resolvedCommand.env ?? {},
+		executable: executable_,
+		host: resolvedCommand.host ?? null,
+		stdin:
+			resolvedCommand.stdin === undefined || resolvedCommand.stdin === null
+				? null
+				: await tg.blob(resolvedCommand.stdin),
+		user: resolvedCommand.user ?? null,
 	};
+	await tg.Value.store(
+		tg.Command.Object.children(command as tg.Command.Object),
+	);
+
+	let commandReferent: tg.Referent<
+		tg.Process.Spawn.CommandArgObject | tg.Command.Id
+	>;
+	if (sandbox !== undefined) {
+		commandReferent = { item: command, options };
+	} else {
+		let object: tg.Command.Object = {
+			...command,
+			host: command.host ?? tg.host.current,
+		};
+		let handle = tg.Command.withObject(object);
+		let id = await handle.store();
+		if (handle.state.token !== null) {
+			options.token = handle.state.token;
+		}
+		commandReferent = { item: id, options };
+	}
 
 	let debug =
 		arg.debug === undefined || arg.debug === false
@@ -395,7 +435,12 @@ export let prepareUnsandboxedCommand = async (
 		throw new Error("blob stdin is not supported for unsandboxed processes");
 	}
 
-	let commandHandle = tg.Command.withReferent(arg.command);
+	if (typeof arg.command.item !== "string") {
+		throw new Error("expected a stored command");
+	}
+	let commandHandle = tg.Command.withReferent(
+		arg.command as tg.Referent<tg.Command.Id>,
+	);
 	let command = await commandHandle.object();
 	if (command.stdin !== null) {
 		throw new Error(
@@ -514,8 +559,12 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		(tg.process.env.COLORTERM !== undefined ||
 			tg.process.env.TERM !== undefined)
 	) {
-		let commandHandle = tg.Command.withReferent(arg.command);
-		let command = await commandHandle.object();
+		let command =
+			typeof arg.command.item === "string"
+				? await tg.Command.withReferent(
+						arg.command as tg.Referent<tg.Command.Id>,
+					).object()
+				: arg.command.item;
 		let env = { ...command.env };
 		let changed = false;
 		for (let name of ["COLORTERM", "TERM"] as const) {
@@ -529,17 +578,21 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			}
 		}
 		if (changed) {
-			let newCommand = tg.Command.withObject({
-				...command,
-				env,
-			});
-			let commandId = await newCommand.store();
-			arg.command.item = commandId;
-			let token = newCommand.state.token;
-			arg.command.options = {
-				...arg.command.options,
-				...(token !== null ? { token } : {}),
-			};
+			if (typeof arg.command.item === "string") {
+				let newCommand = tg.Command.withObject({
+					...(command as tg.Command.Object),
+					env,
+				});
+				let commandId = await newCommand.store();
+				arg.command.item = commandId;
+				let token = newCommand.state.token;
+				arg.command.options = {
+					...arg.command.options,
+					...(token !== null ? { token } : {}),
+				};
+			} else {
+				arg.command.item.env = env;
+			}
 		}
 	}
 	let spawnArg: tg.Process.Spawn.Arg = {

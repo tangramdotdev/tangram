@@ -553,11 +553,18 @@ pub struct Process {
 
 	pub grant_time_to_touch: Duration,
 
+	pub spawn: Spawn,
+
 	pub time_to_index: Duration,
 
 	pub time_to_live: Duration,
 
 	pub time_to_touch: Duration,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Spawn {
+	pub host: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1301,6 +1308,7 @@ impl Default for Process {
 			finalizer: Finalizer::default(),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
+			spawn: Spawn::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),

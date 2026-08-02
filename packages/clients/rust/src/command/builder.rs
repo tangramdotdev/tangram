@@ -25,6 +25,19 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn with_spawn_arg(arg: tg::process::spawn::CommandArg) -> Self {
+		Self {
+			args: arg.args,
+			cwd: arg.cwd,
+			env: arg.env,
+			executable: Some(arg.executable),
+			host: arg.host,
+			stdin: arg.stdin,
+			user: arg.user,
+		}
+	}
+
+	#[must_use]
 	pub fn with_object(object: &tg::command::Object) -> Self {
 		Self {
 			args: object.args.clone(),
@@ -89,19 +102,28 @@ impl Builder {
 	}
 
 	pub fn build(self) -> tg::Result<tg::Command> {
+		let mut arg = self.build_spawn_arg()?;
+		let host = arg
+			.host
+			.take()
+			.unwrap_or_else(|| tg::host::current().to_owned());
+		let object = arg.into_object(host);
+		Ok(tg::Command::with_object(object))
+	}
+
+	pub fn build_spawn_arg(self) -> tg::Result<tg::process::spawn::CommandArg> {
 		let executable = self
 			.executable
 			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
-		let host = self.host.unwrap_or_else(|| tg::host::current().to_owned());
-		Ok(tg::Command::with_object(tg::command::Object {
+		Ok(tg::process::spawn::CommandArg {
 			args: self.args,
 			cwd: self.cwd,
 			env: self.env,
 			executable,
-			host,
+			host: self.host,
 			stdin: self.stdin,
 			user: self.user,
-		}))
+		})
 	}
 
 	pub fn finish(self) -> tg::Result<tg::Command> {

@@ -51,7 +51,15 @@ impl Session {
 		let candidates = self
 			.server
 			.index
-			.try_get_cached_processes(&arg.command.item.clone().into())
+			.try_get_cached_processes(
+				&arg.command
+					.item
+					.as_ref()
+					.right()
+					.cloned()
+					.ok_or_else(|| tg::error!("expected a stored command"))?
+					.into(),
+			)
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to query the index for cached processes")
@@ -494,7 +502,13 @@ impl Session {
 			actual_checksum: Some(actual_checksum),
 			cacheable: true,
 			children: source.children,
-			command: arg.command.item.clone(),
+			command: arg
+				.command
+				.item
+				.as_ref()
+				.right()
+				.cloned()
+				.ok_or_else(|| tg::error!("expected a stored command"))?,
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),

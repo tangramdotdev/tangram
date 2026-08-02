@@ -695,6 +695,7 @@ export namespace Process {
 
 	export namespace Spawn {
 		export import Arg = ProcessSpawn.Arg;
+		export import CommandArgObject = ProcessSpawn.CommandArgObject;
 
 		export import Output = ProcessSpawn.Output;
 	}
