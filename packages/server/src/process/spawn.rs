@@ -41,6 +41,14 @@ impl Session {
 			arg.retry = process.retry;
 		}
 
+		// Validate the child sandbox against its parent.
+		if let Some(process) = &authenticated_process
+			&& let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+		{
+			self.validate_sandbox_create_arg_with_parent(sandbox, &process.sandbox)
+				.await?;
+		}
+
 		// Get the parent sandbox if there is one.
 		let parent_sandbox = authenticated_process
 			.as_ref()

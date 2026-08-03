@@ -11,6 +11,24 @@ impl Session {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
+		let parent = match &self.context.principal {
+			tg::Principal::Process(process) => self
+				.try_get_authenticated_process(process)
+				.await?
+				.map(|process| process.sandbox),
+			tg::Principal::Sandbox(sandbox) => Some(sandbox.clone()),
+			tg::Principal::Anonymous
+			| tg::Principal::Group(_)
+			| tg::Principal::Organization(_)
+			| tg::Principal::Root
+			| tg::Principal::Runner(_)
+			| tg::Principal::User(_) => None,
+		};
+		if let Some(parent) = parent {
+			self.validate_sandbox_create_arg_with_parent(&arg, &parent)
+				.await?;
+		}
+
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
