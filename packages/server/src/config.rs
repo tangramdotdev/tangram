@@ -1,5 +1,4 @@
 use {
-	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		net::Ipv4Addr,
@@ -8,104 +7,68 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
-	tangram_util::serde::BoolOptionDefault,
 };
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Config {
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub advanced: Advanced,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub authentication: Authentication,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing: Option<Billing>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: Checkin,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub cleaner: Cleaner,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub database: Database,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub grants: Grants,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub http: Http,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub index: Index,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub indexer: Indexer,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub logs: Logs,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub messenger: Messenger,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub object: Object,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub process: Process,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub regions: Option<Vec<Region>>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub remote_cache: RemoteCache,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<BTreeMap<String, Remote>>,
 
-	#[serde(default = "default_roles", skip_serializing_if = "is_default_roles")]
 	pub roles: BTreeSet<Role>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub runner: Runner,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub scheduler: Scheduler,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub sandbox: Sandbox,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub sync: Sync,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub vfs: Option<Vfs>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_watch", skip_serializing_if = "is_default_watch")]
 	pub watch: Option<Watch>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub write: Write,
 }
 
-#[derive(
-	Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
 	Cleaner,
 
@@ -120,9 +83,7 @@ pub enum Role {
 	Scheduler,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Advanced {
 	pub checkpoints: bool,
 
@@ -137,67 +98,42 @@ pub struct Advanced {
 	pub single_process: bool,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct Authentication {
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub tokens: AuthenticationTokens,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub users: Option<UserAuthentication>,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AuthenticationTokens {
-	#[serde(flatten)]
 	pub keys: TokenKeys,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub ttl: Duration,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct UserAuthentication {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	#[serde(default = "default_login_interval", skip_serializing_if = "is_default")]
 	pub interval: Duration,
 
-	#[serde(default)]
 	pub providers: AuthenticationProviders,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	#[serde(default = "default_login_ttl", skip_serializing_if = "is_default")]
 	pub ttl: Duration,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub web_url: Option<String>,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct AuthenticationProviders {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub github: Option<Github>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub insecure: Option<Insecure>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct Insecure {}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Github {
 	pub auth_url: String,
 
@@ -210,67 +146,47 @@ pub struct Github {
 	pub token_url: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Billing {
 	pub stripe: Stripe,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Stripe {
 	pub secret_key: String,
 
-	#[serde(
-		default = "default_stripe_url",
-		skip_serializing_if = "is_default_stripe_url"
-	)]
 	pub url: Uri,
 
 	pub webhook_secret: String,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Grants {
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(
-		default = "default_grant_tokens",
-		skip_serializing_if = "is_default_grant_tokens"
-	)]
 	pub tokens: Option<TokenKeys>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TokenKeys {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub private_key: Option<TokenPrivateKey>,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub public_keys: Vec<TokenPublicKey>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TokenPrivateKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TokenPublicKey {
 	pub algorithm: tg::grant::Algorithm,
 
 	pub name: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
@@ -308,8 +224,7 @@ impl Default for TokenKeys {
 	}
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct Checkin {
 	pub blob: CheckinBlob,
 
@@ -318,30 +233,26 @@ pub struct Checkin {
 	pub directory: CheckinDirectory,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct CheckinBlob {
 	pub concurrency: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct CheckinCache {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct CheckinDirectory {
 	pub max_branch_children: usize,
 
 	pub max_leaf_entries: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Cleaner {
 	pub batch_size: usize,
 
@@ -352,8 +263,7 @@ pub struct Cleaner {
 	pub partition_start: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug)]
 pub enum Database {
 	Postgres(PostgresDatabase),
 
@@ -362,131 +272,103 @@ pub enum Database {
 	Turso(TursoDatabase),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct DatabaseOutbox {
 	pub batch_size: usize,
 
 	pub partition_total: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct PostgresDatabase {
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub outbox: DatabaseOutbox,
 
 	pub pool: DatabasePool,
 
-	#[serde(default = "database_retry_default")]
 	pub retry: Retry,
 
 	pub url: Uri,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct DatabasePool {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max: Option<usize>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub min: Option<usize>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ttl: Option<Duration>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SqliteDatabase {
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub outbox: DatabaseOutbox,
 
 	pub path: PathBuf,
 
 	pub pool: DatabasePool,
 
-	#[serde(default = "database_retry_default")]
 	pub retry: Retry,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct TursoDatabase {
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub outbox: DatabaseOutbox,
 
 	pub path: PathBuf,
 
 	pub pool: DatabasePool,
 
-	#[serde(default = "database_retry_default")]
 	pub retry: Retry,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Http {
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub idle_timeout: Duration,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub listeners: Vec<HttpListener>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct HttpListener {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tls: Option<HttpTls>,
 
 	pub url: Uri,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct HttpTls {
 	pub certificate: PathBuf,
 
 	pub key: PathBuf,
 }
 
-#[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, derive_more::IsVariant)]
 pub enum Index {
 	Fdb(FdbIndex),
 
 	Lmdb(LmdbIndex),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct FdbIndexAuthorize {
 	pub concurrency: usize,
 
 	pub object_subtree: IndexAuthorizeObjectSubtree,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct LmdbIndexAuthorize {
 	pub object_subtree: IndexAuthorizeObjectSubtree,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct IndexAuthorizeObjectSubtree {
 	pub max_depth: usize,
 
 	pub max_objects: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct FdbIndex {
 	pub authorize: FdbIndexAuthorize,
 
@@ -494,7 +376,6 @@ pub struct FdbIndex {
 
 	pub partition_total: u64,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
 
 	pub read_batch_size: usize,
@@ -506,8 +387,7 @@ pub struct FdbIndex {
 	pub write_concurrency: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct LmdbIndex {
 	pub authorize: LmdbIndexAuthorize,
 
@@ -522,9 +402,7 @@ pub struct LmdbIndex {
 	pub write_batch_size: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Indexer {
 	pub batch_size: usize,
 
@@ -532,28 +410,23 @@ pub struct Indexer {
 
 	pub max_process_depth: usize,
 
-	#[serde(default = "message_retry_default")]
 	pub message_retry: Retry,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_timeout: Duration,
 
 	pub partition_end: u64,
 
 	pub partition_start: u64,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub poll_interval: Duration,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct Logs {
 	pub store: LogStore,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug)]
 pub enum LogStore {
 	Fdb(FdbLogStore),
 
@@ -562,24 +435,20 @@ pub enum LogStore {
 	Memory,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct FdbLogStore {
 	pub cluster: PathBuf,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct LmdbLogStore {
 	pub map_size: usize,
 
 	pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug, Default)]
 pub enum Messenger {
 	#[default]
 	Memory,
@@ -587,58 +456,39 @@ pub enum Messenger {
 	Nats(NatsMessenger),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct NatsMessenger {
-	#[serde(skip_serializing_if = "Option::is_none")]
 	pub credentials: Option<PathBuf>,
-	#[serde(skip_serializing_if = "Option::is_none")]
 	pub id: Option<String>,
 
 	pub url: Uri,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Object {
-	#[serde(alias = "grant_ttl", default = "default_object_grant_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_live: Duration,
 
-	#[serde(alias = "grant_ttt", default = "default_time_to_touch")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(default, skip_serializing_if = "is_default")]
 	pub outbox: ObjectOutbox,
 
-	#[serde(default)]
 	pub store: ObjectStore,
 
-	#[serde(alias = "tti", default = "default_time_to_index")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
 
-	#[serde(alias = "ttl", default = "default_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 
-	#[serde(alias = "ttt", default = "default_time_to_touch")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct ObjectOutbox {
 	pub batch_size: usize,
 
 	pub partition_total: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug)]
 pub enum ObjectStore {
 	Lmdb(LmdbObjectStore),
 
@@ -647,104 +497,75 @@ pub enum ObjectStore {
 	Scylla(ScyllaObjectStore),
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct LmdbObjectStore {
 	pub map_size: usize,
 
 	pub path: PathBuf,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub posix_sem_prefix: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct MemoryObjectStore {}
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct ScyllaObjectStore {
 	pub addr: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 
 	pub keyspace: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+#[derive(Clone, Debug)]
 pub enum ScyllaObjectStoreSpeculativeExecution {
 	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
 
 	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct ScyllaObjectStorePercentileSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub percentile: f64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub retry_interval: u64,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Process {
-	#[serde(default)]
 	pub finalizer: Finalizer,
 
-	#[serde(alias = "grant_ttl", default = "default_process_grant_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_live: Duration,
 
-	#[serde(alias = "grant_ttt", default = "default_time_to_touch")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(alias = "tti", default = "default_time_to_index")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
 
-	#[serde(alias = "ttl", default = "default_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 
-	#[serde(alias = "ttt", default = "default_time_to_touch")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Finalizer {
 	pub concurrency: usize,
 
 	pub message_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
 
 	pub partition_end: u64,
@@ -752,274 +573,195 @@ pub struct Finalizer {
 	pub partition_start: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Region {
 	pub name: String,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 
 	pub url: Uri,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Reconnect {
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub backoff: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub jitter: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub max_delay: Duration,
 
 	pub max_retries: u64,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Retry {
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub backoff: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub jitter: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub max_delay: Duration,
 
 	pub max_retries: u64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Remote {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 
 	pub url: Uri,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct RemoteCache {
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Runner {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::runner::Id>,
 
-	#[serde(default)]
 	pub js: Js,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_state_ttl: Duration,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 
 	pub sandbox_pool_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub sandbox_state_ttl: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub scheduler_ttl: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub stdio_drain_timeout: Duration,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Js {
-	#[serde(default)]
 	pub engine: JsEngine,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum JsEngine {
 	#[default]
 	Auto,
 
-	#[serde(alias = "quick_js", rename = "quickjs")]
 	QuickJs,
 
 	V8,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Scheduler {
-	#[serde(default = "default_scheduler_create_sandbox_queue_capacity")]
 	pub create_sandbox_queue_capacity: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub create_sandbox_timeout: Duration,
 
-	#[serde(default = "default_scheduler_cpu")]
 	pub default_cpu: u64,
 
-	#[serde(default = "default_scheduler_memory")]
 	pub default_memory: u64,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_ttl: Duration,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub inbox_ttl: Duration,
 
-	#[serde(default = "message_retry_default")]
 	pub message_retry: Retry,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_timeout: Duration,
 
-	#[serde(default = "default_scheduler_max_create_sandbox_attempts")]
 	pub max_create_sandbox_attempts: usize,
 
-	#[serde(default = "default_scheduler_max_create_sandbox_requests")]
 	pub max_create_sandbox_requests: usize,
 
-	#[serde(default = "default_scheduler_max_create_sandbox_requests_per_runner")]
 	pub max_create_sandbox_requests_per_runner: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub runner_ttl: Duration,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Sandbox {
-	#[serde(default)]
 	pub finalizer: Finalizer,
 
 	pub isolation: SandboxIsolation,
 
-	#[serde(default)]
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
 
-	#[serde(alias = "ttl", default = "default_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SandboxIsolation {
 	pub container: Option<ContainerSandboxIsolation>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub default: Option<SandboxIsolationDefault>,
 
 	pub seatbelt: Option<SeatbeltSandboxIsolation>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub vm: Option<VmSandboxIsolation>,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct ContainerSandboxIsolation {}
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug)]
 pub enum SandboxIsolationDefault {
 	Container,
 	Seatbelt,
 	Vm,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SeatbeltSandboxIsolation {}
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct VmSandboxIsolation {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cloud_hypervisor_path: Option<PathBuf>,
 
-	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_vm_dax")]
 	pub dax: Option<Dax>,
 
 	pub kernel_path: PathBuf,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub listener_port: Option<u16>,
 
-	#[serde(default = "default_vm_max_cpu")]
 	pub max_cpu: u64,
 
-	#[serde(default = "default_vm_max_memory")]
 	pub max_memory: u64,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub snapshot: Option<PathBuf>,
 
-	#[serde(default = "default_vm_snapshot_cpu")]
 	pub snapshot_cpu: u64,
 
-	#[serde(default = "default_vm_snapshot_memory")]
 	pub snapshot_memory: u64,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Copy, Debug)]
 pub struct Dax {
 	pub window_size: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SandboxNetwork {
-	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
 	pub dns: Vec<Ipv4Addr>,
 
-	#[serde(default)]
 	pub firewall: SandboxNetworkFirewall,
 
-	#[serde(default = "default_ip_ranges", skip_serializing_if = "Vec::is_empty")]
 	pub ip_ranges: Vec<IpRange>,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum SandboxNetworkFirewall {
 	Iptables,
 
@@ -1027,94 +769,68 @@ pub enum SandboxNetworkFirewall {
 	Nft,
 }
 
-#[derive(
-	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
-)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IpRange {
 	pub max: Ipv4Addr,
 
 	pub min: Ipv4Addr,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Sync {
-	#[serde(default)]
 	pub get: SyncGet,
 
-	#[serde(default = "default_time_to_live")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_live: Duration,
 
-	#[serde(default = "default_time_to_touch")]
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub grant_time_to_touch: Duration,
 
-	#[serde(default = "default_sync_max_frame_size")]
 	pub max_frame_size: u64,
 
-	#[serde(default)]
 	pub put: SyncPut,
 
-	#[serde(default = "sync_retry_default")]
 	pub retry: Retry,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncGet {
-	#[serde(default)]
 	pub index: SyncGetIndex,
 
-	#[serde(default)]
 	pub queue: SyncGetQueue,
 
-	#[serde(default)]
 	pub store: SyncGetStore,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncGetIndex {
 	pub object_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncGetQueue {
 	pub object_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncGetStore {
 	pub lmdb: SyncGetStoreObject,
 
@@ -1122,7 +838,6 @@ pub struct SyncGetStore {
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
@@ -1130,8 +845,7 @@ pub struct SyncGetStore {
 	pub scylla: SyncGetStoreObject,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncGetStoreObject {
 	pub object_concurrency: usize,
 
@@ -1140,8 +854,7 @@ pub struct SyncGetStoreObject {
 	pub object_max_bytes: u64,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug, Default)]
 pub struct SyncPut {
 	pub index: SyncPutIndex,
 
@@ -1150,64 +863,51 @@ pub struct SyncPut {
 	pub store: SyncPutStore,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncPutIndex {
 	pub object_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncPutQueue {
 	pub object_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct SyncPutStore {
 	pub object_batch_size: usize,
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
 
 	pub object_concurrency: usize,
 
 	pub process_batch_size: usize,
 
-	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Vfs {
 	/// The macOS app group identifier.
 	pub app_group_identifier: Option<String>,
@@ -1219,8 +919,7 @@ pub struct Vfs {
 	pub passthrough: VfsPassthrough,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum VfsKind {
 	#[default]
 	Auto,
@@ -1232,8 +931,7 @@ pub enum VfsKind {
 	Nfs,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum VfsIo {
 	#[default]
 	Auto,
@@ -1243,8 +941,7 @@ pub enum VfsIo {
 	ReadWrite,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum VfsPassthrough {
 	#[default]
 	Auto,
@@ -1254,15 +951,12 @@ pub enum VfsPassthrough {
 	Required,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Watch {
 	pub ttl: Duration,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct Write {
 	pub avg_leaf_size: usize,
 
@@ -1952,27 +1646,6 @@ fn default_dns() -> Vec<Ipv4Addr> {
 	Vec::new()
 }
 
-#[expect(clippy::unnecessary_wraps)]
-fn default_vm_dax() -> Option<Dax> {
-	Some(Dax::default())
-}
-
-fn default_vm_snapshot_cpu() -> u64 {
-	1
-}
-
-fn default_vm_snapshot_memory() -> u64 {
-	512 * 1024 * 1024
-}
-
-fn default_vm_max_cpu() -> u64 {
-	8
-}
-
-fn default_vm_max_memory() -> u64 {
-	8 * 1024 * 1024 * 1024
-}
-
 fn database_retry_default() -> Retry {
 	let options = tangram_futures::retry::Options {
 		max_retries: 20,
@@ -2031,10 +1704,6 @@ fn default_authentication_token_ttl() -> Duration {
 	Duration::from_hours(24)
 }
 
-fn default_stripe_url() -> Uri {
-	"https://api.stripe.com".parse().unwrap()
-}
-
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
 }
@@ -2089,41 +1758,4 @@ fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
 
 fn default_scheduler_memory() -> u64 {
 	1_000_000_000
-}
-
-#[expect(clippy::unnecessary_wraps)]
-fn default_watch() -> Option<Watch> {
-	Some(Watch::default())
-}
-
-fn is_default<T>(value: &T) -> bool
-where
-	T: Default + serde::Serialize,
-{
-	is_serialized_default(value, T::default())
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_grant_tokens(value: &Option<TokenKeys>) -> bool {
-	is_serialized_default(value, default_grant_tokens())
-}
-
-fn is_default_roles(value: &BTreeSet<Role>) -> bool {
-	*value == default_roles()
-}
-
-fn is_default_stripe_url(value: &Uri) -> bool {
-	*value == default_stripe_url()
-}
-
-#[expect(clippy::ref_option)]
-fn is_default_watch(value: &Option<Watch>) -> bool {
-	is_serialized_default(value, default_watch())
-}
-
-fn is_serialized_default<T>(value: &T, default: T) -> bool
-where
-	T: serde::Serialize,
-{
-	serde_json::to_value(value).ok() == serde_json::to_value(default).ok()
 }

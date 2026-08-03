@@ -8277,7 +8277,6 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
- "serde_with",
  "smallvec",
  "sync_wrapper",
  "tangram_client",

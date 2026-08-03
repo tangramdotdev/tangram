@@ -1,13 +1,15 @@
 use {
 	crate::Cli,
-	serde_with::{DurationSecondsWithFrac, serde_as},
+	serde_with::{DisplayFromStr, DurationSecondsWithFrac, serde_as},
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
+		net::Ipv4Addr,
 		path::{Path, PathBuf},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_server::config::{Reconnect, Retry},
+	tangram_server::config as server,
+	tangram_uri::Uri,
 	tangram_util::serde::{BoolOptionDefault, is_default, is_false},
 };
 
@@ -15,17 +17,85 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub advanced: Option<Advanced>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authentication: Option<Authentication>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub billing: Option<Billing>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkin: Option<Checkin>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cleaner: Option<Cleaner>,
+
 	/// Configure the client.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub client: Option<Client>,
 
-	/// Configure the server.
-	#[serde(flatten)]
-	pub server: tangram_server::Config,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database: Option<Database>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directory: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grants: Option<Grants>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http: Option<Http>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<Index>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub indexer: Option<Indexer>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub logs: Option<Logs>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub messenger: Option<Messenger>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object: Option<Object>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process: Option<Process>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub region: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub regions: Option<Vec<Region>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote_cache: Option<RemoteCache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remotes: Option<BTreeMap<String, Remote>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub roles: Option<BTreeSet<Role>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub runner: Option<Runner>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<Sandbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scheduler: Option<Scheduler>,
 
 	/// Configure shell behavior.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shell: Option<Shell>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<SyncOptions>,
 
 	/// Configure telemetry export via OpenTelemetry.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,6 +124,1361 @@ pub struct Config {
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub v8_thread_pool_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub version: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub vfs: Option<BoolOr<Vfs>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub watch: Option<BoolOr<Watch>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write: Option<Write>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum BoolOr<T> {
+	Bool(bool),
+
+	Value(T),
+}
+
+#[derive(
+	Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+	Cleaner,
+
+	Finalizer,
+
+	Http,
+
+	Indexer,
+
+	Runner,
+
+	Scheduler,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Advanced {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkpoints: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub disable_version_check: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub internal_error_locations: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub preserve_temp_directories: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub single_directory: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub single_process: Option<bool>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Authentication {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tokens: Option<AuthenticationTokens>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub users: Option<BoolOr<UserAuthentication>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthenticationTokens {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub private_key: Option<TokenPrivateKey>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub public_keys: Option<Vec<TokenPublicKey>>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserAuthentication {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub providers: Option<AuthenticationProviders>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub web_url: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthenticationProviders {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub github: Option<Github>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub insecure: Option<BoolOr<Insecure>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Insecure {}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Github {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub auth_url: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client_id: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client_secret: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub redirect_url: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token_url: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Billing {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stripe: Option<Stripe>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stripe {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub secret_key: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub webhook_secret: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Grants {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tokens: Option<BoolOr<TokenKeys>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenKeys {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub private_key: Option<TokenPrivateKey>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub public_keys: Option<Vec<TokenPublicKey>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenPrivateKey {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub algorithm: Option<tg::grant::Algorithm>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenPublicKey {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub algorithm: Option<tg::grant::Algorithm>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Checkin {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub blob: Option<CheckinBlob>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<CheckinCache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub directory: Option<CheckinDirectory>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinBlob {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckinDirectory {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_branch_children: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_leaf_entries: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cleaner {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_end: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_start: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Database {
+	Postgres(PostgresDatabase),
+
+	Sqlite(SqliteDatabase),
+
+	Turso(TursoDatabase),
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseOutbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresDatabase {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outbox: Option<DatabaseOutbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<DatabasePool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatabasePool {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SqliteDatabase {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outbox: Option<DatabaseOutbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<DatabasePool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TursoDatabase {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outbox: Option<DatabaseOutbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<DatabasePool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Http {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub idle_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub listeners: Option<Vec<HttpListener>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpListener {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tls: Option<HttpTls>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpTls {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub certificate: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub key: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Index {
+	Fdb(FdbIndex),
+
+	Lmdb(LmdbIndex),
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbIndexAuthorize {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_subtree: Option<IndexAuthorizeObjectSubtree>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbIndexAuthorize {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_subtree: Option<IndexAuthorizeObjectSubtree>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexAuthorizeObjectSubtree {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_objects: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorize: Option<FdbIndexAuthorize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cluster: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefix: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorize: Option<LmdbIndexAuthorize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub map_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_batch_size: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Indexer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_process_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_end: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_start: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Logs {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<LogStore>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum LogStore {
+	Fdb(FdbLogStore),
+
+	Lmdb(LmdbLogStore),
+
+	Memory,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FdbLogStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cluster: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefix: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbLogStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub map_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Messenger {
+	Memory,
+
+	Nats(NatsMessenger),
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NatsMessenger {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub credentials: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Object {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "grant_ttt", default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_touch: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub outbox: Option<ObjectOutbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<ObjectStore>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_index: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_touch: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectOutbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum ObjectStore {
+	Lmdb(LmdbObjectStore),
+
+	Memory(MemoryObjectStore),
+
+	Scylla(ScyllaObjectStore),
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LmdbObjectStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub map_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub posix_sem_prefix: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryObjectStore {}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaObjectStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub addr: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub keyspace: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub password: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub username: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum ScyllaObjectStoreSpeculativeExecution {
+	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
+
+	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaObjectStorePercentileSpeculativeExecution {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_retry_count: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub percentile: Option<f64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_retry_count: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry_interval: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Process {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub finalizer: Option<Finalizer>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "grant_ttt", default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_touch: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_index: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_touch: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Finalizer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_end: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_start: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Region {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reconnect {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub backoff: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jitter: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_delay: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_retries: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retry {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub backoff: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jitter: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_delay: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_retries: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Remote {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteCache {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Runner {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpus: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub heartbeat_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::runner::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub js: Option<Js>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_state_ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox_pool_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox_state_ttl: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scheduler_ttl: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_drain_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Js {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub engine: Option<JsEngine>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JsEngine {
+	Auto,
+
+	#[serde(alias = "quick_js", rename = "quickjs")]
+	QuickJs,
+
+	V8,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Scheduler {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub create_sandbox_queue_capacity: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub create_sandbox_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_cpu: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default_memory: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub heartbeat_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub heartbeat_ttl: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub inbox_ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_attempts: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_requests: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_create_sandbox_requests_per_runner: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub runner_ttl: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sandbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub finalizer: Option<Finalizer>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<SandboxIsolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub network: Option<SandboxNetwork>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub nice: Option<u8>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
+	pub time_to_live: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub container: Option<ContainerSandboxIsolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default: Option<SandboxIsolationDefault>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seatbelt: Option<SeatbeltSandboxIsolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub vm: Option<VmSandboxIsolation>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxIsolationDefault {
+	Container,
+
+	Seatbelt,
+
+	Vm,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerSandboxIsolation {}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeatbeltSandboxIsolation {}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmSandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cloud_hypervisor_path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub dax: Option<BoolOr<Dax>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kernel_path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub listener_port: Option<u16>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_cpu: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_memory: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub snapshot: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub snapshot_cpu: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub snapshot_memory: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dax {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub window_size: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxNetwork {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub dns: Option<Vec<Ipv4Addr>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub firewall: Option<SandboxNetworkFirewall>,
+
+	#[serde_as(as = "Option<Vec<DisplayFromStr>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ip_ranges: Option<Vec<server::IpRange>>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxNetworkFirewall {
+	Iptables,
+
+	Nft,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncOptions {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get: Option<SyncGet>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grant_time_to_touch: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_frame_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub put: Option<SyncPut>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGet {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<SyncGetIndex>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue: Option<SyncGetQueue>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<SyncGetStore>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lmdb: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<SyncGetStoreObject>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scylla: Option<SyncGetStoreObject>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetStoreObject {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_max_batch: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_max_bytes: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPut {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<SyncPutIndex>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue: Option<SyncPutQueue>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<SyncPutStore>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutIndex {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_batch_timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Vfs {
+	/// The macOS app group identifier.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app_group_identifier: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kind: Option<VfsKind>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub io: Option<VfsIo>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub passthrough: Option<VfsPassthrough>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsKind {
+	Auto,
+
+	Fskit,
+
+	Fuse,
+
+	Nfs,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsIo {
+	Auto,
+
+	IoUring,
+
+	ReadWrite,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsPassthrough {
+	Auto,
+
+	Disabled,
+
+	Required,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Watch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Write {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub avg_leaf_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache_pointers: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_branch_children: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_leaf_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min_leaf_size: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -172,7 +1597,7 @@ enum Format {
 
 impl Config {
 	fn deserialize(config: &str, format: Format) -> tg::Result<Self> {
-		let config = match format {
+		let config: Self = match format {
 			Format::Json => serde_json::from_str(config)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the config as JSON"))?,
 			Format::Maml => maml::from_str(config)
@@ -215,6 +1640,15 @@ impl Format {
 }
 
 impl Cli {
+	pub(crate) fn resolve_config(&self) -> tg::Result<tangram_server::Config> {
+		let config = match self.config.as_ref() {
+			Some(config) => resolve_server_config(config)?,
+			None => tangram_server::Config::default(),
+		};
+
+		Ok(config)
+	}
+
 	pub(crate) async fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let path = path.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
@@ -313,4 +1747,1419 @@ fn is_default_tracing(value: &Option<Tracing>) -> bool {
 
 fn is_default_export(export: &String) -> bool {
 	export == "default"
+}
+
+fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
+	let source = source.clone();
+	let mut target = server::Config::default();
+	if let Some(source) = source.advanced {
+		target.advanced = resolve_advanced(source);
+	}
+	if let Some(source) = source.authentication {
+		target.authentication = resolve_authentication(source)?;
+	}
+	if let Some(source) = source.billing {
+		target.billing = Some(resolve_billing(source)?);
+	}
+	if let Some(source) = source.checkin {
+		target.checkin = resolve_checkin(source);
+	}
+	if let Some(source) = source.cleaner {
+		target.cleaner = resolve_cleaner(source);
+	}
+	if let Some(source) = source.database {
+		target.database = resolve_database(source);
+	}
+	if let Some(directory) = source.directory {
+		target.directory = Some(directory);
+	}
+	if let Some(source) = source.grants {
+		target.grants = resolve_grants(source)?;
+	}
+	if let Some(source) = source.http {
+		target.http = resolve_http(source)?;
+	}
+	if let Some(source) = source.index {
+		target.index = resolve_index(source);
+	}
+	if let Some(source) = source.indexer {
+		target.indexer = resolve_indexer(source);
+	}
+	if let Some(source) = source.logs {
+		target.logs = resolve_logs(source);
+	}
+	if let Some(source) = source.messenger {
+		target.messenger = resolve_messenger(source);
+	}
+	if let Some(source) = source.object {
+		target.object = resolve_object(source)?;
+	}
+	if let Some(source) = source.process {
+		target.process = resolve_process(source);
+	}
+	if let Some(region) = source.region {
+		target.region = Some(region);
+	}
+	if let Some(regions) = source.regions {
+		target.regions = Some(
+			regions
+				.into_iter()
+				.map(resolve_region)
+				.collect::<tg::Result<_>>()?,
+		);
+	}
+	if let Some(source) = source.remote_cache {
+		target.remote_cache = resolve_remote_cache(source);
+	}
+	if let Some(remotes) = source.remotes {
+		target.remotes = Some(
+			remotes
+				.into_iter()
+				.map(|(name, source)| Ok((name, resolve_remote(source)?)))
+				.collect::<tg::Result<_>>()?,
+		);
+	}
+	if let Some(roles) = source.roles {
+		target.roles = roles.into_iter().map(resolve_role).collect();
+	}
+	if let Some(source) = source.runner {
+		target.runner = resolve_runner(source);
+	}
+	if let Some(source) = source.sandbox {
+		target.sandbox = resolve_sandbox(source)?;
+	}
+	if let Some(source) = source.scheduler {
+		target.scheduler = resolve_scheduler(source);
+	}
+	if let Some(source) = source.sync {
+		target.sync = resolve_sync(&source);
+	}
+	if let Some(version) = source.version {
+		target.version = Some(version);
+	}
+	if let Some(source) = source.vfs {
+		target.vfs = resolve_bool_or(source, |source| Ok(resolve_vfs(source)))?;
+	}
+	if let Some(source) = source.watch {
+		target.watch = resolve_bool_or(source, |source| Ok(resolve_watch(source)))?;
+	}
+	if let Some(source) = source.write {
+		target.write = resolve_write(source);
+	}
+
+	Ok(target)
+}
+
+fn resolve_role(source: Role) -> server::Role {
+	match source {
+		Role::Cleaner => server::Role::Cleaner,
+		Role::Finalizer => server::Role::Finalizer,
+		Role::Http => server::Role::Http,
+		Role::Indexer => server::Role::Indexer,
+		Role::Runner => server::Role::Runner,
+		Role::Scheduler => server::Role::Scheduler,
+	}
+}
+
+fn resolve_advanced(source: Advanced) -> server::Advanced {
+	let mut target = server::Advanced::default();
+	if let Some(value) = source.checkpoints {
+		target.checkpoints = value;
+	}
+	if let Some(value) = source.disable_version_check {
+		target.disable_version_check = value;
+	}
+	if let Some(value) = source.internal_error_locations {
+		target.internal_error_locations = value;
+	}
+	if let Some(value) = source.preserve_temp_directories {
+		target.preserve_temp_directories = value;
+	}
+	if let Some(value) = source.single_directory {
+		target.single_directory = value;
+	}
+	if let Some(value) = source.single_process {
+		target.single_process = value;
+	}
+	target
+}
+
+fn resolve_authentication(source: Authentication) -> tg::Result<server::Authentication> {
+	let mut target = server::Authentication::default();
+	if let Some(source) = source.tokens {
+		target.tokens = resolve_authentication_tokens(source)?;
+	}
+	if let Some(source) = source.users {
+		target.users = resolve_bool_or(source, resolve_user_authentication)?;
+	}
+
+	Ok(target)
+}
+
+fn resolve_authentication_tokens(
+	source: AuthenticationTokens,
+) -> tg::Result<server::AuthenticationTokens> {
+	let mut target = server::AuthenticationTokens::default();
+	if let Some(source) = source.private_key {
+		target.keys.private_key = Some(resolve_token_private_key(source)?);
+	}
+	if let Some(public_keys) = source.public_keys {
+		target.keys.public_keys = public_keys
+			.into_iter()
+			.map(resolve_token_public_key)
+			.collect::<tg::Result<_>>()?;
+	}
+	if let Some(value) = source.ttl {
+		target.ttl = value;
+	}
+
+	Ok(target)
+}
+
+fn resolve_user_authentication(
+	source: UserAuthentication,
+) -> tg::Result<server::UserAuthentication> {
+	let mut target = server::UserAuthentication::default();
+	if let Some(source) = source.providers {
+		target.providers = resolve_authentication_providers(source)?;
+	}
+	if let Some(value) = source.interval {
+		target.interval = value;
+	}
+	if let Some(value) = source.ttl {
+		target.ttl = value;
+	}
+	if let Some(value) = source.web_url {
+		target.web_url = Some(value);
+	}
+
+	Ok(target)
+}
+
+fn resolve_authentication_providers(
+	source: AuthenticationProviders,
+) -> tg::Result<server::AuthenticationProviders> {
+	let mut target = server::AuthenticationProviders::default();
+	if let Some(source) = source.github {
+		target.github = Some(resolve_github(source)?);
+	}
+	if let Some(source) = source.insecure {
+		target.insecure = resolve_bool_or(source, |_: Insecure| Ok(server::Insecure {}))?;
+	}
+
+	Ok(target)
+}
+
+fn resolve_github(source: Github) -> tg::Result<server::Github> {
+	let target = server::Github {
+		auth_url: required(
+			source.auth_url,
+			"authentication.users.providers.github.auth_url",
+		)?,
+		client_id: required(
+			source.client_id,
+			"authentication.users.providers.github.client_id",
+		)?,
+		client_secret: required(
+			source.client_secret,
+			"authentication.users.providers.github.client_secret",
+		)?,
+		redirect_url: required(
+			source.redirect_url,
+			"authentication.users.providers.github.redirect_url",
+		)?,
+		token_url: required(
+			source.token_url,
+			"authentication.users.providers.github.token_url",
+		)?,
+	};
+
+	Ok(target)
+}
+
+fn resolve_billing(source: Billing) -> tg::Result<server::Billing> {
+	let source = required(source.stripe, "billing.stripe")?;
+	let stripe = resolve_stripe(source)?;
+	let target = server::Billing { stripe };
+
+	Ok(target)
+}
+
+fn resolve_stripe(source: Stripe) -> tg::Result<server::Stripe> {
+	let secret_key = required(source.secret_key, "billing.stripe.secret_key")?;
+	let url = source
+		.url
+		.unwrap_or_else(|| "https://api.stripe.com".parse().unwrap());
+	let webhook_secret = required(source.webhook_secret, "billing.stripe.webhook_secret")?;
+	let target = server::Stripe {
+		secret_key,
+		url,
+		webhook_secret,
+	};
+
+	Ok(target)
+}
+
+fn resolve_grants(source: Grants) -> tg::Result<server::Grants> {
+	let mut target = server::Grants::default();
+	if let Some(source) = source.tokens {
+		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
+	}
+
+	Ok(target)
+}
+
+fn resolve_token_keys(source: TokenKeys) -> tg::Result<server::TokenKeys> {
+	let mut target = server::TokenKeys::default();
+	if let Some(source) = source.private_key {
+		target.private_key = Some(resolve_token_private_key(source)?);
+	}
+	if let Some(public_keys) = source.public_keys {
+		target.public_keys = public_keys
+			.into_iter()
+			.map(resolve_token_public_key)
+			.collect::<tg::Result<_>>()?;
+	}
+
+	Ok(target)
+}
+
+fn resolve_token_private_key(source: TokenPrivateKey) -> tg::Result<server::TokenPrivateKey> {
+	let algorithm = required(source.algorithm, "private_key.algorithm")?;
+	let name = required(source.name, "private_key.name")?;
+	let path = source.path;
+	let target = server::TokenPrivateKey {
+		algorithm,
+		name,
+		path,
+	};
+
+	Ok(target)
+}
+
+fn resolve_token_public_key(source: TokenPublicKey) -> tg::Result<server::TokenPublicKey> {
+	let algorithm = required(source.algorithm, "public_keys[].algorithm")?;
+	let name = required(source.name, "public_keys[].name")?;
+	let path = source.path;
+	let target = server::TokenPublicKey {
+		algorithm,
+		name,
+		path,
+	};
+
+	Ok(target)
+}
+
+fn resolve_checkin(source: Checkin) -> server::Checkin {
+	let mut target = server::Checkin::default();
+	if let Some(source) = source.blob {
+		target.blob = resolve_checkin_blob(source);
+	}
+	if let Some(source) = source.cache {
+		target.cache = resolve_checkin_cache(source);
+	}
+	if let Some(source) = source.directory {
+		target.directory = resolve_checkin_directory(source);
+	}
+	target
+}
+
+fn resolve_checkin_blob(source: CheckinBlob) -> server::CheckinBlob {
+	let mut target = server::CheckinBlob::default();
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	target
+}
+
+fn resolve_checkin_cache(source: CheckinCache) -> server::CheckinCache {
+	let mut target = server::CheckinCache::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	target
+}
+
+fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirectory {
+	let mut target = server::CheckinDirectory::default();
+	if let Some(value) = source.max_branch_children {
+		target.max_branch_children = value;
+	}
+	if let Some(value) = source.max_leaf_entries {
+		target.max_leaf_entries = value;
+	}
+	target
+}
+
+fn resolve_cleaner(source: Cleaner) -> server::Cleaner {
+	let mut target = server::Cleaner::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.partition_end {
+		target.partition_end = value;
+	}
+	if let Some(value) = source.partition_start {
+		target.partition_start = value;
+	}
+	target
+}
+
+fn resolve_database(source: Database) -> server::Database {
+	match source {
+		Database::Postgres(source) => server::Database::Postgres(resolve_postgres_database(source)),
+		Database::Sqlite(source) => server::Database::Sqlite(resolve_sqlite_database(source)),
+		Database::Turso(source) => server::Database::Turso(resolve_turso_database(source)),
+	}
+}
+
+fn resolve_postgres_database(source: PostgresDatabase) -> server::PostgresDatabase {
+	let mut target = server::PostgresDatabase::default();
+	if let Some(source) = source.outbox {
+		target.outbox = resolve_database_outbox(source);
+	}
+	if let Some(source) = source.pool {
+		target.pool = resolve_database_pool(source);
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.url {
+		target.url = value;
+	}
+	target
+}
+
+fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
+	let mut target = server::SqliteDatabase::default();
+	if let Some(source) = source.outbox {
+		target.outbox = resolve_database_outbox(source);
+	}
+	if let Some(source) = source.pool {
+		target.pool = resolve_database_pool(source);
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	target
+}
+
+fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
+	let mut target = server::TursoDatabase::default();
+	if let Some(source) = source.outbox {
+		target.outbox = resolve_database_outbox(source);
+	}
+	if let Some(source) = source.pool {
+		target.pool = resolve_database_pool(source);
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	target
+}
+
+fn resolve_database_outbox(source: DatabaseOutbox) -> server::DatabaseOutbox {
+	let mut target = server::DatabaseOutbox::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	target
+}
+
+fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
+	let mut target = server::DatabasePool::default();
+	if let Some(value) = source.max {
+		target.max = Some(value);
+	}
+	if let Some(value) = source.min {
+		target.min = Some(value);
+	}
+	if let Some(value) = source.ttl {
+		target.ttl = Some(value);
+	}
+	target
+}
+
+fn resolve_http(source: Http) -> tg::Result<server::Http> {
+	let mut target = server::Http::default();
+	if let Some(listeners) = source.listeners {
+		target.listeners = listeners
+			.into_iter()
+			.map(resolve_http_listener)
+			.collect::<tg::Result<_>>()?;
+	}
+	if let Some(value) = source.idle_timeout {
+		target.idle_timeout = value;
+	}
+
+	Ok(target)
+}
+
+fn resolve_http_listener(source: HttpListener) -> tg::Result<server::HttpListener> {
+	let tls = source.tls.map(resolve_http_tls).transpose()?;
+	let url = required(source.url, "http.listeners[].url")?;
+	let target = server::HttpListener { tls, url };
+
+	Ok(target)
+}
+
+fn resolve_http_tls(source: HttpTls) -> tg::Result<server::HttpTls> {
+	let certificate = required(source.certificate, "http.listeners[].tls.certificate")?;
+	let key = required(source.key, "http.listeners[].tls.key")?;
+	let target = server::HttpTls { certificate, key };
+
+	Ok(target)
+}
+
+fn resolve_index(source: Index) -> server::Index {
+	match source {
+		Index::Fdb(source) => server::Index::Fdb(resolve_fdb_index(source)),
+		Index::Lmdb(source) => server::Index::Lmdb(resolve_lmdb_index(source)),
+	}
+}
+
+fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
+	let mut target = server::FdbIndex::default();
+	if let Some(source) = source.authorize {
+		target.authorize = resolve_fdb_index_authorize(source);
+	}
+	if let Some(value) = source.cluster {
+		target.cluster = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	if let Some(value) = source.read_batch_size {
+		target.read_batch_size = value;
+	}
+	if let Some(value) = source.read_concurrency {
+		target.read_concurrency = value;
+	}
+	if let Some(value) = source.write_batch_size {
+		target.write_batch_size = value;
+	}
+	if let Some(value) = source.write_concurrency {
+		target.write_concurrency = value;
+	}
+	if let Some(value) = source.prefix {
+		target.prefix = Some(value);
+	}
+	target
+}
+
+fn resolve_fdb_index_authorize(source: FdbIndexAuthorize) -> server::FdbIndexAuthorize {
+	let mut target = server::FdbIndexAuthorize::default();
+	if let Some(source) = source.object_subtree {
+		target.object_subtree = resolve_index_authorize_object_subtree(source);
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	target
+}
+
+fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
+	let mut target = server::LmdbIndex::default();
+	if let Some(source) = source.authorize {
+		target.authorize = resolve_lmdb_index_authorize(source);
+	}
+	if let Some(value) = source.map_size {
+		target.map_size = value;
+	}
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	if let Some(value) = source.read_batch_size {
+		target.read_batch_size = value;
+	}
+	if let Some(value) = source.read_concurrency {
+		target.read_concurrency = value;
+	}
+	if let Some(value) = source.write_batch_size {
+		target.write_batch_size = value;
+	}
+	target
+}
+
+fn resolve_lmdb_index_authorize(source: LmdbIndexAuthorize) -> server::LmdbIndexAuthorize {
+	let mut target = server::LmdbIndexAuthorize::default();
+	if let Some(source) = source.object_subtree {
+		target.object_subtree = resolve_index_authorize_object_subtree(source);
+	}
+	target
+}
+
+fn resolve_index_authorize_object_subtree(
+	source: IndexAuthorizeObjectSubtree,
+) -> server::IndexAuthorizeObjectSubtree {
+	let mut target = server::IndexAuthorizeObjectSubtree::default();
+	if let Some(value) = source.max_depth {
+		target.max_depth = value;
+	}
+	if let Some(value) = source.max_objects {
+		target.max_objects = value;
+	}
+	target
+}
+
+fn resolve_indexer(source: Indexer) -> server::Indexer {
+	let mut target = server::Indexer::default();
+	if let Some(source) = source.message_retry {
+		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	}
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.max_process_depth {
+		target.max_process_depth = value;
+	}
+	if let Some(value) = source.message_timeout {
+		target.message_timeout = value;
+	}
+	if let Some(value) = source.partition_end {
+		target.partition_end = value;
+	}
+	if let Some(value) = source.partition_start {
+		target.partition_start = value;
+	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	target
+}
+
+fn resolve_logs(source: Logs) -> server::Logs {
+	let mut target = server::Logs::default();
+	if let Some(source) = source.store {
+		target.store = resolve_log_store(source);
+	}
+	target
+}
+
+fn resolve_log_store(source: LogStore) -> server::LogStore {
+	match source {
+		LogStore::Fdb(source) => server::LogStore::Fdb(resolve_fdb_log_store(source)),
+		LogStore::Lmdb(source) => server::LogStore::Lmdb(resolve_lmdb_log_store(source)),
+		LogStore::Memory => server::LogStore::Memory,
+	}
+}
+
+fn resolve_fdb_log_store(source: FdbLogStore) -> server::FdbLogStore {
+	let mut target = server::FdbLogStore::default();
+	if let Some(value) = source.cluster {
+		target.cluster = value;
+	}
+	if let Some(value) = source.prefix {
+		target.prefix = Some(value);
+	}
+	target
+}
+
+fn resolve_lmdb_log_store(source: LmdbLogStore) -> server::LmdbLogStore {
+	let mut target = server::LmdbLogStore::default();
+	if let Some(value) = source.map_size {
+		target.map_size = value;
+	}
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	target
+}
+
+fn resolve_messenger(source: Messenger) -> server::Messenger {
+	match source {
+		Messenger::Memory => server::Messenger::Memory,
+		Messenger::Nats(source) => server::Messenger::Nats(resolve_nats_messenger(source)),
+	}
+}
+
+fn resolve_nats_messenger(source: NatsMessenger) -> server::NatsMessenger {
+	let mut target = server::NatsMessenger::default();
+	if let Some(value) = source.url {
+		target.url = value;
+	}
+	if let Some(value) = source.credentials {
+		target.credentials = Some(value);
+	}
+	if let Some(value) = source.id {
+		target.id = Some(value);
+	}
+	target
+}
+
+fn resolve_object(source: Object) -> tg::Result<server::Object> {
+	let mut target = server::Object::default();
+	if let Some(source) = source.outbox {
+		target.outbox = resolve_object_outbox(source);
+	}
+	if let Some(source) = source.store {
+		target.store = resolve_object_store(source)?;
+	}
+	if let Some(value) = source.grant_time_to_live {
+		target.grant_time_to_live = value;
+	}
+	if let Some(value) = source.grant_time_to_touch {
+		target.grant_time_to_touch = value;
+	}
+	if let Some(value) = source.time_to_index {
+		target.time_to_index = value;
+	}
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
+	}
+	if let Some(value) = source.time_to_touch {
+		target.time_to_touch = value;
+	}
+
+	Ok(target)
+}
+
+fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
+	let mut target = server::ObjectOutbox::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	target
+}
+
+fn resolve_object_store(source: ObjectStore) -> tg::Result<server::ObjectStore> {
+	let target = match source {
+		ObjectStore::Lmdb(source) => server::ObjectStore::Lmdb(resolve_lmdb_object_store(source)),
+		ObjectStore::Memory(_) => server::ObjectStore::Memory(server::MemoryObjectStore {}),
+		ObjectStore::Scylla(source) => {
+			server::ObjectStore::Scylla(resolve_scylla_object_store(source)?)
+		},
+	};
+
+	Ok(target)
+}
+
+fn resolve_lmdb_object_store(source: LmdbObjectStore) -> server::LmdbObjectStore {
+	let mut target = server::LmdbObjectStore::default();
+	if let Some(value) = source.map_size {
+		target.map_size = value;
+	}
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	if let Some(value) = source.posix_sem_prefix {
+		target.posix_sem_prefix = Some(value);
+	}
+	target
+}
+
+fn resolve_scylla_object_store(source: ScyllaObjectStore) -> tg::Result<server::ScyllaObjectStore> {
+	let addr = required(source.addr, "object.store.addr")?;
+	let keyspace = required(source.keyspace, "object.store.keyspace")?;
+	let speculative_execution = source
+		.speculative_execution
+		.map(resolve_scylla_object_store_speculative_execution)
+		.transpose()?;
+	let target = server::ScyllaObjectStore {
+		addr,
+		connections: source.connections,
+		keyspace,
+		password: source.password,
+		speculative_execution,
+		username: source.username,
+	};
+
+	Ok(target)
+}
+
+fn resolve_scylla_object_store_speculative_execution(
+	source: ScyllaObjectStoreSpeculativeExecution,
+) -> tg::Result<server::ScyllaObjectStoreSpeculativeExecution> {
+	let target = match source {
+		ScyllaObjectStoreSpeculativeExecution::Percentile(source) => {
+			let source = resolve_scylla_object_store_percentile_speculative_execution(source)?;
+			server::ScyllaObjectStoreSpeculativeExecution::Percentile(source)
+		},
+		ScyllaObjectStoreSpeculativeExecution::Simple(source) => {
+			let source = resolve_scylla_object_store_simple_speculative_execution(source)?;
+			server::ScyllaObjectStoreSpeculativeExecution::Simple(source)
+		},
+	};
+
+	Ok(target)
+}
+
+fn resolve_scylla_object_store_percentile_speculative_execution(
+	source: ScyllaObjectStorePercentileSpeculativeExecution,
+) -> tg::Result<server::ScyllaObjectStorePercentileSpeculativeExecution> {
+	let max_retry_count = required(
+		source.max_retry_count,
+		"object.store.speculative_execution.max_retry_count",
+	)?;
+	let percentile = required(
+		source.percentile,
+		"object.store.speculative_execution.percentile",
+	)?;
+	let target = server::ScyllaObjectStorePercentileSpeculativeExecution {
+		max_retry_count,
+		percentile,
+	};
+
+	Ok(target)
+}
+
+fn resolve_scylla_object_store_simple_speculative_execution(
+	source: ScyllaObjectStoreSimpleSpeculativeExecution,
+) -> tg::Result<server::ScyllaObjectStoreSimpleSpeculativeExecution> {
+	let max_retry_count = required(
+		source.max_retry_count,
+		"object.store.speculative_execution.max_retry_count",
+	)?;
+	let retry_interval = required(
+		source.retry_interval,
+		"object.store.speculative_execution.retry_interval",
+	)?;
+	let target = server::ScyllaObjectStoreSimpleSpeculativeExecution {
+		max_retry_count,
+		retry_interval,
+	};
+
+	Ok(target)
+}
+
+fn resolve_process(source: Process) -> server::Process {
+	let mut target = server::Process::default();
+	if let Some(source) = source.finalizer {
+		target.finalizer = resolve_finalizer(source);
+	}
+	if let Some(value) = source.grant_time_to_live {
+		target.grant_time_to_live = value;
+	}
+	if let Some(value) = source.grant_time_to_touch {
+		target.grant_time_to_touch = value;
+	}
+	if let Some(value) = source.time_to_index {
+		target.time_to_index = value;
+	}
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
+	}
+	if let Some(value) = source.time_to_touch {
+		target.time_to_touch = value;
+	}
+	target
+}
+
+fn resolve_finalizer(source: Finalizer) -> server::Finalizer {
+	let mut target = server::Finalizer::default();
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.message_batch_size {
+		target.message_batch_size = value;
+	}
+	if let Some(value) = source.message_batch_timeout {
+		target.message_batch_timeout = value;
+	}
+	if let Some(value) = source.partition_end {
+		target.partition_end = value;
+	}
+	if let Some(value) = source.partition_start {
+		target.partition_start = value;
+	}
+	target
+}
+
+fn resolve_region(source: Region) -> tg::Result<server::Region> {
+	let name = required(source.name, "regions[].name")?;
+	let reconnect = source.reconnect.map(resolve_reconnect).transpose()?;
+	let retry = source.retry.map(resolve_retry).transpose()?;
+	let url = required(source.url, "regions[].url")?;
+	let target = server::Region {
+		name,
+		reconnect,
+		retry,
+		url,
+	};
+
+	Ok(target)
+}
+
+pub(crate) fn resolve_reconnect(source: Reconnect) -> tg::Result<server::Reconnect> {
+	let backoff = required(source.backoff, "reconnect.backoff")?;
+	let jitter = required(source.jitter, "reconnect.jitter")?;
+	let max_delay = required(source.max_delay, "reconnect.max_delay")?;
+	let max_retries = required(source.max_retries, "reconnect.max_retries")?;
+	let target = server::Reconnect {
+		backoff,
+		jitter,
+		max_delay,
+		max_retries,
+	};
+
+	Ok(target)
+}
+
+pub(crate) fn resolve_retry(source: Retry) -> tg::Result<server::Retry> {
+	let backoff = required(source.backoff, "retry.backoff")?;
+	let jitter = required(source.jitter, "retry.jitter")?;
+	let max_delay = required(source.max_delay, "retry.max_delay")?;
+	let max_retries = required(source.max_retries, "retry.max_retries")?;
+	let target = server::Retry {
+		backoff,
+		jitter,
+		max_delay,
+		max_retries,
+	};
+
+	Ok(target)
+}
+
+fn resolve_retry_with_default(source: Retry, mut target: server::Retry) -> server::Retry {
+	if let Some(value) = source.backoff {
+		target.backoff = value;
+	}
+	if let Some(value) = source.jitter {
+		target.jitter = value;
+	}
+	if let Some(value) = source.max_delay {
+		target.max_delay = value;
+	}
+	if let Some(value) = source.max_retries {
+		target.max_retries = value;
+	}
+	target
+}
+
+fn resolve_remote(source: Remote) -> tg::Result<server::Remote> {
+	let token = source.token;
+	let url = required(source.url, "remotes.*.url")?;
+	let target = server::Remote { token, url };
+
+	Ok(target)
+}
+
+fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
+	let mut target = server::RemoteCache::default();
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
+	}
+	target
+}
+
+fn resolve_runner(source: Runner) -> server::Runner {
+	let mut target = server::Runner::default();
+	if let Some(source) = source.js {
+		target.js = resolve_js(source);
+	}
+	if let Some(value) = source.heartbeat_interval {
+		target.heartbeat_interval = value;
+	}
+	if let Some(value) = source.process_state_ttl {
+		target.process_state_ttl = value;
+	}
+	if let Some(value) = source.sandbox_pool_size {
+		target.sandbox_pool_size = value;
+	}
+	if let Some(value) = source.sandbox_state_ttl {
+		target.sandbox_state_ttl = value;
+	}
+	if let Some(value) = source.scheduler_ttl {
+		target.scheduler_ttl = value;
+	}
+	if let Some(value) = source.stdio_drain_timeout {
+		target.stdio_drain_timeout = value;
+	}
+	if let Some(value) = source.cpus {
+		target.cpus = Some(value);
+	}
+	if let Some(value) = source.id {
+		target.id = Some(value);
+	}
+	if let Some(value) = source.memory {
+		target.memory = Some(value);
+	}
+	if let Some(value) = source.remote {
+		target.remote = Some(value);
+	}
+	if let Some(value) = source.token {
+		target.token = Some(value);
+	}
+	target
+}
+
+fn resolve_js(source: Js) -> server::Js {
+	let mut target = server::Js::default();
+	if let Some(value) = source.engine {
+		target.engine = resolve_js_engine(value);
+	}
+	target
+}
+
+fn resolve_js_engine(source: JsEngine) -> server::JsEngine {
+	match source {
+		JsEngine::Auto => server::JsEngine::Auto,
+		JsEngine::QuickJs => server::JsEngine::QuickJs,
+		JsEngine::V8 => server::JsEngine::V8,
+	}
+}
+
+fn resolve_scheduler(source: Scheduler) -> server::Scheduler {
+	let mut target = server::Scheduler::default();
+	if let Some(source) = source.message_retry {
+		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	}
+	if let Some(value) = source.create_sandbox_queue_capacity {
+		target.create_sandbox_queue_capacity = value;
+	}
+	if let Some(value) = source.create_sandbox_timeout {
+		target.create_sandbox_timeout = value;
+	}
+	if let Some(value) = source.default_cpu {
+		target.default_cpu = value;
+	}
+	if let Some(value) = source.default_memory {
+		target.default_memory = value;
+	}
+	if let Some(value) = source.heartbeat_interval {
+		target.heartbeat_interval = value;
+	}
+	if let Some(value) = source.heartbeat_ttl {
+		target.heartbeat_ttl = value;
+	}
+	if let Some(value) = source.inbox_ttl {
+		target.inbox_ttl = value;
+	}
+	if let Some(value) = source.message_timeout {
+		target.message_timeout = value;
+	}
+	if let Some(value) = source.max_create_sandbox_attempts {
+		target.max_create_sandbox_attempts = value;
+	}
+	if let Some(value) = source.max_create_sandbox_requests {
+		target.max_create_sandbox_requests = value;
+	}
+	if let Some(value) = source.max_create_sandbox_requests_per_runner {
+		target.max_create_sandbox_requests_per_runner = value;
+	}
+	if let Some(value) = source.runner_ttl {
+		target.runner_ttl = value;
+	}
+	target
+}
+
+fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
+	let mut target = server::Sandbox::default();
+	if let Some(source) = source.finalizer {
+		target.finalizer = resolve_finalizer(source);
+	}
+	if let Some(source) = source.isolation {
+		target.isolation = resolve_sandbox_isolation(source)?;
+	}
+	if let Some(source) = source.network {
+		target.network = resolve_sandbox_network(source);
+	}
+	if let Some(value) = source.nice {
+		target.nice = value;
+	}
+	if let Some(value) = source.time_to_live {
+		target.time_to_live = value;
+	}
+
+	Ok(target)
+}
+
+fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
+	let mut target = server::SandboxIsolation::default();
+	if source.container.is_some() {
+		target.container = Some(server::ContainerSandboxIsolation {});
+	}
+	if source.seatbelt.is_some() {
+		target.seatbelt = Some(server::SeatbeltSandboxIsolation {});
+	}
+	if let Some(source) = source.vm {
+		target.vm = Some(resolve_vm_sandbox_isolation(source)?);
+	}
+	if let Some(value) = source.default {
+		target.default = Some(resolve_sandbox_isolation_default(value));
+	}
+
+	Ok(target)
+}
+
+fn resolve_sandbox_isolation_default(
+	source: SandboxIsolationDefault,
+) -> server::SandboxIsolationDefault {
+	match source {
+		SandboxIsolationDefault::Container => server::SandboxIsolationDefault::Container,
+		SandboxIsolationDefault::Seatbelt => server::SandboxIsolationDefault::Seatbelt,
+		SandboxIsolationDefault::Vm => server::SandboxIsolationDefault::Vm,
+	}
+}
+
+fn resolve_vm_sandbox_isolation(
+	source: VmSandboxIsolation,
+) -> tg::Result<server::VmSandboxIsolation> {
+	let dax = match source.dax {
+		Some(source) => resolve_bool_or(source, |source| Ok(resolve_dax(source)))?,
+		None => Some(server::Dax::default()),
+	};
+	let kernel_path = required(source.kernel_path, "sandbox.isolation.vm.kernel_path")?;
+	let target = server::VmSandboxIsolation {
+		cloud_hypervisor_path: source.cloud_hypervisor_path,
+		dax,
+		kernel_path,
+		listener_port: source.listener_port,
+		max_cpu: source.max_cpu.unwrap_or(8),
+		max_memory: source.max_memory.unwrap_or(8 * 1024 * 1024 * 1024),
+		snapshot: source.snapshot,
+		snapshot_cpu: source.snapshot_cpu.unwrap_or(1),
+		snapshot_memory: source.snapshot_memory.unwrap_or(512 * 1024 * 1024),
+	};
+
+	Ok(target)
+}
+
+fn resolve_dax(source: Dax) -> server::Dax {
+	let mut target = server::Dax::default();
+	if let Some(value) = source.window_size {
+		target.window_size = value;
+	}
+	target
+}
+
+fn resolve_sandbox_network(source: SandboxNetwork) -> server::SandboxNetwork {
+	let mut target = server::SandboxNetwork::default();
+	if let Some(value) = source.dns {
+		target.dns = value;
+	}
+	if let Some(value) = source.firewall {
+		target.firewall = resolve_sandbox_network_firewall(value);
+	}
+	if let Some(value) = source.ip_ranges {
+		target.ip_ranges = value;
+	}
+	target
+}
+
+fn resolve_sandbox_network_firewall(
+	source: SandboxNetworkFirewall,
+) -> server::SandboxNetworkFirewall {
+	match source {
+		SandboxNetworkFirewall::Iptables => server::SandboxNetworkFirewall::Iptables,
+		SandboxNetworkFirewall::Nft => server::SandboxNetworkFirewall::Nft,
+	}
+}
+
+fn resolve_sync(source: &SyncOptions) -> server::Sync {
+	let mut target = server::Sync::default();
+	if let Some(source) = source.get {
+		target.get = resolve_sync_get(&source);
+	}
+	if let Some(source) = source.put {
+		target.put = resolve_sync_put(&source);
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.grant_time_to_live {
+		target.grant_time_to_live = value;
+	}
+	if let Some(value) = source.grant_time_to_touch {
+		target.grant_time_to_touch = value;
+	}
+	if let Some(value) = source.max_frame_size {
+		target.max_frame_size = value;
+	}
+	target
+}
+
+fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
+	let mut target = server::SyncGet::default();
+	if let Some(source) = source.index {
+		target.index = resolve_sync_get_index(source);
+	}
+	if let Some(source) = source.queue {
+		target.queue = resolve_sync_get_queue(source);
+	}
+	if let Some(source) = source.store {
+		target.store = resolve_sync_get_store(source);
+	}
+	target
+}
+
+fn resolve_sync_get_index(source: SyncGetIndex) -> server::SyncGetIndex {
+	let mut target = server::SyncGetIndex::default();
+	if let Some(value) = source.object_batch_size {
+		target.object_batch_size = value;
+	}
+	if let Some(value) = source.object_batch_timeout {
+		target.object_batch_timeout = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_get_queue(source: SyncGetQueue) -> server::SyncGetQueue {
+	let mut target = server::SyncGetQueue::default();
+	if let Some(value) = source.object_batch_size {
+		target.object_batch_size = value;
+	}
+	if let Some(value) = source.object_batch_timeout {
+		target.object_batch_timeout = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_get_store(source: SyncGetStore) -> server::SyncGetStore {
+	let mut target = server::SyncGetStore::default();
+	if let Some(source) = source.lmdb {
+		target.lmdb = resolve_sync_get_store_object(source, target.lmdb);
+	}
+	if let Some(source) = source.memory {
+		target.memory = resolve_sync_get_store_object(source, target.memory);
+	}
+	if let Some(source) = source.scylla {
+		target.scylla = resolve_sync_get_store_object(source, target.scylla);
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_get_store_object(
+	source: SyncGetStoreObject,
+	mut target: server::SyncGetStoreObject,
+) -> server::SyncGetStoreObject {
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.object_max_batch {
+		target.object_max_batch = value;
+	}
+	if let Some(value) = source.object_max_bytes {
+		target.object_max_bytes = value;
+	}
+	target
+}
+
+fn resolve_sync_put(source: &SyncPut) -> server::SyncPut {
+	let mut target = server::SyncPut::default();
+	if let Some(source) = source.index {
+		target.index = resolve_sync_put_index(source);
+	}
+	if let Some(source) = source.queue {
+		target.queue = resolve_sync_put_queue(source);
+	}
+	if let Some(source) = source.store {
+		target.store = resolve_sync_put_store(source);
+	}
+	target
+}
+
+fn resolve_sync_put_index(source: SyncPutIndex) -> server::SyncPutIndex {
+	let mut target = server::SyncPutIndex::default();
+	if let Some(value) = source.object_batch_size {
+		target.object_batch_size = value;
+	}
+	if let Some(value) = source.object_batch_timeout {
+		target.object_batch_timeout = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_put_queue(source: SyncPutQueue) -> server::SyncPutQueue {
+	let mut target = server::SyncPutQueue::default();
+	if let Some(value) = source.object_batch_size {
+		target.object_batch_size = value;
+	}
+	if let Some(value) = source.object_batch_timeout {
+		target.object_batch_timeout = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_put_store(source: SyncPutStore) -> server::SyncPutStore {
+	let mut target = server::SyncPutStore::default();
+	if let Some(value) = source.object_batch_size {
+		target.object_batch_size = value;
+	}
+	if let Some(value) = source.object_batch_timeout {
+		target.object_batch_timeout = value;
+	}
+	if let Some(value) = source.object_concurrency {
+		target.object_concurrency = value;
+	}
+	if let Some(value) = source.process_batch_size {
+		target.process_batch_size = value;
+	}
+	if let Some(value) = source.process_batch_timeout {
+		target.process_batch_timeout = value;
+	}
+	if let Some(value) = source.process_concurrency {
+		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_vfs(source: Vfs) -> server::Vfs {
+	let mut target = server::Vfs::default();
+	if let Some(value) = source.io {
+		target.io = resolve_vfs_io(value);
+	}
+	if let Some(value) = source.kind {
+		target.kind = resolve_vfs_kind(value);
+	}
+	if let Some(value) = source.passthrough {
+		target.passthrough = resolve_vfs_passthrough(value);
+	}
+	if let Some(value) = source.app_group_identifier {
+		target.app_group_identifier = Some(value);
+	}
+	target
+}
+
+fn resolve_vfs_io(source: VfsIo) -> server::VfsIo {
+	match source {
+		VfsIo::Auto => server::VfsIo::Auto,
+		VfsIo::IoUring => server::VfsIo::IoUring,
+		VfsIo::ReadWrite => server::VfsIo::ReadWrite,
+	}
+}
+
+fn resolve_vfs_kind(source: VfsKind) -> server::VfsKind {
+	match source {
+		VfsKind::Auto => server::VfsKind::Auto,
+		VfsKind::Fskit => server::VfsKind::Fskit,
+		VfsKind::Fuse => server::VfsKind::Fuse,
+		VfsKind::Nfs => server::VfsKind::Nfs,
+	}
+}
+
+fn resolve_vfs_passthrough(source: VfsPassthrough) -> server::VfsPassthrough {
+	match source {
+		VfsPassthrough::Auto => server::VfsPassthrough::Auto,
+		VfsPassthrough::Disabled => server::VfsPassthrough::Disabled,
+		VfsPassthrough::Required => server::VfsPassthrough::Required,
+	}
+}
+
+fn resolve_watch(source: Watch) -> server::Watch {
+	let mut target = server::Watch::default();
+	if let Some(value) = source.ttl {
+		target.ttl = value;
+	}
+	target
+}
+
+fn resolve_write(source: Write) -> server::Write {
+	let mut target = server::Write::default();
+	if let Some(value) = source.avg_leaf_size {
+		target.avg_leaf_size = value;
+	}
+	if let Some(value) = source.cache_pointers {
+		target.cache_pointers = value;
+	}
+	if let Some(value) = source.max_branch_children {
+		target.max_branch_children = value;
+	}
+	if let Some(value) = source.max_leaf_size {
+		target.max_leaf_size = value;
+	}
+	if let Some(value) = source.min_leaf_size {
+		target.min_leaf_size = value;
+	}
+	target
+}
+
+fn resolve_bool_or<T, U>(
+	source: BoolOr<T>,
+	resolve: impl FnOnce(T) -> tg::Result<U>,
+) -> tg::Result<Option<U>>
+where
+	U: Default,
+{
+	let target = match source {
+		BoolOr::Bool(false) => None,
+		BoolOr::Bool(true) => Some(U::default()),
+		BoolOr::Value(source) => Some(resolve(source)?),
+	};
+
+	Ok(target)
+}
+
+fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
+	let value = value.ok_or_else(|| tg::error!(%field, "a required config field is missing"))?;
+
+	Ok(value)
 }

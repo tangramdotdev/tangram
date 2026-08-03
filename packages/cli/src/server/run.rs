@@ -49,11 +49,7 @@ impl Cli {
 			.is_some_and(|config| config.tokio_single_threaded);
 
 		// Get the server config.
-		let mut config = self
-			.config
-			.as_ref()
-			.map(|config| config.server.clone())
-			.unwrap_or_default();
+		let mut config = self.resolve_config()?;
 
 		// Get the directory.
 		let directory = self.directory_path();
