@@ -49,6 +49,7 @@ impl Session {
 		for item in &arg.tags {
 			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let session = self.clone();
 		self.server
 			.database
@@ -72,19 +73,50 @@ impl Session {
 						let data = session
 							.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 							.await?;
+						let owner = session
+							.storage_owner_for_specifier_with_transaction(
+								transaction,
+								&data.specifier,
+							)
+							.await?;
+						let target = match data.target {
+							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+						};
 						batch.items.push(tangram_index::batch::Item::PutTag(
 							tangram_index::tag::put::Arg {
 								id: data.id,
-								target: match data.target {
-									tg::tag::data::Target::Object(id) => tg::Either::Left(id),
-									tg::tag::data::Target::Process(id) => tg::Either::Right(id),
-								},
 								name: data.name,
+								owner: owner.clone(),
 								parent: data.parent,
 								permissions: data.permissions,
 								specifier: data.specifier,
+								target: target.clone(),
 							},
 						));
+						if let Some(owner) = owner {
+							let item = match target {
+								tg::Either::Left(object) => {
+									tangram_index::batch::Item::PutOwnerObject(
+										tangram_index::storage::put::ObjectArg {
+											object,
+											owner,
+											touched_at,
+										},
+									)
+								},
+								tg::Either::Right(process) => {
+									tangram_index::batch::Item::PutOwnerProcess(
+										tangram_index::storage::put::ProcessArg {
+											owner,
+											process,
+											touched_at,
+										},
+									)
+								},
+							};
+							batch.items.push(item);
+						}
 					}
 					session
 						.server

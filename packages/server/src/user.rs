@@ -5,3 +5,4 @@ pub mod login;
 pub mod logout;
 pub mod oauth;
 pub mod token;
+pub mod usage;

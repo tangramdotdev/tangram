@@ -51,6 +51,13 @@ impl tg::handle::User for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user(user, arg)) }
 	}
 
+	fn try_get_user_usage(
+		&self,
+		user: &tg::user::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_user_usage(user)) }
+	}
+
 	fn manage_user_billing(
 		&self,
 		arg: tg::user::billing::manage::Arg,

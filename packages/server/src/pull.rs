@@ -79,6 +79,33 @@ impl Session {
 		};
 		let (objects, processes) =
 			futures::try_join!(touch_objects_future, touch_processes_future)?;
+		if let Some(owner) = self.storage_owner(&self.context.principal).await? {
+			let items = object_ids
+				.iter()
+				.cloned()
+				.map(|object| {
+					tangram_index::batch::Item::TouchOwnerObject(
+						tangram_index::storage::put::ObjectArg {
+							object,
+							owner: owner.clone(),
+							touched_at,
+						},
+					)
+				})
+				.chain(process_ids.iter().cloned().map(|process| {
+					tangram_index::batch::Item::TouchOwnerProcess(
+						tangram_index::storage::put::ProcessArg {
+							owner: owner.clone(),
+							process,
+							touched_at,
+						},
+					)
+				}))
+				.collect();
+			self.server
+				.index_batch(tangram_index::batch::Arg { items })
+				.await?;
+		}
 		let objects_stored = objects
 			.into_iter()
 			.all(|object| object.is_some_and(|object| object.stored.subtree));

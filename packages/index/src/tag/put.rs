@@ -8,6 +8,8 @@ pub struct Arg {
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
 	#[tangram_serialize(id = 2)]
 	pub name: String,
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub owner: Option<crate::storage::Owner>,
 	#[tangram_serialize(id = 3)]
 	pub parent: Option<tg::Id>,
 	#[tangram_serialize(id = 4)]

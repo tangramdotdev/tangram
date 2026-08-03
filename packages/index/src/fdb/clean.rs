@@ -35,6 +35,7 @@ pub(super) struct TransactionArg<'a> {
 	pub partition_start: u64,
 	pub partition_total: u64,
 	pub subspace: &'a Subspace,
+	pub storage_partition_total: u64,
 	pub txn: &'a fdb::Transaction,
 }
 
@@ -78,6 +79,7 @@ impl Index {
 			partition_start,
 			partition_total,
 			subspace,
+			storage_partition_total,
 			txn,
 		} = arg;
 		let grants = Self::delete_expired_grants(
@@ -90,11 +92,23 @@ impl Index {
 			partition_total,
 		)
 		.await?;
+		let storage = Self::clean_storage_associations(
+			txn,
+			subspace,
+			batch_size.saturating_sub(grants),
+			max_object_touched_at,
+			max_process_touched_at,
+			partition_start,
+			partition_end,
+			partition_total,
+			storage_partition_total,
+		)
+		.await?;
 		let mut output = crate::clean::Output {
 			grants,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants);
+		let remaining_batch_size = batch_size.saturating_sub(grants + storage);
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
@@ -215,7 +229,7 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && candidates.is_empty();
+		output.done = grants == 0 && storage == 0 && candidates.is_empty();
 
 		Ok(output)
 	}
@@ -494,7 +508,22 @@ impl Index {
 				target_tag_future,
 			)
 			.await?;
-		let count = child_object_count + object_process_count + target_tag_count;
+		let id = id.to_bytes();
+		let prefix = (Kind::ObjectOwner.to_i32().unwrap(), id.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let object_owner_count = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get range"))?
+			.len()
+			.to_u64()
+			.unwrap();
+		let count =
+			child_object_count + object_owner_count + object_process_count + target_tag_count;
 		Ok(count)
 	}
 
@@ -541,7 +570,21 @@ impl Index {
 		};
 		let (child_process_count, target_tag_count) =
 			futures::future::try_join(child_process_future, target_tag_future).await?;
-		let count = child_process_count + target_tag_count;
+		let id = id.to_bytes();
+		let prefix = (Kind::ProcessOwner.to_i32().unwrap(), id.as_ref());
+		let prefix = Self::pack(subspace, &prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let process_owner_count = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get range"))?
+			.len()
+			.to_u64()
+			.unwrap();
+		let count = child_process_count + process_owner_count + target_tag_count;
 		Ok(count)
 	}
 

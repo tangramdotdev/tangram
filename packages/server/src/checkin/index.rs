@@ -86,6 +86,9 @@ impl Session {
 				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			}
 		});
+		let owner = self.storage_owner(&self.context.principal).await?;
+		let index = graph.paths.get(root).unwrap();
+		let root_object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
 
 		// Create the index batch.
 		let arg = tangram_index::batch::Arg {
@@ -98,6 +101,15 @@ impl Session {
 						.map(tangram_index::batch::Item::PutObject),
 				)
 				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.chain(owner.map(|owner| {
+					tangram_index::batch::Item::PutOwnerObject(
+						tangram_index::storage::put::ObjectArg {
+							object: root_object,
+							owner,
+							touched_at,
+						},
+					)
+				}))
 				.collect(),
 		};
 

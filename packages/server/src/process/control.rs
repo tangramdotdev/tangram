@@ -304,8 +304,12 @@ impl Session {
 
 		if let Some(data) = data {
 			let data = data.without_tokens();
+			let owner = session
+				.storage_owner(&tg::Principal::Sandbox(data.sandbox.clone()))
+				.await?;
+			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let index_arg = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutProcess(
+				items: std::iter::once(tangram_index::batch::Item::PutProcess(
 					tangram_index::process::put::Arg {
 						children: None,
 						command: data.command.clone().into(),
@@ -319,9 +323,19 @@ impl Session {
 						sandbox: Some(data.sandbox.clone()),
 						stored: tangram_index::process::Stored::default(),
 						time_to_touch: session.server.config.process.time_to_touch,
-						touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+						touched_at,
 					},
-				)],
+				))
+				.chain(owner.map(|owner| {
+					tangram_index::batch::Item::PutOwnerProcess(
+						tangram_index::storage::put::ProcessArg {
+							owner,
+							process: id.clone(),
+							touched_at,
+						},
+					)
+				}))
+				.collect(),
 			};
 			session
 				.server
