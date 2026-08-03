@@ -160,7 +160,6 @@ export class Process<O extends tg.Value = tg.Value> {
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = tg.host.current;
 					let executable =
 						typeof tg.process.env.SHELL === "string"
 							? tg.process.env.SHELL
@@ -168,7 +167,6 @@ export class Process<O extends tg.Value = tg.Value> {
 					output = {
 						args: ["-c", arg],
 						executable,
-						host,
 					};
 				} else if (arg instanceof tg.Command) {
 					let object = await arg.object();
@@ -695,7 +693,7 @@ export namespace Process {
 
 	export namespace Spawn {
 		export import Arg = ProcessSpawn.Arg;
-		export import CommandArgObject = ProcessSpawn.CommandArgObject;
+		export type CommandArg = ProcessSpawn.CommandArg;
 
 		export import Output = ProcessSpawn.Output;
 	}

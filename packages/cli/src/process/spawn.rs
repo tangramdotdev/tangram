@@ -823,6 +823,14 @@ impl Cli {
 		}
 		command = command.env(env);
 
+		// Store the command's objects.
+		let objects = command
+			.objects()
+			.into_iter()
+			.map(tg::Value::Object)
+			.collect();
+		tg::Value::Array(objects).store_with_handle(&client).await?;
+
 		// Create the command arg.
 		let command = command.build_spawn_arg()?;
 
@@ -904,7 +912,7 @@ impl Cli {
 
 		let stdin = match (options.stdin.clone(), command.stdin.as_ref()) {
 			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
-				tg::process::Stdio::Blob(blob.id())
+				tg::process::Stdio::Blob(blob.clone())
 			},
 			(Some(stdin), _) => stdin,
 			(None, None) => tg::process::Stdio::default(),

@@ -7,7 +7,7 @@ export namespace Spawn {
 		cached?: boolean;
 		cacheLocation?: tg.Location.Arg | null;
 		checksum?: tg.Checksum | null;
-		command: tg.Referent<tg.Process.Spawn.CommandArgObject | tg.Command.Id>;
+		command: tg.Referent<tg.Process.Spawn.CommandArg | tg.Command.Id>;
 		debug?: tg.Process.Debug | null;
 		location?: tg.Location.Arg | null;
 		parent?: tg.Process.Id | null;
@@ -42,7 +42,7 @@ export namespace Spawn {
 							(id) => id,
 						)
 					: {
-							item: CommandArgObject.toJson(arg.command.item),
+							item: arg.command.item,
 							options: arg.command.options,
 						};
 			if (arg.debug !== undefined) {
@@ -82,54 +82,9 @@ export namespace Spawn {
 		};
 	}
 
-	export type CommandArgObject = Omit<tg.Command.Object, "host"> & {
+	export type CommandArg = Omit<tg.Command.Data, "host"> & {
 		host?: string | null;
 	};
-
-	export namespace CommandArgObject {
-		export let toJson = (arg: tg.Process.Spawn.CommandArgObject): unknown => {
-			let output: { [key: string]: unknown } = {
-				args: arg.args.map(tg.Command.Value.toData),
-				env: globalThis.Object.fromEntries(
-					globalThis.Object.entries(arg.env).map(([key, value]) => [
-						key,
-						tg.Command.Value.toData(value),
-					]),
-				),
-				executable: {
-					...(arg.executable.artifact === null
-						? {}
-						: {
-								artifact: {
-									item: arg.executable.artifact.id,
-									options: {
-										token: arg.executable.artifact.state.token,
-									},
-								},
-							}),
-					...(arg.executable.path === null
-						? {}
-						: { path: arg.executable.path }),
-				},
-			};
-			if (arg.cwd !== null) {
-				output.cwd = arg.cwd;
-			}
-			if (arg.host !== undefined && arg.host !== null) {
-				output.host = arg.host;
-			}
-			if (arg.stdin !== null) {
-				output.stdin = {
-					item: arg.stdin.id,
-					options: { token: arg.stdin.state.token },
-				};
-			}
-			if (arg.user !== null) {
-				output.user = arg.user;
-			}
-			return output;
-		};
-	}
 
 	export type Output = {
 		cached?: boolean;

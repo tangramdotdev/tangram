@@ -18,7 +18,6 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
-mod command;
 mod serde_command {
 	use {crate::prelude::*, serde::Deserialize as _};
 
@@ -65,8 +64,6 @@ mod serde_command {
 		}
 	}
 }
-
-pub use command::CommandArg;
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -115,6 +112,29 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CommandArg {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub args: Vec<tg::command::data::Value>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub env: BTreeMap<String, tg::command::data::Value>,
+
+	pub executable: tg::command::data::Executable,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::blob::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -205,8 +225,17 @@ where
 	let mut env = BTreeMap::new();
 	let mut builder = if let Some(command_arg_) = command_arg_ {
 		command_has_cwd = command_arg_.cwd.is_some();
-		env = command_arg_.env.clone();
-		tg::command::Builder::with_spawn_arg(command_arg_)
+		env = command_arg_
+			.env
+			.iter()
+			.map(|(key, value)| {
+				Ok((
+					key.clone(),
+					tg::command::Value::try_from_data(value.clone())?,
+				))
+			})
+			.collect::<tg::Result<_>>()?;
+		tg::command::Builder::try_with_spawn_arg(command_arg_)?
 	} else if let Some(command_) = command_ {
 		let object = command_.object_with_handle(handle).await?;
 		command_has_cwd = object.cwd.is_some();
@@ -272,21 +301,17 @@ where
 		builder = builder.stdin(command_stdin);
 	}
 
-	let command_arg = builder.build_spawn_arg()?;
 	let command = if sandboxed {
-		let objects = command_arg
+		let objects = builder
 			.objects()
 			.into_iter()
 			.map(tg::Value::Object)
 			.collect();
 		tg::Value::Array(objects).store_with_handle(handle).await?;
+		let command_arg = builder.build_spawn_arg()?;
 		tg::Referent::new(tg::Either::Left(command_arg), options)
 	} else {
-		let host = command_arg
-			.host
-			.clone()
-			.unwrap_or_else(|| tg::host::current().to_owned());
-		let command = tg::Command::with_object(command_arg.into_object(host));
+		let command = builder.build()?;
 		let command_id = command.store_with_handle(handle).await?;
 		options.token = command.state().token();
 		tg::Referent::new(tg::Either::Right(command_id), options)
@@ -480,7 +505,7 @@ impl<O: 'static> tg::Process<O> {
 		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
 			match &mut arg.command.item {
 				tg::Either::Left(command) => {
-					add_tty_env(&mut command.env);
+					add_tty_env_data(&mut command.env);
 				},
 				tg::Either::Right(id) => {
 					let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
@@ -1300,6 +1325,21 @@ fn add_tty_env(env: &mut BTreeMap<String, tg::command::Value>) -> bool {
 			continue;
 		};
 		env.insert(name.to_owned(), value.into());
+		changed = true;
+	}
+	changed
+}
+
+fn add_tty_env_data(env: &mut BTreeMap<String, tg::command::data::Value>) -> bool {
+	let mut changed = false;
+	for name in ["COLORTERM", "TERM"] {
+		if env.contains_key(name) {
+			continue;
+		}
+		let Ok(value) = std::env::var(name) else {
+			continue;
+		};
+		env.insert(name.to_owned(), tg::command::Value::from(value).to_data());
 		changed = true;
 	}
 	changed

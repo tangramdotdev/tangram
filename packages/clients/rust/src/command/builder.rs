@@ -24,17 +24,30 @@ impl Builder {
 		Self::default()
 	}
 
-	#[must_use]
-	pub fn with_spawn_arg(arg: tg::process::spawn::CommandArg) -> Self {
-		Self {
-			args: arg.args,
+	pub fn try_with_spawn_arg(arg: tg::process::spawn::CommandArg) -> tg::Result<Self> {
+		let args = arg
+			.args
+			.into_iter()
+			.map(tg::command::Value::try_from_data)
+			.collect::<tg::Result<_>>()?;
+		let env = arg
+			.env
+			.into_iter()
+			.map(|(key, value)| Ok((key, tg::command::Value::try_from_data(value)?)))
+			.collect::<tg::Result<_>>()?;
+		let executable = tg::command::Executable::try_from_data(arg.executable)?;
+		let stdin = arg.stdin.map(tg::Blob::with_id);
+		let builder = Self {
+			args,
 			cwd: arg.cwd,
-			env: arg.env,
-			executable: Some(arg.executable),
+			env,
+			executable: Some(executable),
 			host: arg.host,
-			stdin: arg.stdin,
+			stdin,
 			user: arg.user,
-		}
+		};
+
+		Ok(builder)
 	}
 
 	#[must_use]
@@ -102,12 +115,19 @@ impl Builder {
 	}
 
 	pub fn build(self) -> tg::Result<tg::Command> {
-		let mut arg = self.build_spawn_arg()?;
-		let host = arg
-			.host
-			.take()
-			.unwrap_or_else(|| tg::host::current().to_owned());
-		let object = arg.into_object(host);
+		let executable = self
+			.executable
+			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
+		let host = self.host.unwrap_or_else(|| tg::host::current().to_owned());
+		let object = tg::command::Object {
+			args: self.args,
+			cwd: self.cwd,
+			env: self.env,
+			executable,
+			host,
+			stdin: self.stdin,
+			user: self.user,
+		};
 		Ok(tg::Command::with_object(object))
 	}
 
@@ -116,14 +136,32 @@ impl Builder {
 			.executable
 			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
 		Ok(tg::process::spawn::CommandArg {
-			args: self.args,
+			args: self.args.iter().map(tg::command::Value::to_data).collect(),
 			cwd: self.cwd,
-			env: self.env,
-			executable,
+			env: self
+				.env
+				.iter()
+				.map(|(key, value)| (key.clone(), value.to_data()))
+				.collect(),
+			executable: executable.to_data(),
 			host: self.host,
-			stdin: self.stdin,
+			stdin: self.stdin.as_ref().map(tg::Blob::id),
 			user: self.user,
 		})
+	}
+
+	#[must_use]
+	pub fn objects(&self) -> Vec<tg::Object> {
+		std::iter::empty()
+			.chain(
+				self.executable
+					.iter()
+					.flat_map(tg::command::Executable::objects),
+			)
+			.chain(self.args.iter().flat_map(tg::command::Value::objects))
+			.chain(self.env.values().flat_map(tg::command::Value::objects))
+			.chain(self.stdin.iter().cloned().map(Into::into))
+			.collect()
 	}
 
 	pub fn finish(self) -> tg::Result<tg::Command> {
