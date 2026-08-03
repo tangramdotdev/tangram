@@ -75,10 +75,17 @@ impl tg::Client {
 			move |request| {
 				let pool = pool.clone();
 				async move {
-					let connection = pool
-						.get_shared(tangram_pool::Priority::default())
-						.await
-						.map_err(Error::Other)?;
+					let connection = loop {
+						let connection = pool
+							.get_shared(tangram_pool::Priority::default())
+							.await
+							.map_err(Error::Other)?;
+						if connection.is_closed() {
+							connection.discard();
+							continue;
+						}
+						break connection;
+					};
 					match connection.send(request).await {
 						Ok(response) => {
 							let response = response.map(|body| {
