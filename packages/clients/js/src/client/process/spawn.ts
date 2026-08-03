@@ -73,8 +73,14 @@ export namespace Spawn {
 		};
 	}
 
-	export type CommandArg = Omit<tg.Command.Data, "host"> & {
+	export type CommandArg = {
+		args?: Array<tg.Command.Value.Data>;
+		cwd?: string | null;
+		env?: { [key: string]: tg.Command.Value.Data };
+		executable: tg.Command.Data.Executable;
 		host?: string | null;
+		stdin?: tg.Blob.Id | null;
+		user?: string | null;
 	};
 
 	export type Output = {
