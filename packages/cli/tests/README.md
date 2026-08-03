@@ -31,6 +31,11 @@ tight cluster of snapshots for that one behavior). Reuse the `spawn`,
 `test.nu`. When a file would test several independent behaviors, split it into
 one file per behavior.
 
+To assert on what the server itself logged, spawn it with
+`--config { tracing: { stderr_format: 'json' } }` and snapshot `server_errors`,
+which stops the server so its output is complete and returns the distinct
+errors it logged. An empty snapshot asserts that it logged none.
+
 ### 3. Assert with inline snapshots, not `str contains`
 
 Assert on output with an exact inline `snapshot`, never with `str contains`. A
