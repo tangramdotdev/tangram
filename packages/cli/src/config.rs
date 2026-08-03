@@ -826,7 +826,7 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -840,6 +840,9 @@ pub struct Process {
 	#[serde(alias = "grant_ttt", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_touch: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub spawn: Option<Spawn>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_index: Option<Duration>,
@@ -851,6 +854,13 @@ pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_touch: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Spawn {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
 }
 
 #[serde_as]
@@ -2554,6 +2564,9 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
 	}
+	if let Some(source) = source.spawn {
+		target.spawn = resolve_spawn(source);
+	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
 	}
@@ -2564,6 +2577,10 @@ fn resolve_process(source: Process) -> server::Process {
 		target.time_to_touch = value;
 	}
 	target
+}
+
+fn resolve_spawn(source: Spawn) -> server::Spawn {
+	server::Spawn { host: source.host }
 }
 
 fn resolve_finalizer(source: Finalizer) -> server::Finalizer {

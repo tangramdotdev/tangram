@@ -517,21 +517,6 @@ impl Cli {
 
 		let reference = if let Some(reference) = reference {
 			reference
-		} else if let Some(executable) = executable.take() {
-			let host = options
-				.host
-				.clone()
-				.unwrap_or_else(|| tg::host::current().to_owned());
-			let executable = tg::command::Executable::try_from_data(executable)?;
-			let command = tg::Command::builder()
-				.host(host)
-				.executable(executable)
-				.finish()?;
-			let command = command
-				.store_with_handle(&client)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-			tg::Reference::with_object(command.into())
 		} else {
 			tg::Reference::with_path(".".into())
 		};
@@ -715,14 +700,11 @@ impl Cli {
 								.host(host.clone())
 								.executable(executable)
 						} else {
-							let host = tg::host::current().to_owned();
 							let executable = tg::command::Executable {
 								artifact: Some(file.clone().into()),
 								path: None,
 							};
-							tg::Command::builder()
-								.host(host.clone())
-								.executable(executable)
+							tg::Command::builder().executable(executable)
 						}
 					},
 
@@ -733,13 +715,10 @@ impl Cli {
 			},
 		};
 		if let Some(executable) = executable {
-			let host = options
-				.host
-				.clone()
-				.unwrap_or_else(|| tg::host::current().to_owned());
-			command = command
-				.host(host)
-				.executable(tg::command::Executable::try_from_data(executable)?);
+			command = command.executable(tg::command::Executable::try_from_data(executable)?);
+			if let Some(host) = options.host.clone() {
+				command = command.host(host);
+			}
 		} else if let Some(host) = options.host.clone() {
 			command = command.host(host);
 		}
@@ -845,11 +824,25 @@ impl Cli {
 		command = command.env(env);
 
 		// Create the command.
-		let command = command.finish()?;
-		let command = command.object_with_handle(&client).await?;
+		let sandboxed = sandbox;
+		let (command, command_stdin) = if sandboxed {
+			let objects = command
+				.objects()
+				.into_iter()
+				.map(tg::Value::Object)
+				.collect();
+			tg::Value::Array(objects).store_with_handle(&client).await?;
+			let command = command.build_spawn_arg()?;
+			let stdin = command.stdin.clone();
+			(tg::Either::Left(command), stdin)
+		} else {
+			let command = command.build()?;
+			let object = command.object_with_handle(&client).await?;
+			let stdin = object.stdin.as_ref().map(tg::Blob::id);
+			(tg::Either::Right(command), stdin)
+		};
 
 		// Determine if the network is enabled.
-		let sandboxed = sandbox;
 		let has_sandbox_arg = !options.sandbox.arg.is_empty()
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
@@ -924,10 +917,8 @@ impl Cli {
 			_ => None,
 		};
 
-		let stdin = match (options.stdin.clone(), command.stdin.as_ref()) {
-			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
-				tg::process::Stdio::Blob(blob.id())
-			},
+		let stdin = match (options.stdin.clone(), command_stdin) {
+			(None | Some(tg::process::Stdio::Null), Some(blob)) => tg::process::Stdio::Blob(blob),
 			(Some(stdin), _) => stdin,
 			(None, None) => tg::process::Stdio::default(),
 		};
@@ -937,14 +928,10 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			command: Some(tg::Referent::new(
-				tg::Command::with_object(command.clone()),
+				command,
 				command_options.unwrap_or_default(),
 			)),
-			cwd: command.cwd.clone(),
 			debug: debug.map(tg::Either::Right),
-			env: tg::value::Map::new(),
-			executable: Some(command.executable.clone()),
-			host: Some(command.host.clone()),
 			location: location.clone(),
 			name: None,
 			public: options.public,
@@ -954,7 +941,6 @@ impl Cli {
 			stdin,
 			stdout: options.stdout.unwrap_or_default(),
 			tty,
-			user: command.user.clone(),
 			..Default::default()
 		};
 

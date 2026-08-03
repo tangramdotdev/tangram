@@ -4,7 +4,7 @@ use {
 		Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	serde_with::{DisplayFromStr, serde_as},
+	serde_with::serde_as,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		future::Future,
@@ -30,8 +30,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
-	#[serde_as(as = "DisplayFromStr")]
-	pub command: tg::Referent<tg::command::Id>,
+	pub command: tg::Referent<tg::Either<CommandArg, tg::command::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub debug: Option<tg::process::Debug>,
@@ -65,6 +64,29 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CommandArg {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub args: Vec<tg::command::data::Value>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub env: BTreeMap<String, tg::command::data::Value>,
+
+	pub executable: tg::command::data::Executable,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub host: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdin: Option<tg::blob::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -118,21 +140,23 @@ where
 	let sandbox = normalize_sandbox(&arg)?;
 	let sandboxed = sandbox.is_some();
 
-	let host = if let Some(host) = arg.host {
-		Some(host)
-	} else if sandboxed {
-		Some(tg::host::current().to_owned())
-	} else {
-		None
-	};
+	let host = arg.host;
+	let mut command_arg_ = None;
 	let mut command_ = None;
 	let mut options = tg::referent::Options::default();
 	if let Some(command) = arg.command {
 		options = command.options;
-		if options.token.is_none() {
-			options.token = command.item.state().token();
+		match command.item {
+			tg::Either::Left(command) => {
+				command_arg_.replace(command);
+			},
+			tg::Either::Right(command) => {
+				if options.token.is_none() {
+					options.token = command.state().token();
+				}
+				command_.replace(command);
+			},
 		}
-		command_.replace(command.item);
 	}
 	if let Some(name) = arg.name {
 		options.name.replace(name);
@@ -151,7 +175,20 @@ where
 
 	let mut command_has_cwd = false;
 	let mut env = BTreeMap::new();
-	let mut builder = if let Some(command_) = command_ {
+	let mut builder = if let Some(command_arg_) = command_arg_ {
+		command_has_cwd = command_arg_.cwd.is_some();
+		env = command_arg_
+			.env
+			.iter()
+			.map(|(key, value)| {
+				Ok((
+					key.clone(),
+					tg::command::Value::try_from_data(value.clone())?,
+				))
+			})
+			.collect::<tg::Result<_>>()?;
+		tg::command::Builder::try_with_spawn_arg(command_arg_)?
+	} else if let Some(command_) = command_ {
 		let object = command_.object_with_handle(handle).await?;
 		command_has_cwd = object.cwd.is_some();
 		env = object.env.clone();
@@ -208,6 +245,8 @@ where
 	}
 	if let Some(host) = host {
 		builder = builder.host(host);
+	} else if !sandboxed {
+		builder = builder.host(tg::host::current());
 	}
 	if let Some(user) = arg.user {
 		builder = builder.user(user);
@@ -216,10 +255,14 @@ where
 		builder = builder.stdin(command_stdin);
 	}
 
-	let command = builder.finish()?;
-	let command_id = command.store_with_handle(handle).await?;
-	options.token = command.state().token();
-	let command = tg::Referent::new(command_id, options);
+	let objects = builder
+		.objects()
+		.into_iter()
+		.map(tg::Value::Object)
+		.collect();
+	tg::Value::Array(objects).store_with_handle(handle).await?;
+	let command_arg = builder.build_spawn_arg()?;
+	let command = tg::Referent::new(tg::Either::Left(command_arg), options);
 
 	let spawn_arg = tg::process::spawn::Arg {
 		cached: arg.cached,
@@ -407,32 +450,28 @@ impl<O: 'static> tg::Process<O> {
 				|| stderr_is_foreground_controlling_tty);
 		arg.tty = tty.map(tg::Either::Right);
 		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
-			let command = tg::Command::with_referent(arg.command.clone());
-			let mut object = command
-				.object_with_handle(&handle)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to load the command"))?
-				.as_ref()
-				.clone();
-			let mut changed = false;
-			for name in ["COLORTERM", "TERM"] {
-				if object.env.contains_key(name) {
-					continue;
-				}
-				let Ok(value) = std::env::var(name) else {
-					continue;
-				};
-				object.env.insert(name.to_owned(), value.into());
-				changed = true;
-			}
-			if changed {
-				let command = tg::Command::with_object(object);
-				let id = command
-					.store_with_handle(&handle)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-				arg.command.item = id;
-				arg.command.options.token = command.state().token();
+			match &mut arg.command.item {
+				tg::Either::Left(command) => {
+					add_tty_env_data(&mut command.env);
+				},
+				tg::Either::Right(id) => {
+					let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
+					let command = tg::Command::with_referent(referent);
+					let mut object = command
+						.object_with_handle(&handle)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to load the command"))?
+						.as_ref()
+						.clone();
+					if add_tty_env(&mut object.env) {
+						let command = tg::Command::with_object(object);
+						*id = command
+							.store_with_handle(&handle)
+							.await
+							.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+						arg.command.options.token = command.state().token();
+					}
+				},
 			}
 		}
 		let stream = handle.spawn_process(arg).await?.boxed();
@@ -532,11 +571,28 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let command = tg::Command::with_referent(arg.command.clone());
-		let command = command
-			.data_with_handle(handle)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
+		let command = match &arg.command.item {
+			tg::Either::Left(command) => tg::command::Data {
+				args: command.args.clone(),
+				cwd: command.cwd.clone(),
+				env: command.env.clone(),
+				executable: command.executable.clone(),
+				host: command
+					.host
+					.clone()
+					.unwrap_or_else(|| tg::host::current().to_owned()),
+				stdin: command.stdin.clone(),
+				user: command.user.clone(),
+			},
+			tg::Either::Right(id) => {
+				let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
+				let command = tg::Command::with_referent(referent);
+				command
+					.data_with_handle(handle)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the command"))?
+			},
+		};
 		if command.stdin.is_some() {
 			return Err(tg::error!(
 				"command stdin blobs are not supported for unsandboxed processes"
@@ -1213,6 +1269,36 @@ fn normalize_network(
 			})))
 		},
 	}
+}
+
+fn add_tty_env(env: &mut BTreeMap<String, tg::command::Value>) -> bool {
+	let mut changed = false;
+	for name in ["COLORTERM", "TERM"] {
+		if env.contains_key(name) {
+			continue;
+		}
+		let Ok(value) = std::env::var(name) else {
+			continue;
+		};
+		env.insert(name.to_owned(), value.into());
+		changed = true;
+	}
+	changed
+}
+
+fn add_tty_env_data(env: &mut BTreeMap<String, tg::command::data::Value>) -> bool {
+	let mut changed = false;
+	for name in ["COLORTERM", "TERM"] {
+		if env.contains_key(name) {
+			continue;
+		}
+		let Ok(value) = std::env::var(name) else {
+			continue;
+		};
+		env.insert(name.to_owned(), tg::command::Value::from(value).to_data());
+		changed = true;
+	}
+	changed
 }
 
 fn normalize_debug(

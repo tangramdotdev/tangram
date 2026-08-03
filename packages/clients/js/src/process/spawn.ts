@@ -63,9 +63,6 @@ let spawnArgFromResolvedWithSandbox = async (
 	options: tg.Referent.Options;
 }> => {
 	if (sandbox !== undefined) {
-		if (arg.host === undefined) {
-			arg.host = tg.host.current;
-		}
 		if (
 			arg.executable !== undefined &&
 			arg.executable === tg.process.env.SHELL
@@ -149,15 +146,70 @@ let spawnArgFromResolvedWithSandbox = async (
 	if (commandStdin !== undefined) {
 		commandArgs.push({ stdin: commandStdin });
 	}
-	let command = await tg.command(...commandArgs);
-
-	let commandId = await command.store();
-	if (command.state.token !== null) {
-		options.token = command.state.token;
+	let resolvedCommand = await tg.Command.arg(...commandArgs);
+	let executable_: tg.Command.Executable;
+	if (tg.Artifact.is(resolvedCommand.executable)) {
+		executable_ = { artifact: resolvedCommand.executable, path: null };
+	} else if (typeof resolvedCommand.executable === "string") {
+		executable_ = { artifact: null, path: resolvedCommand.executable };
+	} else if (
+		resolvedCommand.executable !== undefined &&
+		resolvedCommand.executable !== null
+	) {
+		executable_ = {
+			artifact: resolvedCommand.executable.artifact ?? null,
+			path: resolvedCommand.executable.path ?? null,
+		};
+	} else {
+		throw new Error("cannot create a command without an executable");
 	}
-	let commandReferent = {
-		item: commandId,
-		options: options,
+	let args = resolvedCommand.args ?? [];
+	let cwd = resolvedCommand.cwd ?? null;
+	let env = resolvedCommand.env ?? {};
+	let host = resolvedCommand.host ?? null;
+	let stdin =
+		resolvedCommand.stdin === undefined || resolvedCommand.stdin === null
+			? null
+			: await tg.blob(resolvedCommand.stdin);
+	let user = resolvedCommand.user ?? null;
+	let objects = [
+		...args.flatMap(tg.Command.Value.children),
+		...globalThis.Object.entries(env).flatMap(([_, value]) =>
+			tg.Command.Value.children(value),
+		),
+		...tg.Command.Executable.children(executable_),
+		...(stdin === null ? [] : [stdin]),
+	];
+	await tg.Value.store(objects);
+	let command: tg.Process.Spawn.CommandArg = {
+		args: args.map(tg.Command.Value.toData),
+		env: globalThis.Object.fromEntries(
+			globalThis.Object.entries(env).map(([key, value]) => [
+				key,
+				tg.Command.Value.toData(value),
+			]),
+		),
+		executable: tg.Command.Executable.toData(executable_),
+	};
+	if (cwd !== null) {
+		command.cwd = cwd;
+	}
+	if (host !== null) {
+		command.host = host;
+	} else if (sandbox === undefined) {
+		command.host = tg.host.current;
+	}
+	if (stdin !== null) {
+		command.stdin = stdin.id;
+	}
+	if (user !== null) {
+		command.user = user;
+	}
+	let commandReferent: tg.Referent<
+		tg.Process.Spawn.CommandArg | tg.Command.Id
+	> = {
+		item: command,
+		options,
 	};
 
 	let debug =
@@ -395,8 +447,15 @@ export let prepareUnsandboxedCommand = async (
 		throw new Error("blob stdin is not supported for unsandboxed processes");
 	}
 
-	let commandHandle = tg.Command.withReferent(arg.command);
-	let command = await commandHandle.object();
+	let command =
+		typeof arg.command.item === "string"
+			? await tg.Command.withReferent(
+					arg.command as tg.Referent<tg.Command.Id>,
+				).object()
+			: tg.Command.Object.fromData({
+					...arg.command.item,
+					host: arg.command.item.host ?? tg.host.current,
+				});
 	if (command.stdin !== null) {
 		throw new Error(
 			"command stdin blobs are not supported for unsandboxed processes",
@@ -514,32 +573,51 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		(tg.process.env.COLORTERM !== undefined ||
 			tg.process.env.TERM !== undefined)
 	) {
-		let commandHandle = tg.Command.withReferent(arg.command);
-		let command = await commandHandle.object();
-		let env = { ...command.env };
-		let changed = false;
-		for (let name of ["COLORTERM", "TERM"] as const) {
-			let value = tg.process.env[name];
-			if (
-				value !== undefined &&
-				!Object.prototype.hasOwnProperty.call(env, name)
-			) {
-				env[name] = tg.Command.Value.string(value);
-				changed = true;
+		if (typeof arg.command.item === "string") {
+			let command = await tg.Command.withReferent(
+				arg.command as tg.Referent<tg.Command.Id>,
+			).object();
+			let env = { ...command.env };
+			let changed = false;
+			for (let name of ["COLORTERM", "TERM"] as const) {
+				let value = tg.process.env[name];
+				if (
+					value !== undefined &&
+					!Object.prototype.hasOwnProperty.call(env, name)
+				) {
+					env[name] = tg.Command.Value.string(value);
+					changed = true;
+				}
 			}
-		}
-		if (changed) {
-			let newCommand = tg.Command.withObject({
-				...command,
-				env,
-			});
-			let commandId = await newCommand.store();
-			arg.command.item = commandId;
-			let token = newCommand.state.token;
-			arg.command.options = {
-				...arg.command.options,
-				...(token !== null ? { token } : {}),
-			};
+			if (changed) {
+				let newCommand = tg.Command.withObject({
+					...command,
+					env,
+				});
+				let commandId = await newCommand.store();
+				arg.command.item = commandId;
+				let token = newCommand.state.token;
+				arg.command.options = {
+					...arg.command.options,
+					...(token !== null ? { token } : {}),
+				};
+			}
+		} else {
+			let env = { ...arg.command.item.env };
+			let changed = false;
+			for (let name of ["COLORTERM", "TERM"] as const) {
+				let value = tg.process.env[name];
+				if (
+					value !== undefined &&
+					!Object.prototype.hasOwnProperty.call(env, name)
+				) {
+					env[name] = tg.Command.Value.toData(tg.Command.Value.string(value));
+					changed = true;
+				}
+			}
+			if (changed) {
+				arg.command.item.env = env;
+			}
 		}
 	}
 	let spawnArg: tg.Process.Spawn.Arg = {

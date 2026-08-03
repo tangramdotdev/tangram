@@ -96,7 +96,7 @@ pub struct Arg {
 	pub cache_location: Option<tg::location::Arg>,
 	pub cached: Option<bool>,
 	pub checksum: Option<tg::Checksum>,
-	pub command: Option<tg::Referent<tg::Command>>,
+	pub command: Option<tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::Command>>>,
 	pub cpu: Option<u64>,
 	pub cwd: Option<PathBuf>,
 	pub debug: Option<tg::Either<bool, tg::process::Debug>>,

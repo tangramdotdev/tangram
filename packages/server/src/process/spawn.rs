@@ -26,12 +26,31 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
+		if arg.sandbox.is_none() {
+			return Err(tg::error!(
+				"unsandboxed processes cannot be spawned on the server"
+			));
+		}
 
-		// If the authentication is from a process, then update the parent, location, and retry.
+		// Get the authenticated process.
 		let authenticated_process = match &self.context.principal {
 			tg::Principal::Process(process) => self.try_get_authenticated_process(process).await?,
 			_ => None,
 		};
+
+		// Resolve the command.
+		let sandbox_host = if self.context.sandbox {
+			authenticated_process
+				.as_ref()
+				.map(|process| process.host.as_str())
+		} else {
+			None
+		};
+		let command = self
+			.spawn_process_resolve_command(&mut arg, sandbox_host)
+			.await?;
+
+		// If the authentication is from a process, then update the parent, location, and retry.
 		if let Some(process) = &authenticated_process
 			&& let tg::Principal::Process(id) = &self.context.principal
 		{
@@ -54,12 +73,6 @@ impl Session {
 			.as_ref()
 			.map(|process| process.sandbox.clone());
 
-		if arg.sandbox.is_none() {
-			return Err(tg::error!(
-				"unsandboxed processes cannot be spawned on the server"
-			));
-		}
-
 		// Create the progress.
 		let progress = crate::progress::Handle::new();
 
@@ -68,7 +81,7 @@ impl Session {
 			let session = self.clone();
 			let progress = progress.clone();
 			async move |_| match session
-				.try_spawn_process_task(arg, parent_sandbox, &progress)
+				.try_spawn_process_task(arg, command, parent_sandbox, &progress)
 				.boxed()
 				.await
 			{
@@ -87,9 +100,50 @@ impl Session {
 		Ok(stream)
 	}
 
+	async fn spawn_process_resolve_command(
+		&self,
+		arg: &mut tg::process::spawn::Arg,
+		sandbox_host: Option<&str>,
+	) -> tg::Result<tg::Referent<tg::command::Id>> {
+		let id = match &arg.command.item {
+			tg::Either::Left(command_arg) => {
+				let host = command_arg
+					.host
+					.clone()
+					.or_else(|| sandbox_host.map(str::to_owned))
+					.or_else(|| self.server.config.process.spawn.host.clone())
+					.unwrap_or_else(|| tg::host::current().to_owned());
+				let data = tg::command::Data {
+					args: command_arg.args.clone(),
+					cwd: command_arg.cwd.clone(),
+					env: command_arg.env.clone(),
+					executable: command_arg.executable.clone(),
+					host,
+					stdin: command_arg.stdin.clone(),
+					user: command_arg.user.clone(),
+				};
+				let object = tg::command::Object::try_from_data(data)
+					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
+				let command = tg::Command::with_object(object);
+				let id = command
+					.store_with_handle(self)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+				arg.command.options.token = command.state().token();
+				id
+			},
+			tg::Either::Right(id) => id.clone(),
+		};
+		arg.command.item = tg::Either::Right(id.clone());
+		let command = tg::Referent::new(id, arg.command.options.clone());
+
+		Ok(command)
+	}
+
 	async fn try_spawn_process_task(
 		&self,
 		mut arg: tg::process::spawn::Arg,
+		command: tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -136,24 +190,36 @@ impl Session {
 		}
 
 		let mut output = if shortcut {
-			self.try_spawn_process_local(arg.clone(), parent_sandbox, allocation, Some(&location))
-				.boxed()
-				.await?
+			self.try_spawn_process_local(
+				arg.clone(),
+				command.clone(),
+				parent_sandbox,
+				allocation,
+				Some(&location),
+			)
+			.boxed()
+			.await?
 		} else {
 			let spawn_future = match location.clone() {
 				tg::Location::Local(tg::location::Local { region: None }) => self
-					.try_spawn_process_local(arg.clone(), parent_sandbox.clone(), None, None)
+					.try_spawn_process_local(
+						arg.clone(),
+						command.clone(),
+						parent_sandbox.clone(),
+						None,
+						None,
+					)
 					.boxed(),
 				tg::Location::Local(tg::location::Local {
 					region: Some(region),
 				}) => self
-					.try_spawn_process_region(arg.clone(), progress, region)
+					.try_spawn_process_region(arg.clone(), &command, progress, region)
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
 					region,
 				}) => self
-					.try_spawn_process_remote(arg.clone(), progress, remote, region)
+					.try_spawn_process_remote(arg.clone(), &command, progress, remote, region)
 					.boxed(),
 			};
 			if runner_matches_location
@@ -194,7 +260,7 @@ impl Session {
 			.as_ref()
 			.and_then(|output| lease::LeaseGuard::new(self, output));
 		if let Some(output) = &output {
-			self.spawn_process_add_child(&arg, output).await?;
+			self.spawn_process_add_child(&arg, &command, output).await?;
 		}
 		if let Some(guard) = &mut lease_guard {
 			guard.disarm();
@@ -206,13 +272,14 @@ impl Session {
 	async fn try_spawn_process_local(
 		&self,
 		arg: tg::process::spawn::Arg,
+		command: tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Authorize the command if a process may be created.
 		if arg.cached != Some(true) {
-			self.spawn_process_authorize_command(&arg).await?;
+			self.spawn_process_authorize_command(&command).await?;
 		}
 
 		// Determine whether the process is cacheable.
@@ -223,7 +290,12 @@ impl Session {
 
 		// Get or create the local process.
 		let mut output = self
-			.spawn_process_get_or_create_local_process(&arg, parent_sandbox.as_ref(), cacheable)
+			.spawn_process_get_or_create_local_process(
+				&arg,
+				&command,
+				parent_sandbox.as_ref(),
+				cacheable,
+			)
 			.boxed()
 			.await?;
 		if matches!(arg.sandbox, Some(tg::Either::Left(_)))
@@ -303,6 +375,7 @@ impl Session {
 	async fn try_spawn_process_region(
 		&self,
 		arg: tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -312,7 +385,7 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
-		self.spawn_process_push_command(&arg.command, Some(location.clone()), progress)
+		self.spawn_process_push_command(command, Some(location.clone()), progress)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let arg = tg::process::spawn::Arg {
@@ -343,6 +416,7 @@ impl Session {
 	async fn try_spawn_process_remote(
 		&self,
 		arg: tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		remote: String,
 		region: Option<String>,
@@ -354,7 +428,7 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(&arg.command, Some(destination), progress)
+		self.spawn_process_push_command(command, Some(destination), progress)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let arg = tg::process::spawn::Arg {

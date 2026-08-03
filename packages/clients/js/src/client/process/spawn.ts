@@ -7,7 +7,7 @@ export namespace Spawn {
 		cached?: boolean;
 		cacheLocation?: tg.Location.Arg | null;
 		checksum?: tg.Checksum | null;
-		command: tg.Referent<tg.Command.Id>;
+		command: tg.Referent<tg.Process.Spawn.CommandArg | tg.Command.Id>;
 		debug?: tg.Process.Debug | null;
 		location?: tg.Location.Arg | null;
 		parent?: tg.Process.Id | null;
@@ -35,7 +35,7 @@ export namespace Spawn {
 			if (arg.checksum !== undefined) {
 				output.checksum = arg.checksum;
 			}
-			output.command = tg.Referent.toDataString(arg.command, (id) => id);
+			output.command = tg.Referent.toData(arg.command, (command) => command);
 			if (arg.debug !== undefined) {
 				output.debug = arg.debug;
 			}
@@ -72,6 +72,16 @@ export namespace Spawn {
 			return output;
 		};
 	}
+
+	export type CommandArg = {
+		args?: Array<tg.Command.Value.Data>;
+		cwd?: string | null;
+		env?: { [key: string]: tg.Command.Value.Data };
+		executable: tg.Command.Data.Executable;
+		host?: string | null;
+		stdin?: tg.Blob.Id | null;
+		user?: string | null;
+	};
 
 	export type Output = {
 		cached?: boolean;

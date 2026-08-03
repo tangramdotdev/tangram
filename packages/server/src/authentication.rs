@@ -15,6 +15,7 @@ pub(crate) struct Authentication {
 #[derive(Clone)]
 pub(crate) struct Process {
 	pub debug: Option<tg::process::Debug>,
+	pub host: String,
 	pub inner_token: Option<String>,
 	pub location: Option<tg::Location>,
 	pub retry: bool,
@@ -44,6 +45,7 @@ impl Session {
 		{
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
+				host: process.data.host.clone(),
 				inner_token: Some(process.inner_token.clone()),
 				location: sandbox.data.location.clone(),
 				retry: process.data.retry,
@@ -67,6 +69,7 @@ impl Session {
 			.map(|name| tg::Location::Remote(tg::location::Remote { name, region: None }));
 		Ok(Some(Process {
 			debug: data.debug,
+			host: data.host,
 			inner_token: None,
 			location,
 			retry: data.retry,
