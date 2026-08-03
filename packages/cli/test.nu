@@ -1147,6 +1147,10 @@ export def --env spawn [
 	let server_exit_directory_path = (($env.TMPDIR? | default ($config_path | path dirname)) | path join $server_exit_directory_name)
 	try { mkdir $server_exit_directory_path }
 
+	# Create a path for the server's captured output.
+	let log_path = ($config_path | path dirname | path join 'log')
+	touch $log_path
+
 	# Spawn the server.
 	let server_job = job spawn -d server {
 		let server_job_id = job id
@@ -1163,10 +1167,14 @@ export def --env spawn [
 					\) &
 				exec 3>\"($ready_path)\"
 				exec tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
-			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+			" e>| lines | each { |line|
+				$"($line)\n" | save --append $log_path
+				print -e $"($name | default 'server'): ($line)\r"
+			}
 		}
 		'' | save -f $exit_path
 	}
+	let exit_path = ($server_exit_directory_path | path join $'($server_job).exit')
 
 	# Wait for the server to be ready.
 	let ready_timeout = 30sec
@@ -1245,7 +1253,22 @@ export def --env spawn [
 	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
 	let cache_directory = $directory_path | path join $cache_directory_name
 
-	{ cache_directory: $cache_directory, config: $config_path, directory: $directory_path, url: $url }
+	{ cache_directory: $cache_directory, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
+}
+
+# Stop a server, so that its output is complete, and return the distinct errors
+# it logged as '<target> <message>'. The server must have been spawned with
+# `--config { tracing: { stderr_format: 'json' } }`.
+export def server_errors [server: record] {
+	stop_server_job $server.job
+	wait_for_server_exit $server.exit
+	open --raw $server.log
+		| lines
+		| each { from json }
+		| where level == 'ERROR'
+		| each { |event| $"($event.target) ($event.fields.message)" }
+		| uniq
+		| sort
 }
 
 def clean_databases [id: string] {
