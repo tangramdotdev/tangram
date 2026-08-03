@@ -143,7 +143,7 @@ impl Session {
 		}
 	}
 
-	async fn resolve_remote_context_principal(
+	pub(crate) async fn resolve_remote_context_principal(
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {

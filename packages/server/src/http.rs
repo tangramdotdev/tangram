@@ -655,6 +655,9 @@ impl Server {
 			(http::Method::GET, ["organizations", organization]) => session
 				.try_get_organization_request(request, organization)
 				.boxed(),
+			(http::Method::GET, ["organizations", organization, "usage"]) => session
+				.try_get_organization_usage_request(request, organization)
+				.boxed(),
 			(http::Method::DELETE, ["organizations", organization]) => session
 				.try_delete_organization_request(request, organization)
 				.boxed(),
@@ -765,6 +768,9 @@ impl Server {
 			// Users.
 			(http::Method::GET, ["users", user]) => {
 				session.try_get_user_request(request, user).boxed()
+			},
+			(http::Method::GET, ["users", user, "usage"]) => {
+				session.try_get_user_usage_request(request, user).boxed()
 			},
 			(http::Method::GET, ["user"]) => session.get_current_user_request(request).boxed(),
 			(http::Method::POST, ["user", "billing", "manage"]) => {

@@ -161,6 +161,13 @@ impl Session {
 				});
 			}
 		}
+		let owner = self.storage_owner(&self.context.principal).await?;
+		let mut owner_objects = batch_objects.clone();
+		for children in object_children.values() {
+			for child in children {
+				owner_objects.remove(child);
+			}
+		}
 
 		// Index the objects.
 		let index_arg = tangram_index::batch::Arg {
@@ -172,6 +179,17 @@ impl Session {
 						.into_iter()
 						.map(tangram_index::batch::Item::PutGrant),
 				)
+				.chain(owner.into_iter().flat_map(|owner| {
+					owner_objects.iter().cloned().map(move |object| {
+						tangram_index::batch::Item::PutOwnerObject(
+							tangram_index::storage::put::ObjectArg {
+								object,
+								owner: owner.clone(),
+								touched_at: now,
+							},
+						)
+					})
+				}))
 				.collect(),
 		};
 		self.server

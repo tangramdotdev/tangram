@@ -68,6 +68,7 @@ mod touch;
 mod tracing;
 mod tree;
 mod update;
+mod usage;
 mod user;
 mod view;
 mod viewer;
@@ -393,6 +394,8 @@ enum Command {
 
 	User(self::user::Args),
 
+	Usage(self::usage::Args),
+
 	View(self::view::Args),
 
 	Wait(self::process::wait::Args),
@@ -699,6 +702,7 @@ impl Cli {
 			Command::Tree(args) => self.command_tree(args).boxed_local(),
 			Command::Update(args) => self.command_update(args).boxed_local(),
 			Command::User(args) => self.command_user(args).boxed_local(),
+			Command::Usage(args) => self.command_usage(args).boxed_local(),
 			Command::View(args) => self.command_view(args).boxed_local(),
 			Command::Wait(args) => self.command_process_wait(args).boxed_local(),
 			Command::Watch(args) => self.command_watch(args).boxed_local(),

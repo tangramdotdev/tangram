@@ -23,6 +23,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
 		partition_total: u64,
+		storage_partition_total: u64,
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
@@ -117,6 +118,28 @@ impl Index {
 					)
 					.await?;
 				},
+				crate::batch::Item::PutOwnerObject(arg) => {
+					Self::put_owner_object(
+						txn,
+						subspace,
+						arg,
+						partition_total,
+						storage_partition_total,
+						true,
+					)
+					.await?;
+				},
+				crate::batch::Item::PutOwnerProcess(arg) => {
+					Self::put_owner_process(
+						txn,
+						subspace,
+						arg,
+						partition_total,
+						storage_partition_total,
+						true,
+					)
+					.await?;
+				},
 				crate::batch::Item::PutOrganization(arg) => {
 					Self::put_organizations_with_transaction(
 						txn,
@@ -162,6 +185,12 @@ impl Index {
 				crate::batch::Item::PutUser(arg) => {
 					Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg))
 						.await?;
+				},
+				crate::batch::Item::TouchOwnerObject(arg) => {
+					Self::touch_owner_object(txn, subspace, arg, partition_total).await?;
+				},
+				crate::batch::Item::TouchOwnerProcess(arg) => {
+					Self::touch_owner_process(txn, subspace, arg, partition_total).await?;
 				},
 			}
 		}

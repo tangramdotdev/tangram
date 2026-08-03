@@ -108,6 +108,18 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn get_owner_usage(
+		&self,
+		owner: &index::storage::Owner,
+	) -> tg::Result<index::storage::Usage> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_owner_usage(owner).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_owner_usage(owner).await,
+		}
+	}
+
 	async fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],

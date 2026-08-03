@@ -20,6 +20,9 @@ pub(crate) enum Request {
 	GetRequesterPrincipals {
 		principal: tg::Principal,
 	},
+	GetOwnerUsage {
+		owner: crate::storage::Owner,
+	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
 	},
@@ -79,6 +82,7 @@ pub(crate) enum Response {
 	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
 	FinalizationBatch(Vec<crate::finalization::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
+	GetOwnerUsage(crate::storage::Usage),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),

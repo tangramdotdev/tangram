@@ -130,6 +130,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 		max_process_depth: Option<u64>,
+		storage_partition_total: u64,
 	) -> tg::Result<crate::update::Output> {
 		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -168,17 +169,6 @@ impl Index {
 			let update = Update::deserialize(value)?;
 
 			let changed = match &kind {
-				Kind::Item => match &id {
-					tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
-					tg::Either::Right(id) => {
-						let process_output =
-							Self::update_process(db, subspace, transaction, id, max_process_depth)?;
-						if process_output.depth_exceeded {
-							output.processes_with_depth_exceeded.push(id.clone());
-						}
-						process_output.changed
-					},
-				},
 				Kind::Grants(principal) => match &id {
 					tg::Either::Left(id) => Self::update_object_grants_for_principal(
 						db,
@@ -195,12 +185,59 @@ impl Index {
 						principal,
 					)?,
 				},
+				Kind::Item => match &id {
+					tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
+					tg::Either::Right(id) => {
+						let process_output =
+							Self::update_process(db, subspace, transaction, id, max_process_depth)?;
+						if process_output.depth_exceeded {
+							output.processes_with_depth_exceeded.push(id.clone());
+						}
+						process_output.changed
+					},
+				},
+				Kind::Storage(owner) => {
+					let touched_at = i64::try_from(
+						std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.map_err(|error| tg::error!(!error, "the system time is invalid"))?
+							.as_secs(),
+					)
+					.map_err(|_| tg::error!("the system time is out of range"))?;
+					match &id {
+						tg::Either::Left(object) => Self::put_owner_object(
+							db,
+							subspace,
+							transaction,
+							&crate::storage::put::ObjectArg {
+								object: object.clone(),
+								owner: owner.clone(),
+								touched_at,
+							},
+							storage_partition_total,
+							false,
+						)?,
+						tg::Either::Right(process) => Self::put_owner_process(
+							db,
+							subspace,
+							transaction,
+							&crate::storage::put::ProcessArg {
+								owner: owner.clone(),
+								process: process.clone(),
+								touched_at,
+							},
+							storage_partition_total,
+							false,
+						)?,
+					}
+				},
 			};
 
-			if match update.source {
-				Source::Put => true,
-				Source::Propagate => changed,
-			} {
+			if !matches!(kind, Kind::Storage(_))
+				&& match update.source {
+					Source::Put => true,
+					Source::Propagate => changed,
+				} {
 				Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
 			}
 

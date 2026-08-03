@@ -17,6 +17,7 @@ pub mod organization;
 pub mod process;
 mod read;
 pub mod sandbox;
+pub mod storage;
 pub mod tag;
 pub mod update;
 pub mod user;
@@ -112,6 +113,11 @@ pub trait Index {
 		self.try_get_organizations(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
+
+	fn get_owner_usage(
+		&self,
+		owner: &crate::storage::Owner,
+	) -> impl Future<Output = tg::Result<crate::storage::Usage>> + Send;
 
 	fn touch_cache_entries(
 		&self,

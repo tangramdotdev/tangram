@@ -24,6 +24,13 @@ impl tg::handle::User for Server {
 		self.session(&self.context).try_get_user(user, arg).await
 	}
 
+	async fn try_get_user_usage(
+		&self,
+		user: &tg::user::Selector,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		self.session(&self.context).try_get_user_usage(user).await
+	}
+
 	async fn manage_user_billing(
 		&self,
 		arg: tg::user::billing::manage::Arg,

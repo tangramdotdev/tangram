@@ -162,6 +162,7 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 		});
+		let owner = self.storage_owner(&self.context.principal).await?;
 
 		// Put the process in the index.
 		self.server
@@ -169,6 +170,15 @@ impl Session {
 			.batch(tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+					.chain(owner.map(|owner| {
+						tangram_index::batch::Item::PutOwnerProcess(
+							tangram_index::storage::put::ProcessArg {
+								owner,
+								process: id.clone(),
+								touched_at: now,
+							},
+						)
+					}))
 					.collect(),
 			})
 			.await

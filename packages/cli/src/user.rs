@@ -4,6 +4,7 @@ pub mod billing;
 pub mod get;
 pub mod login;
 pub mod logout;
+pub mod usage;
 pub mod whoami;
 
 /// Manage the user.
@@ -20,6 +21,7 @@ pub enum Command {
 	Get(self::get::Args),
 	Login(self::login::Args),
 	Logout(self::logout::Args),
+	Usage(self::usage::Args),
 	Whoami(self::whoami::Args),
 }
 
@@ -37,6 +39,9 @@ impl Cli {
 			},
 			Command::Logout(args) => {
 				self.command_user_logout(args).await?;
+			},
+			Command::Usage(args) => {
+				self.command_user_usage(args).await?;
 			},
 			Command::Whoami(args) => {
 				self.command_user_whoami(args).await?;

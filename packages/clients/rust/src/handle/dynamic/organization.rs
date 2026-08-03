@@ -20,6 +20,17 @@ impl tg::handle::Organization for Handle {
 		}
 	}
 
+	fn try_get_organization_usage(
+		&self,
+		organization: &tg::organization::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(
+				self.0.try_get_organization_usage(organization),
+			)
+		}
+	}
+
 	fn try_delete_organization(
 		&self,
 		organization: &tg::organization::Selector,

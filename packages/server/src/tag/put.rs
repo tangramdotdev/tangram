@@ -42,31 +42,57 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
+		let owner = self.storage_owner_for_specifier(&arg.specifier).await?;
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
 				let permissions = permissions.clone();
+				let owner = owner.clone();
 				let session = session.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
 					let data = session
 						.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 						.await?;
+					let item = match data.item {
+						tg::tag::data::Item::Object(id) => tg::Either::Left(id),
+						tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+					};
 					batch.items.push(tangram_index::batch::Item::PutTag(
 						tangram_index::tag::put::Arg {
 							id: data.id,
-							item: match data.item {
-								tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-								tg::tag::data::Item::Process(id) => tg::Either::Right(id),
-							},
+							item: item.clone(),
 							name: data.name,
+							owner: owner.clone(),
 							parent: data.parent,
 							permissions: data.permissions,
 							specifier: data.specifier,
 						},
 					));
+					if let Some(owner) = owner {
+						let item = match item {
+							tg::Either::Left(object) => tangram_index::batch::Item::PutOwnerObject(
+								tangram_index::storage::put::ObjectArg {
+									object,
+									owner,
+									touched_at,
+								},
+							),
+							tg::Either::Right(process) => {
+								tangram_index::batch::Item::PutOwnerProcess(
+									tangram_index::storage::put::ProcessArg {
+										owner,
+										process,
+										touched_at,
+									},
+								)
+							},
+						};
+						batch.items.push(item);
+					}
 					session
 						.server
 						.enqueue_database_outbox_with_transaction(transaction, &batch)
