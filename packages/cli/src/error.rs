@@ -149,7 +149,9 @@ impl Cli {
 		let internal = self
 			.config
 			.as_ref()
-			.is_some_and(|config| config.server.advanced.internal_error_locations);
+			.and_then(|config| config.advanced.as_ref())
+			.and_then(|advanced| advanced.internal_error_locations)
+			.unwrap_or(false);
 		let mut stack = vec![error];
 		while let Some(error_referent) = stack.pop() {
 			error_referent

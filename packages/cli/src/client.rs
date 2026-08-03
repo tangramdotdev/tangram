@@ -98,11 +98,14 @@ impl Cli {
 			.args
 			.url
 			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.server.http.listeners.first())
-				.map(|listener| listener.url.clone()))
+			.or_else(|| {
+				self.config
+					.as_ref()
+					.and_then(|config| config.http.as_ref())
+					.and_then(|http| http.listeners.as_ref())
+					.and_then(|listeners| listeners.first())
+					.and_then(|listener| listener.url.clone())
+			})
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
 				let path = path.to_str().unwrap();
@@ -122,7 +125,9 @@ impl Cli {
 			.config
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.reconnect.clone())
+			.and_then(|client| client.reconnect)
+			.map(crate::config::resolve_reconnect)
+			.transpose()?
 			.map(|reconnect| tangram_futures::retry::Options {
 				backoff: reconnect.backoff,
 				jitter: reconnect.jitter,
@@ -135,7 +140,9 @@ impl Cli {
 			.config
 			.as_ref()
 			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.retry.clone())
+			.and_then(|client| client.retry)
+			.map(crate::config::resolve_retry)
+			.transpose()?
 			.map(|retry| tangram_futures::retry::Options {
 				backoff: retry.backoff,
 				jitter: retry.jitter,

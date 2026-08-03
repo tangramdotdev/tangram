@@ -483,7 +483,9 @@ async fn main() -> std::process::ExitCode {
 					.await
 					.ok()
 					.flatten()
-					.is_some_and(|config| config.server.advanced.internal_error_locations);
+					.and_then(|config| config.advanced)
+					.and_then(|advanced| advanced.internal_error_locations)
+					.unwrap_or(false);
 				Cli::print_error_basic(tg::Referent::with_item(error), internal);
 				std::process::ExitCode::FAILURE
 			},
@@ -550,7 +552,8 @@ async fn main() -> std::process::ExitCode {
 		&& cli
 			.config
 			.as_ref()
-			.is_some_and(|config| config.server.index.is_fdb())
+			.and_then(|config| config.index.as_ref())
+			.is_some_and(|index| matches!(index, self::config::Index::Fdb(_)))
 	{
 		Some(unsafe { foundationdb::boot() })
 	} else {
@@ -715,10 +718,11 @@ impl Cli {
 		self.args
 			.directory
 			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.server.directory.clone()))
+			.or_else(|| {
+				self.config
+					.as_ref()
+					.and_then(|config| config.directory.clone())
+			})
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
 	}
 
