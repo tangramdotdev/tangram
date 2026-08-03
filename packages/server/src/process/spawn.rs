@@ -32,14 +32,25 @@ impl Session {
 			));
 		}
 
-		// Resolve the command.
-		let command = self.spawn_process_resolve_command(&mut arg).await?;
-
-		// If the authentication is from a process, then update the parent, location, and retry.
+		// Get the authenticated process.
 		let authenticated_process = match &self.context.principal {
 			tg::Principal::Process(process) => self.try_get_authenticated_process(process).await?,
 			_ => None,
 		};
+
+		// Resolve the command.
+		let sandbox_host = if self.context.sandbox {
+			authenticated_process
+				.as_ref()
+				.map(|process| process.host.as_str())
+		} else {
+			None
+		};
+		let command = self
+			.spawn_process_resolve_command(&mut arg, sandbox_host)
+			.await?;
+
+		// If the authentication is from a process, then update the parent, location, and retry.
 		if let Some(process) = &authenticated_process
 			&& let tg::Principal::Process(id) = &self.context.principal
 		{
@@ -92,12 +103,14 @@ impl Session {
 	async fn spawn_process_resolve_command(
 		&self,
 		arg: &mut tg::process::spawn::Arg,
+		sandbox_host: Option<&str>,
 	) -> tg::Result<tg::Referent<tg::command::Id>> {
 		let id = match &arg.command.item {
 			tg::Either::Left(command_arg) => {
 				let host = command_arg
 					.host
 					.clone()
+					.or_else(|| sandbox_host.map(str::to_owned))
 					.or_else(|| self.server.config.process.spawn.host.clone())
 					.unwrap_or_else(|| tg::host::current().to_owned());
 				let data = tg::command::Data {

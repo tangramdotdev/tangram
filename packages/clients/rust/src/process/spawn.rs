@@ -18,53 +18,6 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
-mod serde_command {
-	use {crate::prelude::*, serde::Deserialize as _};
-
-	#[derive(serde::Deserialize)]
-	#[serde(untagged)]
-	enum Data {
-		Arg(tg::Referent<tg::process::spawn::CommandArg>),
-		Id(String),
-	}
-
-	pub fn deserialize<'de, D>(
-		deserializer: D,
-	) -> Result<tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>, D::Error>
-	where
-		D: serde::Deserializer<'de>,
-	{
-		let data = Data::deserialize(deserializer)?;
-		let command = match data {
-			Data::Arg(command) => command.map(tg::Either::Left),
-			Data::Id(command) => command
-				.parse::<tg::Referent<tg::command::Id>>()
-				.map(|command| command.map(tg::Either::Right))
-				.map_err(serde::de::Error::custom)?,
-		};
-		Ok(command)
-	}
-
-	pub fn serialize<S>(
-		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
-		serializer: S,
-	) -> Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer,
-	{
-		match &command.item {
-			tg::Either::Left(arg) => {
-				let command = tg::Referent::new(arg, command.options.clone());
-				serde::Serialize::serialize(&command, serializer)
-			},
-			tg::Either::Right(id) => {
-				let command = tg::Referent::new(id, command.options.clone());
-				serializer.serialize_str(&command.to_string())
-			},
-		}
-	}
-}
-
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -77,7 +30,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
-	#[serde(with = "serde_command")]
 	pub command: tg::Referent<tg::Either<CommandArg, tg::command::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
