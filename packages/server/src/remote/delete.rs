@@ -72,7 +72,7 @@ impl Session {
 			r"
 				delete from remotes
 				where name = {p}1 and (
-					(principal is null and {p}2 is null) or
+					(principal is null and cast({p}2 as text) is null) or
 					principal = {p}2
 				);
 			",

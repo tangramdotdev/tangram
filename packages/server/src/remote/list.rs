@@ -63,7 +63,7 @@ impl Session {
 			r"
 				select name, url
 				from remotes
-				where (principal is null and {p}1 is null) or principal = {p}1
+				where (principal is null and cast({p}1 as text) is null) or principal = {p}1
 				order by name;
 			",
 		);
