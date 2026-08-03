@@ -20,17 +20,17 @@ def assert_denied [source: string, message: string] {
 
 assert_denied '
 	export default function () {
-		return tg.build`echo hello`
-			.network()
-			.checksum("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+		return tg.run`echo hello`
+			.sandbox()
+			.network();
 	}
 ' 'the child sandbox network is more permissive than the parent sandbox network'
 
 assert_denied '
 	export default function () {
-		return tg.build`echo hello`
-			.mount({ source: "/tmp", target: "/work" })
-			.checksum("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+		return tg.run`echo hello`
+			.sandbox()
+			.mount({ source: "/tmp", target: "/work" });
 	}
 ' 'the child sandbox mount is more permissive than the parent sandbox mounts'
 
@@ -46,6 +46,18 @@ let network_path = artifact {
 	',
 }
 success (tg run --sandbox --network=true $network_path | complete)
+
+let checksum_path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.run`true`
+				.sandbox()
+				.network()
+				.checksum("sha256:any");
+		}
+	',
+}
+success (tg build $checksum_path | complete)
 
 let mount = mktemp --directory | str trim
 let readonly_mount_path = artifact {

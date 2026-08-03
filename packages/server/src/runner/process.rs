@@ -911,11 +911,9 @@ impl Session {
 		if let Some(expected) = &process_state.data.expected_checksum
 			&& exit == 0
 		{
-			let actual = output
-				.checksum
-				.as_ref()
-				.ok_or_else(|| tg::error!(%id, "the actual checksum was not set"))?;
-			if expected != actual {
+			if let Some(actual) = &output.checksum
+				&& expected != actual
+			{
 				error = Some(tg::Either::Left(tg::error::Data {
 					code: Some(tg::error::Code::ChecksumMismatch),
 					message: Some("checksum mismatch".into()),
@@ -927,6 +925,8 @@ impl Session {
 					..Default::default()
 				}));
 				exit = 1;
+			} else if output.checksum.is_none() && !expected.is_any() {
+				return Err(tg::error!(%id, "the actual checksum was not set"));
 			}
 		}
 		process_state.data.actual_checksum = output.checksum;

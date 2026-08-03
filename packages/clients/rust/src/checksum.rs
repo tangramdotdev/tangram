@@ -60,6 +60,11 @@ impl Checksum {
 	pub fn algorithm(&self) -> Algorithm {
 		self.algorithm
 	}
+
+	#[must_use]
+	pub fn is_any(&self) -> bool {
+		matches!(self.body, Body::Any)
+	}
 }
 
 impl Default for Checksum {
