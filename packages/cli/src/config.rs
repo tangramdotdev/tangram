@@ -826,7 +826,7 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -856,7 +856,7 @@ pub struct Process {
 	pub time_to_touch: Option<Duration>,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Spawn {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2429,9 +2429,6 @@ fn resolve_object(source: Object) -> tg::Result<server::Object> {
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
 	}
-	if let Some(source) = source.spawn {
-		target.spawn = resolve_spawn(source);
-	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
 	}
@@ -2566,6 +2563,9 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
+	}
+	if let Some(source) = source.spawn {
+		target.spawn = resolve_spawn(source);
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;

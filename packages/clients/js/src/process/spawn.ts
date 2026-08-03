@@ -181,49 +181,36 @@ let spawnArgFromResolvedWithSandbox = async (
 		...(stdin === null ? [] : [stdin]),
 	];
 	await tg.Value.store(objects);
-
-	let commandReferent: tg.Referent<tg.Process.Spawn.CommandArg | tg.Command.Id>;
-	if (sandbox !== undefined) {
-		let command: tg.Process.Spawn.CommandArg = {
-			args: args.map(tg.Command.Value.toData),
-			env: globalThis.Object.fromEntries(
-				globalThis.Object.entries(env).map(([key, value]) => [
-					key,
-					tg.Command.Value.toData(value),
-				]),
-			),
-			executable: tg.Command.Executable.toData(executable_),
-		};
-		if (cwd !== null) {
-			command.cwd = cwd;
-		}
-		if (host !== null) {
-			command.host = host;
-		}
-		if (stdin !== null) {
-			command.stdin = stdin.id;
-		}
-		if (user !== null) {
-			command.user = user;
-		}
-		commandReferent = { item: command, options };
-	} else {
-		let object: tg.Command.Object = {
-			args,
-			cwd,
-			env,
-			executable: executable_,
-			host: host ?? tg.host.current,
-			stdin,
-			user,
-		};
-		let handle = tg.Command.withObject(object);
-		let id = await handle.store();
-		if (handle.state.token !== null) {
-			options.token = handle.state.token;
-		}
-		commandReferent = { item: id, options };
+	let command: tg.Process.Spawn.CommandArg = {
+		args: args.map(tg.Command.Value.toData),
+		env: globalThis.Object.fromEntries(
+			globalThis.Object.entries(env).map(([key, value]) => [
+				key,
+				tg.Command.Value.toData(value),
+			]),
+		),
+		executable: tg.Command.Executable.toData(executable_),
+	};
+	if (cwd !== null) {
+		command.cwd = cwd;
 	}
+	if (host !== null) {
+		command.host = host;
+	} else if (sandbox === undefined) {
+		command.host = tg.host.current;
+	}
+	if (stdin !== null) {
+		command.stdin = stdin.id;
+	}
+	if (user !== null) {
+		command.user = user;
+	}
+	let commandReferent: tg.Referent<
+		tg.Process.Spawn.CommandArg | tg.Command.Id
+	> = {
+		item: command,
+		options,
+	};
 
 	let debug =
 		arg.debug === undefined || arg.debug === false
@@ -460,13 +447,15 @@ export let prepareUnsandboxedCommand = async (
 		throw new Error("blob stdin is not supported for unsandboxed processes");
 	}
 
-	if (typeof arg.command.item !== "string") {
-		throw new Error("expected a stored command");
-	}
-	let commandHandle = tg.Command.withReferent(
-		arg.command as tg.Referent<tg.Command.Id>,
-	);
-	let command = await commandHandle.object();
+	let command =
+		typeof arg.command.item === "string"
+			? await tg.Command.withReferent(
+					arg.command as tg.Referent<tg.Command.Id>,
+				).object()
+			: tg.Command.Object.fromData({
+					...arg.command.item,
+					host: arg.command.item.host ?? tg.host.current,
+				});
 	if (command.stdin !== null) {
 		throw new Error(
 			"command stdin blobs are not supported for unsandboxed processes",

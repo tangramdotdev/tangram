@@ -245,6 +245,8 @@ where
 	}
 	if let Some(host) = host {
 		builder = builder.host(host);
+	} else if !sandboxed {
+		builder = builder.host(tg::host::current());
 	}
 	if let Some(user) = arg.user {
 		builder = builder.user(user);
@@ -253,21 +255,14 @@ where
 		builder = builder.stdin(command_stdin);
 	}
 
-	let command = if sandboxed {
-		let objects = builder
-			.objects()
-			.into_iter()
-			.map(tg::Value::Object)
-			.collect();
-		tg::Value::Array(objects).store_with_handle(handle).await?;
-		let command_arg = builder.build_spawn_arg()?;
-		tg::Referent::new(tg::Either::Left(command_arg), options)
-	} else {
-		let command = builder.build()?;
-		let command_id = command.store_with_handle(handle).await?;
-		options.token = command.state().token();
-		tg::Referent::new(tg::Either::Right(command_id), options)
-	};
+	let objects = builder
+		.objects()
+		.into_iter()
+		.map(tg::Value::Object)
+		.collect();
+	tg::Value::Array(objects).store_with_handle(handle).await?;
+	let command_arg = builder.build_spawn_arg()?;
+	let command = tg::Referent::new(tg::Either::Left(command_arg), options);
 
 	let spawn_arg = tg::process::spawn::Arg {
 		cached: arg.cached,
@@ -576,19 +571,28 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let id = arg
-			.command
-			.item
-			.as_ref()
-			.right()
-			.cloned()
-			.ok_or_else(|| tg::error!("expected a stored command"))?;
-		let referent = tg::Referent::new(id, arg.command.options.clone());
-		let command = tg::Command::with_referent(referent);
-		let command = command
-			.data_with_handle(handle)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
+		let command = match &arg.command.item {
+			tg::Either::Left(command) => tg::command::Data {
+				args: command.args.clone(),
+				cwd: command.cwd.clone(),
+				env: command.env.clone(),
+				executable: command.executable.clone(),
+				host: command
+					.host
+					.clone()
+					.unwrap_or_else(|| tg::host::current().to_owned()),
+				stdin: command.stdin.clone(),
+				user: command.user.clone(),
+			},
+			tg::Either::Right(id) => {
+				let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
+				let command = tg::Command::with_referent(referent);
+				command
+					.data_with_handle(handle)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the command"))?
+			},
+		};
 		if command.stdin.is_some() {
 			return Err(tg::error!(
 				"command stdin blobs are not supported for unsandboxed processes"

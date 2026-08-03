@@ -823,19 +823,26 @@ impl Cli {
 		}
 		command = command.env(env);
 
-		// Store the command's objects.
-		let objects = command
-			.objects()
-			.into_iter()
-			.map(tg::Value::Object)
-			.collect();
-		tg::Value::Array(objects).store_with_handle(&client).await?;
-
-		// Create the command arg.
-		let command = command.build_spawn_arg()?;
+		// Create the command.
+		let sandboxed = sandbox;
+		let (command, command_stdin) = if sandboxed {
+			let objects = command
+				.objects()
+				.into_iter()
+				.map(tg::Value::Object)
+				.collect();
+			tg::Value::Array(objects).store_with_handle(&client).await?;
+			let command = command.build_spawn_arg()?;
+			let stdin = command.stdin.clone();
+			(tg::Either::Left(command), stdin)
+		} else {
+			let command = command.build()?;
+			let object = command.object_with_handle(&client).await?;
+			let stdin = object.stdin.as_ref().map(tg::Blob::id);
+			(tg::Either::Right(command), stdin)
+		};
 
 		// Determine if the network is enabled.
-		let sandboxed = sandbox;
 		let has_sandbox_arg = !options.sandbox.arg.is_empty()
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
@@ -910,10 +917,8 @@ impl Cli {
 			_ => None,
 		};
 
-		let stdin = match (options.stdin.clone(), command.stdin.as_ref()) {
-			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
-				tg::process::Stdio::Blob(blob.clone())
-			},
+		let stdin = match (options.stdin.clone(), command_stdin) {
+			(None | Some(tg::process::Stdio::Null), Some(blob)) => tg::process::Stdio::Blob(blob),
 			(Some(stdin), _) => stdin,
 			(None, None) => tg::process::Stdio::default(),
 		};
@@ -923,7 +928,7 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			command: Some(tg::Referent::new(
-				tg::Either::Left(command.clone()),
+				command,
 				command_options.unwrap_or_default(),
 			)),
 			debug: debug.map(tg::Either::Right),
