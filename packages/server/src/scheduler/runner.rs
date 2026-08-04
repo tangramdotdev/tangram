@@ -231,45 +231,43 @@ impl Server {
 							data: data.clone(),
 							location: None,
 						},
+						true,
 					)
 					.boxed()
 					.await
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to store the finished process"),
 					)?;
-			}
-
-			// Remove the tokens before updating the index.
-			let data = data.without_tokens();
-
-			self.index
-				.batch(tangram_index::batch::Arg {
-					items: vec![tangram_index::batch::Item::PutProcess(
-						tangram_index::process::put::Arg {
-							children: None,
-							command: data.command.clone().into(),
-							data: Some(data.clone()),
-							error: None,
-							id: process.clone(),
-							log: None,
-							metadata: indexed.metadata,
-							output: None,
-							parent: None,
-							sandbox: Some(data.sandbox.clone()),
-							stored: indexed.stored,
-							time_to_touch: self.config.process.time_to_touch,
-							touched_at: now,
-						},
-					)],
-				})
-				.await
-				.map_err(
-					|source| tg::error!(!source, %process, "failed to update the process in the index"),
-				)?;
-			if finish {
-				self.enqueue_process_finalization(&process).await?;
 				let session = self.session(&self.context);
 				session.spawn_process_finish_tasks(&process);
+			} else {
+				// Remove the tokens before updating the index.
+				let data = data.without_tokens();
+
+				self.index
+					.batch(tangram_index::batch::Arg {
+						items: vec![tangram_index::batch::Item::PutProcess(
+							tangram_index::process::put::Arg {
+								children: None,
+								command: data.command.clone().into(),
+								data: Some(data.clone()),
+								error: None,
+								id: process.clone(),
+								log: None,
+								metadata: indexed.metadata,
+								output: None,
+								parent: None,
+								sandbox: Some(data.sandbox.clone()),
+								stored: indexed.stored,
+								time_to_touch: self.config.process.time_to_touch,
+								touched_at: now,
+							},
+						)],
+					})
+					.await
+					.map_err(
+						|source| tg::error!(!source, %process, "failed to update the process in the index"),
+					)?;
 			}
 		}
 

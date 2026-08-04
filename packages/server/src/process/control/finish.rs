@@ -12,10 +12,10 @@ impl Session {
 				data: arg.data,
 				location: None,
 			},
+			true,
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
-		self.server.enqueue_process_finalization(id).await?;
 		self.spawn_process_finish_tasks(id);
 		Ok(tg::process::control::FinishServerResponseOutput {})
 	}

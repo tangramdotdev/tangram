@@ -534,6 +534,7 @@ impl Session {
 					data: data.clone(),
 					location: None,
 				},
+				false,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to store the process"))?;

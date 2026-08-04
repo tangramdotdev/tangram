@@ -33,6 +33,9 @@ pub enum Item {
 	#[tangram_serialize(id = 7)]
 	DeleteUser(tg::user::Id),
 
+	#[tangram_serialize(id = 16)]
+	EnqueueFinalization(crate::finalization::Item),
+
 	#[tangram_serialize(id = 8)]
 	PutCacheEntry(crate::cache::put::Arg),
 
@@ -92,6 +95,7 @@ mod tests {
 	fn serialization_roundtrip() {
 		let group = tg::group::Id::new();
 		let organization = tg::organization::Id::new();
+		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
 		let tag = tg::tag::Id::new();
 		let user = tg::user::Id::new();
@@ -127,6 +131,7 @@ mod tests {
 				Item::DeleteOrganization(organization.clone()),
 				Item::DeleteTag(tag),
 				Item::DeleteUser(user.clone()),
+				Item::EnqueueFinalization(crate::finalization::Item::Process(process)),
 				Item::PutGrant(crate::grant::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
@@ -157,17 +162,21 @@ mod tests {
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert_eq!(arg.items.len(), 9);
-		let Item::PutGrant(grant_arg) = &arg.items[5] else {
+		assert_eq!(arg.items.len(), 10);
+		assert!(matches!(
+			&arg.items[5],
+			Item::EnqueueFinalization(crate::finalization::Item::Process(_))
+		));
+		let Item::PutGrant(grant_arg) = &arg.items[6] else {
 			panic!();
 		};
 		assert_eq!(
 			grant_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
-		assert!(matches!(&arg.items[6], Item::PutGroupMember(_)));
-		assert!(matches!(&arg.items[7], Item::PutOrganizationMember(_)));
-		let Item::PutSandbox(sandbox_arg) = &arg.items[8] else {
+		assert!(matches!(&arg.items[7], Item::PutGroupMember(_)));
+		assert!(matches!(&arg.items[8], Item::PutOrganizationMember(_)));
+		let Item::PutSandbox(sandbox_arg) = &arg.items[9] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();

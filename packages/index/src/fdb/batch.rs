@@ -81,6 +81,15 @@ impl Index {
 					Self::delete_users_with_transaction(txn, subspace, std::slice::from_ref(id))
 						.await?;
 				},
+				crate::batch::Item::EnqueueFinalization(item) => {
+					Self::enqueue_finalization_with_transaction(
+						txn,
+						subspace,
+						item,
+						partition_total,
+					)
+					.await?;
+				},
 				crate::batch::Item::PutCacheEntry(arg) => {
 					Self::put_cache_entries_with_transaction(
 						txn,

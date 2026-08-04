@@ -100,6 +100,52 @@ async fn partial_account_updates_preserve_billing() {
 }
 
 #[tokio::test]
+async fn process_and_finalization_share_transaction() {
+	let (_dir, index) = new_index();
+	let process = tg::process::Id::new();
+	let before = index.get_transaction_id().await.unwrap();
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutProcess(crate::process::put::Arg {
+				children: Some(Vec::new()),
+				command: tg::command::Id::new(b"command").into(),
+				data: None,
+				error: Some(None),
+				id: process.clone(),
+				log: Some(None),
+				metadata: tg::process::Metadata::default(),
+				output: Some(None),
+				parent: None,
+				sandbox: None,
+				stored: crate::process::Stored::default(),
+				time_to_touch: std::time::Duration::ZERO,
+				touched_at: 0,
+			}),
+			crate::batch::Item::EnqueueFinalization(crate::finalization::Item::Process(
+				process.clone(),
+			)),
+		],
+	};
+	index.batch(arg).await.unwrap();
+	let after = index.get_transaction_id().await.unwrap();
+
+	assert_eq!(after, before + 1);
+	assert!(
+		index
+			.try_get_processes(std::slice::from_ref(&process))
+			.await
+			.unwrap()[0]
+			.is_some()
+	);
+	let entries = index
+		.finalization_batch(crate::finalization::Kind::Process, 1, 0, 1)
+		.await
+		.unwrap();
+	assert_eq!(entries.len(), 1);
+	assert_eq!(entries[0].item, crate::finalization::Item::Process(process));
+}
+
+#[tokio::test]
 async fn preserves_order_and_transaction_boundary() {
 	let (_dir, index) = new_index();
 	let id = tg::group::Id::new();

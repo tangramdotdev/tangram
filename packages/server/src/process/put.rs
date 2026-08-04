@@ -23,7 +23,7 @@ impl Session {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.put_process_local(id, arg).await?
+				self.put_process_local(id, arg, false).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -41,6 +41,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
+		finalize: bool,
 	) -> tg::Result<tg::process::put::Output> {
 		Self::validate_process_data(&arg.data)?;
 
@@ -169,10 +170,18 @@ impl Session {
 			.batch(tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+					.chain(finalize.then(|| {
+						tangram_index::batch::Item::EnqueueFinalization(
+							tangram_index::finalization::Item::Process(id.clone()),
+						)
+					}))
 					.collect(),
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
+		if finalize {
+			self.server.spawn_publish_process_finalize_message_task();
+		}
 
 		let permission = self.process_permission_for_data(&token_data);
 		let token = self.create_token(

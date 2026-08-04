@@ -6,9 +6,14 @@ pub enum Kind {
 	Sandbox,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
 pub enum Item {
+	#[tangram_serialize(id = 0)]
 	Process(tg::process::Id),
+
+	#[tangram_serialize(id = 1)]
 	Sandbox(tg::sandbox::Id),
 }
 

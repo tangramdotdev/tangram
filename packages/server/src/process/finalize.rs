@@ -2,7 +2,7 @@ use {
 	crate::Server,
 	futures::{FutureExt as _, StreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, pin::pin, time::Duration},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_index::{self as index, prelude::*},
@@ -11,21 +11,6 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn enqueue_process_finalization(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<()> {
-		self.index
-			.enqueue_finalization(&index::finalization::Item::Process(id.clone()))
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to enqueue the process finalization"),
-			)?;
-		self.spawn_publish_process_finalize_message_task();
-
-		Ok(())
-	}
-
 	pub(crate) fn spawn_publish_process_finalize_message_task(&self) {
 		tokio::spawn({
 			let server = self.clone();
@@ -153,68 +138,9 @@ impl Server {
 			.boxed()
 			.await
 			.map_err(|error| tg::error!(!error, %process, "failed to compact the process log"))?;
-		self.index_finished_process(process).await?;
 		self.index.complete_finalization(entry).await.map_err(
 			|error| tg::error!(!error, %process, "failed to complete the process finalization"),
 		)?;
-
-		Ok(())
-	}
-
-	async fn index_finished_process(&self, id: &tg::process::Id) -> tg::Result<()> {
-		let tg::process::get::Output { data, .. } = self
-			.try_get_process_local(id, false)
-			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let data = data.without_tokens();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let error = data.error.as_ref().map(|error| match error {
-			tg::Either::Left(data) => {
-				let mut children = BTreeSet::new();
-				data.children(&mut children);
-				children.into_iter().collect::<Vec<_>>()
-			},
-			tg::Either::Right(id) => {
-				let id = id.item.clone().into();
-				vec![id]
-			},
-		});
-		let mut output = BTreeSet::new();
-		if let Some(data) = &data.output {
-			data.children(&mut output);
-		}
-		let output = data
-			.output
-			.as_ref()
-			.map(|_| output.into_iter().collect::<Vec<_>>());
-		let children = data
-			.children
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected the children to be set"))?
-			.iter()
-			.map(|child| child.process.item.clone())
-			.collect();
-		let put_process = index::process::put::Arg {
-			children: Some(children),
-			command: data.command.clone().into(),
-			data: Some(data.clone()),
-			error: Some(error),
-			id: id.clone(),
-			log: Some(data.log.clone().map(|log| log.item.into())),
-			metadata: tg::process::Metadata::default(),
-			output: Some(output),
-			parent: None,
-			sandbox: None,
-			stored: index::process::Stored::default(),
-			time_to_touch: self.config.process.time_to_touch,
-			touched_at: now,
-		};
-		self.index
-			.batch(index::batch::Arg {
-				items: vec![index::batch::Item::PutProcess(put_process)],
-			})
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 
 		Ok(())
 	}
