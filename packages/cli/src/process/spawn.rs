@@ -458,7 +458,7 @@ impl Cli {
 			let arg = tg::tag::put::Arg {
 				item: id.into(),
 				location: location.clone(),
-				parents: false,
+				parents: true,
 				public: false,
 				specifier: tag.clone(),
 			};
