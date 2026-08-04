@@ -208,6 +208,7 @@ tangram_vfs = { path = "packages/vfs" }
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-postgres = { version = "0.7", features = ["runtime", "with-serde_json-1"] }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["aws-lc-rs"] }
 tokio-rustls = "0.26"
 tokio-stream = { version = "0.1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }

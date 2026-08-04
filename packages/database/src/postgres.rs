@@ -1,3 +1,5 @@
+#[cfg(feature = "tls")]
+use rustls_platform_verifier::BuilderVerifierExt as _;
 use {
 	crate::{CacheKey, Connection as _, Error as _, Transaction as _},
 	futures::{Stream, TryStreamExt as _, future, future::BoxFuture},
@@ -146,13 +148,7 @@ impl Database {
 
 impl Connection {
 	pub async fn connect(options: ConnectionOptions) -> Result<Self, Error> {
-		let (client, connection) = postgres::connect(options.url.as_str(), postgres::NoTls).await?;
-		tokio::spawn(async move {
-			connection
-				.await
-				.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
-				.ok();
-		});
+		let client = connect(&options.url).await?;
 		let cache = Cache::default();
 		let connection = Self {
 			options,
@@ -163,14 +159,7 @@ impl Connection {
 	}
 
 	pub async fn reconnect(&mut self) -> Result<(), Error> {
-		let (client, connection) =
-			postgres::connect(self.options.url.as_str(), postgres::NoTls).await?;
-		tokio::spawn(async move {
-			connection
-				.await
-				.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
-				.ok();
-		});
+		let client = connect(&self.options.url).await?;
 		self.client = client;
 		self.cache = Cache::default();
 		Ok(())
@@ -187,6 +176,36 @@ impl Connection {
 	pub fn inner_mut(&mut self) -> &mut postgres::Client {
 		&mut self.client
 	}
+}
+
+async fn connect(url: &Uri) -> Result<postgres::Client, Error> {
+	#[cfg(feature = "tls")]
+	let (client, connection) = {
+		// Create the TLS connector.
+		let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+			rustls::crypto::aws_lc_rs::default_provider(),
+		))
+		.with_safe_default_protocol_versions()
+		.unwrap()
+		.with_platform_verifier()
+		.map_err(Error::other)?
+		.with_no_client_auth();
+		let tls = tokio_postgres_rustls::MakeRustlsConnect::new(config);
+
+		postgres::connect(url.as_str(), tls).await?
+	};
+	#[cfg(not(feature = "tls"))]
+	let (client, connection) = postgres::connect(url.as_str(), postgres::NoTls).await?;
+
+	// Spawn the connection task.
+	tokio::spawn(async move {
+		connection
+			.await
+			.inspect_err(|error| tracing::error!(?error, "postgres connection failed"))
+			.ok();
+	});
+
+	Ok(client)
 }
 
 impl<'a> Transaction<'a> {
