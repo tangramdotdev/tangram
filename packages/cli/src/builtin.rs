@@ -1,4 +1,8 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::path::{Path, PathBuf},
+	tangram_client::prelude::*,
+};
 
 mod archive;
 mod checksum;
@@ -25,8 +29,23 @@ pub enum Command {
 	Extract(extract::Args),
 }
 
+impl Command {
+	fn output(&self) -> Option<PathBuf> {
+		let (named, positional) = match self {
+			Self::Archive(args) => (&args.output_named, &args.output_positional),
+			Self::Checksum(args) => (&args.output_named, &args.output_positional),
+			Self::Compress(args) => (&args.output_named, &args.output_positional),
+			Self::Decompress(args) => (&args.output_named, &args.output_positional),
+			Self::Download(args) => (&args.output_named, &args.output_positional),
+			Self::Extract(args) => (&args.output_named, &args.output_positional),
+		};
+		util::resolve_path(named.clone(), positional.clone())
+	}
+}
+
 impl Cli {
 	pub async fn command_builtin(&mut self, args: Args) -> tg::Result<()> {
+		let output = args.command.output();
 		let result = match args.command {
 			Command::Archive(args) => archive::run(args).await,
 			Command::Checksum(args) => checksum::run(args).await,
@@ -37,17 +56,20 @@ impl Cli {
 		};
 
 		if let Err(error) = &result {
-			Self::write_builtin_error(error).await?;
+			Self::write_builtin_error(output.as_deref(), error).await?;
 		}
 
 		result
 	}
 
-	async fn write_builtin_error(error: &tg::Error) -> tg::Result<()> {
-		// Get the output path.
-		let Some(path) = std::env::var_os("TANGRAM_OUTPUT").map(PathBuf::from) else {
+	async fn write_builtin_error(output: Option<&Path>, error: &tg::Error) -> tg::Result<()> {
+		let path = std::env::var_os("TANGRAM_OUTPUT").map(PathBuf::from);
+		let (Some(path), Some(output)) = (path, output) else {
 			return Ok(());
 		};
+		if path != output {
+			return Ok(());
+		}
 
 		// Get the error data.
 		let Some(data) = error
