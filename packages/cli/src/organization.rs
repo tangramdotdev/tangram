@@ -5,6 +5,7 @@ pub mod create;
 pub mod delete;
 pub mod get;
 pub mod members;
+pub mod usage;
 
 /// Manage organizations.
 #[derive(Clone, Debug, clap::Args)]
@@ -27,6 +28,8 @@ pub enum Command {
 	Get(self::get::Args),
 
 	Members(self::members::Args),
+
+	Usage(self::usage::Args),
 }
 
 impl Cli {
@@ -37,6 +40,7 @@ impl Cli {
 			Command::Delete(args) => self.command_organization_delete(args).await?,
 			Command::Get(args) => self.command_organization_get(args).await?,
 			Command::Members(args) => self.command_organization_members(args).await?,
+			Command::Usage(args) => self.command_organization_usage(args).await?,
 		}
 		Ok(())
 	}

@@ -78,9 +78,13 @@ impl Index {
 
 		match &data.item {
 			tg::Either::Left(id) => {
+				Self::schedule_object_owners_for_cleaning(txn, subspace, id, partition_total)
+					.await?;
 				Self::decrement_object_reference_count(txn, subspace, id, partition_total).await?;
 			},
 			tg::Either::Right(id) => {
+				Self::schedule_process_owners_for_cleaning(txn, subspace, id, partition_total)
+					.await?;
 				Self::decrement_process_reference_count(txn, subspace, id, partition_total).await?;
 			},
 		}

@@ -5,6 +5,85 @@ mod stripe;
 pub(super) use stripe::{CreateCustomerArg, Stripe};
 
 impl Session {
+	pub(crate) async fn storage_owner_for_specifier(
+		&self,
+		specifier: &tg::Specifier,
+	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+		let prefix = specifier
+			.prefixes()
+			.next()
+			.expect("a specifier should have a component");
+		let principal = match self.server.index.try_get_node(&prefix).await? {
+			Some(id) => match id.kind() {
+				tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
+				tg::id::Kind::Organization => Some(tg::Principal::Organization(id.try_into()?)),
+				tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
+				_ => None,
+			},
+			None => None,
+		};
+		if let Some(principal) = principal
+			&& let Some(owner) = self.storage_owner(&principal).await?
+		{
+			return Ok(Some(owner));
+		}
+
+		self.storage_owner(&self.context.principal).await
+	}
+
+	pub(crate) async fn storage_owner(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+		let mut principal = match principal {
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+				let Ok(principal) = self.resolve_remote_context_principal(principal).await else {
+					return Ok(None);
+				};
+				principal
+			},
+			_ => principal.clone(),
+		};
+		loop {
+			match principal {
+				tg::Principal::Group(id) => {
+					let group = self
+						.server
+						.index
+						.try_get_group(&id)
+						.await?
+						.ok_or_else(|| tg::error!(%id, "failed to find the storage owner"))?;
+					let specifier = group
+						.specifier
+						.prefixes()
+						.next()
+						.expect("a specifier should have a component");
+					let id = self
+						.server
+						.index
+						.try_get_node(&specifier)
+						.await?
+						.ok_or_else(|| tg::error!("the group does not have a storage owner"))?;
+					principal = match id.kind() {
+						tg::id::Kind::Organization => tg::Principal::Organization(id.try_into()?),
+						tg::id::Kind::User => tg::Principal::User(id.try_into()?),
+						_ => return Ok(None),
+					};
+				},
+				tg::Principal::Organization(id) => {
+					return Ok(Some(tangram_index::storage::Owner::Organization(id)));
+				},
+				tg::Principal::User(id) => {
+					return Ok(Some(tangram_index::storage::Owner::User(id)));
+				},
+				tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => {
+					return Ok(None);
+				},
+				tg::Principal::Process(_) | tg::Principal::Sandbox(_) => return Ok(None),
+			}
+		}
+	}
+
 	pub(crate) async fn verify_billing(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
 		if self.server.billing.is_none() {
 			return Ok(());

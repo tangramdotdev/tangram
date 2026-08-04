@@ -16,6 +16,13 @@ impl tg::handle::Organization for Session {
 		self.try_get_organization(organization, arg).await
 	}
 
+	async fn try_get_organization_usage(
+		&self,
+		organization: &tg::organization::Selector,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		self.try_get_organization_usage(organization).await
+	}
+
 	async fn try_delete_organization(
 		&self,
 		organization: &tg::organization::Selector,

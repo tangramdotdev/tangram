@@ -54,6 +54,12 @@ pub enum Item {
 	#[tangram_serialize(id = 14)]
 	PutOrganizationMember(crate::organization::member::put::Arg),
 
+	#[tangram_serialize(id = 20)]
+	PutOwnerObject(crate::storage::put::ObjectArg),
+
+	#[tangram_serialize(id = 21)]
+	PutOwnerProcess(crate::storage::put::ProcessArg),
+
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
 
@@ -65,6 +71,12 @@ pub enum Item {
 
 	#[tangram_serialize(id = 19)]
 	PutUser(crate::user::put::Arg),
+
+	#[tangram_serialize(id = 22)]
+	TouchOwnerObject(crate::storage::put::ObjectArg),
+
+	#[tangram_serialize(id = 23)]
+	TouchOwnerProcess(crate::storage::put::ProcessArg),
 }
 
 impl Arg {

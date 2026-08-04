@@ -227,6 +227,24 @@ impl Session {
 			.touch_objects(&touch_ids, touched_at, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
+		if let Some(owner) = self.storage_owner(&self.context.principal).await? {
+			let items = touch_ids
+				.iter()
+				.cloned()
+				.map(|object| {
+					tangram_index::batch::Item::TouchOwnerObject(
+						tangram_index::storage::put::ObjectArg {
+							object,
+							owner: owner.clone(),
+							touched_at,
+						},
+					)
+				})
+				.collect();
+			self.server
+				.index_batch(tangram_index::batch::Arg { items })
+				.await?;
+		}
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			if output.is_none() {
@@ -279,6 +297,24 @@ impl Session {
 			.touch_processes(&touch_ids, touched_at, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
+		if let Some(owner) = self.storage_owner(&self.context.principal).await? {
+			let items = touch_ids
+				.iter()
+				.cloned()
+				.map(|process| {
+					tangram_index::batch::Item::TouchOwnerProcess(
+						tangram_index::storage::put::ProcessArg {
+							owner: owner.clone(),
+							process,
+							touched_at,
+						},
+					)
+				})
+				.collect();
+			self.server
+				.index_batch(tangram_index::batch::Arg { items })
+				.await?;
+		}
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			if output.is_none() {

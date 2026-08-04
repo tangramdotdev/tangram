@@ -79,6 +79,19 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		if let Some(owner) = self.storage_owner(&self.context.principal).await? {
+			self.server
+				.index_batch(tangram_index::batch::Arg {
+					items: vec![tangram_index::batch::Item::TouchOwnerProcess(
+						tangram_index::storage::put::ProcessArg {
+							owner,
+							process: id.clone(),
+							touched_at,
+						},
+					)],
+				})
+				.await?;
+		}
 		Ok(Some(()))
 	}
 

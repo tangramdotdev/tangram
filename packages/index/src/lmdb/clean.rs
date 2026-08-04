@@ -30,6 +30,7 @@ pub(super) struct TransactionArg<'a, 'b> {
 	pub max_sandbox_touched_at: i64,
 	pub now: i64,
 	pub subspace: &'a fdbt::Subspace,
+	pub storage_partition_total: u64,
 	pub transaction: &'a mut lmdb::RwTxn<'b>,
 }
 
@@ -69,14 +70,24 @@ impl Index {
 			max_sandbox_touched_at,
 			now,
 			subspace,
+			storage_partition_total,
 			transaction,
 		} = arg;
 		let grants = Self::delete_expired_grants(db, subspace, transaction, now, batch_size)?;
+		let storage = Self::clean_storage_associations(
+			db,
+			subspace,
+			transaction,
+			batch_size.saturating_sub(grants),
+			max_object_touched_at,
+			max_process_touched_at,
+			storage_partition_total,
+		)?;
 		let mut output = crate::clean::Output {
 			grants,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants);
+		let remaining_batch_size = batch_size.saturating_sub(grants + storage);
 
 		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -183,7 +194,7 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && candidates.is_empty();
+		output.done = grants == 0 && storage == 0 && candidates.is_empty();
 
 		Ok(output)
 	}
@@ -392,8 +403,14 @@ impl Index {
 			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+		let object_owner_prefix = Self::pack(
+			subspace,
+			&(Kind::ObjectOwner.to_i32().unwrap(), id.to_bytes().as_ref()),
+		);
+		let object_owner_count =
+			Self::count_keys_with_prefix(db, transaction, &object_owner_prefix)?;
 
-		Ok(child_object_count + object_process_count + item_tag_count)
+		Ok(child_object_count + item_tag_count + object_owner_count + object_process_count)
 	}
 
 	fn compute_process_reference_count(
@@ -415,8 +432,14 @@ impl Index {
 			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+		let process_owner_prefix = Self::pack(
+			subspace,
+			&(Kind::ProcessOwner.to_i32().unwrap(), id.to_bytes().as_ref()),
+		);
+		let process_owner_count =
+			Self::count_keys_with_prefix(db, transaction, &process_owner_prefix)?;
 
-		Ok(child_process_count + item_tag_count)
+		Ok(child_process_count + item_tag_count + process_owner_count)
 	}
 
 	fn compute_sandbox_reference_count(

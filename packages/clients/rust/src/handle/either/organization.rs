@@ -26,6 +26,16 @@ where
 		}
 	}
 
+	fn try_get_organization_usage(
+		&self,
+		organization: &tg::organization::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_organization_usage(organization).left_future(),
+			tg::Either::Right(s) => s.try_get_organization_usage(organization).right_future(),
+		}
+	}
+
 	fn try_delete_organization(
 		&self,
 		organization: &tg::organization::Selector,

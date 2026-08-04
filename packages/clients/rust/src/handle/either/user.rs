@@ -43,6 +43,16 @@ where
 		}
 	}
 
+	fn try_get_user_usage(
+		&self,
+		user: &tg::user::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_get_user_usage(user).left_future(),
+			tg::Either::Right(s) => s.try_get_user_usage(user).right_future(),
+		}
+	}
+
 	fn manage_user_billing(
 		&self,
 		arg: tg::user::billing::manage::Arg,

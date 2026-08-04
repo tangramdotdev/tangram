@@ -32,6 +32,15 @@ impl Session {
 		self.sync_get_database_update_tag_item_permissions(graph, &items)
 			.await?;
 		let tag_permissions = self.sync_get_database_tag_permissions(graph, &items)?;
+		let mut tag_owners = BTreeMap::new();
+		for item in &items {
+			let tg::sync::PutItemMessage::Tag(message) = item else {
+				continue;
+			};
+			let owner = self.storage_owner_for_specifier(&message.specifier).await?;
+			tag_owners.insert(message.id.clone(), owner);
+		}
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Sort the items so that parents are written before their children.
 		items.sort_by_key(Self::sync_get_database_item_depth);
@@ -43,6 +52,7 @@ impl Session {
 			.run(|transaction| {
 				let items = items.clone();
 				let session = session.clone();
+				let tag_owners = tag_owners.clone();
 				let tag_permissions = tag_permissions.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
@@ -51,6 +61,7 @@ impl Session {
 							.sync_get_database_item_with_transaction(
 								transaction,
 								item,
+								&tag_owners,
 								&tag_permissions,
 								&mut batch,
 							)
@@ -61,6 +72,34 @@ impl Session {
 							)? {
 							batch.items.push(tangram_index::batch::Item::PutGrant(arg));
 						}
+					}
+					for item in &items {
+						let tg::sync::PutItemMessage::Tag(message) = item else {
+							continue;
+						};
+						let Some(owner) = tag_owners.get(&message.id).cloned().flatten() else {
+							continue;
+						};
+						let item = if let Ok(object) = message.item.clone().try_into() {
+							tangram_index::batch::Item::PutOwnerObject(
+								tangram_index::storage::put::ObjectArg {
+									object,
+									owner,
+									touched_at,
+								},
+							)
+						} else if let Ok(process) = message.item.clone().try_into() {
+							tangram_index::batch::Item::PutOwnerProcess(
+								tangram_index::storage::put::ProcessArg {
+									owner,
+									process,
+									touched_at,
+								},
+							)
+						} else {
+							return Err(tg::error!("invalid tag item").into());
+						};
+						batch.items.push(item);
 					}
 					session
 						.server
@@ -235,6 +274,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		item: &tg::sync::PutItemMessage,
+		tag_owners: &BTreeMap<tg::tag::Id, Option<tangram_index::storage::Owner>>,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<bool> {
@@ -385,6 +425,7 @@ impl Session {
 						id: message.id.clone(),
 						item,
 						name: message.name.clone(),
+						owner: tag_owners.get(&message.id).cloned().flatten(),
 						parent: message.parent.clone(),
 						permissions,
 						specifier: message.specifier.clone(),

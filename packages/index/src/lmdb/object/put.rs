@@ -127,6 +127,7 @@ impl Index {
 				crate::lmdb::update::Source::Put,
 				None,
 			)?;
+			Self::enqueue_owned_object_from_parents(db, subspace, transaction, id)?;
 		}
 
 		Ok(())

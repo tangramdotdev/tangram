@@ -116,11 +116,22 @@ impl Session {
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let arg = tangram_index::batch::Arg {
-			items: vec![
-				tangram_index::batch::Item::PutProcess(parent_arg),
-				tangram_index::batch::Item::PutProcess(child_arg),
-			],
+			items: std::iter::once(tangram_index::batch::Item::PutProcess(parent_arg))
+				.chain(std::iter::once(tangram_index::batch::Item::PutProcess(
+					child_arg,
+				)))
+				.chain(owner.map(|owner| {
+					tangram_index::batch::Item::PutOwnerProcess(
+						tangram_index::storage::put::ProcessArg {
+							owner,
+							process: child.clone(),
+							touched_at: now,
+						},
+					)
+				}))
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

@@ -67,9 +67,11 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
 			match &data.item {
 				tg::Either::Left(id) => {
+					Self::schedule_object_owners_for_cleaning(db, subspace, transaction, id)?;
 					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
 				},
 				tg::Either::Right(id) => {
+					Self::schedule_process_owners_for_cleaning(db, subspace, transaction, id)?;
 					Self::decrement_process_reference_count(db, subspace, transaction, id)?;
 				},
 			}

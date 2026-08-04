@@ -148,6 +148,11 @@ impl Index {
 						.await?;
 				crate::read::Response::GetRequesterPrincipals(output)
 			},
+			crate::read::Request::GetOwnerUsage { owner } => {
+				let output =
+					Self::get_owner_usage_with_transaction(transaction, subspace, &owner).await?;
+				crate::read::Response::GetOwnerUsage(output)
+			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output =
 					Self::get_runner_sandboxes_with_transaction(transaction, subspace, &runner)

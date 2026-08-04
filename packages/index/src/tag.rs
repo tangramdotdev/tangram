@@ -12,6 +12,9 @@ pub struct Tag {
 	#[tangram_serialize(id = 1)]
 	pub name: String,
 
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub owner: Option<crate::storage::Owner>,
+
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
 

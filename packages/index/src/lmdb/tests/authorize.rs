@@ -158,6 +158,7 @@ fn new_index() -> (tempfile::TempDir, Index) {
 		path: dir.path().join("index"),
 		read_batch_size: 64,
 		read_concurrency: 4,
+		storage_partition_total: 1,
 		write_batch_size: 100_000,
 	})
 	.unwrap();
@@ -880,6 +881,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 				id: parent_tag.clone(),
 				item: tg::Either::Left(object.clone()),
 				name: "parent".into(),
+				owner: None,
 				parent: None,
 				permissions: Vec::new(),
 				specifier: "parent".parse().unwrap(),
@@ -888,6 +890,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 				id: child_tag,
 				item: tg::Either::Left(object.clone()),
 				name: "child".into(),
+				owner: None,
 				parent: Some(parent_tag.clone().into()),
 				permissions: vec![object_permission(
 					tg::grant::permission::object::Permission::Node,
