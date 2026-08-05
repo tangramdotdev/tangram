@@ -545,23 +545,6 @@ impl Cli {
 			));
 		}
 
-		// Handle the executable path.
-		let reference = if let Some(path) = &executable_path {
-			let mut options = reference.options().clone();
-			if let Some(reference_get) = &mut options.get {
-				*reference_get = reference_get.join(path);
-			} else {
-				options.get = Some(path.clone());
-			}
-			tg::Reference::new(
-				reference.item().clone(),
-				options,
-				reference.export().map(ToOwned::to_owned),
-			)
-		} else {
-			reference
-		};
-
 		// Get the reference.
 		let arg = tg::resolve::Arg {
 			checkin: options.checkin.to_options(),
@@ -574,6 +557,10 @@ impl Cli {
 		let mut command_env = None;
 		let mut command_options = None;
 		let mut command = match referent.item.clone() {
+			tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
+				return Err(tg::error!("expected an artifact for the executable path"));
+			},
+
 			tg::graph::Edge::Object(tg::Object::Command(command)) => {
 				let object = command.object_with_handle(&client).await?;
 				command_env = Some(object.env.clone());
@@ -598,82 +585,42 @@ impl Cli {
 						return Err(tg::error!("expected a command or an artifact"));
 					},
 				};
-				match artifact {
-					tg::Artifact::Directory(directory) => {
-						let root_module_file_name =
-							tg::module::try_get_root_module_file_name_with_handle(
-								&client,
-								tg::Either::Left(&directory),
-							)
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to get the root module name")
-							})?
-							.ok_or_else(
-								|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-							)?;
-						if let Some(path) = &mut referent.options.path {
-							*path = path.join(root_module_file_name);
-						} else {
-							referent.options.path.replace(root_module_file_name.into());
-						}
-						let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
-						let item = directory
-							.get_entry_edge_with_handle(&client, root_module_file_name)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
-						let item = tg::module::Item::Edge(item.into());
-						command_options = Some(referent.options.clone());
-						let mut referent = referent.clone().map(|_| item);
-						referent.options.id.take();
-						referent.options.name.take();
-						referent.options.path.take();
-						referent.options.tag.take();
-						let module = tg::Module { kind, referent };
-						let export = reference.export().unwrap_or("default").to_owned();
-						let host = tg::host::current().to_owned();
-						let args = vec![
-							"js".into(),
-							"--export".into(),
-							export.into(),
-							"--host".into(),
-							host.clone().into(),
-							tg::command::Value::Value(module.into()),
-						];
-						let executable = tg::command::Executable {
-							artifact: None,
-							path: Some("tg".into()),
-						};
-						tg::Command::builder()
-							.args(args)
-							.host(host.clone())
-							.executable(executable)
-					},
 
-					tg::Artifact::File(file) => {
-						let kind = referent.path().and_then(|path| {
-							tg::module::module_kind_for_path(path).ok().or_else(|| {
-								if let Ok(Some(xattr)) =
-									xattr::get(path, tg::file::MODULE_XATTR_NAME)
-									&& let Some(kind) = String::from_utf8(xattr)
-										.ok()
-										.and_then(|s| s.parse::<tg::module::Kind>().ok())
-								{
-									Some(kind)
-								} else {
-									None
-								}
-							})
-						});
-						let kind = if kind.is_some() {
-							kind
-						} else {
-							file.module_with_handle(&client).await.map_err(|error| {
-								tg::error!(!error, "failed to get the module kind")
-							})?
-						};
-						if let Some(kind) = kind {
-							let item = tg::module::Item::Edge(item);
+				if let Some(path) = executable_path {
+					let executable = tg::command::Executable {
+						artifact: Some(artifact),
+						path: Some(path),
+					};
+					tg::Command::builder().executable(executable)
+				} else {
+					match artifact {
+						tg::Artifact::Directory(directory) => {
+							let root_module_file_name =
+								tg::module::try_get_root_module_file_name_with_handle(
+									&client,
+									tg::Either::Left(&directory),
+								)
+								.await
+								.map_err(|error| {
+									tg::error!(!error, "failed to get the root module name")
+								})?
+								.ok_or_else(
+									|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+								)?;
+							if let Some(path) = &mut referent.options.path {
+								*path = path.join(root_module_file_name);
+							} else {
+								referent.options.path.replace(root_module_file_name.into());
+							}
+							let kind =
+								tg::module::module_kind_for_path(root_module_file_name).unwrap();
+							let item = directory
+								.get_entry_edge_with_handle(&client, root_module_file_name)
+								.await
+								.map_err(|error| {
+									tg::error!(!error, "failed to get the root module")
+								})?;
+							let item = tg::module::Item::Edge(item.into());
 							command_options = Some(referent.options.clone());
 							let mut referent = referent.clone().map(|_| item);
 							referent.options.id.take();
@@ -699,18 +646,70 @@ impl Cli {
 								.args(args)
 								.host(host.clone())
 								.executable(executable)
-						} else {
-							let executable = tg::command::Executable {
-								artifact: Some(file.clone().into()),
-								path: None,
-							};
-							tg::Command::builder().executable(executable)
-						}
-					},
+						},
 
-					tg::Artifact::Symlink(_) => {
-						return Err(tg::error!("unimplemented"));
-					},
+						tg::Artifact::File(file) => {
+							let kind = referent.path().and_then(|path| {
+								tg::module::module_kind_for_path(path).ok().or_else(|| {
+									if let Ok(Some(xattr)) =
+										xattr::get(path, tg::file::MODULE_XATTR_NAME)
+										&& let Some(kind) = String::from_utf8(xattr)
+											.ok()
+											.and_then(|s| s.parse::<tg::module::Kind>().ok())
+									{
+										Some(kind)
+									} else {
+										None
+									}
+								})
+							});
+							let kind = if kind.is_some() {
+								kind
+							} else {
+								file.module_with_handle(&client).await.map_err(|error| {
+									tg::error!(!error, "failed to get the module kind")
+								})?
+							};
+							if let Some(kind) = kind {
+								let item = tg::module::Item::Edge(item);
+								command_options = Some(referent.options.clone());
+								let mut referent = referent.clone().map(|_| item);
+								referent.options.id.take();
+								referent.options.name.take();
+								referent.options.path.take();
+								referent.options.tag.take();
+								let module = tg::Module { kind, referent };
+								let export = reference.export().unwrap_or("default").to_owned();
+								let host = tg::host::current().to_owned();
+								let args = vec![
+									"js".into(),
+									"--export".into(),
+									export.into(),
+									"--host".into(),
+									host.clone().into(),
+									tg::command::Value::Value(module.into()),
+								];
+								let executable = tg::command::Executable {
+									artifact: None,
+									path: Some("tg".into()),
+								};
+								tg::Command::builder()
+									.args(args)
+									.host(host.clone())
+									.executable(executable)
+							} else {
+								let executable = tg::command::Executable {
+									artifact: Some(file.clone().into()),
+									path: None,
+								};
+								tg::Command::builder().executable(executable)
+							}
+						},
+
+						tg::Artifact::Symlink(_) => {
+							return Err(tg::error!("unimplemented"));
+						},
+					}
 				}
 			},
 		};
