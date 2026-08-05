@@ -870,7 +870,7 @@ impl Session {
 			.collect())
 	}
 
-	async fn resolve_principal_with_transaction(
+	pub(crate) async fn resolve_principal_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		principal: &tg::principal::Selector,
 	) -> tg::Result<Option<tg::grant::Principal>> {

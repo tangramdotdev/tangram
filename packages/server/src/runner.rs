@@ -10,6 +10,7 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 };
 
@@ -18,6 +19,10 @@ pub(crate) mod process;
 pub(crate) mod sandbox;
 
 pub mod control;
+pub mod create;
+pub mod delete;
+pub mod list;
+pub mod token;
 
 type RunnerSender =
 	crate::control::Sender<tg::runner::control::ServerMessage, tg::runner::control::ClientMessage>;
@@ -80,6 +85,104 @@ impl Runner {
 }
 
 impl Session {
+	pub(crate) async fn authorize_runner_owner(&self, owner: Option<&tg::Id>) -> tg::Result<()> {
+		let Some(owner) = owner else {
+			if matches!(self.context.principal, tg::Principal::Root) {
+				return Ok(());
+			}
+			return Err(tg::error!("unauthorized"));
+		};
+		let permission = Self::admin_permission_for_resource(owner)?;
+		let authorized = self
+			.authorize(owner.clone(), permission)
+			.await?
+			.is_some_and(|permissions| permissions.contains(permission));
+		if !authorized {
+			return Err(tg::error!("unauthorized"));
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn resolve_runner_owner(
+		&self,
+		owner: &tg::principal::Selector,
+	) -> tg::Result<tg::Principal> {
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let owner = Self::resolve_principal_with_transaction(&transaction, owner)
+			.await?
+			.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
+		let owner = match owner {
+			tg::grant::Principal::Group(id) => tg::Principal::Group(id),
+			tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
+			tg::grant::Principal::User(id) => tg::Principal::User(id),
+			_ => return Err(tg::error!("invalid runner owner")),
+		};
+
+		Ok(owner)
+	}
+
+	pub(crate) async fn try_get_runner_data(
+		&self,
+		runner: &tg::runner::Id,
+	) -> tg::Result<Option<tg::runner::Data>> {
+		use tangram_database::prelude::*;
+
+		#[derive(tangram_database::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+
+			#[tangram_database(as = "Option<tangram_database::value::FromStr>")]
+			owner: Option<tg::Id>,
+		}
+
+		let connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = format!("select created_at, owner from runners where id = {p}1;");
+		let row = connection
+			.query_optional_into::<Row>(
+				statement.into(),
+				tangram_database::params![runner.to_string()],
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let data = row
+			.map(|row| {
+				let owner = row.owner.map(Self::runner_owner_from_id).transpose()?;
+				Ok::<_, tg::Error>(tg::runner::Data {
+					created_at: row.created_at,
+					id: runner.clone(),
+					owner,
+				})
+			})
+			.transpose()?;
+
+		Ok(data)
+	}
+
+	pub(crate) fn runner_owner_from_id(owner: tg::Id) -> tg::Result<tg::Principal> {
+		match owner.kind() {
+			tg::id::Kind::Group => Ok(tg::Principal::Group(owner.try_into()?)),
+			tg::id::Kind::Organization => Ok(tg::Principal::Organization(owner.try_into()?)),
+			tg::id::Kind::User => Ok(tg::Principal::User(owner.try_into()?)),
+			_ => Err(tg::error!("invalid runner owner")),
+		}
+	}
+
 	pub(crate) async fn runner_task(&self, id: tg::runner::Id, stopper: Stopper) {
 		self.server
 			.runner

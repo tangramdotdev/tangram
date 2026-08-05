@@ -56,6 +56,7 @@ mod remote;
 #[cfg(feature = "js")]
 mod repl;
 mod resolve;
+mod runner;
 mod sandbox;
 mod server;
 mod shell;
@@ -360,6 +361,8 @@ enum Command {
 
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
+
+	Runner(self::runner::Args),
 
 	#[command(alias = "sbx")]
 	Sandbox(self::sandbox::Args),
@@ -685,6 +688,7 @@ impl Cli {
 			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
 			Command::Run(args) => self.command_run(args).boxed_local(),
+			Command::Runner(args) => self.command_runner(args).boxed_local(),
 			Command::Sandbox(args) => self.command_sandbox(args).boxed_local(),
 			Command::Self_(args) => self.command_tangram(args).boxed_local(),
 			Command::Shell(args) => self.command_shell(args).boxed_local(),

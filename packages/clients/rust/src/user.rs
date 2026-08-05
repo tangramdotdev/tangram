@@ -6,5 +6,6 @@ pub mod id;
 pub mod login;
 pub mod logout;
 pub mod selector;
+pub mod token;
 
 pub use self::{data::Data, get::Output as User, id::Id, selector::Selector};

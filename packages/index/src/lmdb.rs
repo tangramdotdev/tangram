@@ -9,6 +9,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod ancestor;
 mod authorize;
 mod batch;
 mod cache;
@@ -259,6 +260,10 @@ impl crate::Index for Index {
 
 	async fn batch(&self, arg: crate::batch::Arg) -> tg::Result<()> {
 		self.batch(arg).await
+	}
+
+	async fn try_get_ancestors(&self, id: &tg::Id) -> tg::Result<Option<Vec<tg::Id>>> {
+		self.try_get_ancestors(id).await
 	}
 
 	async fn try_get_cache_entries(

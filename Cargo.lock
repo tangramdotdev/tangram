@@ -8263,6 +8263,7 @@ dependencies = [
  "async-channel",
  "async-nats",
  "aws-lc-rs",
+ "blake3",
  "bytes",
  "crossterm",
  "dashmap",

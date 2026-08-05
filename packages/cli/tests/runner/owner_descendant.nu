@@ -1,0 +1,54 @@
+use ../../test.nu *
+
+# A runner can run sandboxes owned by descendants of its owner but not unrelated principals.
+
+let remote = spawn --cloud --name remote --config {
+	advanced: { single_process: false },
+	authentication: { users: { providers: { insecure: true } } },
+	roles: [cleaner finalizer http indexer scheduler],
+}
+
+let alice = tg --url $remote.url login --verbose alice | from json
+let bob = tg --url $remote.url login --verbose bob | from json
+tg --url $remote.url --token $alice.token organization create tangram
+tg --url $remote.url --token $alice.token group create tangram/engineering
+let created = tg --url $remote.url --token $alice.token runner create --owner tangram | from json
+
+let organization_runner = spawn --name runner --config {
+	advanced: { checkpoints: true },
+	remotes: { default: { token: $created.token.token, url: $remote.url } },
+	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+}
+
+let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
+let output = tg --url $remote.url --token $alice.token build --owner tangram/engineering $path | complete
+success $output "the organization runner should run a sandbox owned by a descendant group"
+
+def build_background [url: string, token: string, owner: string, path: path] {
+	job spawn {
+		let job_id = job id
+		let output = tg --url $url --token $token build --owner $owner $path | complete
+		$output | job send --tag $job_id 0
+	}
+}
+
+let unrelated_path = artifact { tangram.ts: 'export default () => tg.file("unrelated")' }
+let start_watch = (
+	tg --url $organization_runner.url checkpoint watch runner.process.start
+	| from json
+	| get watch
+)
+let build = build_background $remote.url $bob.token $bob.user.id $unrelated_path
+let output = timeout 1s tg --url $organization_runner.url checkpoint wait runner.process.start $start_watch 0 | complete
+failure $output "the organization runner should not start an unrelated user's process"
+
+let created = tg --url $remote.url --token $bob.token runner create --owner $bob.user.id | from json
+let user_runner = spawn --name bob_runner --config {
+	remotes: { default: { token: $created.token.token, url: $remote.url } },
+	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+}
+let output = job recv --tag $build --timeout 10sec
+if $output == null {
+	error make { msg: "the build did not complete after an eligible runner connected" }
+}
+success $output "the user runner should run its owner's sandbox"

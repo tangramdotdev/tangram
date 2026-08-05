@@ -26,6 +26,7 @@ pub(super) struct Runner {
 	pub heartbeat_at: tokio::time::Instant,
 	pub heartbeat_index: u64,
 	pub host: String,
+	pub owner: Option<tg::Id>,
 	pub ready: bool,
 	pub requests: usize,
 	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
@@ -91,6 +92,7 @@ impl State {
 			heartbeat_at: tokio::time::Instant::now(),
 			heartbeat_index: 0,
 			host: request.host.clone(),
+			owner: None,
 			ready: false,
 			requests: 0,
 			reservations: HashMap::default(),
@@ -155,14 +157,35 @@ impl Scheduler {
 		&self,
 		connection_index: u64,
 		request: AddRunnerRequestArg,
-	) -> tg::Result<AddRunnerResponseOutput> {
+	) -> tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)> {
+		let runner = self
+			.server
+			.session(&self.server.context)
+			.try_get_runner_data(&request.runner)
+			.await?;
+		let owner = match runner {
+			Some(runner) => runner.owner.and_then(|owner| owner.to_id()),
+			None if self
+				.server
+				.config
+				.roles
+				.contains(&crate::config::Role::Runner)
+				&& self.server.config.runner.id.is_none()
+				&& self.server.runner.state().id().as_ref() == Some(&request.runner) =>
+			{
+				None
+			},
+			None => {
+				return Err(tg::error!(runner = %request.runner, "failed to find the runner"));
+			},
+		};
 		let output = AddRunnerResponseOutput {
 			connection_index,
 			runner: request.runner,
 			scheduler: self.id.clone(),
 		};
 
-		Ok(output)
+		Ok((output, owner))
 	}
 
 	async fn remove_runner(

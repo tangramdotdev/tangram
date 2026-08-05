@@ -35,6 +35,7 @@ pub enum Kind {
 	Group,
 	Organization,
 	Tag,
+	Token,
 	Runner,
 	Scheduler,
 }
@@ -110,6 +111,7 @@ impl Id {
 			Kind::Tag => 12,
 			Kind::Runner => 13,
 			Kind::Scheduler => 14,
+			Kind::Token => 15,
 		};
 		writer
 			.write_u8(kind)
@@ -166,6 +168,7 @@ impl Id {
 			12 => Kind::Tag,
 			13 => Kind::Runner,
 			14 => Kind::Scheduler,
+			15 => Kind::Token,
 			_ => {
 				return Err(tg::error!(%kind, "invalid kind"));
 			},
@@ -324,6 +327,7 @@ impl std::fmt::Display for Kind {
 			Self::Tag => "tag",
 			Self::Runner => "rnr",
 			Self::Scheduler => "sch",
+			Self::Token => "tok",
 		};
 		write!(f, "{kind}")?;
 		Ok(())
@@ -350,6 +354,7 @@ impl std::str::FromStr for Kind {
 			"tag" => Self::Tag,
 			"rnr" | "runner" => Self::Runner,
 			"sch" | "scheduler" => Self::Scheduler,
+			"tok" | "token" => Self::Token,
 			_ => {
 				return Err(tg::error!(%s, "invalid kind"));
 			},

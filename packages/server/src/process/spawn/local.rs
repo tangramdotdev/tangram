@@ -256,7 +256,7 @@ impl Session {
 		cacheable: bool,
 		host: &str,
 	) -> tg::Result<Output> {
-		let owner = match &arg.sandbox {
+		let requested_owner = match &arg.sandbox {
 			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
 			Some(tg::Either::Right(sandbox)) => {
 				self.try_get_sandbox(
@@ -273,14 +273,34 @@ impl Session {
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
-		let owner = if owner.is_some() {
-			owner
-		} else if let Some(parent_sandbox) = parent_sandbox {
-			self.server
-				.runner
-				.state()
-				.try_get_sandbox(parent_sandbox)
-				.and_then(|sandbox| sandbox.owner)
+		let owner = if let Some(parent_sandbox) = parent_sandbox {
+			let parent = self.server.runner.state().try_get_sandbox(parent_sandbox);
+			let parent = match parent {
+				Some(parent) => parent,
+				None => self
+					.try_get_sandbox_from_index(parent_sandbox)
+					.await?
+					.and_then(|sandbox| sandbox.data)
+					.ok_or_else(
+						|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"),
+					)?,
+			};
+			let parent_owner = parent.owner;
+			let owners_match = requested_owner
+				.as_ref()
+				.filter(|owner| !matches!(owner, tg::Principal::Root))
+				== parent_owner
+					.as_ref()
+					.filter(|owner| !matches!(owner, tg::Principal::Root));
+			if requested_owner.is_some() && !owners_match {
+				return Err(tg::error!(
+					%parent_sandbox,
+					"the child sandbox owner must match the parent sandbox owner"
+				));
+			}
+			parent_owner
+		} else if requested_owner.is_some() {
+			requested_owner
 		} else if matches!(
 			self.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root

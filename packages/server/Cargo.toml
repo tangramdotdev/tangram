@@ -44,6 +44,7 @@ async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-nats = { workspace = true, optional = true }
 aws-lc-rs = { workspace = true }
+blake3 = { workspace = true }
 bytes = { workspace = true }
 crossterm = { workspace = true }
 dashmap = { workspace = true }

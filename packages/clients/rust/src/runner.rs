@@ -1,8 +1,13 @@
 mod id;
 
-pub use self::id::Id;
+pub use self::{data::Data, id::Id};
 
 pub mod control;
+pub mod create;
+pub mod data;
+pub mod delete;
+pub mod list;
+pub mod token;
 
 #[derive(
 	Clone,

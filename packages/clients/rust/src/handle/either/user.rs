@@ -5,6 +5,37 @@ where
 	L: tg::handle::User,
 	R: tg::handle::User,
 {
+	fn create_user_token(
+		&self,
+		arg: tg::user::token::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::token::create::Output>> {
+		match self {
+			tg::Either::Left(s) => s.create_user_token(arg).left_future(),
+			tg::Either::Right(s) => s.create_user_token(arg).right_future(),
+		}
+	}
+
+	fn try_delete_user_token(
+		&self,
+		token: &tg::token::Id,
+		arg: tg::user::token::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		match self {
+			tg::Either::Left(s) => s.try_delete_user_token(token, arg).left_future(),
+			tg::Either::Right(s) => s.try_delete_user_token(token, arg).right_future(),
+		}
+	}
+
+	fn list_user_tokens(
+		&self,
+		arg: tg::user::token::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::token::list::Output>> {
+		match self {
+			tg::Either::Left(s) => s.list_user_tokens(arg).left_future(),
+			tg::Either::Right(s) => s.list_user_tokens(arg).right_future(),
+		}
+	}
+
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
