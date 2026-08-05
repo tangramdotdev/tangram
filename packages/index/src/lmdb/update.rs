@@ -236,8 +236,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-			.ok_or_else(|| tg::error!(%id, "object not found"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let Some(bytes) = bytes else {
+			return Ok(false);
+		};
 		let mut object = crate::object::Object::deserialize(bytes)?;
 
 		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
@@ -703,8 +705,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-			.ok_or_else(|| tg::error!(%id, "process not found"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let Some(bytes) = bytes else {
+			return Ok(false);
+		};
 		let process = crate::process::Process::deserialize(bytes)?;
 		let resource = tg::Id::from(id.clone());
 		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
@@ -788,8 +792,14 @@ impl Index {
 		let process_key = Self::pack(subspace, &process_key);
 		let bytes = db
 			.get(transaction, &process_key)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-			.ok_or_else(|| tg::error!(%id, "process not found"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let Some(bytes) = bytes else {
+			let output = ProcessOutput {
+				changed: false,
+				depth_exceeded: false,
+			};
+			return Ok(output);
+		};
 		let mut process = crate::process::Process::deserialize(bytes)?;
 
 		let children = Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
