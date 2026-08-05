@@ -316,7 +316,7 @@ impl Cli {
 		}
 
 		// Handle non-zero exit.
-		if wait.exit > 1 && wait.exit < 128 {
+		if wait.exit >= 1 && wait.exit < 128 {
 			return Err(tg::error!("the process exited with code {}", wait.exit));
 		}
 		if wait.exit >= 128 {
