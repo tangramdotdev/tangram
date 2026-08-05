@@ -231,6 +231,12 @@ impl Session {
 				.unwrap()
 				.get_object_local_authorization(&item.id, node);
 			if !authorization.permissions.contains(node) {
+				tracing::trace!(
+					id = %item.id,
+					principal = ?self.context.principal,
+					permissions = ?authorization.permissions,
+					"authorization denied"
+				);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
 				});
@@ -351,6 +357,12 @@ impl Session {
 				.unwrap()
 				.get_process_local_authorization(&item.id, node);
 			if !authorization.permissions.contains(node) {
+				tracing::trace!(
+					id = %item.id,
+					principal = ?self.context.principal,
+					permissions = ?authorization.permissions,
+					"authorization denied"
+				);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.into(),
 				});
