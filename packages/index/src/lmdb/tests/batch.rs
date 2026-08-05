@@ -1,25 +1,8 @@
 use {
-	super::super::{Config, Index},
+	super::{super::Index, new_index},
 	std::str::FromStr as _,
 	tangram_client::prelude::*,
 };
-
-fn new_index() -> (tempfile::TempDir, Index) {
-	let dir = tempfile::TempDir::new().unwrap();
-	let index = Index::new(&Config {
-		authorize: super::super::AuthorizeConfig {
-			object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
-		},
-		map_size: 1 << 30,
-		max_process_depth: None,
-		path: dir.path().join("index"),
-		read_batch_size: 64,
-		read_concurrency: 4,
-		write_batch_size: 1,
-	})
-	.unwrap();
-	(dir, index)
-}
 
 fn try_get_group(index: &Index, id: &tg::group::Id) -> Option<crate::group::Group> {
 	let transaction = index.env.read_txn().unwrap();

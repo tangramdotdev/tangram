@@ -10,6 +10,7 @@ use {
 		fmt::Display,
 		ops::ControlFlow,
 		pin::pin,
+		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -33,7 +34,10 @@ struct Scheduler {
 
 struct State {
 	operations: Operations,
+	owner_ancestor_requests: HashMap<tg::Id, Vec<tg::sandbox::Id>, tg::id::BuildHasher>,
+	owner_ancestors: HashMap<tg::Id, OwnerAncestors, tg::id::BuildHasher>,
 	parents: sandbox::Parents,
+	pending_enqueues: HashMap<tg::sandbox::Id, PendingEnqueue, tg::id::BuildHasher>,
 	queue: sandbox::Queue,
 	requests: Requests,
 	runners: runner::Runners,
@@ -43,6 +47,12 @@ struct State {
 type Operations = FuturesUnordered<BoxFuture<'static, Operation>>;
 type MessageStream =
 	BoxStream<'static, Result<tangram_messenger::Message<Message>, tangram_messenger::Error>>;
+type OwnerAncestors = Arc<HashSet<tg::Id, tg::id::BuildHasher>>;
+
+struct PendingEnqueue {
+	ids: Vec<String>,
+	request: EnqueueSandboxRequestArg,
+}
 
 struct Requests {
 	inbox: HashSet<String>,
@@ -57,12 +67,16 @@ enum Operation {
 	AddRunner {
 		connection_index: u64,
 		id: String,
-		result: tg::Result<AddRunnerResponseOutput>,
+		result: tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)>,
 		runner: tg::runner::Id,
 	},
 	CreateSandbox(sandbox::Completion),
 	ExpireRequest {
 		id: String,
+	},
+	LoadOwnerAncestors {
+		owner: tg::Id,
+		result: tg::Result<Vec<tg::Id>>,
 	},
 	Publish {
 		context: &'static str,
@@ -775,10 +789,7 @@ impl Scheduler {
 				}
 			},
 			RequestArg::EnqueueSandbox(request) => {
-				let result = state.enqueue_sandbox(self, request);
-				let result = result.map(ResponseOutput::EnqueueSandbox);
-				let response = self.response(id, result);
-				self.send_response(state, response);
+				state.handle_enqueue_sandbox_request(self, id, request);
 			},
 			RequestArg::RemoveRunner(request) => {
 				state.handle_remove_runner_request(self, Some(id), request);
@@ -805,10 +816,21 @@ impl Scheduler {
 					.entries
 					.get(&runner)
 					.is_some_and(|runner| runner.connection_index == connection_index);
-				if current && result.is_err() {
-					let completions = state.remove_runner(&runner);
-					self.send_dequeue_sandbox_completions(state, completions);
-				}
+				let result = match result {
+					Ok((output, owner)) => {
+						if current {
+							state.runners.entries.get_mut(&runner).unwrap().owner = owner;
+						}
+						Ok(output)
+					},
+					Err(error) => {
+						if current {
+							let completions = state.remove_runner(&runner);
+							self.send_dequeue_sandbox_completions(state, completions);
+						}
+						Err(error)
+					},
+				};
 				let result = result.map(ResponseOutput::AddRunner);
 				let response = self.response(id, result);
 				self.send_response(state, response);
@@ -822,6 +844,9 @@ impl Scheduler {
 			},
 			Operation::ExpireRequest { id } => {
 				state.requests.inbox.remove(&id);
+			},
+			Operation::LoadOwnerAncestors { owner, result } => {
+				state.handle_load_owner_ancestors_completion(self, owner, result);
 			},
 			Operation::Publish { context, result } => {
 				if let Err(error) = result {

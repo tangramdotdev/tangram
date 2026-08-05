@@ -72,6 +72,7 @@ mod specifier;
 mod sync;
 mod tag;
 mod temp;
+mod token;
 mod user;
 mod vfs;
 mod watch;

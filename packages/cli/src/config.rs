@@ -191,10 +191,20 @@ pub struct Advanced {
 #[serde(deny_unknown_fields)]
 pub struct Authentication {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub root: Option<RootAuthentication>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<AuthenticationTokens>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub users: Option<BoolOr<UserAuthentication>>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RootAuthentication {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
 #[serde_as]
@@ -1896,6 +1906,9 @@ fn resolve_advanced(source: Advanced) -> server::Advanced {
 
 fn resolve_authentication(source: Authentication) -> tg::Result<server::Authentication> {
 	let mut target = server::Authentication::default();
+	if let Some(source) = source.root {
+		target.root = resolve_root_authentication(source);
+	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_authentication_tokens(source)?;
 	}
@@ -1904,6 +1917,12 @@ fn resolve_authentication(source: Authentication) -> tg::Result<server::Authenti
 	}
 
 	Ok(target)
+}
+
+fn resolve_root_authentication(source: RootAuthentication) -> server::RootAuthentication {
+	server::RootAuthentication {
+		token: source.token,
+	}
 }
 
 fn resolve_authentication_tokens(

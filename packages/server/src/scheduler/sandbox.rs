@@ -2,12 +2,17 @@ use {
 	super::{
 		BorrowableCapacityNotification, Config, DequeueSandboxRequestArg,
 		DequeueSandboxResponseOutput, EnqueueSandboxRequestArg, EnqueueSandboxResponseOutput,
-		HeartbeatNotification, Operation, Scheduler, State,
+		HeartbeatNotification, Operation, OwnerAncestors, PendingEnqueue, ResponseOutput,
+		Scheduler, State,
 		runner::{Reservation, ReservationSource, ReservationState, Runner},
 	},
 	futures::FutureExt as _,
-	std::collections::HashMap,
+	std::{
+		collections::{HashMap, HashSet},
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 };
 
 pub(super) struct Parents(HashMap<tg::sandbox::Id, Parent, tg::id::BuildHasher>);
@@ -23,6 +28,7 @@ pub(super) struct Queue {
 pub(super) struct Sandboxes {
 	attempts: usize,
 	entries: HashMap<tg::sandbox::Id, Sandbox, tg::id::BuildHasher>,
+	loading: usize,
 }
 
 struct Parent {
@@ -46,6 +52,7 @@ struct Sandbox {
 	blocked: HashMap<tg::runner::Id, Block, tg::id::BuildHasher>,
 	capacity: tg::runner::Capacity,
 	dequeue_requests: Vec<String>,
+	owner_ancestors: OwnerAncestors,
 	request: EnqueueSandboxRequestArg,
 	state: SandboxState,
 }
@@ -196,6 +203,7 @@ impl Sandboxes {
 		Self {
 			attempts: 0,
 			entries: HashMap::default(),
+			loading: 0,
 		}
 	}
 }
@@ -204,7 +212,10 @@ impl State {
 	pub(super) fn new() -> Self {
 		Self {
 			operations: futures::stream::FuturesUnordered::new(),
+			owner_ancestor_requests: HashMap::default(),
+			owner_ancestors: HashMap::default(),
 			parents: Parents::new(),
+			pending_enqueues: HashMap::default(),
 			queue: Queue::new(),
 			requests: super::Requests {
 				inbox: std::collections::HashSet::new(),
@@ -220,16 +231,122 @@ impl State {
 			&& self.queue.remaining > 0
 	}
 
-	pub(super) fn enqueue_sandbox(
+	pub(super) fn handle_enqueue_sandbox_request(
+		&mut self,
+		scheduler: &Scheduler,
+		id: String,
+		request: EnqueueSandboxRequestArg,
+	) {
+		if self.sandboxes.entries.contains_key(&request.sandbox) {
+			let output = EnqueueSandboxResponseOutput { enqueued: true };
+			let response = scheduler.response(id, Ok(ResponseOutput::EnqueueSandbox(output)));
+			scheduler.send_response(self, response);
+			return;
+		}
+		if let Some(pending) = self.pending_enqueues.get_mut(&request.sandbox) {
+			pending.ids.push(id);
+			return;
+		}
+		if self.queue.len() + self.sandboxes.loading
+			>= scheduler.config.create_sandbox_queue_capacity
+		{
+			let output = EnqueueSandboxResponseOutput { enqueued: false };
+			let response = scheduler.response(id, Ok(ResponseOutput::EnqueueSandbox(output)));
+			scheduler.send_response(self, response);
+			return;
+		}
+		let owner = request.arg.owner.as_ref().and_then(tg::Principal::to_id);
+		let Some(owner) = owner else {
+			let ancestors = Arc::new(HashSet::default());
+			let result = self.enqueue_sandbox(scheduler, request, ancestors);
+			let result = result.map(ResponseOutput::EnqueueSandbox);
+			let response = scheduler.response(id, result);
+			scheduler.send_response(self, response);
+			return;
+		};
+		if let Some(ancestors) = self.owner_ancestors.get(&owner).cloned() {
+			let result = self.enqueue_sandbox(scheduler, request, ancestors);
+			let result = result.map(ResponseOutput::EnqueueSandbox);
+			let response = scheduler.response(id, result);
+			scheduler.send_response(self, response);
+			return;
+		}
+		self.sandboxes.loading += 1;
+		let sandbox = request.sandbox.clone();
+		let pending = PendingEnqueue {
+			ids: vec![id],
+			request,
+		};
+		self.pending_enqueues.insert(sandbox.clone(), pending);
+		let requests = self
+			.owner_ancestor_requests
+			.entry(owner.clone())
+			.or_default();
+		requests.push(sandbox);
+		if requests.len() > 1 {
+			return;
+		}
+		let server = scheduler.server.clone();
+		let owner_for_operation = owner.clone();
+		self.operations.push(
+			async move {
+				let result = server
+					.index
+					.try_get_ancestors(&owner_for_operation)
+					.await
+					.and_then(|ancestors| {
+						ancestors.ok_or_else(
+							|| tg::error!(owner = %owner_for_operation, "failed to find the owner"),
+						)
+					});
+				Operation::LoadOwnerAncestors { owner, result }
+			}
+			.boxed(),
+		);
+	}
+
+	pub(super) fn handle_load_owner_ancestors_completion(
+		&mut self,
+		scheduler: &Scheduler,
+		owner: tg::Id,
+		result: tg::Result<Vec<tg::Id>>,
+	) {
+		let sandboxes = self
+			.owner_ancestor_requests
+			.remove(&owner)
+			.unwrap_or_default();
+		let result: tg::Result<OwnerAncestors> =
+			result.map(|ancestors| Arc::new(ancestors.into_iter().collect()));
+		if let Ok(ancestors) = &result {
+			self.owner_ancestors.insert(owner, ancestors.clone());
+		}
+		for sandbox in sandboxes {
+			let Some(pending) = self.pending_enqueues.remove(&sandbox) else {
+				continue;
+			};
+			self.sandboxes.loading = self.sandboxes.loading.saturating_sub(1);
+			let result = match &result {
+				Ok(ancestors) => {
+					self.enqueue_sandbox(scheduler, pending.request, ancestors.clone())
+				},
+				Err(error) => Err(error.clone()),
+			};
+			let result = result.map(ResponseOutput::EnqueueSandbox);
+			for id in pending.ids {
+				let response = scheduler.response(id, result.clone());
+				scheduler.send_response(self, response);
+			}
+		}
+	}
+
+	fn enqueue_sandbox(
 		&mut self,
 		scheduler: &Scheduler,
 		request: EnqueueSandboxRequestArg,
+		owner_ancestors: OwnerAncestors,
 	) -> tg::Result<EnqueueSandboxResponseOutput> {
 		if self.sandboxes.entries.contains_key(&request.sandbox) {
 			return Ok(EnqueueSandboxResponseOutput { enqueued: true });
-		}
-		if self.queue.len() >= scheduler.config.create_sandbox_queue_capacity {
-			return Ok(EnqueueSandboxResponseOutput { enqueued: false });
 		}
 		let capacity = tg::runner::Capacity {
 			cpus: request
@@ -254,6 +371,7 @@ impl State {
 			blocked: HashMap::default(),
 			capacity,
 			dequeue_requests: Vec::new(),
+			owner_ancestors,
 			request,
 			state: SandboxState::Pending,
 		};
@@ -581,7 +699,12 @@ impl State {
 				block.connection_index == runner.connection_index
 					&& block.heartbeat_index == runner.heartbeat_index
 			});
-			if !runner.ready
+			let owner_matches = runner
+				.owner
+				.as_ref()
+				.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
+			if !owner_matches
+				|| !runner.ready
 				|| blocked || !matches_host(runner, &sandbox.request)
 				|| runner.requests >= scheduler.config.max_create_sandbox_requests_per_runner
 			{

@@ -1,0 +1,73 @@
+use {
+	crate::Session,
+	futures::FutureExt as _,
+	indoc::formatdoc,
+	std::ops::ControlFlow,
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
+	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
+};
+
+impl Session {
+	pub(crate) async fn try_delete_user_token(
+		&self,
+		token: &tg::token::Id,
+		_arg: tg::user::token::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let user = self.authenticated_user()?.clone();
+		let token = token.clone();
+		let deleted = self
+			.server
+			.database
+			.run(|transaction| {
+				let token = token.clone();
+				let user = user.clone();
+				async move {
+					let p = transaction.p();
+					let statement = formatdoc!(
+						r#"
+							delete from user_tokens
+							where id = {p}1 and "user" = {p}2;
+						"#
+					);
+					let count = transaction
+						.execute(
+							statement.into(),
+							db::params![token.to_string(), user.to_string()],
+						)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+
+					Ok::<_, crate::database::Error>(ControlFlow::Break(count == 1))
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(deleted.then_some(()))
+	}
+
+	pub(crate) async fn try_delete_user_token_request(
+		&self,
+		_request: http::Request<BoxBody>,
+		token: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let token = token
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the token ID"))?;
+		let output = self
+			.try_delete_user_token(&token, tg::user::token::delete::Arg::default())
+			.await?;
+		let response = if output.is_some() {
+			http::Response::builder().empty().unwrap().boxed_body()
+		} else {
+			http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body()
+		};
+
+		Ok(response)
+	}
+}

@@ -61,6 +61,11 @@ pub trait Index {
 
 	fn batch(&self, arg: crate::batch::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn try_get_ancestors(
+		&self,
+		id: &tg::Id,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::Id>>>> + Send;
+
 	fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],

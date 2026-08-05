@@ -39,10 +39,14 @@ create table logins (
 );
 
 create table user_tokens (
-	token text primary key,
+	id text primary key,
+	token text not null unique,
 	"user" text not null,
+	created_at int8 not null,
 	foreign key ("user") references users (id)
 );
+
+create index user_tokens_user_index on user_tokens ("user");
 
 create table user_identities (
 	provider text not null,
@@ -87,6 +91,25 @@ create table organizations (
 	stripe_default_payment_method_id text,
 	foreign key (id) references specifiers (id)
 );
+
+create table runners (
+	id text primary key,
+	owner text,
+	created_at int8 not null,
+	foreign key (owner) references specifiers (id)
+);
+
+create index runners_owner_index on runners (owner);
+
+create table runner_tokens (
+	id text primary key,
+	token text not null unique,
+	runner text not null,
+	created_at int8 not null,
+	foreign key (runner) references runners (id)
+);
+
+create index runner_tokens_runner_index on runner_tokens (runner);
 
 create table stripe_webhooks (
 	id text primary key,

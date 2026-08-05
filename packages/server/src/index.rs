@@ -63,6 +63,15 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_ancestors(&self, id: &tg::Id) -> tg::Result<Option<Vec<tg::Id>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_ancestors(id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_ancestors(id).await,
+		}
+	}
+
 	async fn try_get_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],

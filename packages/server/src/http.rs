@@ -696,9 +696,6 @@ impl Server {
 			(http::Method::POST, ["processes", process, "signal"]) => {
 				session.try_signal_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["runners", "control"]) => {
-				session.get_runner_control_stream_request(request).boxed()
-			},
 			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
 				.boxed(),
@@ -720,6 +717,25 @@ impl Server {
 			(http::Method::POST, ["processes", process, "wait"]) => session
 				.try_wait_process_future_request(request, process)
 				.boxed(),
+
+			// Runners.
+			(http::Method::POST, ["runners"]) => session.create_runner_request(request).boxed(),
+			(http::Method::GET, ["runners"]) => session.list_runners_request(request).boxed(),
+			(http::Method::DELETE, ["runners", runner]) => {
+				session.try_delete_runner_request(request, runner).boxed()
+			},
+			(http::Method::POST, ["runners", runner, "tokens"]) => {
+				session.create_runner_token_request(request, runner).boxed()
+			},
+			(http::Method::GET, ["runners", runner, "tokens"]) => {
+				session.list_runner_tokens_request(request, runner).boxed()
+			},
+			(http::Method::DELETE, ["runners", runner, "tokens", token]) => session
+				.try_delete_runner_token_request(request, runner, token)
+				.boxed(),
+			(http::Method::POST, ["runners", "control"]) => {
+				session.get_runner_control_stream_request(request).boxed()
+			},
 
 			// Remotes.
 			(http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
@@ -770,6 +786,15 @@ impl Server {
 			(http::Method::POST, ["user", "billing", "manage"]) => {
 				session.manage_user_billing_request(request).boxed()
 			},
+			(http::Method::POST, ["user", "tokens"]) => {
+				session.create_user_token_request(request).boxed()
+			},
+			(http::Method::GET, ["user", "tokens"]) => {
+				session.list_user_tokens_request(request).boxed()
+			},
+			(http::Method::DELETE, ["user", "tokens", token]) => session
+				.try_delete_user_token_request(request, token)
+				.boxed(),
 
 			// Watches.
 			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),

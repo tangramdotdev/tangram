@@ -4,6 +4,22 @@ use {
 };
 
 pub trait User: Send + Sync + 'static {
+	fn create_user_token(
+		&self,
+		arg: tg::user::token::create::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::user::token::create::Output>>;
+
+	fn try_delete_user_token<'a>(
+		&'a self,
+		token: &'a tg::token::Id,
+		arg: tg::user::token::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn list_user_tokens(
+		&self,
+		arg: tg::user::token::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::user::token::list::Output>>;
+
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
@@ -37,6 +53,28 @@ impl<T> User for T
 where
 	T: tg::handle::User,
 {
+	fn create_user_token(
+		&self,
+		arg: tg::user::token::create::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::user::token::create::Output>> {
+		self.create_user_token(arg).boxed()
+	}
+
+	fn try_delete_user_token<'a>(
+		&'a self,
+		token: &'a tg::token::Id,
+		arg: tg::user::token::delete::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_delete_user_token(token, arg).boxed()
+	}
+
+	fn list_user_tokens(
+		&self,
+		arg: tg::user::token::list::Arg,
+	) -> BoxFuture<'_, tg::Result<tg::user::token::list::Output>> {
+		self.list_user_tokens(arg).boxed()
+	}
+
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,

@@ -115,6 +115,7 @@ pub mod symlink;
 pub mod sync;
 pub mod tag;
 pub mod template;
+pub mod token;
 pub mod user;
 pub mod value;
 pub mod watch;
@@ -124,8 +125,8 @@ pub mod prelude {
 	pub use {
 		super::handle::{
 			Checkpoint as _, Ext as _, Grant as _, Group as _, Handle as _, Module as _,
-			Object as _, Organization as _, Process as _, Remote as _, Sandbox as _, Tag as _,
-			User as _, Watch as _,
+			Object as _, Organization as _, Process as _, Remote as _, Runner as _, Sandbox as _,
+			Tag as _, User as _, Watch as _,
 		},
 		crate as tg,
 	};

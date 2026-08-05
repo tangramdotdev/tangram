@@ -22,7 +22,6 @@ pub(super) struct Body {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(super) enum Principal {
 	Process(tg::process::Id),
-	Runner(tg::runner::Id),
 	Sandbox(tg::sandbox::Id),
 }
 
@@ -128,7 +127,6 @@ impl From<Principal> for tg::Principal {
 	fn from(value: Principal) -> Self {
 		match value {
 			Principal::Process(process) => Self::Process(process),
-			Principal::Runner(runner) => Self::Runner(runner),
 			Principal::Sandbox(sandbox) => Self::Sandbox(sandbox),
 		}
 	}

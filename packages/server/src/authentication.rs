@@ -181,10 +181,6 @@ impl Server {
 		self.create_authentication_token(token::Principal::Process(id))
 	}
 
-	pub fn create_runner_authentication_token(&self, id: tg::runner::Id) -> tg::Result<String> {
-		self.create_authentication_token_inner(token::Principal::Runner(id), i64::MAX)
-	}
-
 	pub(crate) fn create_sandbox_authentication_token(
 		&self,
 		id: tg::sandbox::Id,
@@ -228,6 +224,17 @@ impl Server {
 		sandbox: bool,
 		token: Option<&str>,
 	) -> tg::Result<Authentication> {
+		if !sandbox
+			&& let Some((token, root_token)) =
+				token.zip(self.config().authentication.root.token.as_deref())
+			&& crate::token::matches(token, root_token)
+		{
+			return Ok(Authentication {
+				billing: false,
+				principal: tg::Principal::Root,
+			});
+		}
+
 		if let Some(value) = token.filter(|value| token::Token::has_prefix(value)) {
 			let principal = self
 				.authenticate_token(value)
@@ -288,6 +295,12 @@ impl Server {
 					return Err(error);
 				},
 			}
+			if let Some(runner) = self.authenticate_runner(token).await? {
+				return Ok(Authentication {
+					billing: false,
+					principal: tg::Principal::Runner(runner),
+				});
+			}
 		}
 
 		if self.config().authentication.users.is_none() {
@@ -301,6 +314,25 @@ impl Server {
 			billing: false,
 			principal: tg::Principal::Anonymous,
 		})
+	}
+
+	async fn authenticate_runner(&self, token: &str) -> tg::Result<Option<tg::runner::Id>> {
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let token = crate::token::hash(token);
+		let p = connection.p();
+		let statement = format!("select runner from runner_tokens where token = {p}1;");
+		let runner = connection
+			.query_optional_value_into::<String>(statement.into(), db::params![token])
+			.await
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+			.map(|runner| runner.parse())
+			.transpose()?;
+
+		Ok(runner)
 	}
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
@@ -361,6 +393,7 @@ impl Server {
 			stripe_customer_id: Option<String>,
 			stripe_default_payment_method_id: Option<String>,
 		}
+		let token = crate::token::hash(token);
 		let p = connection.p();
 		let statement = formatdoc!(
 			r#"

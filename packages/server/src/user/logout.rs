@@ -18,7 +18,7 @@ impl Session {
 			.token
 			.as_deref()
 			.ok_or_else(|| tg::error!("missing the session token"))?;
-		let token = token.to_owned();
+		let token = crate::token::hash(token);
 		let user = user.to_string();
 		self.server
 			.database

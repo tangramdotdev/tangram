@@ -58,18 +58,20 @@ impl Session {
 								tg::error!(!error, "failed to execute the statement")
 							})?;
 					}
-					let token = create_token();
+					let (token_id, token) = crate::token::create();
+					let token_hash = crate::token::hash(&token);
+					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					let p = transaction.p();
 					let statement = formatdoc!(
 						r#"
-							insert into user_tokens (token, "user")
-							values ({p}1, {p}2);
+							insert into user_tokens (created_at, id, token, "user")
+							values ({p}1, {p}2, {p}3, {p}4);
 						"#
 					);
 					transaction
 						.execute(
 							statement.into(),
-							db::params![token.clone(), user.id.to_string()],
+							db::params![now, token_id.to_string(), token_hash, user.id.to_string()],
 						)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -80,7 +82,6 @@ impl Session {
 							where code = {p}4 and status = 'started';
 						"#
 					);
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					transaction
 						.execute(
 							statement.into(),

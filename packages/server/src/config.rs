@@ -100,9 +100,16 @@ pub struct Advanced {
 
 #[derive(Clone, Debug, Default)]
 pub struct Authentication {
+	pub root: RootAuthentication,
+
 	pub tokens: AuthenticationTokens,
 
 	pub users: Option<UserAuthentication>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RootAuthentication {
+	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

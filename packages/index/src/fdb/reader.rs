@@ -202,6 +202,11 @@ impl Index {
 				.await?;
 				crate::read::Response::ProcessHasAncestor(output)
 			},
+			crate::read::Request::TryGetAncestors { id } => {
+				let output =
+					Self::try_get_ancestors_with_transaction(transaction, subspace, &id).await?;
+				crate::read::Response::TryGetAncestors(output)
+			},
 			crate::read::Request::TryGetCacheEntries { ids } => {
 				let output =
 					Self::try_get_cache_entries_with_transaction(transaction, subspace, &ids)
