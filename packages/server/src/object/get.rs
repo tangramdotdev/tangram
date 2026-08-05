@@ -110,6 +110,7 @@ impl Session {
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission))
 		{
+			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		}
 		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
@@ -190,6 +191,11 @@ impl Session {
 					.await?
 					.is_some_and(|permissions| permissions.contains(permission))
 				{
+					tracing::trace!(
+						id = %object.item,
+						principal = ?self.context.principal,
+						"authorization denied"
+					);
 					return Ok(None);
 				}
 				let mut output = output;
