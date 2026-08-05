@@ -26,29 +26,24 @@ impl Session {
 		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
 			return self.try_get_remote_runner(name).await;
 		}
-		let principal = match self
-			.resolve_remote_arg_principal(arg.principal.clone())
-			.await
+		if arg.principal.is_none()
+			&& matches!(
+				self.context.principal,
+				tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+			) && self
+			.server
+			.config
+			.roles
+			.contains(&crate::config::Role::Runner)
+			.then(|| self.server.config.runner.remote.as_deref())
+			.flatten()
+			.is_some_and(|remote| remote == name)
 		{
-			Ok(principal) => principal,
-			Err(_error)
-				if arg.principal.is_none()
-					&& matches!(
-						self.context.principal,
-						tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-					) && self
-					.server
-					.config
-					.roles
-					.contains(&crate::config::Role::Runner)
-					.then(|| self.server.config.runner.remote.as_deref())
-					.flatten()
-					.is_some_and(|remote| remote == name) =>
-			{
-				return self.try_get_remote_runner(name).await;
-			},
-			Err(error) => return Err(error),
-		};
+			return self.try_get_remote_runner(name).await;
+		}
+		let principal = self
+			.resolve_remote_arg_principal(arg.principal.clone())
+			.await?;
 		self.try_get_remote_for_principal(name, principal.as_ref())
 			.await
 	}
