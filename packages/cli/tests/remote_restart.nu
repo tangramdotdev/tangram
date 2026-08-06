@@ -3,21 +3,27 @@ use ../test.nu *
 # After a remote runner produces a process output, restarting the remote server preserves the process log so it can still be retrieved from the local server.
 
 # Spawn a server in a given directory.
+let root_token = random chars
 let config =  { 
 	advanced: {
 		single_process: false,
 	}
+	authentication: { root: { token: $root_token } },
 	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote --cloud --config $config
+let created = tg --url $remote.url --token $root_token runner create | from json
 
 # Spawn a remote runner.
 let runner = spawn --name runner --config {
 	runner: {
+		id: $created.runner.id
 		remote: "default"
+		token: $created.token.token
 	}
 	remotes: {
 		default: {
+			token: $created.token.token
 			url: $remote.url
 		}
 	}
@@ -27,6 +33,7 @@ let runner = spawn --name runner --config {
 let local = spawn --name local --config {
 	remotes: {
 		default: {
+			token: $root_token
 			url: $remote.url
 		}
 	}

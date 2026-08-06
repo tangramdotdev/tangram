@@ -2,20 +2,26 @@ use ../../test.nu *
 
 # Restarting the remote server mid-build does not lose log output, and the full stdout and stderr streams are still readable afterward.
 
+let root_token = random chars
 let config = {
+	authentication: { root: { token: $root_token } },
 	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote  --config $config
+let created = tg --url $remote.url --token $root_token runner create | from json
 let config = {
 	remotes: {
 		default: {
+			token: $created.token.token
 			url: $remote.url
 		}
 	},
 	runner: {
 		cpus: 1,
+		id: $created.runner.id
 		memory: (1e9 | into int),
 		remote: "default",
+		token: $created.token.token
 	}
 }
 let runner = spawn --name runner --config ($config | merge deep {
@@ -27,6 +33,7 @@ let runner = spawn --name runner --config ($config | merge deep {
 let config = {
 	remotes: {
 		default: {
+			token: $root_token
 			url: $remote.url
 		}
 	},

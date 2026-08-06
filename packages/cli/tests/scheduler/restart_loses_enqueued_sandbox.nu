@@ -2,26 +2,33 @@ use ../../test.nu *
 
 # A sandbox create acknowledged by a scheduler is lost when that scheduler dies, so its parent fails instead of replaying the create on the replacement scheduler.
 
+let root_token = random chars
 let config = {
 	advanced: {
 		single_process: false,
 	},
+	authentication: { root: { token: $root_token } },
 	roles: [cleaner finalizer http indexer scheduler],
 	scheduler: {
 		heartbeat_ttl: 3,
 	},
 }
 let remote = spawn --name remote --preserve-keys --config $config
+let created = tg --url $remote.url --token $root_token runner create | from json
+let replacement_created = tg --url $remote.url --token $root_token runner create | from json
 
 let runner = spawn --name runner --config {
 	remotes: {
 		default: {
+			token: $created.token.token
 			url: $remote.url,
 		},
 	},
 	runner: {
 		cpus: 1,
+		id: $created.runner.id
 		remote: "default",
+		token: $created.token.token
 	},
 	scheduler: {
 		heartbeat_ttl: 3,
@@ -31,6 +38,7 @@ let runner = spawn --name runner --config {
 let local = spawn --name local --config {
 	remotes: {
 		default: {
+			token: $root_token
 			url: $remote.url,
 		},
 	},
@@ -77,12 +85,15 @@ spawn --directory $remote.directory --name remote --preserve-keys --config $conf
 let replacement_runner = spawn --name replacement_runner --config {
 	remotes: {
 		default: {
+			token: $replacement_created.token.token
 			url: $remote.url,
 		},
 	},
 	runner: {
 		cpus: 1,
+		id: $replacement_created.runner.id
 		remote: "default",
+		token: $replacement_created.token.token
 	},
 }
 

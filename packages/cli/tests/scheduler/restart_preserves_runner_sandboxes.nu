@@ -2,13 +2,16 @@ use ../../test.nu *
 
 # A runner preserves its sandboxes across a scheduler restart and assigns child work to the new scheduler.
 
+let root_token = random chars
 let config = {
 	advanced: {
 		single_process: false,
 	},
+	authentication: { root: { token: $root_token } },
 	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote --preserve-keys --config $config
+let created = tg --url $remote.url --token $root_token runner create | from json
 
 let runner = spawn --name runner --config {
 	advanced: {
@@ -16,19 +19,23 @@ let runner = spawn --name runner --config {
 	},
 	remotes: {
 		default: {
+			token: $created.token.token
 			url: $remote.url,
 		},
 	},
 	runner: {
 		cpus: 1,
+		id: $created.runner.id
 		remote: "default",
 		scheduler_ttl: 3,
+		token: $created.token.token
 	},
 }
 
 let local = spawn --name local --config {
 	remotes: {
 		default: {
+			token: $root_token
 			url: $remote.url,
 		},
 	},

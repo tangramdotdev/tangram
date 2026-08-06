@@ -6,24 +6,31 @@ use ../../test.nu *
 # Regression test for 802b850c (#765).
 
 # Start the remote server.
+let root_token = random chars
 let config = {
+	authentication: { root: { token: $root_token } },
 	roles: [cleaner finalizer http indexer scheduler],
 }
 let remote = spawn --name remote --cloud --config $config
 
 # Spawn four concurrent runners
 let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
+	let created = tg --url $remote.url --token $root_token runner create | from json
+
 	# Start the runner server.
 	let config = {
 		remotes: {
 			default: {
+				token: $created.token.token
 				url: $remote.url
 			}
 		},
 		runner: {
 			cpus: 1,
+			id: $created.runner.id
 			memory: (1e9 | into int),
 			remote: "default",
+			token: $created.token.token
 		}
 	}
 	spawn --name $name --config $config
@@ -33,6 +40,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 let config = {
 	remotes: {
 		default: {
+			token: $root_token
 			url: $remote.url
 		}
 	}
