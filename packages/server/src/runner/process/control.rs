@@ -100,17 +100,17 @@ impl Session {
 			.state
 			.try_update_process(id, |process| {
 				if process.data.status.is_finished() {
-					return Ok(tg::process::control::ReleaseLeaseClientResponseOutput {});
+					return tg::process::control::ReleaseLeaseClientResponseOutput {
+						released: false,
+					};
 				}
-				if !process.leases.remove(&arg.lease) {
-					return Err(tg::error!("the process lease was not found"));
-				}
-				if process.leases.is_empty() {
+				let released = process.leases.remove(&arg.lease);
+				if released && process.leases.is_empty() {
 					process.stopper.stop();
 				}
-				Ok(tg::process::control::ReleaseLeaseClientResponseOutput {})
+				tg::process::control::ReleaseLeaseClientResponseOutput { released }
 			})
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))
 	}
 
 	#[must_use]

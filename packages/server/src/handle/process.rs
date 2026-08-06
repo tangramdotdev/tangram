@@ -56,7 +56,7 @@ impl tg::handle::Process for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		self.session(&self.context)
 			.try_cancel_process(id, arg)
 			.await

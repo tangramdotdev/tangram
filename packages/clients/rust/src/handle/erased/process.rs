@@ -42,7 +42,7 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::cancel::Output>>>;
 
 	fn try_get_process_control_stream<'a>(
 		&'a self,
@@ -174,7 +174,7 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::cancel::Output>>> {
 		self.try_cancel_process(id, arg).boxed()
 	}
 

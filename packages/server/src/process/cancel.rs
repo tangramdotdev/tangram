@@ -13,7 +13,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -54,25 +54,22 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		if let Some(result) = self
 			.server
 			.runner
 			.state()
 			.try_update_process(id, |process| {
 				if process.data.status.is_finished() {
-					return Ok(());
+					return tg::process::cancel::Output { released: false };
 				}
-				if !process.leases.remove(&arg.lease) {
-					return Err(tg::error!("the process lease was not found"));
-				}
-				if process.leases.is_empty() {
+				let released = process.leases.remove(&arg.lease);
+				if released && process.leases.is_empty() {
 					process.stopper.stop();
 				}
-				Ok(())
+				tg::process::cancel::Output { released }
 			}) {
-			result?;
-			return Ok(Some(()));
+			return Ok(Some(result));
 		}
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
@@ -97,7 +94,8 @@ impl Session {
 					return Ok(None);
 				};
 				if process.data.status.is_finished() {
-					return Ok(Some(()));
+					let output = tg::process::cancel::Output { released: false };
+					return Ok(Some(output));
 				}
 				release_future.await
 			},
@@ -105,10 +103,13 @@ impl Session {
 		let response = response
 			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
 			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;
-		response
+		let output = response
 			.try_unwrap_release_lease()
 			.map_err(|_| tg::error!("expected a release process lease response"))?;
-		Ok(Some(()))
+		let output = tg::process::cancel::Output {
+			released: output.released,
+		};
+		Ok(Some(output))
 	}
 
 	async fn try_cancel_process_regions(
@@ -116,7 +117,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_cancel_process_region(id, arg.clone(), region))
@@ -145,7 +146,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 		region: &str,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -156,13 +157,13 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
+		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to cancel the process"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(output))
 	}
 
 	async fn try_cancel_process_remotes(
@@ -170,7 +171,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_cancel_process_remote(id, arg.clone(), remote))
@@ -199,7 +200,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
@@ -211,13 +212,13 @@ impl Session {
 			])),
 			..arg
 		};
-		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
+		let Some(output) = client.try_cancel_process(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to cancel the process"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn try_cancel_process_request(
@@ -243,7 +244,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
-		let Some(()) = self
+		let Some(output) = self
 			.try_cancel_process(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to cancel the process"))?
@@ -260,13 +261,17 @@ impl Session {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => (),
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
 
-		let response = http::Response::builder().empty().unwrap().boxed_body();
+		let response = http::Response::builder()
+			.json(output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the response"))?
+			.unwrap()
+			.boxed_body();
 
 		Ok(response)
 	}

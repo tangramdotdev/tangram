@@ -89,7 +89,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::cancel::Output>> + Send {
 		async move {
 			self.try_cancel_process(id, arg)
 				.await?
@@ -101,7 +101,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> + Send;
 
 	fn try_get_process_control_stream(
 		&self,
@@ -315,7 +315,7 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		self.session(&self.context)
 			.try_cancel_process(id, arg)
 			.await

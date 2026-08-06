@@ -382,7 +382,10 @@ pub struct ReleaseLeaseServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReleaseLeaseClientResponseOutput {}
+pub struct ReleaseLeaseClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub released: bool,
+}
 
 #[derive(
 	Clone,

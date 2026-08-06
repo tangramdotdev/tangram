@@ -78,7 +78,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.try_cancel_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.try_cancel_process(id, arg).right_future(),

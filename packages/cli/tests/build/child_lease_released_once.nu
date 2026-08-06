@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# A parent process finishing releases each child lease exactly once. A lease
-# that the child's handle already released is not released again by the parent,
-# so the server logs no error.
+# Releasing a child lease is idempotent. If a child handle releases its lease
+# before parent completion, the parent's cleanup release is a no-op and logs no
+# error.
 
 let server = spawn --config { tracing: { stderr_format: 'json' } }
 
