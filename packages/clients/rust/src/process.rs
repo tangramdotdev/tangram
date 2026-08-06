@@ -335,6 +335,9 @@ impl<O> Process<O> {
 		let Some(output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
+		if output.token.is_some() {
+			*self.token.write().unwrap() = output.token;
+		}
 		if let Some(location) = output.location {
 			self.location.write().unwrap().replace(location.into());
 		}

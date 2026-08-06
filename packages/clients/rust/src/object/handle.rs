@@ -250,8 +250,26 @@ impl Object {
 	where
 		H: tg::Handle,
 	{
-		let object = self.load_with_handle(handle).await?;
-		Ok(object.children())
+		self.children_with_arg_with_handle(handle, tg::object::get::Arg::default())
+			.await
+	}
+
+	pub(crate) async fn children_with_arg_with_handle<H>(
+		&self,
+		handle: &H,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Vec<tg::Object>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.load_with_arg_with_handle(handle, arg).await?;
+		let children = object.children();
+		let token = self.state().token();
+		for child in &children {
+			child.inherit_token(token.clone());
+		}
+
+		Ok(children)
 	}
 
 	pub async fn data(&self) -> tg::Result<Data> {

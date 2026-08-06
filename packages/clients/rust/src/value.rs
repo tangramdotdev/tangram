@@ -287,8 +287,7 @@ impl Value {
 		let mut children = Vec::new();
 		match self {
 			Self::Object(object) => {
-				let object = object.load_with_arg_with_handle(handle, arg).await?;
-				for child in object.children() {
+				for child in object.children_with_arg_with_handle(handle, arg).await? {
 					children.push(tg::Value::Object(child));
 				}
 			},

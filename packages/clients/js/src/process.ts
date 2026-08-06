@@ -320,6 +320,9 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.token = this.#token;
 		}
 		let output = await tg.client.getProcess(this.#id, arg);
+		if (output.token !== undefined && output.token !== null) {
+			this.#token = output.token;
+		}
 		this.#location =
 			output.location === undefined || output.location === null
 				? null

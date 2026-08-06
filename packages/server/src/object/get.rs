@@ -103,19 +103,30 @@ impl Session {
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		if !self
-			.authorize(resource, permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission))
-		{
+		let mut permissions = tg::grant::permission::object::Set::empty();
+		permissions.insert(tg::grant::permission::object::Set::NODE);
+		permissions.insert(tg::grant::permission::object::Set::SUBTREE);
+		let permissions = tg::grant::permission::Set::Object(permissions);
+		let Some(permissions) = self.authorize(resource, permissions).await? else {
+			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
+			return Ok(None);
+		};
+		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		if !permissions.contains(node) {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		}
 		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
 			return Ok(None);
 		};
+		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		output.token = self.create_token(resource, permissions.iter().collect(), expires_at)?;
 		if let Some(metadata) = output.metadata {
 			output.metadata = self.mask_object_metadata(id, metadata, token).await?;
 		}
@@ -524,6 +535,11 @@ impl Session {
 				.header_json(tg::object::get::STORED_HEADER, stored)
 				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
 		}
+		if let Some(token) = &output.token {
+			response = response
+				.header_json(tg::object::get::TOKEN_HEADER, token)
+				.map_err(|error| tg::error!(!error, "failed to serialize the token"))?;
+		}
 		let response = response.body(body).unwrap();
 
 		Ok(response)
@@ -562,6 +578,7 @@ impl Server {
 			bytes,
 			metadata,
 			stored: None,
+			token: None,
 		};
 
 		Ok(Some(output))
@@ -592,6 +609,7 @@ impl Server {
 			bytes,
 			metadata: None,
 			stored: None,
+			token: None,
 		};
 		Ok(Some(output))
 	}
@@ -627,6 +645,7 @@ impl Server {
 					bytes,
 					metadata,
 					stored: None,
+					token: None,
 				})
 			})
 			.collect();

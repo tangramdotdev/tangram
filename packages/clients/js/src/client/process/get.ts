@@ -14,6 +14,7 @@ export namespace Get {
 		id: tg.Process.Id;
 		location?: tg.Location | null;
 		metadata?: unknown;
+		token?: tg.Grant.Token | null;
 	};
 }
 

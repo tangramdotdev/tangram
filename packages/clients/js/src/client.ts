@@ -85,14 +85,14 @@ export class Client {
 	getObject(
 		id: tg.Object.Id,
 		arg?: tg.Object.Get.Arg | null,
-	): Promise<tg.Object.Data> {
+	): Promise<tg.Object.Get.Output> {
 		return getObject(this, id, arg);
 	}
 
 	tryGetObject(
 		id: tg.Object.Id,
 		arg?: tg.Object.Get.Arg | null,
-	): Promise<tg.Object.Data | null> {
+	): Promise<tg.Object.Get.Output | null> {
 		return tryGetObject(this, id, arg);
 	}
 

@@ -9,6 +9,7 @@ use {
 
 pub const METADATA_HEADER: &str = "x-tg-object-metadata";
 pub const STORED_HEADER: &str = "x-tg-object-stored";
+pub const TOKEN_HEADER: &str = "x-tg-object-token";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -33,6 +34,7 @@ pub struct Output {
 	pub bytes: Bytes,
 	pub metadata: Option<tg::object::Metadata>,
 	pub stored: Option<tg::object::Stored>,
+	pub token: Option<tg::grant::Token>,
 }
 
 impl tg::Session {
@@ -82,6 +84,10 @@ impl tg::Session {
 			.header_json(STORED_HEADER)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the stored header"))?;
+		let token = response
+			.header_json(TOKEN_HEADER)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to deserialize the token header"))?;
 		let bytes = response
 			.bytes()
 			.await
@@ -90,6 +96,7 @@ impl tg::Session {
 			bytes,
 			metadata,
 			stored,
+			token,
 		};
 		Ok(Some(output))
 	}

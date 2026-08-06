@@ -16,6 +16,11 @@ export namespace Object {
 			metadata?: boolean;
 			token?: tg.Grant.Token | null;
 		};
+
+		export type Output = {
+			data: tg.Object.Data;
+			token?: tg.Grant.Token | null;
+		};
 	}
 
 	export namespace Batch {
@@ -156,8 +161,11 @@ export namespace Object {
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === null) {
 				let arg = this.#token !== null ? { token: this.#token } : {};
-				let data = await tg.client.getObject(this.#id!, arg);
-				this.#object = tg.Object.Object.fromData(data);
+				let output = await tg.client.getObject(this.#id!, arg);
+				if (output.token !== undefined && output.token !== null) {
+					this.#token = output.token;
+				}
+				this.#object = tg.Object.Object.fromData(output.data);
 			}
 			return this.#object;
 		}

@@ -41,6 +41,9 @@ pub struct Output {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stored: Option<tg::process::Stored>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 impl tg::Session {

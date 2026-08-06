@@ -99,23 +99,30 @@ impl Session {
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let authorize_future = async {
-			let authorized = self.authorize(resource, permission).await?;
-			Ok::<_, tg::Error>(
-				authorized.is_some_and(|permissions| permissions.contains(permission)),
-			)
-		}
-		.boxed();
+		let permissions =
+			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+		let authorize_future = async { self.authorize(resource, permissions).await }.boxed();
 		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
-		let (authorized, output) = future::try_join(authorize_future, get_future).await?;
-		if !authorized {
+		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
+		let Some(permissions) = permissions else {
+			return Ok(None);
+		};
+		let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		if !permissions.contains(node) {
 			return Ok(None);
 		}
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
+		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let time_to_live =
+			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
+				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let resource = tg::grant::Resource::Id(id.clone().into());
+		output.token = self.create_token(resource, permissions.iter().collect(), expires_at)?;
 		if let Some(metadata) = output.metadata.take() {
 			output.metadata = self
 				.mask_process_metadata(id, metadata, token)
@@ -326,6 +333,7 @@ impl Session {
 			location: Some(location),
 			metadata,
 			stored: None,
+			token: None,
 		}
 	}
 
@@ -600,6 +608,7 @@ impl Server {
 					location: Some(location.clone()),
 					metadata,
 					stored: None,
+					token: None,
 				})
 			})
 			.collect();

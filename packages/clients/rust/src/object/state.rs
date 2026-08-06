@@ -200,6 +200,9 @@ impl State {
 		let Some(output) = handle.try_get_object(&id, arg).await? else {
 			return Ok(None);
 		};
+		if output.token.is_some() {
+			self.set_token(output.token);
+		}
 
 		// Deserialize.
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)

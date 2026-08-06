@@ -6,7 +6,7 @@ export async function getObject(
 	client: Client,
 	id: tg.Object.Id,
 	arg?: tg.Object.Get.Arg | null,
-): Promise<tg.Object.Data> {
+): Promise<tg.Object.Get.Output> {
 	let output = await tryGetObject(client, id, arg);
 	if (output === null) {
 		throw await tg.error`failed to find the object`.values({ id });
@@ -18,7 +18,7 @@ export async function tryGetObject(
 	client: Client,
 	id: tg.Object.Id,
 	arg?: tg.Object.Get.Arg | null,
-): Promise<tg.Object.Data | null> {
+): Promise<tg.Object.Get.Output | null> {
 	let method = "GET";
 	let uri = new Uri({
 		path: `/objects/${percentEncode(id)}`,
@@ -45,5 +45,13 @@ export async function tryGetObject(
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return await response.json<tg.Object.Data>();
+	let data = await response.json<tg.Object.Data>();
+	let token = response.headers.get("x-tg-object-token");
+	let output = {
+		data,
+		...(token === undefined
+			? {}
+			: { token: JSON.parse(token) as tg.Grant.Token }),
+	};
+	return output;
 }

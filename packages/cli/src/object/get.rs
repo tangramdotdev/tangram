@@ -44,6 +44,7 @@ impl Cli {
 				bytes,
 				metadata,
 				stored,
+				token: _,
 			} = client
 				.try_get_object(&id, arg)
 				.await
