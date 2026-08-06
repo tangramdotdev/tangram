@@ -792,7 +792,6 @@ async function renderEnv(
 		"TANGRAM_JS_ENGINE",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
-		"TANGRAM_PROCESS",
 		"TANGRAM_TOKEN",
 		"TANGRAM_TRACING",
 		"TANGRAM_URL",
@@ -801,9 +800,6 @@ async function renderEnv(
 	}
 	let arg = tg.client.arg();
 	rendered.TANGRAM_OUTPUT = outputPath;
-	if (arg.process !== undefined) {
-		rendered.TANGRAM_PROCESS = arg.process;
-	}
 	if (arg.token !== undefined) {
 		rendered.TANGRAM_TOKEN = arg.token;
 	}

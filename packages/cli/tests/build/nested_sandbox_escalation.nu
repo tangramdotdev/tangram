@@ -38,6 +38,28 @@ assert_denied '
 	export default async function () { await tg.Sandbox.create().network(); }
 ' 'the child sandbox network is more permissive than the parent sandbox network'
 
+let same_sandbox_path = artifact {
+	tangram.ts: '
+		export default async function (sandbox) {
+			await tg.run`true`.sandbox(sandbox);
+		}
+	',
+}
+let sandbox = tg sandbox create --no-network | str trim
+success (tg run $"--sandbox=($sandbox)" $same_sandbox_path --arg-string $sandbox | complete)
+
+let different_sandbox_path = artifact {
+	tangram.ts: '
+		export default async function (sandbox) {
+			await tg.run`true`.sandbox(sandbox);
+		}
+	',
+}
+let other_sandbox = tg sandbox create --no-network | str trim
+let output = tg run $"--sandbox=($sandbox)" $different_sandbox_path --arg-string $other_sandbox | complete
+failure $output
+assert ($output.stderr | str contains 'the target sandbox does not match the request origin sandbox')
+
 let network_path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -47,17 +69,14 @@ let network_path = artifact {
 }
 success (tg run --sandbox --network=true $network_path | complete)
 
-let checksum_path = artifact {
-	tangram.ts: '
-		export default async function () {
-			return await tg.run`true`
-				.sandbox()
-				.network()
-				.checksum("sha256:any");
-		}
-	',
-}
-success (tg build $checksum_path | complete)
+assert_denied '
+	export default async function () {
+		return await tg.run`true`
+			.sandbox()
+			.network()
+			.checksum("sha256:any");
+	}
+' 'the child sandbox network is more permissive than the parent sandbox network'
 
 let mount = mktemp --directory | str trim
 let readonly_mount_path = artifact {

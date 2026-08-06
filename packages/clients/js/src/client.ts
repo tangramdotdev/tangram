@@ -49,11 +49,9 @@ export class Client {
 	#session: tg.Host.Http2.ClientHttp2Session | null = null;
 
 	arg() {
-		let process = tg.process.env.TANGRAM_PROCESS;
 		let token = tg.process.env.TANGRAM_TOKEN;
 		let url = tg.process.env.TANGRAM_URL;
 		return {
-			...(typeof process === "string" ? { process } : {}),
 			...(typeof token === "string" ? { token } : {}),
 			...(typeof url === "string" ? { url } : {}),
 		};

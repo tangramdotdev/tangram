@@ -35,6 +35,16 @@ impl Session {
 			.server
 			.try_get_request_origin_sandbox(self.context.origin)?
 			.map(|sandbox| sandbox.data.id.clone());
+		if let Some(origin) = &request_origin_sandbox
+			&& let Some(tg::Either::Right(target)) = &arg.sandbox
+			&& target != origin
+		{
+			return Err(tg::error!(
+				%origin,
+				%target,
+				"the target sandbox does not match the request origin sandbox"
+			));
+		}
 
 		// Get the authenticated process.
 		let authenticated_process = match &self.context.principal {
@@ -64,13 +74,12 @@ impl Session {
 			arg.retry = process.retry;
 		}
 
-		// Validate an unchecksummed child sandbox against its parent.
-		if arg.checksum.is_none()
-			&& let Some(parent) = request_origin_sandbox.as_ref().or_else(|| {
-				authenticated_process
-					.as_ref()
-					.map(|process| &process.sandbox)
-			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+		// Validate a child sandbox against its parent.
+		if let Some(parent) = request_origin_sandbox.as_ref().or_else(|| {
+			authenticated_process
+				.as_ref()
+				.map(|process| &process.sandbox)
+		}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
 		{
 			self.validate_sandbox_create_arg_with_parent(sandbox, parent)
 				.await?;
