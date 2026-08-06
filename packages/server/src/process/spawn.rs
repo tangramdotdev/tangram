@@ -74,12 +74,13 @@ impl Session {
 			arg.retry = process.retry;
 		}
 
-		// Validate a child sandbox against its parent.
-		if let Some(parent) = request_origin_sandbox.as_ref().or_else(|| {
-			authenticated_process
-				.as_ref()
-				.map(|process| &process.sandbox)
-		}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+		// Validate an unchecksummed child sandbox against its parent.
+		if arg.checksum.is_none()
+			&& let Some(parent) = request_origin_sandbox.as_ref().or_else(|| {
+				authenticated_process
+					.as_ref()
+					.map(|process| &process.sandbox)
+			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
 		{
 			self.validate_sandbox_create_arg_with_parent(sandbox, parent)
 				.await?;

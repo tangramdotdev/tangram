@@ -69,14 +69,17 @@ let network_path = artifact {
 }
 success (tg run --sandbox --network=true $network_path | complete)
 
-assert_denied '
-	export default async function () {
-		return await tg.run`true`
-			.sandbox()
-			.network()
-			.checksum("sha256:any");
-	}
-' 'the child sandbox network is more permissive than the parent sandbox network'
+let checksum_path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.run`true`
+				.sandbox()
+				.network()
+				.checksum("sha256:any");
+		}
+	',
+}
+success (tg build $checksum_path | complete)
 
 let mount = mktemp --directory | str trim
 let readonly_mount_path = artifact {
