@@ -48,7 +48,6 @@ impl Pool {
 	pub(in crate::runner) async fn stop(&self) {
 		let tasks = self.inner.lock().unwrap().drain(..).collect::<Vec<_>>();
 		for task in tasks {
-			task.abort();
 			match task.wait().await {
 				Ok(Ok(output)) => {
 					if let Err(error) = destroy(output).await {

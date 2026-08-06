@@ -1694,7 +1694,7 @@ export def cleanup_background_jobs [temp_path: string] {
 def stop_server_job [job_id: int] {
 	for job in (job list | where id == $job_id) {
 		for pid in ($job.pids? | default []) {
-			try { ^bash -c 'children=$(pgrep -P "$1" 2>/dev/null || true); kill -TERM "$1" 2>/dev/null || true; for child in $children; do kill -TERM "$child" 2>/dev/null || true; done' _ $pid }
+			try { ^bash -c 'children=$(pgrep -P "$1" 2>/dev/null || true); kill -TERM "$1" 2>/dev/null || true; for child in $children; do command=$(ps -o command= -p "$child" 2>/dev/null || true); case "$command" in *" sandbox "*) ;; *) kill -TERM "$child" 2>/dev/null || true ;; esac; done' _ $pid }
 		}
 	}
 }

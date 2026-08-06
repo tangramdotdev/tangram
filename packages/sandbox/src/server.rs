@@ -2,8 +2,16 @@ use {
 	crate::{Command, pty},
 	dashmap::DashMap,
 	futures::{FutureExt as _, future},
-	std::{convert::Infallible, ops::Deref, path::Path, pin::Pin, sync::Arc, task::Poll},
+	std::{
+		convert::Infallible,
+		ops::Deref,
+		path::Path,
+		pin::{Pin, pin},
+		sync::Arc,
+		task::Poll,
+	},
 	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -14,6 +22,7 @@ use {
 };
 
 mod process;
+mod shutdown;
 
 pub struct Arg {
 	pub library_paths: Vec<std::path::PathBuf>,
@@ -28,6 +37,7 @@ pub struct State {
 	library_paths: Vec<std::path::PathBuf>,
 	output_path: std::path::PathBuf,
 	processes: DashMap<u64, Process>,
+	stopper: Stopper,
 	tangram_path: std::path::PathBuf,
 }
 
@@ -66,6 +76,7 @@ impl Server {
 			library_paths: arg.library_paths,
 			output_path: arg.output_path,
 			processes: DashMap::default(),
+			stopper: Stopper::new(),
 			tangram_path: arg.tangram_path,
 		}))
 	}
@@ -177,33 +188,40 @@ impl Server {
 	}
 
 	pub async fn serve(&self, listener: Listener) {
+		let mut tasks = tokio::task::JoinSet::new();
 		loop {
-			let stream = match &listener {
-				Listener::Tcp(listener) => {
-					let Ok((stream, _)) = listener.accept().await else {
+			let accept_future = async {
+				match &listener {
+					Listener::Tcp(listener) => listener
+						.accept()
+						.await
+						.map(|(stream, _)| Stream::Tcp(stream)),
+					Listener::Unix { listener, .. } => listener
+						.accept()
+						.await
+						.map(|(stream, _)| Stream::Unix(stream)),
+					#[cfg(feature = "vsock")]
+					Listener::Vsock(listener) => listener
+						.accept()
+						.await
+						.map(|(stream, _)| Stream::Vsock(stream)),
+				}
+			};
+			let stream = tokio::select! {
+				result = accept_future => {
+					let Ok(stream) = result else {
 						continue;
 					};
-					Stream::Tcp(stream)
+					stream
 				},
-				Listener::Unix { listener, .. } => {
-					let Ok((stream, _)) = listener.accept().await else {
-						continue;
-					};
-					Stream::Unix(stream)
-				},
-				#[cfg(feature = "vsock")]
-				Listener::Vsock(listener) => {
-					let Ok((stream, _)) = listener.accept().await else {
-						continue;
-					};
-					Stream::Vsock(stream)
-				},
+				() = self.stopper.wait() => break,
 			};
 			let server = self.clone();
-			tokio::spawn(async move {
+			tasks.spawn(async move {
 				server.serve_stream(stream).await;
 			});
 		}
+		while tasks.join_next().await.is_some() {}
 	}
 
 	pub async fn serve_stream<S>(&self, stream: S)
@@ -230,9 +248,15 @@ impl Server {
 			.max_concurrent_streams(None)
 			.max_pending_accept_reset_streams(None)
 			.max_local_error_reset_streams(None);
-		let result = builder
-			.serve_connection_with_upgrades(stream, service)
-			.await;
+		let connection = builder.serve_connection_with_upgrades(stream, service);
+		let stop_future = self.stopper.wait();
+		let result = match future::select(pin!(connection), pin!(stop_future)).await {
+			future::Either::Left((result, _)) => result,
+			future::Either::Right(((), mut connection)) => {
+				connection.as_mut().graceful_shutdown();
+				connection.await
+			},
+		};
 		result
 			.inspect_err(|error| {
 				tracing::trace!(?error, "connection failed");
@@ -245,6 +269,7 @@ impl Server {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
+			(http::Method::POST, ["shutdown"]) => self.shutdown_request().boxed(),
 			(http::Method::POST, ["processes", "spawn"]) => {
 				self.handle_spawn_request(request).boxed()
 			},

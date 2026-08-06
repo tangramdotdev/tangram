@@ -24,6 +24,8 @@ mod pty;
 mod server;
 mod util;
 
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[cfg(target_os = "linux")]
 pub mod container;
 #[cfg(target_os = "linux")]
@@ -499,6 +501,28 @@ impl Sandbox {
 
 	pub async fn destroy(&self) -> tg::Result<()> {
 		let mut process = self.0.process.lock().await;
+		let status = process
+			.try_wait()
+			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?;
+		if status.is_some() {
+			return Ok(());
+		}
+
+		// Gracefully shut down the sandbox process.
+		let result = tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
+			self.0.client.shutdown().await?;
+			process
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await;
+		if matches!(result, Ok(Ok(()))) {
+			return Ok(());
+		}
+
+		// Force the sandbox process to exit.
 		if process
 			.try_wait()
 			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?

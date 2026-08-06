@@ -9,6 +9,7 @@ use {
 
 pub mod get;
 pub mod kill;
+pub mod shutdown;
 pub mod spawn;
 pub mod stdio;
 pub mod tty;
@@ -18,8 +19,12 @@ pub mod wait;
 pub struct Client(Arc<State>);
 
 pub struct State {
+	connection: Connection,
+	sender: Sender,
 	service: Service,
 }
+
+type Connection = Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
 
 type Sender = Arc<
 	tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>>,
@@ -40,9 +45,14 @@ enum Error {
 impl Client {
 	#[expect(dead_code)]
 	pub fn new(url: &Uri) -> Self {
+		let connection = Arc::new(tokio::sync::Mutex::new(None));
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(url.clone(), sender);
-		Self(Arc::new(State { service }))
+		let service = Self::service(url.clone(), connection.clone(), sender.clone());
+		Self(Arc::new(State {
+			connection,
+			sender,
+			service,
+		}))
 	}
 
 	pub async fn with_listener(listener: &crate::server::Listener) -> tg::Result<Self> {
@@ -76,20 +86,26 @@ impl Client {
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		let sender = Self::handshake_h2(stream).await?;
+		let (sender, task) = Self::handshake_h2(stream).await?;
+		let connection = Arc::new(tokio::sync::Mutex::new(Some(task)));
 		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
 		let url = Uri::builder()
 			.scheme("http+stdio")
 			.path("")
 			.build()
 			.map_err(|error| tg::error!(!error, "failed to build the URL"))?;
-		let service = Self::service(url, sender);
-		let client = Self(Arc::new(State { service }));
+		let service = Self::service(url, connection.clone(), sender.clone());
+		let client = Self(Arc::new(State {
+			connection,
+			sender,
+			service,
+		}));
 		Ok(client)
 	}
 
-	fn service(url: Uri, sender: Sender) -> Service {
+	fn service(url: Uri, connection: Connection, sender: Sender) -> Service {
 		let service = tower::service_fn(move |request| {
+			let connection = connection.clone();
 			let sender = sender.clone();
 			let url = url.clone();
 			async move {
@@ -97,7 +113,8 @@ impl Client {
 				let mut sender = match guard.as_ref() {
 					Some(sender) if sender.is_ready() => sender.clone(),
 					_ => {
-						let sender = Self::connect_h2(&url).await.map_err(Error::Other)?;
+						let (sender, task) = Self::connect_h2(&url).await.map_err(Error::Other)?;
+						connection.lock().await.replace(task);
 						guard.replace(sender.clone());
 						sender
 					},
@@ -130,7 +147,10 @@ impl Client {
 
 	async fn connect_h2(
 		url: &Uri,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
+	) -> tg::Result<(
+		hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
+		tokio::task::JoinHandle<()>,
+	)> {
 		match url.scheme() {
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -194,7 +214,10 @@ impl Client {
 
 	async fn handshake_h2<S>(
 		stream: S,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>
+	) -> tg::Result<(
+		hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>,
+		tokio::task::JoinHandle<()>,
+	)>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
@@ -209,7 +232,7 @@ impl Client {
 			.map_err(|error| tg::error!(!error, "failed to perform the HTTP handshake"))?;
 
 		// Spawn the connection.
-		tokio::spawn(async move {
+		let task = tokio::spawn(async move {
 			connection
 				.await
 				.inspect_err(|error| {
@@ -224,7 +247,7 @@ impl Client {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to ready the sender"))?;
 
-		Ok(sender)
+		Ok((sender, task))
 	}
 
 	pub(crate) async fn send<B>(
