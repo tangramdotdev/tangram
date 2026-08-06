@@ -1360,22 +1360,13 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to list sandboxes"))?;
 		outputs
 			.into_iter()
-			.map(|output| {
-				let session = session.clone();
-				async move {
-					let error = tg::error::Data {
-						code: Some(tg::error::Code::HeartbeatExpiration),
-						message: Some("heartbeat expired".into()),
-						..Default::default()
-					};
-					let error = Some(tg::Either::Left(error));
-					if let Err(error) = session
-						.try_destroy_sandbox_local(&output.id, error)
-						.boxed()
-						.await
-					{
-						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
-					}
+			.map(|output| async move {
+				let result = self
+					.destroy_expired_runner_sandbox(&output.id)
+					.boxed()
+					.await;
+				if let Err(error) = result {
+					tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to destroy the sandbox");
 				}
 			})
 			.collect::<FuturesUnordered<_>>()

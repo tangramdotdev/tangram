@@ -221,7 +221,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn destroy_expired_runner_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
+	pub(crate) async fn destroy_expired_runner_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::HeartbeatExpiration),
