@@ -8,6 +8,8 @@ use {
 
 impl Session {
 	pub(crate) async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
+		self.verify_request_from_host()?;
+
 		// Get the event sender.
 		let watch = self
 			.server

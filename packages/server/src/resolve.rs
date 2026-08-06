@@ -17,6 +17,7 @@ impl Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>> + Send + use<>,
 	> {
 		let stream = if let tg::reference::Item::Specifier(specifier) = reference.item() {
+			self.verify_request_with_network_access()?;
 			self.try_resolve_specifier(specifier, reference.options(), &arg)
 				.await?
 		} else {

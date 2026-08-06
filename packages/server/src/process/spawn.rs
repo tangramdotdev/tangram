@@ -1,5 +1,5 @@
 use {
-	crate::{Origin, Session},
+	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::pin::pin,
@@ -31,6 +31,10 @@ impl Session {
 				"unsandboxed processes cannot be spawned on the server"
 			));
 		}
+		let request_origin_sandbox = self
+			.server
+			.try_get_request_origin_sandbox(self.context.origin)?
+			.map(|sandbox| sandbox.data.id.clone());
 
 		// Get the authenticated process.
 		let authenticated_process = match &self.context.principal {
@@ -39,7 +43,7 @@ impl Session {
 		};
 
 		// Resolve the command.
-		let sandbox_host = if matches!(self.context.origin, Origin::Sandbox { .. }) {
+		let sandbox_host = if request_origin_sandbox.is_some() {
 			authenticated_process
 				.as_ref()
 				.map(|process| process.host.as_str())
@@ -62,17 +66,22 @@ impl Session {
 
 		// Validate an unchecksummed child sandbox against its parent.
 		if arg.checksum.is_none()
-			&& let Some(process) = &authenticated_process
-			&& let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+			&& let Some(parent) = request_origin_sandbox.as_ref().or_else(|| {
+				authenticated_process
+					.as_ref()
+					.map(|process| &process.sandbox)
+			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
 		{
-			self.validate_sandbox_create_arg_with_parent(sandbox, &process.sandbox)
+			self.validate_sandbox_create_arg_with_parent(sandbox, parent)
 				.await?;
 		}
 
 		// Get the parent sandbox if there is one.
-		let parent_sandbox = authenticated_process
-			.as_ref()
-			.map(|process| process.sandbox.clone());
+		let parent_sandbox = request_origin_sandbox.or_else(|| {
+			authenticated_process
+				.as_ref()
+				.map(|process| process.sandbox.clone())
+		});
 
 		// Create the progress.
 		let progress = crate::progress::Handle::new();

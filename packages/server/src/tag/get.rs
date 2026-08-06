@@ -14,6 +14,7 @@ impl Session {
 		tag: &tg::tag::Selector,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
+		self.verify_request_with_network_access()?;
 		let selector = match tag {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

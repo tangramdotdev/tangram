@@ -22,6 +22,7 @@ impl Session {
 		&self,
 		arg: tg::runner::list::Arg,
 	) -> tg::Result<tg::runner::list::Output> {
+		self.verify_request_from_host()?;
 		if arg.all && arg.owner.is_some() {
 			return Err(tg::error!(
 				"the owner and all options are mutually exclusive"

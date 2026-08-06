@@ -10,10 +10,10 @@ pub struct Context {
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, derive_more::TryUnwrap, Eq, PartialEq)]
 pub enum Origin {
 	Host,
-	Sandbox { index: u64 },
+	Sandbox(u64),
 }
 
 impl Context {

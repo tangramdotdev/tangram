@@ -220,6 +220,7 @@ impl Session {
 	}
 
 	pub async fn try_get_remote_session(&self, remote: &str) -> tg::Result<Option<tg::Session>> {
+		self.verify_request_with_network_access()?;
 		let Some(output) = self
 			.try_get_remote(remote, tg::remote::get::Arg::default())
 			.await

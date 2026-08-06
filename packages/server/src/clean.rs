@@ -16,6 +16,7 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
+		self.verify_request_from_host()?;
 		if !self.server.config.advanced.single_process {
 			return Err(tg::error!("cannot clean in multi-process mode"));
 		}

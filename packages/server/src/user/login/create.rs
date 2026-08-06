@@ -13,6 +13,8 @@ impl Session {
 		&self,
 		arg: tg::user::login::create::Arg,
 	) -> tg::Result<tg::user::login::create::Output> {
+		self.verify_request_with_network_access()?;
+
 		// Get the location.
 		let location = self
 			.server

@@ -11,6 +11,8 @@ impl Session {
 		&self,
 		mut arg: tg::watch::delete::Arg,
 	) -> tg::Result<Option<()>> {
+		self.verify_request_from_host()?;
+
 		// Canonicalize the path's parent.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));

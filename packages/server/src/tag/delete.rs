@@ -12,6 +12,7 @@ impl Session {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
+		self.verify_request_with_network_access()?;
 		let location = self
 			.server
 			.location(arg.location.as_ref())

@@ -9,6 +9,7 @@ impl Session {
 		&self,
 		_arg: tg::watch::list::Arg,
 	) -> tg::Result<tg::watch::list::Output> {
+		self.verify_request_from_host()?;
 		let data = self
 			.server
 			.watches

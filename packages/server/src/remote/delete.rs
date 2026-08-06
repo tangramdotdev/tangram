@@ -81,6 +81,8 @@ impl Session {
 		request: http::Request<BoxBody>,
 		name: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		self.verify_request_from_host()?;
+
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)

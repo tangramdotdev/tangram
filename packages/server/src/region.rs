@@ -5,6 +5,7 @@ use {
 
 impl Session {
 	pub(crate) async fn get_region_session(&self, region: &str) -> tg::Result<tg::Session> {
+		self.verify_request_with_network_access()?;
 		let client = self.server.get_region_client(region).await?;
 		let context = client.context().clone();
 		context.set_token(self.context.token.clone());

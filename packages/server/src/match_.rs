@@ -7,6 +7,7 @@ use {
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "match", skip_all)]
 	pub(crate) async fn match_(&self, arg: tg::match_::Arg) -> tg::Result<tg::match_::Output> {
+		self.verify_request_with_network_access()?;
 		let local_arg = arg.clone();
 		let entries = self
 			.query_specifier_entries(

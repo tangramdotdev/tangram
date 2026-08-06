@@ -32,24 +32,40 @@ impl Session {
 		Self { server, context }
 	}
 
+	pub(crate) fn verify_request_from_host(&self) -> tg::Result<()> {
+		if self
+			.server
+			.try_get_request_origin_sandbox(self.context.origin)?
+			.is_some()
+		{
+			return Err(tg::error!("the operation is not available from a sandbox"));
+		}
+
+		Ok(())
+	}
+
+	pub(crate) fn verify_request_with_network_access(&self) -> tg::Result<()> {
+		if !self.server.origin_has_network_access(self.context.origin)? {
+			return Err(tg::error!(
+				"network access is disabled for the origin sandbox"
+			));
+		}
+
+		Ok(())
+	}
+
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		let sandbox = match &self.context.principal {
-			tg::Principal::Process(process) => {
-				self.server.runner.state().try_get_process_sandbox(process)
-			},
-			_ => None,
-		};
-		let Some(sandbox) = sandbox else {
+		let Some(sandbox) = self
+			.server
+			.try_get_request_origin_sandbox(self.context.origin)?
+		else {
 			return Ok(path.to_owned());
 		};
-		let sandbox = self
-			.server
-			.runner
-			.state()
-			.sandboxes()
-			.get_by_id(&sandbox)
-			.and_then(|sandbox| sandbox.sandbox.clone())
-			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
+		let id = sandbox.data.id.clone();
+		let sandbox = sandbox
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
 
 		// Resolve a guest artifacts path to the cache directory, where the shared artifacts live.
 		if self.server.vfs.lock().unwrap().is_some()
@@ -64,23 +80,17 @@ impl Session {
 	}
 
 	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
-		let sandbox = match &self.context.principal {
-			tg::Principal::Process(process) => {
-				self.server.runner.state().try_get_process_sandbox(process)
-			},
-			_ => None,
-		};
-		let Some(sandbox) = sandbox else {
+		let Some(sandbox) = self
+			.server
+			.try_get_request_origin_sandbox(self.context.origin)?
+		else {
 			return Ok(path.to_owned());
 		};
-		let sandbox = self
-			.server
-			.runner
-			.state()
-			.sandboxes()
-			.get_by_id(&sandbox)
-			.and_then(|sandbox| sandbox.sandbox.clone())
-			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
+		let id = sandbox.data.id.clone();
+		let sandbox = sandbox
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
 
 		// Serve a shared artifacts path through the per-sandbox VFS mount.
 		if self.server.vfs.lock().unwrap().is_some()

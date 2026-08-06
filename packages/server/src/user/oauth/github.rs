@@ -31,6 +31,8 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		self.verify_request_with_network_access()?;
+
 		// Get the GitHub config.
 		let github = self.github_config()?;
 
@@ -113,6 +115,8 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		self.verify_request_with_network_access()?;
+
 		// Get the GitHub config.
 		let github = self.github_config()?.clone();
 

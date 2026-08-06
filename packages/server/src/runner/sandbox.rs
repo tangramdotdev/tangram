@@ -525,7 +525,7 @@ impl Session {
 					&self.server,
 					&socket,
 					vm.dax,
-					Origin::Sandbox { index },
+					Origin::Sandbox(index),
 					principal.clone(),
 				)
 				.await
@@ -563,7 +563,7 @@ impl Session {
 							crate::vfs::Kind::Fuse,
 							&mount_path,
 							options,
-							Origin::Sandbox { index },
+							Origin::Sandbox(index),
 							principal,
 							Some(recvfd),
 						)
@@ -668,12 +668,7 @@ impl Session {
 			};
 			move |stopper| async move {
 				server
-					.serve(
-						listener,
-						listener_config,
-						Origin::Sandbox { index },
-						stopper,
-					)
+					.serve(listener, listener_config, Origin::Sandbox(index), stopper)
 					.await;
 			}
 		});

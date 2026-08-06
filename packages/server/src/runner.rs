@@ -86,6 +86,7 @@ impl Runner {
 
 impl Session {
 	pub(crate) async fn authorize_runner_owner(&self, owner: Option<&tg::Id>) -> tg::Result<()> {
+		self.verify_request_from_host()?;
 		let Some(owner) = owner else {
 			if matches!(self.context.principal, tg::Principal::Root) {
 				return Ok(());

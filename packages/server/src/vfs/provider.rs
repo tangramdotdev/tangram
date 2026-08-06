@@ -726,7 +726,7 @@ impl Provider {
 		}
 
 		// Check the sandbox's locally tracked subtree token.
-		if let crate::Origin::Sandbox { index } = self.origin {
+		if let crate::Origin::Sandbox(index) = self.origin {
 			let permission =
 				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();

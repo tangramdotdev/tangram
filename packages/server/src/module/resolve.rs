@@ -554,16 +554,42 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request
+		let mut arg: tg::module::resolve::Arg = request
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		if let Some(referrer) = &mut arg.referrer
+			&& !matches!(referrer.kind, tg::module::Kind::Dts)
+			&& let tg::module::data::Item::Path(path) = &mut referrer.referent.item
+		{
+			*path = self.host_path_for_guest_path(path)?;
+		}
+		let reference = &arg.import.reference;
+		let mut item = reference.item().clone();
+		if let tg::reference::Item::Path(path) = &mut item
+			&& path.is_absolute()
+		{
+			*path = self.host_path_for_guest_path(path)?;
+		}
+		let mut options = reference.options().clone();
+		if let Some(source) = &mut options.source
+			&& source.is_absolute()
+		{
+			*source = self.host_path_for_guest_path(source)?;
+		}
+		let export = reference.export().map(str::to_owned);
+		arg.import.reference = tg::Reference::new(item, options, export);
 
 		// Resolve the module.
-		let output = self
+		let mut output = self
 			.resolve_module(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the module"))?;
+		if !matches!(output.module.kind, tg::module::Kind::Dts)
+			&& let tg::module::data::Item::Path(path) = &mut output.module.referent.item
+		{
+			*path = self.guest_path_for_host_path(path)?;
+		}
 
 		// Create the response.
 		let (content_type, body) = match accept

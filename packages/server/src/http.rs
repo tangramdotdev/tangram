@@ -509,7 +509,7 @@ impl Server {
 
 		// Authenticate.
 		let token = request.token(None).map(str::to_owned);
-		let result = self.authenticate(token.as_deref()).await;
+		let result = self.authenticate(context.origin, token.as_deref()).await;
 		context.token = token;
 		let authentication = match result {
 			Ok(authentication) => authentication,

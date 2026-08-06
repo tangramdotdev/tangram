@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Origin, Server},
 	dashmap::DashMap,
 	futures::future::BoxFuture,
 	std::{
@@ -96,6 +96,30 @@ impl Sandboxes {
 }
 
 impl Server {
+	pub(crate) fn origin_has_network_access(&self, origin: Origin) -> tg::Result<bool> {
+		let sandbox = self.try_get_request_origin_sandbox(origin)?;
+		let has_network_access = sandbox.is_none_or(|sandbox| sandbox.data.network.is_some());
+
+		Ok(has_network_access)
+	}
+
+	pub(crate) fn try_get_request_origin_sandbox(
+		&self,
+		origin: Origin,
+	) -> tg::Result<Option<dashmap::mapref::one::Ref<'_, u64, State>>> {
+		let Ok(index) = origin.try_unwrap_sandbox() else {
+			return Ok(None);
+		};
+		let sandbox = self
+			.runner
+			.state()
+			.sandboxes()
+			.get(index)
+			.ok_or_else(|| tg::error!(%index, "failed to find the origin sandbox"))?;
+
+		Ok(Some(sandbox))
+	}
+
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
 		let subject = format!("sandboxes.{id}.status");
 		tokio::spawn({

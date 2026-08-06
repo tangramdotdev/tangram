@@ -30,6 +30,7 @@ impl Session {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
+		self.verify_request_from_host()?;
 		let compiler = self.create_compiler();
 		let result = match self.context.stopper.clone() {
 			Some(stopper) => {

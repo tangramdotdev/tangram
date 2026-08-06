@@ -1,5 +1,5 @@
 use {
-	crate::{Server, Session},
+	crate::{Origin, Server, Session},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -219,7 +219,23 @@ impl Server {
 		Ok(token.to_string())
 	}
 
-	pub(crate) async fn authenticate(&self, token: Option<&str>) -> tg::Result<Authentication> {
+	pub(crate) async fn authenticate(
+		&self,
+		origin: Origin,
+		token: Option<&str>,
+	) -> tg::Result<Authentication> {
+		let authentication = self.authenticate_inner(token).await?;
+		if self.origin_can_authenticate_as(origin, &authentication.principal)? {
+			return Ok(authentication);
+		}
+
+		Ok(Authentication {
+			billing: false,
+			principal: tg::Principal::Anonymous,
+		})
+	}
+
+	async fn authenticate_inner(&self, token: Option<&str>) -> tg::Result<Authentication> {
 		if let Some((token, root_token)) =
 			token.zip(self.config().authentication.root.token.as_deref())
 			&& crate::token::matches(token, root_token)
@@ -295,6 +311,31 @@ impl Server {
 			billing: false,
 			principal: tg::Principal::Anonymous,
 		})
+	}
+
+	fn origin_can_authenticate_as(
+		&self,
+		origin: Origin,
+		principal: &tg::Principal,
+	) -> tg::Result<bool> {
+		let Some(sandbox) = self.try_get_request_origin_sandbox(origin)? else {
+			return Ok(true);
+		};
+		if sandbox.data.network.is_some() {
+			return Ok(true);
+		}
+		let can_authenticate = match principal {
+			tg::Principal::Anonymous => true,
+			tg::Principal::Group(_)
+			| tg::Principal::Organization(_)
+			| tg::Principal::Root
+			| tg::Principal::Runner(_)
+			| tg::Principal::User(_) => false,
+			tg::Principal::Process(id) => sandbox.processes.contains_key(id),
+			tg::Principal::Sandbox(id) => sandbox.data.id == *id,
+		};
+
+		Ok(can_authenticate)
 	}
 
 	async fn authenticate_runner(&self, token: &str) -> tg::Result<Option<tg::runner::Id>> {

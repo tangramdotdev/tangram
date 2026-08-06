@@ -14,6 +14,7 @@ use {
 
 impl Session {
 	pub(crate) async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.verify_request_with_network_access()?;
 		let location = self
 			.server
 			.location(arg.location.as_ref())

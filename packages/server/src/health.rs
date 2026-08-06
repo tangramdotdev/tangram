@@ -16,6 +16,17 @@ impl Session {
 				}
 			}
 		}
+		if self
+			.server
+			.try_get_request_origin_sandbox(self.context.origin)?
+			.is_some()
+			&& fields.is_none_or(|fields| {
+				fields
+					.iter()
+					.any(|field| !matches!(field.as_str(), "diagnostics" | "version"))
+			}) {
+			return Err(tg::error!("unauthorized"));
+		}
 
 		let include_field = |name: &str| match fields {
 			Some(fields) => fields.iter().any(|field| field == name),

@@ -31,6 +31,7 @@ impl Session {
 		tg::runner::control::Output,
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
+		self.verify_request_from_host()?;
 		match &self.context.principal {
 			tg::Principal::Root => (),
 			tg::Principal::Runner(runner) if runner == &arg.id => (),

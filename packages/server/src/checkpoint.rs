@@ -153,6 +153,7 @@ impl Server {
 
 impl Session {
 	fn checkpoint_state(&self) -> tg::Result<Option<&State>> {
+		self.verify_request_from_host()?;
 		if !matches!(self.context.principal, tg::Principal::Root) {
 			return Err(tg::error!("unauthorized"));
 		}

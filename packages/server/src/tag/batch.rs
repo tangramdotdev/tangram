@@ -12,6 +12,7 @@ use {
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		self.verify_request_with_network_access()?;
 		let location = self
 			.server
 			.location(arg.location.as_ref())

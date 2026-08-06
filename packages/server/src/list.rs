@@ -21,6 +21,7 @@ pub(crate) struct Kinds {
 impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		self.verify_request_with_network_access()?;
 		let local_arg = arg.clone();
 		let entries = self
 			.query_specifier_entries(

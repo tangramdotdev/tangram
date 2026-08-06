@@ -155,10 +155,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Get the arg.
-		let arg = request
+		let mut arg: tg::module::load::Arg = request
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		if !matches!(arg.module.kind, tg::module::Kind::Dts)
+			&& let tg::module::data::Item::Path(path) = &mut arg.module.referent.item
+		{
+			*path = self.host_path_for_guest_path(path)?;
+		}
 
 		// Load the module.
 		let output = self
