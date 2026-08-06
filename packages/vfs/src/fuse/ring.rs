@@ -1,4 +1,7 @@
-use super::{session::notify_async_response, *};
+use {
+	super::{session::notify_async_response, *},
+	std::os::fd::RawFd,
+};
 
 pub(super) mod worker;
 
@@ -25,6 +28,7 @@ pub(super) struct RingStartupContext<'a> {
 	pub(super) ready: Option<Arc<OwnedFd>>,
 	pub(super) ring_config: RingConfig,
 	pub(super) runtime: tokio::runtime::Handle,
+	pub(super) sqpoll_wq_fd: Option<RawFd>,
 }
 
 pub(super) struct RingStartupFailure {
@@ -37,6 +41,7 @@ struct RingWorkerConfig {
 	payload_size: usize,
 	queue_ids: Vec<u16>,
 	slots_per_queue: usize,
+	sqpoll_wq_fd: Option<RawFd>,
 	worker_id: usize,
 }
 
@@ -186,6 +191,7 @@ where
 			ready,
 			ring_config,
 			runtime,
+			sqpoll_wq_fd,
 		} = context;
 		let mut thread_handles = Vec::new();
 		let startup = async {
@@ -202,6 +208,7 @@ where
 				payload_size = ring_config.limits.payload_size,
 				queue_count = ring_config.queue_count,
 				slots_per_queue = ring_config.slots_per_queue,
+				sqpoll = sqpoll_wq_fd.is_some(),
 				worker_count = ring_config.worker_count,
 				"starting the FUSE io_uring transport",
 			);
@@ -221,6 +228,7 @@ where
 					payload_size: ring_config.limits.payload_size,
 					queue_ids,
 					slots_per_queue: ring_config.slots_per_queue,
+					sqpoll_wq_fd,
 					worker_id,
 				};
 				let thread = std::thread::Builder::new()

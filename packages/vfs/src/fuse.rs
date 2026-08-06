@@ -64,10 +64,21 @@ const S_IFDIR: u32 = 0o040_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFLNK: u32 = 0o120_000;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Options {
 	pub io: Io,
 	pub passthrough: Passthrough,
+	pub sqpoll: bool,
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			io: Io::default(),
+			passthrough: Passthrough::default(),
+			sqpoll: true,
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

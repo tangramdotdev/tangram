@@ -552,7 +552,8 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to create the FUSE socket pair"))?;
 
 				// Start the VFS concurrently, because it blocks until the sandbox mounts the filesystem and sends the descriptor.
-				let options = self.server.config.vfs.clone().unwrap_or_default();
+				let mut options = self.server.config.vfs.clone().unwrap_or_default();
+				options.sqpoll = false;
 				let vfs_task = Task::spawn({
 					let server = self.server.clone();
 					let principal = principal.clone();

@@ -1,12 +1,17 @@
 use super::{
-	Arc, AtomicBool, DEFAULT_MAX_WRITE, Error, Features, HashMap, Io, Mutex, Options, OwnedFd,
-	Passthrough, PassthroughBackings, Path, Provider, RequestLimits, Result, Server, State,
-	WorkerEvent,
+	Arc, AtomicBool, DEFAULT_MAX_WRITE, Error, Features, HashMap, Io, IoUring, Mutex, Options,
+	OwnedFd, Passthrough, PassthroughBackings, Path, Provider, RequestLimits, Result, Server,
+	State, WorkerEvent,
 	connection::Connection,
 	fusermount3,
 	read_write::ReadWriteStartupContext,
 	ring::{RingConfig, RingStartupContext},
 };
+
+const IO_URING_ENTRIES: u32 = 256;
+const SQPOLL_IDLE_MS: u32 = 2_000;
+
+type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
 struct Mount {
 	connection_id: Option<u64>,
@@ -80,8 +85,8 @@ where
 		// Prepare the FUSE connection.
 		let supports_no_opendir = provider.supports_no_opendir();
 		let mut config = Self::startup_config(options, external_mount)?;
-		let mut connection =
-			Self::prepare_connection(path, supports_no_opendir, &config, mount).await?;
+		let (mut connection, mut sqpoll_ring) =
+			Self::prepare_connection(path, supports_no_opendir, &mut config, mount).await?;
 
 		// Create the server state.
 		let server = Self(Arc::new(State {
@@ -113,6 +118,7 @@ where
 				ready: connection.ready.clone(),
 				ring_config,
 				runtime: runtime.clone(),
+				sqpoll_wq_fd: sqpoll_ring.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
 			};
 			match server.start_ring_transport(context).await {
 				Err(failure) if config.options.io == Io::Auto => {
@@ -127,6 +133,7 @@ where
 						error = %failure.error,
 						"failed to start the FUSE io_uring transport; falling back to ReadWrite",
 					);
+					drop(sqpoll_ring.take());
 					drop(connection);
 					config.options.io = Io::ReadWrite;
 					config.limits =
@@ -203,6 +210,7 @@ where
 				shutdown_server.rollback_all_response_resources(connection.fd.as_ref());
 			}
 			drop(connection);
+			drop(sqpoll_ring);
 		};
 
 		// Start the transport supervisor.
@@ -258,19 +266,49 @@ where
 	async fn prepare_connection(
 		path: &Path,
 		supports_no_opendir: bool,
-		config: &StartupConfig,
-		mount: Mount,
-	) -> Result<Connection> {
-		Self::connect(
-			path,
-			config.options,
-			config.limits,
-			supports_no_opendir,
-			mount.fd,
-			mount.connection_id,
-			mount.ready,
-		)
-		.await
+		config: &mut StartupConfig,
+		mut mount: Mount,
+	) -> Result<(Connection, Option<SqpollRing>)> {
+		loop {
+			let connection = Self::connect(
+				path,
+				config.options,
+				config.limits,
+				supports_no_opendir,
+				mount.fd.clone(),
+				mount.connection_id,
+				mount.ready.clone(),
+			)
+			.await?;
+			if !connection.features.over_io_uring || !config.options.sqpoll {
+				return Ok((connection, None));
+			}
+
+			match Self::build_sqpoll_ring() {
+				Err(error) if config.options.io == Io::Auto => {
+					tracing::warn!(
+						%error,
+						"failed to build the FUSE io_uring SQPOLL ring; falling back to the ReadWrite transport",
+					);
+					drop(connection);
+					config.options.io = Io::ReadWrite;
+					config.ring_config = None;
+					config.limits =
+						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
+					mount = Self::remount(path).await?;
+				},
+				Err(error) => return Err(error),
+				Ok(ring) => return Ok((connection, Some(ring))),
+			}
+		}
+	}
+
+	fn build_sqpoll_ring() -> Result<SqpollRing> {
+		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
+		builder.setup_sqpoll(SQPOLL_IDLE_MS).setup_no_sqarray();
+		builder
+			.build(IO_URING_ENTRIES)
+			.map_err(|error| Error::other(format!("failed to build an SQPOLL ring: {error}")))
 	}
 
 	async fn remount(path: &Path) -> Result<Mount> {

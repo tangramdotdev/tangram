@@ -1439,6 +1439,9 @@ pub struct Vfs {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub passthrough: Option<VfsPassthrough>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sqpoll: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -3118,6 +3121,9 @@ fn resolve_vfs(source: Vfs) -> server::Vfs {
 	}
 	if let Some(value) = source.passthrough {
 		target.passthrough = resolve_vfs_passthrough(value);
+	}
+	if let Some(value) = source.sqpoll {
+		target.sqpoll = value;
 	}
 	if let Some(value) = source.app_group_identifier {
 		target.app_group_identifier = Some(value);

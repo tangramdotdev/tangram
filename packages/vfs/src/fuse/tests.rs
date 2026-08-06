@@ -202,6 +202,11 @@ fn external_mounts_use_lightweight_ring_configs() {
 	assert_eq!(config.worker_count, 1);
 }
 
+#[test]
+fn options_enable_sqpoll_by_default() {
+	assert!(Options::default().sqpoll);
+}
+
 #[tokio::test]
 async fn waits_for_external_mount_readiness_signals() {
 	let (receiver, sender) = rustix::net::socketpair(

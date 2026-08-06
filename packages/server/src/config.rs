@@ -931,6 +931,8 @@ pub struct Vfs {
 	pub io: VfsIo,
 
 	pub passthrough: VfsPassthrough,
+
+	pub sqpoll: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1550,6 +1552,7 @@ impl Default for Vfs {
 			kind: VfsKind::Auto,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
+			sqpoll: true,
 		}
 	}
 }

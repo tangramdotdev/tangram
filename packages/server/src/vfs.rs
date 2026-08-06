@@ -91,6 +91,7 @@ impl Server {
 								vfs::fuse::Passthrough::Required
 							},
 						},
+						sqpoll: options.sqpoll,
 					};
 					// Without a sandbox socket, mount with the fusermount3 helper after unmounting a stale mount.
 					let recvfd = match recvfd {
