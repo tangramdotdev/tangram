@@ -338,7 +338,7 @@ impl Session {
 										.runner
 										.state
 										.sandboxes
-										.get_mut(&sandbox)
+										.get_mut_by_id(&sandbox)
 										.ok_or_else(
 											|| tg::error!(%process_id, "failed to find the sandbox"),
 										)?;

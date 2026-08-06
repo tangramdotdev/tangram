@@ -21,7 +21,12 @@ pub mod processes;
 pub mod status;
 
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<()>>;
-pub type Map = DashMap<tg::sandbox::Id, State, tg::id::BuildHasher>;
+
+#[derive(Default)]
+pub struct Sandboxes {
+	indexes: DashMap<tg::sandbox::Id, u64, tg::id::BuildHasher>,
+	sandboxes: DashMap<u64, State, fnv::FnvBuildHasher>,
+}
 
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
@@ -33,6 +38,62 @@ pub struct State {
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;
+
+impl Sandboxes {
+	#[must_use]
+	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
+		self.sandboxes.get(&index)
+	}
+
+	#[must_use]
+	pub fn get_by_id(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
+		let index = *self.indexes.get(id)?;
+
+		self.sandboxes.get(&index)
+	}
+
+	#[must_use]
+	pub fn get_mut_by_id(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
+		let index = *self.indexes.get(id)?;
+
+		self.sandboxes.get_mut(&index)
+	}
+
+	pub fn insert(&self, index: u64, id: tg::sandbox::Id, state: State) {
+		match self.sandboxes.entry(index) {
+			dashmap::Entry::Occupied(_) => panic!("the sandbox index is already in use"),
+			dashmap::Entry::Vacant(entry) => {
+				entry.insert(state);
+			},
+		}
+		match self.indexes.entry(id) {
+			dashmap::Entry::Occupied(_) => {
+				self.sandboxes.remove(&index);
+				panic!("the sandbox ID is already in use");
+			},
+			dashmap::Entry::Vacant(entry) => {
+				entry.insert(index);
+			},
+		}
+	}
+
+	pub fn iter(&self) -> dashmap::iter::Iter<'_, u64, State, fnv::FnvBuildHasher> {
+		self.sandboxes.iter()
+	}
+
+	pub fn remove(&self, index: u64) -> Option<State> {
+		let (_, state) = self.sandboxes.remove(&index)?;
+		self.indexes.remove(&state.data.id);
+
+		Some(state)
+	}
+}
 
 impl Server {
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {

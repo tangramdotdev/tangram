@@ -40,7 +40,7 @@ impl Session {
 			.processes()
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
-			&& let Some(sandbox) = self.server.runner.state().sandboxes().get(&sandbox)
+			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox)
 			&& let Some(process) = sandbox.processes.get(id)
 		{
 			return Ok(Some(Process {
@@ -81,7 +81,7 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<Sandbox>> {
-		if let Some(sandbox) = self.server.runner.state().sandboxes().get(id) {
+		if let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(id) {
 			let location = sandbox
 				.data
 				.location
@@ -219,14 +219,9 @@ impl Server {
 		Ok(token.to_string())
 	}
 
-	pub(crate) async fn authenticate(
-		&self,
-		sandbox: bool,
-		token: Option<&str>,
-	) -> tg::Result<Authentication> {
-		if !sandbox
-			&& let Some((token, root_token)) =
-				token.zip(self.config().authentication.root.token.as_deref())
+	pub(crate) async fn authenticate(&self, token: Option<&str>) -> tg::Result<Authentication> {
+		if let Some((token, root_token)) =
+			token.zip(self.config().authentication.root.token.as_deref())
 			&& crate::token::matches(token, root_token)
 		{
 			return Ok(Authentication {
@@ -239,13 +234,6 @@ impl Server {
 			let principal = self
 				.authenticate_token(value)
 				.unwrap_or(tg::Principal::Anonymous);
-			if sandbox && !matches!(principal, tg::Principal::Process(_)) {
-				return Ok(Authentication {
-					billing: false,
-					principal: tg::Principal::Anonymous,
-				});
-			}
-
 			return Ok(Authentication {
 				billing: false,
 				principal,
@@ -273,13 +261,6 @@ impl Server {
 					});
 				}
 			}
-		}
-
-		if sandbox {
-			return Ok(Authentication {
-				billing: false,
-				principal: tg::Principal::Anonymous,
-			});
 		}
 
 		if let Some(token) = token {
@@ -345,7 +326,7 @@ impl Server {
 				.state()
 				.processes()
 				.get(id)
-				.and_then(|sandbox| self.runner.state().sandboxes().get(sandbox.value()))
+				.and_then(|sandbox| self.runner.state().sandboxes().get_by_id(sandbox.value()))
 				.and_then(|sandbox| {
 					sandbox
 						.processes
@@ -357,7 +338,7 @@ impl Server {
 				.runner
 				.state()
 				.sandboxes()
-				.get(id)
+				.get_by_id(id)
 				.is_some_and(|sandbox| sandbox.token.as_deref() == Some(value)),
 			_ => false,
 		};

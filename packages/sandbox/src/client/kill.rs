@@ -10,9 +10,9 @@ pub struct Arg {
 }
 
 impl Client {
-	pub async fn kill(&self, id: u64, arg: Arg) -> tg::Result<()> {
+	pub async fn kill(&self, index: u64, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = format!("/processes/{id}/kill");
+		let uri = format!("/processes/{index}/kill");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

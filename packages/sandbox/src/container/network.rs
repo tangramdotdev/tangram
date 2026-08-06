@@ -4,7 +4,7 @@ use {
 };
 
 pub(crate) fn create(
-	id: u64,
+	index: u64,
 	identity: &Path,
 	dns: &[Ipv4Addr],
 	firewall: crate::Firewall,
@@ -21,7 +21,7 @@ pub(crate) fn create(
 				crate::network::veth::setup(firewall)?;
 				let guest = reserve_veth_guest(pool)?;
 				let network =
-					crate::network::veth::Network::new(id, identity, firewall, guest, ports)?;
+					crate::network::veth::Network::new(index, identity, firewall, guest, ports)?;
 				let network = crate::network::Network::Veth(network);
 				Ok(Some(network))
 			} else {

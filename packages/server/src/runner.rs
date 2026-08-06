@@ -42,11 +42,11 @@ pub struct Runner {
 pub struct State {
 	capacity: self::capacity::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
-	next_sandbox_id: AtomicU64,
+	next_sandbox_index: AtomicU64,
 	process_tokens: dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
 	processes: crate::process::Map,
 	reservations: self::capacity::Reservations,
-	sandboxes: crate::sandbox::Map,
+	sandboxes: crate::sandbox::Sandboxes,
 	scheduler: tokio::sync::watch::Sender<Option<tg::scheduler::Id>>,
 }
 
@@ -57,11 +57,11 @@ impl Runner {
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
-			next_sandbox_id: AtomicU64::new(1),
+			next_sandbox_index: AtomicU64::new(1),
 			process_tokens: dashmap::DashMap::new(),
 			processes: crate::process::Map::default(),
 			reservations: self::capacity::Reservations::new(),
-			sandboxes: crate::sandbox::Map::default(),
+			sandboxes: crate::sandbox::Sandboxes::default(),
 			scheduler,
 		};
 		let task = Mutex::new(None);
@@ -514,7 +514,7 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn sandboxes(&self) -> &crate::sandbox::Map {
+	pub(crate) fn sandboxes(&self) -> &crate::sandbox::Sandboxes {
 		&self.sandboxes
 	}
 
@@ -548,11 +548,11 @@ impl State {
 	}
 
 	#[must_use]
-	fn create_sandbox_id(&self) -> u64 {
-		let id = self.next_sandbox_id.fetch_add(1, Ordering::Relaxed);
-		assert_ne!(id, u64::MAX, "exhausted the sandbox ids");
+	fn create_sandbox_index(&self) -> u64 {
+		let index = self.next_sandbox_index.fetch_add(1, Ordering::Relaxed);
+		assert_ne!(index, u64::MAX, "exhausted the sandbox indexes");
 
-		id
+		index
 	}
 
 	#[must_use]
@@ -578,7 +578,9 @@ impl State {
 
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
-		self.sandboxes.get(id).map(|sandbox| sandbox.data.clone())
+		self.sandboxes
+			.get_by_id(id)
+			.map(|sandbox| sandbox.data.clone())
 	}
 
 	#[must_use]
@@ -588,7 +590,7 @@ impl State {
 		position: u64,
 		length: u64,
 	) -> Option<crate::sandbox::processes::Output> {
-		let sandbox = self.sandboxes.get(id)?;
+		let sandbox = self.sandboxes.get_by_id(id)?;
 		let mut processes = sandbox.processes.keys().cloned().collect::<Vec<_>>();
 		processes.sort();
 		let processes_length = u64::try_from(processes.len()).unwrap();
@@ -604,7 +606,7 @@ impl State {
 	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get(&sandbox)?;
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		Some(process.data.clone())
 	}
@@ -617,7 +619,7 @@ impl State {
 		length: u64,
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let sandbox = self.sandboxes.get(&sandbox)?;
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
 		let children = process.data.children.as_deref().unwrap_or_default();
 		let children_length = u64::try_from(children.len()).unwrap();
@@ -636,7 +638,7 @@ impl State {
 		update: impl FnOnce(&mut crate::process::State) -> T,
 	) -> Option<T> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let mut sandbox = self.sandboxes.get_mut(&sandbox)?;
+		let mut sandbox = self.sandboxes.get_mut_by_id(&sandbox)?;
 		let process = sandbox.processes.get_mut(id)?;
 		Some(update(process))
 	}

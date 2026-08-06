@@ -56,7 +56,7 @@ pub struct Args {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
-	pub id: u64,
+	pub index: u64,
 
 	#[arg(long)]
 	pub network: Option<tangram_sandbox::container::run::Network>,
@@ -136,7 +136,7 @@ impl Args {
 			gid: self.gid,
 			guest_ip: self.guest_ip,
 			hostname: self.hostname,
-			id: self.id,
+			index: self.index,
 			network: self.network,
 			network_fd: self.network_fd,
 			new_session: self.new_session,

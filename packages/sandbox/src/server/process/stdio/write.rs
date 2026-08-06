@@ -23,7 +23,7 @@ enum Writer {
 impl Server {
 	pub async fn write_stdio(
 		&self,
-		id: u64,
+		index: u64,
 		arg: crate::client::stdio::Arg,
 		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
@@ -34,8 +34,8 @@ impl Server {
 
 		let process = self
 			.processes
-			.get(&id)
-			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
+			.get(&index)
+			.ok_or_else(|| tg::error!(process = %index, "failed to find the process"))?;
 		let stdin_mode = process.command.stdin;
 		let stdin = process.stdin.clone();
 		let pty = process.pty.clone();
@@ -48,14 +48,14 @@ impl Server {
 			},
 			Stdio::Pipe => {
 				let writer = stdin
-					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?
+					.ok_or_else(|| tg::error!(process = %index, "stdin is not available"))?
 					.lock_owned()
 					.await;
 				Writer::Stdin(writer)
 			},
 			Stdio::Tty => {
 				let writer =
-					pty.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?;
+					pty.ok_or_else(|| tg::error!(process = %index, "stdin is not available"))?;
 				Writer::Pty(writer)
 			},
 		};
@@ -67,7 +67,7 @@ impl Server {
 			(stream, Some(writer), false),
 			move |(mut stream, mut writer, done)| {
 				let server = server.clone();
-				let id = id;
+				let index = index;
 				async move {
 					if done {
 						return Ok(None);
@@ -118,7 +118,7 @@ impl Server {
 									let stdin = matches!(w, Writer::Stdin(_));
 									drop(w);
 									if stdin
-										&& let Some(mut process) = server.processes.get_mut(&id)
+										&& let Some(mut process) = server.processes.get_mut(&index)
 									{
 										process.stdin.take();
 									}
@@ -138,11 +138,11 @@ impl Server {
 	pub(crate) async fn handle_write_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		index: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: u64 = id
+		let index: u64 = index
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process index"))?;
 		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
@@ -166,7 +166,7 @@ impl Server {
 			})
 			.boxed();
 		let output = self
-			.write_stdio(id, arg, stream)
+			.write_stdio(index, arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = output.map(

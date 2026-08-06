@@ -40,6 +40,7 @@ impl Server {
 		kind: Kind,
 		path: &Path,
 		options: crate::config::Vfs,
+		origin: crate::Origin,
 		principal: Arc<Mutex<Option<tg::Principal>>>,
 		recvfd: Option<OwnedFd>,
 	) -> tg::Result<Self> {
@@ -50,7 +51,7 @@ impl Server {
 		tokio::fs::create_dir_all(path).await.ok();
 
 		// Create the provider.
-		let provider = Provider::new(server, principal.clone())
+		let provider = Provider::new(server, origin, principal.clone())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
@@ -134,9 +135,10 @@ impl Server {
 		server: &crate::Server,
 		socket: &Path,
 		dax: Option<u64>,
+		origin: crate::Origin,
 		principal: Arc<Mutex<Option<tg::Principal>>>,
 	) -> tg::Result<Self> {
-		let provider = Provider::new(server, principal)
+		let provider = Provider::new(server, origin, principal)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 		let dax_window_size = dax.unwrap_or(0);

@@ -17,8 +17,8 @@ pub(crate) fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("vm").arg("run");
 	command
-		.arg("--id")
-		.arg(arg.id.to_string())
+		.arg("--index")
+		.arg(arg.index.to_string())
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
 		.arg("--kernel-path")

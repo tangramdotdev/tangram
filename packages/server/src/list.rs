@@ -21,9 +21,6 @@ pub(crate) struct Kinds {
 impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let local_arg = arg.clone();
 		let entries = self
 			.query_specifier_entries(

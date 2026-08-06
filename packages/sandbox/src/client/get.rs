@@ -6,13 +6,13 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: u64,
+	pub index: u64,
 }
 
 impl Client {
-	pub async fn try_get_process(&self, id: u64) -> tg::Result<Option<Output>> {
+	pub async fn try_get_process(&self, index: u64) -> tg::Result<Option<Output>> {
 		let method = http::Method::GET;
-		let uri = format!("/processes/{id}");
+		let uri = format!("/processes/{index}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

@@ -11,10 +11,6 @@ impl Session {
 		&self,
 		mut arg: tg::watch::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		// Canonicalize the path's parent.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));

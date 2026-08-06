@@ -16,10 +16,6 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		if !self.server.config.advanced.single_process {
 			return Err(tg::error!("cannot clean in multi-process mode"));
 		}

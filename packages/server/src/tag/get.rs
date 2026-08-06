@@ -14,9 +14,6 @@ impl Session {
 		tag: &tg::tag::Selector,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let selector = match tag {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),

@@ -6,7 +6,7 @@ const NAT_TABLE: &[&str] = &["-t", "nat"];
 const TANGRAM_DNAT_CHAIN: &str = "TANGRAM-DNAT";
 const TANGRAM_FORWARD_CHAIN: &str = "TANGRAM-FWD";
 const TANGRAM_SNAT_CHAIN: &str = "TANGRAM-SNAT";
-const TANGRAM_RULE_COMMENT_PREFIX: &str = "tangram:sandbox=";
+const TANGRAM_RULE_COMMENT_PREFIX: &str = "tangram:sandbox_index=";
 
 #[derive(Debug)]
 struct IptablesRule {
@@ -314,7 +314,7 @@ pub(crate) fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Res
 }
 
 pub(crate) fn add_port_forwarding_rules(
-	id: u64,
+	index: u64,
 	_identity: &std::path::Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
@@ -324,7 +324,7 @@ pub(crate) fn add_port_forwarding_rules(
 	setup_port_forwarding()?;
 	cleanup_port_forwarding_rules()?;
 	let mut guards = Vec::new();
-	let comment = sandbox_rule_comment(id);
+	let comment = sandbox_rule_comment(index);
 	for port in ports {
 		let host = port
 			.host
@@ -468,8 +468,8 @@ fn append_comment(rule: &mut Vec<String>, comment: &str) {
 	]);
 }
 
-fn sandbox_rule_comment(id: u64) -> String {
-	format!("{TANGRAM_RULE_COMMENT_PREFIX}{id}")
+fn sandbox_rule_comment(index: u64) -> String {
+	format!("{TANGRAM_RULE_COMMENT_PREFIX}{index}")
 }
 
 fn iptables_args<'a>(table: &'a [&'a str], operation: &'a str) -> Vec<&'a str> {

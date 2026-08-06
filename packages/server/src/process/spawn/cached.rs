@@ -293,16 +293,17 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the authenticated process"))?;
 		let sandbox = process.sandbox;
-		let owner = if let Some(sandbox) = self.server.runner.state().sandboxes().get(&sandbox) {
-			sandbox.data.owner.clone()
-		} else {
-			self.get_sandbox_from_index(&sandbox)
-				.await
-				.map_err(|error| tg::error!(!error, %sandbox, "failed to get the sandbox"))?
-				.data
-				.ok_or_else(|| tg::error!(%sandbox, "missing the sandbox data"))?
-				.owner
-		};
+		let owner =
+			if let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox) {
+				sandbox.data.owner.clone()
+			} else {
+				self.get_sandbox_from_index(&sandbox)
+					.await
+					.map_err(|error| tg::error!(!error, %sandbox, "failed to get the sandbox"))?
+					.data
+					.ok_or_else(|| tg::error!(%sandbox, "missing the sandbox data"))?
+					.owner
+			};
 		let owner = owner.unwrap_or(tg::Principal::Root);
 
 		Ok(owner)

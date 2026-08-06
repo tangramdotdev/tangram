@@ -27,7 +27,7 @@ pub(crate) struct Pair {
 
 impl Network {
 	pub(crate) fn new(
-		id: u64,
+		index: u64,
 		identity: &Path,
 		firewall: crate::Firewall,
 		guest: ip::Lease,
@@ -36,7 +36,7 @@ impl Network {
 		let bridge_name = BRIDGE_NAME.to_owned();
 		let port_forwarding_rules = host::add_port_forwarding_rules(
 			firewall,
-			id,
+			index,
 			identity,
 			&bridge_name,
 			gateway_ip(),
@@ -65,8 +65,8 @@ impl Network {
 }
 
 impl Pair {
-	pub(crate) fn new(id: u64, bridge_name: &str) -> tg::Result<Self> {
-		let suffix = format!("{:09}", id % 1_000_000_000);
+	pub(crate) fn new(index: u64, bridge_name: &str) -> tg::Result<Self> {
+		let suffix = format!("{:09}", index % 1_000_000_000);
 		let host_name = format!("tg-vh-{suffix}");
 		let guest_name = format!("tg-vc-{suffix}");
 

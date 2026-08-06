@@ -6,17 +6,17 @@ use {
 };
 
 impl Server {
-	pub async fn wait(&self, id: u64) -> tg::Result<crate::client::wait::Output> {
+	pub async fn wait(&self, index: u64) -> tg::Result<crate::client::wait::Output> {
 		let task = self
 			.processes
-			.get(&id)
-			.ok_or_else(|| tg::error!(process = %id, "not found"))?
+			.get(&index)
+			.ok_or_else(|| tg::error!(process = %index, "not found"))?
 			.task
 			.clone();
 		let status = task
 			.wait()
 			.await
-			.map_err(|error| tg::error!(!error, process = %id, "the process task panicked"))??;
+			.map_err(|error| tg::error!(!error, process = %index, "the process task panicked"))??;
 		let output = crate::client::wait::Output { status };
 		Ok(output)
 	}
@@ -24,15 +24,15 @@ impl Server {
 	pub(crate) async fn handle_wait_request(
 		&self,
 		_request: http::Request<BoxBody>,
-		id: &str,
+		index: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: u64 = id
+		let index: u64 = index
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process index"))?;
 		let server = self.clone();
 		let stream = stream::once(async move {
 			server
-				.wait(id)
+				.wait(index)
 				.await
 				.map(crate::client::wait::Event::Output)
 		});

@@ -10,9 +10,9 @@ pub struct SizeArg {
 }
 
 impl Client {
-	pub async fn set_tty_size(&self, id: u64, arg: SizeArg) -> tg::Result<()> {
+	pub async fn set_tty_size(&self, index: u64, arg: SizeArg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = format!("/processes/{id}/tty/size");
+		let uri = format!("/processes/{index}/tty/size");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

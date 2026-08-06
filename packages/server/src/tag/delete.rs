@@ -12,9 +12,6 @@ impl Session {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let location = self
 			.server
 			.location(arg.location.as_ref())

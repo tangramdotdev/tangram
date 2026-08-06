@@ -14,9 +14,6 @@ use {
 
 impl Session {
 	pub(crate) async fn put_tag(&self, arg: tg::tag::put::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let location = self
 			.server
 			.location(arg.location.as_ref())

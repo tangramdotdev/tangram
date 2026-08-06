@@ -1,7 +1,12 @@
 use {
 	self::{
-		context::Context, database::Database, index::Index, messenger::Messenger, session::Session,
-		temp::Temp, watch::Watch,
+		context::{Context, Origin},
+		database::Database,
+		index::Index,
+		messenger::Messenger,
+		session::Session,
+		temp::Temp,
+		watch::Watch,
 	},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
@@ -939,6 +944,7 @@ impl Server {
 				vfs_kind,
 				&artifacts_path,
 				options,
+				Origin::Host,
 				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
 				None,
 			)
@@ -1023,20 +1029,20 @@ impl Server {
 						)
 					})?;
 					tracing::info!("listening on {}", listener_config.url);
-					listeners.push((listener, listener_config.clone(), false));
+					listeners.push((listener, listener_config.clone(), Origin::Host));
 				}
 			}
 			Some(Task::spawn(move |stopper| {
 				let server = http_server.clone();
 				async move {
 					let tasks = FuturesUnordered::new();
-					for (listener, listener_config, sandbox) in listeners {
+					for (listener, listener_config, origin) in listeners {
 						let server = server.clone();
 						let stopper = stopper.clone();
 						tasks.push(
 							async move {
 								server
-									.serve(listener, listener_config, sandbox, stopper)
+									.serve(listener, listener_config, origin, stopper)
 									.await;
 							}
 							.boxed(),
@@ -1047,7 +1053,7 @@ impl Server {
 						let stopper = stopper.clone();
 						tasks.push(
 							async move {
-								server.serve_stream(stream, false, stopper).await;
+								server.serve_stream(stream, Origin::Host, stopper).await;
 							}
 							.boxed(),
 						);

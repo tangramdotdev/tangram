@@ -38,7 +38,7 @@ pub struct Args {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
-	pub id: u64,
+	pub index: u64,
 
 	#[arg(long)]
 	pub kernel_path: PathBuf,
@@ -99,7 +99,7 @@ impl Cli {
 			guest_ip: args.guest_ip,
 			host_ip: args.host_ip,
 			hostname: args.hostname,
-			id: args.id,
+			index: args.index,
 			kernel_path: args.kernel_path,
 			max_cpu: args.max_cpu,
 			max_memory: args.max_memory,

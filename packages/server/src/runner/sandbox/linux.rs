@@ -74,19 +74,26 @@ impl Server {
 			let socket = temp.path().join("vfs.sock");
 			// Run the shared VM snapshot mount as root; per-sandbox mounts enforce permissions after resume.
 			let principal = Arc::new(Mutex::new(Some(tg::Principal::Root)));
-			crate::vfs::Server::start_virtiofs(self, &socket, vm.dax, principal)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
+			crate::vfs::Server::start_virtiofs(
+				self,
+				&socket,
+				vm.dax,
+				crate::Origin::Host,
+				principal,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
 		};
 		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
 			tg::error!(
 				"cannot create the vm snapshot without an image; ensure vm isolation is configured"
 			)
 		})?;
-		let snapshot_id = tg::sandbox::Id::new();
+		let id = tg::sandbox::Id::new();
+		let index = self.runner.state.create_sandbox_index();
 		tracing::info!(
 			snapshot = %snapshot_path.display(),
-			sandbox = %snapshot_id,
+			sandbox = %id,
 			"creating vm snapshot",
 		);
 		let firewall = match self.config.sandbox.network.firewall {
@@ -100,8 +107,8 @@ impl Server {
 			.arg("run")
 			.arg("--create-snapshot")
 			.arg(snapshot_path)
-			.arg("--id")
-			.arg(snapshot_id.to_string())
+			.arg("--index")
+			.arg(index.to_string())
 			.arg("--artifacts-path")
 			.arg(self.artifacts_path())
 			.arg("--firewall")

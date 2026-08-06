@@ -29,7 +29,7 @@ impl Session {
 			.runner
 			.state()
 			.sandboxes()
-			.get_mut(&parent_sandbox)
+			.get_mut_by_id(&parent_sandbox)
 			.ok_or_else(|| tg::error!("the parent sandbox was not found"))?;
 		let parent_process = parent_sandbox
 			.processes

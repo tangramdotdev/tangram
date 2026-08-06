@@ -12,9 +12,6 @@ impl Session {
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let creator = self.context.principal.clone();
 
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };

@@ -30,9 +30,6 @@ impl Session {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let compiler = self.create_compiler();
 		let result = match self.context.stopper.clone() {
 			Some(stopper) => {

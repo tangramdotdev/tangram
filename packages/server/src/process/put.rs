@@ -15,10 +15,6 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {

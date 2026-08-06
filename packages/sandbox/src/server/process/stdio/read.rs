@@ -25,7 +25,7 @@ enum Reader {
 impl Server {
 	pub async fn read_stdio(
 		&self,
-		id: u64,
+		index: u64,
 		arg: crate::client::stdio::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
 	{
@@ -48,8 +48,8 @@ impl Server {
 
 		let process = self
 			.processes
-			.get(&id)
-			.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+			.get(&index)
+			.ok_or_else(|| tg::error!(process = %index, "not found"))?;
 		let stdout_mode = process.command.stdout;
 		let stderr_mode = process.command.stderr;
 		let stdout = process.stdout.clone();
@@ -75,28 +75,30 @@ impl Server {
 					Stdio::Pipe => Reader::Stdout(
 						stdout
 							.clone()
-							.ok_or_else(|| tg::error!(process = %id, "stdout is not available"))?
+							.ok_or_else(|| tg::error!(process = %index, "stdout is not available"))?
 							.lock_owned()
 							.await,
 					),
-					Stdio::Tty => Reader::Pty(
-						pty.clone()
-							.ok_or_else(|| tg::error!(process = %id, "stdout is not available"))?,
-					),
+					Stdio::Tty => {
+						Reader::Pty(pty.clone().ok_or_else(
+							|| tg::error!(process = %index, "stdout is not available"),
+						)?)
+					},
 				},
 				tg::process::stdio::Stream::Stderr => match stderr_mode {
 					Stdio::Null => Reader::Null(tokio::io::empty()),
 					Stdio::Pipe => Reader::Stderr(
 						stderr
 							.clone()
-							.ok_or_else(|| tg::error!(process = %id, "stderr is not available"))?
+							.ok_or_else(|| tg::error!(process = %index, "stderr is not available"))?
 							.lock_owned()
 							.await,
 					),
-					Stdio::Tty => Reader::Pty(
-						pty.clone()
-							.ok_or_else(|| tg::error!(process = %id, "stderr is not available"))?,
-					),
+					Stdio::Tty => {
+						Reader::Pty(pty.clone().ok_or_else(
+							|| tg::error!(process = %index, "stderr is not available"),
+						)?)
+					},
 				},
 				tg::process::stdio::Stream::Stdin => unreachable!(),
 			};
@@ -125,11 +127,11 @@ impl Server {
 	pub(crate) async fn handle_read_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		id: &str,
+		index: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let id: u64 = id
+		let index: u64 = index
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the process index"))?;
 		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
@@ -138,7 +140,7 @@ impl Server {
 				streams: Vec::new(),
 			});
 		let stream = self
-			.read_stdio(id, arg)
+			.read_stdio(index, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = stream.map(

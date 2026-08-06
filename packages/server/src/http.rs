@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Origin, Server},
 	futures::{FutureExt as _, future},
 	std::{
 		convert::Infallible,
@@ -163,7 +163,7 @@ impl Server {
 		&self,
 		listener: Listener,
 		config: crate::config::HttpListener,
-		sandbox: bool,
+		origin: Origin,
 		stopper: Stopper,
 	) {
 		#[cfg(feature = "tls")]
@@ -197,7 +197,7 @@ impl Server {
 			.with_description("Number of active HTTP connections")
 			.build();
 
-		let service = self.service(sandbox, stopper.clone());
+		let service = self.service(origin, stopper.clone());
 
 		loop {
 			// Accept a new connection.
@@ -286,7 +286,7 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
-	fn service(&self, sandbox: bool, stopper: Stopper) -> Service {
+	fn service(&self, origin: Origin, stopper: Stopper) -> Service {
 		let builder = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::metrics::MetricsLayer::new())
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
@@ -322,14 +322,15 @@ impl Server {
 		Service::new(builder.service_fn({
 			let server = self.clone();
 			move |request| {
+				let origin = origin;
 				let server = server.clone();
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
 						billing: false,
 						id: None,
+						origin,
 						principal: tg::Principal::Anonymous,
-						sandbox,
 						stopper: Some(stopper),
 						token: None,
 					};
@@ -340,11 +341,11 @@ impl Server {
 		}))
 	}
 
-	pub(crate) async fn serve_stream<S>(&self, stream: S, sandbox: bool, stopper: Stopper)
+	pub(crate) async fn serve_stream<S>(&self, stream: S, origin: Origin, stopper: Stopper)
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		let service = self.service(sandbox, stopper.clone());
+		let service = self.service(origin, stopper.clone());
 		let idle_timeout = self.http_idle_timeout();
 		Server::serve_connection(stream, service, idle_timeout, stopper).await;
 	}
@@ -483,7 +484,12 @@ impl Server {
 		Ok(acceptor)
 	}
 
-	#[tracing::instrument(fields(id, method, path), level = "trace", name = "request", skip_all)]
+	#[tracing::instrument(
+		fields(id, method, origin, path),
+		level = "trace",
+		name = "request",
+		skip_all
+	)]
 	async fn handle_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -495,6 +501,7 @@ impl Server {
 		let span = tracing::Span::current();
 		span.record("id", id.as_str());
 		span.record("method", request.method().as_str());
+		span.record("origin", tracing::field::debug(&context.origin));
 		span.record("path", request.uri().path());
 
 		let method = request.method().clone();
@@ -502,7 +509,7 @@ impl Server {
 
 		// Authenticate.
 		let token = request.token(None).map(str::to_owned);
-		let result = self.authenticate(context.sandbox, token.as_deref()).await;
+		let result = self.authenticate(token.as_deref()).await;
 		context.token = token;
 		let authentication = match result {
 			Ok(authentication) => authentication,

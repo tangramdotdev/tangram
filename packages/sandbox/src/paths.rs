@@ -73,7 +73,7 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn guest_output_path_for_process(&self, process: &crate::Process) -> PathBuf {
-		self.guest_output_path().join(process.id.to_string())
+		self.guest_output_path().join(process.index.to_string())
 	}
 
 	#[must_use]
@@ -155,7 +155,7 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn host_output_path_for_process(&self, process: &crate::Process) -> PathBuf {
-		self.host_output_path().join(process.id.to_string())
+		self.host_output_path().join(process.index.to_string())
 	}
 
 	#[must_use]

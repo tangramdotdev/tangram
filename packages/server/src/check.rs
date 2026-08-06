@@ -14,10 +14,6 @@ impl Session {
 
 	#[cfg(feature = "typescript")]
 	pub(crate) async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {

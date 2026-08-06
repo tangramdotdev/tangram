@@ -17,15 +17,6 @@ impl Session {
 			}
 		}
 
-		if matches!(self.context.principal, tg::Principal::Process(_))
-			&& fields.is_none_or(|fields| {
-				fields
-					.iter()
-					.any(|field| !matches!(field.as_str(), "diagnostics" | "version"))
-			}) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let include_field = |name: &str| match fields {
 			Some(fields) => fields.iter().any(|field| field == name),
 			None => true,

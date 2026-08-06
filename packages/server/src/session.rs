@@ -47,7 +47,7 @@ impl Session {
 			.runner
 			.state()
 			.sandboxes()
-			.get(&sandbox)
+			.get_by_id(&sandbox)
 			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 
@@ -78,7 +78,7 @@ impl Session {
 			.runner
 			.state()
 			.sandboxes()
-			.get(&sandbox)
+			.get_by_id(&sandbox)
 			.and_then(|sandbox| sandbox.sandbox.clone())
 			.ok_or_else(|| tg::error!(%sandbox, "failed to get the sandbox"))?;
 

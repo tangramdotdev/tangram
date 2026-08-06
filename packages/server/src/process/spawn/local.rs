@@ -54,7 +54,7 @@ impl Session {
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
 		if let Some(parent) = parent
-			&& let Some(sandbox) = self.server.runner.state().sandboxes().get(parent)
+			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
 			&& let Ok(parent) = allocation.try_lock_owned()
 			&& let Some(allocation) =
@@ -90,7 +90,7 @@ impl Session {
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
-		let sandbox = self.server.runner.state().sandboxes().get(parent)?;
+		let sandbox = self.server.runner.state().sandboxes().get_by_id(parent)?;
 		let allocation = sandbox.allocation.clone()?;
 		let parent = allocation.try_lock_owned().ok()?;
 
@@ -108,7 +108,7 @@ impl Session {
 			.runner
 			.state()
 			.sandboxes()
-			.get(parent_sandbox)
+			.get_by_id(parent_sandbox)
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let allocation = sandbox.allocation.clone().ok_or_else(
 			|| tg::error!(%parent_sandbox, "failed to find the parent sandbox allocation"),
@@ -125,7 +125,7 @@ impl Session {
 			.runner
 			.state()
 			.sandboxes()
-			.get(parent_sandbox)
+			.get_by_id(parent_sandbox)
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
 			.processes

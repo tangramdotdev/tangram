@@ -112,7 +112,7 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 }
 
 pub(crate) fn add_port_forwarding_rules(
-	id: u64,
+	index: u64,
 	identity: &Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
@@ -123,7 +123,7 @@ pub(crate) fn add_port_forwarding_rules(
 	setup_firewall()?;
 	cleanup_dynamic_port_forwarding_rules(&identity)?;
 	let mut guards = Vec::new();
-	let comment = sandbox_rule_comment(&identity, id);
+	let comment = sandbox_rule_comment(&identity, index);
 	for port in ports {
 		let host = port
 			.host
@@ -478,9 +478,9 @@ impl CommentMatcher<'_> {
 	}
 }
 
-fn sandbox_rule_comment(identity: &str, id: u64) -> String {
+fn sandbox_rule_comment(identity: &str, index: u64) -> String {
 	format!(
-		"{}sandbox={id}",
+		"{}sandbox_index={index}",
 		dynamic_rule_comment_prefix(DYNAMIC_RULE_COMMENT_PREFIX, identity)
 	)
 }

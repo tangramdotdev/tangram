@@ -43,7 +43,7 @@ pub(crate) fn setup_bridge_networking(
 
 pub(crate) fn add_port_forwarding_rules(
 	backend: crate::Firewall,
-	id: u64,
+	index: u64,
 	identity: &std::path::Path,
 	out_interface: &str,
 	host_ip: Ipv4Addr,
@@ -52,7 +52,7 @@ pub(crate) fn add_port_forwarding_rules(
 ) -> tg::Result<Vec<FirewallRuleGuard>> {
 	match backend {
 		crate::Firewall::Iptables => iptables::add_port_forwarding_rules(
-			id,
+			index,
 			identity,
 			out_interface,
 			host_ip,
@@ -61,7 +61,7 @@ pub(crate) fn add_port_forwarding_rules(
 		)
 		.map(|rules| rules.into_iter().map(FirewallRuleGuard::Iptables).collect()),
 		crate::Firewall::Nft => {
-			nft::add_port_forwarding_rules(id, identity, out_interface, host_ip, guest_ip, ports)
+			nft::add_port_forwarding_rules(index, identity, out_interface, host_ip, guest_ip, ports)
 				.map(|rules| rules.into_iter().map(FirewallRuleGuard::Nft).collect())
 		},
 	}

@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Origin, Session},
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::pin::pin,
@@ -39,7 +39,7 @@ impl Session {
 		};
 
 		// Resolve the command.
-		let sandbox_host = if self.context.sandbox {
+		let sandbox_host = if matches!(self.context.origin, Origin::Sandbox { .. }) {
 			authenticated_process
 				.as_ref()
 				.map(|process| process.host.as_str())

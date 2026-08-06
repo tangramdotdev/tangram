@@ -15,13 +15,6 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
 		}
-		if matches!(
-			self.context.principal,
-			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-		) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let name = name.to_owned();
 		let principal = self.resolve_remote_arg_principal(arg.principal).await?;
 		let url = arg.url.to_string();

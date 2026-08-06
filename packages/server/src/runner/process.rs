@@ -489,7 +489,12 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let Some(mut sandbox_state) = session.server.runner.state.sandboxes.get_mut(&sandbox_id)
+		let Some(mut sandbox_state) = session
+			.server
+			.runner
+			.state
+			.sandboxes
+			.get_mut_by_id(&sandbox_id)
 		else {
 			process_stopper.stop();
 			run_task.take().unwrap().wait().await.ok();
@@ -530,7 +535,12 @@ impl Session {
 		let id_for_cleanup = id.clone();
 		scopeguard::defer! {
 			server_for_cleanup.runner.state.processes.remove(&id_for_cleanup);
-			if let Some(mut sandbox) = server_for_cleanup.runner.state.sandboxes.get_mut(&sandbox_id) {
+			if let Some(mut sandbox) = server_for_cleanup
+				.runner
+				.state
+				.sandboxes
+				.get_mut_by_id(&sandbox_id)
+			{
 				sandbox.processes.remove(&id_for_cleanup);
 			}
 		}
@@ -701,7 +711,7 @@ impl Session {
 				.runner
 				.state
 				.sandboxes
-				.get_mut(&sandbox_id)
+				.get_mut_by_id(&sandbox_id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			let process = sandbox
 				.processes
@@ -892,7 +902,7 @@ impl Session {
 			.runner
 			.state
 			.sandboxes
-			.get_mut(&sandbox)
+			.get_mut_by_id(&sandbox)
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 		let process_state = sandbox
 			.processes
@@ -1386,7 +1396,7 @@ impl Session {
 				self.authorize_token(&resource, permissions, &token)
 					.then(|| (artifact.item.clone(), token))
 			});
-			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(sandbox) {
+			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
 				state.tokens.extend(tokens);
 			}
 			return Ok(());

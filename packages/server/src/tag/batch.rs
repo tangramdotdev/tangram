@@ -12,9 +12,6 @@ use {
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let location = self
 			.server
 			.location(arg.location.as_ref())

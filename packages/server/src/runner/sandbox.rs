@@ -2,7 +2,7 @@ use {
 	super::process::{
 		ConnectedEvent, Event as ProcessEvent, SpawnProcessTaskArg, SpawnProcessTaskOutput,
 	},
-	crate::{Context, Server, Session, temp::Temp},
+	crate::{Context, Origin, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
 		collections::{BTreeMap, HashMap},
@@ -511,6 +511,9 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
 
+		// Create the sandbox index.
+		let index = self.server.runner.state.create_sandbox_index();
+
 		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
 		let principal = Arc::new(std::sync::Mutex::new(None));
@@ -522,6 +525,7 @@ impl Session {
 					&self.server,
 					&socket,
 					vm.dax,
+					Origin::Sandbox { index },
 					principal.clone(),
 				)
 				.await
@@ -559,6 +563,7 @@ impl Session {
 							crate::vfs::Kind::Fuse,
 							&mount_path,
 							options,
+							Origin::Sandbox { index },
 							principal,
 							Some(recvfd),
 						)
@@ -618,8 +623,8 @@ impl Session {
 			#[cfg(target_os = "linux")]
 			fuse_fd: fuse_sendfd.map(Arc::new),
 			hostname: arg.hostname,
-			id: self.server.runner.state.create_sandbox_id(),
 			identity: self.server.path.clone(),
+			index,
 			#[cfg(target_os = "linux")]
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
@@ -662,7 +667,14 @@ impl Session {
 				url: guest_url.clone(),
 			};
 			move |stopper| async move {
-				server.serve(listener, listener_config, true, stopper).await;
+				server
+					.serve(
+						listener,
+						listener_config,
+						Origin::Sandbox { index },
+						stopper,
+					)
+					.await;
 			}
 		});
 		let output = CreateSandboxOutput {
@@ -707,7 +719,9 @@ impl Session {
 		} = create_output;
 
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
+		let index = sandbox.index();
 		self.server.runner.state.sandboxes.insert(
+			index,
 			id.clone(),
 			crate::sandbox::State {
 				allocation: Some(allocation),
@@ -719,7 +733,7 @@ impl Session {
 			},
 		);
 		scopeguard::defer! {
-			self.server.runner.state.sandboxes.remove(&id);
+			self.server.runner.state.sandboxes.remove(index);
 		}
 
 		// Bind the per-sandbox VFS before releasing the process task.
@@ -847,7 +861,7 @@ impl Session {
 								.runner
 								.state
 								.sandboxes
-								.get_mut(&id)
+								.get_mut_by_id(&id)
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 							for process in sandbox.processes.values_mut() {
 								if !process.data.status.is_finished() {
@@ -986,7 +1000,7 @@ impl Session {
 			sandbox = %id,
 		)
 		.await;
-		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut(&id) {
+		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(&id) {
 			state.allocation.take();
 		}
 
@@ -1009,7 +1023,7 @@ impl Session {
 				.runner
 				.state
 				.sandboxes
-				.get_mut(&id)
+				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			state.data.status = tg::sandbox::Status::Destroyed;
 			state.sandbox.take();

@@ -16,9 +16,6 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>> + Send + use<>,
 	> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let stream = if let tg::reference::Item::Specifier(specifier) = reference.item() {
 			self.try_resolve_specifier(specifier, reference.options(), &arg)
 				.await?

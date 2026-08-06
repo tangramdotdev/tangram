@@ -46,14 +46,14 @@ pub struct State {
 	#[expect(dead_code)]
 	network: Option<crate::network::Network>,
 
-	next_process_id: AtomicU64,
+	next_process_index: AtomicU64,
 
 	process: tokio::sync::Mutex<tokio::process::Child>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	id: u64,
+	index: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -74,8 +74,8 @@ pub struct Arg {
 	#[cfg(target_os = "linux")]
 	pub fuse_fd: Option<Arc<std::os::fd::OwnedFd>>,
 	pub hostname: Option<String>,
-	pub id: u64,
 	pub identity: PathBuf,
+	pub index: u64,
 	#[cfg(target_os = "linux")]
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
@@ -250,7 +250,7 @@ impl Sandbox {
 			Isolation::Container(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
-					arg.id,
+					arg.index,
 					&arg.identity,
 					&arg.dns,
 					arg.firewall,
@@ -267,7 +267,7 @@ impl Sandbox {
 			Isolation::Vm(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let network = crate::vm::network::create(
-					arg.id,
+					arg.index,
 					&arg.identity,
 					arg.firewall,
 					arg.network.as_ref(),
@@ -345,11 +345,16 @@ impl Sandbox {
 			client,
 			#[cfg(target_os = "linux")]
 			network,
-			next_process_id: AtomicU64::new(1),
+			next_process_index: AtomicU64::new(1),
 			process: tokio::sync::Mutex::new(process),
 		}));
 
 		Ok(sandbox)
+	}
+
+	#[must_use]
+	pub fn index(&self) -> u64 {
+		self.0.arg.index
 	}
 
 	async fn listen(
@@ -513,16 +518,16 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn create_process(&self) -> Process {
-		let id = self.0.next_process_id.fetch_add(1, Ordering::Relaxed);
-		assert_ne!(id, u64::MAX, "exhausted the process ids");
+		let index = self.0.next_process_index.fetch_add(1, Ordering::Relaxed);
+		assert_ne!(index, u64::MAX, "exhausted the process indexes");
 
-		Process { id }
+		Process { index }
 	}
 
 	pub async fn spawn(&self, process: &Process, arg: SpawnArg) -> tg::Result<()> {
 		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
-			id: process.id,
+			index: process.index,
 			token: arg.token.clone(),
 			tty: arg.tty,
 			url: arg.url,
@@ -537,7 +542,7 @@ impl Sandbox {
 		size: tg::process::tty::Size,
 	) -> tg::Result<()> {
 		let arg = crate::client::tty::SizeArg { size };
-		self.0.client.set_tty_size(process.id, arg).await?;
+		self.0.client.set_tty_size(process.index, arg).await?;
 		Ok(())
 	}
 
@@ -548,7 +553,7 @@ impl Sandbox {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
 	{
 		let arg = crate::client::stdio::Arg { streams };
-		self.0.client.read_stdio(process.id, arg).await
+		self.0.client.read_stdio(process.index, arg).await
 	}
 
 	pub async fn write_stdio(
@@ -559,12 +564,12 @@ impl Sandbox {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
 	{
 		let arg = crate::client::stdio::Arg { streams };
-		self.0.client.write_stdio(process.id, arg, input).await
+		self.0.client.write_stdio(process.index, arg, input).await
 	}
 
 	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
 		let arg = crate::client::kill::Arg { signal };
-		self.0.client.kill(process.id, arg).await?;
+		self.0.client.kill(process.index, arg).await?;
 		Ok(())
 	}
 
@@ -572,7 +577,7 @@ impl Sandbox {
 		&self,
 		process: &Process,
 	) -> tg::Result<impl std::future::Future<Output = tg::Result<u8>> + Send + 'static> {
-		let future = self.0.client.wait(process.id).await?;
+		let future = self.0.client.wait(process.index).await?;
 		Ok(async move {
 			let output = future
 				.await?
@@ -581,15 +586,18 @@ impl Sandbox {
 		})
 	}
 
-	pub async fn try_get_process(&self, id: u64) -> tg::Result<Option<crate::client::get::Output>> {
-		self.0.client.try_get_process(id).await
+	pub async fn try_get_process(
+		&self,
+		index: u64,
+	) -> tg::Result<Option<crate::client::get::Output>> {
+		self.0.client.try_get_process(index).await
 	}
 }
 
 impl Process {
 	#[must_use]
-	pub fn id(&self) -> u64 {
-		self.id
+	pub fn index(&self) -> u64 {
+		self.index
 	}
 }
 

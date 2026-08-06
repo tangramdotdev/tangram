@@ -45,7 +45,7 @@ impl Server {
 		arg.command.env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
 			self.output_path
-				.join(arg.id.to_string())
+				.join(arg.index.to_string())
 				.to_str()
 				.unwrap()
 				.to_owned(),
@@ -200,7 +200,7 @@ impl Server {
 			pty: pty.map(Arc::new),
 			task,
 		};
-		self.processes.insert(arg.id, process);
+		self.processes.insert(arg.index, process);
 
 		Ok(crate::client::spawn::Output {})
 	}

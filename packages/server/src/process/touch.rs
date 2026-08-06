@@ -14,10 +14,6 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
-		if matches!(self.context.principal, tg::Principal::Process(_)) {
-			return Err(tg::error!("unauthorized"));
-		}
-
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

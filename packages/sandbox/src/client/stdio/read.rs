@@ -10,12 +10,12 @@ use {
 impl Client {
 	pub async fn read_stdio(
 		&self,
-		id: u64,
+		index: u64,
 		arg: Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
 	{
 		let method = http::Method::GET;
-		let path = format!("/processes/{id}/stdio");
+		let path = format!("/processes/{index}/stdio");
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params_strict(&arg)

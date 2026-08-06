@@ -44,11 +44,11 @@ pub(crate) async fn spawn(
 	};
 	let mut veth = match network.as_deref() {
 		Some(crate::network::Network::Veth(network)) => {
-			let id = arg.id;
+			let index = arg.index;
 			let bridge_name = network.bridge_name().to_owned();
 			Some(
 				tokio::task::spawn_blocking(move || {
-					crate::network::veth::Pair::new(id, &bridge_name)
+					crate::network::veth::Pair::new(index, &bridge_name)
 				})
 				.await
 				.map_err(|error| tg::error!(!error, "the veth creation task panicked"))??,
@@ -69,8 +69,8 @@ pub(crate) async fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("container").arg("run");
 	command
-		.arg("--id")
-		.arg(arg.id.to_string())
+		.arg("--index")
+		.arg(arg.index.to_string())
 		.arg("--unshare-all")
 		.arg("--as-pid-1")
 		.arg("--die-with-parent")

@@ -29,6 +29,7 @@ pub struct Provider {
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	handle_count: AtomicU64,
 	nodes: Nodes,
+	origin: crate::Origin,
 	principal: Arc<Mutex<Option<tg::Principal>>>,
 	runtime: tokio::runtime::Handle,
 	server: Server,
@@ -117,6 +118,7 @@ const NAME_MAX: usize = 255;
 impl Provider {
 	pub async fn new(
 		server: &Server,
+		origin: crate::Origin,
 		principal: Arc<Mutex<Option<tg::Principal>>>,
 	) -> tg::Result<Self> {
 		// Create the nodes.
@@ -139,6 +141,7 @@ impl Provider {
 			file_handles,
 			handle_count,
 			nodes,
+			origin,
 			principal,
 			runtime,
 			server,
@@ -723,7 +726,7 @@ impl Provider {
 		}
 
 		// Check the sandbox's locally tracked subtree token.
-		if let tg::Principal::Sandbox(sandbox) = &principal {
+		if let crate::Origin::Sandbox { index } = self.origin {
 			let permission =
 				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -732,7 +735,7 @@ impl Provider {
 				.runner
 				.state()
 				.sandboxes()
-				.get(sandbox)
+				.get(index)
 				.and_then(|state| state.tokens.get(artifact).cloned())
 				.is_some_and(|token| token.body.expires_at >= now && token.body.grants(permission));
 			if authorized {
@@ -746,8 +749,8 @@ impl Provider {
 		let context = Context {
 			billing: false,
 			id: None,
+			origin: self.origin,
 			principal,
-			sandbox: true,
 			stopper: None,
 			token: None,
 		};
