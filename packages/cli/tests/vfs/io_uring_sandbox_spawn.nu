@@ -1,10 +1,9 @@
 use ../../test.nu *
 
-# Every sandboxed process execs its executable through its own per-sandbox FUSE mount. With the
-# io_uring transport each of those mounts creates an SQPOLL ring plus a ring per worker thread, and
-# the rings are charged against the process's locked memory limit, so enough concurrent sandboxes
-# exhaust it and their processes fail to spawn. The runner capacity is set here so the number of
-# concurrent sandboxes does not depend on the host's core count.
+# Every sandboxed process execs its executable through its own per-sandbox FUSE mount. This ensures
+# that the lightweight per-sandbox io_uring configuration stays within the process's locked memory
+# limit under high concurrency. The runner capacity is set here so the number of concurrent
+# sandboxes does not depend on the host's core count.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'

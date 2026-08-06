@@ -24,7 +24,7 @@ use {
 		io::Error,
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
-		os::fd::{AsFd as _, AsRawFd as _, OwnedFd, RawFd},
+		os::fd::{AsFd as _, AsRawFd as _, OwnedFd},
 		os::unix::ffi::OsStringExt as _,
 		os::unix::process::CommandExt as _,
 		path::Path,
@@ -59,6 +59,7 @@ const FUSE_DEV_IOC_BACKING_OPEN: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<sys::fuse_backing_map>(FUSE_DEV_IOC_MAGIC, 1);
 const FUSE_DEV_IOC_BACKING_CLOSE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::write::<u32>(FUSE_DEV_IOC_MAGIC, 2);
+const FUSE_MOUNT_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const S_IFDIR: u32 = 0o040_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFLNK: u32 = 0o120_000;
@@ -300,8 +301,35 @@ pub fn mount_dev_fuse(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
 	let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
 	let mut cmsg_buffer = SendAncillaryBuffer::new(&mut cmsg_space);
 	cmsg_buffer.push(SendAncillaryMessage::ScmRights(&fds));
-	rustix::net::sendmsg(sendfd, &iovecs, &mut cmsg_buffer, SendFlags::empty())
+	rustix::net::sendmsg(sendfd, &iovecs, &mut cmsg_buffer, SendFlags::NOSIGNAL)
 		.map_err(Error::from)?;
+
+	// Wait for the server to start the transport workers.
+	let mut ready = [0u8; 1];
+	let size = loop {
+		match rustix::io::read(sendfd, &mut ready) {
+			Err(Errno::INTR) => {},
+			Err(error) => return Err(Error::from(error)),
+			Ok(size) => break size,
+		}
+	};
+	if size != 1 {
+		return Err(Error::other(
+			"the FUSE server stopped before starting the transport",
+		));
+	}
+
+	// Confirm that the server can service a request through the mounted filesystem.
+	let mut entries = std::fs::read_dir(path)?;
+	entries.next().transpose()?;
+
+	// Signal that the mount is ready.
+	let size = rustix::net::send(sendfd, &[0], SendFlags::NOSIGNAL).map_err(Error::from)?;
+	if size != 1 {
+		return Err(Error::other(
+			"failed to signal that the FUSE mount is ready",
+		));
+	}
 
 	Ok(())
 }

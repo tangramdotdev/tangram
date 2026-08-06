@@ -15,6 +15,7 @@ pub(super) struct ReadWriteStartupContext<'a> {
 	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	pub(super) limits: RequestLimits,
 	pub(super) path: &'a Path,
+	pub(super) ready: Option<Arc<OwnedFd>>,
 }
 
 impl<P> Server<P>
@@ -34,12 +35,13 @@ where
 			event_sender,
 			limits,
 			path,
+			ready,
 		} = context;
 
 		// Prepare the readers and dispatcher.
 		let reader_fds = match Self::clone_read_write_fds(&connection.fd) {
 			Err(error) => {
-				self.disconnect_transport(path, connection.id).await;
+				self.disconnect_transport(&connection.abort, path).await;
 				return Err(error);
 			},
 			Ok(reader_fds) => reader_fds,
@@ -115,11 +117,17 @@ where
 				}
 			}
 		}
+		if startup_error.is_none()
+			&& let Some(ready) = ready
+			&& let Err(error) = Self::wait_for_mount_ready(ready).await
+		{
+			startup_error = Some(error);
+		}
 
 		// Clean up a partial startup.
 		if let Some(error) = startup_error {
 			self.cancel_async_requests();
-			let disconnected = self.disconnect_transport(path, connection.id).await;
+			let disconnected = self.disconnect_transport(&connection.abort, path).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if !disconnected {
 				dispatcher.abort();

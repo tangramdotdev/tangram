@@ -701,7 +701,7 @@ impl Session {
 			serve_task,
 			temp,
 			#[cfg(target_os = "linux")]
-			vfs,
+			mut vfs,
 			#[cfg(target_os = "linux")]
 			vfs_principal,
 		} = create_output;
@@ -746,9 +746,12 @@ impl Session {
 			state,
 			stopper,
 		};
+		#[cfg(target_os = "linux")]
+		let result = self.run_sandbox_task(arg, &mut vfs).boxed().await;
+		#[cfg(not(target_os = "linux"))]
 		let result = self.run_sandbox_task(arg).boxed().await;
 
-		// Stop the VFS.
+		// Stop the VFS after an early sandbox task failure.
 		#[cfg(target_os = "linux")]
 		if let Some(vfs) = vfs {
 			vfs.stop();
@@ -761,7 +764,11 @@ impl Session {
 		self.retain_sandbox_task(arg).await
 	}
 
-	async fn run_sandbox_task(&self, arg: RunSandboxTaskArg) -> tg::Result<RetainSandboxTaskArg> {
+	async fn run_sandbox_task(
+		&self,
+		arg: RunSandboxTaskArg,
+		#[cfg(target_os = "linux")] vfs: &mut Option<crate::vfs::Server>,
+	) -> tg::Result<RetainSandboxTaskArg> {
 		let RunSandboxTaskArg {
 			mut control,
 			event_sender,
@@ -996,6 +1003,13 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
+
+		// Stop the VFS while the sandbox still owns its mount namespace.
+		#[cfg(target_os = "linux")]
+		if let Some(vfs) = vfs.take() {
+			vfs.stop();
+			vfs.wait().await;
+		}
 
 		// Destroy the sandbox while retaining its process and control state.
 		sandbox

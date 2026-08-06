@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Every sandboxed process execs its executable through its own per-sandbox FUSE mount, so a build
 # that runs many short-lived sandboxed processes creates and tears down that many FUSE connections.
-# With the io_uring transport, a connection is not always serving by the time its sandbox execs, and
-# the spawn fails with ENOTCONN, or the mount is already gone and the handshake fails with ENODEV.
+# This exercises the readiness handshake and connection teardown ordering that keep one sandbox
+# from observing ENOTCONN or ENODEV while another sandbox is being destroyed.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'

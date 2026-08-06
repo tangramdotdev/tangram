@@ -195,6 +195,38 @@ fn parses_possible_cpu_sets() {
 }
 
 #[test]
+fn external_mounts_use_lightweight_ring_configs() {
+	let config = Server::<TestProvider>::ring_config(4096, true).unwrap();
+
+	assert_eq!(config.slots_per_queue, 1);
+	assert_eq!(config.worker_count, 1);
+}
+
+#[tokio::test]
+async fn waits_for_external_mount_readiness_signals() {
+	let (receiver, sender) = rustix::net::socketpair(
+		AddressFamily::UNIX,
+		SocketType::STREAM,
+		SocketFlags::CLOEXEC,
+		None,
+	)
+	.unwrap();
+	let client = tokio::task::spawn_blocking(move || {
+		let mut ready = [0u8; 1];
+		assert_eq!(rustix::io::read(&sender, &mut ready).unwrap(), 1);
+		assert_eq!(
+			rustix::net::send(&sender, &[0], SendFlags::NOSIGNAL).unwrap(),
+			1,
+		);
+	});
+
+	Server::<TestProvider>::wait_for_mount_ready(Arc::new(receiver))
+		.await
+		.unwrap();
+	client.await.unwrap();
+}
+
+#[test]
 fn readlink_responses_validate_targets_without_copying() {
 	let target = Bytes::from_static(b"target");
 	let pointer = target.as_ptr();
@@ -231,12 +263,12 @@ fn stale_uring_slots_are_replaced_with_distinct_buffers() {
 fn parses_fuse_connection_ids_without_accessing_the_mount() {
 	let mountinfo = concat!(
 		"20 1 8:1 / / rw - ext4 /dev/root rw\n",
-		"21 20 0:42 / /tmp/mount\\040point rw - fuse tangram rw\n",
+		"21 20 0:260 / /tmp/mount\\040point rw - fuse tangram rw\n",
 	);
 	let connection_id =
 		connection::parse_connection_id(mountinfo, Path::new("/tmp/mount point")).unwrap();
 
-	assert_eq!(connection_id, libc::makedev(0, 42));
+	assert_eq!(connection_id, 260);
 }
 
 #[test]

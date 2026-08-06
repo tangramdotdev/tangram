@@ -1,18 +1,17 @@
 use super::{
+	Arc, AtomicBool, DEFAULT_MAX_WRITE, Error, Features, HashMap, Io, Mutex, Options, OwnedFd,
+	Passthrough, PassthroughBackings, Path, Provider, RequestLimits, Result, Server, State,
+	WorkerEvent,
 	connection::Connection,
+	fusermount3,
 	read_write::ReadWriteStartupContext,
 	ring::{RingConfig, RingStartupContext},
-	*,
 };
-
-const IO_URING_ENTRIES: u32 = 256;
-const SQPOLL_IDLE_MS: u32 = 2_000;
-
-type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
 struct Mount {
 	connection_id: Option<u64>,
 	fd: Arc<OwnedFd>,
+	ready: Option<Arc<OwnedFd>>,
 }
 
 struct StartupConfig {
@@ -51,11 +50,17 @@ where
 	}
 
 	async fn receive_mount(recvfd: OwnedFd) -> Result<Mount> {
-		let (fd, connection_id) = tokio::task::spawn_blocking(move || Self::mount(&recvfd))
+		let (result, recvfd) = tokio::task::spawn_blocking(move || (Self::mount(&recvfd), recvfd))
 			.await
-			.map_err(Error::other)?
-			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
-		let mount = Mount { connection_id, fd };
+			.map_err(Error::other)?;
+		let (fd, connection_id) =
+			result.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+		let ready = connection_id.is_some().then(|| Arc::new(recvfd));
+		let mount = Mount {
+			connection_id,
+			fd,
+			ready,
+		};
 		Ok(mount)
 	}
 
@@ -66,16 +71,17 @@ where
 		mount: Mount,
 	) -> Result<Self> {
 		// Select ReadWrite before initializing an external connection because it cannot be remounted for a fallback.
-		let auto_unmount = mount.connection_id.is_none();
-		if !auto_unmount && options.io == Io::Auto {
+		let external_mount = mount.connection_id.is_some();
+		let auto_unmount = !external_mount;
+		if external_mount && options.io == Io::Auto {
 			options.io = Io::ReadWrite;
 		}
 
 		// Prepare the FUSE connection.
 		let supports_no_opendir = provider.supports_no_opendir();
-		let mut config = Self::startup_config(options)?;
-		let (mut connection, mut sqpoll_ring) =
-			Self::prepare_connection(path, supports_no_opendir, &mut config, mount).await?;
+		let mut config = Self::startup_config(options, external_mount)?;
+		let mut connection =
+			Self::prepare_connection(path, supports_no_opendir, &config, mount).await?;
 
 		// Create the server state.
 		let server = Self(Arc::new(State {
@@ -99,14 +105,14 @@ where
 				.ring_config
 				.ok_or_else(|| Error::other("missing the io_uring transport configuration"))?;
 			let context = RingStartupContext {
-				connection_id: connection.id,
+				abort: &connection.abort,
 				event_receiver: &mut event_receiver,
 				event_sender: event_sender.clone(),
 				fd: connection.fd.clone(),
 				path,
+				ready: connection.ready.clone(),
 				ring_config,
 				runtime: runtime.clone(),
-				sqpoll_wq_fd: sqpoll_ring.as_ref().unwrap().as_raw_fd(),
 			};
 			match server.start_ring_transport(context).await {
 				Err(failure) if config.options.io == Io::Auto => {
@@ -121,7 +127,7 @@ where
 						error = %failure.error,
 						"failed to start the FUSE io_uring transport; falling back to ReadWrite",
 					);
-					drop(sqpoll_ring.take());
+					drop(connection);
 					config.options.io = Io::ReadWrite;
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
@@ -133,6 +139,7 @@ where
 						supports_no_opendir,
 						mount.fd,
 						mount.connection_id,
+						mount.ready,
 					)
 					.await?;
 					server.validate_fallback_features(connection.features)?;
@@ -142,6 +149,7 @@ where
 						event_sender: event_sender.clone(),
 						limits: config.limits,
 						path,
+						ready: connection.ready.clone(),
 					};
 					let (threads, dispatcher) = server.start_read_write_transport(context).await?;
 					Transport {
@@ -162,6 +170,7 @@ where
 				event_sender: event_sender.clone(),
 				limits: config.limits,
 				path,
+				ready: connection.ready.clone(),
 			};
 			let (threads, dispatcher) = server.start_read_write_transport(context).await?;
 			Transport {
@@ -181,7 +190,7 @@ where
 			} = transport;
 			shutdown_server.cancel_async_requests();
 			let disconnected = shutdown_server
-				.disconnect_transport(&path, connection.id)
+				.disconnect_transport(&connection.abort, &path)
 				.await;
 			Self::join_transport_threads(&mut threads, disconnected);
 			if let Some(dispatcher) = dispatcher {
@@ -194,7 +203,6 @@ where
 				shutdown_server.rollback_all_response_resources(connection.fd.as_ref());
 			}
 			drop(connection);
-			drop(sqpoll_ring);
 		};
 
 		// Start the transport supervisor.
@@ -214,13 +222,13 @@ where
 		Ok(server)
 	}
 
-	fn startup_config(mut options: Options) -> Result<StartupConfig> {
+	fn startup_config(mut options: Options, external_mount: bool) -> Result<StartupConfig> {
 		// Configure the requested transport.
 		let page_size = rustix::param::page_size();
 		let ring_config = if options.io == Io::ReadWrite {
 			None
 		} else {
-			match Self::ring_config(page_size) {
+			match Self::ring_config(page_size, external_mount) {
 				Err(error) if options.io == Io::Auto => {
 					tracing::warn!(
 						%error,
@@ -250,52 +258,19 @@ where
 	async fn prepare_connection(
 		path: &Path,
 		supports_no_opendir: bool,
-		config: &mut StartupConfig,
-		mut mount: Mount,
-	) -> Result<(Connection, Option<SqpollRing>)> {
-		// Attempt to connect.
-		loop {
-			// Create the connection.
-			let connection = Self::connect(
-				path,
-				config.options,
-				config.limits,
-				supports_no_opendir,
-				mount.fd.clone(),
-				mount.connection_id,
-			)
-			.await?;
-
-			// If io_uring is unsupported fall back to normal i/o.
-			if !connection.features.over_io_uring {
-				return Ok((connection, None));
-			}
-
-			match Self::build_sqpoll_ring() {
-				Err(error) if config.options.io == Io::Auto => {
-					tracing::warn!(
-						%error,
-						"failed to build the FUSE io_uring SQPOLL ring; falling back to the ReadWrite transport",
-					);
-					drop(connection);
-					config.options.io = Io::ReadWrite;
-					config.ring_config = None;
-					config.limits =
-						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
-					mount = Self::remount(path).await?;
-				},
-				Err(error) => return Err(error),
-				Ok(ring) => return Ok((connection, Some(ring))),
-			}
-		}
-	}
-
-	fn build_sqpoll_ring() -> Result<SqpollRing> {
-		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		builder.setup_sqpoll(SQPOLL_IDLE_MS).setup_no_sqarray();
-		builder
-			.build(IO_URING_ENTRIES)
-			.map_err(|error| Error::other(format!("failed to build an SQPOLL ring: {error}")))
+		config: &StartupConfig,
+		mount: Mount,
+	) -> Result<Connection> {
+		Self::connect(
+			path,
+			config.options,
+			config.limits,
+			supports_no_opendir,
+			mount.fd,
+			mount.connection_id,
+			mount.ready,
+		)
+		.await
 	}
 
 	async fn remount(path: &Path) -> Result<Mount> {
