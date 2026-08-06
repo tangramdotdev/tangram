@@ -3,9 +3,10 @@ use super::*;
 const READ_WRITE_MAX_READER_COUNT: usize = 8;
 
 pub(super) struct Connection {
+	pub(super) abort: OwnedFd,
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) features: Features,
-	pub(super) id: u64,
+	pub(super) ready: Option<Arc<OwnedFd>>,
 }
 
 impl<P> Server<P>
@@ -19,13 +20,27 @@ where
 		supports_no_opendir: bool,
 		fd: Arc<OwnedFd>,
 		connection_id: Option<u64>,
+		ready: Option<Arc<OwnedFd>>,
 	) -> Result<Connection> {
-		let features = Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)?;
 		let id = match connection_id {
 			None => self::connection_id(path)?,
 			Some(connection_id) => connection_id,
 		};
-		Ok(Connection { fd, features, id })
+		let abort = Self::open_connection_abort(id)?;
+		let features = match Self::init_handshake(fd.as_ref(), options, limits, supports_no_opendir)
+		{
+			Err(error) => {
+				Self::abort_connection(&abort).ok();
+				return Err(error);
+			},
+			Ok(features) => features,
+		};
+		Ok(Connection {
+			abort,
+			fd,
+			features,
+			ready,
+		})
 	}
 
 	pub(super) fn mount(recvfd: &OwnedFd) -> Result<(Arc<OwnedFd>, Option<u64>)> {
@@ -217,8 +232,8 @@ where
 		Ok(())
 	}
 
-	pub(super) async fn disconnect_transport(&self, path: &Path, connection_id: u64) -> bool {
-		let aborted = Self::abort_connection(connection_id)
+	pub(super) async fn disconnect_transport(&self, abort: &OwnedFd, path: &Path) -> bool {
+		let aborted = Self::abort_connection(abort)
 			.inspect_err(|error| tracing::error!(%error, "failed to abort the FUSE connection"))
 			.is_ok();
 		if self.auto_unmount {
@@ -231,13 +246,63 @@ where
 		aborted
 	}
 
-	pub(super) fn abort_connection(connection_id: u64) -> Result<()> {
+	pub(super) fn open_connection_abort(connection_id: u64) -> Result<OwnedFd> {
 		let abort = Path::new("/sys/fs/fuse/connections")
 			.join(connection_id.to_string())
 			.join("abort");
-		std::fs::write(abort, b"1")?;
+		let abort = std::fs::File::options()
+			.write(true)
+			.open(abort)
+			.map_err(|error| {
+				Error::other(format!(
+					"failed to open the abort descriptor for FUSE connection {connection_id}: {error}",
+				))
+			})?
+			.into();
+
+		Ok(abort)
+	}
+
+	pub(super) fn abort_connection(abort: &OwnedFd) -> Result<()> {
+		let size = rustix::io::write(abort, b"1")?;
+		if size != 1 {
+			return Err(Error::other("failed to abort the FUSE connection"));
+		}
 
 		Ok(())
+	}
+
+	pub(super) async fn wait_for_mount_ready(ready: Arc<OwnedFd>) -> Result<()> {
+		let size = rustix::net::send(ready.as_ref(), &[0], SendFlags::NOSIGNAL)?;
+		if size != 1 {
+			return Err(Error::other(
+				"failed to signal that the FUSE transport is ready",
+			));
+		}
+		let wait = tokio::task::spawn_blocking(move || {
+			let mut buffer = [0u8; 1];
+			let size = loop {
+				match rustix::io::read(ready.as_ref(), &mut buffer) {
+					Err(Errno::INTR) => {},
+					Err(error) => return Err(Error::from(error)),
+					Ok(size) => break size,
+				}
+			};
+			if size != 1 {
+				return Err(Error::other("the FUSE mount readiness channel closed"));
+			}
+
+			Ok(())
+		});
+		let result = tokio::time::timeout(FUSE_MOUNT_READY_TIMEOUT, wait)
+			.await
+			.map_err(|_| Error::other("timed out waiting for the FUSE mount readiness probe"))?
+			.map_err(|error| {
+				Error::other(format!("the FUSE mount readiness task failed: {error}"))
+			})?;
+		result.map_err(|error| {
+			Error::other(format!("the FUSE mount readiness probe failed: {error}"))
+		})
 	}
 
 	pub(super) fn join_transport_threads(
@@ -358,7 +423,7 @@ pub(super) fn parse_connection_id(mountinfo: &str, path: &Path) -> Result<u64> {
 		let Some((major, minor)) = fields.get(2).and_then(|device| device.split_once(':')) else {
 			continue;
 		};
-		let major = major.parse::<u32>().map_err(|error| {
+		major.parse::<u32>().map_err(|error| {
 			Error::other(format!(
 				"failed to parse the FUSE device major number: {error}"
 			))
@@ -368,7 +433,7 @@ pub(super) fn parse_connection_id(mountinfo: &str, path: &Path) -> Result<u64> {
 				"failed to parse the FUSE device minor number: {error}"
 			))
 		})?;
-		let connection_id = libc::makedev(major, minor);
+		let connection_id = u64::from(minor);
 
 		return Ok(connection_id);
 	}

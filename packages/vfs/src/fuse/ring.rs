@@ -17,14 +17,14 @@ pub(super) struct RingConfig {
 }
 
 pub(super) struct RingStartupContext<'a> {
-	pub(super) connection_id: u64,
+	pub(super) abort: &'a OwnedFd,
 	pub(super) event_receiver: &'a mut tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>,
 	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) path: &'a Path,
+	pub(super) ready: Option<Arc<OwnedFd>>,
 	pub(super) ring_config: RingConfig,
 	pub(super) runtime: tokio::runtime::Handle,
-	pub(super) sqpoll_wq_fd: RawFd,
 }
 
 pub(super) struct RingStartupFailure {
@@ -37,7 +37,6 @@ struct RingWorkerConfig {
 	payload_size: usize,
 	queue_ids: Vec<u16>,
 	slots_per_queue: usize,
-	sqpoll_wq_fd: RawFd,
 	worker_id: usize,
 }
 
@@ -45,7 +44,7 @@ impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub(super) fn ring_config(page_size: usize) -> Result<RingConfig> {
+	pub(super) fn ring_config(page_size: usize, external_mount: bool) -> Result<RingConfig> {
 		// Derive the per-queue payload budget.
 		if page_size == 0 {
 			return Err(Error::other("the system page size is zero"));
@@ -64,17 +63,25 @@ where
 		let payload_memory_per_slot = queue_count
 			.checked_mul(limits.payload_size)
 			.ok_or_else(|| Error::other("the io_uring payload memory size overflowed"))?;
-		let slots_per_queue = IO_URING_PAYLOAD_MEMORY_BUDGET
-			.checked_div(payload_memory_per_slot)
-			.unwrap_or(0)
-			.clamp(1, IO_URING_MAX_SLOTS_PER_QUEUE);
+		let slots_per_queue = if external_mount {
+			1
+		} else {
+			IO_URING_PAYLOAD_MEMORY_BUDGET
+				.checked_div(payload_memory_per_slot)
+				.unwrap_or(0)
+				.clamp(1, IO_URING_MAX_SLOTS_PER_QUEUE)
+		};
 
 		// Derive the worker count.
 		let available_parallelism =
 			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-		let worker_count = available_parallelism
-			.min(queue_count)
-			.clamp(1, IO_URING_MAX_READER_COUNT);
+		let worker_count = if external_mount {
+			1
+		} else {
+			available_parallelism
+				.min(queue_count)
+				.clamp(1, IO_URING_MAX_READER_COUNT)
+		};
 
 		Ok(RingConfig {
 			limits,
@@ -171,14 +178,14 @@ where
 		context: RingStartupContext<'_>,
 	) -> std::result::Result<Vec<std::thread::JoinHandle<()>>, RingStartupFailure> {
 		let RingStartupContext {
-			connection_id,
+			abort,
 			event_receiver,
 			event_sender,
 			fd,
 			path,
+			ready,
 			ring_config,
 			runtime,
-			sqpoll_wq_fd,
 		} = context;
 		let mut thread_handles = Vec::new();
 		let startup = async {
@@ -214,7 +221,6 @@ where
 					payload_size: ring_config.limits.payload_size,
 					queue_ids,
 					slots_per_queue: ring_config.slots_per_queue,
-					sqpoll_wq_fd,
 					worker_id,
 				};
 				let thread = std::thread::Builder::new()
@@ -258,7 +264,10 @@ where
 			}
 
 			// Confirm that the kernel can dispatch through io_uring.
-			Self::probe_io_uring(path).await?;
+			match ready {
+				None => Self::probe_io_uring(path).await?,
+				Some(ready) => Self::wait_for_mount_ready(ready).await?,
+			}
 			while let Ok(event) = event_receiver.try_recv() {
 				if let WorkerEvent::Failed { error, worker } = event {
 					return Err(Error::other(format!(
@@ -306,7 +315,7 @@ where
 		// Clean up a partial startup.
 		if let Err(error) = startup {
 			self.cancel_async_requests();
-			let disconnected = self.disconnect_transport(path, connection_id).await;
+			let disconnected = self.disconnect_transport(abort, path).await;
 			Self::join_transport_threads(&mut thread_handles, disconnected);
 			if disconnected {
 				self.rollback_all_response_resources(fd.as_ref());

@@ -113,18 +113,18 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		.await
 		.map_err(|error| tg::error!(!error, "the pooled sandbox serve task panicked"));
 
-	// Destroy the sandbox process.
-	let sandbox_result = sandbox
-		.destroy()
-		.await
-		.map_err(|error| tg::error!(!error, "failed to destroy the pooled sandbox process"));
-
-	// Stop the VFS.
+	// Stop the VFS while the sandbox still owns its mount namespace.
 	#[cfg(target_os = "linux")]
 	if let Some(vfs) = vfs {
 		vfs.stop();
 		vfs.wait().await;
 	}
+
+	// Destroy the sandbox process.
+	let sandbox_result = sandbox
+		.destroy()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to destroy the pooled sandbox process"));
 
 	// Remove the temp directory.
 	let temp_result = temp

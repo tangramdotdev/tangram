@@ -384,7 +384,6 @@ where
 			payload_size,
 			queue_ids,
 			slots_per_queue,
-			sqpoll_wq_fd,
 			worker_id,
 		} = config;
 		let eventfd = rustix::event::eventfd(0, EventfdFlags::CLOEXEC)
@@ -418,7 +417,7 @@ where
 
 		// Create and register the worker ring.
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		builder.setup_attach_wq(sqpoll_wq_fd).setup_no_sqarray();
+		builder.setup_no_sqarray();
 		let io_uring = builder
 			.build(ring_entries)
 			.map_err(|error| Error::other(format!("failed to build the thread ring: {error}")))?;
