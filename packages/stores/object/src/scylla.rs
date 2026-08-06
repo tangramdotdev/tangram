@@ -123,7 +123,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select bytes, cache_pointer
+				select bytes
 				from objects
 				where id = ?;
 			"
@@ -136,8 +136,8 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into objects (bytes, cache_pointer, id, stored_at)
-				values (?, ?, ?, ?);
+				insert into objects (bytes, id, stored_at)
+				values (?, ?, ?);
 			"
 		);
 		let mut put_object = session

@@ -1,6 +1,6 @@
 use {
 	super::Store,
-	crate::{CachePointer, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{TryGetArg, TryGetBatchArg, TryGetOutput},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	std::{borrow::Cow, collections::HashMap},
@@ -67,7 +67,6 @@ impl Store {
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
 			bytes: Option<&'a [u8]>,
-			cache_pointer: Option<&'a [u8]>,
 		}
 		let result = self
 			.session
@@ -83,20 +82,13 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		if row.bytes.is_none() && row.cache_pointer.is_none() {
+		let Some(bytes) = row.bytes else {
 			return Ok(None);
-		}
-		let bytes = row
-			.bytes
-			.map(|bytes| Cow::Owned(Bytes::copy_from_slice(bytes).to_vec()));
-		let cache_pointer = row
-			.cache_pointer
-			.map(CachePointer::deserialize)
-			.transpose()
-			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the cache pointer"))?;
+		};
+		let bytes = Cow::Owned(Bytes::copy_from_slice(bytes).to_vec());
 		Ok(Some(crate::Object {
-			bytes,
-			cache_pointer,
+			bytes: Some(bytes),
+			cache_pointer: None,
 			stored_at: 0,
 		}))
 	}

@@ -3,18 +3,16 @@ use {super::Store, crate::PutArg, tangram_client::prelude::*};
 impl Store {
 	pub(super) async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = &arg.id;
+		if arg.cache_pointer.is_some() {
+			return Err(tg::error!(
+				%id,
+				"cache pointers are not supported by the scylla object store"
+			));
+		}
 		let bytes = arg.bytes;
-		let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
-			let cache_pointer = cache_pointer.serialize().map_err(
-				|error| tg::error!(!error, %id, "failed to serialize the cache pointer"),
-			)?;
-			Some(cache_pointer)
-		} else {
-			None
-		};
 		let id_bytes = id.to_bytes().to_vec();
 		let stored_at = arg.stored_at;
-		let params = (bytes, cache_pointer, id_bytes, stored_at);
+		let params = (bytes, id_bytes, stored_at);
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
@@ -25,6 +23,12 @@ impl Store {
 	pub(super) async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
+		}
+		if let Some(arg) = args.iter().find(|arg| arg.cache_pointer.is_some()) {
+			return Err(tg::error!(
+				id = %arg.id,
+				"cache pointers are not supported by the scylla object store"
+			));
 		}
 		let mut batch =
 			scylla::statement::batch::Batch::new(scylla::statement::batch::BatchType::Unlogged);
@@ -39,20 +43,11 @@ impl Store {
 			.map(|arg| {
 				let id = &arg.id;
 				let bytes = arg.bytes.clone();
-				let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
-					let cache_pointer = cache_pointer.serialize().map_err(
-						|error| tg::error!(!error, %id, "failed to serialize the cache pointer"),
-					)?;
-					Some(cache_pointer)
-				} else {
-					None
-				};
 				let id_bytes = id.to_bytes().to_vec();
 				let stored_at = arg.stored_at;
-				let params = (bytes, cache_pointer, id_bytes, stored_at);
-				Ok(params)
+				(bytes, id_bytes, stored_at)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<Vec<_>>();
 		self.session
 			.batch(&batch, params)
 			.await
