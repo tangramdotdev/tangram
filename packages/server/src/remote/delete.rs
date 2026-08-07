@@ -28,6 +28,7 @@ impl Session {
 		name: &str,
 		arg: tg::remote::delete::Arg,
 	) -> tg::Result<bool> {
+		self.verify_request_can_mutate_remotes()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
 		}

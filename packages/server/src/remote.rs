@@ -43,6 +43,17 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) fn verify_request_can_mutate_remotes(&self) -> tg::Result<()> {
+		if matches!(
+			self.context.principal,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+		) {
+			return Err(tg::error!("unauthorized"));
+		}
+
+		Ok(())
+	}
+
 	async fn resolve_remote_arg_principal(
 		&self,
 		principal: Option<tg::principal::Selector>,
@@ -257,6 +268,7 @@ impl Session {
 	}
 
 	pub(crate) async fn set_remote_token(&self, remote: &str, token: String) -> tg::Result<()> {
+		self.verify_request_can_mutate_remotes()?;
 		let principal = self.resolve_remote_arg_principal(None).await?;
 		let principal = principal.as_ref().map(ToString::to_string);
 		let remote = remote.to_owned();

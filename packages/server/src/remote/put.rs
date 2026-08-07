@@ -12,6 +12,7 @@ use {
 
 impl Session {
 	pub(crate) async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
+		self.verify_request_can_mutate_remotes()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
 		}

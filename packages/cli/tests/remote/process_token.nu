@@ -49,5 +49,13 @@ snapshot --normalize $output.stderr '
 
 '
 
+# Deleting a remote with a process token is unauthorized.
+let output = tg --token $token remote delete alice | complete
+failure $output
+
+# The creator's remote is unchanged.
+let remote = tg --token $token remote get alice | from json
+assert equal $remote.url $alice_remote.url
+
 tg cancel $parent.process $parent.lease
 tg wait $parent.process
