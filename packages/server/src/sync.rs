@@ -26,6 +26,23 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+		self.sync_inner(arg, false, stream).await
+	}
+
+	pub(crate) async fn sync_for_process(
+		&self,
+		arg: tg::sync::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+		self.sync_inner(arg, true, stream).await
+	}
+
+	async fn sync_inner(
+		&self,
+		arg: tg::sync::Arg,
+		process: bool,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let stream = match location {
@@ -35,11 +52,14 @@ impl Session {
 				.with_stopper(self.context.stopper.clone()),
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.sync_region(arg, stream, region).await?,
+			}) => self.sync_region(arg, process, stream, region).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
-			}) => self.sync_remote(arg, stream, remote, region).await?,
+			}) => {
+				self.sync_remote(arg, process, stream, remote, region)
+					.await?
+			},
 		};
 
 		Ok(stream)
@@ -102,12 +122,16 @@ impl Session {
 	async fn sync_region(
 		&self,
 		arg: tg::sync::Arg,
+		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		region: String,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
-		let client = self.get_region_session(&region).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to get the region client"),
-		)?;
+		let client = if process {
+			self.get_region_session_for_process(&region).await
+		} else {
+			self.get_region_session(&region).await
+		}
+		.map_err(|error| tg::error!(!error, region = %region, "failed to get the region client"))?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -125,13 +149,17 @@ impl Session {
 	async fn sync_remote(
 		&self,
 		arg: tg::sync::Arg,
+		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
-		let client = self.get_remote_session(&remote).await.map_err(
-			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
-		)?;
+		let client = if process {
+			self.get_remote_session_for_process(&remote).await
+		} else {
+			self.get_remote_session(&remote).await
+		}
+		.map_err(|error| tg::error!(!error, remote = %remote, "failed to get the remote client"))?;
 		let arg = tg::sync::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg

@@ -44,6 +44,23 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) fn verify_request_can_access_remote_process(&self) -> tg::Result<()> {
+		if self.server.origin_has_network_access(self.context.origin)?
+			|| matches!(self.context.origin, crate::Origin::Sandbox(_))
+				&& matches!(
+					self.context.principal,
+					tg::Principal::Process(_)
+						| tg::Principal::Runner(_)
+						| tg::Principal::Sandbox(_)
+				) {
+			return Ok(());
+		}
+
+		Err(tg::error!(
+			"network access is disabled for the origin sandbox"
+		))
+	}
+
 	pub(crate) fn verify_request_with_network_access(&self) -> tg::Result<()> {
 		if !self.server.origin_has_network_access(self.context.origin)? {
 			return Err(tg::error!(

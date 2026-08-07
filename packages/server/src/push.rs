@@ -36,9 +36,52 @@ impl Session {
 		Ok(stream)
 	}
 
+	pub(crate) async fn push_for_process(
+		&self,
+		arg: tg::push::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
+	> {
+		let source = arg
+			.source
+			.clone()
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let destination = arg.destination.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let stream = self
+			.push_or_pull_for_process(&arg, source, destination)
+			.await?;
+		Ok(stream)
+	}
+
 	pub(crate) async fn push_or_pull(
 		&self,
 		arg: &tg::push::Arg,
+		source: tg::Location,
+		destination: tg::Location,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+		self.push_or_pull_inner(arg, false, source, destination)
+			.await
+	}
+
+	async fn push_or_pull_for_process(
+		&self,
+		arg: &tg::push::Arg,
+		source: tg::Location,
+		destination: tg::Location,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+		self.push_or_pull_inner(arg, true, source, destination)
+			.await
+	}
+
+	async fn push_or_pull_inner(
+		&self,
+		arg: &tg::push::Arg,
+		process: bool,
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
@@ -99,6 +142,7 @@ impl Session {
 			|_| async move {
 				let result = AssertUnwindSafe(session.push_or_pull_task(
 					arg,
+					process,
 					progress.clone(),
 					source.clone(),
 					destination.clone(),
@@ -269,6 +313,7 @@ impl Session {
 	async fn push_or_pull_task(
 		&self,
 		arg: tg::push::Arg,
+		process: bool,
 		progress: crate::progress::Handle<tg::push::Output>,
 		source: tg::Location,
 		destination: tg::Location,
@@ -327,10 +372,18 @@ impl Session {
 					user_children: arg.user_children,
 				};
 				let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
-				let push_output_stream = session
-					.sync(push_arg, push_input_stream)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
+				let push_output_stream = if process {
+					session
+						.sync_for_process(push_arg, push_input_stream)
+						.await
+						.map(futures::StreamExt::boxed)
+				} else {
+					session
+						.sync(push_arg, push_input_stream)
+						.await
+						.map(futures::StreamExt::boxed)
+				}
+				.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
 
 				// Start the pull.
 				let pull_arg = tg::sync::Arg {
@@ -351,10 +404,18 @@ impl Session {
 					user_children: arg.user_children,
 				};
 				let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
-				let pull_output_stream = session
-					.sync(pull_arg, pull_input_stream)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
+				let pull_output_stream = if process {
+					session
+						.sync_for_process(pull_arg, pull_input_stream)
+						.await
+						.map(futures::StreamExt::boxed)
+				} else {
+					session
+						.sync(pull_arg, pull_input_stream)
+						.await
+						.map(futures::StreamExt::boxed)
+				}
+				.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
 
 				// Create the push future.
 				let push_future = async {

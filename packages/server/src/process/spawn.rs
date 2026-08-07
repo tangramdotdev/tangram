@@ -399,7 +399,7 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let client = self.get_region_session(&region).await.map_err(
+		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
@@ -441,7 +441,7 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let client = self.get_remote_session(&remote).await.map_err(
+		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
 		let destination = tg::Location::Remote(tg::location::Remote {
@@ -506,7 +506,7 @@ impl Session {
 			..Default::default()
 		};
 		let stream = self
-			.push(push_arg)
+			.push_for_process(push_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
 		let mut stream = pin!(stream);

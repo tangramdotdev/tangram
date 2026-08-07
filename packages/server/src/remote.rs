@@ -219,8 +219,22 @@ impl Session {
 			.ok_or_else(|| tg::error!("failed to find the remote"))
 	}
 
+	pub(crate) async fn get_remote_session_for_process(
+		&self,
+		remote: &str,
+	) -> tg::Result<tg::Session> {
+		self.verify_request_can_access_remote_process()?;
+		self.try_get_remote_session_inner(remote)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the remote"))
+	}
+
 	pub async fn try_get_remote_session(&self, remote: &str) -> tg::Result<Option<tg::Session>> {
 		self.verify_request_with_network_access()?;
+		self.try_get_remote_session_inner(remote).await
+	}
+
+	async fn try_get_remote_session_inner(&self, remote: &str) -> tg::Result<Option<tg::Session>> {
 		let Some(output) = self
 			.try_get_remote(remote, tg::remote::get::Arg::default())
 			.await

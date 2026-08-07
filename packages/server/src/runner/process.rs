@@ -813,7 +813,7 @@ impl Session {
 				..Default::default()
 			};
 			let stream = session
-				.push(arg)
+				.push_for_process(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
 			let state = process

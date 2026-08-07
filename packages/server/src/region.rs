@@ -6,6 +6,18 @@ use {
 impl Session {
 	pub(crate) async fn get_region_session(&self, region: &str) -> tg::Result<tg::Session> {
 		self.verify_request_with_network_access()?;
+		self.get_region_session_inner(region).await
+	}
+
+	pub(crate) async fn get_region_session_for_process(
+		&self,
+		region: &str,
+	) -> tg::Result<tg::Session> {
+		self.verify_request_can_access_remote_process()?;
+		self.get_region_session_inner(region).await
+	}
+
+	async fn get_region_session_inner(&self, region: &str) -> tg::Result<tg::Session> {
 		let client = self.server.get_region_client(region).await?;
 		let context = client.context().clone();
 		context.set_token(self.context.token.clone());

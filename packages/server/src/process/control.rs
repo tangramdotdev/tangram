@@ -383,7 +383,7 @@ impl Session {
 		)>,
 	> {
 		let id = arg.id.clone();
-		let client = self.get_region_session(&region).await.map_err(
+		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, ?id, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
@@ -419,7 +419,7 @@ impl Session {
 		)>,
 	> {
 		let id = arg.id.clone();
-		let session = self.get_remote_session(&remote).await.map_err(
+		let session = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
 		let context = session.context().clone();

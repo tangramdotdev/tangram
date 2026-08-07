@@ -396,7 +396,7 @@ impl Session {
 					.region
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected the region to be set"))?;
-				let client = self.get_region_session(region).await.map_err(
+				let client = self.get_region_session_for_process(region).await.map_err(
 					|error| tg::error!(!error, region = %region, "failed to get the region client"),
 				)?;
 				let location = tg::Location::Local(tg::location::Local {
@@ -414,7 +414,7 @@ impl Session {
 			},
 			tg::Location::Remote(remote) => {
 				let client = self
-					.get_remote_session(&remote.name)
+					.get_remote_session_for_process(&remote.name)
 					.await
 					.map_err(|error| {
 						tg::error!(
