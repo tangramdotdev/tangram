@@ -65,7 +65,8 @@ mod library {
 			"rootDir": client_path.join("src"),
 		});
 		if let Ok(node_path) = std::env::var("NODE_PATH") {
-			compiler_options.as_object_mut().unwrap().insert(
+			let compiler_options = compiler_options.as_object_mut().unwrap();
+			compiler_options.insert(
 				"paths".into(),
 				json!({
 					"*": [
@@ -74,6 +75,8 @@ mod library {
 					],
 				}),
 			);
+			// The client's tsconfig.json resolves its type roots relative to itself, but the client source does not contain a node_modules directory when the dependencies are provided by NODE_PATH.
+			compiler_options.insert("typeRoots".into(), json!([format!("{node_path}/@types")]));
 		}
 		let tsconfig_path = out_dir_path.join("tangram.tsconfig.json");
 		let tsconfig = json!({
@@ -104,7 +107,14 @@ mod library {
 			Ok(path) => PathBuf::from(path),
 			Err(_) => PathBuf::from("../../node_modules"),
 		};
-		let typescript_lib_path = node_modules_path.join("typescript/../old/lib");
+		// The typescript package is an alias for @typescript/typescript6, which ships the libraries in a sibling old package. Bun installs it as a symlink with the isolated linker and at the top level with the hoisted linker, so the sibling is reachable by a different path in each layout.
+		let typescript_lib_path = [
+			node_modules_path.join("typescript/../old/lib"),
+			node_modules_path.join("@typescript/old/lib"),
+		]
+		.into_iter()
+		.find(|path| path.exists())
+		.unwrap();
 		let paths =
 			glob::glob(&typescript_lib_path.join("lib.es*.d.ts").to_string_lossy()).unwrap();
 		for path in paths {
