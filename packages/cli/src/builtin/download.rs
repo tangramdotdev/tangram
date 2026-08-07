@@ -44,7 +44,14 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, url = %args.url, "failed to perform the request"))?
 		.error_for_status()
 		.map_err(|error| tg::error!(!error, url = %args.url, "expected a success status"))?;
+	super::progress::write_message(&format!("downloading from \"{}\"", args.url))?;
+	let content_length = response.content_length();
 	let downloaded = Arc::new(AtomicU64::new(0));
+	let progress = super::progress::Progress::with_position(
+		"downloading",
+		content_length,
+		downloaded.clone(),
+	)?;
 	let checksum = args.checksum.map(|algorithm| {
 		let writer = tg::checksum::Writer::new(algorithm);
 		Arc::new(Mutex::new(writer))
@@ -152,6 +159,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 			)?;
 		}
 	}
+	progress.finish(&format!("finished download from \"{}\"", args.url))?;
 
 	Ok(())
 }

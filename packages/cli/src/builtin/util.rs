@@ -11,6 +11,13 @@ pub(crate) fn resolve_path(named: Option<PathBuf>, positional: Option<PathBuf>) 
 	named.or(positional).filter(|path| path != Path::new("-"))
 }
 
+pub(crate) async fn input_length(path: Option<&Path>) -> Option<u64> {
+	let path = path?;
+	let metadata = tokio::fs::metadata(path).await.ok()?;
+
+	Some(metadata.len())
+}
+
 pub(crate) async fn open_input(path: Option<&Path>) -> tg::Result<Reader> {
 	let reader: Reader = if let Some(path) = path {
 		let file = tokio::fs::File::open(path).await.map_err(

@@ -6,7 +6,7 @@ use {
 		path::{Component, Path, PathBuf},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::read::Ext as _,
+	tangram_futures::read::{Ext as _, shared_position_reader::SharedPositionReader},
 	tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _},
 	tokio_util::compat::FuturesAsyncReadCompatExt as _,
 };
@@ -31,7 +31,11 @@ pub async fn run(args: Args) -> tg::Result<()> {
 	let input = super::util::resolve_path(args.input_named, args.input_positional);
 	let output = super::util::resolve_path(args.output_named, args.output_positional)
 		.ok_or_else(|| tg::error!("expected an output path"))?;
+	let total = super::util::input_length(input.as_deref()).await;
 	let input = super::util::open_input(input.as_deref()).await?;
+	let input = SharedPositionReader::with_reader_and_position(input, 0)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to track the input position"))?;
 	let mut input = tokio::io::BufReader::new(input);
 	let buffer = input
 		.fill_buf()
@@ -39,6 +43,11 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to read the input"))?;
 	let (format, compression) = super::util::detect_archive_format(buffer)?
 		.ok_or_else(|| tg::error!("invalid archive format"))?;
+	let progress = super::progress::Progress::with_position(
+		"extracting",
+		total,
+		input.get_ref().shared_position(),
+	)?;
 	tokio::fs::create_dir(&output).await.map_err(
 		|error| tg::error!(!error, path = %output.display(), "failed to create the output"),
 	)?;
@@ -46,6 +55,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		tg::ArchiveFormat::Tar => extract_tar(&output, &mut input, compression).await?,
 		tg::ArchiveFormat::Zip => extract_zip(&output, &mut input).await?,
 	}
+	progress.finish("finished extracting")?;
 
 	Ok(())
 }

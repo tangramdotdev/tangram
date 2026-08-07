@@ -6,6 +6,7 @@ mod compress;
 mod decompress;
 mod download;
 mod extract;
+mod progress;
 mod util;
 
 #[derive(Clone, Debug, clap::Args)]

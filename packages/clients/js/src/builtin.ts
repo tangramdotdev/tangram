@@ -33,7 +33,8 @@ export let archive = async (
 		.build()
 		.host(tg.host.current)
 		.executable("tg")
-		.args(args);
+		.args(args)
+		.named("archive");
 	tg.assert(value instanceof tg.File);
 	return await value.contents;
 };
@@ -107,7 +108,8 @@ export let compress = async (
 		.build()
 		.host(tg.host.current)
 		.executable("tg")
-		.args(args);
+		.args(args)
+		.named("compress");
 	tg.assert(value instanceof tg.File);
 	return await value.contents;
 };
@@ -120,7 +122,8 @@ export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
 		.build()
 		.host(tg.host.current)
 		.executable("tg")
-		.args(args);
+		.args(args)
+		.named("decompress");
 	tg.assert(value instanceof tg.File);
 	return await value.contents;
 };
@@ -153,6 +156,7 @@ export let download = async (
 		.executable("tg")
 		.args(args)
 		.checksum(checksum_)
+		.named("download")
 		.network(true);
 	if (mode === "raw") {
 		tg.assert(value instanceof tg.File);
@@ -170,7 +174,8 @@ export let extract = async (blob: tg.Blob): Promise<tg.Artifact> => {
 		.build()
 		.host(tg.host.current)
 		.executable("tg")
-		.args(args);
+		.args(args)
+		.named("extract");
 	tg.assert(tg.Artifact.is(value));
 	return value;
 };

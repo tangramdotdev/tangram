@@ -3,6 +3,7 @@ use {
 	std::{
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
+		sync::{Arc, atomic::AtomicU64},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::read::Ext as _,
@@ -44,10 +45,15 @@ pub async fn run(args: Args) -> tg::Result<()> {
 	if args.compression.is_some() && matches!(args.format, tg::ArchiveFormat::Zip) {
 		return Err(tg::error!("compression is not supported for zip archives"));
 	}
+	let progress = super::progress::Progress::new("archiving", None)?;
+	let position = progress.position();
 	match args.format {
-		tg::ArchiveFormat::Tar => tar(&input, output.as_deref(), args.compression).await?,
-		tg::ArchiveFormat::Zip => zip(&input, output.as_deref()).await?,
+		tg::ArchiveFormat::Tar => {
+			tar(&input, output.as_deref(), args.compression, &position).await?;
+		},
+		tg::ArchiveFormat::Zip => zip(&input, output.as_deref(), &position).await?,
 	}
+	progress.finish("finished archiving")?;
 
 	Ok(())
 }
@@ -56,12 +62,13 @@ async fn tar(
 	input: &Path,
 	output: Option<&Path>,
 	compression: Option<tg::CompressionFormat>,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<()> {
 	let (reader, writer) = tokio::io::duplex(8192);
 	let archive_future = async {
 		let mut builder = tokio_tar::Builder::new(writer);
 		for (name, path) in read_directory(input).await? {
-			tar_inner(&mut builder, &path, Path::new(&name)).await?;
+			tar_inner(&mut builder, &path, Path::new(&name), position).await?;
 		}
 		builder
 			.finish()
@@ -110,6 +117,7 @@ async fn tar_inner<W>(
 	builder: &mut tokio_tar::Builder<W>,
 	source: &Path,
 	path: &Path,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<()>
 where
 	W: tokio::io::AsyncWrite + Send + Unpin,
@@ -128,7 +136,7 @@ where
 			.await
 			.map_err(|error| tg::error!(!error, "failed to append the directory"))?;
 		for (name, source) in read_directory(source).await? {
-			Box::pin(tar_inner(builder, &source, &path.join(name))).await?;
+			Box::pin(tar_inner(builder, &source, &path.join(name), position)).await?;
 		}
 	} else if file_type.is_file() {
 		let mut header = tokio_tar::Header::new_gnu();
@@ -142,6 +150,7 @@ where
 			.append_data(&mut header, path, file)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to append the file"))?;
+		position.fetch_add(metadata.len(), std::sync::atomic::Ordering::Relaxed);
 	} else if file_type.is_symlink() {
 		let target = tokio::fs::read_link(source).await.map_err(
 			|error| tg::error!(!error, path = %source.display(), "failed to read the symlink"),
@@ -164,11 +173,11 @@ where
 	Ok(())
 }
 
-async fn zip(input: &Path, output: Option<&Path>) -> tg::Result<()> {
+async fn zip(input: &Path, output: Option<&Path>, position: &Arc<AtomicU64>) -> tg::Result<()> {
 	let output = super::util::open_output(output).await?;
 	let mut builder = async_zip::base::write::ZipFileWriter::new(output.compat_write());
 	for (name, path) in read_directory(input).await? {
-		zip_inner(&mut builder, &path, Path::new(&name)).await?;
+		zip_inner(&mut builder, &path, Path::new(&name), position).await?;
 	}
 	builder
 		.close()
@@ -182,6 +191,7 @@ async fn zip_inner<W>(
 	builder: &mut async_zip::base::write::ZipFileWriter<W>,
 	source: &Path,
 	path: &Path,
+	position: &Arc<AtomicU64>,
 ) -> tg::Result<()>
 where
 	W: futures::io::AsyncWrite + Send + Sync + Unpin,
@@ -200,7 +210,7 @@ where
 			.await
 			.map_err(|error| tg::error!(!error, "failed to write the directory"))?;
 		for (name, source) in read_directory(source).await? {
-			Box::pin(zip_inner(builder, &source, &path.join(name))).await?;
+			Box::pin(zip_inner(builder, &source, &path.join(name), position)).await?;
 		}
 	} else if file_type.is_file() {
 		let entry = async_zip::ZipEntryBuilder::new(
@@ -224,6 +234,7 @@ where
 			.close()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to finish the zip entry"))?;
+		position.fetch_add(metadata.len(), std::sync::atomic::Ordering::Relaxed);
 	} else if file_type.is_symlink() {
 		let target = tokio::fs::read_link(source).await.map_err(
 			|error| tg::error!(!error, path = %source.display(), "failed to read the symlink"),

@@ -107,6 +107,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("archive".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -257,6 +258,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("checksum".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -333,6 +335,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("compress".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -399,6 +402,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("decompress".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -476,6 +480,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("download".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
@@ -545,6 +550,7 @@ where
 			path: Some("tg".into()),
 		}),
 		host: Some(tg::host::current().to_owned()),
+		name: Some("extract".into()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_handle(handle, arg).await?;
