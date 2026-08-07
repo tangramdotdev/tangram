@@ -22,6 +22,7 @@ snapshot --normalize --redact $path $output.stderr '
 	   id = pcs_0000000000000000000000000000
 	-> the child process failed
 	   id = pcs_0011111111111111111111111111
+	   name = download
 	   ╭─[<redacted>/tangram.ts:2:9]
 	 1 │ export default async function () {
 	 2 │     return await tg.download("http://www.example.com/does-not-exist");

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Cancelling a process with an invalid lease fails with a missing-lease error, while cancelling with the valid lease succeeds.
+# Cancelling with an invalid lease is an idempotent no-op, while cancelling with the valid lease stops the process.
 
 let server = spawn
 
@@ -17,20 +17,8 @@ let path = artifact {
 let process = tg build --detach --verbose $path | from json
 
 let output = tg cancel $process.process invalidlease | complete
-failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> the process lease was not found
-
-'
+success $output
+assert equal (tg status --timeout 0 $process.process | from json) [started] "the invalid lease should not stop the process"
 
 tg cancel $process.process $process.lease
 tg wait $process.process

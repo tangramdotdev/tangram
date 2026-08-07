@@ -6,17 +6,38 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
-		self.put_process_local(
+		let mut data = arg.data;
+		Self::validate_process_data(&data)?;
+		let mut authorization = self.authorize_process_data(&data).await?;
+		let authorization_error = (data.output.is_some() && !authorization.output_grants_subtree)
+			.then(|| tg::error!("failed to authorize the process output"));
+
+		// Fail the process without storing the unauthorized output.
+		if let Some(error) = &authorization_error {
+			data.actual_checksum = None;
+			data.cacheable = false;
+			data.error = Some(error.to_data_or_id().map_right(tg::Referent::with_item));
+			data.exit = Some(1);
+			data.output = None;
+			authorization = self.authorize_process_data(&data).await?;
+		}
+
+		self.put_process_local_inner(
 			id,
 			tg::process::put::Arg {
-				data: arg.data,
+				data,
 				location: None,
 			},
+			authorization,
 			true,
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
 		self.spawn_process_finish_tasks(id);
+		if let Some(error) = authorization_error {
+			return Err(error);
+		}
+
 		Ok(tg::process::control::FinishServerResponseOutput {})
 	}
 

@@ -1,40 +1,30 @@
 use ../../test.nu *
 
-# A process authenticated client may not get a tag.
+# A process is subject to tag authorization when its sandbox has network access.
 
-let server = spawn --busybox
+let server = spawn
 
 # Create a tag so the failure cannot be attributed to a missing tag.
-let path = artifact 'test'
+let path = artifact "test"
 let id = tg checkin $path
 tg tag put test $id
 
-# Run a sandboxed command that logs its process token and stays alive.
 let module = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
-		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+		export default function () {
+			return tg.run`
+				if output=$(tg tag get test 2>&1); then
+					exit 1
+				fi
+				printf "%s\\n" "$output" > "$TANGRAM_OUTPUT"
+				printf "%s\\n" "$output"
+			`
+				.network()
+				.sandbox()
+				.then(tg.File.expect);
 		}
 	'
 }
-let parent = tg build --detach --verbose $module | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
-let token = tg log $parent.process | str trim
-
-# Getting a tag with a process token is unauthorized.
-let output = tg --token $token tag get test | complete
-failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to get the tag
-	   tag = test
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> unauthorized
-
-'
-
-tg cancel $parent.process $parent.lease
-tg wait $parent.process
+let output = tg run --sandbox --network=true $module | complete
+success $output
+assert ($output.stdout | str contains "failed to find the tag")

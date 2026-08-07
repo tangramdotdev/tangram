@@ -30,7 +30,8 @@ tg push --eager --process-outputs --process-children $shared_process
 let wrapper_ts = [
 	$'import shared from "shared" with { source: "($shared)" };'
 	'export default async function (_name: string) {'
-	'	return await tg.build(shared).then(tg.Directory.expect);'
+	'	await tg.build(shared);'
+	'	return "done";'
 	'}'
 ] | str join "\n"
 let wrapper = artifact { tangram.ts: $wrapper_ts }

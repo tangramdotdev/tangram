@@ -1,39 +1,33 @@
 use ../../test.nu *
 
-# A process authenticated client may request only the diagnostics and version health fields.
+# A process may request only the diagnostics and version health fields from its sandbox.
 
-let server = spawn --busybox
+let server = spawn
 
-# Run a sandboxed command that logs its process token and stays alive.
-let path = artifact {
+let full = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
-		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+		export default function () {
+			return tg.run`
+				if tg health > /dev/null 2> "$TANGRAM_OUTPUT"; then
+					exit 1
+				fi
+			`
+				.sandbox()
+				.then(tg.File.expect);
 		}
 	'
 }
-let parent = tg build --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
-let token = tg log $parent.process | str trim
+let output = tg build $full | str trim | tg cat $in
+assert ($output | str contains "unauthorized")
 
-# The full health is unauthorized for a process token.
-let output = tg --token $token health | complete
-failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to get the health
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to get the server health
-	-> unauthorized
-
-'
-
-# The diagnostics and version fields are allowed for a process token.
-let health = tg --token $token health --fields diagnostics,version | from json
+let partial = artifact {
+	tangram.ts: '
+		export default function () {
+			return tg.run`tg health --fields diagnostics,version > "$TANGRAM_OUTPUT"`
+				.sandbox()
+				.then(tg.File.expect);
+		}
+	'
+}
+let health = tg build $partial | str trim | tg cat $in | from json
 assert equal ($health | columns) [diagnostics version] "the allowed fields should be returned"
-
-tg cancel $parent.process $parent.lease
-tg wait $parent.process

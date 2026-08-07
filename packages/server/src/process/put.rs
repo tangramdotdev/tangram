@@ -9,6 +9,11 @@ use {
 	tangram_index::prelude::*,
 };
 
+pub(super) struct Authorization {
+	pub(super) error_grants_subtree: bool,
+	pub(super) output_grants_subtree: bool,
+}
+
 impl Session {
 	pub(crate) async fn put_process(
 		&self,
@@ -36,17 +41,24 @@ impl Session {
 	pub(crate) async fn put_process_local(
 		&self,
 		id: &tg::process::Id,
-		mut arg: tg::process::put::Arg,
+		arg: tg::process::put::Arg,
 		finalize: bool,
 	) -> tg::Result<tg::process::put::Output> {
 		Self::validate_process_data(&arg.data)?;
+		let authorization = self.authorize_process_data(&arg.data).await?;
+		let output = self
+			.put_process_local_inner(id, arg, authorization, finalize)
+			.await?;
 
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let token_data = arg.data.clone();
+		Ok(output)
+	}
 
-		// Authorize the process object relationships before removing the tokens.
+	pub(super) async fn authorize_process_data(
+		&self,
+		data: &tg::process::Data,
+	) -> tg::Result<Authorization> {
 		let mut objects = Vec::new();
-		if let Some(error) = &arg.data.error {
+		if let Some(error) = &data.error {
 			match error {
 				tg::Either::Left(data) => {
 					let mut children = BTreeSet::new();
@@ -59,7 +71,7 @@ impl Session {
 			}
 		}
 		let error_object_count = objects.len();
-		if let Some(output) = &arg.data.output {
+		if let Some(output) = &data.output {
 			output.children_with_tokens(&mut objects);
 		}
 		let permission =
@@ -77,6 +89,27 @@ impl Session {
 		};
 		let error_grants_subtree = grants_subtree(error_authorizations);
 		let output_grants_subtree = grants_subtree(output_authorizations);
+		let authorization = Authorization {
+			error_grants_subtree,
+			output_grants_subtree,
+		};
+
+		Ok(authorization)
+	}
+
+	pub(super) async fn put_process_local_inner(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::put::Arg,
+		authorization: Authorization,
+		finalize: bool,
+	) -> tg::Result<tg::process::put::Output> {
+		let Authorization {
+			error_grants_subtree,
+			output_grants_subtree,
+		} = authorization;
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let token_data = arg.data.clone();
 
 		arg.data = arg.data.without_tokens();
 

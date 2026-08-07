@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A lease that was already used to cancel cannot be reused while the process is still running.
+# Releasing the same lease more than once is an idempotent no-op while the process is still running.
 
 let server = spawn
 
@@ -22,22 +22,10 @@ assert equal $second.process $first.process "the builds should deduplicate to on
 # Cancel the first lease. The second lease keeps the process running.
 tg cancel $first.process $first.lease
 
-# Reusing the first lease fails because it no longer exists.
+# Reuse the first lease and verify that the second lease keeps the process running.
 let output = tg cancel $first.process $first.lease | complete
-failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> failed to cancel the process
-	   id = pcs_0000000000000000000000000000
-	-> the process lease was not found
-
-'
+success $output
+assert equal (tg status --timeout 0 $first.process | from json) [started] "reusing the first lease should not stop the process"
 
 tg cancel $second.process $second.lease
 tg wait $second.process

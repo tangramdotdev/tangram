@@ -1,37 +1,22 @@
 use ../../test.nu *
 
-# A process authenticated client may not format.
+# A process may not format from its sandbox.
 
-let server = spawn --busybox
+let server = spawn
 
-# Run a sandboxed command that logs its process token and stays alive.
 let path = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
-		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+		export default function () {
+			return tg.run`
+				if tg format . > /dev/null 2> "$TANGRAM_OUTPUT"; then
+					exit 1
+				fi
+			`
+				.sandbox()
+				.then(tg.File.expect);
 		}
 	'
 }
-let parent = tg build --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
-let token = tg log $parent.process | str trim
 
-# Formatting with a process token is unauthorized.
-let dir = mktemp --directory
-'export default   "x"' | save ($dir | path join tangram.ts)
-let output = tg --token $token format $dir | complete
-failure $output
-snapshot --normalize --redact $dir $output.stderr '
-	error an error occurred
-	-> failed to format
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to format
-	-> unauthorized
-
-'
-
-tg cancel $parent.process $parent.lease
-tg wait $parent.process
+let output = tg build $path | str trim | tg cat $in
+assert ($output | str contains "the operation is not available from a sandbox")

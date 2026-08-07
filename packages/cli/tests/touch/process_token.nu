@@ -1,42 +1,35 @@
 use ../../test.nu *
 
-# A process authenticated client may touch an object but may not touch a process.
+# A process may touch an object it created but may not touch another process.
 
-let server = spawn --busybox
+let server = spawn
 
-# Run a sandboxed command that logs its process token and stays alive.
-let path = artifact {
+let target_path = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
 		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+			await tg.run`sleep 60`.sandbox();
 		}
 	'
 }
-let parent = tg build --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
-let token = tg log $parent.process | str trim
+let target = tg build --detach --verbose $target_path | from json
 
-# Touching a process with a process token is unauthorized.
-let output = tg --token $token process touch $parent.process | complete
-failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to touch the process
-	   id = pcs_0000000000000000000000000000
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to touch the process
-	   id = pcs_0000000000000000000000000000
-	-> unauthorized
+let path = artifact {
+	tangram.ts: '
+		export default function (process: string) {
+			return tg.run`
+				if tg process touch ${process} > /dev/null 2> "$TANGRAM_OUTPUT"; then
+					exit 1
+				fi
+				object=$(tg put \x27tg.file("object for token")\x27)
+				tg object touch "$object"
+			`
+				.sandbox()
+				.then(tg.File.expect);
+		}
+	'
+}
+let output = tg build $path --arg-string $target.process | str trim | tg cat $in
+assert ($output | str contains "failed to find the process")
 
-'
-
-# Touching an object with a process token is allowed.
-let id = tg --token $token put 'tg.file("object for token")' | str trim
-let output = tg --token $token object touch $id | complete
-success $output
-
-tg cancel $parent.process $parent.lease
-tg wait $parent.process
+tg cancel $target.process $target.lease
+tg wait $target.process

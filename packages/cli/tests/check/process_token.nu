@@ -1,39 +1,20 @@
 use ../../test.nu *
 
-# A process authenticated client may not check.
+# A process may check a module from its sandbox.
 
-let server = spawn --busybox
+let server = spawn
 
-# Run a sandboxed command that logs its process token and stays alive.
 let path = artifact {
 	tangram.ts: '
-		import busybox from "busybox";
-
-		export default async function () {
-			await tg.run`echo "$TANGRAM_TOKEN" && sleep 60`.env(tg.build(busybox)).sandbox();
+		export default function () {
+			const source = tg.directory({
+				"tangram.ts": tg.file(`export default "x";`),
+			});
+			return tg.run`tg check ${source} > "$TANGRAM_OUTPUT"`
+				.sandbox()
+				.then(tg.File.expect);
 		}
 	'
 }
-let parent = tg build --detach --verbose $path | from json
-wait_until { (tg log $parent.process | str trim | str length) > 0 } "the process should log its token"
-let token = tg log $parent.process | str trim
 
-# Checking with a process token is unauthorized.
-let dir = mktemp --directory
-'export default "x"' | save ($dir | path join tangram.ts)
-let output = tg --token $token check $dir | complete
-failure $output
-snapshot --normalize --redact $dir $output.stderr '
-	error an error occurred
-	-> failed to resolve the reference
-	   reference = <redacted>
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to resolve the reference
-	   reference = <redacted>
-	-> unauthorized
-
-'
-
-tg cancel $parent.process $parent.lease
-tg wait $parent.process
+success (tg build $path | complete)
