@@ -116,17 +116,20 @@ impl Session {
 		} else {
 			Some(Vec::new())
 		};
-		let log = (!Self::process_log_needs_compaction(&arg.data))
-			.then(|| arg.data.log.clone().map(|log| log.item.into()));
+		let log = if Self::process_log_needs_compaction(&arg.data) {
+			tangram_index::process::put::Field::Unset
+		} else {
+			arg.data.log.clone().map(|log| log.item.into()).into()
+		};
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: arg.data.command.clone().into(),
 			data: Some(arg.data.clone()),
-			error: Some(error),
+			error: error.into(),
 			id: id.clone(),
 			log,
 			metadata: tg::process::Metadata::default(),
-			output: Some(output),
+			output: output.into(),
 			parent: None,
 			sandbox: Some(arg.data.sandbox.clone()),
 			stored: tangram_index::process::Stored::default(),

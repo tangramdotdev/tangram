@@ -37,10 +37,10 @@ impl Index {
 				.as_ref()
 				.is_none_or(|existing| !existing.set.children);
 		let error_changed =
-			arg.error.is_some() && existing.as_ref().is_none_or(|existing| !existing.set.error);
+			!arg.error.is_unset() && existing.as_ref().is_none_or(|existing| !existing.set.error);
 		let log_changed =
-			arg.log.is_some() && existing.as_ref().is_none_or(|existing| !existing.set.log);
-		let output_changed = arg.output.is_some()
+			!arg.log.is_unset() && existing.as_ref().is_none_or(|existing| !existing.set.log);
+		let output_changed = !arg.output.is_unset()
 			&& existing
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output);
@@ -206,9 +206,8 @@ impl Index {
 			.into_iter()
 			.chain(
 				arg.error
-					.as_ref()
+					.value()
 					.into_iter()
-					.flatten()
 					.flatten()
 					.filter(|_| error_changed)
 					.cloned()
@@ -216,18 +215,16 @@ impl Index {
 			)
 			.chain(
 				arg.log
-					.as_ref()
+					.value()
 					.into_iter()
-					.flatten()
 					.filter(|_| log_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Log)),
 			)
 			.chain(
 				arg.output
-					.as_ref()
+					.value()
 					.into_iter()
-					.flatten()
 					.flatten()
 					.filter(|_| output_changed)
 					.cloned()

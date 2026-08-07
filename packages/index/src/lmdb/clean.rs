@@ -599,6 +599,8 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
+		Self::delete_grants_for_resource(db, subspace, transaction, &id.clone().into())?;
+
 		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let cache_entry = db
@@ -676,6 +678,8 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
+		Self::delete_grants_for_resource(db, subspace, transaction, &id.clone().into())?;
+
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let sandbox = db
@@ -806,7 +810,71 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
+		Self::delete_grants_for_resource(db, subspace, transaction, &id.clone().into())?;
 		Self::delete_sandboxes_with_transaction(db, subspace, transaction, std::slice::from_ref(id))
+	}
+
+	fn delete_grants_for_resource(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<()> {
+		// Collect the resource's grants.
+		let resource_bytes = resource.to_bytes();
+		let prefix = &(
+			Kind::ResourceGrant.to_i32().unwrap(),
+			resource_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(&*transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate the resource grant keys"))?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key, value) = result
+				.map_err(|error| tg::error!(!error, "failed to read the resource grant key"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+				creator,
+				permission,
+				principal,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("expected a resource grant key"));
+			};
+			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			entries.push((creator, permission, principal, value));
+		}
+
+		// Delete each grant from every source it was granted by.
+		for (creator, permission, principal, value) in entries {
+			for source in [
+				crate::lmdb::grant::GrantSource::Explicit,
+				crate::lmdb::grant::GrantSource::Materialized,
+				crate::lmdb::grant::GrantSource::Temporary,
+			] {
+				let Some(expires_at) = value.source_expires_at(source) else {
+					continue;
+				};
+				Self::delete_grant_index_entry(
+					db,
+					subspace,
+					transaction,
+					&crate::lmdb::grant::GrantIndexEntry {
+						creator: creator.as_ref(),
+						expires_at,
+						permission,
+						principal: &principal,
+						resource,
+					},
+					source,
+				)?;
+			}
+		}
+
+		Ok(())
 	}
 
 	fn decrement_cache_entry_reference_count(

@@ -26,7 +26,6 @@ pub(crate) enum GrantSource {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[allow(clippy::option_option)]
 pub(crate) struct GrantValue {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub explicit: bool,
@@ -34,8 +33,31 @@ pub(crate) struct GrantValue {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub temporary: Option<i64>,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub materialized: Option<Option<i64>>,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Materialized::is_no_grant")]
+	pub materialized: Materialized,
+}
+
+/// A materialized grant. The expiration is a distinct variant rather than a nested option because `Option<Option<i64>>` cannot round trip: `Some(None)` serializes as null and reads back as `None`.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub(crate) enum Materialized {
+	#[tangram_serialize(id = 0)]
+	Expiry(i64),
+
+	#[tangram_serialize(id = 1)]
+	NoExpiry,
+
+	#[default]
+	#[tangram_serialize(id = 2)]
+	NoGrant,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,7 +87,7 @@ impl GrantValue {
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
-		!self.explicit && self.temporary.is_none() && self.materialized.is_none()
+		!self.explicit && self.temporary.is_none() && self.materialized.is_no_grant()
 	}
 
 	pub(crate) fn serialize(&self) -> tangram_client::Result<Vec<u8>> {
@@ -78,7 +100,7 @@ impl GrantValue {
 		match source {
 			GrantSource::Explicit => self.explicit.then_some(None),
 			GrantSource::Temporary => self.temporary.map(Some),
-			GrantSource::Materialized => self.materialized,
+			GrantSource::Materialized => self.materialized.to_expires_at(),
 		}
 	}
 
@@ -114,10 +136,11 @@ impl GrantValue {
 				}
 			},
 			GrantSource::Materialized => {
-				if self.materialized == Some(expires_at) {
+				let materialized = Materialized::from_expires_at(expires_at);
+				if self.materialized == materialized {
 					false
 				} else {
-					self.materialized = Some(expires_at);
+					self.materialized = materialized;
 					true
 				}
 			},
@@ -143,14 +166,36 @@ impl GrantValue {
 				}
 			},
 			GrantSource::Materialized => {
-				if self.materialized == Some(expires_at) {
-					self.materialized = None;
+				if self.materialized == Materialized::from_expires_at(expires_at) {
+					self.materialized = Materialized::NoGrant;
 					true
 				} else {
 					false
 				}
 			},
 		}
+	}
+}
+
+impl Materialized {
+	pub(crate) fn from_expires_at(expires_at: Option<i64>) -> Self {
+		match expires_at {
+			Some(expires_at) => Self::Expiry(expires_at),
+			None => Self::NoExpiry,
+		}
+	}
+
+	#[allow(clippy::option_option)]
+	pub(crate) fn to_expires_at(self) -> Option<Option<i64>> {
+		match self {
+			Self::Expiry(expires_at) => Some(Some(expires_at)),
+			Self::NoExpiry => Some(None),
+			Self::NoGrant => None,
+		}
+	}
+
+	pub(crate) fn is_no_grant(&self) -> bool {
+		matches!(self, Self::NoGrant)
 	}
 }
 
