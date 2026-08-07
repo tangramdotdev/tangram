@@ -467,8 +467,10 @@ pub enum Messenger {
 pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
 	pub id: Option<String>,
+	pub password: Option<String>,
 
 	pub url: Uri,
+	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1254,7 +1256,9 @@ impl Default for NatsMessenger {
 		Self {
 			credentials: None,
 			id: None,
+			password: None,
 			url,
+			username: None,
 		}
 	}
 }

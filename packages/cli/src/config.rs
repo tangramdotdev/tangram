@@ -708,7 +708,13 @@ pub struct NatsMessenger {
 	pub id: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub password: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub username: Option<String>,
 }
 
 #[serde_as]
@@ -1812,7 +1818,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.logs = resolve_logs(source);
 	}
 	if let Some(source) = source.messenger {
-		target.messenger = resolve_messenger(source);
+		target.messenger = resolve_messenger(source)?;
 	}
 	if let Some(source) = source.object {
 		target.object = resolve_object(source)?;
@@ -2416,14 +2422,21 @@ fn resolve_lmdb_log_store(source: LmdbLogStore) -> server::LmdbLogStore {
 	target
 }
 
-fn resolve_messenger(source: Messenger) -> server::Messenger {
-	match source {
+fn resolve_messenger(source: Messenger) -> tg::Result<server::Messenger> {
+	let messenger = match source {
 		Messenger::Memory => server::Messenger::Memory,
-		Messenger::Nats(source) => server::Messenger::Nats(resolve_nats_messenger(source)),
-	}
+		Messenger::Nats(source) => server::Messenger::Nats(resolve_nats_messenger(source)?),
+	};
+
+	Ok(messenger)
 }
 
-fn resolve_nats_messenger(source: NatsMessenger) -> server::NatsMessenger {
+fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMessenger> {
+	if source.username.is_some() != source.password.is_some() {
+		return Err(tg::error!(
+			"the NATS username and password must be provided together"
+		));
+	}
 	let mut target = server::NatsMessenger::default();
 	if let Some(value) = source.url {
 		target.url = value;
@@ -2434,7 +2447,10 @@ fn resolve_nats_messenger(source: NatsMessenger) -> server::NatsMessenger {
 	if let Some(value) = source.id {
 		target.id = Some(value);
 	}
-	target
+	target.password = source.password;
+	target.username = source.username;
+
+	Ok(target)
 }
 
 fn resolve_object(source: Object) -> tg::Result<server::Object> {
@@ -3204,4 +3220,37 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 	let value = value.ok_or_else(|| tg::error!(%field, "a required config field is missing"))?;
 
 	Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn resolves_nats_username_and_password() {
+		let source = NatsMessenger {
+			password: Some("password".to_owned()),
+			username: Some("user".to_owned()),
+			..NatsMessenger::default()
+		};
+		let target = resolve_nats_messenger(source).unwrap();
+
+		assert_eq!(target.password.as_deref(), Some("password"));
+		assert_eq!(target.username.as_deref(), Some("user"));
+	}
+
+	#[test]
+	fn rejects_incomplete_nats_username_and_password() {
+		let source = NatsMessenger {
+			username: Some("user".to_owned()),
+			..NatsMessenger::default()
+		};
+		let error = resolve_nats_messenger(source).unwrap_err();
+
+		assert!(
+			error
+				.to_string()
+				.contains("the NATS username and password must be provided together")
+		);
+	}
 }

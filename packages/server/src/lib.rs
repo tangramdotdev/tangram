@@ -592,6 +592,9 @@ impl Server {
 				#[cfg(feature = "nats")]
 				{
 					let mut options = async_nats::ConnectOptions::new();
+					if let (Some(username), Some(password)) = (&nats.username, &nats.password) {
+						options = options.user_and_password(username.clone(), password.clone());
+					}
 					if let Some(ref credentials) = nats.credentials {
 						options = options
 							.credentials_file(credentials)
