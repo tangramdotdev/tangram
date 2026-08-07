@@ -40,6 +40,25 @@ impl Session {
 		&self,
 		arg: tg::object::batch::Arg,
 	) -> tg::Result<tg::object::batch::Output> {
+		// Track the children's tokens for the sandbox so it can present them when it syncs an object it does not have.
+		let sandbox = self
+			.try_get_principal_sandbox()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the principal's sandbox"))?;
+		if let Some(sandbox) = sandbox
+			&& let Some(mut state) = self.server.runner.state().sandboxes().get_mut_by_id(&sandbox)
+		{
+			state.tokens.extend(
+				arg.objects
+					.iter()
+					.flat_map(|object| &object.children)
+					.filter_map(|child| {
+						let token = child.options.token.clone()?;
+						Some((child.item.clone(), token))
+					}),
+			);
+		}
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let grant_expires_at = now
 			+ self

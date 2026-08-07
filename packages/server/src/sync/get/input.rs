@@ -227,7 +227,14 @@ impl Session {
 						})?;
 					},
 					kind if kind.is_object() => {
+						let token = message.token;
 						let id = message.id.try_into()?;
+
+						// Store the token so the object can be authorized from this server's copy.
+						if let Some(token) = token {
+							state.graph.lock().unwrap().update_object_token(&id, token);
+						}
+
 						let eager = state
 							.graph
 							.lock()

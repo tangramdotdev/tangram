@@ -725,25 +725,6 @@ impl Provider {
 			return true;
 		}
 
-		// Check the sandbox's locally tracked subtree token.
-		if let crate::Origin::Sandbox(index) = self.origin {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let authorized = self
-				.server
-				.runner
-				.state()
-				.sandboxes()
-				.get(index)
-				.and_then(|state| state.tokens.get(artifact).cloned())
-				.is_some_and(|token| token.body.expires_at >= now && token.body.grants(permission));
-			if authorized {
-				return true;
-			}
-		}
-
-		// Fall back to deep index authorization.
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		let context = Context {
@@ -755,6 +736,28 @@ impl Provider {
 			token: None,
 		};
 		let session = Session::new(self.server.clone(), context);
+
+		// Check the sandbox's locally tracked subtree token. The tracked tokens are unverified, so authorize the token here.
+		if let crate::Origin::Sandbox(index) = self.origin {
+			let object = tg::object::Id::from(artifact.clone());
+			let token = self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get(index)
+				.and_then(|state| state.tokens.get(&object).cloned());
+			if let Some(token) = token
+				&& session.authorize_token(
+					&tg::grant::Resource::Id(id.clone()),
+					permission.into(),
+					&token,
+				) {
+				return true;
+			}
+		}
+
+		// Fall back to deep index authorization.
 		session
 			.authorize(tg::grant::Resource::Id(id), permission)
 			.await

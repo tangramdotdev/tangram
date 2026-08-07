@@ -232,7 +232,10 @@ impl Session {
 	}
 
 	async fn sync_put_database_missing(&self, state: &State, id: &tg::Id) {
-		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage { id: id.clone() });
+		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+			id: id.clone(),
+			token: None,
+		});
 		state.sender.send(Ok(message)).await.ok();
 		state.graph.lock().unwrap().update_item_remote_sent(id, &[]);
 		if state.graph.lock().unwrap().end_remote() {

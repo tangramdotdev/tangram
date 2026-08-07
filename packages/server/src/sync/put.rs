@@ -2,7 +2,10 @@ use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
 	futures::stream::BoxStream,
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::BTreeMap,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tracing::Instrument as _,
@@ -21,6 +24,7 @@ struct State {
 	progress: Progress,
 	queue: Queue,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
+	tokens: BTreeMap<tg::object::Id, tg::grant::Token>,
 }
 
 impl Session {
@@ -50,6 +54,23 @@ impl Session {
 			queue_sandbox_sender,
 		);
 
+		// Get the sandbox's tokens so an object that is missing locally can be reported with proof of access.
+		let sandbox = self
+			.try_get_principal_sandbox()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the principal's sandbox"))?;
+		let tokens = match sandbox {
+			Some(sandbox) => self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get_by_id(&sandbox)
+				.map(|state| state.tokens.clone())
+				.unwrap_or_default(),
+			None => BTreeMap::new(),
+		};
+
 		// Create the state.
 		let state = Arc::new(State {
 			arg,
@@ -57,6 +78,7 @@ impl Session {
 			progress,
 			queue,
 			sender,
+			tokens,
 		});
 
 		// Enqueue the items.

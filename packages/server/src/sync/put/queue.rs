@@ -239,6 +239,7 @@ impl Session {
 				);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
+					token: state.tokens.get(&item.id).cloned(),
 				});
 				state.sender.send(Ok(message)).await.ok();
 				state
@@ -365,6 +366,7 @@ impl Session {
 				);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.into(),
+					token: None,
 				});
 				state.sender.send(Ok(message)).await.ok();
 				continue;

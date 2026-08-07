@@ -103,7 +103,10 @@ impl Session {
 
 	async fn sync_put_sandbox_missing(&self, state: &State, id: &tg::sandbox::Id) {
 		let id = tg::Id::from(id.clone());
-		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage { id: id.clone() });
+		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+			id: id.clone(),
+			token: None,
+		});
 		state.sender.send(Ok(message)).await.ok();
 		state
 			.graph
