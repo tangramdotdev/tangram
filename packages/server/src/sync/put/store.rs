@@ -162,7 +162,7 @@ impl Session {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 
@@ -374,7 +374,7 @@ impl Session {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 

@@ -33,7 +33,7 @@ impl Session {
 						None,
 						Some(&tangram_index::object::Stored { subtree: true }),
 					);
-					if state.graph.lock().unwrap().end_remote(&state.arg) {
+					if state.graph.lock().unwrap().end_remote() {
 						state.queue.close();
 					}
 				},
@@ -57,7 +57,7 @@ impl Session {
 						.lock()
 						.unwrap()
 						.update_process_remote(&id, None, Some(&stored));
-					if state.graph.lock().unwrap().end_remote(&state.arg) {
+					if state.graph.lock().unwrap().end_remote() {
 						state.queue.close();
 					}
 				},
@@ -67,7 +67,7 @@ impl Session {
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");
 					state.graph.lock().unwrap().mark_get_end_received();
-					if state.graph.lock().unwrap().end_remote(&state.arg) {
+					if state.graph.lock().unwrap().end_remote() {
 						state.queue.close();
 					}
 					return Ok(());
