@@ -19,7 +19,8 @@ fn js() {
 	// Get the out dir path.
 	let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
 	let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-	let client_path = manifest_directory_path.join("../clients/js");
+	// Canonicalize the client path because typescript does not normalize parent directory components in the include patterns of a tsconfig.
+	let client_path = std::fs::canonicalize(manifest_directory_path.join("../clients/js")).unwrap();
 
 	// Install dependencies.
 	println!("cargo:rerun-if-env-changed=NODE_PATH");
@@ -49,18 +50,56 @@ fn js() {
 	println!("cargo:rerun-if-changed=../../packages/clients/js/src");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/native");
-	std::process::Command::new("bun")
-		.args(["run", "build"])
-		.current_dir(&client_path)
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+	let node_path = std::env::var("NODE_PATH").ok();
+	let client_dist_path = if let Some(node_path) = &node_path {
+		// The client's build script writes its output to the client's directory, which is read only when the dependencies are provided by NODE_PATH, so emit the client to the out dir instead. The client's native module is not required here because it is loaded with a runtime require that is not resolved when bundling.
+		let client_dist_path = out_dir_path.join("client");
+		let tsconfig_path = out_dir_path.join("client.tsconfig.json");
+		std::fs::write(
+			&tsconfig_path,
+			formatdoc!(
+				r#"
+					{{
+						"extends": "{client_path}/tsconfig.json",
+						"compilerOptions": {{
+							"outDir": "{client_dist_path}",
+							"paths": {{
+								"*": ["{node_path}/*"]
+							}},
+							"rootDir": "{client_path}/src",
+							"typeRoots": ["{node_path}/@types"]
+						}},
+						"include": ["{client_path}/src/**/*"]
+					}}
+				"#,
+				client_dist_path = client_dist_path.display(),
+				client_path = client_path.display(),
+			),
+		)
 		.unwrap();
+		std::process::Command::new("bunx")
+			.args(["tsc", "--project"])
+			.arg(&tsconfig_path)
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		client_dist_path
+	} else {
+		std::process::Command::new("bun")
+			.args(["run", "build"])
+			.current_dir(&client_path)
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		client_path.join("dist")
+	};
 
 	// Build the js.
 	println!("cargo:rerun-if-changed=./src");
-	let node_path = std::env::var("NODE_PATH").ok();
 	if let Some(node_path) = &node_path {
 		std::fs::write(
 			out_dir_path.join("tsconfig.json"),
@@ -70,14 +109,15 @@ fn js() {
 						"extends": "{manifest_directory_path}/tsconfig.json",
 						"compilerOptions": {{
 							"paths": {{
-								"@tangramdotdev/client": ["{client_path}/dist/index.d.ts"],
+								"@tangramdotdev/client": ["{client_dist_path}/index.d.ts"],
 								"*": ["{node_path}/*", "{node_path}/../packages/clients/js/node_modules/*"]
-							}}
+							}},
+							"typeRoots": ["{node_path}/@types"]
 						}},
 						"include": ["{manifest_directory_path}/src/**/*"]
 					}}
 				"#,
-				client_path = client_path.display(),
+				client_dist_path = client_dist_path.display(),
 				manifest_directory_path = manifest_directory_path.display(),
 			),
 		)
@@ -100,7 +140,7 @@ fn js() {
 	}
 	let alias = format!(
 		"--alias:@tangramdotdev/client={}",
-		client_path.join("dist/index.js").display()
+		client_dist_path.join("index.js").display()
 	);
 	let outdir = format!("--outdir={}", out_dir_path.display());
 	let mut esbuild = std::process::Command::new("bunx");
