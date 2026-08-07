@@ -92,6 +92,41 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn put_process_set_fields_roundtrip() {
+		let id = tg::process::Id::new();
+		let log = tg::object::Id::from(tg::command::Id::new(b"log"));
+		let arg = Arg {
+			items: vec![Item::PutProcess(crate::process::put::Arg {
+				children: None,
+				command: tg::command::Id::new(&[]).into(),
+				data: None,
+				error: crate::process::put::Field::Missing,
+				id: id.clone(),
+				log: crate::process::put::Field::Set(log.clone()),
+				metadata: tg::process::Metadata::default(),
+				output: crate::process::put::Field::Unset,
+				parent: None,
+				sandbox: None,
+				stored: crate::process::Stored::default(),
+				time_to_touch: std::time::Duration::from_secs(0),
+				touched_at: 0,
+			})],
+		};
+		let bytes = arg.serialize().unwrap();
+		let arg = Arg::deserialize(&bytes).unwrap();
+		let Item::PutProcess(arg) = &arg.items[0] else {
+			panic!();
+		};
+		assert_eq!(arg.error, crate::process::put::Field::Missing);
+		assert_eq!(arg.log, crate::process::put::Field::Set(log));
+		assert_eq!(arg.output, crate::process::put::Field::Unset);
+		let set = arg.set();
+		assert!(set.error);
+		assert!(set.log);
+		assert!(!set.output);
+	}
+
+	#[test]
 	fn serialization_roundtrip() {
 		let group = tg::group::Id::new();
 		let organization = tg::organization::Id::new();

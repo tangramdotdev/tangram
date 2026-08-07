@@ -73,7 +73,7 @@ impl Index {
 			grants.push(crate::lmdb::grant::GrantEntry {
 				explicit: value.explicit,
 				temporary: value.temporary,
-				materialized: value.materialized,
+				materialized: value.materialized.to_expires_at(),
 				permission,
 				principal,
 			});
