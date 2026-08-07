@@ -84,7 +84,7 @@ impl Session {
 				.queue
 				.enqueue(item.eager, child.item, child.options.token)?;
 		}
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 
@@ -235,7 +235,7 @@ impl Session {
 		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage { id: id.clone() });
 		state.sender.send(Ok(message)).await.ok();
 		state.graph.lock().unwrap().update_item_remote_sent(id, &[]);
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 	}

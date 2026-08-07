@@ -150,7 +150,7 @@ impl Session {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
 		// Create the graph.
-		let graph = Arc::new(Mutex::new(Graph::new(&arg.get, &arg.put)));
+		let graph = Arc::new(Mutex::new(Graph::new(&arg)));
 
 		// Spawn the input task to receive the input.
 		let (get_input_sender, get_input_receiver) =

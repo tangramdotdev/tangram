@@ -1,9 +1,8 @@
 use ../../test.nu *
 
-# A push takes time exponential in the depth of the object graph, not its size. The check that
-# decides when the push may end clones its visited set at every edge, so it visits each node once per
-# path that reaches it rather than once. The pull side answers the same question from flags on the
-# roots.
+# A push must not take time exponential in the depth of the object graph. A recursive End check that
+# clones its visited set at every edge visits each node once per path that reaches it rather than
+# once. The pull side answers the same question from flags on the roots.
 
 # A chain of k directories over a distinct leaf, each naming the two directories below it. The chain
 # gains one node per level and exponentially many paths.

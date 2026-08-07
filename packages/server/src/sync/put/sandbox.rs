@@ -94,7 +94,7 @@ impl Session {
 		for child in children {
 			state.queue.enqueue(item.eager, child, None)?;
 		}
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 
@@ -110,7 +110,7 @@ impl Session {
 			.lock()
 			.unwrap()
 			.update_item_remote_sent(&id, &[]);
-		if state.graph.lock().unwrap().end_remote(&state.arg) {
+		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}
 	}

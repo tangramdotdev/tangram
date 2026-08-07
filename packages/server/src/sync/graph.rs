@@ -1,5 +1,5 @@
 use {
-	indexmap::IndexMap,
+	indexmap::{IndexMap, IndexSet},
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
 	std::collections::{BTreeSet, HashMap, HashSet, VecDeque},
@@ -7,15 +7,19 @@ use {
 	tangram_util::iter::Ext as _,
 };
 
-#[derive(Default)]
 pub struct Graph {
 	pub get_end_received: bool,
 	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	pub nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
+	process_children: bool,
+	process_commands: bool,
+	process_errors: bool,
+	process_logs: bool,
+	process_outputs: bool,
 	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Parent {
 	Item(usize),
 	Object(usize),
@@ -50,7 +54,9 @@ pub struct ItemNode {
 	pub children: Option<Vec<usize>>,
 	pub local_message: Option<tg::sync::PutItemMessage>,
 	pub local_requested: bool,
-	pub parents: SmallVec<[Parent; 1]>,
+	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	remote_end: bool,
+	remote_pending_children: Option<usize>,
 	pub remote_requested: bool,
 	pub remote_sent: bool,
 	pub token: Option<tg::grant::Token>,
@@ -64,8 +70,11 @@ pub struct ObjectNode {
 	pub local_visible: Option<tangram_index::object::Stored>,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
-	pub parents: SmallVec<[Parent; 1]>,
+	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
+	remote_end: bool,
 	pub remote_missing: bool,
+	remote_pending_children: Option<usize>,
 	pub remote_requested: bool,
 	pub remote_sent: bool,
 	pub remote_sent_eager: bool,
@@ -84,7 +93,16 @@ pub struct ProcessNode {
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
-	pub parents: SmallVec<[Parent; 1]>,
+	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
+	remote_end: bool,
+	remote_objects: HashSet<(usize, crate::sync::queue::ObjectKind), fnv::FnvBuildHasher>,
+	remote_pending_children: Option<usize>,
+	remote_pending_commands: usize,
+	remote_pending_errors: usize,
+	remote_pending_logs: usize,
+	remote_pending_outputs: usize,
+	remote_propagated_stored: tangram_index::process::Stored,
 	pub remote_requested: bool,
 	pub remote_stored: Option<tangram_index::process::Stored>,
 	pub requested: Option<Requested>,
@@ -122,17 +140,23 @@ pub struct UpdateProcessLocalArg<'a> {
 }
 
 impl Graph {
-	pub fn new(
-		local_roots: &[tg::Referent<tg::Id>],
-		remote_roots: &[tg::Referent<tg::Id>],
-	) -> Self {
+	#[must_use]
+	pub fn new(arg: &tg::sync::Arg) -> Self {
+		// Create the graph.
 		let mut graph = Graph {
 			get_end_received: false,
-			local_roots: local_roots.iter().map(|item| item.item.clone()).collect(),
+			local_roots: arg.get.iter().map(|item| item.item.clone()).collect(),
 			nodes: IndexMap::default(),
-			remote_roots: remote_roots.iter().map(|item| item.item.clone()).collect(),
+			process_children: arg.process_children,
+			process_commands: arg.process_commands,
+			process_errors: arg.process_errors,
+			process_logs: arg.process_logs,
+			process_outputs: arg.process_outputs,
+			remote_roots: arg.put.iter().map(|item| item.item.clone()).collect(),
 		};
-		for root in local_roots.iter().chain(remote_roots) {
+
+		// Add the root tokens.
+		for root in arg.get.iter().chain(&arg.put) {
 			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
@@ -240,22 +264,30 @@ impl Graph {
 
 	pub fn update_item_remote_sent(&mut self, id: &tg::Id, children: &[tg::Id]) {
 		let index = self.nodes.get_index_of(id).unwrap();
+
+		// Collect the children.
+		let mut child_indices = HashSet::<usize, fnv::FnvBuildHasher>::default();
 		let children = children
 			.iter()
-			.map(|child| {
+			.filter_map(|child| {
 				let entry = self.nodes.entry(child.clone());
 				let child_index = entry.index();
 				let child_node = entry.or_insert_with(|| Node::for_id(child));
 				let parent = Parent::Item(index);
-				if !child_node.parents().contains(&parent) {
-					child_node.parents_mut().push(parent);
-				}
-				child_index
+				child_node.parents_mut().insert(parent);
+				child_indices.insert(child_index).then_some(child_index)
 			})
-			.collect();
+			.collect::<Vec<_>>();
+
+		// Update the node.
+		let remote_pending_children = self.count_remote_pending(&children);
 		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
 		node.children = Some(children);
 		node.remote_sent = true;
+		node.remote_pending_children = Some(remote_pending_children);
+
+		// Update the End state.
+		self.update_remote_end(index);
 	}
 
 	pub fn update_item_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
@@ -280,6 +312,7 @@ impl Graph {
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 
+		// Collect the children.
 		let children = if let Some(data) = data {
 			let mut children = BTreeSet::new();
 			data.children(&mut children);
@@ -291,9 +324,7 @@ impl Graph {
 					let child_node =
 						child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 					let parent = Parent::Object(index);
-					if !child_node.unwrap_object_ref().parents.contains(&parent) {
-						child_node.unwrap_object_mut().parents.push(parent);
-					}
+					child_node.unwrap_object_mut().parents.insert(parent);
 					child_index
 				})
 				.collect();
@@ -301,6 +332,8 @@ impl Graph {
 		} else {
 			None
 		};
+
+		// Compute the derived state.
 		let computed_stored = children.as_ref().map(|children| {
 			children.iter().all(|child| {
 				self.nodes
@@ -321,7 +354,11 @@ impl Graph {
 				.iter()
 				.all(|index| self.object_local_visible(*index))
 		});
+		let remote_pending_children = children
+			.as_ref()
+			.map(|children| self.count_remote_pending(children));
 
+		// Update the node.
 		let node = self
 			.nodes
 			.get_index_mut(index)
@@ -330,10 +367,12 @@ impl Graph {
 			.unwrap_object_mut();
 
 		if let Some(children) = children {
+			node.remote_children.extend(children.iter().copied());
 			node.children = Some(children);
 			node.local_stored = Some(tangram_index::object::Stored {
 				subtree: computed_stored.unwrap(),
 			});
+			node.remote_pending_children = remote_pending_children;
 		}
 
 		if let Some(stored) = stored {
@@ -373,6 +412,7 @@ impl Graph {
 			|| visible;
 		node.local_visible = Some(tangram_index::object::Stored { subtree: visible });
 
+		// Propagate the local stored and visible state.
 		let new_stored = self.object_local_stored(index);
 		let new_visible = self.object_local_visible(index);
 		if (!old_stored && new_stored) || (!old_visible && new_visible) {
@@ -391,6 +431,9 @@ impl Graph {
 				}
 			}
 		}
+
+		// Update the End state.
+		self.update_remote_end(index);
 	}
 
 	pub fn update_process_local(&mut self, update: UpdateProcessLocalArg) {
@@ -407,21 +450,21 @@ impl Graph {
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
 
+		// Collect the children.
 		let children = if let Some(data) = data {
 			data.children.as_ref().map(|children| {
+				let mut child_indices = HashSet::<usize, fnv::FnvBuildHasher>::default();
 				children
 					.iter()
-					.map(|child| {
+					.filter_map(|child| {
 						let child = child.process.item.clone();
 						let child_entry = self.nodes.entry(child.into());
 						let child_index = child_entry.index();
 						let child_node =
 							child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
 						let parent = Parent::Process(index);
-						if !child_node.unwrap_process_ref().parents.contains(&parent) {
-							child_node.unwrap_process_mut().parents.push(parent);
-						}
-						child_index
+						child_node.unwrap_process_mut().parents.insert(parent);
+						child_indices.insert(child_index).then_some(child_index)
 					})
 					.collect::<Vec<_>>()
 			})
@@ -429,6 +472,7 @@ impl Graph {
 			None
 		};
 
+		// Collect the objects.
 		let objects = if let Some(data) = data {
 			let mut objects: Vec<(usize, tangram_index::process::object::Kind)> = Vec::new();
 
@@ -440,9 +484,7 @@ impl Graph {
 				index,
 				kind: crate::sync::queue::ObjectKind::Command,
 			};
-			if !command_node.unwrap_object_ref().parents.contains(&parent) {
-				command_node.unwrap_object_mut().parents.push(parent);
-			}
+			command_node.unwrap_object_mut().parents.insert(parent);
 			objects.push((command_index, tangram_index::process::object::Kind::Command));
 
 			if let Some(error) = &data.error {
@@ -459,9 +501,7 @@ impl Graph {
 								index,
 								kind: crate::sync::queue::ObjectKind::Error,
 							};
-							if !object_node.unwrap_object_ref().parents.contains(&parent) {
-								object_node.unwrap_object_mut().parents.push(parent);
-							}
+							object_node.unwrap_object_mut().parents.insert(parent);
 							objects
 								.push((object_index, tangram_index::process::object::Kind::Error));
 						}
@@ -476,9 +516,7 @@ impl Graph {
 							index,
 							kind: crate::sync::queue::ObjectKind::Error,
 						};
-						if !error_node.unwrap_object_ref().parents.contains(&parent) {
-							error_node.unwrap_object_mut().parents.push(parent);
-						}
+						error_node.unwrap_object_mut().parents.insert(parent);
 						objects.push((error_index, tangram_index::process::object::Kind::Error));
 					},
 				}
@@ -492,9 +530,7 @@ impl Graph {
 					index,
 					kind: crate::sync::queue::ObjectKind::Log,
 				};
-				if !log_node.unwrap_object_ref().parents.contains(&parent) {
-					log_node.unwrap_object_mut().parents.push(parent);
-				}
+				log_node.unwrap_object_mut().parents.insert(parent);
 				objects.push((log_index, tangram_index::process::object::Kind::Log));
 			}
 
@@ -510,9 +546,7 @@ impl Graph {
 						index,
 						kind: crate::sync::queue::ObjectKind::Output,
 					};
-					if !object_node.unwrap_object_ref().parents.contains(&parent) {
-						object_node.unwrap_object_mut().parents.push(parent);
-					}
+					object_node.unwrap_object_mut().parents.insert(parent);
 					objects.push((object_index, tangram_index::process::object::Kind::Output));
 				}
 			}
@@ -521,6 +555,8 @@ impl Graph {
 		} else {
 			None
 		};
+
+		// Get the current local state.
 		let node_old_stored = self
 			.nodes
 			.get_index(index)
@@ -531,6 +567,7 @@ impl Graph {
 			.clone();
 		let node_old_visible = self.process_local_visible(index);
 
+		// Compute the derived state.
 		let computed_stored = if let (Some(children), Some(objects)) = (&children, &objects) {
 			Some(self.compute_process_local_stored(children, objects))
 		} else {
@@ -541,7 +578,15 @@ impl Graph {
 		} else {
 			None
 		};
+		let remote_pending_children = children
+			.as_ref()
+			.map(|children| self.count_remote_pending(children));
+		let remote_pending_objects = objects
+			.as_ref()
+			.map(|objects| self.count_process_remote_pending(objects));
 
+		// Update the node.
+		let mut inserted_remote_children = Vec::new();
 		{
 			let node = self
 				.nodes
@@ -551,7 +596,13 @@ impl Graph {
 				.unwrap_process_mut();
 
 			if let Some(children) = children {
+				for &child in &children {
+					if node.remote_children.insert(child) {
+						inserted_remote_children.push(child);
+					}
+				}
 				node.children = Some(children);
+				node.remote_pending_children = remote_pending_children;
 			}
 
 			if let Some(data) = data {
@@ -575,7 +626,17 @@ impl Graph {
 			}
 
 			if let Some(objects) = objects {
+				node.remote_objects.extend(
+					objects
+						.iter()
+						.map(|(index, kind)| (*index, Self::process_object_remote_kind(*kind))),
+				);
 				node.objects = Some(objects);
+				let (commands, errors, logs, outputs) = remote_pending_objects.unwrap();
+				node.remote_pending_commands = commands;
+				node.remote_pending_errors = errors;
+				node.remote_pending_logs = logs;
+				node.remote_pending_outputs = outputs;
 			}
 
 			if let Some(marked) = marked {
@@ -605,6 +666,7 @@ impl Graph {
 			node.local_visible = Some(merged_visible);
 		}
 
+		// Propagate the local stored and visible state.
 		let node_new_stored = self
 			.nodes
 			.get_index(index)
@@ -634,6 +696,15 @@ impl Graph {
 				}
 			}
 		}
+
+		// Propagate the remote stored state and update the End state.
+		let mut end_indices = self.inherit_process_remote_stored(index, &inserted_remote_children);
+		let stored_indices = std::iter::once(index)
+			.chain(end_indices.iter().copied())
+			.collect::<Vec<_>>();
+		end_indices.extend(self.propagate_process_remote_stored(stored_indices));
+		end_indices.push(index);
+		self.update_remote_ends(end_indices);
 	}
 
 	pub fn update_object_remote(
@@ -643,6 +714,7 @@ impl Graph {
 		kind: Option<crate::sync::queue::ObjectKind>,
 		stored: Option<&tangram_index::object::Stored>,
 	) -> (bool, Option<tangram_index::object::Stored>) {
+		// Get or create the node.
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
@@ -652,6 +724,8 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_object_mut();
+
+		// Update the remote state.
 		let inserted = stored.is_none() && !node.remote_requested;
 		if stored.is_none() {
 			node.remote_requested = true;
@@ -667,8 +741,9 @@ impl Graph {
 			node.remote_stored = Some(stored.clone());
 		}
 
-		if let Some(parent) = parent {
-			// Get the parent index and node.
+		// Add the parent edge.
+		let parent_index = if let Some(parent) = parent {
+			let remote_end = self.nodes.get_index(index).unwrap().1.remote_end();
 			let (parent_index, _, parent_node) = self.nodes.get_full_mut(&parent).unwrap();
 			let parent = if parent.kind() == tg::id::Kind::Process {
 				Parent::ProcessObject {
@@ -679,94 +754,78 @@ impl Graph {
 				Parent::Object(parent_index)
 			};
 
-			// Add the node as a child of the parent.
-			match parent_node {
+			let dependency_inserted = match parent_node {
 				Node::Group(_)
 				| Node::Organization(_)
 				| Node::Sandbox(_)
 				| Node::Tag(_)
-				| Node::User(_) => {},
+				| Node::User(_) => false,
 				Node::Object(node) => {
-					if let Some(children) = node.children.as_mut()
-						&& !children.contains(&index)
-					{
+					let remote_child_inserted = node.remote_children.insert(index);
+					if remote_child_inserted && let Some(children) = node.children.as_mut() {
 						children.push(index);
+						if !remote_end {
+							*node.remote_pending_children.as_mut().unwrap() += 1;
+						}
+						true
+					} else {
+						false
 					}
 				},
 				Node::Process(node) => {
 					let Parent::ProcessObject { kind, .. } = parent else {
 						unreachable!();
 					};
-					let kind = Self::process_object_kind(kind);
-					if let Some(objects) = node.objects.as_mut()
-						&& !objects.iter().any(|(object, object_kind)| {
-							*object == index
-								&& std::mem::discriminant(object_kind)
-									== std::mem::discriminant(&kind)
-						}) {
-						objects.push((index, kind));
+					let remote_object_inserted = node.remote_objects.insert((index, kind));
+					let dependency_inserted =
+						if remote_object_inserted && let Some(objects) = node.objects.as_mut() {
+							let kind = Self::process_object_kind(kind);
+							objects.push((index, kind));
+							true
+						} else {
+							false
+						};
+					if dependency_inserted && !remote_end {
+						match parent {
+							Parent::ProcessObject {
+								kind: crate::sync::queue::ObjectKind::Command,
+								..
+							} => node.remote_pending_commands += 1,
+							Parent::ProcessObject {
+								kind: crate::sync::queue::ObjectKind::Error,
+								..
+							} => node.remote_pending_errors += 1,
+							Parent::ProcessObject {
+								kind: crate::sync::queue::ObjectKind::Log,
+								..
+							} => node.remote_pending_logs += 1,
+							Parent::ProcessObject {
+								kind: crate::sync::queue::ObjectKind::Output,
+								..
+							} => node.remote_pending_outputs += 1,
+							Parent::Item(_) | Parent::Object(_) | Parent::Process(_) => {
+								unreachable!()
+							},
+						}
 					}
+					dependency_inserted
 				},
-			}
+			};
 
-			// Add the parent to the node.
 			let (_, node) = self.nodes.get_index_mut(index).unwrap();
-			if !node.parents_mut().contains(&parent) {
-				node.parents_mut().push(parent);
-			}
-		}
+			node.parents_mut().insert(parent);
 
-		if stored.is_some() {
-			let path = self.find_object_remote_ancestor(index, kind);
-			if let Some(path) = path {
-				for index in path {
-					let (_, node) = self.nodes.get_index_mut(index).unwrap();
-					match node {
-						Node::Group(_)
-						| Node::Organization(_)
-						| Node::Sandbox(_)
-						| Node::Tag(_)
-						| Node::User(_) => {},
-						Node::Object(object) => {
-							object.remote_stored =
-								Some(tangram_index::object::Stored { subtree: true });
-						},
-						Node::Process(process) => {
-							let stored = process.remote_stored.get_or_insert_with(Default::default);
-							match kind {
-								Some(crate::sync::queue::ObjectKind::Command) => {
-									stored.node_command = true;
-									stored.subtree_command = true;
-								},
-								Some(crate::sync::queue::ObjectKind::Error) => {
-									stored.node_error = true;
-									stored.subtree_error = true;
-								},
-								Some(crate::sync::queue::ObjectKind::Log) => {
-									stored.node_log = true;
-									stored.subtree_log = true;
-								},
-								Some(crate::sync::queue::ObjectKind::Output) => {
-									stored.node_output = true;
-									stored.subtree_output = true;
-								},
-								None => {
-									stored.node_command = true;
-									stored.node_error = true;
-									stored.node_log = true;
-									stored.node_output = true;
-									stored.subtree_command = true;
-									stored.subtree_error = true;
-									stored.subtree_log = true;
-									stored.subtree_output = true;
-								},
-							}
-						},
-					}
-				}
-			}
-		}
+			dependency_inserted.then_some(parent_index)
+		} else {
+			None
+		};
 
+		// Update the End state.
+		let mut end_indices = vec![index];
+		end_indices.extend(parent_index);
+		self.update_remote_ends(end_indices);
+
+		// Get the remote stored state.
 		let remote_stored = self
 			.nodes
 			.get_index(index)
@@ -780,22 +839,24 @@ impl Graph {
 	}
 
 	pub fn update_object_remote_missing(&mut self, id: &tg::object::Id) {
-		let node = self
-			.nodes
-			.entry(id.clone().into())
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
 			.or_insert_with(|| Node::Object(ObjectNode::default()))
 			.unwrap_object_mut();
 		node.remote_missing = true;
+		self.update_remote_end(index);
 	}
 
 	pub fn update_object_remote_sent(&mut self, id: &tg::object::Id, eager: bool) {
-		let node = self
-			.nodes
-			.entry(id.clone().into())
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
 			.or_insert_with(|| Node::Object(ObjectNode::default()))
 			.unwrap_object_mut();
 		node.remote_sent = true;
 		node.remote_sent_eager |= eager;
+		self.update_remote_end(index);
 	}
 
 	pub fn update_process_remote(
@@ -804,6 +865,7 @@ impl Graph {
 		parent: Option<tg::Id>,
 		stored: Option<&tangram_index::process::Stored>,
 	) -> (bool, Option<tangram_index::process::Stored>) {
+		// Get or create the node.
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
@@ -813,142 +875,58 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_process_mut();
+
+		// Update the remote state.
 		let inserted = stored.is_none() && !node.remote_requested;
 		if stored.is_none() {
 			node.remote_requested = true;
 		}
 
 		if let Some(stored) = stored {
+			let mut stored = stored.clone();
+			Self::normalize_process_remote_stored(&mut stored);
 			let node = self
 				.nodes
 				.get_index_mut(index)
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.remote_stored = Some(stored.clone());
+			let stored = Self::merge_process_stored(node.remote_stored.as_ref(), stored);
+			node.remote_stored = Some(stored);
 		}
-		if let Some(parent) = parent {
-			// Get the parent index and node.
-			let (parent_index, _, parent_node) = self.nodes.get_full_mut(&parent).unwrap();
+
+		// Add the parent edge.
+		let parent = if let Some(parent) = parent {
+			let parent_index = self.nodes.get_index_of(&parent).unwrap();
+			let (dependency_inserted, remote_child_inserted) =
+				self.insert_process_remote_child(parent_index, index);
 			let parent = Parent::Process(parent_index);
-
-			// Add the node as a child of the parent.
-			if let Some(children) = parent_node.children_mut().as_mut()
-				&& !children.contains(&index)
-			{
-				children.push(index);
-			}
-
-			// Add the parent to the node.
 			let (_, node) = self.nodes.get_index_mut(index).unwrap();
-			if !node.parents_mut().contains(&parent) {
-				node.parents_mut().push(parent);
+			node.parents_mut().insert(parent);
+
+			Some((dependency_inserted, parent_index, remote_child_inserted))
+		} else {
+			None
+		};
+
+		// Propagate the stored state and update the End state.
+		let mut end_indices = Vec::new();
+		let mut stored_indices = vec![index];
+		if let Some((dependency_inserted, parent_index, remote_child_inserted)) = parent {
+			if dependency_inserted {
+				end_indices.push(parent_index);
+			}
+			if remote_child_inserted {
+				let inherited = self.inherit_process_remote_stored(parent_index, &[index]);
+				stored_indices.extend(inherited.iter().copied());
+				end_indices.extend(inherited);
 			}
 		}
+		end_indices.push(index);
+		end_indices.extend(self.propagate_process_remote_stored(stored_indices));
+		self.update_remote_ends(end_indices);
 
-		if stored.is_none() {
-			let stored = self
-				.nodes
-				.get_index(index)
-				.unwrap()
-				.1
-				.unwrap_process_ref()
-				.remote_stored
-				.clone();
-			return (inserted, stored);
-		}
-
-		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree) {
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().subtree = true;
-			self.propagate_process_remote_field(&path, |stored| stored.subtree = true);
-		}
-
-		if let Some(path) =
-			self.find_process_remote_ancestor(index, |stored| stored.subtree_command)
-		{
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().subtree_command = true;
-			self.propagate_process_remote_field(&path, |stored| stored.subtree_command = true);
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().node_command = true;
-			self.propagate_process_remote_field(&path, |stored| stored.node_command = true);
-		}
-
-		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_error)
-		{
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().subtree_error = true;
-			self.propagate_process_remote_field(&path, |stored| stored.subtree_error = true);
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().node_error = true;
-			self.propagate_process_remote_field(&path, |stored| stored.node_error = true);
-		}
-
-		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_log) {
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().subtree_log = true;
-			self.propagate_process_remote_field(&path, |stored| stored.subtree_log = true);
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().node_log = true;
-			self.propagate_process_remote_field(&path, |stored| stored.node_log = true);
-		}
-
-		if let Some(path) = self.find_process_remote_ancestor(index, |stored| stored.subtree_output)
-		{
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().subtree_output = true;
-			self.propagate_process_remote_field(&path, |stored| stored.subtree_output = true);
-			let node = self
-				.nodes
-				.get_index_mut(index)
-				.unwrap()
-				.1
-				.unwrap_process_mut();
-			node.remote_stored.get_or_insert_default().node_output = true;
-			self.propagate_process_remote_field(&path, |stored| stored.node_output = true);
-		}
-
+		// Get the remote stored state.
 		let stored = self
 			.nodes
 			.get_index(index)
@@ -1119,119 +1097,15 @@ impl Graph {
 		})
 	}
 
-	pub fn end_remote(&self, arg: &tg::sync::Arg) -> bool {
+	#[must_use]
+	pub fn end_remote(&self) -> bool {
 		if !self.get_end_received {
 			return false;
 		}
+
 		self.remote_roots
 			.iter()
-			.all(|root| self.remote_complete(root, arg, &mut HashSet::new()))
-	}
-
-	fn remote_complete(
-		&self,
-		id: &tg::Id,
-		arg: &tg::sync::Arg,
-		visited: &mut HashSet<tg::Id>,
-	) -> bool {
-		if !visited.insert(id.clone()) {
-			return false;
-		}
-		let Some(node) = self.nodes.get(id) else {
-			return false;
-		};
-		match node {
-			Node::Group(node)
-			| Node::Organization(node)
-			| Node::Sandbox(node)
-			| Node::Tag(node)
-			| Node::User(node) => {
-				node.remote_sent
-					&& node.children.as_ref().is_some_and(|children| {
-						children.iter().all(|index| {
-							let id = self.nodes.get_index(*index).unwrap().0;
-							self.remote_complete(id, arg, &mut visited.clone())
-						})
-					})
-			},
-			Node::Object(node) => {
-				if node
-					.remote_stored
-					.as_ref()
-					.is_some_and(|stored| stored.subtree)
-					|| node.remote_missing
-				{
-					return true;
-				}
-				node.remote_sent
-					&& (!node.remote_sent_eager
-						|| node.children.as_ref().is_some_and(|children| {
-							children.iter().all(|index| {
-								let id = self.nodes.get_index(*index).unwrap().0;
-								self.remote_complete(id, arg, &mut visited.clone())
-							})
-						}))
-			},
-			Node::Process(node) => {
-				let Some(stored) = node.remote_stored.as_ref() else {
-					return false;
-				};
-				let children_complete = !arg.process_children
-					|| stored.subtree
-					|| node.children.as_ref().is_some_and(|children| {
-						children.iter().all(|index| {
-							let id = self.nodes.get_index(*index).unwrap().0;
-							self.remote_complete(id, arg, &mut visited.clone())
-						})
-					});
-				let object_complete = |kind| {
-					node.objects
-						.iter()
-						.flatten()
-						.filter(|(_, candidate)| std::mem::discriminant(candidate) == kind)
-						.all(|(index, _)| {
-							let id = self.nodes.get_index(*index).unwrap().0;
-							self.remote_complete(id, arg, &mut visited.clone())
-						})
-				};
-				let command_complete = !arg.process_commands
-					|| if arg.process_children {
-						stored.subtree_command
-					} else {
-						stored.node_command
-					} || object_complete(std::mem::discriminant(
-					&tangram_index::process::object::Kind::Command,
-				));
-				let error_complete = !arg.process_errors
-					|| if arg.process_children {
-						stored.subtree_error
-					} else {
-						stored.node_error
-					} || object_complete(std::mem::discriminant(
-					&tangram_index::process::object::Kind::Error,
-				));
-				let log_complete = !arg.process_logs
-					|| if arg.process_children {
-						stored.subtree_log
-					} else {
-						stored.node_log
-					} || object_complete(std::mem::discriminant(
-					&tangram_index::process::object::Kind::Log,
-				));
-				let output_complete = !arg.process_outputs
-					|| if arg.process_children {
-						stored.subtree_output
-					} else {
-						stored.node_output
-					} || object_complete(std::mem::discriminant(
-					&tangram_index::process::object::Kind::Output,
-				));
-				children_complete
-					&& command_complete
-					&& error_complete
-					&& log_complete && output_complete
-			},
-		}
+			.all(|root| self.nodes.get(root).is_some_and(Node::remote_end))
 	}
 
 	fn get_local_authorization(
@@ -1464,6 +1338,20 @@ impl Graph {
 			crate::sync::queue::ObjectKind::Error => tangram_index::process::object::Kind::Error,
 			crate::sync::queue::ObjectKind::Log => tangram_index::process::object::Kind::Log,
 			crate::sync::queue::ObjectKind::Output => tangram_index::process::object::Kind::Output,
+		}
+	}
+
+	#[must_use]
+	fn process_object_remote_kind(
+		kind: tangram_index::process::object::Kind,
+	) -> crate::sync::queue::ObjectKind {
+		match kind {
+			tangram_index::process::object::Kind::Command => {
+				crate::sync::queue::ObjectKind::Command
+			},
+			tangram_index::process::object::Kind::Error => crate::sync::queue::ObjectKind::Error,
+			tangram_index::process::object::Kind::Log => crate::sync::queue::ObjectKind::Log,
+			tangram_index::process::object::Kind::Output => crate::sync::queue::ObjectKind::Output,
 		}
 	}
 
@@ -1757,6 +1645,230 @@ impl Graph {
 			|| visible.subtree_output
 	}
 
+	fn insert_process_remote_child(&mut self, parent: usize, child: usize) -> (bool, bool) {
+		let remote_end = self.nodes.get_index(child).unwrap().1.remote_end();
+		let node = self
+			.nodes
+			.get_index_mut(parent)
+			.unwrap()
+			.1
+			.unwrap_process_mut();
+		let remote_child_inserted = node.remote_children.insert(child);
+		if !remote_child_inserted {
+			return (false, false);
+		}
+		let Some(children) = node.children.as_mut() else {
+			return (false, true);
+		};
+		children.push(child);
+		if !remote_end {
+			*node.remote_pending_children.as_mut().unwrap() += 1;
+		}
+
+		(true, true)
+	}
+
+	#[must_use]
+	fn count_remote_pending(&self, children: &[usize]) -> usize {
+		children
+			.iter()
+			.filter(|index| !self.nodes.get_index(**index).unwrap().1.remote_end())
+			.count()
+	}
+
+	#[must_use]
+	fn count_process_remote_pending(
+		&self,
+		objects: &[(usize, tangram_index::process::object::Kind)],
+	) -> (usize, usize, usize, usize) {
+		let mut pending = (0, 0, 0, 0);
+		for &(index, kind) in objects {
+			if self.nodes.get_index(index).unwrap().1.remote_end() {
+				continue;
+			}
+			match kind {
+				tangram_index::process::object::Kind::Command => pending.0 += 1,
+				tangram_index::process::object::Kind::Error => pending.1 += 1,
+				tangram_index::process::object::Kind::Log => pending.2 += 1,
+				tangram_index::process::object::Kind::Output => pending.3 += 1,
+			}
+		}
+
+		pending
+	}
+
+	fn update_remote_end(&mut self, index: usize) {
+		self.update_remote_ends([index]);
+	}
+
+	fn update_remote_ends(&mut self, indices: impl IntoIterator<Item = usize>) {
+		// Seed the queue.
+		let mut queue = VecDeque::new();
+		let mut queued = HashSet::new();
+		for index in indices {
+			if queued.insert(index) {
+				queue.push_back(index);
+			}
+		}
+
+		// Propagate the End transitions.
+		while let Some(index) = queue.pop_front() {
+			queued.remove(&index);
+			let remote_end = self.compute_remote_end(index);
+			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			if node.remote_end() == remote_end {
+				continue;
+			}
+			node.set_remote_end(remote_end);
+
+			// Update each parent from this edge alone, without rescanning its other children.
+			let parents = node
+				.parents()
+				.iter()
+				.copied()
+				.collect::<SmallVec<[Parent; 1]>>();
+			for parent in parents {
+				if self.update_remote_pending(parent, remote_end) {
+					let parent = parent.index();
+					if queued.insert(parent) {
+						queue.push_back(parent);
+					}
+				}
+			}
+		}
+	}
+
+	#[must_use]
+	fn compute_remote_end(&self, index: usize) -> bool {
+		// Get the node.
+		let (_, node) = self.nodes.get_index(index).unwrap();
+
+		// Compute the End state.
+		match node {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => node.remote_sent && node.remote_pending_children == Some(0),
+			Node::Object(node) => {
+				node.remote_missing
+					|| node
+						.remote_stored
+						.as_ref()
+						.is_some_and(|stored| stored.subtree)
+					|| (node.remote_sent
+						&& (!node.remote_sent_eager || node.remote_pending_children == Some(0)))
+			},
+			Node::Process(node) => {
+				let Some(stored) = node.remote_stored.as_ref() else {
+					return false;
+				};
+				let children_end = !self.process_children
+					|| stored.subtree
+					|| node.remote_pending_children == Some(0);
+				let stored_command = if self.process_children {
+					stored.subtree_command
+				} else {
+					stored.node_command
+				};
+				let command_end =
+					!self.process_commands || stored_command || node.remote_pending_commands == 0;
+				let stored_error = if self.process_children {
+					stored.subtree_error
+				} else {
+					stored.node_error
+				};
+				let error_end =
+					!self.process_errors || stored_error || node.remote_pending_errors == 0;
+				let stored_log = if self.process_children {
+					stored.subtree_log
+				} else {
+					stored.node_log
+				};
+				let log_end = !self.process_logs || stored_log || node.remote_pending_logs == 0;
+				let stored_output = if self.process_children {
+					stored.subtree_output
+				} else {
+					stored.node_output
+				};
+				let output_end =
+					!self.process_outputs || stored_output || node.remote_pending_outputs == 0;
+
+				children_end && command_end && error_end && log_end && output_end
+			},
+		}
+	}
+
+	fn update_remote_pending(&mut self, parent: Parent, child_remote_end: bool) -> bool {
+		// Get the pending count.
+		let (_, node) = self.nodes.get_index_mut(parent.index()).unwrap();
+		let pending = match (parent, node) {
+			(
+				Parent::Item(_),
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node),
+			) => node.remote_pending_children.as_mut(),
+			(Parent::Object(_), Node::Object(node)) => node.remote_pending_children.as_mut(),
+			(Parent::Process(_), Node::Process(node)) => node.remote_pending_children.as_mut(),
+			(
+				Parent::ProcessObject {
+					kind: crate::sync::queue::ObjectKind::Command,
+					..
+				},
+				Node::Process(node),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_commands),
+			(
+				Parent::ProcessObject {
+					kind: crate::sync::queue::ObjectKind::Error,
+					..
+				},
+				Node::Process(node),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_errors),
+			(
+				Parent::ProcessObject {
+					kind: crate::sync::queue::ObjectKind::Log,
+					..
+				},
+				Node::Process(node),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_logs),
+			(
+				Parent::ProcessObject {
+					kind: crate::sync::queue::ObjectKind::Output,
+					..
+				},
+				Node::Process(node),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_outputs),
+			(
+				Parent::Item(_)
+				| Parent::Object(_)
+				| Parent::Process(_)
+				| Parent::ProcessObject { .. },
+				Node::Group(_)
+				| Node::Object(_)
+				| Node::Organization(_)
+				| Node::Process(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_),
+			) => None,
+		};
+
+		// Apply the End transition.
+		let Some(pending) = pending else {
+			return false;
+		};
+		if child_remote_end {
+			*pending = pending.checked_sub(1).unwrap();
+		} else {
+			*pending += 1;
+		}
+
+		true
+	}
+
 	fn merge_local_permissions(
 		existing: &mut Option<tg::grant::permission::Set>,
 		permissions: tg::grant::permission::Set,
@@ -1886,6 +1998,158 @@ impl Graph {
 		None
 	}
 
+	fn inherit_process_remote_stored(&mut self, parent: usize, children: &[usize]) -> Vec<usize> {
+		let Some(stored) = self.nodes.get_index(parent).and_then(|(_, node)| {
+			let node = node.try_unwrap_process_ref().ok()?;
+			let stored = node.remote_stored.as_ref()?;
+			let stored = Self::process_remote_stored_for_child(stored);
+			Self::process_stored_any(&stored).then_some(stored)
+		}) else {
+			return Vec::new();
+		};
+		children
+			.iter()
+			.copied()
+			.filter(|&child| self.merge_process_remote_stored_at(child, &stored))
+			.collect()
+	}
+
+	fn propagate_process_remote_stored(
+		&mut self,
+		indices: impl IntoIterator<Item = usize>,
+	) -> Vec<usize> {
+		// Seed the queue.
+		let mut changed_children = Vec::new();
+		let mut queue = VecDeque::new();
+		let mut queued = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		for index in indices {
+			if queued.insert(index) {
+				queue.push_back(index);
+			}
+		}
+
+		// Propagate each new stored field.
+		while let Some(index) = queue.pop_front() {
+			queued.remove(&index);
+			let Some(stored) = self.take_process_remote_stored_delta(index) else {
+				continue;
+			};
+			let children = self
+				.nodes
+				.get_index(index)
+				.unwrap()
+				.1
+				.unwrap_process_ref()
+				.remote_children
+				.iter()
+				.copied()
+				.collect::<Vec<_>>();
+			for child in children {
+				if !self.merge_process_remote_stored_at(child, &stored) {
+					continue;
+				}
+				changed_children.push(child);
+				if queued.insert(child) {
+					queue.push_back(child);
+				}
+			}
+		}
+
+		changed_children
+	}
+
+	fn merge_process_remote_stored_at(
+		&mut self,
+		index: usize,
+		stored: &tangram_index::process::Stored,
+	) -> bool {
+		let Some((_, node)) = self.nodes.get_index_mut(index) else {
+			return false;
+		};
+		let Ok(node) = node.try_unwrap_process_mut() else {
+			return false;
+		};
+		let merged = Self::merge_process_stored(node.remote_stored.as_ref(), stored.clone());
+		if !Self::should_propagate_process_stored(node.remote_stored.as_ref(), Some(&merged)) {
+			return false;
+		}
+		node.remote_stored = Some(merged);
+
+		true
+	}
+
+	fn take_process_remote_stored_delta(
+		&mut self,
+		index: usize,
+	) -> Option<tangram_index::process::Stored> {
+		let (_, node) = self.nodes.get_index_mut(index)?;
+		let node = node.try_unwrap_process_mut().ok()?;
+		let stored = node.remote_stored.as_ref()?;
+		let propagated = &mut node.remote_propagated_stored;
+
+		// Compute the fields that have not been propagated.
+		let delta = tangram_index::process::Stored {
+			node_command: false,
+			node_error: false,
+			node_log: false,
+			node_output: false,
+			subtree: stored.subtree && !propagated.subtree,
+			subtree_command: stored.subtree_command && !propagated.subtree_command,
+			subtree_error: stored.subtree_error && !propagated.subtree_error,
+			subtree_log: stored.subtree_log && !propagated.subtree_log,
+			subtree_output: stored.subtree_output && !propagated.subtree_output,
+		};
+
+		// Record the delta before walking the children so each stored field crosses each edge once.
+		propagated.subtree |= delta.subtree;
+		propagated.subtree_command |= delta.subtree_command;
+		propagated.subtree_error |= delta.subtree_error;
+		propagated.subtree_log |= delta.subtree_log;
+		propagated.subtree_output |= delta.subtree_output;
+
+		// Derive the stored state for the children.
+		let stored = Self::process_remote_stored_for_child(&delta);
+
+		Self::process_stored_any(&stored).then_some(stored)
+	}
+
+	#[must_use]
+	fn process_remote_stored_for_child(
+		stored: &tangram_index::process::Stored,
+	) -> tangram_index::process::Stored {
+		tangram_index::process::Stored {
+			node_command: stored.subtree_command,
+			node_error: stored.subtree_error,
+			node_log: stored.subtree_log,
+			node_output: stored.subtree_output,
+			subtree: stored.subtree,
+			subtree_command: stored.subtree_command,
+			subtree_error: stored.subtree_error,
+			subtree_log: stored.subtree_log,
+			subtree_output: stored.subtree_output,
+		}
+	}
+
+	#[must_use]
+	fn process_stored_any(stored: &tangram_index::process::Stored) -> bool {
+		stored.node_command
+			|| stored.node_error
+			|| stored.node_log
+			|| stored.node_output
+			|| stored.subtree
+			|| stored.subtree_command
+			|| stored.subtree_error
+			|| stored.subtree_log
+			|| stored.subtree_output
+	}
+
+	fn normalize_process_remote_stored(stored: &mut tangram_index::process::Stored) {
+		stored.node_command |= stored.subtree_command;
+		stored.node_error |= stored.subtree_error;
+		stored.node_log |= stored.subtree_log;
+		stored.node_output |= stored.subtree_output;
+	}
+
 	fn should_propagate_process_stored(
 		old: Option<&tangram_index::process::Stored>,
 		new: Option<&tangram_index::process::Stored>,
@@ -1940,103 +2204,6 @@ impl Graph {
 	) -> tangram_index::process::Stored {
 		Self::merge_process_stored(old, new)
 	}
-
-	fn find_object_remote_ancestor(
-		&self,
-		index: usize,
-		kind: Option<crate::sync::queue::ObjectKind>,
-	) -> Option<Vec<usize>> {
-		let mut stack = vec![vec![index]];
-		loop {
-			let Some(path) = stack.pop() else {
-				break None;
-			};
-			let index = *path.last().unwrap();
-			let node = self.nodes.get_index(index).unwrap().1;
-			let stored = match node {
-				Node::Group(_)
-				| Node::Organization(_)
-				| Node::Sandbox(_)
-				| Node::Tag(_)
-				| Node::User(_) => false,
-				Node::Object(object) => object
-					.remote_stored
-					.as_ref()
-					.is_some_and(|stored| stored.subtree),
-				Node::Process(process) => {
-					process
-						.remote_stored
-						.as_ref()
-						.is_some_and(|stored| match kind {
-							Some(crate::sync::queue::ObjectKind::Command) => {
-								stored.subtree_command || (path.len() == 2 && stored.node_command)
-							},
-							Some(crate::sync::queue::ObjectKind::Error) => {
-								stored.subtree_error || (path.len() == 2 && stored.node_error)
-							},
-							Some(crate::sync::queue::ObjectKind::Log) => {
-								stored.subtree_log || (path.len() == 2 && stored.node_log)
-							},
-							Some(crate::sync::queue::ObjectKind::Output) => {
-								stored.subtree_output || (path.len() == 2 && stored.node_output)
-							},
-							None => stored.subtree_command && stored.subtree_output,
-						})
-				},
-			};
-			if stored {
-				break Some(path);
-			}
-			for parent in node.parents() {
-				let parent = parent.index();
-				let mut path = path.clone();
-				assert!(!path.contains(&parent));
-				path.push(parent);
-				stack.push(path);
-			}
-		}
-	}
-
-	fn find_process_remote_ancestor<F>(&self, index: usize, f: F) -> Option<Vec<usize>>
-	where
-		F: Fn(&tangram_index::process::Stored) -> bool,
-	{
-		let mut stack = vec![vec![index]];
-		loop {
-			let Some(path) = stack.pop() else {
-				break None;
-			};
-			let index = *path.last().unwrap();
-			let node = self.nodes.get_index(index).unwrap().1;
-			let Ok(node) = node.try_unwrap_process_ref() else {
-				continue;
-			};
-			let stored = node.remote_stored.as_ref().is_some_and(&f);
-			if stored {
-				break Some(path);
-			}
-			for parent in &node.parents {
-				let parent = parent.index();
-				let mut path = path.clone();
-				assert!(!path.contains(&parent));
-				path.push(parent);
-				stack.push(path);
-			}
-		}
-	}
-
-	fn propagate_process_remote_field<F>(&mut self, path: &[usize], f: F)
-	where
-		F: Fn(&mut tangram_index::process::Stored),
-	{
-		for &index in path {
-			let (_, node) = self.nodes.get_index_mut(index).unwrap();
-			if let Node::Process(process) = node {
-				let stored = process.remote_stored.get_or_insert_with(Default::default);
-				f(stored);
-			}
-		}
-	}
 }
 
 impl Parent {
@@ -2079,6 +2246,31 @@ impl Node {
 		}
 	}
 
+	#[must_use]
+	fn remote_end(&self) -> bool {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.remote_end,
+			Self::Object(node) => node.remote_end,
+			Self::Process(node) => node.remote_end,
+		}
+	}
+
+	fn set_remote_end(&mut self, remote_end: bool) {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.remote_end = remote_end,
+			Self::Object(node) => node.remote_end = remote_end,
+			Self::Process(node) => node.remote_end = remote_end,
+		}
+	}
+
 	fn token(&self) -> Option<&tg::grant::Token> {
 		match self {
 			Self::Group(node)
@@ -2102,7 +2294,8 @@ impl Node {
 		}
 	}
 
-	pub fn parents(&self) -> &SmallVec<[Parent; 1]> {
+	#[must_use]
+	pub fn parents(&self) -> &IndexSet<Parent, fnv::FnvBuildHasher> {
 		match self {
 			Node::Group(node)
 			| Node::Organization(node)
@@ -2114,7 +2307,8 @@ impl Node {
 		}
 	}
 
-	pub fn parents_mut(&mut self) -> &mut SmallVec<[Parent; 1]> {
+	#[must_use]
+	pub fn parents_mut(&mut self) -> &mut IndexSet<Parent, fnv::FnvBuildHasher> {
 		match self {
 			Node::Group(node)
 			| Node::Organization(node)
