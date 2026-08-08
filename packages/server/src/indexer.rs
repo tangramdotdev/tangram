@@ -471,6 +471,7 @@ impl Indexer {
 		let partition_start = config.partition_start;
 		let partition_length = partition_end - partition_start;
 		loop {
+			crate::checkpoint!(self.server, "indexer.update.batch").await;
 			let futures = (0..config.concurrency).map(|task_index| {
 				let task_index = task_index.to_u64().unwrap();
 				let partitions_per_task = partition_length / concurrency;

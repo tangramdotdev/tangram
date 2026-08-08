@@ -67,6 +67,10 @@ impl Server {
 			let clean_index_future = future::try_join_all(futures);
 			match future::try_join(clean_database_future, clean_index_future).await {
 				Ok(((), outputs)) => {
+					for process in outputs.iter().flat_map(|output| &output.processes) {
+						crate::checkpoint!(self, "cleaner.process.delete", process = %process)
+							.await;
+					}
 					if outputs.iter().all(|output| output.done) {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
