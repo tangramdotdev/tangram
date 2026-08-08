@@ -77,18 +77,6 @@ impl Session {
 		}))
 	}
 
-	pub(crate) async fn try_get_principal_sandbox(&self) -> tg::Result<Option<tg::sandbox::Id>> {
-		match &self.context.principal {
-			tg::Principal::Process(id) => Ok(self
-				.try_get_authenticated_process(id)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the authenticated process"))?
-				.map(|process| process.sandbox)),
-			tg::Principal::Sandbox(id) => Ok(Some(id.clone())),
-			_ => Ok(None),
-		}
-	}
-
 	pub(crate) async fn try_get_authenticated_sandbox(
 		&self,
 		id: &tg::sandbox::Id,

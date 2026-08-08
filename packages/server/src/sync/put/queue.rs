@@ -239,7 +239,7 @@ impl Session {
 				);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
-					token: state.tokens.get(&item.id).cloned(),
+					token: authorization.token,
 				});
 				state.sender.send(Ok(message)).await.ok();
 				state

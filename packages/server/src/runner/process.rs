@@ -1384,16 +1384,21 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
-		// Append the artifacts' tokens to the sandbox. The tokens are unverified, so each consumer must authorize them.
-		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
-			state.tokens.extend(artifacts.iter().filter_map(|artifact| {
-				let token = artifact.options.token.clone()?;
-				Some((tg::object::Id::from(artifact.item.clone()), token))
-			}));
-		}
-
-		// The VFS serves the artifacts, so there is nothing to check out.
+		// Track each artifact's verified subtree token for the per-sandbox VFS.
 		if self.server.vfs.lock().unwrap().is_some() {
+			let permissions = tg::grant::permission::Set::from(tg::grant::Permission::Object(
+				tg::grant::permission::object::Permission::Subtree,
+			));
+			let tokens = artifacts.iter().filter_map(|artifact| {
+				let token = artifact.options.token.clone()?;
+				let resource =
+					tg::grant::Resource::Id(tg::object::Id::from(artifact.item.clone()).into());
+				self.authorize_token(&resource, permissions, &token)
+					.then(|| (artifact.item.clone(), token))
+			});
+			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
+				state.tokens.extend(tokens);
+			}
 			return Ok(());
 		}
 

@@ -86,7 +86,7 @@ impl Session {
 			let Some(mut output) = output else {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
-					token: state.tokens.get(&item.id).cloned(),
+					token: item.token.clone(),
 				});
 				state.sender.send(Ok(message)).await.ok();
 				state

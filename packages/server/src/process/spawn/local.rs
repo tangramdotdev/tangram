@@ -424,10 +424,23 @@ impl Session {
 		let Some(parent) = &arg.parent else {
 			return Ok(());
 		};
+		let child = output.process.as_ref().unwrap_right();
+
+		// If the parent is not running on this server, then index the child's parent so the parent's principal can authorize the child's objects.
 		if !self.server.runner.state().processes().contains_key(parent) {
+			// Only the parent's own principal may claim the parent.
+			if !matches!(&self.context.principal, tg::Principal::Process(id) if id == parent) {
+				return Ok(());
+			}
+			self.index_process_parent(parent, child, &command.item)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %parent, %child, "failed to index the process parent"),
+				)?;
+
 			return Ok(());
 		}
-		let child = output.process.as_ref().unwrap_right();
+
 		let sandbox = self.server.runner.state().try_get_process_sandbox(child);
 		crate::checkpoint!(
 			self.server,

@@ -76,6 +76,39 @@ impl Session {
 		Ok(())
 	}
 
+	pub(super) async fn index_process_parent(
+		&self,
+		parent: &tg::process::Id,
+		child: &tg::process::Id,
+		command: &tg::command::Id,
+	) -> tg::Result<()> {
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let child_arg = tangram_index::process::put::Arg {
+			children: None,
+			command: command.clone().into(),
+			data: None,
+			error: None,
+			id: child.clone(),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			output: None,
+			parent: Some(parent.clone()),
+			sandbox: None,
+			stored: tangram_index::process::Stored::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
+			touched_at: now,
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutProcess(child_arg)],
+		};
+		self.server
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the process parent"))?;
+
+		Ok(())
+	}
+
 	async fn index_process_child(
 		&self,
 		parent: &tg::process::Id,
