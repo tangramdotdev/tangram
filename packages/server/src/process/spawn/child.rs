@@ -18,12 +18,12 @@ impl Session {
 		let command = arg.command.clone();
 		let parent = arg.parent.clone();
 		let sandbox = arg.sandbox.cloned();
-		let parent_sandbox = self
-			.server
-			.runner
-			.state()
-			.try_get_process_sandbox(&parent)
-			.ok_or_else(|| tg::error!("the parent process was not found"))?;
+		let Some(parent_sandbox) = self.server.runner.state().try_get_process_sandbox(&parent)
+		else {
+			self.index_process_child(&parent, &child, &command, sandbox.as_ref(), None)
+				.await?;
+			return Ok(());
+		};
 		let mut parent_sandbox = self
 			.server
 			.runner
@@ -70,8 +70,14 @@ impl Session {
 			)?;
 
 		// Index the child.
-		self.index_process_child(&parent, &child, &command, sandbox.as_ref(), parent_data)
-			.await?;
+		self.index_process_child(
+			&parent,
+			&child,
+			&command,
+			sandbox.as_ref(),
+			Some(parent_data),
+		)
+		.await?;
 
 		Ok(())
 	}
@@ -82,25 +88,27 @@ impl Session {
 		child: &tg::process::Id,
 		command: &tg::command::Id,
 		sandbox: Option<&tg::sandbox::Id>,
-		parent_data: tg::process::Data,
+		parent_data: Option<tg::process::Data>,
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let parent_data = parent_data.without_tokens();
-		let parent_arg = tangram_index::process::put::Arg {
-			children: None,
-			command: parent_data.command.clone().into(),
-			data: Some(parent_data.clone()),
-			error: None,
-			id: parent.clone(),
-			log: None,
-			metadata: tg::process::Metadata::default(),
-			output: None,
-			parent: None,
-			sandbox: Some(parent_data.sandbox),
-			stored: tangram_index::process::Stored::default(),
-			time_to_touch: self.server.config.process.time_to_touch,
-			touched_at: now,
-		};
+		let parent_arg = parent_data.map(|parent_data| {
+			let parent_data = parent_data.without_tokens();
+			tangram_index::process::put::Arg {
+				children: None,
+				command: parent_data.command.clone().into(),
+				data: Some(parent_data.clone()),
+				error: None,
+				id: parent.clone(),
+				log: None,
+				metadata: tg::process::Metadata::default(),
+				output: None,
+				parent: None,
+				sandbox: Some(parent_data.sandbox),
+				stored: tangram_index::process::Stored::default(),
+				time_to_touch: self.server.config.process.time_to_touch,
+				touched_at: now,
+			}
+		});
 		let child_arg = tangram_index::process::put::Arg {
 			children: None,
 			command: command.clone().into(),
@@ -116,12 +124,12 @@ impl Session {
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let arg = tangram_index::batch::Arg {
-			items: vec![
-				tangram_index::batch::Item::PutProcess(parent_arg),
-				tangram_index::batch::Item::PutProcess(child_arg),
-			],
-		};
+		let mut items = Vec::with_capacity(2);
+		if let Some(parent_arg) = parent_arg {
+			items.push(tangram_index::batch::Item::PutProcess(parent_arg));
+		}
+		items.push(tangram_index::batch::Item::PutProcess(child_arg));
+		let arg = tangram_index::batch::Arg { items };
 		self.server
 			.index_batch(arg)
 			.await

@@ -424,9 +424,6 @@ impl Session {
 		let Some(parent) = &arg.parent else {
 			return Ok(());
 		};
-		if !self.server.runner.state().processes().contains_key(parent) {
-			return Ok(());
-		}
 		let child = output.process.as_ref().unwrap_right();
 		let sandbox = self.server.runner.state().try_get_process_sandbox(child);
 		crate::checkpoint!(
