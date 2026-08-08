@@ -212,6 +212,9 @@ impl Session {
 				tg::sync::PutMessage::Missing(message) => match message.id.kind() {
 					tg::id::Kind::Process => {
 						let id = message.id.try_into()?;
+						if let Some(token) = message.token {
+							state.graph.lock().unwrap().update_process_token(&id, token);
+						}
 						let eager = state
 							.graph
 							.lock()
@@ -228,6 +231,9 @@ impl Session {
 					},
 					kind if kind.is_object() => {
 						let id = message.id.try_into()?;
+						if let Some(token) = message.token {
+							state.graph.lock().unwrap().update_object_token(&id, token);
+						}
 						let eager = state
 							.graph
 							.lock()

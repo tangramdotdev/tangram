@@ -315,6 +315,9 @@ pub struct PutItemUserMessage {
 pub struct PutMissingMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::Id,
+
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::grant::Token>,
 }
 
 #[derive(

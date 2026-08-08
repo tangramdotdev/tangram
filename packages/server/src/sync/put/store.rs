@@ -86,6 +86,7 @@ impl Session {
 			let Some(mut output) = output else {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
+					token: None,
 				});
 				state.sender.send(Ok(message)).await.ok();
 				state
@@ -189,6 +190,7 @@ impl Session {
 			let Some(mut output) = output else {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					id: item.id.clone().into(),
+					token: None,
 				});
 				state.sender.send(Ok(message)).await.ok();
 				continue;
