@@ -56,7 +56,8 @@ impl Struct<'_> {
 			};
 
 			if let Some(serialize_with) = field.serialize_with.as_ref() {
-				let serialize_with = quote::format_ident!("{serialize_with}");
+				let serialize_with: syn::Path =
+					syn::parse_str(serialize_with).expect("invalid serialize_with function path");
 				quote! {
 					#serialize_with(&#field_access, serializer)?;
 					Ok(())
@@ -112,7 +113,8 @@ impl Struct<'_> {
 					};
 
 					if let Some(serialize_with) = field.serialize_with.as_ref() {
-						let serialize_with = quote::format_ident!("{serialize_with}");
+						let serialize_with: syn::Path = syn::parse_str(serialize_with)
+							.expect("invalid serialize_with function path");
 						quote! {
 							#serialize_with(&#field_access, serializer)?;
 						}

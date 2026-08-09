@@ -4,7 +4,6 @@ use {
 		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
 	},
-	serde::Deserialize as _,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
@@ -36,8 +35,8 @@ pub struct Output {
 
 	#[serde(
 		default,
-		deserialize_with = "deserialize_output",
-		skip_serializing_if = "Option::is_none"
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::unwrap_or_skip"
 	)]
 	pub output: Option<tg::value::Data>,
 }
@@ -224,11 +223,4 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 			value => Err(tg::error!(?value, "invalid event")),
 		}
 	}
-}
-
-fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
-where
-	D: serde::Deserializer<'de>,
-{
-	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

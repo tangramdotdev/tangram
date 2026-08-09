@@ -6,6 +6,14 @@ use {
 	std::collections::{BTreeMap, BTreeSet},
 };
 
+const BYTES_VARIANT_ID: u8 = 7;
+const MAP_VARIANT_ID: u8 = 5;
+const MODULE_VARIANT_ID: u8 = 11;
+const MUTATION_VARIANT_ID: u8 = 8;
+const OBJECT_VARIANT_ID: u8 = 6;
+const PLACEHOLDER_VARIANT_ID: u8 = 10;
+const TEMPLATE_VARIANT_ID: u8 = 9;
+
 /// Value data.
 #[derive(
 	Clone,
@@ -15,46 +23,32 @@ use {
 	derive_more::TryInto,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Data {
-	#[tangram_serialize(id = 0)]
 	Null,
 
-	#[tangram_serialize(id = 1)]
 	Bool(bool),
 
-	#[tangram_serialize(id = 2)]
 	Number(f64),
 
-	#[tangram_serialize(id = 3)]
 	String(String),
 
-	#[tangram_serialize(id = 4)]
 	Array(Vec<Data>),
 
-	#[tangram_serialize(id = 5)]
 	Map(BTreeMap<String, Data>),
 
-	#[tangram_serialize(id = 6)]
 	Object(tg::Referent<tg::object::Id>),
 
-	#[tangram_serialize(id = 7)]
 	Bytes(Bytes),
 
-	#[tangram_serialize(id = 8)]
 	Mutation(tg::mutation::Data),
 
-	#[tangram_serialize(id = 9)]
 	Template(tg::template::Data),
 
-	#[tangram_serialize(id = 10)]
 	Placeholder(tg::placeholder::Data),
 
-	#[tangram_serialize(id = 11)]
 	Module(tg::module::Data),
 }
 
@@ -85,12 +79,12 @@ impl Data {
 			return Err(tg::error!("missing format byte"));
 		}
 		let format = bytes[0];
-		match format {
-			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
-			b'{' => serde_json::from_slice(bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the data")),
-			_ => Err(tg::error!("invalid format")),
+		if format == 0 {
+			tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))
+		} else {
+			serde_json::from_slice(bytes)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))
 		}
 	}
 
@@ -196,6 +190,120 @@ impl Data {
 	}
 }
 
+impl tangram_serialize::Serialize for Data {
+	fn serialize(&self, serializer: &mut tangram_serialize::Serializer<'_>) -> std::io::Result<()> {
+		match self {
+			Self::Array(value) => serializer.serialize(value),
+			Self::Bool(value) => serializer.serialize(value),
+			Self::Bytes(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(BYTES_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::Map(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(MAP_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::Module(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(MODULE_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::Mutation(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(MUTATION_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::Null => serializer.serialize(&()),
+			Self::Number(value) => {
+				if !value.is_finite() {
+					return Err(std::io::Error::other("invalid number"));
+				}
+				serializer.serialize(value)
+			},
+			Self::Object(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(OBJECT_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::Placeholder(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(PLACEHOLDER_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+			Self::String(value) => serializer.serialize(value),
+			Self::Template(value) => {
+				serializer.write_kind(tangram_serialize::Kind::Enum)?;
+				serializer.write_id(TEMPLATE_VARIANT_ID)?;
+				serializer.serialize(value)
+			},
+		}
+	}
+}
+
+impl<'de> tangram_serialize::Deserialize<'de> for Data {
+	fn deserialize(
+		deserializer: &mut tangram_serialize::Deserializer<'de>,
+	) -> std::io::Result<Self> {
+		let kind = deserializer.read_kind()?;
+		let data = match kind {
+			tangram_serialize::Kind::Array => Self::Array(deserializer.read_array()?),
+			tangram_serialize::Kind::Bool => Self::Bool(deserializer.read_bool()?),
+			tangram_serialize::Kind::Enum => {
+				let id = deserializer.read_id()?;
+				match id {
+					BYTES_VARIANT_ID => Self::Bytes(deserializer.deserialize()?),
+					MAP_VARIANT_ID => Self::Map(deserializer.deserialize()?),
+					MODULE_VARIANT_ID => Self::Module(deserializer.deserialize()?),
+					MUTATION_VARIANT_ID => Self::Mutation(deserializer.deserialize()?),
+					OBJECT_VARIANT_ID => Self::Object(deserializer.deserialize()?),
+					PLACEHOLDER_VARIANT_ID => Self::Placeholder(deserializer.deserialize()?),
+					TEMPLATE_VARIANT_ID => Self::Template(deserializer.deserialize()?),
+					_ => return Err(std::io::Error::other("invalid data variant")),
+				}
+			},
+			tangram_serialize::Kind::F32 => {
+				let value = deserializer.read_f32()?;
+				if !value.is_finite() {
+					return Err(std::io::Error::other("invalid number"));
+				}
+				Self::Number(f64::from(value))
+			},
+			tangram_serialize::Kind::F64 => {
+				let value = deserializer.read_f64()?;
+				if !value.is_finite() {
+					return Err(std::io::Error::other("invalid number"));
+				}
+				Self::Number(value)
+			},
+			tangram_serialize::Kind::IVarint => {
+				let value = deserializer
+					.read_ivarint()?
+					.to_f64()
+					.ok_or_else(|| std::io::Error::other("invalid number"))?;
+				Self::Number(value)
+			},
+			tangram_serialize::Kind::Null => Self::Null,
+			tangram_serialize::Kind::String => Self::String(deserializer.read_string()?),
+			tangram_serialize::Kind::UVarint => {
+				let value = deserializer
+					.read_uvarint()?
+					.to_f64()
+					.ok_or_else(|| std::io::Error::other("invalid number"))?;
+				Self::Number(value)
+			},
+			tangram_serialize::Kind::Bytes
+			| tangram_serialize::Kind::Map
+			| tangram_serialize::Kind::Struct => {
+				return Err(std::io::Error::other("invalid data kind"));
+			},
+		};
+
+		Ok(data)
+	}
+}
+
 impl serde::Serialize for Data {
 	fn serialize<S>(&self, serializer: S) -> tg::Result<S::Ok, S::Error>
 	where
@@ -204,7 +312,12 @@ impl serde::Serialize for Data {
 		match self {
 			Self::Null => serializer.serialize_none(),
 			Self::Bool(value) => serializer.serialize_bool(*value),
-			Self::Number(value) => serializer.serialize_f64(*value),
+			Self::Number(value) => {
+				if !value.is_finite() {
+					return Err(serde::ser::Error::custom("invalid number"));
+				}
+				serializer.serialize_f64(*value)
+			},
 			Self::String(value) => serializer.serialize_str(value),
 			Self::Array(value) => {
 				let mut seq = serializer.serialize_seq(Some(value.len()))?;

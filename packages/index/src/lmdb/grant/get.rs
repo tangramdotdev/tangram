@@ -72,10 +72,10 @@ impl Index {
 			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
 			grants.push(crate::lmdb::grant::GrantEntry {
 				explicit: value.explicit,
-				temporary: value.temporary,
 				materialized: value.materialized,
 				permission,
 				principal,
+				temporary: value.temporary,
 			});
 		}
 		Ok(grants)

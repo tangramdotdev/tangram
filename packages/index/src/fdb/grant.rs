@@ -31,21 +31,26 @@ pub(crate) struct GrantValue {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub explicit: bool,
 
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "Option::is_none",
+		with = "tangram_serialize::with::unwrap_or_skip"
+	)]
+	pub materialized: Option<Option<i64>>,
+
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub temporary: Option<i64>,
-
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub materialized: Option<Option<i64>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::option_option)]
 pub(crate) struct GrantEntry {
 	pub explicit: bool,
-	pub temporary: Option<i64>,
 	pub materialized: Option<Option<i64>>,
 	pub permission: tangram_client::grant::Permission,
 	pub principal: tangram_client::grant::Principal,
+	pub temporary: Option<i64>,
 }
 
 #[derive(Clone)]

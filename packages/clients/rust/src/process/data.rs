@@ -67,10 +67,15 @@ pub struct Data {
 
 	#[serde(
 		default,
-		deserialize_with = "deserialize_output",
-		skip_serializing_if = "Option::is_none"
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::unwrap_or_skip"
 	)]
-	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(
+		default,
+		id = 12,
+		skip_serializing_if = "Option::is_none",
+		with = "tangram_serialize::with::unwrap_or_skip"
+	)]
 	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -189,11 +194,4 @@ impl<'de> serde_with::DeserializeAs<'de, tg::Either<tg::error::Data, tg::Referen
 
 		Ok(value)
 	}
-}
-
-fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>
-where
-	D: serde::Deserializer<'de>,
-{
-	Ok(Option::deserialize(deserializer)?.or(Some(tg::value::Data::Null)))
 }

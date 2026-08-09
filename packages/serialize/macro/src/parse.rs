@@ -129,6 +129,7 @@ impl<'a> Field<'a> {
 		let mut serialize_with = None;
 		let mut skip = false;
 		let mut skip_serializing_if = None;
+		let mut with = None;
 
 		// Get the ident.
 		let ident = field.ident.as_ref();
@@ -162,6 +163,11 @@ impl<'a> Field<'a> {
 					let lit: syn::LitStr = value.parse()?;
 					skip_serializing_if = Some(lit.value());
 					Ok(())
+				} else if meta.path.is_ident("with") {
+					let value = meta.value()?;
+					let lit: syn::LitStr = value.parse()?;
+					with = Some(lit.value());
+					Ok(())
 				} else if meta.path.is_ident("display") {
 					display = true;
 					Ok(())
@@ -187,6 +193,18 @@ impl<'a> Field<'a> {
 		}
 
 		// Validate attribute combinations.
+		if with.is_some() && (deserialize_with.is_some() || serialize_with.is_some()) {
+			return Err(syn::Error::new_spanned(
+				field,
+				"with attribute cannot be used together with serialize_with or deserialize_with attributes",
+			));
+		}
+
+		if let Some(with) = with {
+			deserialize_with = Some(format!("{with}::deserialize"));
+			serialize_with = Some(format!("{with}::serialize"));
+		}
+
 		if display && serialize_with.is_some() {
 			return Err(syn::Error::new_spanned(
 				field,
@@ -219,13 +237,6 @@ impl<'a> Field<'a> {
 			return Err(syn::Error::new_spanned(
 				field,
 				"skip_serializing_if attribute cannot be used together with skip attribute",
-			));
-		}
-
-		if skip_serializing_if.is_some() && serialize_with.is_some() {
-			return Err(syn::Error::new_spanned(
-				field,
-				"skip_serializing_if attribute cannot be used together with serialize_with attribute",
 			));
 		}
 

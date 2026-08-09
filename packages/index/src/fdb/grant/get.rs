@@ -84,10 +84,10 @@ impl Index {
 				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
 				Ok(crate::fdb::grant::GrantEntry {
 					explicit: value.explicit,
-					temporary: value.temporary,
 					materialized: value.materialized,
 					permission,
 					principal,
+					temporary: value.temporary,
 				})
 			})
 			.collect()

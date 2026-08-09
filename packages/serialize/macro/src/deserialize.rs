@@ -64,7 +64,8 @@ impl Struct<'_> {
 			};
 
 			if let Some(deserialize_with) = field.deserialize_with.as_ref() {
-				let deserialize_with = quote::format_ident!("{deserialize_with}");
+				let deserialize_with: syn::Path = syn::parse_str(deserialize_with)
+					.expect("invalid deserialize_with function path");
 				quote! {
 					let field_value = #deserialize_with(deserializer)?;
 					Ok(#struct_construction)
@@ -144,7 +145,8 @@ impl Struct<'_> {
 				.iter()
 				.map(|field| {
 					if let Some(deserialize_with) = field.deserialize_with.as_ref() {
-						let deserialize_with = quote::format_ident!("{deserialize_with}");
+						let deserialize_with: syn::Path = syn::parse_str(deserialize_with)
+							.expect("invalid deserialize_with function path");
 						quote! {
 							#deserialize_with(deserializer)?
 						}

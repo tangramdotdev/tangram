@@ -14,6 +14,7 @@ pub mod kind;
 pub mod serialize;
 pub mod serializer;
 pub mod value;
+pub mod with;
 
 pub fn to_writer<T>(buffer: &mut Vec<u8>, value: &T) -> Result<()>
 where
