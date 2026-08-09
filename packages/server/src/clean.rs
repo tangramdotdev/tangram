@@ -77,9 +77,17 @@ impl Session {
 		progress: &crate::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {
 		// Clean the temporary directory.
-		tangram_util::fs::remove(self.server.temp_path())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to remove the temporary directory"))?;
+		let result = tangram_util::fs::remove(self.server.temp_path()).await;
+		match result {
+			Ok(()) => {},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to remove the temporary directory"
+				));
+			},
+		}
 		tokio::fs::create_dir_all(self.server.temp_path())
 			.await
 			.map_err(|error| {
