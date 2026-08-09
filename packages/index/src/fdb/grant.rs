@@ -26,24 +26,16 @@ pub(crate) enum GrantSource {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[allow(clippy::option_option)]
 pub(crate) struct GrantValue {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
 	pub explicit: bool,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub materialized: Option<MaterializedGrant>,
-
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub temporary: Option<i64>,
-}
 
-/// A materialized grant. Wrapping the expiration in a struct preserves a non-expiring grant through serialization, unlike `Option<Option<i64>>`.
-#[derive(
-	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
-)]
-pub(crate) struct MaterializedGrant {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub expires_at: Option<i64>,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub materialized: Option<Option<i64>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,7 +65,7 @@ impl GrantValue {
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
-		!self.explicit && self.materialized.is_none() && self.temporary.is_none()
+		!self.explicit && self.temporary.is_none() && self.materialized.is_none()
 	}
 
 	pub(crate) fn serialize(&self) -> tangram_client::Result<Vec<u8>> {
@@ -86,7 +78,7 @@ impl GrantValue {
 		match source {
 			GrantSource::Explicit => self.explicit.then_some(None),
 			GrantSource::Temporary => self.temporary.map(Some),
-			GrantSource::Materialized => self.materialized.map(|grant| grant.expires_at),
+			GrantSource::Materialized => self.materialized,
 		}
 	}
 
@@ -122,11 +114,10 @@ impl GrantValue {
 				}
 			},
 			GrantSource::Materialized => {
-				let materialized = Some(MaterializedGrant { expires_at });
-				if self.materialized == materialized {
+				if self.materialized == Some(expires_at) {
 					false
 				} else {
-					self.materialized = materialized;
+					self.materialized = Some(expires_at);
 					true
 				}
 			},
@@ -152,7 +143,7 @@ impl GrantValue {
 				}
 			},
 			GrantSource::Materialized => {
-				if self.materialized == Some(MaterializedGrant { expires_at }) {
+				if self.materialized == Some(expires_at) {
 					self.materialized = None;
 					true
 				} else {

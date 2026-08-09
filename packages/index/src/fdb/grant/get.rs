@@ -85,7 +85,7 @@ impl Index {
 				Ok(crate::fdb::grant::GrantEntry {
 					explicit: value.explicit,
 					temporary: value.temporary,
-					materialized: value.materialized.map(|grant| grant.expires_at),
+					materialized: value.materialized,
 					permission,
 					principal,
 				})
