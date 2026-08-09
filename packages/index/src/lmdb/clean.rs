@@ -599,6 +599,9 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
+		let resource = id.clone().into();
+		Self::delete_materialized_grants_for_resource(db, subspace, transaction, &resource)?;
+
 		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let cache_entry = db
@@ -676,6 +679,9 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
+		let resource = id.clone().into();
+		Self::delete_materialized_grants_for_resource(db, subspace, transaction, &resource)?;
+
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let sandbox = db
@@ -807,6 +813,65 @@ impl Index {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
 		Self::delete_sandboxes_with_transaction(db, subspace, transaction, std::slice::from_ref(id))
+	}
+
+	fn delete_materialized_grants_for_resource(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<()> {
+		// Collect the materialized grants.
+		let resource_bytes = resource.to_bytes();
+		let prefix = &(
+			Kind::ResourceGrant.to_i32().unwrap(),
+			resource_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(&*transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate the resource grant keys"))?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key, value) = result
+				.map_err(|error| tg::error!(!error, "failed to read the resource grant key"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+				creator,
+				permission,
+				principal,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("expected a resource grant key"));
+			};
+			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			let Some(expires_at) =
+				value.source_expires_at(crate::lmdb::grant::GrantSource::Materialized)
+			else {
+				continue;
+			};
+			entries.push((creator, expires_at, permission, principal));
+		}
+
+		// Delete the materialized grants.
+		for (creator, expires_at, permission, principal) in entries {
+			Self::delete_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					creator: creator.as_ref(),
+					expires_at,
+					permission,
+					principal: &principal,
+					resource,
+				},
+				crate::lmdb::grant::GrantSource::Materialized,
+			)?;
+		}
+
+		Ok(())
 	}
 
 	fn decrement_cache_entry_reference_count(

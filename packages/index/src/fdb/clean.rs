@@ -718,6 +718,10 @@ impl Index {
 		id: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
+		let resource = id.clone().into();
+		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
+			.await?;
+
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let cache_entry = txn
@@ -802,6 +806,10 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
+		let resource = id.clone().into();
+		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
+			.await?;
+
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let sandbox = txn
@@ -932,6 +940,74 @@ impl Index {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
 		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id))
+	}
+
+	async fn delete_materialized_grants_for_resource(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+		partition_total: u64,
+	) -> tg::Result<()> {
+		// Collect the materialized grants.
+		let resource_bytes = resource.to_bytes();
+		let prefix = (
+			Kind::ResourceGrant.to_i32().unwrap(),
+			resource_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let values = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the resource grant range"))?;
+		let entries = values
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())
+					.map_err(|error| tg::error!(!error, "failed to unpack the key"))?;
+				let crate::fdb::Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+					creator,
+					permission,
+					principal,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("expected a resource grant key"));
+				};
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let entry = value
+					.source_expires_at(crate::fdb::grant::GrantSource::Materialized)
+					.map(|expires_at| (creator, expires_at, permission, principal));
+				Ok(entry)
+			})
+			.collect::<tg::Result<Vec<_>>>()?
+			.into_iter()
+			.flatten()
+			.collect::<Vec<_>>();
+
+		// Delete the materialized grants.
+		for (creator, expires_at, permission, principal) in entries {
+			Self::delete_grant_index_entry(
+				txn,
+				subspace,
+				&crate::fdb::grant::GrantIndexEntry {
+					creator: creator.as_ref(),
+					expires_at,
+					permission,
+					principal: &principal,
+					resource,
+				},
+				crate::fdb::grant::GrantSource::Materialized,
+				partition_total,
+			)
+			.await?;
+		}
+
+		Ok(())
 	}
 
 	async fn decrement_cache_entry_reference_count(
