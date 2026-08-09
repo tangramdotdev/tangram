@@ -62,6 +62,7 @@ pub struct Options {
 pub struct AuthorizeConfig {
 	pub concurrency: usize,
 	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
+	pub process_subtree: crate::authorize::ProcessSubtreeConfig,
 }
 
 impl Index {
@@ -81,6 +82,7 @@ impl Index {
 		let config = AuthorizeConfig {
 			concurrency: options.authorize.concurrency,
 			object_subtree: options.authorize.object_subtree,
+			process_subtree: options.authorize.process_subtree,
 		};
 
 		let metrics = Metrics::new();

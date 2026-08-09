@@ -10,6 +10,7 @@ fn new_index() -> (tempfile::TempDir, Index) {
 	let index = Index::new(&Config {
 		authorize: super::AuthorizeConfig {
 			object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
+			process_subtree: crate::authorize::ProcessSubtreeConfig::default(),
 		},
 		map_size: 1 << 30,
 		max_process_depth: None,

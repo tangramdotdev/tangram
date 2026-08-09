@@ -545,6 +545,9 @@ pub struct FdbIndexAuthorize {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub object_subtree: Option<IndexAuthorizeObjectSubtree>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_subtree: Option<IndexAuthorizeProcessSubtree>,
 }
 
 #[serde_as]
@@ -553,6 +556,9 @@ pub struct FdbIndexAuthorize {
 pub struct LmdbIndexAuthorize {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub object_subtree: Option<IndexAuthorizeObjectSubtree>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_subtree: Option<IndexAuthorizeProcessSubtree>,
 }
 
 #[serde_as]
@@ -564,6 +570,17 @@ pub struct IndexAuthorizeObjectSubtree {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_objects: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexAuthorizeProcessSubtree {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_processes: Option<usize>,
 }
 
 #[serde_as]
@@ -2305,6 +2322,9 @@ fn resolve_fdb_index_authorize(source: FdbIndexAuthorize) -> server::FdbIndexAut
 	if let Some(source) = source.object_subtree {
 		target.object_subtree = resolve_index_authorize_object_subtree(source);
 	}
+	if let Some(source) = source.process_subtree {
+		target.process_subtree = resolve_index_authorize_process_subtree(source);
+	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
 	}
@@ -2339,6 +2359,9 @@ fn resolve_lmdb_index_authorize(source: LmdbIndexAuthorize) -> server::LmdbIndex
 	if let Some(source) = source.object_subtree {
 		target.object_subtree = resolve_index_authorize_object_subtree(source);
 	}
+	if let Some(source) = source.process_subtree {
+		target.process_subtree = resolve_index_authorize_process_subtree(source);
+	}
 	target
 }
 
@@ -2351,6 +2374,19 @@ fn resolve_index_authorize_object_subtree(
 	}
 	if let Some(value) = source.max_objects {
 		target.max_objects = value;
+	}
+	target
+}
+
+fn resolve_index_authorize_process_subtree(
+	source: IndexAuthorizeProcessSubtree,
+) -> server::IndexAuthorizeProcessSubtree {
+	let mut target = server::IndexAuthorizeProcessSubtree::default();
+	if let Some(value) = source.max_depth {
+		target.max_depth = value;
+	}
+	if let Some(value) = source.max_processes {
+		target.max_processes = value;
 	}
 	target
 }

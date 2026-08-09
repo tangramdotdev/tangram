@@ -51,6 +51,7 @@ pub struct Config {
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
 	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
+	pub process_subtree: crate::authorize::ProcessSubtreeConfig,
 }
 
 pub struct Index {

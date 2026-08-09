@@ -18,7 +18,9 @@ struct Cache {
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
 	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
 	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
+	process_children: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_commands: HashMap<tg::process::Id, Option<tg::object::Id>>,
+	process_objects: HashMap<tg::process::Id, Vec<(tg::object::Id, crate::process::object::Kind)>>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<tg::Id, Vec<(tg::grant::Principal, tg::grant::Permission)>>,
@@ -40,7 +42,7 @@ struct AuthorizationNode {
 
 struct SubtreeSearchBudget {
 	max_depth: usize,
-	remaining_objects: usize,
+	remaining: usize,
 }
 
 struct AuthorizationContext<'a, 'txn> {
@@ -278,21 +280,48 @@ impl Index {
 		if Self::authorize_permission_ordinary_with_transaction(context, resource, permission)? {
 			return Ok(true);
 		}
-		if permission
-			!= tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree)
-		{
-			return Ok(false);
+		match permission {
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree) => {
+				let mut budget = SubtreeSearchBudget {
+					max_depth: context.authorize.object_subtree.max_depth,
+					remaining: context.authorize.object_subtree.max_objects,
+				};
+				Ok(Self::authorize_with_object_subtree_search_with_transaction(
+					context,
+					resource,
+					&mut budget,
+				)?
+				.unwrap_or(false))
+			},
+			tg::grant::Permission::Process(
+				permission @ (tg::grant::permission::process::Permission::NodeCommand
+				| tg::grant::permission::process::Permission::NodeError
+				| tg::grant::permission::process::Permission::NodeLog
+				| tg::grant::permission::process::Permission::NodeOutput),
+			) => Self::authorize_process_node_with_transaction(context, resource, permission),
+			tg::grant::Permission::Process(
+				permission @ (tg::grant::permission::process::Permission::Subtree
+				| tg::grant::permission::process::Permission::SubtreeCommand
+				| tg::grant::permission::process::Permission::SubtreeError
+				| tg::grant::permission::process::Permission::SubtreeLog
+				| tg::grant::permission::process::Permission::SubtreeOutput),
+			) => {
+				let mut budget = SubtreeSearchBudget {
+					max_depth: context.authorize.process_subtree.max_depth,
+					remaining: context.authorize.process_subtree.max_processes,
+				};
+				Ok(
+					Self::authorize_with_process_subtree_search_with_transaction(
+						context,
+						resource,
+						permission,
+						&mut budget,
+					)?
+					.unwrap_or(false),
+				)
+			},
+			_ => Ok(false),
 		}
-		let mut object_subtree_budget = SubtreeSearchBudget {
-			max_depth: context.authorize.object_subtree.max_depth,
-			remaining_objects: context.authorize.object_subtree.max_objects,
-		};
-		Ok(Self::authorize_with_object_subtree_search_with_transaction(
-			context,
-			resource,
-			&mut object_subtree_budget,
-		)?
-		.unwrap_or(false))
 	}
 
 	fn authorize_permission_ordinary_with_transaction(
@@ -497,10 +526,10 @@ impl Index {
 		let mut visited = HashSet::from([root.clone()]);
 		let mut queue = VecDeque::from([(root, 0)]);
 		while let Some((object, depth)) = queue.pop_front() {
-			if budget.remaining_objects == 0 {
+			if budget.remaining == 0 {
 				return Ok(None);
 			}
-			budget.remaining_objects -= 1;
+			budget.remaining -= 1;
 
 			let resource = tg::Id::from(object.clone());
 			if Self::authorize_permission_ordinary_with_transaction(context, &resource, subtree)? {
@@ -514,7 +543,7 @@ impl Index {
 				visited.len().saturating_add(1)
 			} else {
 				budget
-					.remaining_objects
+					.remaining
 					.saturating_add(visited.len())
 					.saturating_add(1)
 			};
@@ -534,12 +563,163 @@ impl Index {
 					queue.push_back((child, depth + 1));
 				}
 			}
-			if queue.len() > budget.remaining_objects {
+			if queue.len() > budget.remaining {
 				return Ok(None);
 			}
 		}
 
 		Ok(Some(true))
+	}
+
+	fn authorize_with_process_subtree_search_with_transaction(
+		context: &mut AuthorizationContext<'_, '_>,
+		resource: &tg::Id,
+		permission: tg::grant::permission::process::Permission,
+		budget: &mut SubtreeSearchBudget,
+	) -> tg::Result<Option<bool>> {
+		let node_permission = match permission {
+			tg::grant::permission::process::Permission::Subtree => {
+				tg::grant::permission::process::Permission::Node
+			},
+			tg::grant::permission::process::Permission::SubtreeCommand => {
+				tg::grant::permission::process::Permission::NodeCommand
+			},
+			tg::grant::permission::process::Permission::SubtreeError => {
+				tg::grant::permission::process::Permission::NodeError
+			},
+			tg::grant::permission::process::Permission::SubtreeLog => {
+				tg::grant::permission::process::Permission::NodeLog
+			},
+			tg::grant::permission::process::Permission::SubtreeOutput => {
+				tg::grant::permission::process::Permission::NodeOutput
+			},
+			_ => unreachable!(),
+		};
+		let subtree = tg::grant::Permission::Process(permission);
+		let root = tg::process::Id::try_from(resource.clone())?;
+		let mut visited = HashSet::from([root.clone()]);
+		let mut queue = VecDeque::from([(root, 0)]);
+		while let Some((process, depth)) = queue.pop_front() {
+			if budget.remaining == 0 {
+				return Ok(None);
+			}
+			budget.remaining -= 1;
+
+			let resource = tg::Id::from(process.clone());
+			if Self::authorize_permission_ordinary_with_transaction(context, &resource, subtree)? {
+				continue;
+			}
+			if !Self::authorize_process_node_with_transaction(context, &resource, node_permission)?
+			{
+				return Ok(Some(false));
+			}
+
+			let limit = if depth == budget.max_depth {
+				visited.len().saturating_add(1)
+			} else {
+				budget
+					.remaining
+					.saturating_add(visited.len())
+					.saturating_add(1)
+			};
+			let children = Self::get_cached_process_children_limited_with_transaction(
+				context.db,
+				context.subspace,
+				context.transaction,
+				&process,
+				limit,
+				context.cache,
+			)?;
+			for child in children {
+				if visited.insert(child.clone()) {
+					if depth == budget.max_depth {
+						return Ok(None);
+					}
+					queue.push_back((child, depth + 1));
+				}
+			}
+			if queue.len() > budget.remaining {
+				return Ok(None);
+			}
+		}
+
+		Ok(Some(true))
+	}
+
+	fn authorize_process_node_with_transaction(
+		context: &mut AuthorizationContext<'_, '_>,
+		resource: &tg::Id,
+		permission: tg::grant::permission::process::Permission,
+	) -> tg::Result<bool> {
+		let process_permission = tg::grant::Permission::Process(permission);
+		if Self::authorize_permission_ordinary_with_transaction(
+			context,
+			resource,
+			process_permission,
+		)? {
+			return Ok(true);
+		}
+		let kind = match permission {
+			tg::grant::permission::process::Permission::NodeCommand => {
+				crate::process::object::Kind::Command
+			},
+			tg::grant::permission::process::Permission::NodeError => {
+				crate::process::object::Kind::Error
+			},
+			tg::grant::permission::process::Permission::NodeLog => {
+				crate::process::object::Kind::Log
+			},
+			tg::grant::permission::process::Permission::NodeOutput => {
+				crate::process::object::Kind::Output
+			},
+			_ => return Ok(false),
+		};
+		let process = tg::process::Id::try_from(resource.clone())?;
+		let objects = Self::get_cached_process_objects_with_transaction(
+			context.db,
+			context.subspace,
+			context.transaction,
+			&process,
+			context.cache,
+		)?;
+		let objects = objects
+			.into_iter()
+			.filter_map(|(object, object_kind)| {
+				let matches = match kind {
+					crate::process::object::Kind::Command => object_kind.is_command(),
+					crate::process::object::Kind::Error => object_kind.is_error(),
+					crate::process::object::Kind::Log => object_kind.is_log(),
+					crate::process::object::Kind::Output => object_kind.is_output(),
+				};
+				matches.then_some(object)
+			})
+			.collect::<Vec<_>>();
+		if objects.is_empty() {
+			return Ok(false);
+		}
+		let subtree =
+			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		for object in objects {
+			let resource = tg::Id::from(object);
+			if Self::authorize_permission_ordinary_with_transaction(context, &resource, subtree)? {
+				continue;
+			}
+			let mut budget = SubtreeSearchBudget {
+				max_depth: context.authorize.object_subtree.max_depth,
+				remaining: context.authorize.object_subtree.max_objects,
+			};
+			if !Self::authorize_with_object_subtree_search_with_transaction(
+				context,
+				&resource,
+				&mut budget,
+			)?
+			.unwrap_or(false)
+			{
+				return Ok(false);
+			}
+		}
+
+		Ok(true)
 	}
 
 	fn get_authorization_dependencies_with_transaction(
@@ -807,6 +987,89 @@ impl Index {
 				.insert(object.clone(), children.clone());
 		}
 		Ok(children)
+	}
+
+	fn get_cached_process_children_limited_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		limit: usize,
+		cache: &mut Cache,
+	) -> tg::Result<Vec<tg::process::Id>> {
+		if let Some(children) = cache.process_children.get(process) {
+			return Ok(children.iter().take(limit).cloned().collect());
+		}
+		let process_bytes = process.to_bytes();
+		let prefix = &(
+			crate::lmdb::Kind::ProcessChild.to_i32().unwrap(),
+			process_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let mut children = Vec::new();
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
+		for entry in iter.take(limit) {
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read process child entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessChild {
+				child, ..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			children.push(child);
+		}
+		if children.len() < limit {
+			cache
+				.process_children
+				.insert(process.clone(), children.clone());
+		}
+
+		Ok(children)
+	}
+
+	fn get_cached_process_objects_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+		cache: &mut Cache,
+	) -> tg::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
+		if let Some(objects) = cache.process_objects.get(process) {
+			return Ok(objects.clone());
+		}
+		let process_bytes = process.to_bytes();
+		let prefix = &(
+			crate::lmdb::Kind::ProcessObject.to_i32().unwrap(),
+			process_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, prefix);
+		let mut objects = Vec::new();
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get process objects"))?;
+		for entry in iter {
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to read process object entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessObject {
+				kind,
+				object,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			objects.push((object, kind));
+		}
+		cache
+			.process_objects
+			.insert(process.clone(), objects.clone());
+
+		Ok(objects)
 	}
 
 	fn principal_contains_requester_with_transaction(

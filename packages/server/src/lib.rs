@@ -516,6 +516,10 @@ impl Server {
 							max_depth: options.authorize.object_subtree.max_depth,
 							max_objects: options.authorize.object_subtree.max_objects,
 						},
+						process_subtree: tangram_index::authorize::ProcessSubtreeConfig {
+							max_depth: options.authorize.process_subtree.max_depth,
+							max_processes: options.authorize.process_subtree.max_processes,
+						},
 					};
 					let options = tangram_index::fdb::Options {
 						authorize,
@@ -549,6 +553,10 @@ impl Server {
 						object_subtree: tangram_index::authorize::ObjectSubtreeConfig {
 							max_depth: options.authorize.object_subtree.max_depth,
 							max_objects: options.authorize.object_subtree.max_objects,
+						},
+						process_subtree: tangram_index::authorize::ProcessSubtreeConfig {
+							max_depth: options.authorize.process_subtree.max_depth,
+							max_processes: options.authorize.process_subtree.max_processes,
 						},
 					};
 					let path = directory.join(&options.path);

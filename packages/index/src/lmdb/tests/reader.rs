@@ -67,6 +67,7 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 			Index::reader_task(&reader::Arg {
 				authorize: super::super::AuthorizeConfig {
 					object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
+					process_subtree: crate::authorize::ProcessSubtreeConfig::default(),
 				},
 				db,
 				env,

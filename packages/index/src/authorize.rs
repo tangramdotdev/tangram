@@ -18,11 +18,26 @@ pub struct ObjectSubtreeConfig {
 	pub max_objects: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ProcessSubtreeConfig {
+	pub max_depth: usize,
+	pub max_processes: usize,
+}
+
 impl Default for ObjectSubtreeConfig {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
 			max_objects: 1024,
+		}
+	}
+}
+
+impl Default for ProcessSubtreeConfig {
+	fn default() -> Self {
+		Self {
+			max_depth: 16,
+			max_processes: 1024,
 		}
 	}
 }

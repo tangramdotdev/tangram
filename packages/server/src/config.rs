@@ -361,11 +361,15 @@ pub struct FdbIndexAuthorize {
 	pub concurrency: usize,
 
 	pub object_subtree: IndexAuthorizeObjectSubtree,
+
+	pub process_subtree: IndexAuthorizeProcessSubtree,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct LmdbIndexAuthorize {
 	pub object_subtree: IndexAuthorizeObjectSubtree,
+
+	pub process_subtree: IndexAuthorizeProcessSubtree,
 }
 
 #[derive(Clone, Debug)]
@@ -373,6 +377,13 @@ pub struct IndexAuthorizeObjectSubtree {
 	pub max_depth: usize,
 
 	pub max_objects: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexAuthorizeProcessSubtree {
+	pub max_depth: usize,
+
+	pub max_processes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1174,11 +1185,21 @@ impl Default for IndexAuthorizeObjectSubtree {
 	}
 }
 
+impl Default for IndexAuthorizeProcessSubtree {
+	fn default() -> Self {
+		Self {
+			max_depth: 16,
+			max_processes: 1024,
+		}
+	}
+}
+
 impl Default for FdbIndexAuthorize {
 	fn default() -> Self {
 		Self {
 			concurrency: 64,
 			object_subtree: IndexAuthorizeObjectSubtree::default(),
+			process_subtree: IndexAuthorizeProcessSubtree::default(),
 		}
 	}
 }
