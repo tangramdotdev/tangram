@@ -63,7 +63,7 @@ type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 #[derive(Clone, Copy)]
 enum WatchObservation {
 	Compatible { id: crate::watch::Id, version: u64 },
-	Incompatible { id: crate::watch::Id },
+	Incompatible { id: crate::watch::Id, version: u64 },
 	Vacant,
 }
 
@@ -380,12 +380,13 @@ impl Session {
 			None
 		};
 		let (mut graph, lock, mut solutions, watch_observation) = if let Some(watch) = watch {
-			if watch.value().options() == &arg.options {
-				let id = watch.value().id();
-				let snapshot = watch.value().get();
-				drop(watch);
-				match snapshot.await {
-					Ok(snapshot) => {
+			let compatible = watch.value().options() == &arg.options;
+			let id = watch.value().id();
+			let snapshot = watch.value().get();
+			drop(watch);
+			match snapshot.await {
+				Ok(snapshot) => {
+					if compatible {
 						let graph = snapshot.graph;
 						let lock = snapshot.lock;
 						let solutions = snapshot.solutions;
@@ -394,30 +395,32 @@ impl Session {
 							version: snapshot.version,
 						};
 						(graph, lock, solutions, watch_observation)
-					},
-					Err(error) => {
-						let removed = self
-							.server
-							.watches
-							.remove_if(&watch_key, |_, watch| watch.id() == id)
-							.is_some();
-						if !removed {
-							return Err(tg::error!(!error, "the watch changed during indexing"));
-						}
+					} else {
 						let graph = Graph::default();
 						let lock = None;
 						let solutions = Solutions::default();
-						let watch_observation = WatchObservation::Vacant;
+						let watch_observation = WatchObservation::Incompatible {
+							id: snapshot.id,
+							version: snapshot.version,
+						};
 						(graph, lock, solutions, watch_observation)
-					},
-				}
-			} else {
-				let graph = Graph::default();
-				let id = watch.value().id();
-				let lock = None;
-				let solutions = Solutions::default();
-				let watch_observation = WatchObservation::Incompatible { id };
-				(graph, lock, solutions, watch_observation)
+					}
+				},
+				Err(error) => {
+					let removed = self
+						.server
+						.watches
+						.remove_if(&watch_key, |_, watch| watch.id() == id)
+						.is_some();
+					if !removed {
+						return Err(tg::error!(!error, "the watch changed during indexing"));
+					}
+					let graph = Graph::default();
+					let lock = None;
+					let solutions = Solutions::default();
+					let watch_observation = WatchObservation::Vacant;
+					(graph, lock, solutions, watch_observation)
+				},
 			}
 		} else {
 			let graph = Graph::default();
@@ -608,6 +611,22 @@ impl Session {
 			.as_ref()
 			.is_some_and(|_| arg.options.watch)
 		{
+			let updates = arg
+				.updates
+				.iter()
+				.map(ToString::to_string)
+				.collect::<Vec<_>>()
+				.join(",");
+			crate::checkpoint!(
+				self.server,
+				"checkin.watch.publish",
+				nodes = graph.nodes.len(),
+				path = %root.display(),
+				solve = arg.options.solve,
+				updates,
+			)
+			.await;
+
 			// Create or update the watcher.
 			let entry = self.server.watches.entry(watch_key.clone());
 			match (entry, watch_observation) {
@@ -634,9 +653,10 @@ impl Session {
 						return Err(tg::error!("files were modified during checkin"));
 					}
 				},
-				(dashmap::Entry::Occupied(mut entry), WatchObservation::Incompatible { id })
-					if entry.get().id() == id =>
-				{
+				(
+					dashmap::Entry::Occupied(mut entry),
+					WatchObservation::Incompatible { id, version },
+				) if entry.get().id() == id => {
 					// Replace the incompatible watcher.
 					let new_arg = crate::watch::NewArg {
 						graph: graph.clone(),
@@ -646,9 +666,13 @@ impl Session {
 						solutions,
 						spawn_index_task: || self.checkin_index_task(index_arg, &arg, root),
 					};
-					let watch = Watch::new(&self.server, &watch_key, new_arg)
-						.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
-					entry.insert(watch);
+					let success = entry.get_mut().replace_if_version(version, || {
+						Watch::new(&self.server, &watch_key, new_arg)
+							.map_err(|error| tg::error!(!error, "failed to create the watch"))
+					})?;
+					if !success {
+						return Err(tg::error!("files were modified during checkin"));
+					}
 				},
 				(dashmap::Entry::Vacant(entry), WatchObservation::Vacant) => {
 					let new_arg = crate::watch::NewArg {

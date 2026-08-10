@@ -250,6 +250,22 @@ impl Watch {
 		&self.options
 	}
 
+	pub fn replace_if_version<F>(&mut self, version: u64, replace: F) -> tg::Result<bool>
+	where
+		F: FnOnce() -> tg::Result<Self>,
+	{
+		let state = self.state.clone();
+		let state = state.lock().unwrap();
+		if state.version != version {
+			return Ok(false);
+		}
+		let watch = replace()?;
+		*self = watch;
+		drop(state);
+
+		Ok(true)
+	}
+
 	pub fn get(&self) -> impl Future<Output = tg::Result<Snapshot>> + Send + use<> {
 		let id = self.id;
 		let state = self.state.clone();
