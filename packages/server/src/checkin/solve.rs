@@ -18,9 +18,14 @@ mod prefetch;
 
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
-	checkpoints: Vec<Checkpoint>,
+	checkpoints: Vec<SavedCheckpoint>,
 	prefetch: Prefetch,
 	root: PathBuf,
+}
+
+struct SavedCheckpoint {
+	checkpoint: Checkpoint,
+	key: tg::specifier::Pattern,
 }
 
 #[derive(Clone)]
@@ -90,9 +95,11 @@ pub struct Solution {
 	pub referrers: Vec<Referrer>,
 }
 
+#[derive(derive_more::IsVariant)]
 enum TagInnerOutput {
-	Solved(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
 	Conflicted,
+	Reused(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
+	Selected(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
 	Unsolved,
 }
 
@@ -381,12 +388,19 @@ impl Session {
 			index: item.referent.item,
 			pattern: Some(tag),
 		};
+		let selected = output.is_selected();
 
 		// Handle the output.
 		match output {
-			TagInnerOutput::Solved(referent) => {
+			TagInnerOutput::Reused(referent) | TagInnerOutput::Selected(referent) => {
 				// Checkpoint.
-				state.checkpoints.push(checkpoint.clone());
+				if selected {
+					let saved_checkpoint = SavedCheckpoint {
+						checkpoint: checkpoint.clone(),
+						key: key.clone(),
+					};
+					state.checkpoints.push(saved_checkpoint);
+				}
 
 				// Add the edge.
 				checkpoint
@@ -483,7 +497,7 @@ impl Session {
 			if !pattern.matches_specifier_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
-			return Ok(TagInnerOutput::Solved(referent.clone()));
+			return Ok(TagInnerOutput::Reused(referent.clone()));
 		}
 
 		// Get the lock candidate if necessary.
@@ -559,7 +573,7 @@ impl Session {
 		// Add the solution.
 		checkpoint.solutions.insert(key.clone(), solution);
 
-		Ok(TagInnerOutput::Solved(referent))
+		Ok(TagInnerOutput::Selected(referent))
 	}
 
 	fn checkin_solve_get_lock_candidate(
@@ -1265,13 +1279,13 @@ impl Session {
 		let position = state
 			.checkpoints
 			.iter()
-			.position(|checkpoint| checkpoint.solutions.contains_key(key))?;
-		let candidates = state.checkpoints[position].candidates.as_ref()?;
+			.rposition(|checkpoint| &checkpoint.key == key)?;
+		let candidates = state.checkpoints[position].checkpoint.candidates.as_ref()?;
 		if candidates.is_empty() {
 			return None;
 		}
 		state.checkpoints.truncate(position + 1);
-		let mut checkpoint = state.checkpoints.pop()?;
+		let mut checkpoint = state.checkpoints.pop()?.checkpoint;
 		checkpoint.solutions.remove(key);
 		Some(checkpoint)
 	}
@@ -1405,10 +1419,6 @@ impl Solutions {
 
 	pub fn get(&self, key: &tg::specifier::Pattern) -> Option<&Solution> {
 		self.map.get(key)
-	}
-
-	pub fn contains_key(&self, key: &tg::specifier::Pattern) -> bool {
-		self.map.contains_key(key)
 	}
 
 	pub fn insert(&mut self, key: tg::specifier::Pattern, solution: Solution) {
