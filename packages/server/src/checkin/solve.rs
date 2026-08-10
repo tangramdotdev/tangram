@@ -1274,7 +1274,7 @@ impl Session {
 		{
 			return None;
 		}
-		state.checkpoints.truncate(position);
+		state.checkpoints.truncate(position + 1);
 		let mut checkpoint = state.checkpoints.pop()?;
 		checkpoint.solutions.remove(key);
 		Some(checkpoint)
