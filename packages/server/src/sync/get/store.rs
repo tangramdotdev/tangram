@@ -189,7 +189,7 @@ impl Session {
 			.sum();
 		state.progress.increment_transferred(0, objects, bytes);
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
 		}
@@ -291,7 +291,7 @@ impl Session {
 		let processes = count.to_u64().unwrap();
 		state.progress.increment_transferred(processes, 0, 0);
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
 		}

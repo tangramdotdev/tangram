@@ -69,7 +69,7 @@ impl Session {
 					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Close the queue if necessary.
-					if state.graph.lock().unwrap().end_local(&state.arg) {
+					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
 
@@ -144,7 +144,7 @@ impl Session {
 					state.graph.lock().unwrap().update_process_local(arg);
 
 					// Check if all roots are stored and close the queue if so.
-					if state.graph.lock().unwrap().end_local(&state.arg) {
+					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
 
@@ -221,7 +221,7 @@ impl Session {
 							.lock()
 							.unwrap()
 							.resolve_local_selector_missing(&specifier);
-						if state.graph.lock().unwrap().end_local(&state.arg) {
+						if state.graph.lock().unwrap().end_local() {
 							state.queue.close();
 						}
 					},
@@ -328,7 +328,7 @@ impl Session {
 				.await?;
 		}
 		state.progress.increment_transferred_item(&id);
-		if state.graph.lock().unwrap().end_local(&state.arg) {
+		if state.graph.lock().unwrap().end_local() {
 			state.queue.close();
 		}
 
@@ -374,7 +374,7 @@ impl Session {
 						if requested {
 							return Ok(ItemAction::Store { replace: true });
 						}
-						if state.graph.lock().unwrap().end_local(&state.arg) {
+						if state.graph.lock().unwrap().end_local() {
 							state.queue.close();
 						}
 						Ok(ItemAction::Ignore)

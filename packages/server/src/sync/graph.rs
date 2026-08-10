@@ -9,6 +9,7 @@ use {
 
 pub struct Graph {
 	pub get_end_received: bool,
+	local_pending_roots: usize,
 	local_replacements: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	local_selector_ids: HashMap<tg::Specifier, Option<tg::Id>, fnv::FnvBuildHasher>,
@@ -19,6 +20,7 @@ pub struct Graph {
 	process_errors: bool,
 	process_logs: bool,
 	process_outputs: bool,
+	remote_pending_roots: usize,
 	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
 }
@@ -56,6 +58,7 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ItemNode {
 	pub children: Option<Vec<usize>>,
+	local_end: bool,
 	pub local_message: Option<tg::sync::PutItemMessage>,
 	pub local_requested: bool,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
@@ -72,6 +75,7 @@ pub struct ItemNode {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
+	local_end: bool,
 	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::object::Stored>,
 	pub local_visible: Option<tangram_index::object::Stored>,
@@ -94,6 +98,7 @@ pub struct ObjectNode {
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
 	pub data: Option<tg::process::Data>,
+	local_end: bool,
 	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::process::Stored>,
 	pub local_visible: Option<tangram_index::process::Stored>,
@@ -175,6 +180,7 @@ impl Graph {
 		// Create the graph.
 		let mut graph = Graph {
 			get_end_received: false,
+			local_pending_roots: 0,
 			local_replacements: arg
 				.get
 				.iter()
@@ -184,14 +190,7 @@ impl Graph {
 				})
 				.filter(Self::is_database_item)
 				.collect(),
-			local_roots: arg
-				.get
-				.iter()
-				.filter_map(|item| match &item.item {
-					tg::Selector::Id(id) => Some(id.clone()),
-					tg::Selector::Specifier(_) => None,
-				})
-				.collect(),
+			local_roots: HashSet::default(),
 			local_selector_ids: HashMap::default(),
 			local_selectors: arg
 				.get
@@ -207,9 +206,21 @@ impl Graph {
 			process_errors: arg.process_errors,
 			process_logs: arg.process_logs,
 			process_outputs: arg.process_outputs,
-			remote_roots: arg.put.iter().map(|item| item.item.clone()).collect(),
+			remote_pending_roots: 0,
+			remote_roots: HashSet::default(),
 			remote_selectors: HashMap::default(),
 		};
+
+		// Add the roots.
+		for root in &arg.get {
+			let tg::Selector::Id(id) = &root.item else {
+				continue;
+			};
+			graph.insert_local_root(id.clone(), false);
+		}
+		for root in &arg.put {
+			graph.insert_remote_root(root.item.clone());
+		}
 
 		// Add the root tokens.
 		for root in &arg.get {
@@ -266,7 +277,23 @@ impl Graph {
 		if replace {
 			self.local_replacements.insert(id.clone());
 		}
-		self.local_roots.insert(id)
+		if !self.local_roots.insert(id.clone()) {
+			return false;
+		}
+		let entry = self.nodes.entry(id);
+		let index = entry.index();
+		entry.or_insert_with_key(Node::for_id);
+		let local_end = self.compute_local_end(index);
+		self.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.set_local_end(local_end);
+		if !local_end {
+			self.local_pending_roots += 1;
+		}
+
+		true
 	}
 
 	pub fn insert_local_selector(&mut self, specifier: tg::Specifier) -> bool {
@@ -288,7 +315,10 @@ impl Graph {
 	}
 
 	pub fn insert_remote_root(&mut self, id: tg::Id) {
-		self.remote_roots.insert(id);
+		let remote_end = self.nodes.get(&id).is_some_and(Node::remote_end);
+		if self.remote_roots.insert(id) && !remote_end {
+			self.remote_pending_roots += 1;
+		}
 	}
 
 	pub fn insert_remote_selector(
@@ -393,15 +423,14 @@ impl Graph {
 		if replace && Self::is_database_item(&id) {
 			self.local_replacements.insert(id.clone());
 		}
-		let node = self
-			.nodes
-			.entry(id)
-			.or_insert_with_key(Node::for_id)
-			.unwrap_item_mut();
+		let entry = self.nodes.entry(id);
+		let index = entry.index();
+		let node = entry.or_insert_with_key(Node::for_id).unwrap_item_mut();
 		if node.local_message.is_some() {
 			return Err(tg::error!("received the item more than once"));
 		}
 		node.local_message = Some(message);
+		self.update_local_end(index);
 
 		Ok(())
 	}
@@ -684,7 +713,8 @@ impl Graph {
 			|| visible;
 		node.local_visible = Some(tangram_index::object::Stored { subtree: visible });
 
-		// Propagate the local stored and visible state.
+		// Update the local End state and propagate the local stored and visible state.
+		self.update_local_end(index);
 		let new_stored = self.object_local_stored(index);
 		let new_visible = self.object_local_visible(index);
 		if (!old_stored && new_stored) || (!old_visible && new_visible) {
@@ -699,12 +729,13 @@ impl Graph {
 				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
+					self.update_local_end(parent_index);
 					stack.extend(parents);
 				}
 			}
 		}
 
-		// Update the End state.
+		// Update the remote End state.
 		self.update_remote_end(index);
 	}
 
@@ -938,7 +969,8 @@ impl Graph {
 			node.local_visible = Some(merged_visible);
 		}
 
-		// Propagate the local stored and visible state.
+		// Update the local End state and propagate the local stored and visible state.
+		self.update_local_end(index);
 		let node_new_stored = self
 			.nodes
 			.get_index(index)
@@ -964,6 +996,7 @@ impl Graph {
 				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
+					self.update_local_end(parent_index);
 					stack.extend(parents);
 				}
 			}
@@ -1422,39 +1455,9 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().requested.clone())
 	}
 
-	pub fn end_local(&self, arg: &tg::sync::Arg) -> bool {
-		self.local_selectors.is_empty()
-			&& self.local_roots.iter().all(|root| {
-				let Some(node) = self.nodes.get(root) else {
-					return false;
-				};
-				match node {
-					Node::Group(node)
-					| Node::Organization(node)
-					| Node::Sandbox(node)
-					| Node::Tag(node)
-					| Node::User(node) => node.local_message.is_some(),
-					Node::Object(_) => {
-						self.object_local_visible(self.nodes.get_index_of(root).unwrap())
-					},
-					Node::Process(_) => {
-						let visible =
-							self.process_local_visible(self.nodes.get_index_of(root).unwrap());
-						if arg.process_children {
-							visible.subtree
-								&& (!arg.process_commands || visible.subtree_command)
-								&& (!arg.process_errors || visible.subtree_error)
-								&& (!arg.process_logs || visible.subtree_log)
-								&& (!arg.process_outputs || visible.subtree_output)
-						} else {
-							(!arg.process_commands || visible.node_command)
-								&& (!arg.process_errors || visible.node_error)
-								&& (!arg.process_logs || visible.node_log)
-								&& (!arg.process_outputs || visible.node_output)
-						}
-					},
-				}
-			})
+	#[must_use]
+	pub fn end_local(&self) -> bool {
+		self.local_pending_roots == 0 && self.local_selectors.is_empty()
 	}
 
 	#[must_use]
@@ -1463,11 +1466,7 @@ impl Graph {
 			return false;
 		}
 
-		self.remote_selectors.is_empty()
-			&& self
-				.remote_roots
-				.iter()
-				.all(|root| self.nodes.get(root).is_some_and(Node::remote_end))
+		self.remote_pending_roots == 0 && self.remote_selectors.is_empty()
 	}
 
 	fn get_local_authorization(
@@ -2090,6 +2089,52 @@ impl Graph {
 		children && command && error && log && output
 	}
 
+	fn update_local_end(&mut self, index: usize) {
+		let (id, node) = self.nodes.get_index(index).unwrap();
+		if !self.local_roots.contains(id) {
+			return;
+		}
+		let old_local_end = node.local_end();
+		let local_end = self.compute_local_end(index);
+		if old_local_end == local_end {
+			return;
+		}
+		self.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.set_local_end(local_end);
+		Self::apply_root_end_transition(&mut self.local_pending_roots, local_end);
+	}
+
+	#[must_use]
+	fn compute_local_end(&self, index: usize) -> bool {
+		let (_, node) = self.nodes.get_index(index).unwrap();
+		match node {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => node.local_message.is_some(),
+			Node::Object(_) => self.object_local_visible(index),
+			Node::Process(_) => {
+				let visible = self.process_local_visible(index);
+				if self.process_children {
+					visible.subtree
+						&& (!self.process_commands || visible.subtree_command)
+						&& (!self.process_errors || visible.subtree_error)
+						&& (!self.process_logs || visible.subtree_log)
+						&& (!self.process_outputs || visible.subtree_output)
+				} else {
+					(!self.process_commands || visible.node_command)
+						&& (!self.process_errors || visible.node_error)
+						&& (!self.process_logs || visible.node_log)
+						&& (!self.process_outputs || visible.node_output)
+				}
+			},
+		}
+	}
+
 	fn update_remote_end(&mut self, index: usize) {
 		self.update_remote_ends([index]);
 	}
@@ -2108,18 +2153,26 @@ impl Graph {
 		while let Some(index) = queue.pop_front() {
 			queued.remove(&index);
 			let remote_end = self.compute_remote_end(index);
-			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			let (id, node) = self.nodes.get_index(index).unwrap();
 			if node.remote_end() == remote_end {
 				continue;
 			}
-			node.set_remote_end(remote_end);
-
-			// Update each parent from this edge alone, without rescanning its other children.
+			let remote_root = self.remote_roots.contains(id);
 			let parents = node
 				.parents()
 				.iter()
 				.copied()
 				.collect::<SmallVec<[Parent; 1]>>();
+			self.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.set_remote_end(remote_end);
+			if remote_root {
+				Self::apply_root_end_transition(&mut self.remote_pending_roots, remote_end);
+			}
+
+			// Update each parent from this edge alone, without rescanning its other children.
 			for parent in parents {
 				if self.update_remote_pending(parent, remote_end) {
 					let parent = parent.index();
@@ -2128,6 +2181,14 @@ impl Graph {
 					}
 				}
 			}
+		}
+	}
+
+	fn apply_root_end_transition(pending: &mut usize, end: bool) {
+		if end {
+			*pending = pending.checked_sub(1).unwrap();
+		} else {
+			*pending += 1;
 		}
 	}
 
@@ -2665,6 +2726,31 @@ impl Node {
 				Self::Object(ObjectNode::default())
 			},
 			_ => unreachable!(),
+		}
+	}
+
+	#[must_use]
+	fn local_end(&self) -> bool {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.local_end,
+			Self::Object(node) => node.local_end,
+			Self::Process(node) => node.local_end,
+		}
+	}
+
+	fn set_local_end(&mut self, local_end: bool) {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.local_end = local_end,
+			Self::Object(node) => node.local_end = local_end,
+			Self::Process(node) => node.local_end = local_end,
 		}
 	}
 
