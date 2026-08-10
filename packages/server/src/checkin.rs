@@ -536,7 +536,7 @@ impl Session {
 			// Create or update the watcher.
 			let entry = self.server.watches.entry(watch_key.clone());
 			match entry {
-				dashmap::Entry::Occupied(entry) => {
+				dashmap::Entry::Occupied(entry) if version.is_some() => {
 					// Verify the version.
 					let watch = entry.get();
 
@@ -556,6 +556,20 @@ impl Session {
 					if !success {
 						return Err(tg::error!("files were modified during checkin"));
 					}
+				},
+				dashmap::Entry::Occupied(mut entry) => {
+					// Replace the incompatible watcher.
+					let watch = Watch::new(
+						&self.server,
+						&watch_key,
+						graph.clone(),
+						lock,
+						arg.options.clone(),
+						solutions,
+						next,
+					)
+					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
+					entry.insert(watch);
 				},
 				dashmap::Entry::Vacant(entry) => {
 					let watch = Watch::new(
