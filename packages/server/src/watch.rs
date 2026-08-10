@@ -7,7 +7,7 @@ use {
 		sync::{Arc, Mutex, atomic::Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Task,
+	tangram_futures::task::{Shared, Task},
 };
 
 pub mod delete;
@@ -31,8 +31,18 @@ pub struct Watch {
 	task: Task<()>,
 }
 
+pub struct NewArg<F> {
+	pub graph: crate::checkin::Graph,
+	pub lock: Option<Arc<tg::graph::Data>>,
+	pub next: usize,
+	pub options: tg::checkin::Options,
+	pub solutions: crate::checkin::Solutions,
+	pub spawn_index_task: F,
+}
+
 struct State {
 	graph: crate::checkin::Graph,
+	index_task: Shared<tg::Result<()>>,
 	lock: Option<Arc<tg::graph::Data>>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -74,15 +84,19 @@ impl Id {
 }
 
 impl Watch {
-	pub fn new(
-		server: &Server,
-		key: &Key,
-		graph: crate::checkin::Graph,
-		lock: Option<Arc<tg::graph::Data>>,
-		options: tg::checkin::Options,
-		solutions: crate::checkin::Solutions,
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))] next: usize,
-	) -> tg::Result<Self> {
+	pub fn new<F>(server: &Server, key: &Key, arg: NewArg<F>) -> tg::Result<Self>
+	where
+		F: FnOnce() -> Shared<tg::Result<()>>,
+	{
+		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
+		let NewArg {
+			graph,
+			lock,
+			next,
+			options,
+			solutions,
+			spawn_index_task,
+		} = arg;
 		let id = Id::new(server);
 
 		// Create the watcher.
@@ -108,8 +122,10 @@ impl Watch {
 			.map_err(|error| tg::error!(!error, "failed to create the watcher"))?;
 
 		// Create the state.
+		let index_task = spawn_index_task();
 		let state = State {
 			graph,
+			index_task,
 			lock,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
@@ -234,7 +250,39 @@ impl Watch {
 		&self.options
 	}
 
-	pub fn get(&self) -> Snapshot {
+	pub fn get(&self) -> impl Future<Output = tg::Result<Snapshot>> + Send + use<> {
+		let id = self.id;
+		let state = self.state.clone();
+		async move {
+			loop {
+				let (index_task, version) = {
+					let state = state.lock().unwrap();
+					(state.index_task.clone(), state.version)
+				};
+				let result = index_task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the indexing task panicked"))
+					.and_then(|result| result);
+				let state = state.lock().unwrap();
+				if state.version != version {
+					continue;
+				}
+				result?;
+				let snapshot = Snapshot {
+					graph: state.graph.clone(),
+					id,
+					lock: state.lock.clone(),
+					solutions: state.solutions.clone(),
+					version: state.version,
+				};
+
+				return Ok(snapshot);
+			}
+		}
+	}
+
+	pub fn get_unindexed(&self) -> Snapshot {
 		let state = self.state.lock().unwrap();
 		Snapshot {
 			graph: state.graph.clone(),
@@ -245,7 +293,10 @@ impl Watch {
 		}
 	}
 
-	pub fn update(&self, arg: UpdateArg<'_>) -> bool {
+	pub fn update<F>(&self, arg: UpdateArg<'_>, spawn_index_task: F) -> bool
+	where
+		F: FnOnce() -> Shared<tg::Result<()>>,
+	{
 		let UpdateArg {
 			graph,
 			key,
@@ -262,7 +313,9 @@ impl Watch {
 		}
 
 		// Update the state.
+		let index_task = spawn_index_task();
 		state.graph = graph;
+		state.index_task = index_task;
 		state.lock = lock;
 		state.solutions = solutions;
 		state.version += 1;

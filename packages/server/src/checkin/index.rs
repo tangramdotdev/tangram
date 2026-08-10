@@ -6,10 +6,11 @@ use {
 	num::ToPrimitive as _,
 	std::path::Path,
 	tangram_client::prelude::*,
+	tangram_index::Index as _,
 };
 
 impl Session {
-	pub(super) async fn checkin_index(
+	pub(super) fn checkin_index(
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
@@ -17,7 +18,7 @@ impl Session {
 		index_cache_entry_args: IndexCacheEntryArgs,
 		root: &Path,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> tg::Result<tangram_index::batch::Arg> {
 		// Create put cache entry args.
 		let mut put_index_cache_entry_args = Vec::new();
 		if arg.options.cache_pointers {
@@ -86,7 +87,7 @@ impl Session {
 			}
 		});
 
-		// Index.
+		// Create the index batch.
 		let arg = tangram_index::batch::Arg {
 			items: put_index_cache_entry_args
 				.into_iter()
@@ -99,11 +100,44 @@ impl Session {
 				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
 				.collect(),
 		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 
-		Ok(())
+		Ok(arg)
+	}
+
+	pub(super) fn checkin_index_task(
+		&self,
+		arg: tangram_index::batch::Arg,
+		checkin_arg: &tg::checkin::Arg,
+		root: &Path,
+	) -> tangram_futures::task::Shared<tg::Result<()>> {
+		let updates = checkin_arg
+			.updates
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>()
+			.join(",");
+		self.server.index_tasks.spawn({
+			let root = root.to_owned();
+			let server = self.server.clone();
+			|_| async move {
+				crate::checkpoint!(
+					server,
+					"checkin.index",
+					path = %root.display(),
+					updates,
+				)
+				.await;
+				let result = server
+					.index
+					.batch(arg)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index the checkin"));
+				if let Err(error) = &result {
+					tracing::error!(error = %error.trace(), "failed to index the checkin");
+				}
+
+				result
+			}
+		})
 	}
 }

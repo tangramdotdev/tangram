@@ -80,6 +80,13 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
+		// Validate the arg.
+		if arg.options.watch && !self.server.config.advanced.single_process {
+			return Err(tg::error!(
+				"the watch option is not supported in multi-process mode"
+			));
+		}
+
 		arg.path = self.host_path_for_guest_path(&arg.path)?;
 
 		// Validate and canonicalize the path.
@@ -367,19 +374,43 @@ impl Session {
 		};
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
-		let (mut graph, lock, mut solutions, watch_observation) = if arg.options.watch
-			&& let Some(watch) = self.server.watches.get(&watch_key)
-		{
+		let watch = if arg.options.watch {
+			self.server.watches.get(&watch_key)
+		} else {
+			None
+		};
+		let (mut graph, lock, mut solutions, watch_observation) = if let Some(watch) = watch {
 			if watch.value().options() == &arg.options {
+				let id = watch.value().id();
 				let snapshot = watch.value().get();
-				let graph = snapshot.graph;
-				let lock = snapshot.lock;
-				let solutions = snapshot.solutions;
-				let watch_observation = WatchObservation::Compatible {
-					id: snapshot.id,
-					version: snapshot.version,
-				};
-				(graph, lock, solutions, watch_observation)
+				drop(watch);
+				match snapshot.await {
+					Ok(snapshot) => {
+						let graph = snapshot.graph;
+						let lock = snapshot.lock;
+						let solutions = snapshot.solutions;
+						let watch_observation = WatchObservation::Compatible {
+							id: snapshot.id,
+							version: snapshot.version,
+						};
+						(graph, lock, solutions, watch_observation)
+					},
+					Err(error) => {
+						let removed = self
+							.server
+							.watches
+							.remove_if(&watch_key, |_, watch| watch.id() == id)
+							.is_some();
+						if !removed {
+							return Err(tg::error!(!error, "the watch changed during indexing"));
+						}
+						let graph = Graph::default();
+						let lock = None;
+						let solutions = Solutions::default();
+						let watch_observation = WatchObservation::Vacant;
+						(graph, lock, solutions, watch_observation)
+					},
+				}
 			} else {
 				let graph = Graph::default();
 				let id = watch.value().id();
@@ -559,7 +590,17 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
 
-		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
+		// Create the index batch.
+		let index_arg = self.checkin_index(
+			&arg,
+			&graph,
+			index_object_args,
+			index_cache_entry_args,
+			root,
+			touched_at,
+		)?;
+
+		// Create or update the watcher and spawn its index task.
 		if self
 			.server
 			.config()
@@ -577,7 +618,7 @@ impl Session {
 					let watch = entry.get();
 
 					// Update the watch.
-					let arg = crate::watch::UpdateArg {
+					let update_arg = crate::watch::UpdateArg {
 						graph: graph.clone(),
 						key: &watch_key,
 						lock,
@@ -586,9 +627,9 @@ impl Session {
 						solutions,
 						version,
 					};
-					let success = watch.update(arg);
-
-					// If the update was not successful, then files were modified during checkin.
+					let success = watch.update(update_arg, || {
+						self.checkin_index_task(index_arg, &arg, root)
+					});
 					if !success {
 						return Err(tg::error!("files were modified during checkin"));
 					}
@@ -597,29 +638,29 @@ impl Session {
 					if entry.get().id() == id =>
 				{
 					// Replace the incompatible watcher.
-					let watch = Watch::new(
-						&self.server,
-						&watch_key,
-						graph.clone(),
+					let new_arg = crate::watch::NewArg {
+						graph: graph.clone(),
 						lock,
-						arg.options.clone(),
-						solutions,
 						next,
-					)
-					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
+						options: arg.options.clone(),
+						solutions,
+						spawn_index_task: || self.checkin_index_task(index_arg, &arg, root),
+					};
+					let watch = Watch::new(&self.server, &watch_key, new_arg)
+						.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
 				(dashmap::Entry::Vacant(entry), WatchObservation::Vacant) => {
-					let watch = Watch::new(
-						&self.server,
-						&watch_key,
-						graph.clone(),
+					let new_arg = crate::watch::NewArg {
+						graph: graph.clone(),
 						lock,
-						arg.options.clone(),
-						solutions,
 						next,
-					)
-					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
+						options: arg.options.clone(),
+						solutions,
+						spawn_index_task: || self.checkin_index_task(index_arg, &arg, root),
+					};
+					let watch = Watch::new(&self.server, &watch_key, new_arg)
+						.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
 				_ => return Err(tg::error!("the watch changed during checkin")),
@@ -637,18 +678,12 @@ impl Session {
 					}
 				}
 			});
+		} else {
+			self.server
+				.index_batch(index_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 		}
-
-		// Index the objects.
-		self.checkin_index(
-			&arg,
-			&graph,
-			index_object_args,
-			index_cache_entry_args,
-			root,
-			touched_at,
-		)
-		.await?;
 
 		let output = TaskOutput {
 			graph,
