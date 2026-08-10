@@ -107,6 +107,7 @@ impl Session {
 						.unwrap()
 						.finish_object_remote_descendants(&item.id, item.eager);
 				}
+				state.queue.finish_item();
 				continue;
 			};
 
@@ -188,6 +189,7 @@ impl Session {
 					.unwrap()
 					.finish_object_remote_descendants(&item.id, item.eager);
 			}
+			state.queue.finish_item();
 		}
 
 		state.queue.close_if_end();
@@ -232,6 +234,7 @@ impl Session {
 						.unwrap()
 						.finish_process_remote_descendants(&item.id, item.eager);
 				}
+				state.queue.finish_item();
 				continue;
 			};
 
@@ -434,6 +437,7 @@ impl Session {
 					.unwrap()
 					.finish_process_remote_descendants(&item.id, item.eager);
 			}
+			state.queue.finish_item();
 		}
 
 		state.queue.close_if_end();

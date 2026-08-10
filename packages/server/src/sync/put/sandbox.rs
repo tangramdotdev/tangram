@@ -103,7 +103,7 @@ impl Session {
 				.unwrap()
 				.finish_item_remote_descendants(&id, &children);
 		}
-		state.queue.close_if_end();
+		state.queue.finish_item();
 
 		Ok(())
 	}
@@ -125,6 +125,6 @@ impl Session {
 				.unwrap()
 				.finish_item_remote_descendants(&id, &[]);
 		}
-		state.queue.close_if_end();
+		state.queue.finish_item();
 	}
 }

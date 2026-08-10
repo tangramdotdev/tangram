@@ -8,7 +8,10 @@ use {
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},
-	std::sync::{Arc, Mutex},
+	std::sync::{
+		Arc, Mutex,
+		atomic::{AtomicUsize, Ordering},
+	},
 	tangram_client::prelude::*,
 };
 
@@ -16,6 +19,7 @@ pub(super) struct Queue {
 	database: async_channel::Sender<DatabaseItem>,
 	graph: Arc<Mutex<Graph>>,
 	object: async_channel::Sender<ObjectItem>,
+	pending: AtomicUsize,
 	process: async_channel::Sender<ProcessItem>,
 	sandbox: async_channel::Sender<SandboxItem>,
 }
@@ -80,6 +84,7 @@ impl Queue {
 			database,
 			graph,
 			object,
+			pending: AtomicUsize::new(0),
 			process,
 			sandbox,
 		}
@@ -167,7 +172,17 @@ impl Queue {
 
 	pub fn close_if_end(&self) -> bool {
 		let graph = self.graph.lock().unwrap();
-		let end = graph.end_remote();
+		self.close_if_end_with_graph(&graph)
+	}
+
+	pub fn finish_item(&self) {
+		let graph = self.graph.lock().unwrap();
+		self.decrement_pending();
+		self.close_if_end_with_graph(&graph);
+	}
+
+	fn close_if_end_with_graph(&self, graph: &Graph) -> bool {
+		let end = graph.end_remote() && self.pending.load(Ordering::Relaxed) == 0;
 		if end {
 			self.database.close();
 			self.object.close();
@@ -176,6 +191,11 @@ impl Queue {
 		}
 
 		end
+	}
+
+	fn decrement_pending(&self) {
+		let pending = self.pending.fetch_sub(1, Ordering::Relaxed);
+		assert!(pending > 0, "the pending item count must be positive");
 	}
 
 	fn enqueue_with_descendants_with_graph(
@@ -260,9 +280,11 @@ impl Queue {
 			send: action.send,
 			token: item.token,
 		};
-		self.database
-			.force_send(item)
-			.map_err(|_| tg::error!("failed to enqueue the database item"))?;
+		self.pending.fetch_add(1, Ordering::Relaxed);
+		if self.database.force_send(item).is_err() {
+			self.decrement_pending();
+			return Err(tg::error!("failed to enqueue the database item"));
+		}
 
 		Ok(())
 	}
@@ -291,9 +313,11 @@ impl Queue {
 			send: action.send,
 			stored,
 		};
-		self.object
-			.force_send(item)
-			.map_err(|_| tg::error!("failed to enqueue the object"))?;
+		self.pending.fetch_add(1, Ordering::Relaxed);
+		if self.object.force_send(item).is_err() {
+			self.decrement_pending();
+			return Err(tg::error!("failed to enqueue the object"));
+		}
 
 		Ok(())
 	}
@@ -320,9 +344,11 @@ impl Queue {
 			send: action.send,
 			stored,
 		};
-		self.process
-			.force_send(item)
-			.map_err(|_| tg::error!("failed to enqueue the process"))?;
+		self.pending.fetch_add(1, Ordering::Relaxed);
+		if self.process.force_send(item).is_err() {
+			self.decrement_pending();
+			return Err(tg::error!("failed to enqueue the process"));
+		}
 
 		Ok(())
 	}
@@ -344,9 +370,11 @@ impl Queue {
 			send: action.send,
 			token: item.token,
 		};
-		self.sandbox
-			.force_send(item)
-			.map_err(|_| tg::error!("failed to enqueue the sandbox"))?;
+		self.pending.fetch_add(1, Ordering::Relaxed);
+		if self.sandbox.force_send(item).is_err() {
+			self.decrement_pending();
+			return Err(tg::error!("failed to enqueue the sandbox"));
+		}
 
 		Ok(())
 	}
@@ -539,11 +567,7 @@ impl Session {
 
 		// Route the objects.
 		for item in items {
-			let requested = if item.descendants {
-				required
-			} else {
-				Self::sync_put_object_node_permissions()
-			};
+			let requested = Self::sync_put_object_node_permissions();
 			let authorization = state
 				.graph
 				.lock()
@@ -575,6 +599,7 @@ impl Session {
 						.unwrap()
 						.finish_object_remote_descendants(&item.id, item.eager);
 				}
+				state.queue.finish_item();
 				continue;
 			}
 			if (!item.descendants && !item.send) || item.stored {
@@ -583,6 +608,7 @@ impl Session {
 					.send(item)
 					.await
 					.map_err(|_| tg::error!("failed to send the object to the index task"))?;
+				state.queue.finish_item();
 			} else {
 				let item = super::store::ObjectItem {
 					descendants: item.descendants,
@@ -660,11 +686,7 @@ impl Session {
 
 		// Route the processes.
 		for item in items {
-			let requested = if item.descendants {
-				required
-			} else {
-				Self::sync_put_process_node_permissions()
-			};
+			let requested = Self::sync_put_process_node_permissions();
 			let authorization = state
 				.graph
 				.lock()
@@ -696,6 +718,7 @@ impl Session {
 						.unwrap()
 						.finish_process_remote_descendants(&item.id, item.eager);
 				}
+				state.queue.finish_item();
 				continue;
 			}
 			if (!item.descendants && !item.send) || item.stored {
@@ -704,6 +727,7 @@ impl Session {
 					.send(item)
 					.await
 					.map_err(|_| tg::error!("failed to send the process to the index task"))?;
+				state.queue.finish_item();
 			} else {
 				let item = super::store::ProcessItem {
 					descendants: item.descendants,
