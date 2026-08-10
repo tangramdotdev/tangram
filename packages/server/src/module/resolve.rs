@@ -365,7 +365,7 @@ impl Session {
 						&& referrer.item().starts_with(&entry.key().path)
 				})
 				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
-			let graph = entry.value().get().graph;
+			let graph = entry.value().get_unindexed().graph;
 			let index = graph
 				.paths
 				.get(referrer.item())

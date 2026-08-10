@@ -112,7 +112,7 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	grant_tokens: Tokens,
 	index: Index,
-	index_tasks: tangram_futures::task::Set<()>,
+	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
