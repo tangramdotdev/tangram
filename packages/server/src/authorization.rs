@@ -80,6 +80,8 @@ impl Session {
 				continue;
 			}
 
+			tracing::debug!(%resource, principal = %self.context.principal, "authorizing through the index");
+
 			outputs.push(None);
 			index_positions.push(position);
 			index_args.push(tangram_index::authorize::Arg {
