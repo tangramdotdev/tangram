@@ -1266,12 +1266,8 @@ impl Session {
 			.checkpoints
 			.iter()
 			.position(|checkpoint| checkpoint.solutions.contains_key(key))?;
-		if state.checkpoints[position]
-			.candidates
-			.as_ref()
-			.unwrap()
-			.is_empty()
-		{
+		let candidates = state.checkpoints[position].candidates.as_ref()?;
+		if candidates.is_empty() {
 			return None;
 		}
 		state.checkpoints.truncate(position + 1);
