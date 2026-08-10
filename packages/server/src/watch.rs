@@ -4,7 +4,7 @@ use {
 	std::{
 		collections::HashSet,
 		path::{Path, PathBuf},
-		sync::{Arc, Mutex},
+		sync::{Arc, Mutex, atomic::Ordering},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -14,6 +14,9 @@ pub mod delete;
 pub mod list;
 pub mod touch;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Id(u64);
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Key {
 	pub path: PathBuf,
@@ -21,6 +24,7 @@ pub struct Key {
 }
 
 pub struct Watch {
+	id: Id,
 	options: tg::checkin::Options,
 	state: Arc<Mutex<State>>,
 	#[expect(dead_code)]
@@ -41,6 +45,7 @@ struct State {
 
 pub struct Snapshot {
 	pub graph: crate::checkin::Graph,
+	pub id: Id,
 	pub lock: Option<Arc<tg::graph::Data>>,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
@@ -53,12 +58,19 @@ pub struct UpdateArg<'a> {
 	pub next: usize,
 	pub server: &'a Server,
 	pub solutions: crate::checkin::Solutions,
-	pub version: Option<u64>,
+	pub version: u64,
 }
 
 struct Message {
 	event: notify::Event,
 	sender: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl Id {
+	#[must_use]
+	fn new(server: &Server) -> Self {
+		Self(server.next_watch_id.fetch_add(1, Ordering::Relaxed))
+	}
 }
 
 impl Watch {
@@ -71,6 +83,8 @@ impl Watch {
 		solutions: crate::checkin::Solutions,
 		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))] next: usize,
 	) -> tg::Result<Self> {
+		let id = Id::new(server);
+
 		// Create the watcher.
 		let config = notify::Config::default();
 		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(1024);
@@ -199,16 +213,21 @@ impl Watch {
 		});
 
 		// Spawn the timeout task.
-		let timeout = Self::spawn_timeout_task(server, key);
+		let timeout = Self::spawn_timeout_task(server, key, id);
 		state.lock().unwrap().timeout_task.replace(timeout);
 
 		let watch = Self {
+			id,
 			options,
 			state,
 			task,
 		};
 
 		Ok(watch)
+	}
+
+	pub fn id(&self) -> Id {
+		self.id
 	}
 
 	pub fn options(&self) -> &tg::checkin::Options {
@@ -219,6 +238,7 @@ impl Watch {
 		let state = self.state.lock().unwrap();
 		Snapshot {
 			graph: state.graph.clone(),
+			id: self.id,
 			lock: state.lock.clone(),
 			solutions: state.solutions.clone(),
 			version: state.version,
@@ -237,9 +257,7 @@ impl Watch {
 		} = arg;
 		let mut state = self.state.lock().unwrap();
 
-		if let Some(version) = version
-			&& state.version != version
-		{
+		if state.version != version {
 			return false;
 		}
 
@@ -247,11 +265,12 @@ impl Watch {
 		state.graph = graph;
 		state.lock = lock;
 		state.solutions = solutions;
+		state.version += 1;
 
 		// Reset the timeout task.
 		state
 			.timeout_task
-			.replace(Self::spawn_timeout_task(server, key));
+			.replace(Self::spawn_timeout_task(server, key, self.id));
 
 		// On Linux, add the new paths.
 		#[cfg(target_os = "linux")]
@@ -314,7 +333,7 @@ impl Watch {
 		changes
 	}
 
-	fn spawn_timeout_task(server: &Server, key: &Key) -> Task<()> {
+	fn spawn_timeout_task(server: &Server, key: &Key, id: Id) -> Task<()> {
 		Task::spawn({
 			let ttl = server.config.watch.clone().unwrap_or_default().ttl;
 			let key = key.clone();
@@ -324,7 +343,7 @@ impl Watch {
 				tokio::time::sleep(ttl).await;
 
 				// Delete the watch.
-				server.watches.remove(&key);
+				server.watches.remove_if(&key, |_, watch| watch.id == id);
 			}
 		})
 	}

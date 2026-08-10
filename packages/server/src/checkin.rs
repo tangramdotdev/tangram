@@ -60,6 +60,13 @@ type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 
+#[derive(Clone, Copy)]
+enum WatchObservation {
+	Compatible { id: crate::watch::Id, version: u64 },
+	Incompatible { id: crate::watch::Id },
+	Vacant,
+}
+
 impl Session {
 	#[tracing::instrument(
 		fields(path = ?arg.path, root = arg.options.root),
@@ -360,23 +367,50 @@ impl Session {
 		};
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
-		let (mut graph, lock, mut solutions, version) = if arg.options.watch
+		let (mut graph, lock, mut solutions, watch_observation) = if arg.options.watch
 			&& let Some(watch) = self.server.watches.get(&watch_key)
-			&& watch.value().options() == &arg.options
 		{
-			let snapshot = watch.value().get();
-			let graph = snapshot.graph;
-			let lock = snapshot.lock;
-			let solutions = snapshot.solutions;
-			let version = Some(snapshot.version);
-			(graph, lock, solutions, version)
+			if watch.value().options() == &arg.options {
+				let snapshot = watch.value().get();
+				let graph = snapshot.graph;
+				let lock = snapshot.lock;
+				let solutions = snapshot.solutions;
+				let watch_observation = WatchObservation::Compatible {
+					id: snapshot.id,
+					version: snapshot.version,
+				};
+				(graph, lock, solutions, watch_observation)
+			} else {
+				let graph = Graph::default();
+				let id = watch.value().id();
+				let lock = None;
+				let solutions = Solutions::default();
+				let watch_observation = WatchObservation::Incompatible { id };
+				(graph, lock, solutions, watch_observation)
+			}
 		} else {
 			let graph = Graph::default();
 			let lock = None;
 			let solutions = Solutions::default();
-			let version = None;
-			(graph, lock, solutions, version)
+			let watch_observation = WatchObservation::Vacant;
+			(graph, lock, solutions, watch_observation)
 		};
+		if arg.options.watch {
+			let updates = arg
+				.updates
+				.iter()
+				.map(ToString::to_string)
+				.collect::<Vec<_>>()
+				.join(",");
+			crate::checkpoint!(
+				self.server,
+				"checkin.watch.snapshot",
+				path = %root.display(),
+				solve = arg.options.solve,
+				updates,
+			)
+			.await;
+		}
 
 		// Read the lock if it was not retrieved from the watcher and the lock option is set.
 		let lock = if let Some(lock) = lock {
@@ -535,8 +569,10 @@ impl Session {
 		{
 			// Create or update the watcher.
 			let entry = self.server.watches.entry(watch_key.clone());
-			match entry {
-				dashmap::Entry::Occupied(entry) if version.is_some() => {
+			match (entry, watch_observation) {
+				(dashmap::Entry::Occupied(entry), WatchObservation::Compatible { id, version })
+					if entry.get().id() == id && entry.get().options() == &arg.options =>
+				{
 					// Verify the version.
 					let watch = entry.get();
 
@@ -557,7 +593,9 @@ impl Session {
 						return Err(tg::error!("files were modified during checkin"));
 					}
 				},
-				dashmap::Entry::Occupied(mut entry) => {
+				(dashmap::Entry::Occupied(mut entry), WatchObservation::Incompatible { id })
+					if entry.get().id() == id =>
+				{
 					// Replace the incompatible watcher.
 					let watch = Watch::new(
 						&self.server,
@@ -571,7 +609,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
-				dashmap::Entry::Vacant(entry) => {
+				(dashmap::Entry::Vacant(entry), WatchObservation::Vacant) => {
 					let watch = Watch::new(
 						&self.server,
 						&watch_key,
@@ -584,6 +622,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to create the watch"))?;
 					entry.insert(watch);
 				},
+				_ => return Err(tg::error!("the watch changed during checkin")),
 			}
 
 			// Spawn a task to clean nodes with no referrers.
