@@ -1,5 +1,5 @@
 use {
-	super::{graph::Graph, progress::Progress, queue::Queue},
+	super::{graph::Graph, progress::Progress},
 	crate::Session,
 	futures::stream::BoxStream,
 	std::sync::{Arc, Mutex},
@@ -12,6 +12,7 @@ mod database;
 mod index;
 mod input;
 mod queue;
+mod resolve;
 mod sandbox;
 mod store;
 
@@ -19,7 +20,8 @@ struct State {
 	arg: tg::sync::Arg,
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
-	queue: Queue,
+	queue: self::queue::Queue,
+	resolve_sender: async_channel::Sender<self::resolve::Item>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 }
 
@@ -36,19 +38,21 @@ impl Session {
 
 		// Create the queue.
 		let (queue_database_sender, queue_database_receiver) =
-			async_channel::unbounded::<super::queue::DatabaseItem>();
+			async_channel::unbounded::<self::queue::DatabaseItem>();
 		let (queue_object_sender, queue_object_receiver) =
-			async_channel::unbounded::<super::queue::ObjectItem>();
+			async_channel::unbounded::<self::queue::ObjectItem>();
 		let (queue_process_sender, queue_process_receiver) =
-			async_channel::unbounded::<super::queue::ProcessItem>();
+			async_channel::unbounded::<self::queue::ProcessItem>();
 		let (queue_sandbox_sender, queue_sandbox_receiver) =
-			async_channel::unbounded::<super::queue::SandboxItem>();
-		let queue = Queue::new(
+			async_channel::unbounded::<self::queue::SandboxItem>();
+		let queue = self::queue::Queue::new(
 			queue_database_sender,
+			graph.clone(),
 			queue_object_sender,
 			queue_process_sender,
 			queue_sandbox_sender,
 		);
+		let (resolve_sender, resolve_receiver) = async_channel::unbounded();
 
 		// Create the state.
 		let state = Arc::new(State {
@@ -56,6 +60,7 @@ impl Session {
 			graph,
 			progress,
 			queue,
+			resolve_sender,
 			sender,
 		});
 
@@ -129,6 +134,11 @@ impl Session {
 			.sync_put_sandbox(state.clone(), sandbox_receiver)
 			.instrument(tracing::Span::current());
 
+		// Create the resolve future.
+		let resolve_future = self
+			.sync_put_resolve(state.clone(), resolve_receiver)
+			.instrument(tracing::Span::current());
+
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
 			let session = self.clone();
@@ -148,6 +158,7 @@ impl Session {
 			database_future,
 			index_future,
 			queue_future,
+			resolve_future,
 			sandbox_future,
 			store_future
 		)?;

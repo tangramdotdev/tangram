@@ -5,10 +5,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub location: crate::location::Args,
+	pub ancestors: crate::node::Ancestors,
 
-	#[arg(short = 'p', long)]
-	pub parents: bool,
+	#[command(flatten)]
+	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -21,8 +21,8 @@ impl Cli {
 	pub async fn command_group_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::group::create::Arg {
+			ancestors: args.ancestors.get(),
 			location: args.location.get(),
-			parents: args.parents,
 			specifier: args.specifier.clone(),
 		};
 		let output = client.create_group(arg).await.map_err(

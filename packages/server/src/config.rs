@@ -887,6 +887,8 @@ pub struct SyncPut {
 
 	pub queue: SyncPutQueue,
 
+	pub resolve: SyncPutResolve,
+
 	pub store: SyncPutStore,
 }
 
@@ -918,6 +920,13 @@ pub struct SyncPutQueue {
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncPutResolve {
+	pub batch_size: usize,
+
+	pub batch_timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -1553,6 +1562,15 @@ impl Default for SyncPutQueue {
 			process_batch_size: 16,
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for SyncPutResolve {
+	fn default() -> Self {
+		Self {
+			batch_size: 16,
+			batch_timeout: Duration::ZERO,
 		}
 	}
 }

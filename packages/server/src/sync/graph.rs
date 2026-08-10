@@ -9,14 +9,20 @@ use {
 
 pub struct Graph {
 	pub get_end_received: bool,
+	local_pending_roots: usize,
+	local_replacements: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
+	local_selector_ids: HashMap<tg::Specifier, Option<tg::Id>, fnv::FnvBuildHasher>,
+	local_selectors: HashSet<tg::Specifier, fnv::FnvBuildHasher>,
 	pub nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
 	process_children: bool,
 	process_commands: bool,
 	process_errors: bool,
 	process_logs: bool,
 	process_outputs: bool,
+	remote_pending_roots: usize,
 	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
+	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -52,12 +58,16 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ItemNode {
 	pub children: Option<Vec<usize>>,
+	local_end: bool,
 	pub local_message: Option<tg::sync::PutItemMessage>,
 	pub local_requested: bool,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	remote_descendants: Descendants,
 	remote_end: bool,
+	remote_missing: bool,
 	remote_pending_children: Option<usize>,
 	pub remote_requested: bool,
+	remote_selectors: BTreeSet<tg::Selector<tg::Id>>,
 	pub remote_sent: bool,
 	pub token: Option<tg::grant::Token>,
 }
@@ -65,6 +75,7 @@ pub struct ItemNode {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
+	local_end: bool,
 	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::object::Stored>,
 	pub local_visible: Option<tangram_index::object::Stored>,
@@ -72,12 +83,12 @@ pub struct ObjectNode {
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
 	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
+	remote_descendants: Descendants,
 	remote_end: bool,
 	pub remote_missing: bool,
 	remote_pending_children: Option<usize>,
 	pub remote_requested: bool,
 	pub remote_sent: bool,
-	pub remote_sent_eager: bool,
 	pub remote_stored: Option<tangram_index::object::Stored>,
 	pub requested: Option<Requested>,
 	pub token: Option<tg::grant::Token>,
@@ -87,6 +98,7 @@ pub struct ObjectNode {
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
 	pub data: Option<tg::process::Data>,
+	local_end: bool,
 	pub local_permissions: Option<tg::grant::permission::Set>,
 	pub local_stored: Option<tangram_index::process::Stored>,
 	pub local_visible: Option<tangram_index::process::Stored>,
@@ -95,7 +107,9 @@ pub struct ProcessNode {
 	pub objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
 	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
+	remote_descendants: Descendants,
 	remote_end: bool,
+	remote_missing: bool,
 	remote_objects: HashSet<(usize, crate::sync::queue::ObjectKind), fnv::FnvBuildHasher>,
 	remote_pending_children: Option<usize>,
 	remote_pending_commands: usize,
@@ -104,8 +118,29 @@ pub struct ProcessNode {
 	remote_pending_outputs: usize,
 	remote_propagated_stored: tangram_index::process::Stored,
 	pub remote_requested: bool,
+	remote_sent: bool,
 	pub remote_stored: Option<tangram_index::process::Stored>,
 	pub requested: Option<Requested>,
+	pub token: Option<tg::grant::Token>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Descendants {
+	eager: bool,
+	requested: bool,
+	sent: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RemoteAction {
+	pub descendants: bool,
+	pub send: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteSelector {
+	pub descendants: bool,
+	pub eager: bool,
 	pub token: Option<tg::grant::Token>,
 }
 
@@ -145,46 +180,210 @@ impl Graph {
 		// Create the graph.
 		let mut graph = Graph {
 			get_end_received: false,
-			local_roots: arg.get.iter().map(|item| item.item.clone()).collect(),
+			local_pending_roots: 0,
+			local_replacements: arg
+				.get
+				.iter()
+				.filter_map(|item| match &item.item {
+					tg::Selector::Id(id) => Some(id.clone()),
+					tg::Selector::Specifier(_) => None,
+				})
+				.filter(Self::is_database_item)
+				.collect(),
+			local_roots: HashSet::default(),
+			local_selector_ids: HashMap::default(),
+			local_selectors: arg
+				.get
+				.iter()
+				.filter_map(|item| match &item.item {
+					tg::Selector::Id(_) => None,
+					tg::Selector::Specifier(specifier) => Some(specifier.clone()),
+				})
+				.collect(),
 			nodes: IndexMap::default(),
 			process_children: arg.process_children,
 			process_commands: arg.process_commands,
 			process_errors: arg.process_errors,
 			process_logs: arg.process_logs,
 			process_outputs: arg.process_outputs,
-			remote_roots: arg.put.iter().map(|item| item.item.clone()).collect(),
+			remote_pending_roots: 0,
+			remote_roots: HashSet::default(),
+			remote_selectors: HashMap::default(),
 		};
 
+		// Add the roots.
+		for root in &arg.get {
+			let tg::Selector::Id(id) = &root.item else {
+				continue;
+			};
+			graph.insert_local_root(id.clone(), false);
+		}
+		for root in &arg.put {
+			graph.insert_remote_root(root.item.clone());
+		}
+
 		// Add the root tokens.
-		for root in arg.get.iter().chain(&arg.put) {
+		for root in &arg.get {
 			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
-			match root.item.kind() {
-				tg::id::Kind::Process => {
-					graph.update_process_token(&root.item.clone().try_into().unwrap(), token);
-				},
-				tg::id::Kind::Group
-				| tg::id::Kind::Organization
-				| tg::id::Kind::Sandbox
-				| tg::id::Kind::Tag
-				| tg::id::Kind::User => graph.update_item_token(&root.item, token),
-				_ if tg::object::Id::try_from(root.item.clone()).is_ok() => {
-					graph.update_object_token(&root.item.clone().try_into().unwrap(), token);
-				},
-				_ => {},
-			}
+			let tg::Selector::Id(id) = &root.item else {
+				continue;
+			};
+			graph.update_root_token(id, token);
+		}
+		for root in &arg.put {
+			let Some(token) = root.options.token.clone() else {
+				continue;
+			};
+			graph.update_root_token(&root.item, token);
 		}
 
 		graph
+	}
+
+	fn update_root_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
+		match id.kind() {
+			tg::id::Kind::Process => {
+				self.update_process_token(&id.clone().try_into().unwrap(), token);
+			},
+			tg::id::Kind::Group
+			| tg::id::Kind::Organization
+			| tg::id::Kind::Sandbox
+			| tg::id::Kind::Tag
+			| tg::id::Kind::User => self.update_item_token(id, token),
+			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
+				self.update_object_token(&id.clone().try_into().unwrap(), token);
+			},
+			_ => {},
+		}
+	}
+
+	fn is_database_item(id: &tg::Id) -> bool {
+		matches!(
+			id.kind(),
+			tg::id::Kind::Group
+				| tg::id::Kind::Organization
+				| tg::id::Kind::Tag
+				| tg::id::Kind::User
+		)
 	}
 
 	pub fn mark_get_end_received(&mut self) {
 		self.get_end_received = true;
 	}
 
+	pub fn insert_local_root(&mut self, id: tg::Id, replace: bool) -> bool {
+		if replace {
+			self.local_replacements.insert(id.clone());
+		}
+		if !self.local_roots.insert(id.clone()) {
+			return false;
+		}
+		let entry = self.nodes.entry(id);
+		let index = entry.index();
+		entry.or_insert_with_key(Node::for_id);
+		let local_end = self.compute_local_end(index);
+		self.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.set_local_end(local_end);
+		if !local_end {
+			self.local_pending_roots += 1;
+		}
+
+		true
+	}
+
+	pub fn insert_local_selector(&mut self, specifier: tg::Specifier) -> bool {
+		self.local_selectors.insert(specifier)
+	}
+
+	pub fn local_selector_id(&self, specifier: &tg::Specifier) -> tg::Result<Option<tg::Id>> {
+		self.local_selector_ids
+			.get(specifier)
+			.cloned()
+			.ok_or_else(|| tg::error!(%specifier, "the selector was not resolved"))
+	}
+
+	pub fn set_local_selector_ids(
+		&mut self,
+		items: impl IntoIterator<Item = (tg::Specifier, Option<tg::Id>)>,
+	) {
+		self.local_selector_ids.extend(items);
+	}
+
 	pub fn insert_remote_root(&mut self, id: tg::Id) {
-		self.remote_roots.insert(id);
+		let remote_end = self.nodes.get(&id).is_some_and(Node::remote_end);
+		if self.remote_roots.insert(id) && !remote_end {
+			self.remote_pending_roots += 1;
+		}
+	}
+
+	pub fn insert_remote_selector(
+		&mut self,
+		descendants: bool,
+		eager: bool,
+		specifier: tg::Specifier,
+		token: Option<tg::grant::Token>,
+	) -> bool {
+		let Some(request) = self.remote_selectors.get_mut(&specifier) else {
+			let request = RemoteSelector {
+				descendants,
+				eager,
+				token,
+			};
+			self.remote_selectors.insert(specifier, request);
+
+			return true;
+		};
+		request.descendants |= descendants;
+		request.eager |= eager;
+		if let Some(token) = token {
+			request.token.get_or_insert(token);
+		}
+
+		false
+	}
+
+	pub fn resolve_local_selector(
+		&mut self,
+		specifier: &tg::Specifier,
+		id: tg::Id,
+		replace: bool,
+	) -> bool {
+		if !self.local_selectors.remove(specifier) {
+			return false;
+		}
+		self.insert_local_root(id, replace);
+		true
+	}
+
+	pub fn resolve_local_selector_missing(&mut self, specifier: &tg::Specifier) -> bool {
+		self.local_selectors.remove(specifier)
+	}
+
+	pub fn resolve_remote_selector(&mut self, specifier: &tg::Specifier) -> Option<RemoteSelector> {
+		self.remote_selectors.remove(specifier)
+	}
+
+	#[must_use]
+	pub fn has_local_item(&self, id: &tg::Id) -> bool {
+		self.local_roots.contains(id)
+			|| self.nodes.get(id).is_some_and(|node| match node {
+				Node::Group(node)
+				| Node::Organization(node)
+				| Node::Sandbox(node)
+				| Node::Tag(node)
+				| Node::User(node) => node.local_message.is_some() || node.local_requested,
+				Node::Object(_) | Node::Process(_) => false,
+			})
+	}
+
+	#[must_use]
+	pub fn has_local_selector(&self, specifier: &tg::Specifier) -> bool {
+		self.local_selectors.contains(specifier)
 	}
 
 	pub fn local_messages(&self) -> Vec<tg::sync::PutItemMessage> {
@@ -201,9 +400,15 @@ impl Graph {
 			.collect()
 	}
 
+	#[must_use]
+	pub fn local_replacements(&self) -> &HashSet<tg::Id, fnv::FnvBuildHasher> {
+		&self.local_replacements
+	}
+
 	pub fn update_item_local_message(
 		&mut self,
 		message: tg::sync::PutItemMessage,
+		replace: bool,
 	) -> tg::Result<()> {
 		let id = match &message {
 			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
@@ -215,15 +420,17 @@ impl Graph {
 			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
 			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
 		};
-		let node = self
-			.nodes
-			.entry(id)
-			.or_insert_with_key(Node::for_id)
-			.unwrap_item_mut();
+		if replace && Self::is_database_item(&id) {
+			self.local_replacements.insert(id.clone());
+		}
+		let entry = self.nodes.entry(id);
+		let index = entry.index();
+		let node = entry.or_insert_with_key(Node::for_id).unwrap_item_mut();
 		if node.local_message.is_some() {
 			return Err(tg::error!("received the item more than once"));
 		}
 		node.local_message = Some(message);
+		self.update_local_end(index);
 
 		Ok(())
 	}
@@ -247,22 +454,96 @@ impl Graph {
 		inserted
 	}
 
-	pub fn update_item_remote(&mut self, id: &tg::Id, token: Option<tg::grant::Token>) -> bool {
-		let node = self
-			.nodes
-			.entry(id.clone())
-			.or_insert_with(|| Node::for_id(id));
-		let node = node.unwrap_item_mut();
+	pub fn update_database_item_remote(
+		&mut self,
+		descendants: bool,
+		id: &tg::Id,
+		selector: tg::Selector<tg::Id>,
+		token: Option<tg::grant::Token>,
+	) -> RemoteAction {
+		let entry = self.nodes.entry(id.clone());
+		let index = entry.index();
+		let node = entry.or_insert_with(|| Node::for_id(id)).unwrap_item_mut();
 		if let Some(token) = token {
 			node.token.get_or_insert(token);
 		}
-		let inserted = !node.remote_requested;
-		node.remote_requested = true;
+		let enqueue_descendants = node.remote_descendants.request(descendants, false);
+		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
+		if !node.remote_sent || node.remote_missing {
+			node.remote_selectors.insert(selector);
+		}
+		if send {
+			node.remote_requested = true;
+		}
+		if send && node.remote_sent {
+			node.remote_pending_children = None;
+			node.remote_sent = false;
+		}
+		if enqueue_descendants || send {
+			self.update_remote_end(index);
+		}
 
-		inserted
+		RemoteAction {
+			descendants: enqueue_descendants,
+			send,
+		}
 	}
 
-	pub fn update_item_remote_sent(&mut self, id: &tg::Id, children: &[tg::Id]) {
+	pub fn update_item_remote(
+		&mut self,
+		descendants: bool,
+		id: &tg::Id,
+		token: Option<tg::grant::Token>,
+	) -> RemoteAction {
+		let entry = self.nodes.entry(id.clone());
+		let index = entry.index();
+		let node = entry.or_insert_with(|| Node::for_id(id)).unwrap_item_mut();
+		if let Some(token) = token {
+			node.token.get_or_insert(token);
+		}
+		let enqueue_descendants = node.remote_descendants.request(descendants, false);
+		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
+		if send {
+			node.remote_requested = true;
+		}
+		if send && node.remote_sent {
+			node.remote_pending_children = None;
+			node.remote_sent = false;
+		}
+		if enqueue_descendants || send {
+			self.update_remote_end(index);
+		}
+
+		RemoteAction {
+			descendants: enqueue_descendants,
+			send,
+		}
+	}
+
+	pub fn finish_database_item_remote_found(&mut self, id: &tg::Id) {
+		self.nodes
+			.get_mut(id)
+			.unwrap()
+			.unwrap_item_mut()
+			.remote_selectors
+			.clear();
+		self.finish_item_remote_found(id);
+	}
+
+	pub fn finish_database_item_remote_missing(
+		&mut self,
+		id: &tg::Id,
+	) -> BTreeSet<tg::Selector<tg::Id>> {
+		let selectors = {
+			let node = self.nodes.get_mut(id).unwrap().unwrap_item_mut();
+			std::mem::take(&mut node.remote_selectors)
+		};
+		self.finish_item_remote_missing(id);
+
+		selectors
+	}
+
+	pub fn finish_item_remote_descendants(&mut self, id: &tg::Id, children: &[tg::Id]) {
 		let index = self.nodes.get_index_of(id).unwrap();
 
 		// Collect the children.
@@ -283,10 +564,30 @@ impl Graph {
 		let remote_pending_children = self.count_remote_pending(&children);
 		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
 		node.children = Some(children);
-		node.remote_sent = true;
+		node.remote_descendants.finish(false);
 		node.remote_pending_children = Some(remote_pending_children);
 
 		// Update the End state.
+		self.update_remote_end(index);
+	}
+
+	pub fn finish_item_remote_found(&mut self, id: &tg::Id) {
+		let index = self.nodes.get_index_of(id).unwrap();
+		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		node.remote_missing = false;
+		node.remote_requested = false;
+		node.remote_sent = true;
+		self.update_remote_end(index);
+	}
+
+	pub fn finish_item_remote_missing(&mut self, id: &tg::Id) {
+		let index = self.nodes.get_index_of(id).unwrap();
+		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		node.remote_descendants.finish(false);
+		node.remote_missing = true;
+		node.remote_pending_children = Some(0);
+		node.remote_requested = false;
+		node.remote_sent = true;
 		self.update_remote_end(index);
 	}
 
@@ -412,7 +713,8 @@ impl Graph {
 			|| visible;
 		node.local_visible = Some(tangram_index::object::Stored { subtree: visible });
 
-		// Propagate the local stored and visible state.
+		// Update the local End state and propagate the local stored and visible state.
+		self.update_local_end(index);
 		let new_stored = self.object_local_stored(index);
 		let new_visible = self.object_local_visible(index);
 		if (!old_stored && new_stored) || (!old_visible && new_visible) {
@@ -427,12 +729,13 @@ impl Graph {
 				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
+					self.update_local_end(parent_index);
 					stack.extend(parents);
 				}
 			}
 		}
 
-		// Update the End state.
+		// Update the remote End state.
 		self.update_remote_end(index);
 	}
 
@@ -666,7 +969,8 @@ impl Graph {
 			node.local_visible = Some(merged_visible);
 		}
 
-		// Propagate the local stored and visible state.
+		// Update the local End state and propagate the local stored and visible state.
+		self.update_local_end(index);
 		let node_new_stored = self
 			.nodes
 			.get_index(index)
@@ -692,6 +996,7 @@ impl Graph {
 				.collect();
 			while let Some(parent_index) = stack.pop() {
 				if let Some(parents) = self.try_propagate_local_stored(parent_index) {
+					self.update_local_end(parent_index);
 					stack.extend(parents);
 				}
 			}
@@ -709,11 +1014,12 @@ impl Graph {
 
 	pub fn update_object_remote(
 		&mut self,
+		descendants: bool,
 		id: &tg::object::Id,
 		parent: Option<tg::Id>,
 		kind: Option<crate::sync::queue::ObjectKind>,
 		stored: Option<&tangram_index::object::Stored>,
-	) -> (bool, Option<tangram_index::object::Stored>) {
+	) -> (RemoteAction, Option<tangram_index::object::Stored>) {
 		// Get or create the node.
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -726,9 +1032,26 @@ impl Graph {
 			.unwrap_object_mut();
 
 		// Update the remote state.
-		let inserted = stored.is_none() && !node.remote_requested;
-		if stored.is_none() {
-			node.remote_requested = true;
+		let action = if stored.is_none() {
+			let complete = node
+				.remote_stored
+				.as_ref()
+				.is_some_and(|stored| stored.subtree);
+			let enqueue_descendants = node.remote_descendants.request(descendants, complete);
+			let send =
+				!complete && !node.remote_missing && !node.remote_requested && !node.remote_sent;
+			if send {
+				node.remote_requested = true;
+			}
+			RemoteAction {
+				descendants: enqueue_descendants,
+				send,
+			}
+		} else {
+			RemoteAction::default()
+		};
+		if !action.descendants && !action.send && parent.is_none() && stored.is_none() {
+			return (action, node.remote_stored.clone());
 		}
 
 		if let Some(stored) = stored {
@@ -835,7 +1158,18 @@ impl Graph {
 			.remote_stored
 			.clone();
 
-		(inserted, remote_stored)
+		(action, remote_stored)
+	}
+
+	pub fn finish_object_remote_descendants(&mut self, id: &tg::object::Id, eager: bool) {
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
+			.or_insert_with(|| Node::Object(ObjectNode::default()))
+			.unwrap_object_mut();
+		node.remote_descendants.finish(eager);
+		node.remote_pending_children.get_or_insert(0);
+		self.update_remote_end(index);
 	}
 
 	pub fn update_object_remote_missing(&mut self, id: &tg::object::Id) {
@@ -844,27 +1178,37 @@ impl Graph {
 		let node = entry
 			.or_insert_with(|| Node::Object(ObjectNode::default()))
 			.unwrap_object_mut();
+		node.remote_descendants.finish(false);
 		node.remote_missing = true;
+		node.remote_requested = false;
 		self.update_remote_end(index);
 	}
 
-	pub fn update_object_remote_sent(&mut self, id: &tg::object::Id, eager: bool) {
+	pub fn update_object_remote_sent(&mut self, id: &tg::object::Id) {
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
 		let node = entry
 			.or_insert_with(|| Node::Object(ObjectNode::default()))
 			.unwrap_object_mut();
+		node.remote_missing = false;
+		node.remote_requested = false;
 		node.remote_sent = true;
-		node.remote_sent_eager |= eager;
 		self.update_remote_end(index);
 	}
 
 	pub fn update_process_remote(
 		&mut self,
+		descendants: bool,
 		id: &tg::process::Id,
 		parent: Option<tg::Id>,
 		stored: Option<&tangram_index::process::Stored>,
-	) -> (bool, Option<tangram_index::process::Stored>) {
+	) -> (RemoteAction, Option<tangram_index::process::Stored>) {
+		let complete = self
+			.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_process_ref().remote_stored.as_ref())
+			.is_some_and(|stored| self.process_remote_stored_complete(stored));
+
 		// Get or create the node.
 		let entry = self.nodes.entry(id.clone().into());
 		let index = entry.index();
@@ -877,9 +1221,22 @@ impl Graph {
 			.unwrap_process_mut();
 
 		// Update the remote state.
-		let inserted = stored.is_none() && !node.remote_requested;
-		if stored.is_none() {
-			node.remote_requested = true;
+		let action = if stored.is_none() {
+			let enqueue_descendants = node.remote_descendants.request(descendants, complete);
+			let send =
+				!complete && !node.remote_missing && !node.remote_requested && !node.remote_sent;
+			if send {
+				node.remote_requested = true;
+			}
+			RemoteAction {
+				descendants: enqueue_descendants,
+				send,
+			}
+		} else {
+			RemoteAction::default()
+		};
+		if !action.descendants && !action.send && parent.is_none() && stored.is_none() {
+			return (action, node.remote_stored.clone());
 		}
 
 		if let Some(stored) = stored {
@@ -936,7 +1293,42 @@ impl Graph {
 			.remote_stored
 			.clone();
 
-		(inserted, stored)
+		(action, stored)
+	}
+
+	pub fn finish_process_remote_descendants(&mut self, id: &tg::process::Id, eager: bool) {
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
+			.or_insert_with(|| Node::Process(ProcessNode::default()))
+			.unwrap_process_mut();
+		node.remote_descendants.finish(eager);
+		self.update_remote_end(index);
+	}
+
+	pub fn update_process_remote_missing(&mut self, id: &tg::process::Id) {
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
+			.or_insert_with(|| Node::Process(ProcessNode::default()))
+			.unwrap_process_mut();
+		node.remote_descendants.finish(false);
+		node.remote_missing = true;
+		node.remote_requested = false;
+		self.update_remote_end(index);
+	}
+
+	pub fn update_process_remote_sent(&mut self, id: &tg::process::Id) {
+		let entry = self.nodes.entry(id.clone().into());
+		let index = entry.index();
+		let node = entry
+			.or_insert_with(|| Node::Process(ProcessNode::default()))
+			.unwrap_process_mut();
+		node.remote_missing = false;
+		node.remote_requested = false;
+		node.remote_sent = true;
+		node.remote_stored.get_or_insert_default();
+		self.update_remote_end(index);
 	}
 
 	pub fn get_process_local_stored(
@@ -1063,38 +1455,25 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().requested.clone())
 	}
 
-	pub fn end_local(&self, arg: &tg::sync::Arg) -> bool {
-		self.local_roots.iter().all(|root| {
-			let Some(node) = self.nodes.get(root) else {
-				return false;
-			};
-			match node {
-				Node::Group(node)
-				| Node::Organization(node)
-				| Node::Sandbox(node)
-				| Node::Tag(node)
-				| Node::User(node) => node.local_message.is_some(),
-				Node::Object(_) => {
-					self.object_local_visible(self.nodes.get_index_of(root).unwrap())
-				},
-				Node::Process(_) => {
-					let visible =
-						self.process_local_visible(self.nodes.get_index_of(root).unwrap());
-					if arg.process_children {
-						visible.subtree
-							&& (!arg.process_commands || visible.subtree_command)
-							&& (!arg.process_errors || visible.subtree_error)
-							&& (!arg.process_logs || visible.subtree_log)
-							&& (!arg.process_outputs || visible.subtree_output)
-					} else {
-						(!arg.process_commands || visible.node_command)
-							&& (!arg.process_errors || visible.node_error)
-							&& (!arg.process_logs || visible.node_log)
-							&& (!arg.process_outputs || visible.node_output)
-					}
-				},
-			}
-		})
+	#[must_use]
+	pub fn object_remote_stored(&self, id: &tg::object::Id) -> bool {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_object_ref().remote_stored.as_ref())
+			.is_some_and(|stored| stored.subtree)
+	}
+
+	#[must_use]
+	pub fn process_remote_stored(&self, id: &tg::process::Id) -> bool {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_process_ref().remote_stored.as_ref())
+			.is_some_and(|stored| self.process_remote_stored_complete(stored))
+	}
+
+	#[must_use]
+	pub fn end_local(&self) -> bool {
+		self.local_pending_roots == 0 && self.local_selectors.is_empty()
 	}
 
 	#[must_use]
@@ -1103,9 +1482,7 @@ impl Graph {
 			return false;
 		}
 
-		self.remote_roots
-			.iter()
-			.all(|root| self.nodes.get(root).is_some_and(Node::remote_end))
+		self.remote_pending_roots == 0 && self.remote_selectors.is_empty()
 	}
 
 	fn get_local_authorization(
@@ -1697,6 +2074,83 @@ impl Graph {
 		pending
 	}
 
+	#[must_use]
+	fn process_remote_stored_complete(&self, stored: &tangram_index::process::Stored) -> bool {
+		let children = !self.process_children || stored.subtree;
+		let command = !self.process_commands
+			|| if self.process_children {
+				stored.subtree_command
+			} else {
+				stored.node_command
+			};
+		let error = !self.process_errors
+			|| if self.process_children {
+				stored.subtree_error
+			} else {
+				stored.node_error
+			};
+		let log = !self.process_logs
+			|| if self.process_children {
+				stored.subtree_log
+			} else {
+				stored.node_log
+			};
+		let output = !self.process_outputs
+			|| if self.process_children {
+				stored.subtree_output
+			} else {
+				stored.node_output
+			};
+
+		children && command && error && log && output
+	}
+
+	fn update_local_end(&mut self, index: usize) {
+		let (id, node) = self.nodes.get_index(index).unwrap();
+		if !self.local_roots.contains(id) {
+			return;
+		}
+		let old_local_end = node.local_end();
+		let local_end = self.compute_local_end(index);
+		if old_local_end == local_end {
+			return;
+		}
+		self.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.set_local_end(local_end);
+		Self::apply_root_end_transition(&mut self.local_pending_roots, local_end);
+	}
+
+	#[must_use]
+	fn compute_local_end(&self, index: usize) -> bool {
+		let (_, node) = self.nodes.get_index(index).unwrap();
+		match node {
+			Node::Group(node)
+			| Node::Organization(node)
+			| Node::Sandbox(node)
+			| Node::Tag(node)
+			| Node::User(node) => node.local_message.is_some(),
+			Node::Object(_) => self.object_local_visible(index),
+			Node::Process(_) => {
+				let visible = self.process_local_visible(index);
+				if self.process_children {
+					visible.subtree
+						&& (!self.process_commands || visible.subtree_command)
+						&& (!self.process_errors || visible.subtree_error)
+						&& (!self.process_logs || visible.subtree_log)
+						&& (!self.process_outputs || visible.subtree_output)
+				} else {
+					(!self.process_commands || visible.node_command)
+						&& (!self.process_errors || visible.node_error)
+						&& (!self.process_logs || visible.node_log)
+						&& (!self.process_outputs || visible.node_output)
+				}
+			},
+		}
+	}
+
 	fn update_remote_end(&mut self, index: usize) {
 		self.update_remote_ends([index]);
 	}
@@ -1715,18 +2169,26 @@ impl Graph {
 		while let Some(index) = queue.pop_front() {
 			queued.remove(&index);
 			let remote_end = self.compute_remote_end(index);
-			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			let (id, node) = self.nodes.get_index(index).unwrap();
 			if node.remote_end() == remote_end {
 				continue;
 			}
-			node.set_remote_end(remote_end);
-
-			// Update each parent from this edge alone, without rescanning its other children.
+			let remote_root = self.remote_roots.contains(id);
 			let parents = node
 				.parents()
 				.iter()
 				.copied()
 				.collect::<SmallVec<[Parent; 1]>>();
+			self.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.set_remote_end(remote_end);
+			if remote_root {
+				Self::apply_root_end_transition(&mut self.remote_pending_roots, remote_end);
+			}
+
+			// Update each parent from this edge alone, without rescanning its other children.
 			for parent in parents {
 				if self.update_remote_pending(parent, remote_end) {
 					let parent = parent.index();
@@ -1735,6 +2197,14 @@ impl Graph {
 					}
 				}
 			}
+		}
+	}
+
+	fn apply_root_end_transition(pending: &mut usize, end: bool) {
+		if end {
+			*pending = pending.checked_sub(1).unwrap();
+		} else {
+			*pending += 1;
 		}
 	}
 
@@ -1749,7 +2219,14 @@ impl Graph {
 			| Node::Organization(node)
 			| Node::Sandbox(node)
 			| Node::Tag(node)
-			| Node::User(node) => node.remote_sent && node.remote_pending_children == Some(0),
+			| Node::User(node) => {
+				!node.remote_requested
+					&& node.remote_sent
+					&& (node.remote_missing
+						|| !node.remote_descendants.requested
+						|| (node.remote_descendants.sent
+							&& node.remote_pending_children == Some(0)))
+			},
 			Node::Object(node) => {
 				node.remote_missing
 					|| node
@@ -1757,12 +2234,29 @@ impl Graph {
 						.as_ref()
 						.is_some_and(|stored| stored.subtree)
 					|| (node.remote_sent
-						&& (!node.remote_sent_eager || node.remote_pending_children == Some(0)))
+						&& (!node.remote_descendants.requested
+							|| !node.remote_descendants.eager
+							|| (node.remote_descendants.sent
+								&& node.remote_pending_children == Some(0))))
 			},
 			Node::Process(node) => {
+				if node.remote_missing {
+					return true;
+				}
 				let Some(stored) = node.remote_stored.as_ref() else {
 					return false;
 				};
+				if self.process_remote_stored_complete(stored) {
+					return true;
+				}
+				if !node.remote_descendants.requested
+					|| (!node.remote_descendants.eager && node.remote_sent)
+				{
+					return node.remote_sent;
+				}
+				if !node.remote_descendants.sent {
+					return false;
+				}
 				let children_end = !self.process_children
 					|| stored.subtree
 					|| node.remote_pending_children == Some(0);
@@ -2206,6 +2700,23 @@ impl Graph {
 	}
 }
 
+impl Descendants {
+	fn request(&mut self, enabled: bool, complete: bool) -> bool {
+		let enqueue = enabled && !self.requested && !complete;
+		self.requested |= enabled;
+		if enqueue {
+			self.sent = false;
+		}
+
+		enqueue
+	}
+
+	fn finish(&mut self, eager: bool) {
+		self.eager |= eager;
+		self.sent = true;
+	}
+}
+
 impl Parent {
 	#[must_use]
 	pub fn index(&self) -> usize {
@@ -2231,6 +2742,31 @@ impl Node {
 				Self::Object(ObjectNode::default())
 			},
 			_ => unreachable!(),
+		}
+	}
+
+	#[must_use]
+	fn local_end(&self) -> bool {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.local_end,
+			Self::Object(node) => node.local_end,
+			Self::Process(node) => node.local_end,
+		}
+	}
+
+	fn set_local_end(&mut self, local_end: bool) {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => node.local_end = local_end,
+			Self::Object(node) => node.local_end = local_end,
+			Self::Process(node) => node.local_end = local_end,
 		}
 	}
 

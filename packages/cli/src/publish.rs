@@ -149,9 +149,12 @@ impl Cli {
 					items.push(item);
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
+						ancestors: tg::node::Ancestors {
+							create: true,
+							..Default::default()
+						},
 						item: id.into(),
 						location: None,
-						parents: true,
 						public: false,
 						specifier: tag.clone(),
 					};
@@ -169,9 +172,12 @@ impl Cli {
 						let checked_in = publish_checkin(&client, path, false).await?;
 						let id = checked_in.item;
 						let arg = tg::tag::put::Arg {
+							ancestors: tg::node::Ancestors {
+								create: true,
+								..Default::default()
+							},
 							item: id.into(),
 							location: None,
-							parents: true,
 							public: false,
 							specifier: item.tag.clone(),
 						};
@@ -188,9 +194,12 @@ impl Cli {
 						items.push(item);
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
+							ancestors: tg::node::Ancestors {
+								create: true,
+								..Default::default()
+							},
 							item: id.into(),
 							location: None,
-							parents: true,
 							public: false,
 							specifier: tag.clone(),
 						};

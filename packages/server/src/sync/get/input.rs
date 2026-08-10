@@ -16,6 +16,23 @@ pub(super) struct SyncGetInputArg {
 	pub stream: BoxStream<'static, tg::sync::PutMessage>,
 }
 
+enum ItemAction {
+	Ignore {
+		resolution: ItemResolution,
+	},
+	Store {
+		replace: bool,
+		resolution: ItemResolution,
+	},
+}
+
+#[derive(Clone, Copy)]
+enum ItemResolution {
+	Missing,
+	None,
+	Resolve { replace: bool },
+}
+
 impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(&self, arg: SyncGetInputArg) -> tg::Result<()> {
@@ -32,7 +49,7 @@ impl Session {
 			match message {
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Group(message)) => {
 					let message = tg::sync::PutItemMessage::Group(message);
-					Self::sync_get_input_item(state, message)?;
+					self.sync_get_input_item(state, message).await?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(message)) => {
@@ -64,7 +81,7 @@ impl Session {
 					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Close the queue if necessary.
-					if state.graph.lock().unwrap().end_local(&state.arg) {
+					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
 
@@ -109,7 +126,7 @@ impl Session {
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Organization(message)) => {
 					let message = tg::sync::PutItemMessage::Organization(message);
-					Self::sync_get_input_item(state, message)?;
+					self.sync_get_input_item(state, message).await?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(message)) => {
@@ -139,7 +156,7 @@ impl Session {
 					state.graph.lock().unwrap().update_process_local(arg);
 
 					// Check if all roots are stored and close the queue if so.
-					if state.graph.lock().unwrap().end_local(&state.arg) {
+					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
 
@@ -196,60 +213,72 @@ impl Session {
 						Some(tg::Location::Local(tg::location::Local::default()));
 					message.data.token = None;
 					let message = tg::sync::PutItemMessage::Sandbox(message);
-					Self::sync_get_input_item(state, message)?;
+					self.sync_get_input_item(state, message).await?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Tag(message)) => {
 					let message = tg::sync::PutItemMessage::Tag(message);
-					Self::sync_get_input_item(state, message)?;
+					self.sync_get_input_item(state, message).await?;
 				},
 
 				tg::sync::PutMessage::Item(tg::sync::PutItemMessage::User(message)) => {
 					let message = tg::sync::PutItemMessage::User(message);
-					Self::sync_get_input_item(state, message)?;
+					self.sync_get_input_item(state, message).await?;
 				},
 
-				tg::sync::PutMessage::Missing(message) => match message.id.kind() {
-					tg::id::Kind::Process => {
-						let id = message.id.try_into()?;
-						if let Some(token) = message.token {
-							state.graph.lock().unwrap().update_process_token(&id, token);
-						}
-						let eager = state
+				tg::sync::PutMessage::Missing(message) => match message.selector {
+					tg::Selector::Specifier(specifier) => {
+						state
 							.graph
 							.lock()
 							.unwrap()
-							.get_process_requested(&id)
-							.is_none_or(|requested| requested.eager);
-						if !eager {
-							return Err(tg::error!(%id, "failed to find the process"));
+							.resolve_local_selector_missing(&specifier);
+						if state.graph.lock().unwrap().end_local() {
+							state.queue.close();
 						}
-						let item = super::index::ProcessItem { id, missing: true };
-						index_process_sender.send(item).await.map_err(|_| {
-							tg::error!("failed to send the process to the index task")
-						})?;
 					},
-					kind if kind.is_object() => {
-						let id = message.id.try_into()?;
-						if let Some(token) = message.token {
-							state.graph.lock().unwrap().update_object_token(&id, token);
-						}
-						let eager = state
-							.graph
-							.lock()
-							.unwrap()
-							.get_object_requested(&id)
-							.is_none_or(|requested| requested.eager);
-						if !eager {
-							return Err(tg::error!(%id, "failed to find the object"));
-						}
-						let item = super::index::ObjectItem { id, missing: true };
-						index_object_sender.send(item).await.map_err(|_| {
-							tg::error!("failed to send the object to the index task")
-						})?;
-					},
-					_ => {
-						return Err(tg::error!(id = %message.id, "failed to find the item"));
+					tg::Selector::Id(id) => match id.kind() {
+						tg::id::Kind::Process => {
+							let id = id.try_into()?;
+							if let Some(token) = message.token {
+								state.graph.lock().unwrap().update_process_token(&id, token);
+							}
+							let eager = state
+								.graph
+								.lock()
+								.unwrap()
+								.get_process_requested(&id)
+								.is_none_or(|requested| requested.eager);
+							if !eager {
+								return Err(tg::error!(%id, "failed to find the process"));
+							}
+							let item = super::index::ProcessItem { id, missing: true };
+							index_process_sender.send(item).await.map_err(|_| {
+								tg::error!("failed to send the process to the index task")
+							})?;
+						},
+						kind if kind.is_object() => {
+							let id = id.try_into()?;
+							if let Some(token) = message.token {
+								state.graph.lock().unwrap().update_object_token(&id, token);
+							}
+							let eager = state
+								.graph
+								.lock()
+								.unwrap()
+								.get_object_requested(&id)
+								.is_none_or(|requested| requested.eager);
+							if !eager {
+								return Err(tg::error!(%id, "failed to find the object"));
+							}
+							let item = super::index::ObjectItem { id, missing: true };
+							index_object_sender.send(item).await.map_err(|_| {
+								tg::error!("failed to send the object to the index task")
+							})?;
+						},
+						_ => {
+							return Err(tg::error!(%id, "failed to find the item"));
+						},
 					},
 				},
 
@@ -264,25 +293,236 @@ impl Session {
 		Err(tg::error!("failed to receive the put end message"))
 	}
 
-	fn sync_get_input_item(state: &State, message: tg::sync::PutItemMessage) -> tg::Result<()> {
-		let id = match &message {
-			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
+	async fn sync_get_input_item(
+		&self,
+		state: &State,
+		message: tg::sync::PutItemMessage,
+	) -> tg::Result<()> {
+		let (ancestor, id) = match &message {
+			tg::sync::PutItemMessage::Group(message) => (
+				Some((message.parent.clone(), message.specifier.clone())),
+				message.id.clone().into(),
+			),
 			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
 				return Err(tg::error!("invalid sync item kind"));
 			},
-			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Sandbox(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+			tg::sync::PutItemMessage::Organization(message) => (
+				Some((None, message.specifier.clone())),
+				message.id.clone().into(),
+			),
+			tg::sync::PutItemMessage::Sandbox(message) => (None, message.id.clone().into()),
+			tg::sync::PutItemMessage::Tag(message) => (
+				Some((message.parent.clone(), message.specifier.clone())),
+				message.id.clone().into(),
+			),
+			tg::sync::PutItemMessage::User(message) => (
+				Some((None, message.specifier.clone())),
+				message.id.clone().into(),
+			),
 		};
-		state
-			.graph
-			.lock()
-			.unwrap()
-			.update_item_local_message(message)?;
+		let action = if let Some((_, specifier)) = &ancestor {
+			Self::sync_get_input_item_selector(state, &id, specifier)?
+		} else {
+			ItemAction::Store {
+				replace: false,
+				resolution: ItemResolution::None,
+			}
+		};
+		let (replace, resolution) = match action {
+			ItemAction::Ignore { resolution } => {
+				let (_, specifier) = ancestor.as_ref().unwrap();
+				Self::sync_get_input_item_resolve(state, &id, specifier, resolution);
+				if state.graph.lock().unwrap().end_local() {
+					state.queue.close();
+				}
+
+				return Ok(());
+			},
+			ItemAction::Store {
+				replace,
+				resolution,
+			} => (replace, resolution),
+		};
+		if let Some((parent, specifier)) = &ancestor {
+			crate::checkpoint!(
+				self.server,
+				"sync.get.input.item.ancestor",
+				id = %id,
+				specifier = %specifier,
+			)
+			.await;
+			self.sync_get_input_item_ancestor(state, parent.as_ref(), specifier)
+				.await?;
+		}
+		{
+			let mut graph = state.graph.lock().unwrap();
+			if let Some((_, specifier)) = &ancestor {
+				Self::sync_get_input_item_resolve_with_graph(
+					&mut graph, &id, specifier, resolution,
+				);
+			}
+			graph.update_item_local_message(message, replace)?;
+		}
 		state.progress.increment_transferred_item(&id);
-		if state.graph.lock().unwrap().end_local(&state.arg) {
+		if state.graph.lock().unwrap().end_local() {
 			state.queue.close();
+		}
+
+		Ok(())
+	}
+
+	fn sync_get_input_item_selector(
+		state: &State,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+	) -> tg::Result<ItemAction> {
+		if !state.graph.lock().unwrap().has_local_selector(specifier) {
+			return Ok(ItemAction::Store {
+				replace: true,
+				resolution: ItemResolution::None,
+			});
+		}
+		match state.arg.ancestors {
+			tg::node::AncestorsPull::Always | tg::node::AncestorsPull::Never => {
+				Ok(ItemAction::Store {
+					replace: true,
+					resolution: ItemResolution::Resolve { replace: true },
+				})
+			},
+			tg::node::AncestorsPull::Missing => {
+				let local = state.graph.lock().unwrap().local_selector_id(specifier)?;
+				match local {
+					None => Ok(ItemAction::Store {
+						replace: false,
+						resolution: ItemResolution::Resolve { replace: false },
+					}),
+					Some(local) if local == *id => {
+						let requested = state.graph.lock().unwrap().has_local_item(id);
+						if requested {
+							return Ok(ItemAction::Store {
+								replace: true,
+								resolution: ItemResolution::Missing,
+							});
+						}
+						Ok(ItemAction::Ignore {
+							resolution: ItemResolution::Missing,
+						})
+					},
+					Some(_) => Err(tg::error!(%specifier, "the node has a different ID")),
+				}
+			},
+		}
+	}
+
+	fn sync_get_input_item_resolve(
+		state: &State,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+		resolution: ItemResolution,
+	) {
+		let mut graph = state.graph.lock().unwrap();
+		Self::sync_get_input_item_resolve_with_graph(&mut graph, id, specifier, resolution);
+	}
+
+	fn sync_get_input_item_resolve_with_graph(
+		graph: &mut crate::sync::graph::Graph,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+		resolution: ItemResolution,
+	) {
+		match resolution {
+			ItemResolution::Missing => {
+				graph.resolve_local_selector_missing(specifier);
+			},
+			ItemResolution::None => {},
+			ItemResolution::Resolve { replace } => {
+				graph.resolve_local_selector(specifier, id.clone(), replace);
+			},
+		}
+	}
+
+	async fn sync_get_input_item_ancestor(
+		&self,
+		state: &State,
+		parent: Option<&tg::Id>,
+		specifier: &tg::Specifier,
+	) -> tg::Result<()> {
+		let (parent, parent_specifier) = match (parent, specifier.parent()) {
+			(None, None) => return Ok(()),
+			(None, Some(_)) => return Err(tg::error!("the parent is missing")),
+			(Some(_), None) => return Err(tg::error!("the parent is unexpected")),
+			(Some(parent), Some(parent_specifier)) => (parent, parent_specifier),
+		};
+		if parent.kind() == tg::id::Kind::Tag {
+			return Err(tg::error!("a tag cannot be a parent"));
+		}
+		if state.graph.lock().unwrap().has_local_item(parent)
+			|| state
+				.graph
+				.lock()
+				.unwrap()
+				.has_local_selector(&parent_specifier)
+		{
+			return Ok(());
+		}
+		let ancestor_specifiers = specifier.ancestors().collect::<Vec<_>>();
+
+		// Apply the ancestor policy to the immediate parent.
+		match state.arg.ancestors {
+			tg::node::AncestorsPull::Always => {},
+			tg::node::AncestorsPull::Missing => {
+				let ids = self
+					.try_get_ids_for_specifiers_from_index(&ancestor_specifiers)
+					.await?;
+				let local = ids.last().cloned().flatten();
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.set_local_selector_ids(std::iter::zip(
+						ancestor_specifiers.iter().cloned(),
+						ids,
+					));
+				match local {
+					None => {},
+					Some(local) if local == *parent => return Ok(()),
+					Some(_) => return Err(tg::error!("the parent has a different ID")),
+				}
+			},
+			tg::node::AncestorsPull::Never => {
+				let mut ids = self
+					.try_get_ids_for_specifiers_from_index(std::slice::from_ref(&parent_specifier))
+					.await?;
+				match ids.pop().unwrap() {
+					None => return Err(tg::error!("the parent does not exist")),
+					Some(local) if local == *parent => return Ok(()),
+					Some(_) => return Err(tg::error!("the parent has a different ID")),
+				}
+			},
+		}
+
+		// Request all ancestors together through the existing sync stream.
+		for specifier in ancestor_specifiers {
+			let inserted = state
+				.graph
+				.lock()
+				.unwrap()
+				.insert_local_selector(specifier.clone());
+			if !inserted {
+				continue;
+			}
+			let selector = tg::Selector::Specifier(specifier);
+			let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+				descendants: false,
+				eager: state.arg.eager,
+				selector,
+				token: None,
+			});
+			state
+				.sender
+				.send(Ok(message))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 		}
 
 		Ok(())

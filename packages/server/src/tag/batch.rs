@@ -60,9 +60,12 @@ impl Session {
 					let mut batch = tangram_index::batch::Arg::default();
 					for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 						let arg = tg::tag::put::Arg {
+							ancestors: tg::node::Ancestors {
+								create: arg.parents,
+								pull: tg::node::AncestorsPull::Never,
+							},
 							item: item.item,
 							location: None,
-							parents: arg.parents,
 							public: false,
 							specifier: item.specifier,
 						};

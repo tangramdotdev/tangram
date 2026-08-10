@@ -5,13 +5,13 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub ancestors: crate::node::Ancestors,
+
+	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
-
-	#[arg(short = 'p', long)]
-	pub parents: bool,
 
 	#[arg(id = "put.public", long = "public")]
 	pub public: bool,
@@ -45,9 +45,9 @@ impl Cli {
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
+			ancestors: args.ancestors.get(),
 			item,
 			location: args.location.get(),
-			parents: args.parents,
 			public: args.public,
 			specifier: args
 				.specifier

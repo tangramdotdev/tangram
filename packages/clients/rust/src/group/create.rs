@@ -1,16 +1,16 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ancestors: tg::node::Ancestors,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub parents: bool,
 
 	pub specifier: tg::Specifier,
 }

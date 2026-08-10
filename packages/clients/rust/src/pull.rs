@@ -3,12 +3,15 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::{DisplayFromStr, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ancestors: tg::node::AncestorsPull,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub destination: Option<tg::Location>,
 
@@ -60,6 +63,7 @@ pub type Output = tg::push::Output;
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
+			ancestors: tg::node::AncestorsPull::default(),
 			destination: Some(tg::Location::Local(tg::location::Local::default())),
 			eager: true,
 			group_children: false,
@@ -85,6 +89,7 @@ impl Default for Arg {
 impl From<tg::pull::Arg> for tg::push::Arg {
 	fn from(value: tg::pull::Arg) -> Self {
 		Self {
+			ancestors: value.ancestors,
 			destination: value.destination,
 			eager: value.eager,
 			group_children: value.group_children,

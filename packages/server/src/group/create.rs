@@ -41,6 +41,8 @@ impl Session {
 		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
 			return Err(tg::error!("unauthorized"));
 		}
+		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
+			.await?;
 		let session = self.clone();
 		let output = self
 			.server
@@ -93,7 +95,7 @@ impl Session {
 		if let Some(id) =
 			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?
 		{
-			if arg.parents && id.kind() == tg::id::Kind::Group {
+			if arg.ancestors.create && id.kind() == tg::id::Kind::Group {
 				let id = id.try_into()?;
 				let mut group = Self::try_get_group_with_transaction(transaction, &id)
 					.await?
@@ -104,7 +106,7 @@ impl Session {
 			}
 			return Err(tg::error!("specifier is already in use"));
 		}
-		let parent = if arg.parents {
+		let parent = if arg.ancestors.create {
 			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
 				.await?
 		} else {

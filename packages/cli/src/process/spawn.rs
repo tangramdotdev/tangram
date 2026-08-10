@@ -456,9 +456,9 @@ impl Cli {
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
+				ancestors: tg::node::Ancestors::default(),
 				item: id.into(),
 				location: location.clone(),
-				parents: false,
 				public: false,
 				specifier: tag.clone(),
 			};

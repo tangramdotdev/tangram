@@ -12,11 +12,15 @@ use crate::prelude::*;
 	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub enum Selector<I> {
+	#[tangram_serialize(id = 0)]
 	#[display("{_0}")]
 	Id(I),
 
+	#[tangram_serialize(id = 1)]
 	#[display("{_0}")]
 	Specifier(tg::Specifier),
 }

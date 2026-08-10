@@ -84,9 +84,7 @@ impl Session {
 			state.progress.increment_skipped(processes, objects, bytes);
 		}
 
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}
@@ -184,9 +182,7 @@ impl Session {
 			state.progress.increment_skipped(processes, objects, bytes);
 		}
 
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}

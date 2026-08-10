@@ -44,7 +44,7 @@ impl Session {
 					let id = self
 						.server
 						.index
-						.try_get_node(&specifier)
+						.try_get_id_for_specifier(&specifier)
 						.await?
 						.ok_or_else(|| {
 							tg::error!("the sandbox owner does not have a billing account")

@@ -158,7 +158,7 @@ impl Session {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
 		}
@@ -266,7 +266,7 @@ impl Session {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
 		}

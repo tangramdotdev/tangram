@@ -53,6 +53,13 @@ pub trait Index {
 		}
 	}
 
+	fn contains_id(&self, id: &tg::Id) -> impl Future<Output = tg::Result<bool>> + Send {
+		self.contains_ids(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn contains_ids(&self, ids: &[tg::Id]) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
+
 	fn visible(
 		&self,
 		ids: &[tg::Id],
@@ -92,18 +99,18 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn try_get_nodes(
-		&self,
-		specifiers: &[tg::Specifier],
-	) -> impl Future<Output = tg::Result<Vec<Option<tg::Id>>>> + Send;
-
-	fn try_get_node(
+	fn try_get_id_for_specifier(
 		&self,
 		specifier: &tg::Specifier,
 	) -> impl Future<Output = tg::Result<Option<tg::Id>>> + Send {
-		self.try_get_nodes(std::slice::from_ref(specifier))
+		self.try_get_ids_for_specifiers(std::slice::from_ref(specifier))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
+
+	fn try_get_ids_for_specifiers(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> impl Future<Output = tg::Result<Vec<Option<tg::Id>>>> + Send;
 
 	fn try_get_organizations(
 		&self,
@@ -230,6 +237,19 @@ pub trait Index {
 		self.try_get_sandboxes(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
+
+	fn try_get_specifier_for_id(
+		&self,
+		id: &tg::Id,
+	) -> impl Future<Output = tg::Result<Option<tg::Specifier>>> + Send {
+		self.try_get_specifiers_for_ids(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_specifiers_for_ids(
+		&self,
+		ids: &[tg::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<tg::Specifier>>>> + Send;
 
 	fn try_get_users(
 		&self,

@@ -189,7 +189,7 @@ impl Session {
 			.sum();
 		state.progress.increment_transferred(0, objects, bytes);
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
 		}
@@ -271,27 +271,34 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to put the processes in the index"))?;
 
 		// Update the graph.
-		let mut graph = state.graph.lock().unwrap();
-		for (id, data, metadata) in &batch {
-			let metadata = metadata.clone();
-			let arg = UpdateProcessLocalArg {
-				data: Some(data),
-				id,
-				marked: Some(true),
-				metadata,
-				permissions: None,
-				requested: None,
-				stored: None,
-			};
-			graph.update_process_local(arg);
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for (id, data, metadata) in &batch {
+				let metadata = metadata.clone();
+				let arg = UpdateProcessLocalArg {
+					data: Some(data),
+					id,
+					marked: Some(true),
+					metadata,
+					permissions: None,
+					requested: None,
+					stored: None,
+				};
+				graph.update_process_local(arg);
+			}
 		}
-		drop(graph);
 
 		// Update the progress.
 		let processes = count.to_u64().unwrap();
 		state.progress.increment_transferred(processes, 0, 0);
+		for (id, _, _) in &batch {
+			crate::checkpoint!(self.server, "sync.get.store.process", id = %id).await;
+		}
 
-		let end = state.graph.lock().unwrap().end_local(&state.arg);
+		let end = state.graph.lock().unwrap().end_local();
+		for (id, _, _) in &batch {
+			crate::checkpoint!(self.server, "sync.get.store.process.end", end, id = %id).await;
+		}
 		if end {
 			state.queue.close();
 		}

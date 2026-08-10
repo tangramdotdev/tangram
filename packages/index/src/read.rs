@@ -11,6 +11,9 @@ pub(crate) enum Request {
 		args: Vec<crate::authorize::Arg>,
 		principal: tg::Principal,
 	},
+	ContainsIds {
+		ids: Vec<tg::Id>,
+	},
 	FinalizationBatch {
 		batch_size: usize,
 		kind: crate::finalization::Kind,
@@ -50,7 +53,7 @@ pub(crate) enum Request {
 	TryGetGroups {
 		ids: Vec<tg::group::Id>,
 	},
-	TryGetNodes {
+	TryGetIdsForSpecifiers {
 		specifiers: Vec<tg::Specifier>,
 	},
 	TryGetObjects {
@@ -69,6 +72,9 @@ pub(crate) enum Request {
 	TryGetSandboxes {
 		ids: Vec<tg::sandbox::Id>,
 	},
+	TryGetSpecifiersForIds {
+		ids: Vec<tg::Id>,
+	},
 	TryGetUsers {
 		ids: Vec<tg::user::Id>,
 	},
@@ -80,6 +86,7 @@ pub(crate) enum Request {
 
 pub(crate) enum Response {
 	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
+	ContainsIds(Vec<bool>),
 	FinalizationBatch(Vec<crate::finalization::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
@@ -91,13 +98,14 @@ pub(crate) enum Response {
 	TryGetCacheEntries(Vec<Option<crate::cache::Entry>>),
 	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	TryGetGroups(Vec<Option<crate::group::Group>>),
-	TryGetNodes(Vec<Option<tg::Id>>),
+	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
 	TryGetOldestFinalizationTransactionId(Option<u64>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
 	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
+	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
 	TryGetUsers(Vec<Option<crate::user::User>>),
 	Visible(Vec<bool>),
 }

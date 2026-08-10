@@ -5,6 +5,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub ancestors: crate::node::Options,
+
+	#[command(flatten)]
 	pub destination: crate::location::Args,
 
 	#[command(flatten)]
@@ -173,6 +176,7 @@ impl Cli {
 
 		// Push the items.
 		let arg = tg::push::Arg {
+			ancestors: args.ancestors.get(),
 			destination: destination.clone(),
 			eager: args.eager.get(),
 			group_children: args.group_children,

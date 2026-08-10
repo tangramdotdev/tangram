@@ -133,6 +133,10 @@ impl Index {
 				)?;
 				crate::read::Response::AuthorizeBatch(output)
 			},
+			crate::read::Request::ContainsIds { ids } => {
+				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;
+				crate::read::Response::ContainsIds(output)
+			},
 			crate::read::Request::FinalizationBatch {
 				batch_size,
 				kind,
@@ -238,10 +242,14 @@ impl Index {
 					Self::try_get_groups_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::TryGetGroups(output)
 			},
-			crate::read::Request::TryGetNodes { specifiers } => {
-				let output =
-					Self::try_get_nodes_with_transaction(db, subspace, transaction, &specifiers)?;
-				crate::read::Response::TryGetNodes(output)
+			crate::read::Request::TryGetIdsForSpecifiers { specifiers } => {
+				let output = Self::try_get_ids_for_specifiers_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&specifiers,
+				)?;
+				crate::read::Response::TryGetIdsForSpecifiers(output)
 			},
 			crate::read::Request::TryGetObjects { ids } => {
 				let output =
@@ -279,6 +287,15 @@ impl Index {
 				let output =
 					Self::try_get_sandboxes_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::TryGetSandboxes(output)
+			},
+			crate::read::Request::TryGetSpecifiersForIds { ids } => {
+				let output = Self::try_get_specifiers_for_ids_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&ids,
+				)?;
+				crate::read::Response::TryGetSpecifiersForIds(output)
 			},
 			crate::read::Request::TryGetUsers { ids } => {
 				let output = Self::try_get_users_with_transaction(db, subspace, transaction, &ids)?;
