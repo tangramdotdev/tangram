@@ -16,7 +16,7 @@ use {
 		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex},
+		sync::{Arc, Mutex, atomic::AtomicU64},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -119,6 +119,7 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	log_store: self::log::Store,
 	messenger: Messenger,
+	next_watch_id: AtomicU64,
 	object_get_tasks: self::object::get::Tasks,
 	object_store: self::object::Store,
 	path: PathBuf,
@@ -755,6 +756,7 @@ impl Server {
 		let vfs = Mutex::new(None);
 
 		// Create the watches.
+		let next_watch_id = AtomicU64::new(0);
 		let watches = DashMap::default();
 
 		// Create the token keys.
@@ -789,6 +791,7 @@ impl Server {
 			lock,
 			log_store,
 			messenger,
+			next_watch_id,
 			object_get_tasks,
 			object_store,
 			path,
