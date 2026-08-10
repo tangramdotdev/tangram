@@ -1,13 +1,16 @@
 use ../../test.nu *
 
-# What re-authorizing an input costs. A process loads one directory from its own input repeatedly, first against a server that authorizes normally and then against one configured to grant everything. The walk reaches the input by going up to the command, which holds the process's only grant, so the price tracks how many parents the input has, and a shared library directory has many.
+# What re-authorizing an input costs. A process loads one directory from its own input repeatedly, first against a server that authorizes normally and then against one configured to grant everything. Authorization reaches the input by walking up to the command, which holds the process's only grant, so the price is set by how many objects lie between the two.
 
 let source = '
-	const PARENTS = 256;
+	const DISTANCE = 256;
 	const N = 100;
 
 	export const measure = async (wrapper: tg.Directory) => {
-		const dir = await wrapper.get("p0/lib").then(tg.Directory.expect);
+		let dir = wrapper;
+		for (let i = 0; i < DISTANCE; i++) {
+			dir = await dir.get(`d${i}`).then(tg.Directory.expect);
+		}
 		const id = dir.id;
 		const start = Date.now();
 		for (let i = 0; i < N; i++) {
@@ -17,16 +20,14 @@ let source = '
 	};
 
 	export default async () => {
-		const lib = await tg.directory({ "libfoo.so": tg.file("foo") });
-		const entries: Record<string, tg.Unresolved<tg.Directory>> = {};
-		for (let i = 0; i < PARENTS; i++) {
-			entries[`p${i}`] = tg.directory({ [`u${i}.o`]: tg.file(`unit ${i}`), lib });
+		let dir = await tg.directory({ "libfoo.so": tg.file("foo") });
+		for (let i = DISTANCE - 1; i >= 0; i--) {
+			dir = await tg.directory({ [`d${i}`]: dir });
 		}
-		return tg.build(measure, await tg.directory(entries));
+		return tg.build(measure, dir);
 	};
 '
 
-# Every parent holds a distinct file, because parents with identical contents would collapse to one object and the input would have a single parent.
 let path = artifact { tangram.ts: $source }
 
 def elapsed_ms []: nothing -> float {
