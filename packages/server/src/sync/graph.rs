@@ -1456,6 +1456,22 @@ impl Graph {
 	}
 
 	#[must_use]
+	pub fn object_remote_stored(&self, id: &tg::object::Id) -> bool {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_object_ref().remote_stored.as_ref())
+			.is_some_and(|stored| stored.subtree)
+	}
+
+	#[must_use]
+	pub fn process_remote_stored(&self, id: &tg::process::Id) -> bool {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(|node| node.unwrap_process_ref().remote_stored.as_ref())
+			.is_some_and(|stored| self.process_remote_stored_complete(stored))
+	}
+
+	#[must_use]
 	pub fn end_local(&self) -> bool {
 		self.local_pending_roots == 0 && self.local_selectors.is_empty()
 	}

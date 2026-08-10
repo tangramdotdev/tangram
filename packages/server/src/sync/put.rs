@@ -1,5 +1,5 @@
 use {
-	super::{graph::Graph, progress::Progress, queue::Queue},
+	super::{graph::Graph, progress::Progress},
 	crate::Session,
 	futures::stream::BoxStream,
 	std::sync::{Arc, Mutex},
@@ -20,7 +20,7 @@ struct State {
 	arg: tg::sync::Arg,
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
-	queue: Queue,
+	queue: self::queue::Queue,
 	resolve_sender: async_channel::Sender<self::resolve::Item>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 }
@@ -38,15 +38,16 @@ impl Session {
 
 		// Create the queue.
 		let (queue_database_sender, queue_database_receiver) =
-			async_channel::unbounded::<super::queue::DatabaseItem>();
+			async_channel::unbounded::<self::queue::DatabaseItem>();
 		let (queue_object_sender, queue_object_receiver) =
-			async_channel::unbounded::<super::queue::ObjectItem>();
+			async_channel::unbounded::<self::queue::ObjectItem>();
 		let (queue_process_sender, queue_process_receiver) =
-			async_channel::unbounded::<super::queue::ProcessItem>();
+			async_channel::unbounded::<self::queue::ProcessItem>();
 		let (queue_sandbox_sender, queue_sandbox_receiver) =
-			async_channel::unbounded::<super::queue::SandboxItem>();
-		let queue = Queue::new(
+			async_channel::unbounded::<self::queue::SandboxItem>();
+		let queue = self::queue::Queue::new(
 			queue_database_sender,
+			graph.clone(),
 			queue_object_sender,
 			queue_process_sender,
 			queue_sandbox_sender,

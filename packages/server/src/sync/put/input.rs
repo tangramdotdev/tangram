@@ -17,8 +17,7 @@ impl Session {
 					tracing::trace!(selector = %message.selector, "received get item");
 					match message.selector {
 						tg::Selector::Id(id) => {
-							state.graph.lock().unwrap().insert_remote_root(id.clone());
-							state.queue.enqueue_with_descendants(
+							state.queue.enqueue_root_with_descendants(
 								message.descendants,
 								message.eager,
 								id,
@@ -51,9 +50,7 @@ impl Session {
 						None,
 						Some(&tangram_index::object::Stored { subtree: true }),
 					);
-					if state.graph.lock().unwrap().end_remote() {
-						state.queue.close();
-					}
+					state.queue.close_if_end();
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
@@ -76,9 +73,7 @@ impl Session {
 						None,
 						Some(&stored),
 					);
-					if state.graph.lock().unwrap().end_remote() {
-						state.queue.close();
-					}
+					state.queue.close_if_end();
 				},
 
 				tg::sync::GetMessage::Progress(_) => (),
@@ -87,9 +82,8 @@ impl Session {
 					tracing::trace!("received end");
 					state.graph.lock().unwrap().mark_get_end_received();
 					state.resolve_sender.close();
-					if state.graph.lock().unwrap().end_remote() {
-						state.queue.close();
-					}
+					let end = state.queue.close_if_end();
+					crate::checkpoint!(self.server, "sync.put.input.end", end).await;
 					return Ok(());
 				},
 			}

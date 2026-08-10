@@ -63,9 +63,7 @@ impl Session {
 					.unwrap()
 					.finish_item_remote_descendants(&item.id, &[]);
 			}
-			if state.graph.lock().unwrap().end_remote() {
-				state.queue.close();
-			}
+			state.queue.close_if_end();
 			return Ok(());
 		}
 
@@ -82,9 +80,7 @@ impl Session {
 					.unwrap()
 					.finish_item_remote_descendants(&item.id, &[]);
 			}
-			if state.graph.lock().unwrap().end_remote() {
-				state.queue.close();
-			}
+			state.queue.close_if_end();
 			return Ok(());
 		};
 
@@ -96,21 +92,15 @@ impl Session {
 				.unwrap()
 				.finish_database_item_remote_found(&item.id);
 		}
-		if item.descendants {
-			let children = output
-				.children
-				.iter()
-				.map(|child| child.item.clone())
-				.collect::<Vec<_>>();
-			state
-				.graph
-				.lock()
-				.unwrap()
-				.finish_item_remote_descendants(&item.id, &children);
-		}
-
 		// Send the item.
 		if let Some(message) = output.message {
+			crate::checkpoint!(
+				self.server,
+				"sync.put.database.item.send",
+				descendants = item.descendants,
+				id = %item.id,
+			)
+			.await;
 			let message = tg::sync::PutMessage::Item(message);
 			state
 				.sender
@@ -118,18 +108,33 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to send the item"))?;
 		}
+		crate::checkpoint!(
+			self.server,
+			"sync.put.database.item",
+			descendants = item.descendants,
+			id = %item.id,
+		)
+		.await;
 
 		// Update the graph and enqueue the children.
 		if item.descendants {
+			let children = output
+				.children
+				.iter()
+				.map(|child| child.item.clone())
+				.collect::<Vec<_>>();
 			for child in output.children {
 				state
 					.queue
 					.enqueue(item.eager, child.item, child.options.token)?;
 			}
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.finish_item_remote_descendants(&item.id, &children);
 		}
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}
@@ -295,9 +300,7 @@ impl Session {
 			});
 			state.sender.send(Ok(message)).await.ok();
 		}
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 	}
 
 	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::grant::Permission> {

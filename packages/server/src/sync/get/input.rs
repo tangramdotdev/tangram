@@ -17,8 +17,20 @@ pub(super) struct SyncGetInputArg {
 }
 
 enum ItemAction {
-	Ignore,
-	Store { replace: bool },
+	Ignore {
+		resolution: ItemResolution,
+	},
+	Store {
+		replace: bool,
+		resolution: ItemResolution,
+	},
+}
+
+#[derive(Clone, Copy)]
+enum ItemResolution {
+	Missing,
+	None,
+	Resolve { replace: bool },
 }
 
 impl Session {
@@ -309,23 +321,47 @@ impl Session {
 			),
 		};
 		let action = if let Some((_, specifier)) = &ancestor {
-			self.sync_get_input_item_selector(state, &id, specifier)
-				.await?
+			Self::sync_get_input_item_selector(state, &id, specifier)?
 		} else {
-			ItemAction::Store { replace: false }
+			ItemAction::Store {
+				replace: false,
+				resolution: ItemResolution::None,
+			}
 		};
-		let replace = match action {
-			ItemAction::Ignore => return Ok(()),
-			ItemAction::Store { replace } => replace,
+		let (replace, resolution) = match action {
+			ItemAction::Ignore { resolution } => {
+				let (_, specifier) = ancestor.as_ref().unwrap();
+				Self::sync_get_input_item_resolve(state, &id, specifier, resolution);
+				if state.graph.lock().unwrap().end_local() {
+					state.queue.close();
+				}
+
+				return Ok(());
+			},
+			ItemAction::Store {
+				replace,
+				resolution,
+			} => (replace, resolution),
 		};
-		state
-			.graph
-			.lock()
-			.unwrap()
-			.update_item_local_message(message, replace)?;
-		if let Some((parent, specifier)) = ancestor {
-			self.sync_get_input_item_ancestor(state, parent.as_ref(), &specifier)
+		if let Some((parent, specifier)) = &ancestor {
+			crate::checkpoint!(
+				self.server,
+				"sync.get.input.item.ancestor",
+				id = %id,
+				specifier = %specifier,
+			)
+			.await;
+			self.sync_get_input_item_ancestor(state, parent.as_ref(), specifier)
 				.await?;
+		}
+		{
+			let mut graph = state.graph.lock().unwrap();
+			if let Some((_, specifier)) = &ancestor {
+				Self::sync_get_input_item_resolve_with_graph(
+					&mut graph, &id, specifier, resolution,
+				);
+			}
+			graph.update_item_local_message(message, replace)?;
 		}
 		state.progress.increment_transferred_item(&id);
 		if state.graph.lock().unwrap().end_local() {
@@ -335,52 +371,72 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_input_item_selector(
-		&self,
+	fn sync_get_input_item_selector(
 		state: &State,
 		id: &tg::Id,
 		specifier: &tg::Specifier,
 	) -> tg::Result<ItemAction> {
 		if !state.graph.lock().unwrap().has_local_selector(specifier) {
-			return Ok(ItemAction::Store { replace: true });
+			return Ok(ItemAction::Store {
+				replace: true,
+				resolution: ItemResolution::None,
+			});
 		}
 		match state.arg.ancestors {
 			tg::node::AncestorsPull::Always | tg::node::AncestorsPull::Never => {
-				state
-					.graph
-					.lock()
-					.unwrap()
-					.resolve_local_selector(specifier, id.clone(), true);
-				Ok(ItemAction::Store { replace: true })
+				Ok(ItemAction::Store {
+					replace: true,
+					resolution: ItemResolution::Resolve { replace: true },
+				})
 			},
 			tg::node::AncestorsPull::Missing => {
 				let local = state.graph.lock().unwrap().local_selector_id(specifier)?;
 				match local {
-					None => {
-						state.graph.lock().unwrap().resolve_local_selector(
-							specifier,
-							id.clone(),
-							false,
-						);
-						Ok(ItemAction::Store { replace: false })
-					},
+					None => Ok(ItemAction::Store {
+						replace: false,
+						resolution: ItemResolution::Resolve { replace: false },
+					}),
 					Some(local) if local == *id => {
-						let requested = {
-							let mut graph = state.graph.lock().unwrap();
-							let requested = graph.has_local_item(id);
-							graph.resolve_local_selector_missing(specifier);
-							requested
-						};
+						let requested = state.graph.lock().unwrap().has_local_item(id);
 						if requested {
-							return Ok(ItemAction::Store { replace: true });
+							return Ok(ItemAction::Store {
+								replace: true,
+								resolution: ItemResolution::Missing,
+							});
 						}
-						if state.graph.lock().unwrap().end_local() {
-							state.queue.close();
-						}
-						Ok(ItemAction::Ignore)
+						Ok(ItemAction::Ignore {
+							resolution: ItemResolution::Missing,
+						})
 					},
 					Some(_) => Err(tg::error!(%specifier, "the node has a different ID")),
 				}
+			},
+		}
+	}
+
+	fn sync_get_input_item_resolve(
+		state: &State,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+		resolution: ItemResolution,
+	) {
+		let mut graph = state.graph.lock().unwrap();
+		Self::sync_get_input_item_resolve_with_graph(&mut graph, id, specifier, resolution);
+	}
+
+	fn sync_get_input_item_resolve_with_graph(
+		graph: &mut crate::sync::graph::Graph,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+		resolution: ItemResolution,
+	) {
+		match resolution {
+			ItemResolution::Missing => {
+				graph.resolve_local_selector_missing(specifier);
+			},
+			ItemResolution::None => {},
+			ItemResolution::Resolve { replace } => {
+				graph.resolve_local_selector(specifier, id.clone(), replace);
 			},
 		}
 	}

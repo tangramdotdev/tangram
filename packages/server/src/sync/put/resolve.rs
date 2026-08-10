@@ -40,27 +40,9 @@ impl Session {
 
 		// Route resolved specifiers and report missing specifiers.
 		for (item, output) in std::iter::zip(items, outputs) {
-			let request = state
-				.graph
-				.lock()
-				.unwrap()
-				.resolve_remote_selector(&item.specifier)
-				.ok_or_else(
-					|| tg::error!(specifier = %item.specifier, "missing the selector request"),
-				)?;
-			if let Some(id) = output {
-				state.graph.lock().unwrap().insert_remote_root(id.clone());
-				let selector = tg::Selector::Specifier(item.specifier);
-				state
-					.queue
-					.enqueue_database(crate::sync::queue::DatabaseItem {
-						descendants: request.descendants,
-						eager: request.eager,
-						id,
-						selector,
-						token: request.token,
-					});
-			} else {
+			let missing = output.is_none();
+			state.queue.resolve(&item.specifier, output)?;
+			if missing {
 				let selector = tg::Selector::Specifier(item.specifier);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					selector,
@@ -69,9 +51,7 @@ impl Session {
 				state.sender.send(Ok(message)).await.ok();
 			}
 		}
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}

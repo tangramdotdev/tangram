@@ -3,6 +3,8 @@ use {
 	tangram_futures::stream::TryExt as _, tangram_index::Index as _,
 };
 
+const NODE_INDEX_BATCH_SIZE: usize = 128;
+
 pub(crate) struct IndexOutput {
 	pub ids: Vec<Option<tg::Id>>,
 	pub specifiers: Vec<Option<tg::Specifier>>,
@@ -97,12 +99,12 @@ impl Session {
 			.iter()
 			.map(|&index| specifiers[index].clone())
 			.collect::<Vec<_>>();
-		let (retry_ids_for_specifiers, retry_specifiers_for_ids) = futures::try_join!(
-			self.server
-				.index
-				.try_get_ids_for_specifiers(&retry_specifiers),
-			self.server.index.try_get_specifiers_for_ids(&retry_ids),
-		)?;
+		let IndexOutput {
+			ids: retry_ids_for_specifiers,
+			specifiers: retry_specifiers_for_ids,
+		} = self
+			.try_get_nodes_once_from_index(&retry_ids, &retry_specifiers)
+			.await?;
 		for (index, output) in std::iter::zip(missing_specifiers, retry_ids_for_specifiers) {
 			ids_for_specifiers[index] = output;
 		}
@@ -122,10 +124,29 @@ impl Session {
 		ids: &[tg::Id],
 		specifiers: &[tg::Specifier],
 	) -> tg::Result<IndexOutput> {
-		let (ids, specifiers) = futures::try_join!(
-			self.server.index.try_get_ids_for_specifiers(specifiers),
-			self.server.index.try_get_specifiers_for_ids(ids),
-		)?;
+		let ids_future = async {
+			let mut outputs = Vec::with_capacity(specifiers.len());
+			for specifiers in specifiers.chunks(NODE_INDEX_BATCH_SIZE) {
+				let batch = self
+					.server
+					.index
+					.try_get_ids_for_specifiers(specifiers)
+					.await?;
+				outputs.extend(batch);
+			}
+
+			Ok::<_, tg::Error>(outputs)
+		};
+		let specifiers_future = async {
+			let mut outputs = Vec::with_capacity(ids.len());
+			for ids in ids.chunks(NODE_INDEX_BATCH_SIZE) {
+				let batch = self.server.index.try_get_specifiers_for_ids(ids).await?;
+				outputs.extend(batch);
+			}
+
+			Ok::<_, tg::Error>(outputs)
+		};
+		let (ids, specifiers) = futures::try_join!(ids_future, specifiers_future)?;
 		let output = IndexOutput { ids, specifiers };
 
 		Ok(output)

@@ -179,7 +179,7 @@ impl Session {
 						parent: Some(item.id.clone().into()),
 						token: None,
 					});
-				state.queue.enqueue_objects(items);
+				state.queue.enqueue_objects(items)?;
 			}
 			if item.descendants {
 				state
@@ -190,9 +190,7 @@ impl Session {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}
@@ -339,7 +337,7 @@ impl Session {
 						parent: Some(item.id.clone()),
 						token: None,
 					});
-				state.queue.enqueue_processes(items);
+				state.queue.enqueue_processes(items)?;
 			}
 
 			// Enqueue the command.
@@ -352,7 +350,7 @@ impl Session {
 					parent: Some(item.id.clone().into()),
 					token: None,
 				};
-				state.queue.enqueue_object(item);
+				state.queue.enqueue_object(item)?;
 			}
 
 			// Enqueue the error.
@@ -376,7 +374,7 @@ impl Session {
 									parent: Some(item.id.clone().into()),
 									token: None,
 								});
-						state.queue.enqueue_objects(items);
+						state.queue.enqueue_objects(items)?;
 					},
 					tg::Either::Right(id) => {
 						let item = crate::sync::queue::ObjectItem {
@@ -387,7 +385,7 @@ impl Session {
 							parent: Some(item.id.clone().into()),
 							token: None,
 						};
-						state.queue.enqueue_object(item);
+						state.queue.enqueue_object(item)?;
 					},
 				}
 			}
@@ -406,7 +404,7 @@ impl Session {
 					parent: Some(item.id.clone().into()),
 					token: None,
 				};
-				state.queue.enqueue_object(item);
+				state.queue.enqueue_object(item)?;
 			}
 
 			// Enqueue the outputs.
@@ -427,7 +425,7 @@ impl Session {
 						parent: Some(item.id.clone().into()),
 						token: None,
 					});
-				state.queue.enqueue_objects(items);
+				state.queue.enqueue_objects(items)?;
 			}
 			if item.descendants {
 				state
@@ -438,9 +436,7 @@ impl Session {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}

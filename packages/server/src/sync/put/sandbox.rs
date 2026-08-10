@@ -94,18 +94,16 @@ impl Session {
 			state.graph.lock().unwrap().finish_item_remote_found(&id);
 		}
 		if item.descendants {
+			for child in &children {
+				state.queue.enqueue(item.eager, child.clone(), None)?;
+			}
 			state
 				.graph
 				.lock()
 				.unwrap()
 				.finish_item_remote_descendants(&id, &children);
-			for child in children {
-				state.queue.enqueue(item.eager, child, None)?;
-			}
 		}
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 
 		Ok(())
 	}
@@ -127,8 +125,6 @@ impl Session {
 				.unwrap()
 				.finish_item_remote_descendants(&id, &[]);
 		}
-		if state.graph.lock().unwrap().end_remote() {
-			state.queue.close();
-		}
+		state.queue.close_if_end();
 	}
 }

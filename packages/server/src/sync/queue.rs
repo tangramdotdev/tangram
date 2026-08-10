@@ -145,13 +145,6 @@ impl Queue {
 		}
 	}
 
-	pub fn enqueue_processes(&self, items: impl IntoIterator<Item = ProcessItem>) {
-		let items: Vec<_> = items.into_iter().collect();
-		for item in items {
-			self.process.force_send(item).ok();
-		}
-	}
-
 	pub fn enqueue_sandbox(&self, item: SandboxItem) {
 		self.sandbox.force_send(item).ok();
 	}
