@@ -168,6 +168,9 @@ pub enum Role {
 #[serde(deny_unknown_fields)]
 pub struct Advanced {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorize_always_unsafe: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkpoints: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1909,6 +1912,9 @@ fn resolve_role(source: Role) -> server::Role {
 
 fn resolve_advanced(source: Advanced) -> server::Advanced {
 	let mut target = server::Advanced::default();
+	if let Some(value) = source.authorize_always_unsafe {
+		target.authorize_always_unsafe = value;
+	}
 	if let Some(value) = source.checkpoints {
 		target.checkpoints = value;
 	}

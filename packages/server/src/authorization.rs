@@ -41,6 +41,13 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::grant::permission::Set)>,
 	{
+		if self.server.config.advanced.authorize_always_unsafe {
+			return Ok(args
+				.into_iter()
+				.map(|(_, permissions)| Some(permissions))
+				.collect());
+		}
+
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();

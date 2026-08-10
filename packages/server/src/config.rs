@@ -85,6 +85,8 @@ pub enum Role {
 
 #[derive(Clone, Debug)]
 pub struct Advanced {
+	pub authorize_always_unsafe: bool,
+
 	pub checkpoints: bool,
 
 	pub disable_version_check: bool,
@@ -1046,6 +1048,7 @@ impl Default for Config {
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
+			authorize_always_unsafe: false,
 			checkpoints: false,
 			disable_version_check: false,
 			internal_error_locations: false,
