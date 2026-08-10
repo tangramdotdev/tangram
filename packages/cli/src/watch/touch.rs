@@ -12,9 +12,20 @@ pub struct Args {
 	#[arg(index = 2)]
 	items: Vec<PathBuf>,
 
+	/// The file system event kind.
+	#[arg(default_value = "any", long, value_enum)]
+	kind: Kind,
+
 	/// The watch path.
 	#[arg(index = 1)]
 	path: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum Kind {
+	Any,
+	Remove,
+	Rename,
 }
 
 impl Cli {
@@ -31,7 +42,12 @@ impl Cli {
 			.try_collect()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the paths"))?;
-		let arg = tg::watch::touch::Arg { path, items };
+		let kind = match args.kind {
+			Kind::Any => tg::watch::touch::Kind::Any,
+			Kind::Remove => tg::watch::touch::Kind::Remove,
+			Kind::Rename => tg::watch::touch::Kind::Rename,
+		};
+		let arg = tg::watch::touch::Arg { items, kind, path };
 		client
 			.touch_watch(arg)
 			.await

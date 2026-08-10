@@ -358,17 +358,11 @@ impl Watch {
 	fn changes(event: &notify::Event) -> HashSet<&Path, fnv::FnvBuildHasher> {
 		let mut changes = HashSet::default();
 		match &event.kind {
-			notify::EventKind::Create(_) => {
-				for path in &event.paths {
-					changes.insert(path.as_path());
-					if let Some(parent) = path.parent() {
-						changes.insert(parent);
-					}
-				}
-			},
-			notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+			notify::EventKind::Create(_)
+			| notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
 			| notify::EventKind::Remove(_) => {
 				for path in &event.paths {
+					changes.insert(path.as_path());
 					if let Some(parent) = path.parent() {
 						changes.insert(parent);
 					}

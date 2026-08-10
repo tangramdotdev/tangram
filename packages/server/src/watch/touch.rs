@@ -27,11 +27,22 @@ impl Session {
 		// Create a notification channel.
 		let (notification_sender, notification_receiver) = tokio::sync::oneshot::channel();
 
+		// Create the event kind.
+		let kind = match arg.kind {
+			tg::watch::touch::Kind::Any => notify::EventKind::Any,
+			tg::watch::touch::Kind::Remove => {
+				notify::EventKind::Remove(notify::event::RemoveKind::Any)
+			},
+			tg::watch::touch::Kind::Rename => notify::EventKind::Modify(
+				notify::event::ModifyKind::Name(notify::event::RenameMode::Any),
+			),
+		};
+
 		// Send a message to touch the watch.
 		sender
 			.send(super::Message {
 				event: notify::Event {
-					kind: notify::EventKind::Any,
+					kind,
 					paths: arg.items.clone(),
 					attrs: notify::event::EventAttributes::new(),
 				},
