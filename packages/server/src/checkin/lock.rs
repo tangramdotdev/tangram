@@ -86,6 +86,9 @@ impl Session {
 
 		// If the root is not solvable, then remove an existing lock and return.
 		if !root_node.solvable {
+			if arg.options.locked && lock.is_some() {
+				return Err(tg::error!("the lock is out of date"));
+			}
 			match root_node.variant {
 				Variant::Directory(_) => {
 					let lockfile_path = root.join(tg::module::LOCKFILE_FILE_NAME);
