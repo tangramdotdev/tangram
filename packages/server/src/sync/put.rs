@@ -12,6 +12,7 @@ mod database;
 mod index;
 mod input;
 mod queue;
+mod resolve;
 mod sandbox;
 mod store;
 
@@ -20,6 +21,7 @@ struct State {
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
+	resolve_sender: async_channel::Sender<self::resolve::Item>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 }
 
@@ -49,6 +51,7 @@ impl Session {
 			queue_process_sender,
 			queue_sandbox_sender,
 		);
+		let (resolve_sender, resolve_receiver) = async_channel::unbounded();
 
 		// Create the state.
 		let state = Arc::new(State {
@@ -56,6 +59,7 @@ impl Session {
 			graph,
 			progress,
 			queue,
+			resolve_sender,
 			sender,
 		});
 
@@ -129,6 +133,11 @@ impl Session {
 			.sync_put_sandbox(state.clone(), sandbox_receiver)
 			.instrument(tracing::Span::current());
 
+		// Create the resolve future.
+		let resolve_future = self
+			.sync_put_resolve(state.clone(), resolve_receiver)
+			.instrument(tracing::Span::current());
+
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
 			let session = self.clone();
@@ -148,6 +157,7 @@ impl Session {
 			database_future,
 			index_future,
 			queue_future,
+			resolve_future,
 			sandbox_future,
 			store_future
 		)?;

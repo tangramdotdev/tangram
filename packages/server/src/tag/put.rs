@@ -39,6 +39,8 @@ impl Session {
 		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
 			return Err(tg::error!("unauthorized"));
 		}
+		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
+			.await?;
 		let permissions = self.recorded_tag_permissions(&arg.item).await?;
 		let session = self.clone();
 		self.server
@@ -84,7 +86,7 @@ impl Session {
 		permissions: Vec<tg::grant::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
-		let parent = if arg.parents {
+		let parent = if arg.ancestors.create {
 			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
 				.await?
 		} else {

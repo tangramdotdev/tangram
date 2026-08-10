@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Pushing a nested tag does not also push its parent group.
+# Pushing a nested tag rejects a missing parent with ancestors=never and pulls it by default.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local
@@ -10,7 +10,11 @@ tg group create parent
 let file = tg put 'tg.file("data")' | str trim
 tg tag put parent/tag $file
 
-let output = tg push parent/tag | complete
+let output = tg push --ancestors=never parent/tag | complete
 failure $output
 assert ($output.stderr | str contains "the parent does not exist")
-failure (tg --url $remote.url group get parent | complete)
+
+tg push parent/tag
+let local_parent = tg group get parent | from json
+let remote_parent = tg --url $remote.url group get parent | from json
+assert equal $remote_parent.id $local_parent.id

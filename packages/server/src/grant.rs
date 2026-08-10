@@ -479,6 +479,26 @@ impl Session {
 		}
 	}
 
+	pub(crate) fn delete_permission_for_resource(
+		resource: &tg::Id,
+	) -> tg::Result<tg::grant::Permission> {
+		match resource.kind() {
+			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
+				tg::grant::permission::group::Permission::Admin,
+			)),
+			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
+				tg::grant::permission::organization::Permission::Admin,
+			)),
+			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
+				tg::grant::permission::tag::Permission::Write,
+			)),
+			tg::id::Kind::User => Ok(tg::grant::Permission::User(
+				tg::grant::permission::user::Permission::Admin,
+			)),
+			_ => Err(tg::error!("invalid resource")),
+		}
+	}
+
 	pub(crate) fn write_permission_for_resource(
 		resource: &tg::Id,
 	) -> tg::Result<tg::grant::Permission> {
@@ -511,6 +531,26 @@ impl Session {
 		id: &tg::Id,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
+		self.delete_node_grants_batch_with_transaction(
+			transaction,
+			std::slice::from_ref(id),
+			batch,
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	pub(crate) async fn delete_node_grants_batch_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		ids: &[tg::Id],
+		batch: &mut tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		if ids.is_empty() {
+			return Ok(());
+		}
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -523,15 +563,24 @@ impl Session {
 			resource: tg::Id,
 		}
 		let p = transaction.p();
+		let placeholders = (1..=ids.len())
+			.map(|index| format!("{p}{index}"))
+			.collect::<Vec<_>>()
+			.join(", ");
+		let params = ids
+			.iter()
+			.map(ToString::to_string)
+			.map(db::Value::from)
+			.collect::<Vec<_>>();
 		let statement = formatdoc!(
 			"
 				select creator, resource, permissions, principal
 				from grants
-				where resource = {p}1;
+				where resource in ({placeholders}) or principal in ({placeholders});
 			"
 		);
 		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
+			.query_all_into::<Row>(statement.into(), params.clone())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		for row in rows {
@@ -548,43 +597,11 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				delete from grants
-				where resource = {p}1;
+				where resource in ({placeholders}) or principal in ({placeholders});
 			"
 		);
 		transaction
-			.execute(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let statement = formatdoc!(
-			"
-				select creator, resource, permissions, principal
-				from grants
-				where principal = {p}1;
-			"
-		);
-		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		for row in rows {
-			batch.items.push(tangram_index::batch::Item::DeleteGrant(
-				tangram_index::grant::delete::Arg {
-					creator: Some(row.creator),
-					expires_at: None,
-					permissions: row.permissions,
-					principal: row.principal,
-					resource: row.resource,
-				},
-			));
-		}
-		let statement = formatdoc!(
-			"
-				delete from grants
-				where principal = {p}1;
-			"
-		);
-		transaction
-			.execute(statement.into(), db::params![id.to_string()])
+			.execute(statement.into(), params)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(())

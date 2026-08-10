@@ -8,14 +8,16 @@ use {
 };
 
 pub struct Item {
+	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
+	pub send: bool,
 	pub token: Option<tg::grant::Token>,
 }
 
 struct Output {
 	children: Vec<tg::Referent<tg::Id>>,
-	message: tg::sync::PutItemMessage,
+	message: Option<tg::sync::PutItemMessage>,
 }
 
 impl Session {
@@ -51,38 +53,79 @@ impl Session {
 			false
 		};
 		if !authorized && !visible {
-			self.sync_put_database_missing(state, &item.id).await;
+			if item.send {
+				self.sync_put_database_missing(state, &item.id).await;
+			}
+			if item.descendants {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.finish_item_remote_descendants(&item.id, &[]);
+			}
+			if state.graph.lock().unwrap().end_remote() {
+				state.queue.close();
+			}
 			return Ok(());
 		}
 
 		// Read the item.
-		let output = self.sync_put_database_read(state, &item.id).await?;
+		let output = self.sync_put_database_read(state, &item).await?;
 		let Some(output) = output else {
-			self.sync_put_database_missing(state, &item.id).await;
+			if item.send {
+				self.sync_put_database_missing(state, &item.id).await;
+			}
+			if item.descendants {
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.finish_item_remote_descendants(&item.id, &[]);
+			}
+			if state.graph.lock().unwrap().end_remote() {
+				state.queue.close();
+			}
 			return Ok(());
 		};
 
-		// Send the item.
-		let message = tg::sync::PutMessage::Item(output.message);
-		state
-			.sender
-			.send(Ok(message))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the item"))?;
-
-		// Update the graph and enqueue the children.
-		state.graph.lock().unwrap().update_item_remote_sent(
-			&item.id,
-			&output
+		// Complete the item in the graph.
+		if item.send {
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.finish_database_item_remote_found(&item.id);
+		}
+		if item.descendants {
+			let children = output
 				.children
 				.iter()
 				.map(|child| child.item.clone())
-				.collect::<Vec<_>>(),
-		);
-		for child in output.children {
+				.collect::<Vec<_>>();
 			state
-				.queue
-				.enqueue(item.eager, child.item, child.options.token)?;
+				.graph
+				.lock()
+				.unwrap()
+				.finish_item_remote_descendants(&item.id, &children);
+		}
+
+		// Send the item.
+		if let Some(message) = output.message {
+			let message = tg::sync::PutMessage::Item(message);
+			state
+				.sender
+				.send(Ok(message))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to send the item"))?;
+		}
+
+		// Update the graph and enqueue the children.
+		if item.descendants {
+			for child in output.children {
+				state
+					.queue
+					.enqueue(item.eager, child.item, child.options.token)?;
+			}
 		}
 		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
@@ -94,7 +137,7 @@ impl Session {
 	async fn sync_put_database_read(
 		&self,
 		state: &State,
-		id: &tg::Id,
+		item: &Item,
 	) -> tg::Result<Option<Output>> {
 		let mut connection = self
 			.server
@@ -107,66 +150,74 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(&transaction, id).await?
+			Self::try_get_specifier_for_id_with_transaction(&transaction, &item.id).await?
 		else {
 			return Ok(None);
 		};
-		let children = self
-			.sync_put_database_read_children(state, &transaction, id)
-			.await?;
-		let message = match id.kind() {
-			tg::id::Kind::Group => {
-				let id = id.clone().try_into()?;
-				let group = Self::try_get_group_with_transaction(&transaction, &id)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the group"))?;
-				tg::sync::PutItemMessage::Group(tg::sync::PutItemGroupMessage {
-					id,
-					name: group.name,
-					parent: group.parent,
-					specifier,
-				})
-			},
-			tg::id::Kind::Organization => {
-				let id = id.clone().try_into()?;
-				let organization = Self::try_get_organization_with_transaction(&transaction, &id)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the organization"))?;
-				tg::sync::PutItemMessage::Organization(tg::sync::PutItemOrganizationMessage {
-					id,
-					name: organization.name,
-					specifier,
-				})
-			},
-			tg::id::Kind::Tag => {
-				let id = id.clone().try_into()?;
-				let data = Self::get_tag_data_with_transaction(&transaction, &id).await?;
-				let id = data.id;
-				let item = match data.item {
-					tg::tag::data::Item::Object(id) => id.into(),
-					tg::tag::data::Item::Process(id) => id.into(),
-				};
-				tg::sync::PutItemMessage::Tag(tg::sync::PutItemTagMessage {
-					id,
-					item,
-					name: data.name,
-					parent: data.parent,
-					specifier: data.specifier,
-				})
-			},
-			tg::id::Kind::User => {
-				let id = id.clone().try_into()?;
-				let user = Self::try_get_user_with_transaction(&transaction, &id)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the user"))?;
-				tg::sync::PutItemMessage::User(tg::sync::PutItemUserMessage {
-					emails: user.emails,
-					id,
-					name: user.name,
-					specifier,
-				})
-			},
-			_ => return Err(tg::error!(%id, "invalid database item kind")),
+		let children = if item.descendants {
+			self.sync_put_database_read_children(state, &transaction, &item.id)
+				.await?
+		} else {
+			Vec::new()
+		};
+		let message = if item.send {
+			Some(match item.id.kind() {
+				tg::id::Kind::Group => {
+					let id = item.id.clone().try_into()?;
+					let group = Self::try_get_group_with_transaction(&transaction, &id)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the group"))?;
+					tg::sync::PutItemMessage::Group(tg::sync::PutItemGroupMessage {
+						id,
+						name: group.name,
+						parent: group.parent,
+						specifier,
+					})
+				},
+				tg::id::Kind::Organization => {
+					let id = item.id.clone().try_into()?;
+					let organization =
+						Self::try_get_organization_with_transaction(&transaction, &id)
+							.await?
+							.ok_or_else(|| tg::error!("failed to find the organization"))?;
+					tg::sync::PutItemMessage::Organization(tg::sync::PutItemOrganizationMessage {
+						id,
+						name: organization.name,
+						specifier,
+					})
+				},
+				tg::id::Kind::Tag => {
+					let id = item.id.clone().try_into()?;
+					let data = Self::get_tag_data_with_transaction(&transaction, &id).await?;
+					let id = data.id;
+					let item = match data.item {
+						tg::tag::data::Item::Object(id) => id.into(),
+						tg::tag::data::Item::Process(id) => id.into(),
+					};
+					tg::sync::PutItemMessage::Tag(tg::sync::PutItemTagMessage {
+						id,
+						item,
+						name: data.name,
+						parent: data.parent,
+						specifier: data.specifier,
+					})
+				},
+				tg::id::Kind::User => {
+					let id = item.id.clone().try_into()?;
+					let user = Self::try_get_user_with_transaction(&transaction, &id)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the user"))?;
+					tg::sync::PutItemMessage::User(tg::sync::PutItemUserMessage {
+						emails: user.emails,
+						id,
+						name: user.name,
+						specifier,
+					})
+				},
+				_ => return Err(tg::error!(id = %item.id, "invalid database item kind")),
+			})
+		} else {
+			None
 		};
 		let output = Output { children, message };
 
@@ -232,12 +283,18 @@ impl Session {
 	}
 
 	async fn sync_put_database_missing(&self, state: &State, id: &tg::Id) {
-		let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-			id: id.clone(),
-			token: None,
-		});
-		state.sender.send(Ok(message)).await.ok();
-		state.graph.lock().unwrap().update_item_remote_sent(id, &[]);
+		let selectors = state
+			.graph
+			.lock()
+			.unwrap()
+			.finish_database_item_remote_missing(id);
+		for selector in selectors {
+			let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+				selector,
+				token: None,
+			});
+			state.sender.send(Ok(message)).await.ok();
+		}
 		if state.graph.lock().unwrap().end_remote() {
 			state.queue.close();
 		}

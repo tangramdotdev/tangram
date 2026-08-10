@@ -14,20 +14,38 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::GetMessage::Item(message) => {
-					tracing::trace!(id = %message.id, "received get item");
-					state
-						.graph
-						.lock()
-						.unwrap()
-						.insert_remote_root(message.id.clone());
-					state
-						.queue
-						.enqueue(message.eager, message.id, message.token)?;
+					tracing::trace!(selector = %message.selector, "received get item");
+					match message.selector {
+						tg::Selector::Id(id) => {
+							state.graph.lock().unwrap().insert_remote_root(id.clone());
+							state.queue.enqueue_with_descendants(
+								message.descendants,
+								message.eager,
+								id,
+								message.token,
+							)?;
+						},
+						tg::Selector::Specifier(specifier) => {
+							let inserted = state.graph.lock().unwrap().insert_remote_selector(
+								message.descendants,
+								message.eager,
+								specifier.clone(),
+								message.token,
+							);
+							if inserted {
+								let item = super::resolve::Item { specifier };
+								state.resolve_sender.send(item).await.map_err(|_| {
+									tg::error!("failed to send the specifier to the resolve task")
+								})?;
+							}
+						},
+					}
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(message)) => {
 					tracing::trace!(id = %message.id, "received stored object");
 					state.graph.lock().unwrap().update_object_remote(
+						false,
 						&message.id,
 						None,
 						None,
@@ -52,11 +70,12 @@ impl Session {
 						node_log: message.node_log_stored,
 						node_output: message.node_output_stored,
 					};
-					state
-						.graph
-						.lock()
-						.unwrap()
-						.update_process_remote(&id, None, Some(&stored));
+					state.graph.lock().unwrap().update_process_remote(
+						false,
+						&id,
+						None,
+						Some(&stored),
+					);
 					if state.graph.lock().unwrap().end_remote() {
 						state.queue.close();
 					}
@@ -67,6 +86,7 @@ impl Session {
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");
 					state.graph.lock().unwrap().mark_get_end_received();
+					state.resolve_sender.close();
 					if state.graph.lock().unwrap().end_remote() {
 						state.queue.close();
 					}

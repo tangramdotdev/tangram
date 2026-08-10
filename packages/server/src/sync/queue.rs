@@ -8,12 +8,15 @@ pub struct Queue {
 }
 
 pub struct DatabaseItem {
+	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
+	pub selector: tg::Selector<tg::Id>,
 	pub token: Option<tg::grant::Token>,
 }
 
 pub struct ObjectItem {
+	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
@@ -22,6 +25,7 @@ pub struct ObjectItem {
 }
 
 pub struct ProcessItem {
+	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub parent: Option<tg::process::Id>,
@@ -29,6 +33,7 @@ pub struct ProcessItem {
 }
 
 pub struct SandboxItem {
+	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub token: Option<tg::grant::Token>,
@@ -63,13 +68,33 @@ impl Queue {
 		id: tg::Id,
 		token: Option<tg::grant::Token>,
 	) -> tg::Result<()> {
+		self.enqueue_with_descendants(true, eager, id, token)
+	}
+
+	pub fn enqueue_with_descendants(
+		&self,
+		descendants: bool,
+		eager: bool,
+		id: tg::Id,
+		token: Option<tg::grant::Token>,
+	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group
 			| tg::id::Kind::Organization
 			| tg::id::Kind::Tag
-			| tg::id::Kind::User => self.enqueue_database(DatabaseItem { eager, id, token }),
+			| tg::id::Kind::User => {
+				let selector = tg::Selector::Id(id.clone());
+				self.enqueue_database(DatabaseItem {
+					descendants,
+					eager,
+					id,
+					selector,
+					token,
+				});
+			},
 			tg::id::Kind::Process => {
 				self.enqueue_process(ProcessItem {
+					descendants,
 					eager,
 					id: id.try_into()?,
 					parent: None,
@@ -78,6 +103,7 @@ impl Queue {
 			},
 			tg::id::Kind::Sandbox => {
 				self.enqueue_sandbox(SandboxItem {
+					descendants,
 					eager,
 					id: id.try_into()?,
 					token,
@@ -87,6 +113,7 @@ impl Queue {
 				let id = tg::object::Id::try_from(id)
 					.map_err(|_| tg::error!("invalid sync item kind"))?;
 				self.enqueue_object(ObjectItem {
+					descendants,
 					eager,
 					id,
 					kind: None,

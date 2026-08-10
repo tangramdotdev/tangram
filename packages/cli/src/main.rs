@@ -41,6 +41,7 @@ mod lsp;
 mod match_;
 mod metadata;
 mod new;
+mod node;
 mod object;
 mod organization;
 mod outdated;

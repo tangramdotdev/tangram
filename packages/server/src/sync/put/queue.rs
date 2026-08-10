@@ -47,17 +47,21 @@ impl Session {
 			let database_sender = database_sender.clone();
 			let state = state.clone();
 			async move {
-				if !state
-					.graph
-					.lock()
-					.unwrap()
-					.update_item_remote(&item.id, item.token.clone())
-				{
+				let selector = item.selector.clone();
+				let action = state.graph.lock().unwrap().update_database_item_remote(
+					item.descendants,
+					&item.id,
+					selector,
+					item.token.clone(),
+				);
+				if !action.descendants && !action.send {
 					return Ok(());
 				}
 				let item = super::database::Item {
+					descendants: action.descendants,
 					eager: item.eager,
 					id: item.id,
+					send: action.send,
 					token: item.token,
 				};
 				database_sender
@@ -129,17 +133,19 @@ impl Session {
 			let state = state.clone();
 			async move {
 				let id = item.id.clone().into();
-				if !state
-					.graph
-					.lock()
-					.unwrap()
-					.update_item_remote(&id, item.token.clone())
-				{
+				let action = state.graph.lock().unwrap().update_item_remote(
+					item.descendants,
+					&id,
+					item.token.clone(),
+				);
+				if !action.descendants && !action.send {
 					return Ok(());
 				}
 				let item = super::sandbox::Item {
+					descendants: action.descendants,
 					eager: item.eager,
 					id: item.id,
+					send: action.send,
 					token: item.token,
 				};
 				sandbox_sender
@@ -173,23 +179,27 @@ impl Session {
 		let mut statuses = Vec::with_capacity(items.len());
 		for item in &items {
 			let parent = item.parent.clone();
-			let (inserted, stored) = {
+			let (action, stored) = {
 				let mut graph = state.graph.lock().unwrap();
 				if let Some(token) = &item.token {
 					graph.update_object_token(&item.id, token.clone());
 				}
-				graph.update_object_remote(&item.id, parent, item.kind, None)
+				graph.update_object_remote(item.descendants, &item.id, parent, item.kind, None)
 			};
 			let stored = stored.is_some_and(|stored| stored.subtree);
-			statuses.push((inserted, stored));
+			let skip = !action.descendants && !action.send && item.parent.is_none() && !stored;
+			statuses.push((action, skip, stored));
 		}
 
 		// Collect the objects requiring authorization.
 		let required = Self::sync_put_object_permissions();
 		let mut authorization_args = Vec::new();
 		let mut authorization_positions = Vec::new();
-		for (position, (item, (inserted, _))) in std::iter::zip(&items, &statuses).enumerate() {
-			let requested = if *inserted {
+		for (position, (item, (action, skip, _))) in std::iter::zip(&items, &statuses).enumerate() {
+			if *skip {
+				continue;
+			}
+			let requested = if action.descendants {
 				required
 			} else {
 				Self::sync_put_object_node_permissions()
@@ -223,33 +233,49 @@ impl Session {
 		}
 
 		// Route the objects.
-		let node = Self::sync_put_object_node_permissions();
-		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
+		for (item, (action, skip, stored)) in std::iter::zip(items, statuses) {
+			if skip {
+				continue;
+			}
+			let requested = if action.descendants {
+				required
+			} else {
+				Self::sync_put_object_node_permissions()
+			};
 			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_authorization(&item.id, node);
-			if !authorization.permissions.contains(node) {
+				.get_object_local_authorization(&item.id, requested);
+			if !authorization.permissions.contains(requested) {
 				tracing::trace!(
 					id = %item.id,
 					principal = ?self.context.principal,
 					permissions = ?authorization.permissions,
 					"authorization denied"
 				);
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-					id: item.id.clone().into(),
-					token: None,
-				});
-				state.sender.send(Ok(message)).await.ok();
-				state
-					.graph
-					.lock()
-					.unwrap()
-					.update_object_remote_missing(&item.id);
+				if action.send {
+					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+						selector: tg::Selector::Id(item.id.clone().into()),
+						token: None,
+					});
+					state.sender.send(Ok(message)).await.ok();
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.update_object_remote_missing(&item.id);
+				}
+				if action.descendants {
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.finish_object_remote_descendants(&item.id, item.eager);
+				}
 				continue;
 			}
-			if !inserted || stored {
+			if (!action.descendants && !action.send) || stored {
 				let item = super::index::ObjectItem { id: item.id };
 				index_object_sender
 					.send(item)
@@ -257,9 +283,11 @@ impl Session {
 					.map_err(|_| tg::error!("failed to send the object to the index task"))?;
 			} else {
 				let item = super::store::ObjectItem {
+					descendants: action.descendants,
 					eager: item.eager,
 					id: item.id,
 					kind: item.kind,
+					send: action.send,
 					token: authorization.token,
 				};
 				store_object_sender
@@ -287,12 +315,12 @@ impl Session {
 		let mut statuses = Vec::with_capacity(items.len());
 		for item in &items {
 			let parent = item.parent.clone().map(Into::into);
-			let (inserted, stored) = {
+			let (action, stored) = {
 				let mut graph = state.graph.lock().unwrap();
 				if let Some(token) = &item.token {
 					graph.update_process_token(&item.id, token.clone());
 				}
-				graph.update_process_remote(&item.id, parent, None)
+				graph.update_process_remote(item.descendants, &item.id, parent, None)
 			};
 			let stored = stored.is_some_and(|stored| {
 				if state.arg.process_children {
@@ -308,15 +336,19 @@ impl Session {
 						&& (!state.arg.process_outputs || stored.node_output)
 				}
 			});
-			statuses.push((inserted, stored));
+			let skip = !action.descendants && !action.send && item.parent.is_none() && !stored;
+			statuses.push((action, skip, stored));
 		}
 
 		// Collect the processes requiring authorization.
 		let required = Self::sync_put_process_permissions(&state.arg);
 		let mut authorization_args = Vec::new();
 		let mut authorization_positions = Vec::new();
-		for (position, (item, (inserted, _))) in std::iter::zip(&items, &statuses).enumerate() {
-			let requested = if *inserted {
+		for (position, (item, (action, skip, _))) in std::iter::zip(&items, &statuses).enumerate() {
+			if *skip {
+				continue;
+			}
+			let requested = if action.descendants {
 				required
 			} else {
 				Self::sync_put_process_node_permissions()
@@ -350,28 +382,49 @@ impl Session {
 		}
 
 		// Route the processes.
-		let node = Self::sync_put_process_node_permissions();
-		for (item, (inserted, stored)) in std::iter::zip(items, statuses) {
+		for (item, (action, skip, stored)) in std::iter::zip(items, statuses) {
+			if skip {
+				continue;
+			}
+			let requested = if action.descendants {
+				required
+			} else {
+				Self::sync_put_process_node_permissions()
+			};
 			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_authorization(&item.id, node);
-			if !authorization.permissions.contains(node) {
+				.get_process_local_authorization(&item.id, requested);
+			if !authorization.permissions.contains(requested) {
 				tracing::trace!(
 					id = %item.id,
 					principal = ?self.context.principal,
 					permissions = ?authorization.permissions,
 					"authorization denied"
 				);
-				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-					id: item.id.into(),
-					token: None,
-				});
-				state.sender.send(Ok(message)).await.ok();
+				if action.send {
+					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
+						selector: tg::Selector::Id(item.id.clone().into()),
+						token: None,
+					});
+					state.sender.send(Ok(message)).await.ok();
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.update_process_remote_missing(&item.id);
+				}
+				if action.descendants {
+					state
+						.graph
+						.lock()
+						.unwrap()
+						.finish_process_remote_descendants(&item.id, item.eager);
+				}
 				continue;
 			}
-			if !inserted || stored {
+			if (!action.descendants && !action.send) || stored {
 				let item = super::index::ProcessItem { id: item.id };
 				index_process_sender
 					.send(item)
@@ -379,8 +432,10 @@ impl Session {
 					.map_err(|_| tg::error!("failed to send the process to the index task"))?;
 			} else {
 				let item = super::store::ProcessItem {
+					descendants: action.descendants,
 					eager: item.eager,
 					id: item.id,
+					send: action.send,
 					token: authorization.token,
 				};
 				store_process_sender

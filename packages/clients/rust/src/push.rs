@@ -4,12 +4,15 @@ use {
 	serde_with::{DisplayFromStr, serde_as},
 	std::ops::AddAssign,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ancestors: tg::node::AncestorsPull,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub destination: Option<tg::Location>,
 
@@ -144,6 +147,7 @@ impl tg::Session {
 impl Default for Arg {
 	fn default() -> Self {
 		Self {
+			ancestors: tg::node::AncestorsPull::default(),
 			destination: Some(tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
 				region: None,

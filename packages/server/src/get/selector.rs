@@ -2,7 +2,6 @@ use {
 	crate::{Session, location::Remote},
 	futures::StreamExt as _,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
 };
 
 impl Session {
@@ -57,27 +56,19 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 	) -> tg::Result<Option<tg::get::Output>> {
-		let id = {
-			let mut connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			match selector {
-				tg::Selector::Id(id) => {
-					Self::try_get_specifier_for_id_with_transaction(&transaction, id)
-						.await?
-						.map(|_| id.clone())
-				},
-				tg::Selector::Specifier(specifier) => {
-					Self::try_get_id_for_specifier_with_transaction(&transaction, specifier).await?
-				},
-			}
+		let id = match selector {
+			tg::Selector::Id(id) => {
+				let mut contains = self
+					.contains_ids_from_index(std::slice::from_ref(id))
+					.await?;
+				contains.pop().unwrap().then(|| id.clone())
+			},
+			tg::Selector::Specifier(specifier) => {
+				let mut ids = self
+					.try_get_ids_for_specifiers_from_index(std::slice::from_ref(specifier))
+					.await?;
+				ids.pop().unwrap()
+			},
 		};
 		let Some(id) = id else {
 			return Ok(None);

@@ -5,6 +5,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub ancestors: crate::node::Options,
+
+	#[command(flatten)]
 	pub eager: crate::push::Eager,
 
 	#[arg(long)]
@@ -53,7 +56,13 @@ impl Cli {
 		let source = args.source.to_location()?;
 
 		// Get the references.
-		let reference_location = source.clone().map(Into::into);
+		let reference_location = source.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let reference_location = Some(reference_location.into());
 		let references = args
 			.references
 			.iter()
@@ -81,6 +90,7 @@ impl Cli {
 
 		// Pull the items.
 		let arg = tg::pull::Arg {
+			ancestors: args.ancestors.get(),
 			destination: None,
 			eager: args.eager.get(),
 			group_children: args.group_children,

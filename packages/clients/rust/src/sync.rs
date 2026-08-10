@@ -7,7 +7,7 @@ use {
 	tangram_http::body::BodyStream,
 	tangram_http::response::Ext as _,
 	tangram_uri::{Uri, builder::QueryParamsError},
-	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
+	tangram_util::serde::{CommaSeparatedString, is_default, is_false, is_true, return_true},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
@@ -24,12 +24,16 @@ pub struct Config {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub ancestors: tg::node::AncestorsPull,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub get: Vec<tg::Referent<tg::Id>>,
+	pub get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -118,11 +122,14 @@ pub enum GetMessage {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct GetItemMessage {
+	#[tangram_serialize(default = "return_true", id = 3, skip_serializing_if = "is_true")]
+	pub descendants: bool,
+
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub eager: bool,
 
 	#[tangram_serialize(id = 0)]
-	pub id: tg::Id,
+	pub selector: tg::Selector<tg::Id>,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub token: Option<tg::grant::Token>,
@@ -314,7 +321,7 @@ pub struct PutItemUserMessage {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutMissingMessage {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::Id,
+	pub selector: tg::Selector<tg::Id>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub token: Option<tg::grant::Token>,

@@ -100,7 +100,13 @@ impl Session {
 		if !requested {
 			return Ok(());
 		}
-		let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage { eager, id, token });
+		let selector = tg::Selector::Id(id);
+		let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+			descendants: true,
+			eager,
+			selector,
+			token,
+		});
 		state
 			.sender
 			.send(Ok(message))
@@ -172,8 +178,9 @@ impl Session {
 						continue;
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+						descendants: true,
 						eager: item.eager,
-						id: item.id.clone().into(),
+						selector: tg::Selector::Id(item.id.clone().into()),
 						token: item.token,
 					});
 					state
@@ -332,8 +339,9 @@ impl Session {
 						continue;
 					}
 					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+						descendants: true,
 						eager: item.eager,
-						id: item.id.clone().into(),
+						selector: tg::Selector::Id(item.id.clone().into()),
 						token: item.token,
 					});
 					state
@@ -425,6 +433,7 @@ impl Session {
 		state
 			.queue
 			.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+				descendants: true,
 				eager: state.arg.eager,
 				id: object,
 				kind,
@@ -453,6 +462,7 @@ impl Session {
 		{
 			for child in children {
 				state.queue.enqueue_process(ProcessItem {
+					descendants: true,
 					eager: state.arg.eager,
 					id: child.process.item.clone(),
 					parent: Some(id.clone()),
@@ -464,6 +474,7 @@ impl Session {
 		// Enqueue the command if necessary.
 		if state.arg.process_commands && !stored.is_some_and(|stored| stored.node_command) {
 			let item = ObjectItem {
+				descendants: true,
 				eager: state.arg.eager,
 				id: data.command.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
@@ -485,6 +496,7 @@ impl Session {
 					state
 						.queue
 						.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+							descendants: true,
 							eager: state.arg.eager,
 							id: object,
 							kind: Some(crate::sync::queue::ObjectKind::Error),
@@ -494,6 +506,7 @@ impl Session {
 				},
 				tg::Either::Right(error) => {
 					let item = ObjectItem {
+						descendants: true,
 						eager: state.arg.eager,
 						id: error.clone().item.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
@@ -511,6 +524,7 @@ impl Session {
 			&& let Some(log) = data.log.clone()
 		{
 			let item = ObjectItem {
+				descendants: true,
 				eager: state.arg.eager,
 				id: log.item.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
@@ -529,6 +543,7 @@ impl Session {
 			state
 				.queue
 				.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+					descendants: true,
 					eager: state.arg.eager,
 					id: object,
 					kind: Some(crate::sync::queue::ObjectKind::Output),

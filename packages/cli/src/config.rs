@@ -1368,6 +1368,9 @@ pub struct SyncPut {
 	pub queue: Option<SyncPutQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub resolve: Option<SyncPutResolve>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub store: Option<SyncPutStore>,
 }
 
@@ -1419,6 +1422,18 @@ pub struct SyncPutQueue {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_concurrency: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncPutResolve {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -3088,6 +3103,9 @@ fn resolve_sync_put(source: &SyncPut) -> server::SyncPut {
 	if let Some(source) = source.queue {
 		target.queue = resolve_sync_put_queue(source);
 	}
+	if let Some(source) = source.resolve {
+		target.resolve = resolve_sync_put_resolve(source);
+	}
 	if let Some(source) = source.store {
 		target.store = resolve_sync_put_store(source);
 	}
@@ -3136,6 +3154,17 @@ fn resolve_sync_put_queue(source: SyncPutQueue) -> server::SyncPutQueue {
 	}
 	if let Some(value) = source.process_concurrency {
 		target.process_concurrency = value;
+	}
+	target
+}
+
+fn resolve_sync_put_resolve(source: SyncPutResolve) -> server::SyncPutResolve {
+	let mut target = server::SyncPutResolve::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.batch_timeout {
+		target.batch_timeout = value;
 	}
 	target
 }

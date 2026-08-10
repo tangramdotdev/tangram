@@ -45,6 +45,15 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.contains_ids(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.contains_ids(ids).await,
+		}
+	}
+
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -96,12 +105,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn try_get_nodes(&self, specifiers: &[tg::Specifier]) -> tg::Result<Vec<Option<tg::Id>>> {
+	async fn try_get_ids_for_specifiers(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<Vec<Option<tg::Id>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_nodes(specifiers).await,
+			Self::Fdb(index) => index.try_get_ids_for_specifiers(specifiers).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_nodes(specifiers).await,
+			Self::Lmdb(index) => index.try_get_ids_for_specifiers(specifiers).await,
 		}
 	}
 
@@ -294,6 +306,18 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_sandboxes(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_sandboxes(ids).await,
+		}
+	}
+
+	async fn try_get_specifiers_for_ids(
+		&self,
+		ids: &[tg::Id],
+	) -> tg::Result<Vec<Option<tg::Specifier>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_specifiers_for_ids(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_specifiers_for_ids(ids).await,
 		}
 	}
 

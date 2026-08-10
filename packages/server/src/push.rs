@@ -3,6 +3,7 @@ use {
 	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::{
+		collections::BTreeSet,
 		ops::ControlFlow,
 		panic::AssertUnwindSafe,
 		pin::pin,
@@ -14,6 +15,16 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tokio_stream::wrappers::ReceiverStream,
 };
+
+struct PushOrPullTaskArg {
+	arg: tg::push::Arg,
+	destination: tg::Location,
+	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+	process: bool,
+	progress: crate::progress::Handle<tg::push::Output>,
+	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
+	source: tg::Location,
+}
 
 impl Session {
 	pub(crate) async fn push(
@@ -64,8 +75,40 @@ impl Session {
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
-		self.push_or_pull_inner(arg, false, source, destination)
+		let get = arg
+			.items
+			.iter()
+			.cloned()
+			.map(|item| item.map(tg::Selector::Id))
+			.collect();
+		self.push_or_pull_inner(arg, false, get, None, source, destination)
 			.await
+	}
+
+	pub(crate) async fn push_or_pull_with_selectors(
+		&self,
+		arg: &tg::push::Arg,
+		get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+		source: tg::Location,
+		destination: tg::Location,
+	) -> tg::Result<(
+		BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+		Arc<Mutex<BTreeSet<tg::Specifier>>>,
+	)> {
+		let received_specifiers = Arc::new(Mutex::new(BTreeSet::new()));
+		let stream = self
+			.push_or_pull_inner(
+				arg,
+				false,
+				get,
+				Some(received_specifiers.clone()),
+				source,
+				destination,
+			)
+			.await?;
+		let output = (stream, received_specifiers);
+
+		Ok(output)
 	}
 
 	async fn push_or_pull_for_process(
@@ -74,7 +117,13 @@ impl Session {
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
-		self.push_or_pull_inner(arg, true, source, destination)
+		let get = arg
+			.items
+			.iter()
+			.cloned()
+			.map(|item| item.map(tg::Selector::Id))
+			.collect();
+		self.push_or_pull_inner(arg, true, get, None, source, destination)
 			.await
 	}
 
@@ -82,6 +131,8 @@ impl Session {
 		&self,
 		arg: &tg::push::Arg,
 		process: bool,
+		get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+		received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
@@ -136,19 +187,24 @@ impl Session {
 		let task = Task::spawn({
 			let session = self.clone();
 			let destination = destination.clone();
+			let get = get.clone();
 			let progress = progress.clone();
+			let received_specifiers = received_specifiers.clone();
 			let arg = arg.clone();
 			let source = source.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(session.push_or_pull_task(
+				let task_arg = PushOrPullTaskArg {
 					arg,
+					destination: destination.clone(),
+					get,
 					process,
-					progress.clone(),
-					source.clone(),
-					destination.clone(),
-				))
-				.catch_unwind()
-				.await;
+					progress: progress.clone(),
+					received_specifiers,
+					source: source.clone(),
+				};
+				let result = AssertUnwindSafe(session.push_or_pull_task(task_arg))
+					.catch_unwind()
+					.await;
 				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
@@ -310,14 +366,16 @@ impl Session {
 		Ok(())
 	}
 
-	async fn push_or_pull_task(
-		&self,
-		arg: tg::push::Arg,
-		process: bool,
-		progress: crate::progress::Handle<tg::push::Output>,
-		source: tg::Location,
-		destination: tg::Location,
-	) -> tg::Result<tg::push::Output> {
+	async fn push_or_pull_task(&self, task_arg: PushOrPullTaskArg) -> tg::Result<tg::push::Output> {
+		let PushOrPullTaskArg {
+			arg,
+			destination,
+			get,
+			process,
+			progress,
+			received_specifiers,
+			source,
+		} = task_arg;
 		let retry = &self.server.config.sync.retry;
 		let retry = tangram_futures::retry::Options {
 			backoff: retry.backoff,
@@ -329,10 +387,15 @@ impl Session {
 		let output = tangram_futures::retry::retry(&retry, || {
 			let arg = arg.clone();
 			let destination = destination.clone();
+			let get = get.clone();
 			let progress = progress.clone();
+			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
 			let source = source.clone();
 			async move {
+				if let Some(received_specifiers) = &received_specifiers {
+					received_specifiers.lock().unwrap().clear();
+				}
 				let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
 				// Set the progress to zero.
@@ -355,6 +418,7 @@ impl Session {
 
 				// Start the push.
 				let push_arg = tg::sync::Arg {
+					ancestors: arg.ancestors,
 					eager: arg.eager,
 					get: Vec::new(),
 					group_children: arg.group_children,
@@ -387,8 +451,9 @@ impl Session {
 
 				// Start the pull.
 				let pull_arg = tg::sync::Arg {
+					ancestors: arg.ancestors,
 					eager: arg.eager,
-					get: arg.items.clone(),
+					get: get.clone(),
 					group_children: arg.group_children,
 					location: Some(destination.clone().into()),
 					metadata: arg.metadata,
@@ -430,6 +495,10 @@ impl Session {
 								return Ok::<_, tg::Error>(true);
 							},
 							_ => {
+								Self::push_or_pull_record_received_specifier(
+									&message,
+									received_specifiers.as_ref(),
+								);
 								push_output_sender
 									.send(message.clone())
 									.await
@@ -498,6 +567,31 @@ impl Session {
 		progress.finish("bytes");
 
 		Ok(output)
+	}
+
+	fn push_or_pull_record_received_specifier(
+		message: &tg::sync::Message,
+		received_specifiers: Option<&Arc<Mutex<BTreeSet<tg::Specifier>>>>,
+	) {
+		let Some(received_specifiers) = received_specifiers else {
+			return;
+		};
+		let tg::sync::Message::Put(tg::sync::PutMessage::Item(item)) = message else {
+			return;
+		};
+		let specifier = match item {
+			tg::sync::PutItemMessage::Group(message) => &message.specifier,
+			tg::sync::PutItemMessage::Object(_)
+			| tg::sync::PutItemMessage::Process(_)
+			| tg::sync::PutItemMessage::Sandbox(_) => return,
+			tg::sync::PutItemMessage::Organization(message) => &message.specifier,
+			tg::sync::PutItemMessage::Tag(message) => &message.specifier,
+			tg::sync::PutItemMessage::User(message) => &message.specifier,
+		};
+		received_specifiers
+			.lock()
+			.unwrap()
+			.insert(specifier.clone());
 	}
 
 	fn push_or_pull_increment_progress(

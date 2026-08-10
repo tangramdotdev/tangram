@@ -12,6 +12,6 @@ failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
-	   reference = nonexistent/1.0.0
+	   reference = nonexistent/1.0.0?location=remote
 
 '

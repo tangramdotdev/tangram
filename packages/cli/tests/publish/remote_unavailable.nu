@@ -25,8 +25,11 @@ let output = tg publish $path | complete
 failure $output
 snapshot --normalize --redact [$path $remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
-	-> failed to push tag ancestors
-	-> failed to create the pull stream
+	-> failed to put local tag
+	   tag = test-pkg/1.0.0
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to create the push stream
 	-> failed to sync
 	   remote = default
 	-> failed to send the request

@@ -59,12 +59,48 @@ impl Session {
 			sender,
 		});
 
+		// Resolve all initial specifiers through one index batch.
+		if state.arg.ancestors == tg::node::AncestorsPull::Missing {
+			let specifiers = state
+				.arg
+				.get
+				.iter()
+				.filter_map(|item| match &item.item {
+					tg::Selector::Id(_) => None,
+					tg::Selector::Specifier(specifier) => Some(specifier.clone()),
+				})
+				.collect::<Vec<_>>();
+			let ids = self
+				.try_get_ids_for_specifiers_from_index(&specifiers)
+				.await?;
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.set_local_selector_ids(std::iter::zip(specifiers, ids));
+		}
+
 		// Enqueue the items.
 		for item in &state.arg.get {
 			let token = item.options.token.clone();
-			state
-				.queue
-				.enqueue(state.arg.eager, item.item.clone(), token)?;
+			match &item.item {
+				tg::Selector::Id(id) => {
+					state.queue.enqueue(state.arg.eager, id.clone(), token)?;
+				},
+				tg::Selector::Specifier(specifier) => {
+					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+						descendants: true,
+						eager: state.arg.eager,
+						selector: tg::Selector::Specifier(specifier.clone()),
+						token,
+					});
+					state
+						.sender
+						.send(Ok(message))
+						.await
+						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+				},
+			}
 		}
 
 		// Close the queue if there are no items.

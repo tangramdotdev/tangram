@@ -255,6 +255,10 @@ impl crate::Index for Index {
 		self.authorize_batch(args, principal).await
 	}
 
+	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {
+		self.contains_ids(ids).await
+	}
+
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
 		self.visible(ids, principal).await
 	}
@@ -281,8 +285,11 @@ impl crate::Index for Index {
 		self.try_get_groups(ids).await
 	}
 
-	async fn try_get_nodes(&self, specifiers: &[tg::Specifier]) -> tg::Result<Vec<Option<tg::Id>>> {
-		self.try_get_nodes(specifiers).await
+	async fn try_get_ids_for_specifiers(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<Vec<Option<tg::Id>>> {
+		self.try_get_ids_for_specifiers(specifiers).await
 	}
 
 	async fn try_get_organizations(
@@ -393,6 +400,13 @@ impl crate::Index for Index {
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
 		self.try_get_sandboxes(ids).await
+	}
+
+	async fn try_get_specifiers_for_ids(
+		&self,
+		ids: &[tg::Id],
+	) -> tg::Result<Vec<Option<tg::Specifier>>> {
+		self.try_get_specifiers_for_ids(ids).await
 	}
 
 	async fn try_get_users(
