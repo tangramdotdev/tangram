@@ -9,7 +9,7 @@ impl Compiler {
 			line_width: 80.try_into().unwrap(),
 			..Default::default()
 		};
-		let formatted = oxc_formatter::format(&allocator, text, source_type, options, None)
+		let formatted = oxc_formatter::format(&allocator, text, source_type, options)
 			.map_err(|error| tg::error!(!error, "failed to format the module"))?
 			.print()
 			.map_err(|error| tg::error!(source = error, "failed to print the formatted module"))?
