@@ -139,7 +139,7 @@ pub struct State {
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
-	watches: DashMap<PathBuf, Watch, fnv::FnvBuildHasher>,
+	watches: DashMap<self::watch::Key, Watch, fnv::FnvBuildHasher>,
 }
 
 pub struct Tokens {

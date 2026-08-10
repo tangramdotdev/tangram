@@ -14,6 +14,12 @@ pub mod delete;
 pub mod list;
 pub mod touch;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct Key {
+	pub path: PathBuf,
+	pub principal: tg::Principal,
+}
+
 pub struct Watch {
 	options: tg::checkin::Options,
 	state: Arc<Mutex<State>>,
@@ -41,13 +47,13 @@ pub struct Snapshot {
 }
 
 pub struct UpdateArg<'a> {
-	pub server: &'a Server,
-	pub root: &'a Path,
 	pub graph: crate::checkin::Graph,
+	pub key: &'a Key,
 	pub lock: Option<Arc<tg::graph::Data>>,
+	pub next: usize,
+	pub server: &'a Server,
 	pub solutions: crate::checkin::Solutions,
 	pub version: Option<u64>,
-	pub next: usize,
 }
 
 struct Message {
@@ -58,7 +64,7 @@ struct Message {
 impl Watch {
 	pub fn new(
 		server: &Server,
-		root: &Path,
+		key: &Key,
 		graph: crate::checkin::Graph,
 		lock: Option<Arc<tg::graph::Data>>,
 		options: tg::checkin::Options,
@@ -108,7 +114,7 @@ impl Watch {
 		// Spawn the task.
 		let task = Task::spawn({
 			let state = state.clone();
-			let root = root.to_owned();
+			let root = key.path.clone();
 			move |_| async move {
 				while let Some(message) = receiver.recv().await {
 					// Get the paths.
@@ -193,7 +199,7 @@ impl Watch {
 		});
 
 		// Spawn the timeout task.
-		let timeout = Self::spawn_timeout_task(server, root);
+		let timeout = Self::spawn_timeout_task(server, key);
 		state.lock().unwrap().timeout_task.replace(timeout);
 
 		let watch = Self {
@@ -221,13 +227,13 @@ impl Watch {
 
 	pub fn update(&self, arg: UpdateArg<'_>) -> bool {
 		let UpdateArg {
-			server,
-			root,
 			graph,
+			key,
 			lock,
+			next,
+			server,
 			solutions,
 			version,
-			next,
 		} = arg;
 		let mut state = self.state.lock().unwrap();
 
@@ -245,7 +251,7 @@ impl Watch {
 		// Reset the timeout task.
 		state
 			.timeout_task
-			.replace(Self::spawn_timeout_task(server, root));
+			.replace(Self::spawn_timeout_task(server, key));
 
 		// On Linux, add the new paths.
 		#[cfg(target_os = "linux")]
@@ -308,22 +314,17 @@ impl Watch {
 		changes
 	}
 
-	fn spawn_timeout_task(server: &Server, path: &Path) -> Task<()> {
+	fn spawn_timeout_task(server: &Server, key: &Key) -> Task<()> {
 		Task::spawn({
 			let ttl = server.config.watch.clone().unwrap_or_default().ttl;
+			let key = key.clone();
 			let server = server.clone();
-			let path = path.to_owned();
 			async move |_stop| {
 				// Wait for the TTL to expire.
 				tokio::time::sleep(ttl).await;
 
 				// Delete the watch.
-				let arg = tg::watch::delete::Arg { path };
-				server
-					.delete_watch(arg)
-					.await
-					.inspect_err(|error| tracing::error!(?error, "failed to delete the watch"))
-					.ok();
+				server.watches.remove(&key);
 			}
 		})
 	}

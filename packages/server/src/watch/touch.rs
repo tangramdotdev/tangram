@@ -10,11 +10,16 @@ impl Session {
 	pub(crate) async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
 		self.verify_request_from_host()?;
 
+		let key = super::Key {
+			path: arg.path.clone(),
+			principal: self.context.principal.clone(),
+		};
+
 		// Get the event sender.
 		let watch = self
 			.server
 			.watches
-			.get(&arg.path)
+			.get(&key)
 			.ok_or_else(|| tg::error!(path = %arg.path.display(), "expected a watch"))?;
 		let sender = watch.state.lock().unwrap().sender.clone();
 		drop(watch);

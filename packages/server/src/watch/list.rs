@@ -14,8 +14,10 @@ impl Session {
 			.server
 			.watches
 			.iter()
-			.map(|entry| tg::watch::list::Item {
-				path: entry.key().clone(),
+			.filter_map(|entry| {
+				(entry.key().principal == self.context.principal).then(|| tg::watch::list::Item {
+					path: entry.key().path.clone(),
+				})
 			})
 			.collect();
 		let output = tg::watch::list::Output { data };

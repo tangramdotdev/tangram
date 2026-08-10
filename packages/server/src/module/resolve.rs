@@ -360,7 +360,10 @@ impl Session {
 				.server
 				.watches
 				.iter()
-				.find(|entry| referrer.item().starts_with(entry.key()))
+				.find(|entry| {
+					entry.key().principal == self.context.principal
+						&& referrer.item().starts_with(&entry.key().path)
+				})
 				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
 			let graph = entry.value().get().graph;
 			let index = graph

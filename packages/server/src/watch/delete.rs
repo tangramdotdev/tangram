@@ -21,7 +21,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
-		let Some(_) = self.server.watches.remove(&arg.path) else {
+		let key = super::Key {
+			path: arg.path,
+			principal: self.context.principal.clone(),
+		};
+		let Some(_) = self.server.watches.remove(&key) else {
 			return Ok(None);
 		};
 

@@ -40,6 +40,7 @@ pub type Tasks = tangram_futures::task::Map<
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TaskKey {
 	pub options: tg::checkin::Options,
+	pub principal: tg::Principal,
 	pub root: PathBuf,
 	pub updates: Vec<tg::specifier::Pattern>,
 }
@@ -111,6 +112,7 @@ impl Session {
 		// Get or spawn the checkin task for the root.
 		let key = TaskKey {
 			options: arg.options.clone(),
+			principal: self.context.principal.clone(),
 			root: root.clone(),
 			updates: arg.updates.clone(),
 		};
@@ -352,10 +354,14 @@ impl Session {
 		} else {
 			None
 		};
+		let watch_key = crate::watch::Key {
+			path: root.to_owned(),
+			principal: self.context.principal.clone(),
+		};
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
 		let (mut graph, lock, mut solutions, version) = if arg.options.watch
-			&& let Some(watch) = self.server.watches.get(root)
+			&& let Some(watch) = self.server.watches.get(&watch_key)
 			&& watch.value().options() == &arg.options
 		{
 			let snapshot = watch.value().get();
@@ -528,7 +534,7 @@ impl Session {
 			.is_some_and(|_| arg.options.watch)
 		{
 			// Create or update the watcher.
-			let entry = self.server.watches.entry(root.to_owned());
+			let entry = self.server.watches.entry(watch_key.clone());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
 					// Verify the version.
@@ -536,13 +542,13 @@ impl Session {
 
 					// Update the watch.
 					let arg = crate::watch::UpdateArg {
-						server: &self.server,
-						root,
 						graph: graph.clone(),
+						key: &watch_key,
 						lock,
+						next,
+						server: &self.server,
 						solutions,
 						version,
-						next,
 					};
 					let success = watch.update(arg);
 
@@ -554,7 +560,7 @@ impl Session {
 				dashmap::Entry::Vacant(entry) => {
 					let watch = Watch::new(
 						&self.server,
-						root,
+						&watch_key,
 						graph.clone(),
 						lock,
 						arg.options.clone(),
@@ -570,9 +576,10 @@ impl Session {
 			tokio::task::spawn_blocking({
 				let session = self.clone();
 				let root = root.to_owned();
+				let watch_key = watch_key.clone();
 				let next = graph.next;
 				move || {
-					if let Some(watch) = session.server.watches.get(&root) {
+					if let Some(watch) = session.server.watches.get(&watch_key) {
 						watch.clean(&root, next);
 					}
 				}
