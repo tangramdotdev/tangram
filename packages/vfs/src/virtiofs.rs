@@ -4,7 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString},
 		io::{self, Write as _},
-		os::fd::{AsRawFd as _, FromRawFd as _, RawFd},
+		os::fd::{FromRawFd as _, OwnedFd},
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 		time::Duration,
@@ -341,15 +341,15 @@ where
 		foffset: u64,
 		_len: u64,
 		flags: virtiofsd::fuse::SetupmappingFlags,
-	) -> Result<(RawFd, u64)> {
+	) -> Result<(OwnedFd, u64)> {
 		if flags.contains(virtiofsd::fuse::SetupmappingFlags::WRITE) {
 			return Err(io::Error::from_raw_os_error(libc::EROFS));
 		}
 		let Some(entry) = self.1.get(&inode) else {
 			return Err(io::Error::from_raw_os_error(libc::EBADF));
 		};
-		let raw = entry.fd.as_raw_fd();
-		Ok((raw, foffset))
+		let fd = entry.fd.try_clone()?;
+		Ok((fd.into(), foffset))
 	}
 }
 
