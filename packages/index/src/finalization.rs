@@ -9,7 +9,7 @@ pub enum Kind {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub enum Item {
+pub enum Node {
 	#[tangram_serialize(id = 0)]
 	Process(tg::process::Id),
 
@@ -19,7 +19,7 @@ pub enum Item {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
-	pub item: Item,
+	pub node: Node,
 	pub partition: u64,
 	pub(crate) version: Version,
 }
@@ -27,7 +27,7 @@ pub struct Entry {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Version([u8; 12]);
 
-impl Item {
+impl Node {
 	#[must_use]
 	pub fn kind(&self) -> Kind {
 		match self {

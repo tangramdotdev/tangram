@@ -41,7 +41,7 @@ impl Session {
 		}
 		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
 			.await?;
-		let permissions = self.recorded_tag_permissions(&arg.item).await?;
+		let permissions = self.recorded_tag_target_permissions(&arg.target).await?;
 		let session = self.clone();
 		self.server
 			.database
@@ -57,9 +57,9 @@ impl Session {
 					batch.items.push(tangram_index::batch::Item::PutTag(
 						tangram_index::tag::put::Arg {
 							id: data.id,
-							item: match data.item {
-								tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-								tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+							target: match data.target {
+								tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+								tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 							},
 							name: data.name,
 							parent: data.parent,
@@ -94,7 +94,7 @@ impl Session {
 		};
 		let existing =
 			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?;
-		let item = Self::tag_item_to_string(&arg.item);
+		let target = Self::tag_target_to_string(&arg.target);
 		let permissions_json = serde_json::to_string(&permissions)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 		let (id, permissions) = if let Some(id) = existing {
@@ -102,19 +102,19 @@ impl Session {
 				return Err(tg::error!("specifier is already in use"));
 			};
 			let p = transaction.p();
-			// Keep the recorded permissions when the item is unchanged, and record the new permissions when the item is replaced.
+			// Keep the recorded permissions when the target is unchanged, and record the new permissions when the target is replaced.
 			let statement = formatdoc!(
 				"
 					update tags
-					set permissions = case when item = {p}1 then permissions else {p}3 end,
-						item = {p}1
+					set permissions = case when target = {p}1 then permissions else {p}3 end,
+						target = {p}1
 					where id = {p}2;
 				"
 			);
 			transaction
 				.execute(
 					statement.into(),
-					db::params![item.clone(), id.to_string(), permissions_json],
+					db::params![target.clone(), id.to_string(), permissions_json],
 				)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
@@ -148,7 +148,7 @@ impl Session {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into tags (id, name, parent, item, permissions)
+					insert into tags (id, name, parent, target, permissions)
 					values ({p}1, {p}2, {p}3, {p}4, {p}5);
 				"
 			);
@@ -159,7 +159,7 @@ impl Session {
 						id.to_string(),
 						name,
 						parent.as_ref().map(ToString::to_string),
-						item.clone(),
+						target.clone(),
 						permissions_json
 					],
 				)
@@ -172,7 +172,7 @@ impl Session {
 						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
 							.into(),
 					),
-					resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
+					resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
@@ -184,7 +184,7 @@ impl Session {
 						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Admin)
 							.into(),
 					),
-					resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
+					resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
@@ -193,7 +193,7 @@ impl Session {
 		};
 		Ok(tg::tag::Data {
 			id,
-			item: arg.item,
+			target: arg.target,
 			name: arg.specifier.name().to_owned(),
 			parent,
 			permissions,

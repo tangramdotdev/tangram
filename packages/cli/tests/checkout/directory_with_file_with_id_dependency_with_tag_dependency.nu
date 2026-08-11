@@ -15,7 +15,7 @@ let artifact = artifact {
 					contents: "foo",
 					dependencies: {
 						[dependency.id]: {
-							item: dependency,
+							node: dependency,
 							options: {
 								id: dependency.id
 							}

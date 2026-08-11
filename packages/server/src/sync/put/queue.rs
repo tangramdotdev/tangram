@@ -16,15 +16,15 @@ use {
 };
 
 pub(super) struct Queue {
-	database: async_channel::Sender<DatabaseItem>,
+	database: async_channel::Sender<DatabaseNode>,
 	graph: Arc<Mutex<Graph>>,
-	object: async_channel::Sender<ObjectItem>,
-	pending: AtomicUsize,
-	process: async_channel::Sender<ProcessItem>,
-	sandbox: async_channel::Sender<SandboxItem>,
+	object: async_channel::Sender<ObjectNode>,
+	pending_nodes: AtomicUsize,
+	process: async_channel::Sender<ProcessNode>,
+	sandbox: async_channel::Sender<SandboxNode>,
 }
 
-pub(super) struct DatabaseItem {
+pub(super) struct DatabaseNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
@@ -33,7 +33,7 @@ pub(super) struct DatabaseItem {
 	pub token: Option<tg::grant::Token>,
 }
 
-pub(super) struct ObjectItem {
+pub(super) struct ObjectNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
@@ -42,7 +42,7 @@ pub(super) struct ObjectItem {
 	pub stored: bool,
 }
 
-pub(super) struct ProcessItem {
+pub(super) struct ProcessNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
@@ -50,7 +50,7 @@ pub(super) struct ProcessItem {
 	pub stored: bool,
 }
 
-pub(super) struct SandboxItem {
+pub(super) struct SandboxNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
@@ -59,32 +59,32 @@ pub(super) struct SandboxItem {
 }
 
 pub(super) struct SyncPutQueueArg {
-	pub database_sender: tokio::sync::mpsc::Sender<super::database::Item>,
-	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
-	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
-	pub queue_database_receiver: async_channel::Receiver<DatabaseItem>,
-	pub queue_object_receiver: async_channel::Receiver<ObjectItem>,
-	pub queue_process_receiver: async_channel::Receiver<ProcessItem>,
-	pub queue_sandbox_receiver: async_channel::Receiver<SandboxItem>,
-	pub sandbox_sender: tokio::sync::mpsc::Sender<super::sandbox::Item>,
+	pub database_sender: tokio::sync::mpsc::Sender<super::database::Node>,
+	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectNode>,
+	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessNode>,
+	pub queue_database_receiver: async_channel::Receiver<DatabaseNode>,
+	pub queue_object_receiver: async_channel::Receiver<ObjectNode>,
+	pub queue_process_receiver: async_channel::Receiver<ProcessNode>,
+	pub queue_sandbox_receiver: async_channel::Receiver<SandboxNode>,
+	pub sandbox_sender: tokio::sync::mpsc::Sender<super::sandbox::Node>,
 	pub state: Arc<State>,
-	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
-	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
+	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
+	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessNode>,
 }
 
 impl Queue {
 	pub fn new(
-		database: async_channel::Sender<DatabaseItem>,
+		database: async_channel::Sender<DatabaseNode>,
 		graph: Arc<Mutex<Graph>>,
-		object: async_channel::Sender<ObjectItem>,
-		process: async_channel::Sender<ProcessItem>,
-		sandbox: async_channel::Sender<SandboxItem>,
+		object: async_channel::Sender<ObjectNode>,
+		process: async_channel::Sender<ProcessNode>,
+		sandbox: async_channel::Sender<SandboxNode>,
 	) -> Self {
 		Self {
 			database,
 			graph,
 			object,
-			pending: AtomicUsize::new(0),
+			pending_nodes: AtomicUsize::new(0),
 			process,
 			sandbox,
 		}
@@ -122,17 +122,17 @@ impl Queue {
 		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, token)
 	}
 
-	pub fn enqueue_object(&self, item: raw::ObjectItem) -> tg::Result<()> {
+	pub fn enqueue_object(&self, node: raw::ObjectNode) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
-		self.enqueue_object_with_graph(&mut graph, item)
+		self.enqueue_object_with_graph(&mut graph, node)
 	}
 
 	pub fn enqueue_objects(
 		&self,
-		items: impl IntoIterator<Item = raw::ObjectItem>,
+		nodes: impl IntoIterator<Item = raw::ObjectNode>,
 	) -> tg::Result<()> {
-		for item in items {
-			self.enqueue_object(item)?;
+		for node in nodes {
+			self.enqueue_object(node)?;
 		}
 
 		Ok(())
@@ -140,11 +140,11 @@ impl Queue {
 
 	pub fn enqueue_processes(
 		&self,
-		items: impl IntoIterator<Item = raw::ProcessItem>,
+		nodes: impl IntoIterator<Item = raw::ProcessNode>,
 	) -> tg::Result<()> {
-		for item in items {
+		for node in nodes {
 			let mut graph = self.graph.lock().unwrap();
-			self.enqueue_process_with_graph(&mut graph, item)?;
+			self.enqueue_process_with_graph(&mut graph, node)?;
 		}
 
 		Ok(())
@@ -160,14 +160,14 @@ impl Queue {
 		};
 		graph.insert_remote_root(id.clone());
 		let selector = tg::Selector::Specifier(specifier.clone());
-		let item = raw::DatabaseItem {
+		let node = raw::DatabaseNode {
 			descendants: request.descendants,
 			eager: request.eager,
 			id,
 			selector,
 			token: request.token,
 		};
-		self.enqueue_database_with_graph(&mut graph, item)
+		self.enqueue_database_with_graph(&mut graph, node)
 	}
 
 	pub fn close_if_end(&self) -> bool {
@@ -175,14 +175,14 @@ impl Queue {
 		self.close_if_end_with_graph(&graph)
 	}
 
-	pub fn finish_item(&self) {
+	pub fn finish_node(&self) {
 		let graph = self.graph.lock().unwrap();
-		self.decrement_pending();
+		self.decrement_pending_nodes();
 		self.close_if_end_with_graph(&graph);
 	}
 
 	fn close_if_end_with_graph(&self, graph: &Graph) -> bool {
-		let end = graph.end_remote() && self.pending.load(Ordering::Relaxed) == 0;
+		let end = graph.end_remote() && self.pending_nodes.load(Ordering::Relaxed) == 0;
 		if end {
 			self.database.close();
 			self.object.close();
@@ -193,9 +193,9 @@ impl Queue {
 		end
 	}
 
-	fn decrement_pending(&self) {
-		let pending = self.pending.fetch_sub(1, Ordering::Relaxed);
-		assert!(pending > 0, "the pending item count must be positive");
+	fn decrement_pending_nodes(&self) {
+		let pending_nodes = self.pending_nodes.fetch_sub(1, Ordering::Relaxed);
+		assert!(pending_nodes > 0, "the pending node count must be positive");
 	}
 
 	fn enqueue_with_descendants_with_graph(
@@ -212,38 +212,38 @@ impl Queue {
 			| tg::id::Kind::Tag
 			| tg::id::Kind::User => {
 				let selector = tg::Selector::Id(id.clone());
-				let item = raw::DatabaseItem {
+				let node = raw::DatabaseNode {
 					descendants,
 					eager,
 					id,
 					selector,
 					token,
 				};
-				self.enqueue_database_with_graph(graph, item)?;
+				self.enqueue_database_with_graph(graph, node)?;
 			},
 			tg::id::Kind::Process => {
-				let item = raw::ProcessItem {
+				let node = raw::ProcessNode {
 					descendants,
 					eager,
 					id: id.try_into()?,
 					parent: None,
 					token,
 				};
-				self.enqueue_process_with_graph(graph, item)?;
+				self.enqueue_process_with_graph(graph, node)?;
 			},
 			tg::id::Kind::Sandbox => {
-				let item = raw::SandboxItem {
+				let node = raw::SandboxNode {
 					descendants,
 					eager,
 					id: id.try_into()?,
 					token,
 				};
-				self.enqueue_sandbox_with_graph(graph, item)?;
+				self.enqueue_sandbox_with_graph(graph, node)?;
 			},
 			_ => {
 				let id = tg::object::Id::try_from(id)
-					.map_err(|_| tg::error!("invalid sync item kind"))?;
-				let item = raw::ObjectItem {
+					.map_err(|_| tg::error!("invalid sync node kind"))?;
+				let node = raw::ObjectNode {
 					descendants,
 					eager,
 					id,
@@ -251,7 +251,7 @@ impl Queue {
 					parent: None,
 					token,
 				};
-				self.enqueue_object_with_graph(graph, item)?;
+				self.enqueue_object_with_graph(graph, node)?;
 			},
 		}
 
@@ -261,29 +261,29 @@ impl Queue {
 	fn enqueue_database_with_graph(
 		&self,
 		graph: &mut Graph,
-		item: raw::DatabaseItem,
+		node: raw::DatabaseNode,
 	) -> tg::Result<()> {
-		let action = graph.update_database_item_remote(
-			item.descendants,
-			&item.id,
-			item.selector.clone(),
-			item.token.clone(),
+		let action = graph.update_database_node_remote(
+			node.descendants,
+			&node.id,
+			node.selector.clone(),
+			node.token.clone(),
 		);
 		if !action.descendants && !action.send {
 			return Ok(());
 		}
-		let item = DatabaseItem {
+		let node = DatabaseNode {
 			descendants: action.descendants,
-			eager: item.eager,
-			id: item.id,
-			selector: item.selector,
+			eager: node.eager,
+			id: node.id,
+			selector: node.selector,
 			send: action.send,
-			token: item.token,
+			token: node.token,
 		};
-		self.pending.fetch_add(1, Ordering::Relaxed);
-		if self.database.force_send(item).is_err() {
-			self.decrement_pending();
-			return Err(tg::error!("failed to enqueue the database item"));
+		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
+		if self.database.force_send(node).is_err() {
+			self.decrement_pending_nodes();
+			return Err(tg::error!("failed to enqueue the database node"));
 		}
 
 		Ok(())
@@ -292,30 +292,30 @@ impl Queue {
 	fn enqueue_object_with_graph(
 		&self,
 		graph: &mut Graph,
-		item: raw::ObjectItem,
+		node: raw::ObjectNode,
 	) -> tg::Result<()> {
-		if let Some(token) = &item.token {
-			graph.update_object_token(&item.id, token.clone());
+		if let Some(token) = &node.token {
+			graph.update_object_token(&node.id, token.clone());
 		}
-		let parent = item.parent.clone();
+		let parent = node.parent.clone();
 		let (action, _) =
-			graph.update_object_remote(item.descendants, &item.id, parent, item.kind, None);
-		let stored = graph.object_remote_stored(&item.id);
-		let skip = !action.descendants && !action.send && item.parent.is_none() && !stored;
+			graph.update_object_remote(node.descendants, &node.id, parent, node.kind, None);
+		let stored = graph.object_remote_stored(&node.id);
+		let skip = !action.descendants && !action.send && node.parent.is_none() && !stored;
 		if skip {
 			return Ok(());
 		}
-		let item = ObjectItem {
+		let node = ObjectNode {
 			descendants: action.descendants,
-			eager: item.eager,
-			id: item.id,
-			kind: item.kind,
+			eager: node.eager,
+			id: node.id,
+			kind: node.kind,
 			send: action.send,
 			stored,
 		};
-		self.pending.fetch_add(1, Ordering::Relaxed);
-		if self.object.force_send(item).is_err() {
-			self.decrement_pending();
+		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
+		if self.object.force_send(node).is_err() {
+			self.decrement_pending_nodes();
 			return Err(tg::error!("failed to enqueue the object"));
 		}
 
@@ -325,28 +325,28 @@ impl Queue {
 	fn enqueue_process_with_graph(
 		&self,
 		graph: &mut Graph,
-		item: raw::ProcessItem,
+		node: raw::ProcessNode,
 	) -> tg::Result<()> {
-		if let Some(token) = &item.token {
-			graph.update_process_token(&item.id, token.clone());
+		if let Some(token) = &node.token {
+			graph.update_process_token(&node.id, token.clone());
 		}
-		let parent = item.parent.clone().map(Into::into);
-		let (action, _) = graph.update_process_remote(item.descendants, &item.id, parent, None);
-		let stored = graph.process_remote_stored(&item.id);
-		let skip = !action.descendants && !action.send && item.parent.is_none() && !stored;
+		let parent = node.parent.clone().map(Into::into);
+		let (action, _) = graph.update_process_remote(node.descendants, &node.id, parent, None);
+		let stored = graph.process_remote_stored(&node.id);
+		let skip = !action.descendants && !action.send && node.parent.is_none() && !stored;
 		if skip {
 			return Ok(());
 		}
-		let item = ProcessItem {
+		let node = ProcessNode {
 			descendants: action.descendants,
-			eager: item.eager,
-			id: item.id,
+			eager: node.eager,
+			id: node.id,
 			send: action.send,
 			stored,
 		};
-		self.pending.fetch_add(1, Ordering::Relaxed);
-		if self.process.force_send(item).is_err() {
-			self.decrement_pending();
+		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
+		if self.process.force_send(node).is_err() {
+			self.decrement_pending_nodes();
 			return Err(tg::error!("failed to enqueue the process"));
 		}
 
@@ -356,23 +356,23 @@ impl Queue {
 	fn enqueue_sandbox_with_graph(
 		&self,
 		graph: &mut Graph,
-		item: raw::SandboxItem,
+		node: raw::SandboxNode,
 	) -> tg::Result<()> {
-		let id = item.id.clone().into();
-		let action = graph.update_item_remote(item.descendants, &id, item.token.clone());
+		let id = node.id.clone().into();
+		let action = graph.update_node_remote(node.descendants, &id, node.token.clone());
 		if !action.descendants && !action.send {
 			return Ok(());
 		}
-		let item = SandboxItem {
+		let node = SandboxNode {
 			descendants: action.descendants,
-			eager: item.eager,
-			id: item.id,
+			eager: node.eager,
+			id: node.id,
 			send: action.send,
-			token: item.token,
+			token: node.token,
 		};
-		self.pending.fetch_add(1, Ordering::Relaxed);
-		if self.sandbox.force_send(item).is_err() {
-			self.decrement_pending();
+		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
+		if self.sandbox.force_send(node).is_err() {
+			self.decrement_pending_nodes();
 			return Err(tg::error!("failed to enqueue the sandbox"));
 		}
 
@@ -398,29 +398,29 @@ impl Session {
 		} = arg;
 
 		// Create the database future.
-		let database_future = queue_database_receiver.map(Ok).try_for_each(|item| {
+		let database_future = queue_database_receiver.map(Ok).try_for_each(|node| {
 			let database_sender = database_sender.clone();
 			let session = self.clone();
 			async move {
 				crate::checkpoint!(
 					session.server,
 					"sync.put.queue.database",
-					descendants = item.descendants,
-					id = %item.id,
-					selector = %item.selector,
+					descendants = node.descendants,
+					id = %node.id,
+					selector = %node.selector,
 				)
 				.await;
-				let item = super::database::Item {
-					descendants: item.descendants,
-					eager: item.eager,
-					id: item.id,
-					send: item.send,
-					token: item.token,
+				let node = super::database::Node {
+					descendants: node.descendants,
+					eager: node.eager,
+					id: node.id,
+					send: node.send,
+					token: node.token,
 				};
 				database_sender
-					.send(item)
+					.send(node)
 					.await
-					.map_err(|_| tg::error!("failed to send the item to the database task"))?;
+					.map_err(|_| tg::error!("failed to send the node to the database task"))?;
 
 				Ok(())
 			}
@@ -436,7 +436,7 @@ impl Session {
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |items| {
+		.try_for_each_concurrent(object_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
 			let index_object_sender = index_object_sender.clone();
@@ -445,7 +445,7 @@ impl Session {
 				session
 					.sync_put_queue_object_batch(
 						&state,
-						items,
+						nodes,
 						index_object_sender,
 						store_object_sender,
 					)
@@ -463,7 +463,7 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| {
+		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
 			let index_process_sender = index_process_sender.clone();
@@ -472,7 +472,7 @@ impl Session {
 				session
 					.sync_put_queue_process_batch(
 						&state,
-						items,
+						nodes,
 						index_process_sender,
 						store_process_sender,
 					)
@@ -481,18 +481,18 @@ impl Session {
 		});
 
 		// Create the sandboxes future.
-		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|item| {
+		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|node| {
 			let sandbox_sender = sandbox_sender.clone();
 			async move {
-				let item = super::sandbox::Item {
-					descendants: item.descendants,
-					eager: item.eager,
-					id: item.id,
-					send: item.send,
-					token: item.token,
+				let node = super::sandbox::Node {
+					descendants: node.descendants,
+					eager: node.eager,
+					id: node.id,
+					send: node.send,
+					token: node.token,
 				};
 				sandbox_sender
-					.send(item)
+					.send(node)
 					.await
 					.map_err(|_| tg::error!("failed to send the sandbox to the sandbox task"))?;
 
@@ -514,16 +514,16 @@ impl Session {
 	async fn sync_put_queue_object_batch(
 		&self,
 		state: &State,
-		mut items: Vec<ObjectItem>,
-		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectItem>,
-		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectItem>,
+		mut nodes: Vec<ObjectNode>,
+		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectNode>,
+		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
 	) -> tg::Result<()> {
 		// Refresh the destination's stored state.
-		for item in &mut items {
-			item.stored = state.graph.lock().unwrap().object_remote_stored(&item.id);
-			if item.stored {
-				item.descendants = false;
-				item.send = false;
+		for node in &mut nodes {
+			node.stored = state.graph.lock().unwrap().object_remote_stored(&node.id);
+			if node.stored {
+				node.descendants = false;
+				node.send = false;
 			}
 		}
 
@@ -531,8 +531,8 @@ impl Session {
 		let required = Self::sync_put_object_permissions();
 		let mut authorization_args = Vec::new();
 		let mut authorization_positions = Vec::new();
-		for (position, item) in items.iter().enumerate() {
-			let requested = if item.descendants {
+		for (position, node) in nodes.iter().enumerate() {
+			let requested = if node.descendants {
 				required
 			} else {
 				Self::sync_put_object_node_permissions()
@@ -541,11 +541,11 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_authorization(&item.id, requested);
+				.get_object_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
+			let resource = tg::Referent::with_node_and_token(node.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -561,28 +561,28 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.update_object_local_permissions(&items[position].id, permissions);
+					.update_object_local_permissions(&nodes[position].id, permissions);
 			}
 		}
 
 		// Route the objects.
-		for item in items {
+		for node in nodes {
 			let requested = Self::sync_put_object_node_permissions();
 			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_authorization(&item.id, requested);
+				.get_object_local_authorization(&node.id, requested);
 			if !authorization.permissions.contains(requested) {
 				tracing::trace!(
-					id = %item.id,
+					id = %node.id,
 					principal = ?self.context.principal,
 					permissions = ?authorization.permissions,
 					"authorization denied"
 				);
-				if item.send {
+				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-						selector: tg::Selector::Id(item.id.clone().into()),
+						selector: tg::Selector::Id(node.id.clone().into()),
 						token: None,
 					});
 					state.sender.send(Ok(message)).await.ok();
@@ -590,36 +590,36 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.update_object_remote_missing(&item.id);
+						.update_object_remote_missing(&node.id);
 				}
-				if item.descendants {
+				if node.descendants {
 					state
 						.graph
 						.lock()
 						.unwrap()
-						.finish_object_remote_descendants(&item.id, item.eager);
+						.finish_object_remote_descendants(&node.id, node.eager);
 				}
-				state.queue.finish_item();
+				state.queue.finish_node();
 				continue;
 			}
-			if (!item.descendants && !item.send) || item.stored {
-				let item = super::index::ObjectItem { id: item.id };
+			if (!node.descendants && !node.send) || node.stored {
+				let node = super::index::ObjectNode { id: node.id };
 				index_object_sender
-					.send(item)
+					.send(node)
 					.await
 					.map_err(|_| tg::error!("failed to send the object to the index task"))?;
-				state.queue.finish_item();
+				state.queue.finish_node();
 			} else {
-				let item = super::store::ObjectItem {
-					descendants: item.descendants,
-					eager: item.eager,
-					id: item.id,
-					kind: item.kind,
-					send: item.send,
+				let node = super::store::ObjectNode {
+					descendants: node.descendants,
+					eager: node.eager,
+					id: node.id,
+					kind: node.kind,
+					send: node.send,
 					token: authorization.token,
 				};
 				store_object_sender
-					.send(item)
+					.send(node)
 					.await
 					.map_err(|_| tg::error!("failed to send the object to the store task"))?;
 			}
@@ -633,16 +633,16 @@ impl Session {
 	async fn sync_put_queue_process_batch(
 		&self,
 		state: &State,
-		mut items: Vec<ProcessItem>,
-		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessItem>,
-		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
+		mut nodes: Vec<ProcessNode>,
+		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessNode>,
+		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessNode>,
 	) -> tg::Result<()> {
 		// Refresh the destination's stored state.
-		for item in &mut items {
-			item.stored = state.graph.lock().unwrap().process_remote_stored(&item.id);
-			if item.stored {
-				item.descendants = false;
-				item.send = false;
+		for node in &mut nodes {
+			node.stored = state.graph.lock().unwrap().process_remote_stored(&node.id);
+			if node.stored {
+				node.descendants = false;
+				node.send = false;
 			}
 		}
 
@@ -650,8 +650,8 @@ impl Session {
 		let required = Self::sync_put_process_permissions(&state.arg);
 		let mut authorization_args = Vec::new();
 		let mut authorization_positions = Vec::new();
-		for (position, item) in items.iter().enumerate() {
-			let requested = if item.descendants {
+		for (position, node) in nodes.iter().enumerate() {
+			let requested = if node.descendants {
 				required
 			} else {
 				Self::sync_put_process_node_permissions()
@@ -660,11 +660,11 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_authorization(&item.id, requested);
+				.get_process_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = tg::Referent::with_item_and_token(item.id.clone(), authorization.token);
+			let resource = tg::Referent::with_node_and_token(node.id.clone(), authorization.token);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -680,28 +680,28 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.update_process_local_permissions(&items[position].id, permissions);
+					.update_process_local_permissions(&nodes[position].id, permissions);
 			}
 		}
 
 		// Route the processes.
-		for item in items {
+		for node in nodes {
 			let requested = Self::sync_put_process_node_permissions();
 			let authorization = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_authorization(&item.id, requested);
+				.get_process_local_authorization(&node.id, requested);
 			if !authorization.permissions.contains(requested) {
 				tracing::trace!(
-					id = %item.id,
+					id = %node.id,
 					principal = ?self.context.principal,
 					permissions = ?authorization.permissions,
 					"authorization denied"
 				);
-				if item.send {
+				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-						selector: tg::Selector::Id(item.id.clone().into()),
+						selector: tg::Selector::Id(node.id.clone().into()),
 						token: None,
 					});
 					state.sender.send(Ok(message)).await.ok();
@@ -709,35 +709,35 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.update_process_remote_missing(&item.id);
+						.update_process_remote_missing(&node.id);
 				}
-				if item.descendants {
+				if node.descendants {
 					state
 						.graph
 						.lock()
 						.unwrap()
-						.finish_process_remote_descendants(&item.id, item.eager);
+						.finish_process_remote_descendants(&node.id, node.eager);
 				}
-				state.queue.finish_item();
+				state.queue.finish_node();
 				continue;
 			}
-			if (!item.descendants && !item.send) || item.stored {
-				let item = super::index::ProcessItem { id: item.id };
+			if (!node.descendants && !node.send) || node.stored {
+				let node = super::index::ProcessNode { id: node.id };
 				index_process_sender
-					.send(item)
+					.send(node)
 					.await
 					.map_err(|_| tg::error!("failed to send the process to the index task"))?;
-				state.queue.finish_item();
+				state.queue.finish_node();
 			} else {
-				let item = super::store::ProcessItem {
-					descendants: item.descendants,
-					eager: item.eager,
-					id: item.id,
-					send: item.send,
+				let node = super::store::ProcessNode {
+					descendants: node.descendants,
+					eager: node.eager,
+					id: node.id,
+					send: node.send,
 					token: authorization.token,
 				};
 				store_process_sender
-					.send(item)
+					.send(node)
 					.await
 					.map_err(|_| tg::error!("failed to send the process to the store task"))?;
 			}

@@ -50,7 +50,7 @@ impl Cli {
 			options.location = Some(location);
 		}
 		let reference =
-			tg::Reference::with_item_and_options(args.reference.item().clone(), options);
+			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
 		let arg = tg::resolve::Arg {
 			cached: args.cached,
 			ttl: args.ttl.get(),

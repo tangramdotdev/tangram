@@ -5,7 +5,7 @@ use {
 	tangram_futures::task::Task,
 };
 
-/// View an item.
+/// View a node.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -110,10 +110,10 @@ impl AlternateScreen {
 
 impl Cli {
 	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
-		// Get the item.
+		// Get the node.
 		let output = self.get(&args.reference).await?;
 		let client = self.client().await?;
-		let root = get_item(&client, output).await?;
+		let root = get_node(&client, output).await?;
 
 		// Create a channel to send the exit signal when stdin finishes reading.
 		let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
@@ -176,21 +176,21 @@ impl Cli {
 	}
 }
 
-async fn get_item(
+async fn get_node(
 	client: &tg::Client,
 	output: tg::get::Output,
 ) -> tg::Result<tg::Referent<crate::viewer::Item>> {
 	let tg::get::Output { location, referent } = output;
-	let tg::Referent { item, options } = referent;
+	let tg::Referent { node, options } = referent;
 	let location = location.map(Into::into);
-	let item = match item {
-		tg::get::Item::Id(id) if id.kind().is_object() => {
+	let node = match node {
+		tg::get::Node::Id(id) if id.kind().is_object() => {
 			let object = id.try_into()?;
 			let referent = tg::Referent::new(object, options.clone());
 			let object = tg::Object::with_referent(referent);
 			crate::viewer::Item::Value(object.into())
 		},
-		tg::get::Item::Id(id) => match id.kind() {
+		tg::get::Node::Id(id) => match id.kind() {
 			tg::id::Kind::Group => {
 				let id = id.try_into()?;
 				let arg = tg::group::get::Arg {
@@ -292,13 +292,13 @@ async fn get_item(
 			| tg::id::Kind::Graph
 			| tg::id::Kind::Symlink => unreachable!(),
 			tg::id::Kind::Runner | tg::id::Kind::Scheduler => {
-				return Err(tg::error!(%id, "cannot view the item"));
+				return Err(tg::error!(%id, "cannot view the node"));
 			},
 			_ => {
-				return Err(tg::error!(%id, "cannot view the item"));
+				return Err(tg::error!(%id, "cannot view the node"));
 			},
 		},
-		tg::get::Item::Pointer(pointer) => {
+		tg::get::Node::Pointer(pointer) => {
 			let graph = pointer
 				.graph
 				.clone()
@@ -308,7 +308,7 @@ async fn get_item(
 			crate::viewer::Item::Value(tg::Object::from(graph).into())
 		},
 	};
-	let referent = tg::Referent { item, options };
+	let referent = tg::Referent { node, options };
 
 	Ok(referent)
 }

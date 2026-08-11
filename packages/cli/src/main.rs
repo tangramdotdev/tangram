@@ -490,7 +490,7 @@ async fn main() -> std::process::ExitCode {
 					.and_then(|config| config.advanced)
 					.and_then(|advanced| advanced.internal_error_locations)
 					.unwrap_or(false);
-				Cli::print_error_basic(tg::Referent::with_item(error), internal);
+				Cli::print_error_basic(tg::Referent::with_node(error), internal);
 				std::process::ExitCode::FAILURE
 			},
 		};
@@ -525,7 +525,7 @@ async fn main() -> std::process::ExitCode {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
-			Cli::print_error_basic(tg::Referent::with_item(error), false);
+			Cli::print_error_basic(tg::Referent::with_node(error), false);
 			return std::process::ExitCode::FAILURE;
 		},
 	};
@@ -611,7 +611,7 @@ async fn main() -> std::process::ExitCode {
 		Ok(()) => cli.exit.unwrap_or_default(),
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
-			let error = tg::Referent::with_item(error);
+			let error = tg::Referent::with_node(error);
 			cli.print_error(error).await;
 			cli.exit.unwrap_or(std::process::ExitCode::FAILURE)
 		},

@@ -276,7 +276,7 @@ impl Session {
 					return Ok::<_, tg::Error>((reference, None));
 				};
 				let referent = dependency.0;
-				let edge = match referent.item {
+				let edge = match referent.node {
 					Some(tg::graph::data::Edge::Pointer(mut pointer)) => {
 						if pointer.graph.is_none() {
 							pointer.graph = graph.cloned();
@@ -299,7 +299,7 @@ impl Session {
 				} else {
 					None
 				};
-				let item = Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+				let node = Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 					graph: None,
 					index,
 					kind,
@@ -308,7 +308,7 @@ impl Session {
 					artifact,
 					..referent.options
 				};
-				let referent = tg::Referent::new(item, options);
+				let referent = tg::Referent::new(node, options);
 				Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
 			})
 			.collect::<tg::Result<_>>()?;
@@ -491,7 +491,7 @@ impl Session {
 					return Ok::<_, tg::Error>((reference, None));
 				};
 				let referent = dependency.0;
-				let (kind, index) = match referent.item {
+				let (kind, index) = match referent.node {
 					Some(tg::graph::data::Edge::Pointer(pointer)) if pointer.graph.is_none() => {
 						let index = graph_to_lock[&pointer.index];
 						(pointer.kind, index)
@@ -522,7 +522,7 @@ impl Session {
 				} else {
 					None
 				};
-				let item = Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+				let node = Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 					graph: None,
 					index,
 					kind,
@@ -531,7 +531,7 @@ impl Session {
 					artifact,
 					..referent.options
 				};
-				let referent = tg::Referent::new(item, options);
+				let referent = tg::Referent::new(node, options);
 				Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
 			})
 			.collect::<tg::Result<_>>()?;

@@ -51,7 +51,7 @@ impl Session {
 			},
 			tg::value::Data::Object(object) => {
 				let token = self.create_token(
-					tg::grant::Resource::Id(object.item.clone().into()),
+					tg::grant::Resource::Id(object.node.clone().into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					)],
@@ -125,7 +125,7 @@ impl Session {
 		for component in &mut data.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
 				let token = self.create_token(
-					tg::grant::Resource::Id(tg::object::Id::from(artifact.item.clone()).into()),
+					tg::grant::Resource::Id(tg::object::Id::from(artifact.node.clone()).into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
 					)],

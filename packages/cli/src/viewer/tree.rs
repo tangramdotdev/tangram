@@ -280,7 +280,7 @@ impl Tree {
 		let title = referent.as_ref().map_or(String::new(), Self::item_title);
 		let expand = options.depth.is_none_or(|max_depth| depth < max_depth)
 			&& referent.as_ref().is_some_and(|referent| {
-				Self::should_expand(referent.item(), &options, &expanded_nodes)
+				Self::should_expand(referent.node(), &options, &expanded_nodes)
 			});
 
 		let expand_task = match (&referent, expand) {
@@ -302,7 +302,7 @@ impl Tree {
 
 		let expanded = referent
 			.as_ref()
-			.filter(|referent| Self::expandable(referent.item()))
+			.filter(|referent| Self::expandable(referent.node()))
 			.map(|_| expand);
 
 		let guard = Some(counter.guard());
@@ -336,7 +336,7 @@ impl Tree {
 		node: &Rc<RefCell<Node>>,
 	) -> Option<Task<()>> {
 		let referent = node.borrow().referent.clone()?;
-		let Item::Process(process) = referent.item() else {
+		let Item::Process(process) = referent.node() else {
 			return None;
 		};
 		let process = process.clone();
@@ -374,7 +374,7 @@ impl Tree {
 				.borrow()
 				.referent
 				.as_ref()
-				.is_some_and(|referent| matches!(referent.item(), Item::Process(_)))
+				.is_some_and(|referent| matches!(referent.node(), Item::Process(_)))
 		})
 	}
 
@@ -515,7 +515,7 @@ impl Tree {
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for value in array {
-				let item = tg::Referent::with_item(Item::Value(value));
+				let item = tg::Referent::with_node(Item::Value(value));
 				let child = Self::create_node(&client, &node, None, Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -547,7 +547,7 @@ impl Tree {
 		let client = client.clone();
 		let value = tg::Value::Array(children);
 		let update = move |node: Rc<RefCell<Node>>| {
-			let item = tg::Referent::with_item(Item::Value(value));
+			let item = tg::Referent::with_node(Item::Value(value));
 			let child = Self::create_node(&client, &node, Some("children".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 			if node.borrow().options.expand_metadata {
@@ -555,7 +555,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -633,7 +633,7 @@ impl Tree {
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -642,7 +642,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -673,7 +673,7 @@ impl Tree {
 
 		// Add source error if present.
 		if let Some(source) = &object.source {
-			let source_error: tg::Error = match &source.item {
+			let source_error: tg::Error = match &source.node {
 				tg::Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
 				tg::Either::Right(client) => client.as_ref().clone(),
 			};
@@ -695,8 +695,8 @@ impl Tree {
 				},
 				tg::error::File::Module(module) => {
 					let referent = &module.referent;
-					let item = match referent.item.clone() {
-						tg::module::Item::Edge(edge) => {
+					let source = match referent.node.clone() {
+						tg::module::Source::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_handle(client).await?.into()
@@ -705,7 +705,7 @@ impl Tree {
 							};
 							tg::Value::Object(object)
 						},
-						tg::module::Item::Path(path) => {
+						tg::module::Source::Path(path) => {
 							tg::Value::String(path.to_string_lossy().into_owned())
 						},
 					};
@@ -714,7 +714,7 @@ impl Tree {
 						"kind".to_owned(),
 						tg::Value::String(module.kind.to_string()),
 					);
-					module_map.insert("item".to_owned(), item);
+					module_map.insert("source".to_owned(), source);
 					map.insert("file".to_owned(), tg::Value::Map(module_map));
 				},
 			}
@@ -784,14 +784,14 @@ impl Tree {
 					let mut map = BTreeMap::new();
 					if let Some(location) = &diag.location {
 						let mut loc_map = BTreeMap::new();
-						match &location.module.referent.item {
-							tg::module::Item::Edge(_) => {
+						match &location.module.referent.node {
+							tg::module::Source::Edge(_) => {
 								loc_map.insert(
 									"module".to_owned(),
 									tg::Value::String("(graph)".to_owned()),
 								);
 							},
-							tg::module::Item::Path(path) => {
+							tg::module::Source::Path(path) => {
 								loc_map.insert(
 									"module".to_owned(),
 									tg::Value::String(path.to_string_lossy().into_owned()),
@@ -832,7 +832,7 @@ impl Tree {
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -841,7 +841,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -938,7 +938,7 @@ impl Tree {
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -947,7 +947,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -1003,16 +1003,16 @@ impl Tree {
 								tg::Value::Null,
 							));
 						};
-						if let Some(edge) = dependency.0.item() {
-							let item = match edge {
+						if let Some(edge) = dependency.0.node() {
+							let node = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.clone(),
 							};
-							map.insert("item".into(), tg::Value::Object(item));
+							map.insert("node".into(), tg::Value::Object(node));
 						} else {
-							map.insert("item".into(), tg::Value::Null);
+							map.insert("node".into(), tg::Value::Null);
 						}
 						if let Some(artifact) = &dependency.0.options.artifact {
 							map.insert(
@@ -1057,7 +1057,7 @@ impl Tree {
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -1066,7 +1066,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -1167,8 +1167,8 @@ impl Tree {
 									));
 								};
 								let mut map = BTreeMap::new();
-								if let Some(edge) = dependency.0.item() {
-									let item = match edge {
+								if let Some(edge) = dependency.0.node() {
+									let node = match edge {
 										tg::graph::Edge::Pointer(pointer) => {
 											let mut pointer = pointer.clone();
 											if pointer.graph.is_none() {
@@ -1178,9 +1178,9 @@ impl Tree {
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
-									map.insert("item".into(), tg::Value::Object(item));
+									map.insert("node".into(), tg::Value::Object(node));
 								} else {
-									map.insert("item".into(), tg::Value::Null);
+									map.insert("node".into(), tg::Value::Null);
 								}
 								if let Some(artifact) = &dependency.0.options.artifact {
 									map.insert(
@@ -1248,7 +1248,7 @@ impl Tree {
 		let value = tg::Value::Array(nodes);
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
-			let item = tg::Referent::with_item(Item::Value(value));
+			let item = tg::Referent::with_node(Item::Value(value));
 			let child = Self::create_node(&client, &node, Some("nodes".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 			if node.borrow().options.expand_metadata {
@@ -1256,7 +1256,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -1275,7 +1275,7 @@ impl Tree {
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, value) in map {
-				let item = tg::Referent::with_item(Item::Value(value));
+				let item = tg::Referent::with_node(Item::Value(value));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -1357,7 +1357,7 @@ impl Tree {
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -1446,14 +1446,14 @@ impl Tree {
 						specifier,
 						token,
 					};
-					Some(tg::Referent::with_item_and_token(
+					Some(tg::Referent::with_node_and_token(
 						Item::Group(group),
 						referent_token,
 					))
 				},
 				tg::list::Entry::Tag {
 					id,
-					item,
+					target,
 					location,
 					name,
 					parent,
@@ -1461,9 +1461,9 @@ impl Tree {
 					token,
 				} => {
 					let referent_token = token.clone();
-					let item = match item {
-						tg::Either::Left(id) => tg::tag::Item::Object(tg::Object::with_id(id)),
-						tg::Either::Right(id) => tg::tag::Item::Process(tg::Process::new(
+					let target = match target {
+						tg::Either::Left(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
+						tg::Either::Right(id) => tg::tag::Target::Process(tg::Process::new(
 							id,
 							tg::process::Options {
 								location: location.clone().map(Into::into),
@@ -1473,7 +1473,7 @@ impl Tree {
 					};
 					let tag = tg::Tag {
 						id,
-						item,
+						target,
 						location,
 						name,
 						parent,
@@ -1481,7 +1481,7 @@ impl Tree {
 						specifier,
 						token,
 					};
-					Some(tg::Referent::with_item_and_token(
+					Some(tg::Referent::with_node_and_token(
 						Item::Tag(tag),
 						referent_token,
 					))
@@ -1518,7 +1518,7 @@ impl Tree {
 			let guard = counter.guard();
 			let client = client.clone();
 			let update = move |node: Rc<RefCell<Node>>| {
-				let process = tg::Referent::with_item(Item::Process(process));
+				let process = tg::Referent::with_node(Item::Process(process));
 				let child = Self::create_node(&client, &node, None, Some(process));
 				node.borrow_mut().children.push(child);
 				node.borrow_mut().guard.replace(guard);
@@ -1536,7 +1536,7 @@ impl Tree {
 		token: Option<tg::grant::Token>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		// Resolve the tag to acquire access to its item.
+		// Resolve the tag to acquire access to its target.
 		let location = tag.location.clone().map(Into::into);
 		let token = token.or_else(|| tag.token.clone());
 		let options = tg::reference::Options {
@@ -1545,7 +1545,7 @@ impl Tree {
 			..tg::reference::Options::default()
 		};
 		let reference = tg::Reference::new(
-			tg::reference::Item::Specifier(tag.specifier.clone().into()),
+			tg::reference::Node::Specifier(tag.specifier.clone().into()),
 			options,
 			None,
 		);
@@ -1560,14 +1560,17 @@ impl Tree {
 			}
 		}
 		let referent = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
-		let tg::Referent { item, options } = referent;
+		let tg::Referent {
+			node: item,
+			options,
+		} = referent;
 		let item = match item {
-			tg::resolve::Item::Id(id) if id.kind().is_object() => {
+			tg::resolve::Node::Id(id) if id.kind().is_object() => {
 				let id = id.try_into()?;
 				let object = tg::Object::with_referent(tg::Referent::new(id, options.clone()));
 				Item::Value(object.into())
 			},
-			tg::resolve::Item::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
+			tg::resolve::Node::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
 				let id: tg::process::Id = id.try_into()?;
 				let process = tg::Process::new(
 					id,
@@ -1579,10 +1582,10 @@ impl Tree {
 				);
 				Item::Process(process)
 			},
-			tg::resolve::Item::Id(id) => {
+			tg::resolve::Node::Id(id) => {
 				return Err(tg::error!(%id, "expected an object or a process"));
 			},
-			tg::resolve::Item::Pointer(pointer) => {
+			tg::resolve::Node::Pointer(pointer) => {
 				let graph = pointer
 					.graph
 					.clone()
@@ -1591,11 +1594,15 @@ impl Tree {
 				Item::Value(tg::Object::from(graph).into())
 			},
 		};
-		let referent = tg::Referent { item, options };
+		let referent = tg::Referent {
+			node: item,
+			options,
+		};
 		let guard = counter.guard();
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
-			let child = Self::create_node(&client, &node, Some("item".to_owned()), Some(referent));
+			let child =
+				Self::create_node(&client, &node, Some("target".to_owned()), Some(referent));
 			node.borrow_mut().children.push(child);
 			node.borrow_mut().guard.replace(guard);
 		};
@@ -1611,7 +1618,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		force_log: bool,
 	) -> tg::Result<()> {
-		let process = referent.item.clone();
+		let process = referent.node.clone();
 
 		// Create the log task, but only if the process's stdio is logged or this is
 		// the attached root process. Reading a piped or tty stream of a descendant
@@ -1654,7 +1661,7 @@ impl Tree {
 							&client,
 							&node,
 							Some("command".to_owned()),
-							Some(tg::Referent::with_item(Item::Value(value))),
+							Some(tg::Referent::with_node(Item::Value(value))),
 						);
 						node.borrow_mut().children.push(command);
 						if node.borrow().options.expand_metadata {
@@ -1662,7 +1669,7 @@ impl Tree {
 								&client,
 								&node,
 								Some("metadata".to_owned()),
-								Some(tg::Referent::with_item(Item::Value(metadata))),
+								Some(tg::Referent::with_node(Item::Value(metadata))),
 							);
 							node.borrow_mut().children.push(metadata);
 						}
@@ -1692,7 +1699,7 @@ impl Tree {
 							&client,
 							&node,
 							Some("output".into()),
-							Some(tg::Referent::with_item(Item::Value(output))),
+							Some(tg::Referent::with_node(Item::Value(output))),
 						);
 						node.borrow_mut().children.insert(0, output);
 					};
@@ -1720,7 +1727,7 @@ impl Tree {
 
 			// Inherit from the referent.
 			let child_module = {
-				let command = child.item.command_with_handle(client).await?;
+				let command = child.node.command_with_handle(client).await?;
 				command
 					.object_with_handle(client)
 					.await?
@@ -1734,7 +1741,7 @@ impl Tree {
 					})
 			};
 			let same_module = match (&referent_module, &child_module) {
-				(Some(parent), Some(child)) => parent.referent.item == child.referent.item,
+				(Some(parent), Some(child)) => parent.referent.node == child.referent.node,
 				_ => true,
 			};
 			let has_own_referent =
@@ -1745,7 +1752,7 @@ impl Tree {
 
 			// Check the status of the process.
 			let finished = child
-				.item
+				.node
 				.status_with_handle(client)
 				.await?
 				.try_next()
@@ -1840,7 +1847,7 @@ impl Tree {
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
-				let item = tg::Referent::with_item(Item::Value(child));
+				let item = tg::Referent::with_node(Item::Value(child));
 				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
@@ -1849,7 +1856,7 @@ impl Tree {
 					&client,
 					&node,
 					Some("metadata".to_owned()),
-					Some(tg::Referent::with_item(Item::Value(metadata))),
+					Some(tg::Referent::with_node(Item::Value(metadata))),
 				);
 				node.borrow_mut().children.push(metadata);
 			}
@@ -1866,7 +1873,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		force_log: bool,
 	) {
-		let result = match referent.item() {
+		let result = match referent.node() {
 			Item::Group(group) => {
 				Self::expand_parent(
 					client,
@@ -1977,7 +1984,7 @@ impl Tree {
 		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
-			let item = tg::Referent::with_item(Item::Value(value));
+			let item = tg::Referent::with_node(Item::Value(value));
 			let child =
 				Self::create_node(&client, &node, Some("components".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
@@ -2116,7 +2123,7 @@ impl Tree {
 	}
 
 	fn item_title(referent: &tg::Referent<Item>) -> String {
-		match referent.item() {
+		match referent.node() {
 			Item::Group(group) => group.specifier.to_string(),
 			Item::Organization(organization) => organization.specifier.to_string(),
 			Item::Process(process) => process.id().to_string(),
@@ -2162,7 +2169,7 @@ impl Tree {
 		let label = Self::item_label(&referent);
 		let title = Self::item_title(&referent);
 		let expand = options.depth.is_none_or(|max_depth| max_depth > 0)
-			&& Self::should_expand(referent.item(), &options, &expanded_nodes);
+			&& Self::should_expand(referent.node(), &options, &expanded_nodes);
 
 		let expand_task = if expand {
 			let counter = counter.clone();
@@ -2180,7 +2187,7 @@ impl Tree {
 			None
 		};
 
-		let update_task = if let Item::Process(process) = referent.item() {
+		let update_task = if let Item::Process(process) = referent.node() {
 			// Create the update task.
 			let update_task = Task::spawn_local({
 				let counter = counter.clone();
@@ -2212,7 +2219,7 @@ impl Tree {
 			counter: counter.clone(),
 			children: Vec::new(),
 			depth: 0,
-			expanded: Self::expandable(referent.item()).then_some(expand),
+			expanded: Self::expandable(referent.node()).then_some(expand),
 			expanded_nodes,
 			expand_task,
 			guard: displayed_at_least_once,
@@ -2401,7 +2408,7 @@ impl Tree {
 		}
 
 		// Get the original commands' executable.
-		let command = process.item.command_with_handle(client).await.ok()?.clone();
+		let command = process.node.command_with_handle(client).await.ok()?.clone();
 		let object = command.object_with_handle(client).await.ok()?;
 		let executable = &object.executable;
 
@@ -2437,7 +2444,7 @@ impl Tree {
 			},
 		};
 		let title = if title.is_empty() {
-			process.item.id().to_string()
+			process.node.id().to_string()
 		} else {
 			title
 		};
@@ -2475,10 +2482,10 @@ impl Tree {
 		}
 
 		// Create the status stream.
-		let mut status = process.item.status_with_handle(client).await?;
+		let mut status = process.node.status_with_handle(client).await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
-			let indicator = match (process.item.cached(), status) {
+			let indicator = match (process.node.cached(), status) {
 				(Some(true), _) => Indicator::Cached,
 				(_, tg::process::Status::Started) => Indicator::Started,
 				(_, tg::process::Status::Finished) => {
@@ -2512,7 +2519,7 @@ impl Tree {
 						return Ok(());
 					}
 
-					let state = process.item.load_with_handle(client).await?;
+					let state = process.node.load_with_handle(client).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2530,13 +2537,13 @@ impl Tree {
 
 		// Check if the process was canceled.
 		let arg = tg::process::get::Arg {
-			location: process.item.location(),
+			location: process.node.location(),
 			metadata: false,
 			stored: false,
-			token: process.item.token(),
+			token: process.node.token(),
 		};
 		if client
-			.try_get_process(process.item.id().unwrap_right(), arg)
+			.try_get_process(process.node.id().unwrap_right(), arg)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2720,7 +2727,7 @@ impl Tree {
 					node.borrow()
 						.referent
 						.as_ref()
-						.and_then(|referent| match referent.item() {
+						.and_then(|referent| match referent.node() {
 							Item::Process(process) => Some(process.clone()),
 							_ => None,
 						});
@@ -2744,7 +2751,7 @@ impl Tree {
 				let content_future = {
 					let client = client.clone();
 					async move {
-						match referent.item {
+						match referent.node {
 							Item::Group(group) => serde_json::to_string_pretty(&group).unwrap(),
 							Item::Organization(organization) => {
 								serde_json::to_string_pretty(&organization).unwrap()
@@ -2968,7 +2975,7 @@ impl Tree {
 		let Some(referent) = self.selected.borrow().referent.clone() else {
 			return;
 		};
-		let contents = match referent.item() {
+		let contents = match referent.node() {
 			Item::Group(group) => group.specifier.to_string(),
 			Item::Organization(organization) => organization.specifier.to_string(),
 			Item::Process(process) => process.id().to_string(),

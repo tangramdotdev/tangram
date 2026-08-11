@@ -1,6 +1,6 @@
 use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
 
-/// List items.
+/// List nodes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

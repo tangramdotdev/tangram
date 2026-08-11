@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "a": {
-          "item": null,
+          "node": null,
           "options": {
             "id": "dir_01zbr8sgp4jttp8z078yxbnqtabk07avfamzafr9ka2g22ezxdnp10",
             "tag": "a"

@@ -178,7 +178,7 @@ impl Session {
 		let get = specifier
 			.ancestors()
 			.map(tg::Selector::Specifier)
-			.map(tg::Referent::with_item)
+			.map(tg::Referent::with_node)
 			.collect::<Vec<_>>();
 		let mut remotes = self.locations(None).await?.remotes;
 		remotes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -191,9 +191,9 @@ impl Session {
 			let arg = tg::push::Arg {
 				ancestors: pull,
 				destination: Some(destination.clone()),
-				items: Vec::new(),
+				nodes: Vec::new(),
 				source: Some(source.clone()),
-				tag_items: false,
+				tag_targets: false,
 				..Default::default()
 			};
 			let (stream, received_specifiers) = self

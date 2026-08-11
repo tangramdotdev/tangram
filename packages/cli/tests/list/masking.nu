@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A local item masks only a remote item with the same exact specifier, not its descendants.
+# A local node masks only a remote node with the same exact specifier, not its descendants.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {

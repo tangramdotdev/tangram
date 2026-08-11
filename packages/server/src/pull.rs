@@ -14,11 +14,11 @@ impl Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
 		if arg
-			.items
+			.nodes
 			.iter()
-			.all(|item| item.item.kind() == tg::id::Kind::Process || item.item.kind().is_object())
+			.all(|node| node.node.kind() == tg::id::Kind::Process || node.node.kind().is_object())
 			&& self
-				.pull_items_stored(&arg)
+				.pull_nodes_stored(&arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check whether the pull is local"))?
 		{
@@ -43,17 +43,17 @@ impl Session {
 		Ok(stream.boxed())
 	}
 
-	async fn pull_items_stored(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
+	async fn pull_nodes_stored(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let object_ids = arg
-			.items
+			.nodes
 			.iter()
-			.filter_map(|item| tg::object::Id::try_from(item.item.clone()).ok())
+			.filter_map(|node| tg::object::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
 		let process_ids = arg
-			.items
+			.nodes
 			.iter()
-			.filter_map(|item| tg::process::Id::try_from(item.item.clone()).ok())
+			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
 		let touch_objects_future = async {
 			self.server

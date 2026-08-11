@@ -72,7 +72,7 @@ impl State {
 		let error = self.error.as_ref().map(|error| {
 			error
 				.to_data_or_id()
-				.map_right(|id| tg::Referent::with_item_and_token(id, error.state().token()))
+				.map_right(|id| tg::Referent::with_node_and_token(id, error.state().token()))
 		});
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
@@ -81,7 +81,7 @@ impl State {
 		let log = self
 			.log
 			.as_ref()
-			.map(|log| tg::Referent::with_item_and_token(log.id(), log.state().token()));
+			.map(|log| tg::Referent::with_node_and_token(log.id(), log.state().token()));
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
@@ -193,7 +193,7 @@ impl Child {
 	}
 
 	pub fn try_from_data(value: tg::process::data::Child) -> tg::Result<Self> {
-		let process = value.process.item;
+		let process = value.process.node;
 		let options = value.process.options;
 		let token = options.token.clone();
 		Ok(Self {

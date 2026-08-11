@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Pull items.
+/// Pull nodes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -44,7 +44,7 @@ pub struct Args {
 	pub source: crate::location::Args,
 
 	#[command(flatten)]
-	pub tag_items: crate::push::TagItems,
+	pub tag_targets: crate::push::TagTargets,
 
 	#[arg(long)]
 	pub user_children: bool,
@@ -72,29 +72,29 @@ impl Cli {
 					options.location.clone_from(&reference_location);
 				}
 				tg::Reference::new(
-					reference.item().clone(),
+					reference.node().clone(),
 					options,
 					reference.export().map(ToOwned::to_owned),
 				)
 			})
 			.collect::<Vec<_>>();
-		let mut items = Vec::with_capacity(references.len());
+		let mut nodes = Vec::with_capacity(references.len());
 		for reference in &references {
 			let referent = self.get(reference).await?.referent;
-			let tg::get::Item::Id(id) = referent.item else {
-				return Err(tg::error!("expected an item id"));
+			let tg::get::Node::Id(id) = referent.node else {
+				return Err(tg::error!("expected a node id"));
 			};
-			let item = tg::Referent::with_item_and_token(id, referent.options.token);
-			items.push(item);
+			let node = tg::Referent::with_node_and_token(id, referent.options.token);
+			nodes.push(node);
 		}
 
-		// Pull the items.
+		// Pull the nodes.
 		let arg = tg::pull::Arg {
 			ancestors: args.ancestors.get(),
 			destination: None,
 			eager: args.eager.get(),
 			group_children: args.group_children,
-			items,
+			nodes,
 			metadata: args.metadata,
 			organization_children: args.organization_children,
 			process_children: args.process_children,
@@ -104,7 +104,7 @@ impl Cli {
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,
 			source,
-			tag_items: args.tag_items.get(),
+			tag_targets: args.tag_targets.get(),
 			user_children: args.user_children,
 		};
 		let stream = client

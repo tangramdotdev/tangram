@@ -120,7 +120,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 	{
-		let item = from_exception(state, scope, source.into())?
+		let node = from_exception(state, scope, source.into())?
 			.to_data_or_id()
 			.map_left(|data| {
 				Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
@@ -131,7 +131,7 @@ pub(super) fn from_exception<'s>(
 				}))
 			})
 			.map_right(|id| Box::new(tg::Error::with_id(id)));
-		let referent = tg::Referent::with_item(item);
+		let referent = tg::Referent::with_node(node);
 		Some(referent)
 	} else {
 		None

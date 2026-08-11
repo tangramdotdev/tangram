@@ -89,10 +89,10 @@ snapshot --normalize-ids $tagged '
 '
 
 # Verify all four packages are tagged on remote.
-let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get item.id
-let remote_left_tag = tg --url $remote.url tag get test-left/1.0.0 | from json | get item.id
-let remote_right_tag = tg --url $remote.url tag get test-right/1.0.0 | from json | get item.id
-let remote_bottom_tag = tg --url $remote.url tag get test-bottom/1.0.0 | from json | get item.id
+let remote_main_tag = tg --url $remote.url tag get test-main/1.0.0 | from json | get target.id
+let remote_left_tag = tg --url $remote.url tag get test-left/1.0.0 | from json | get target.id
+let remote_right_tag = tg --url $remote.url tag get test-right/1.0.0 | from json | get target.id
+let remote_bottom_tag = tg --url $remote.url tag get test-bottom/1.0.0 | from json | get target.id
 assert equal $remote_main_tag $main_id "Remote main tag does not match expected ID."
 assert equal $remote_left_tag $left_id "Remote left tag does not match expected ID."
 assert equal $remote_right_tag $right_id "Remote right tag does not match expected ID."

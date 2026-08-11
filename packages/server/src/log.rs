@@ -172,7 +172,7 @@ impl Session {
 
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
-		data.log = Some(tg::Referent::with_item(blob.clone()));
+		data.log = Some(tg::Referent::with_node(blob.clone()));
 
 		self.server
 			.index
@@ -201,7 +201,7 @@ impl Session {
 			.runner
 			.state()
 			.try_update_process(process, |state| {
-				state.data.log = Some(tg::Referent::with_item(blob.clone()));
+				state.data.log = Some(tg::Referent::with_node(blob.clone()));
 			});
 
 		self.server
@@ -241,7 +241,7 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
-		let mut inner = if let Some(id) = output.data.log.map(|log| log.item) {
+		let mut inner = if let Some(id) = output.data.log.map(|log| log.node) {
 			let blob = tg::Blob::with_id(id);
 			let mut reader = crate::read::Reader::new(self, blob).await?;
 			let index = self.read_log_index_from_blob(&mut reader).await?;
@@ -353,7 +353,7 @@ impl Session {
 					&& let Some(output) = inner
 						.session
 						.try_get_process_local(&inner.process, false, false, None)
-						.await? && let Some(blob_id) = output.data.log.map(|log| log.item)
+						.await? && let Some(blob_id) = output.data.log.map(|log| log.node)
 				{
 					let blob = tg::Blob::with_id(blob_id);
 					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;

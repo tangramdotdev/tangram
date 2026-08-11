@@ -38,12 +38,12 @@ snapshot $object '
 	    "contents": tg.blob("import * as inner from \"dir_01wcq462s4p2ryzr1b9wspd8a8h94ke0w23erkaq52pwvq5dwzcx00\";"),
 	    "dependencies": {
 	      "dir_01wcq462s4p2ryzr1b9wspd8a8h94ke0w23erkaq52pwvq5dwzcx00": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import { helper } from \"my-lib\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
 	              "my-lib?get=lib/utils.tg.ts": {
-	                "item": tg.file({
+	                "node": tg.file({
 	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),

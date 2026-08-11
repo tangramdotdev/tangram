@@ -6,7 +6,7 @@ export namespace Reference {
 	export type String = string;
 
 	export type Object<T> = {
-		item: T;
+		node: T;
 		options?: tg.Reference.Options;
 	};
 
@@ -24,9 +24,9 @@ export namespace Reference {
 
 	export let toData = <T, U>(
 		value: tg.Reference.Object<T>,
-		f: (item: T) => U,
+		f: (node: T) => U,
 	): tg.Reference.Data<U> => {
-		let item = f(value.item);
+		let node = f(value.node);
 		let options: tg.Reference.Data.Options = {};
 		if (
 			value.options?.artifact !== undefined &&
@@ -62,17 +62,17 @@ export namespace Reference {
 			options.token = value.options.token;
 		}
 		return {
-			item,
+			node,
 			options,
 		};
 	};
 
 	export let fromData = <T, U>(
 		data: tg.Reference.Data<T>,
-		f: (item: T) => U,
+		f: (node: T) => U,
 	): tg.Reference.Object<U> => {
 		tg.assert(typeof data === "object");
-		let item = f(data.item);
+		let node = f(data.node);
 		let options: tg.Reference.Options = {};
 		if (
 			data.options?.artifact !== undefined &&
@@ -108,17 +108,17 @@ export namespace Reference {
 			options.token = data.options.token;
 		}
 		return {
-			item,
+			node,
 			options,
 		};
 	};
 
 	export let toDataString = <T, U extends string>(
 		value: tg.Reference.Object<T>,
-		f: (item: T) => U,
+		f: (node: T) => U,
 	): tg.Reference.String => {
-		let item = f(value.item);
-		let string = item.toString();
+		let node = f(value.node);
+		let string = node.toString();
 		let params = [];
 		if (
 			value.options?.artifact !== undefined &&
@@ -163,10 +163,10 @@ export namespace Reference {
 
 	export let fromDataString = <T extends string, U>(
 		data: tg.Reference.String,
-		f: (item: T) => U,
+		f: (node: T) => U,
 	): tg.Reference.Object<U> => {
-		let [itemString, params] = data.split("?");
-		let item = f(itemString! as T);
+		let [nodeString, params] = data.split("?");
+		let node = f(nodeString! as T);
 		let options: tg.Reference.Options = {};
 		if (params !== undefined) {
 			for (let param of params.split("&")) {
@@ -220,7 +220,7 @@ export namespace Reference {
 			}
 		}
 		let reference: tg.Reference.Object<U> = {
-			item,
+			node,
 			options,
 		};
 		return reference;
@@ -229,7 +229,7 @@ export namespace Reference {
 	export type Data<T> =
 		| string
 		| {
-				item: T;
+				node: T;
 				options?: tg.Reference.Data.Options;
 		  };
 
@@ -238,12 +238,12 @@ export namespace Reference {
 			data: tg.Reference.Data<T>,
 		): tg.Reference.Data<T> => {
 			if (typeof data === "string") {
-				let reference = tg.Reference.fromDataString(data, (item) => item);
+				let reference = tg.Reference.fromDataString(data, (node) => node);
 				let options = { ...reference.options };
 				delete options.token;
 				return tg.Reference.toDataString(
 					{ ...reference, options },
-					(item) => item,
+					(node) => node,
 				);
 			}
 			let output = { ...data };

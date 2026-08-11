@@ -400,9 +400,9 @@ impl Session {
 						.options()
 						.source
 						.as_ref()
-						.or(reference.item().try_unwrap_path_ref().ok())
+						.or(reference.node().try_unwrap_path_ref().ok())
 				} else {
-					reference.item().try_unwrap_path_ref().ok()
+					reference.node().try_unwrap_path_ref().ok()
 				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
@@ -418,11 +418,11 @@ impl Session {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
-				} else if let Some(edge) = reference_item_to_object_edge(reference.item()) {
+				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
 					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
-						return Err(tg::error!(item = %reference.item(), "expected a graph"));
+						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -439,7 +439,7 @@ impl Session {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(edge),
+						node: Some(edge),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -470,7 +470,7 @@ impl Session {
 			// Analyze.
 			let module = tg::module::Data {
 				kind,
-				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.clone())),
 			};
 			let analysis = tangram_compiler::Compiler::analyze(&module, &text);
 			for diagnostic in analysis.diagnostics {
@@ -485,9 +485,9 @@ impl Session {
 						.options()
 						.source
 						.as_ref()
-						.or(reference.item().try_unwrap_path_ref().ok())
+						.or(reference.node().try_unwrap_path_ref().ok())
 				} else {
-					reference.item().try_unwrap_path_ref().ok()
+					reference.node().try_unwrap_path_ref().ok()
 				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
@@ -518,11 +518,11 @@ impl Session {
 						path: referent,
 						parent: Some(parent),
 					});
-				} else if let Some(edge) = reference_item_to_object_edge(reference.item()) {
+				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
 					if let tg::graph::data::Edge::Pointer(p) = &edge
 						&& p.graph.is_none()
 					{
-						return Err(tg::error!(item = %reference.item(), "expected a graph"));
+						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -539,7 +539,7 @@ impl Session {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(edge),
+						node: Some(edge),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -551,7 +551,7 @@ impl Session {
 
 		// Spawn tasks to pull the tag dependencies.
 		for reference in dependencies.keys() {
-			if let Ok(pattern) = reference.item().try_unwrap_specifier_ref() {
+			if let Ok(pattern) = reference.node().try_unwrap_specifier_ref() {
 				tokio::spawn({
 					let session = self.clone();
 					let pattern = pattern.clone();
@@ -848,7 +848,7 @@ impl Session {
 				};
 				let options = tg::referent::Options::with_path(path);
 				let dependency = tg::graph::data::Dependency(tg::Referent {
-					item: Some(edge),
+					node: Some(edge),
 					options,
 				});
 				state
@@ -909,7 +909,7 @@ impl Session {
 					.dependencies
 					.get(reference)?
 					.as_ref()?
-					.item()
+					.node()
 					.as_ref()?
 					.try_unwrap_pointer_ref()
 					.ok()?
@@ -952,16 +952,16 @@ impl Session {
 	}
 }
 
-fn reference_item_to_object_edge(
-	item: &tg::reference::Item,
+fn reference_node_to_object_edge(
+	node: &tg::reference::Node,
 ) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-	match item {
-		tg::reference::Item::Id(id) => tg::object::Id::try_from(id.clone())
+	match node {
+		tg::reference::Node::Id(id) => tg::object::Id::try_from(id.clone())
 			.ok()
 			.map(tg::graph::data::Edge::Object),
-		tg::reference::Item::Pointer(pointer) => {
+		tg::reference::Node::Pointer(pointer) => {
 			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
 		},
-		tg::reference::Item::Path(_) | tg::reference::Item::Specifier(_) => None,
+		tg::reference::Node::Path(_) | tg::reference::Node::Specifier(_) => None,
 	}
 }

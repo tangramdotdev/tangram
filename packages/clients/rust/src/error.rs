@@ -230,28 +230,28 @@ macro_rules! error {
 	({ $object:ident }, !$source:ident, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source_handle = $crate::Error::from(source);
-		let source_item = match source_handle.state().object() {
+		let source_node = match source_handle.state().object() {
 			Some(source_arc) => {
 				let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
 				$crate::Either::Left(std::boxed::Box::new(source_obj))
 			},
 			None => $crate::Either::Right(std::boxed::Box::new(source_handle)),
 		};
-		let source = $crate::Referent::with_item(source_item);
+		let source = $crate::Referent::with_node(source_node);
 		$object.source.replace(source);
 		$crate::error!({ $object }, $($arg)*)
 	};
 	({ $object:ident }, source = $source:expr, $($arg:tt)*) => {
 		let source = Box::<dyn std::error::Error + Send + Sync + 'static>::from($source);
 		let source_handle = $crate::Error::from(source);
-		let source_item = match source_handle.state().object() {
+		let source_node = match source_handle.state().object() {
 			Some(source_arc) => {
 				let source_obj = source_arc.unwrap_error_ref().as_ref().clone();
 				$crate::Either::Left(std::boxed::Box::new(source_obj))
 			},
 			None => $crate::Either::Right(std::boxed::Box::new(source_handle)),
 		};
-		let source = $crate::Referent::with_item(source_item);
+		let source = $crate::Referent::with_node(source_node);
 		$object.source.replace(source);
 		$crate::error!({ $object }, $($arg)*)
 	};

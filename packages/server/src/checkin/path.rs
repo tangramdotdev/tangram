@@ -21,7 +21,7 @@ impl Session {
 				for (reference, dependency) in &file.dependencies {
 					if let Some(get) = reference.options().get.as_ref()
 						&& let Some(dependency) = dependency
-						&& let Some(edge) = dependency.item()
+						&& let Some(edge) = dependency.node()
 					{
 						let visit = if let Some(id) = dependency.id() {
 							Self::checkin_path_edge_matches_id(graph, edge, id)

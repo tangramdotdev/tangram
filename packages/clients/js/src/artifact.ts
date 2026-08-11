@@ -97,7 +97,7 @@ export namespace Artifact {
 	export let withReferent = (
 		referent: tg.Referent<tg.Artifact.Id>,
 	): tg.Artifact => {
-		let artifact = withId(referent.item);
+		let artifact = withId(referent.node);
 		artifact.state.token = referent.options?.token ?? null;
 		return artifact;
 	};

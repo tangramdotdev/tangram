@@ -4,7 +4,7 @@ tg.directory({
     "contents": tg.blob("import a from \"./a\";"),
     "dependencies": {
       "./a": {
-        "item": tg.directory(),
+        "node": tg.directory(),
         "options": {
           "path": "a",
         },

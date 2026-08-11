@@ -23,7 +23,7 @@ impl File {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let file = Self::with_id(referent.item);
+		let file = Self::with_id(referent.node);
 		file.state().set_token(referent.options.token);
 
 		file
@@ -276,7 +276,7 @@ impl File {
 							let Some(dependency) = &option else {
 								break 'a None;
 							};
-							let object = match dependency.0.item.clone() {
+							let object = match dependency.0.node.clone() {
 								Some(tg::graph::Edge::Pointer(pointer)) => {
 									let graph = pointer.graph.unwrap_or_else(|| graph.clone());
 									tg::Artifact::with_pointer(tg::graph::Pointer {
@@ -313,7 +313,7 @@ impl File {
 							let Some(dependency) = &option else {
 								break 'a None;
 							};
-							let object: tg::Object = match dependency.0.item.clone() {
+							let object: tg::Object = match dependency.0.node.clone() {
 								Some(tg::graph::Edge::Pointer(pointer)) => {
 									let graph = pointer
 										.graph
@@ -390,7 +390,7 @@ impl File {
 		else {
 			return Ok(None);
 		};
-		let item = match dependency.0.item {
+		let node = match dependency.0.node {
 			Some(tg::graph::Edge::Pointer(pointer)) => {
 				let object: tg::Object = tg::Artifact::with_pointer(pointer).into();
 				object.inherit_token(self.state.token());
@@ -403,7 +403,7 @@ impl File {
 			None => None,
 		};
 		Ok(Some(tg::file::Dependency(tg::Referent {
-			item,
+			node,
 			options: dependency.0.options,
 		})))
 	}
@@ -462,12 +462,12 @@ impl File {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				let Some(dependency) = file.dependencies.get(reference).ok_or_else(
-					|| tg::error!(file = %self.id(), item = %reference.item(), "expected a dependency"),
+					|| tg::error!(file = %self.id(), node = %reference.node(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
-				let item = match dependency.0.item.clone() {
+				let node = match dependency.0.node.clone() {
 					Some(tg::graph::Edge::Pointer(pointer)) => {
 						let graph = pointer.graph.unwrap_or_else(|| graph.clone());
 						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
@@ -480,18 +480,18 @@ impl File {
 					None => None,
 				};
 				tg::graph::Dependency(tg::Referent {
-					item,
+					node,
 					options: dependency.0.options.clone(),
 				})
 			},
 			Object::Node(node) => {
 				let Some(dependency) = node.dependencies.get(reference).ok_or_else(
-					|| tg::error!(file = %self.id(), item = %reference.item(), "expected a dependency"),
+					|| tg::error!(file = %self.id(), node = %reference.node(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
-				let item = match dependency.0.item.clone() {
+				let node = match dependency.0.node.clone() {
 					Some(tg::graph::Edge::Pointer(pointer)) => {
 						let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
 						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
@@ -504,7 +504,7 @@ impl File {
 					None => None,
 				};
 				tg::graph::Dependency(tg::Referent {
-					item,
+					node,
 					options: dependency.0.options.clone(),
 				})
 			},

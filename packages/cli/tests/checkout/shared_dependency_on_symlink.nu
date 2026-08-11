@@ -15,8 +15,8 @@ let artifact = artifact {
 			});
 			let id = dependency.id;
 			return tg.directory({
-				"foo.txt": tg.file("foo", { dependencies: { [id]: { item: dependency }}}),
-				"bar.txt": tg.file("bar", { dependencies: { [id]: { item: dependency }}})
+				"foo.txt": tg.file("foo", { dependencies: { [id]: { node: dependency }}}),
+				"bar.txt": tg.file("bar", { dependencies: { [id]: { node: dependency }}})
 			});
 		}
 	'

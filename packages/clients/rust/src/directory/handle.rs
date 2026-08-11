@@ -21,7 +21,7 @@ impl Directory {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let directory = Self::with_id(referent.item);
+		let directory = Self::with_id(referent.node);
 		directory.state().set_token(referent.options.token);
 
 		directory

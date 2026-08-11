@@ -27,7 +27,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
-	pub referent: tg::Referent<tg::get::Item>,
+	pub referent: tg::Referent<tg::get::Node>,
 }
 
 #[derive(
@@ -47,20 +47,20 @@ pub struct Output {
 #[serde(untagged)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Item {
+pub enum Node {
 	#[display("{_0}")]
 	Id(tg::Id),
 	#[display("{_0}")]
 	Pointer(tg::graph::data::Pointer),
 }
 
-impl Item {
+impl Node {
 	pub fn to_graph_edge(self) -> tg::Result<tg::graph::Edge<tg::Object>> {
 		match self {
-			tg::get::Item::Id(id) => {
+			tg::get::Node::Id(id) => {
 				Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?)))
 			},
-			tg::get::Item::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
+			tg::get::Node::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
 				graph: pointer.graph.map(tg::Graph::with_id),
 				index: pointer.index,
 				kind: pointer.kind,
@@ -69,11 +69,11 @@ impl Item {
 	}
 }
 
-impl tg::Referent<Item> {
+impl tg::Referent<Node> {
 	pub fn into_graph_edge(self) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
 		let token = self.options.token.clone();
-		let referent = self.try_map(Item::to_graph_edge)?;
-		match &referent.item {
+		let referent = self.try_map(Node::to_graph_edge)?;
+		match &referent.node {
 			tg::graph::Edge::Object(object) => object.inherit_token(token),
 			tg::graph::Edge::Pointer(pointer) => {
 				if let Some(graph) = &pointer.graph {
@@ -99,7 +99,7 @@ impl tg::Session {
 	> {
 		let method = http::Method::GET;
 		arg.options = reference.options().clone();
-		let path = format!("/_/{}", reference.item());
+		let path = format!("/_/{}", reference.node());
 		let uri = Uri::builder()
 			.path_raw(&path)
 			.query_params_strict(&arg)

@@ -37,12 +37,12 @@ snapshot $object '
 	    "contents": tg.blob("import * as inner from \"inner-pkg\";"),
 	    "dependencies": {
 	      "inner-pkg": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
 	              "../sibling?get=lib/utils.tg.ts": {
-	                "item": tg.file({
+	                "node": tg.file({
 	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),

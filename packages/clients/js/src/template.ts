@@ -113,7 +113,7 @@ export class Template {
 				} else {
 					let id = component.id;
 					let token = component.state.token;
-					let referent = tg.Referent.withItemAndToken(id, token);
+					let referent = tg.Referent.withNodeAndToken(id, token);
 					return {
 						kind: "artifact",
 						value: tg.Referent.toDataString(referent, (id) => id),
@@ -263,7 +263,7 @@ export namespace Template {
 						component.value,
 						(id) => id as tg.Artifact.Id,
 					);
-					return [referent.item];
+					return [referent.node];
 				} else {
 					return [];
 				}

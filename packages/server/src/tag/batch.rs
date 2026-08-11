@@ -47,7 +47,7 @@ impl Session {
 		}
 		let mut permissions = Vec::with_capacity(arg.tags.len());
 		for item in &arg.tags {
-			permissions.push(self.recorded_tag_permissions(&item.item).await?);
+			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
 		let session = self.clone();
 		self.server
@@ -64,7 +64,7 @@ impl Session {
 								create: arg.parents,
 								pull: tg::node::AncestorsPull::Never,
 							},
-							item: item.item,
+							target: item.target,
 							location: None,
 							public: false,
 							specifier: item.specifier,
@@ -75,9 +75,9 @@ impl Session {
 						batch.items.push(tangram_index::batch::Item::PutTag(
 							tangram_index::tag::put::Arg {
 								id: data.id,
-								item: match data.item {
-									tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-									tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+								target: match data.target {
+									tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+									tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 								},
 								name: data.name,
 								parent: data.parent,

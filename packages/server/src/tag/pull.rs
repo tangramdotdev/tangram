@@ -29,16 +29,19 @@ impl Session {
 			.data;
 		list.into_iter()
 			.filter_map(|entry| {
-				let tg::list::Entry::Tag { item, location, .. } = entry else {
+				let tg::list::Entry::Tag {
+					target, location, ..
+				} = entry
+				else {
 					return None;
 				};
-				let directory = item.left()?.try_unwrap_directory().ok()?;
+				let directory = target.left()?.try_unwrap_directory().ok()?;
 				let session = self.clone();
 				let location = location?;
 				Some(async move {
 					let arg = tg::pull::Arg {
 						source: Some(location),
-						items: vec![tg::Referent::with_item(directory.into())],
+						nodes: vec![tg::Referent::with_node(directory.into())],
 						..Default::default()
 					};
 					let stream = session.pull(arg).await?;

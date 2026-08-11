@@ -6,7 +6,7 @@ tg.file({
         "contents": tg.blob("import \"./tangram.ts\";"),
         "dependencies": {
           "./tangram.ts": {
-            "item": {
+            "node": {
               "index": 1,
               "kind": "file",
             },
@@ -22,7 +22,7 @@ tg.file({
         "contents": tg.blob("import \"./foo.tg.ts\";"),
         "dependencies": {
           "./foo.tg.ts": {
-            "item": {
+            "node": {
               "index": 0,
               "kind": "file",
             },

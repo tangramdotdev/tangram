@@ -6,7 +6,7 @@ tg.directory({
     "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
     "dependencies": {
       "./helper.tg.ts": {
-        "item": tg.file({
+        "node": tg.file({
           "contents": tg.blob("export default \"helper\";"),
         }),
         "path": "helper.tg.ts",
@@ -18,11 +18,11 @@ tg.directory({
       "contents": tg.blob("import mod from \"../mod.tg.ts\";"),
       "dependencies": {
         "../mod.tg.ts": {
-          "item": tg.file({
+          "node": tg.file({
             "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
             "dependencies": {
               "./helper.tg.ts": {
-                "item": tg.file({
+                "node": tg.file({
                   "contents": tg.blob("export default \"helper\";"),
                 }),
                 "path": "helper.tg.ts",
@@ -38,11 +38,11 @@ tg.directory({
     "contents": tg.blob("import mod from \"./mod.tg.ts\";"),
     "dependencies": {
       "./mod.tg.ts": {
-        "item": tg.file({
+        "node": tg.file({
           "contents": tg.blob("import helper from \"./helper.tg.ts\";"),
           "dependencies": {
             "./helper.tg.ts": {
-              "item": tg.file({
+              "node": tg.file({
                 "contents": tg.blob("export default \"helper\";"),
               }),
               "path": "helper.tg.ts",

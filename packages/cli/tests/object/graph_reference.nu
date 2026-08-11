@@ -42,7 +42,7 @@ snapshot $output.stdout '
 	      "contents": blb_01mvpyxe78tzxqkeymgte23s41m6vb93pey2v0jr8pes81h34j8bm0,
 	      "dependencies": {
 	        "./bar": {
-	          "item": {
+	          "node": {
 	            "index": 1,
 	            "kind": "file",
 	          },
@@ -54,7 +54,7 @@ snapshot $output.stdout '
 	      "contents": blb_01p5qf596t7vpc0nnx8q9c5gpm3271t2cqj16yb0e5zyd880ncc3tg,
 	      "dependencies": {
 	        "./foo": {
-	          "item": {
+	          "node": {
 	            "index": 0,
 	            "kind": "file",
 	          },

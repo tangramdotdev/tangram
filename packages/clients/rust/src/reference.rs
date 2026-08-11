@@ -20,7 +20,7 @@ use {
 )]
 #[tangram_serialize(display, from_str)]
 pub struct Reference {
-	item: Item,
+	node: Node,
 	options: Options,
 	export: Option<String>,
 }
@@ -41,7 +41,7 @@ pub struct Reference {
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Item {
+pub enum Node {
 	Id(tg::Id),
 	Path(PathBuf),
 	Pointer(tg::graph::data::Pointer),
@@ -91,36 +91,36 @@ pub struct Options {
 
 impl Reference {
 	#[must_use]
-	pub fn new(item: Item, options: Options, export: Option<String>) -> Self {
+	pub fn new(node: Node, options: Options, export: Option<String>) -> Self {
 		Self {
-			item,
+			node,
 			options,
 			export,
 		}
 	}
 
 	#[must_use]
-	pub fn with_item(item: Item) -> Self {
+	pub fn with_node(node: Node) -> Self {
 		Self {
-			item,
+			node,
 			options: Options::default(),
 			export: None,
 		}
 	}
 
 	#[must_use]
-	pub fn with_item_and_token(item: Item, token: Option<tg::grant::Token>) -> Self {
+	pub fn with_node_and_token(node: Node, token: Option<tg::grant::Token>) -> Self {
 		let options = Options {
 			token,
 			..Default::default()
 		};
-		Self::with_item_and_options(item, options)
+		Self::with_node_and_options(node, options)
 	}
 
 	#[must_use]
-	pub fn with_item_and_options(item: Item, options: Options) -> Self {
+	pub fn with_node_and_options(node: Node, options: Options) -> Self {
 		Self {
-			item,
+			node,
 			options,
 			export: None,
 		}
@@ -128,32 +128,32 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_object(object: tg::object::Id) -> Self {
-		Self::with_item(Item::Id(object.into()))
+		Self::with_node(Node::Id(object.into()))
 	}
 
 	#[must_use]
 	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
-		Self::with_item(Item::Pointer(pointer))
+		Self::with_node(Node::Pointer(pointer))
 	}
 
 	#[must_use]
 	pub fn with_path(path: PathBuf) -> Self {
-		Self::with_item(Item::Path(path))
+		Self::with_node(Node::Path(path))
 	}
 
 	#[must_use]
 	pub fn with_process(process: tg::process::Id) -> Self {
-		Self::with_item(Item::Id(process.into()))
+		Self::with_node(Node::Id(process.into()))
 	}
 
 	#[must_use]
 	pub fn with_specifier(specifier: tg::specifier::Pattern) -> Self {
-		Self::with_item(Item::Specifier(specifier))
+		Self::with_node(Node::Specifier(specifier))
 	}
 
 	#[must_use]
-	pub fn item(&self) -> &Item {
-		&self.item
+	pub fn node(&self) -> &Node {
+		&self.node
 	}
 
 	#[must_use]
@@ -168,9 +168,9 @@ impl Reference {
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
-		let item = path
+		let node = path
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the reference item"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the reference node"))?;
 		let options = uri
 			.query_raw()
 			.map(serde_qs::from_str::<Options>)
@@ -179,7 +179,7 @@ impl Reference {
 			.unwrap_or_default();
 		let export = uri.fragment().map(ToOwned::to_owned);
 		Ok(Self {
-			item,
+			node,
 			options,
 			export,
 		})
@@ -187,7 +187,7 @@ impl Reference {
 
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
-		let path = self.item.to_string();
+		let path = self.node.to_string();
 		let mut builder = Uri::builder().path_raw(&path);
 		if self.options != Options::default() {
 			builder = builder
@@ -201,12 +201,12 @@ impl Reference {
 		builder.build().unwrap()
 	}
 
-	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Item>> {
+	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Node>> {
 		let handle = tg::handle()?;
 		self.get_with_handle(handle).await
 	}
 
-	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Item>>
+	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Node>>
 	where
 		H: tg::Handle,
 	{
@@ -228,7 +228,7 @@ impl Reference {
 
 	#[must_use]
 	pub fn is_solvable(&self) -> bool {
-		self.item().is_specifier()
+		self.node().is_specifier()
 	}
 
 	#[must_use]
@@ -263,13 +263,13 @@ impl std::str::FromStr for Reference {
 	}
 }
 
-impl std::fmt::Display for Item {
+impl std::fmt::Display for Node {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Item::Id(id) => {
+			Node::Id(id) => {
 				write!(f, "{id}")?;
 			},
-			Item::Path(path) => {
+			Node::Path(path) => {
 				if path
 					.components()
 					.next()
@@ -279,14 +279,14 @@ impl std::fmt::Display for Item {
 				}
 				write!(f, "{}", path.display())?;
 			},
-			Item::Pointer(pointer) => {
+			Node::Pointer(pointer) => {
 				write!(
 					f,
 					"{}",
 					tg::graph::data::Edge::<tg::object::Id>::Pointer(pointer.clone())
 				)?;
 			},
-			Item::Specifier(specifier) => {
+			Node::Specifier(specifier) => {
 				write!(f, "{specifier}")?;
 			},
 		}
@@ -294,7 +294,7 @@ impl std::fmt::Display for Item {
 	}
 }
 
-impl std::str::FromStr for Item {
+impl std::str::FromStr for Node {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -313,7 +313,7 @@ impl std::str::FromStr for Item {
 		if let Ok(specifier) = s.parse() {
 			return Ok(Self::Specifier(specifier));
 		}
-		Err(tg::error!(%s, "invalid item"))
+		Err(tg::error!(%s, "invalid node"))
 	}
 }
 

@@ -35,7 +35,7 @@ snapshot ($json | to json --indent 2) '
 	            "module": {
 	              "kind": "ts",
 	              "referent": {
-	                "item": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
+	                "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
 	                "options": {
 	                  "path": "tangram.ts"
 	                }
@@ -61,7 +61,7 @@ snapshot ($json | to json --indent 2) '
 	                    "module": {
 	                      "kind": "ts",
 	                      "referent": {
-	                        "item": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
+	                        "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
 	                        "options": {
 	                          "path": "tangram.ts"
 	                        }

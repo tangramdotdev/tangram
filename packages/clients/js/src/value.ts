@@ -253,19 +253,19 @@ export namespace Value {
 		if (states.length !== output.objects.length) {
 			throw new Error("invalid object batch output");
 		}
-		for (let [index, item] of output.objects.entries()) {
+		for (let [index, node] of output.objects.entries()) {
 			let state = states[index]!;
-			if (state.id !== item.item) {
+			if (state.id !== node.node) {
 				throw new Error("invalid object batch output");
 			}
-			state.token = item.options?.token ?? null;
+			state.token = node.options?.token ?? null;
 		}
 	};
 
 	let objectReferent = (object: tg.Object): tg.Referent<tg.Object.Id> => {
 		let id = object.state.id;
 		let token = object.state.token;
-		return tg.Referent.withItemAndToken(id, token);
+		return tg.Referent.withNodeAndToken(id, token);
 	};
 
 	export type Data =
@@ -300,7 +300,7 @@ export namespace Value {
 					data.value,
 					(id) => id as tg.Object.Id,
 				);
-				return [referent.item];
+				return [referent.node];
 			} else if (data.kind === "mutation") {
 				return tg.Mutation.Data.children(data.value);
 			} else if (data.kind === "module") {

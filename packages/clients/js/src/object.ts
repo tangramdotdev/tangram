@@ -377,7 +377,7 @@ export namespace Object {
 	export let withReferent = (
 		referent: tg.Referent<tg.Object.Id>,
 	): tg.Object => {
-		let object = withId(referent.item);
+		let object = withId(referent.node);
 		object.state.token = referent.options?.token ?? null;
 		return object;
 	};

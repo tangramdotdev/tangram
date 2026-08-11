@@ -42,8 +42,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 		None
 	} else if resource_name.is_empty() {
 		if !matches!(
-			&state.arg.module.referent.item,
-			tg::module::data::Item::Path(path) if path == std::path::Path::new("<repl>")
+			&state.arg.module.referent.node,
+			tg::module::data::Source::Path(path) if path == std::path::Path::new("<repl>")
 		) {
 			let error = tg::error!("expected the REPL executable");
 			let exception = error::to_exception(scope, &error)?;
@@ -52,7 +52,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		}
 		Some(tg::module::Data {
 			kind: tg::module::Kind::Js,
-			referent: tg::Referent::with_item(tg::module::data::Item::Path(
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(
 				state.arg.cwd.join("<repl>.tg.js"),
 			)),
 		})

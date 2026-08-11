@@ -29,7 +29,7 @@ snapshot $object '
 	      "contents": tg.blob("import * as bar from \"../bar\";"),
 	      "dependencies": {
 	        "../bar": {
-	          "item": tg.directory({
+	          "node": tg.directory({
 	            "tangram.ts": tg.file({
 	              "contents": tg.blob("export default function () { return \"bar\"; }"),
 	              "module": "ts",

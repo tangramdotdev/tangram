@@ -155,7 +155,7 @@ impl Session {
 				tg::grant::Permission::Group(tg::grant::permission::group::Permission::Write)
 					.into(),
 			),
-			resource: tg::Referent::with_item(tg::grant::Resource::Id(group_id)),
+			resource: tg::Referent::with_node(tg::grant::Resource::Id(group_id)),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)
 			.await?;

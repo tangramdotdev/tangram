@@ -10,11 +10,11 @@ let path = artifact {
 			let dependency = await tg.file("dependency contents");
 			let file = await tg
 				.file("main")
-				.dependency("./other.tg.ts", { item: dependency });
+				.dependency("./other.tg.ts", { node: dependency });
 			let dependencies = await file.dependencies;
 			return [
 				Object.keys(dependencies),
-				await dependencies["./other.tg.ts"].item.text,
+				await dependencies["./other.tg.ts"].node.text,
 			];
 		}
 	'

@@ -211,7 +211,7 @@ impl Index {
 				continue;
 			}
 
-			let (items, kind) = Self::request_into_items(request);
+			let (items, kind) = Self::request_into_operations(request);
 			let mut iter = items.into_iter().peekable();
 			let mut remaining_count = iter.len();
 
@@ -233,7 +233,7 @@ impl Index {
 				let chunk: Vec<_> = iter.by_ref().take(take).collect();
 				current_batch
 					.requests
-					.push(Self::request_from_items(chunk, &kind));
+					.push(Self::request_from_operations(chunk, &kind));
 				current_batch.trackers.push(tracker.clone());
 				tracker.lock().unwrap().remaining += 1;
 				current_count += take;
@@ -289,7 +289,7 @@ impl Index {
 		}
 	}
 
-	fn request_into_items(request: Request) -> (Vec<Item>, Kind) {
+	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
 			Request::Batch(_) => unreachable!(),
 			Request::Clean(crate::fdb::Clean {
@@ -460,7 +460,7 @@ impl Index {
 		}
 	}
 
-	fn request_from_items(items: Vec<Item>, kind: &Kind) -> Request {
+	fn request_from_operations(items: Vec<Item>, kind: &Kind) -> Request {
 		match kind {
 			Kind::Clean {
 				max_object_touched_at,

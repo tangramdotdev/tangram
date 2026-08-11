@@ -1,13 +1,13 @@
 use tangram_client::prelude::*;
 
 pub struct Queue {
-	database: async_channel::Sender<DatabaseItem>,
-	object: async_channel::Sender<ObjectItem>,
-	process: async_channel::Sender<ProcessItem>,
-	sandbox: async_channel::Sender<SandboxItem>,
+	database: async_channel::Sender<DatabaseNode>,
+	object: async_channel::Sender<ObjectNode>,
+	process: async_channel::Sender<ProcessNode>,
+	sandbox: async_channel::Sender<SandboxNode>,
 }
 
-pub struct DatabaseItem {
+pub struct DatabaseNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
@@ -15,7 +15,7 @@ pub struct DatabaseItem {
 	pub token: Option<tg::grant::Token>,
 }
 
-pub struct ObjectItem {
+pub struct ObjectNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
@@ -24,7 +24,7 @@ pub struct ObjectItem {
 	pub token: Option<tg::grant::Token>,
 }
 
-pub struct ProcessItem {
+pub struct ProcessNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
@@ -32,7 +32,7 @@ pub struct ProcessItem {
 	pub token: Option<tg::grant::Token>,
 }
 
-pub struct SandboxItem {
+pub struct SandboxNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
@@ -49,10 +49,10 @@ pub enum ObjectKind {
 
 impl Queue {
 	pub fn new(
-		database_sender: async_channel::Sender<DatabaseItem>,
-		object_sender: async_channel::Sender<ObjectItem>,
-		process_sender: async_channel::Sender<ProcessItem>,
-		sandbox_sender: async_channel::Sender<SandboxItem>,
+		database_sender: async_channel::Sender<DatabaseNode>,
+		object_sender: async_channel::Sender<ObjectNode>,
+		process_sender: async_channel::Sender<ProcessNode>,
+		sandbox_sender: async_channel::Sender<SandboxNode>,
 	) -> Self {
 		Self {
 			database: database_sender,
@@ -84,7 +84,7 @@ impl Queue {
 			| tg::id::Kind::Tag
 			| tg::id::Kind::User => {
 				let selector = tg::Selector::Id(id.clone());
-				self.enqueue_database(DatabaseItem {
+				self.enqueue_database(DatabaseNode {
 					descendants,
 					eager,
 					id,
@@ -93,7 +93,7 @@ impl Queue {
 				});
 			},
 			tg::id::Kind::Process => {
-				self.enqueue_process(ProcessItem {
+				self.enqueue_process(ProcessNode {
 					descendants,
 					eager,
 					id: id.try_into()?,
@@ -102,7 +102,7 @@ impl Queue {
 				});
 			},
 			tg::id::Kind::Sandbox => {
-				self.enqueue_sandbox(SandboxItem {
+				self.enqueue_sandbox(SandboxNode {
 					descendants,
 					eager,
 					id: id.try_into()?,
@@ -111,8 +111,8 @@ impl Queue {
 			},
 			_ => {
 				let id = tg::object::Id::try_from(id)
-					.map_err(|_| tg::error!("invalid sync item kind"))?;
-				self.enqueue_object(ObjectItem {
+					.map_err(|_| tg::error!("invalid sync node kind"))?;
+				self.enqueue_object(ObjectNode {
 					descendants,
 					eager,
 					id,
@@ -126,27 +126,27 @@ impl Queue {
 		Ok(())
 	}
 
-	pub fn enqueue_database(&self, item: DatabaseItem) {
-		self.database.force_send(item).ok();
+	pub fn enqueue_database(&self, node: DatabaseNode) {
+		self.database.force_send(node).ok();
 	}
 
-	pub fn enqueue_object(&self, item: ObjectItem) {
-		self.object.force_send(item).ok();
+	pub fn enqueue_object(&self, node: ObjectNode) {
+		self.object.force_send(node).ok();
 	}
 
-	pub fn enqueue_process(&self, item: ProcessItem) {
-		self.process.force_send(item).ok();
+	pub fn enqueue_process(&self, node: ProcessNode) {
+		self.process.force_send(node).ok();
 	}
 
-	pub fn enqueue_objects(&self, items: impl IntoIterator<Item = ObjectItem>) {
-		let items: Vec<_> = items.into_iter().collect();
-		for item in items {
-			self.object.force_send(item).ok();
+	pub fn enqueue_objects(&self, nodes: impl IntoIterator<Item = ObjectNode>) {
+		let nodes: Vec<_> = nodes.into_iter().collect();
+		for node in nodes {
+			self.object.force_send(node).ok();
 		}
 	}
 
-	pub fn enqueue_sandbox(&self, item: SandboxItem) {
-		self.sandbox.force_send(item).ok();
+	pub fn enqueue_sandbox(&self, node: SandboxNode) {
+		self.sandbox.force_send(node).ok();
 	}
 
 	pub fn close(&self) {

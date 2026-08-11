@@ -349,7 +349,7 @@ pub trait Index {
 
 	fn enqueue_finalization(
 		&self,
-		item: &crate::finalization::Item,
+		node: &crate::finalization::Node,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn finalization_batch(

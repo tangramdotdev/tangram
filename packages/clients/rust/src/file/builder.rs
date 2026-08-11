@@ -56,7 +56,7 @@ impl Builder {
 							reference,
 							option.map(|dependency| {
 								tg::graph::Dependency(
-									dependency.0.map(|item| item.map(tg::graph::Edge::Object)),
+									dependency.0.map(|node| node.map(tg::graph::Edge::Object)),
 								)
 							}),
 						)

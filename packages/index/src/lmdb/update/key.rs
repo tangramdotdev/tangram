@@ -15,6 +15,6 @@ pub enum Key {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
-	Item,
+	Node,
 	Grants(tg::grant::Principal),
 }

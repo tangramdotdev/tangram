@@ -24,7 +24,7 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::get::Item::Id(id) = output.referent.item else {
+		let tg::get::Node::Id(id) = output.referent.node else {
 			unreachable!();
 		};
 		let Ok(id) = tg::user::Id::try_from(id) else {

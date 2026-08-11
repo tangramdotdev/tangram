@@ -255,7 +255,7 @@ mod tests {
 		);
 		let module = tg::module::Data {
 			kind: tg::module::Kind::Ts,
-			referent: tg::Referent::with_item(tg::module::data::Item::Path("test.tg.ts".into())),
+			referent: tg::Referent::with_node(tg::module::data::Source::Path("test.tg.ts".into())),
 		};
 		let found = Compiler::analyze(&module, text).imports;
 		let expected = [

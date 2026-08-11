@@ -22,9 +22,9 @@ let local_object = tg get $id --blobs --depth=inf --pretty
 let remote_object = tg --url $remote.url get $id --blobs --depth=inf --pretty
 assert equal $local_object $remote_object
 
-# The tag is present on the remote and points to the same item.
+# The tag is present on the remote and points to the same node.
 let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
-assert equal $remote_tag.item.id $id "the remote tag should point to the pushed object"
+assert equal $remote_tag.target.id $id "the remote tag should point to the pushed object"
 assert equal $remote_tag.specifier "test/1.0.0" "the remote tag should keep its specifier"
 let local_tag = tg tag get test/1.0.0 | from json
 assert equal $remote_tag.id $local_tag.id "the remote tag should keep its id"
@@ -42,5 +42,5 @@ tg --url $remote.url tag put test/1.0.0 $remote_id
 failure (tg --url $remote.url object get $local_id | complete)
 tg push test/1.0.0
 let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
-assert equal $remote_tag.item.id $local_id "the local tag should overwrite the remote tag"
+assert equal $remote_tag.target.id $local_id "the local tag should overwrite the remote tag"
 success (tg --url $remote.url object get $local_id | complete)

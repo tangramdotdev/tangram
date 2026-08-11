@@ -7,14 +7,14 @@ let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let item = tg --url $remote.url put 'tg.file("contents")' | str trim
-tg --url $remote.url tag -p foo/a $item
+let node = tg --url $remote.url put 'tg.file("contents")' | str trim
+tg --url $remote.url tag -p foo/a $node
 
 let initial = tg --url $local.url list --no-groups foo | from json
 assert equal ($initial | get specifier) [foo/a]
 assert (($initial.0 | get --optional token) != null) "remote list should return a token"
 
-tg --url $remote.url tag foo/b $item
+tg --url $remote.url tag foo/b $node
 
 let cached = tg --url $local.url list --no-groups foo | from json
 assert equal ($cached | get specifier) [foo/a]

@@ -16,7 +16,7 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>> + Send + use<>,
 	> {
-		let stream = if let tg::reference::Item::Specifier(specifier) = reference.item() {
+		let stream = if let tg::reference::Node::Specifier(specifier) = reference.node() {
 			self.verify_request_with_network_access()?;
 			self.try_resolve_specifier(specifier, reference.options(), &arg)
 				.await?
@@ -71,7 +71,7 @@ impl Session {
 		let tag = data.into_iter().find_map(|entry| {
 			let tg::match_::Entry::Tag {
 				id,
-				item,
+				target,
 				location,
 				specifier,
 				..
@@ -79,11 +79,11 @@ impl Session {
 			else {
 				return None;
 			};
-			Some((id, item, location, specifier))
+			Some((id, target, location, specifier))
 		});
-		let output = if let Some((id, item, location, specifier)) = tag {
+		let output = if let Some((id, target, location, specifier)) = tag {
 			let output = self
-				.try_resolve_tag(id, item, location, specifier, arg.cached, arg.ttl)
+				.try_resolve_tag(id, target, location, specifier, arg.cached, arg.ttl)
 				.await?;
 			match output {
 				None => None,
@@ -106,7 +106,7 @@ impl Session {
 	async fn try_resolve_tag(
 		&self,
 		id: tg::tag::Id,
-		item: tg::Either<tg::object::Id, tg::process::Id>,
+		target: tg::Either<tg::object::Id, tg::process::Id>,
 		location: Option<tg::Location>,
 		specifier: tg::Specifier,
 		cached: bool,
@@ -114,14 +114,14 @@ impl Session {
 	) -> tg::Result<Option<tg::get::Output>> {
 		if let Some(tg::Location::Remote(remote)) = location {
 			return self
-				.try_resolve_remote_tag(item, remote, specifier, cached, ttl)
+				.try_resolve_remote_tag(target, remote, specifier, cached, ttl)
 				.await;
 		}
 
-		let item = list_item_to_id(item);
-		let token = self.create_tag_item_token(&id, &item).await?;
+		let node = list_target_to_id(target);
+		let token = self.create_tag_target_token(&id, &node).await?;
 		let referent = tg::Referent::new(
-			tg::get::Item::Id(item),
+			tg::get::Node::Id(node),
 			tg::referent::Options {
 				tag: Some(specifier),
 				token,
@@ -135,7 +135,7 @@ impl Session {
 
 	async fn try_resolve_remote_tag(
 		&self,
-		item: tg::Either<tg::object::Id, tg::process::Id>,
+		target: tg::Either<tg::object::Id, tg::process::Id>,
 		remote: tg::location::Remote,
 		specifier: tg::Specifier,
 		cached: bool,
@@ -151,8 +151,8 @@ impl Session {
 			),
 			..tg::reference::Options::default()
 		};
-		let reference = tg::Reference::with_item_and_options(
-			tg::reference::Item::Specifier(specifier.clone().into()),
+		let reference = tg::Reference::with_node_and_options(
+			tg::reference::Node::Specifier(specifier.clone().into()),
 			options.clone(),
 		);
 		let arg = tg::resolve::Arg {
@@ -192,7 +192,7 @@ impl Session {
 		}
 		if cached {
 			let referent = tg::Referent::new(
-				tg::get::Item::Id(list_item_to_id(item)),
+				tg::get::Node::Id(list_target_to_id(target)),
 				tg::referent::Options {
 					tag: Some(specifier),
 					..tg::referent::Options::default()
@@ -237,10 +237,10 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn create_tag_item_token(
+	async fn create_tag_target_token(
 		&self,
 		id: &tg::tag::Id,
-		item: &tg::Id,
+		target: &tg::Id,
 	) -> tg::Result<Option<tg::grant::Token>> {
 		// Get the tag.
 		let mut connection = self
@@ -253,36 +253,36 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.create_tag_item_token_with_transaction(&transaction, id, item)
+		self.create_tag_target_token_with_transaction(&transaction, id, target)
 			.await
 	}
 
-	pub(crate) async fn create_tag_item_token_with_transaction(
+	pub(crate) async fn create_tag_target_token_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::tag::Id,
-		item: &tg::Id,
+		target: &tg::Id,
 	) -> tg::Result<Option<tg::grant::Token>> {
 		let data = Self::get_tag_data_with_transaction(transaction, id).await?;
-		let actual: tg::Id = match data.item {
-			tg::tag::data::Item::Object(id) => id.into(),
-			tg::tag::data::Item::Process(id) => id.into(),
+		let actual: tg::Id = match data.target {
+			tg::tag::data::Target::Object(id) => id.into(),
+			tg::tag::data::Target::Process(id) => id.into(),
 		};
-		if actual != *item {
-			return Err(tg::error!("the tag item does not match"));
+		if actual != *target {
+			return Err(tg::error!("the tag target does not match"));
 		}
 
 		// Create the token.
-		let time_to_live = if item.kind().is_object() {
+		let time_to_live = if target.kind().is_object() {
 			self.server.config.object.grant_time_to_live
-		} else if item.kind() == tg::id::Kind::Process {
+		} else if target.kind() == tg::id::Kind::Process {
 			self.server.config.process.grant_time_to_live
 		} else {
-			return Err(tg::error!("invalid tag item"));
+			return Err(tg::error!("invalid tag target"));
 		};
 		let expires_at = time::OffsetDateTime::now_utc().unix_timestamp()
 			+ time_to_live.as_secs().to_i64().unwrap();
-		let resource = tg::grant::Resource::Id(item.clone());
+		let resource = tg::grant::Resource::Id(target.clone());
 		let token = self.create_token(resource, data.permissions, expires_at)?;
 
 		Ok(token)
@@ -308,7 +308,7 @@ impl Session {
 				)
 				.await?;
 			if let Some(output) = output {
-				let tg::get::Item::Id(id) = output.referent.item else {
+				let tg::get::Node::Id(id) = output.referent.node else {
 					unreachable!();
 				};
 				match id.kind() {
@@ -335,13 +335,13 @@ impl Session {
 							location,
 							token,
 						} = output;
-						let item = match data.item {
-							tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-							tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+						let target = match data.target {
+							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 						};
 						let entry = tg::list::Entry::Tag {
 							id: data.id,
-							item,
+							target,
 							location,
 							name: data.name,
 							parent: data.parent,
@@ -383,16 +383,16 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let item = path
+		let node = path
 			.join("/")
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the item"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the node"))?;
 		let arg: tg::resolve::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
+		let reference = tg::Reference::with_node_and_options(node, arg.options.clone());
 		let stream = self
 			.try_resolve(&reference, arg)
 			.await
@@ -423,8 +423,8 @@ impl Session {
 	}
 }
 
-fn list_item_to_id(item: tg::Either<tg::object::Id, tg::process::Id>) -> tg::Id {
-	match item {
+fn list_target_to_id(target: tg::Either<tg::object::Id, tg::process::Id>) -> tg::Id {
+	match target {
 		tg::Either::Left(id) => id.into(),
 		tg::Either::Right(id) => id.into(),
 	}

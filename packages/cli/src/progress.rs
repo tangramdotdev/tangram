@@ -113,8 +113,8 @@ impl Cli {
 	{
 		match event {
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				let item = diagnostic.try_into().unwrap();
-				let referent = tg::Referent::with_item(item);
+				let node = diagnostic.try_into().unwrap();
+				let referent = tg::Referent::with_node(node);
 				self.print_diagnostic(referent).await;
 				true
 			},

@@ -23,7 +23,7 @@ pub struct Module {
 	pub kind: Kind,
 
 	#[tangram_serialize(id = 1)]
-	pub referent: tg::Referent<Item>,
+	pub referent: tg::Referent<Source>,
 }
 
 #[derive(
@@ -46,7 +46,7 @@ pub struct Module {
 #[tangram_serialize(display, from_str)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Item {
+pub enum Source {
 	Edge(tg::graph::data::Edge<tg::object::Id>),
 	Path(PathBuf),
 }
@@ -58,7 +58,7 @@ struct Query {
 
 impl Module {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		if let Item::Edge(edge) = &self.referent.item {
+		if let Source::Edge(edge) = &self.referent.node {
 			edge.children(children);
 		}
 	}
@@ -68,7 +68,7 @@ impl Module {
 		self.children(&mut ids);
 		children.extend(
 			ids.into_iter().map(|id| {
-				tg::Referent::with_item_and_token(id, self.referent.options.token.clone())
+				tg::Referent::with_node_and_token(id, self.referent.options.token.clone())
 			}),
 		);
 	}
@@ -84,7 +84,7 @@ impl Module {
 impl Module {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
-		let path = self.referent.item.to_string();
+		let path = self.referent.node.to_string();
 		let mut builder = Uri::builder().path(&path);
 		let mut query = serde_qs::to_string(&self.referent.options).unwrap();
 		if !query.is_empty() {
@@ -97,10 +97,10 @@ impl Module {
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let item = uri
+		let source = uri
 			.path()
 			.parse()
-			.map_err(|_| tg::error!("failed to parse the item"))?;
+			.map_err(|_| tg::error!("failed to parse the source"))?;
 		let query = uri
 			.query_raw()
 			.ok_or_else(|| tg::error!("expected the query to be set"))?;
@@ -110,7 +110,10 @@ impl Module {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the module options"))?;
 		Ok(Self {
 			kind,
-			referent: tg::Referent { item, options },
+			referent: tg::Referent {
+				node: source,
+				options,
+			},
 		})
 	}
 
@@ -139,7 +142,7 @@ impl std::str::FromStr for Module {
 	}
 }
 
-impl std::fmt::Display for Item {
+impl std::fmt::Display for Source {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Edge(edge) => {
@@ -160,7 +163,7 @@ impl std::fmt::Display for Item {
 	}
 }
 
-impl std::str::FromStr for Item {
+impl std::str::FromStr for Source {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {

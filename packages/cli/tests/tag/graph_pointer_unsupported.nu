@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# tg tag put fails when the item is a graph pointer reference, because tagging graph pointers is unsupported.
+# tg tag put fails when the node is a graph pointer reference, because tagging graph pointers is unsupported.
 
 let server = spawn
 

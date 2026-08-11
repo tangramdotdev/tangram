@@ -7,7 +7,7 @@ tg.directory({
           "contents": tg.blob("import * as foo from \"./foo.tg.ts\";"),
           "dependencies": {
             "./foo.tg.ts": {
-              "item": {
+              "node": {
                 "index": 1,
                 "kind": "file",
               },
@@ -23,7 +23,7 @@ tg.directory({
           "contents": tg.blob("import * as root from \"./tangram.ts\";"),
           "dependencies": {
             "./tangram.ts": {
-              "item": {
+              "node": {
                 "index": 0,
                 "kind": "file",
               },
@@ -47,7 +47,7 @@ tg.directory({
           "contents": tg.blob("import * as foo from \"./foo.tg.ts\";"),
           "dependencies": {
             "./foo.tg.ts": {
-              "item": {
+              "node": {
                 "index": 1,
                 "kind": "file",
               },
@@ -63,7 +63,7 @@ tg.directory({
           "contents": tg.blob("import * as root from \"./tangram.ts\";"),
           "dependencies": {
             "./tangram.ts": {
-              "item": {
+              "node": {
                 "index": 0,
                 "kind": "file",
               },

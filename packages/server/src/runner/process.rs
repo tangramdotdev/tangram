@@ -775,7 +775,7 @@ impl Session {
 				tg::Either::Right(_) => None,
 			};
 			let error = session.store_process_error(error).await;
-			(Some(error.map_right(tg::Referent::with_item)), error_code)
+			(Some(error.map_right(tg::Referent::with_node)), error_code)
 		} else {
 			(None, None)
 		};
@@ -794,8 +794,8 @@ impl Session {
 				value.children_with_tokens(&mut objects);
 			}
 			if let Some(tg::Either::Right(id)) = &error {
-				let id = id.item.clone();
-				let object = tg::Referent::with_item(tg::object::Id::Error(id));
+				let id = id.node.clone();
+				let object = tg::Referent::with_node(tg::object::Id::Error(id));
 				objects.push(object);
 			}
 			if objects.is_empty() {
@@ -806,7 +806,7 @@ impl Session {
 					name: remote.name.clone(),
 					region: remote.region.clone(),
 				})),
-				items: objects
+				nodes: objects
 					.into_iter()
 					.map(|object| object.map(Into::into))
 					.collect(),
@@ -843,7 +843,7 @@ impl Session {
 			error = Some(
 				push_error
 					.to_data_or_id()
-					.map_right(tg::Referent::with_item),
+					.map_right(tg::Referent::with_node),
 			);
 			error_code = Some(tg::error::Code::Internal);
 			exit = 1;
@@ -885,7 +885,7 @@ impl Session {
 				"failed to handle the process logs"
 			);
 			let log_error = session.store_process_error(log_error.to_data_or_id()).await;
-			error = Some(log_error.map_right(tg::Referent::with_item));
+			error = Some(log_error.map_right(tg::Referent::with_node));
 			error_code = Some(tg::error::Code::Internal);
 			exit = 1;
 		}
@@ -1379,7 +1379,7 @@ impl Session {
 			.into_iter()
 			.filter_map(|object| {
 				let id = object.id().try_into().ok()?;
-				let artifact = tg::Referent::with_item_and_token(id, object.state().token());
+				let artifact = tg::Referent::with_node_and_token(id, object.state().token());
 				Some(artifact)
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
@@ -1392,9 +1392,9 @@ impl Session {
 			let tokens = artifacts.iter().filter_map(|artifact| {
 				let token = artifact.options.token.clone()?;
 				let resource =
-					tg::grant::Resource::Id(tg::object::Id::from(artifact.item.clone()).into());
+					tg::grant::Resource::Id(tg::object::Id::from(artifact.node.clone()).into());
 				self.authorize_token(&resource, permissions, &token)
-					.then(|| (artifact.item.clone(), token))
+					.then(|| (artifact.node.clone(), token))
 			});
 			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
 				state.tokens.extend(tokens);
@@ -1484,8 +1484,8 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Object(object) if object.item.is_artifact() => {
-			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
+		tg::value::Data::Object(object) if object.node.is_artifact() => {
+			let artifact: tg::artifact::Id = object.node.clone().try_into().unwrap();
 			Ok(artifacts_path
 				.join(artifact.to_string())
 				.to_string_lossy()
@@ -1494,7 +1494,7 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
-				.join(artifact.item.to_string())
+				.join(artifact.node.to_string())
 				.to_str()
 				.unwrap()
 				.to_owned()

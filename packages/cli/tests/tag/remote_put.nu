@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# tg tag put --remote pushes a tag to the configured remote server so the same tag resolves to the same item on both the local and the remote server.
+# tg tag put --remote pushes a tag to the configured remote server so the same tag resolves to the same node on both the local and the remote server.
 
 # Spawn a remote and local server.
 let remote = spawn --cloud --name remote
@@ -19,7 +19,7 @@ tg tag put --remote -p $tag $path
 # Get the tag directly from the remote server.
 let remote_output = tg --url $remote.url tag get $tag | from json
 
-assert equal $remote_output.item.kind object
+assert equal $remote_output.target.kind object
 assert equal $remote_output.name bar
 assert equal $remote_output.specifier foo/bar
 assert equal (tg --url $remote.url group get foo | from json | get specifier) foo

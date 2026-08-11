@@ -661,8 +661,8 @@ fn graph_inner(input: &mut Input) -> ModalResult<tg::Object> {
 					let value = value
 						.try_unwrap_array_ref()
 						.map_err(|_| tg::error!("expected array for nodes"))?;
-					for item in value {
-						let value = item
+					for node in value {
+						let value = node
 							.try_unwrap_map_ref()
 							.map_err(|_| tg::error!("expected object for node in nodes array"))?;
 						let node = parse_graph_node(value)?;
@@ -869,7 +869,7 @@ fn parse_error_source(
 	let value = value
 		.try_unwrap_error_ref()
 		.map_err(|_| tg::error!("expected error object for source"))?;
-	let item = if let Some(object) = value.state().object() {
+	let node = if let Some(object) = value.state().object() {
 		let object = object
 			.try_unwrap_error_ref()
 			.map_err(|_| tg::error!("expected error object for source"))?;
@@ -877,7 +877,7 @@ fn parse_error_source(
 	} else {
 		tg::Either::Right(Box::new(value.clone()))
 	};
-	Ok(tg::Referent::with_item(item))
+	Ok(tg::Referent::with_node(node))
 }
 
 fn parse_error_location(value: &tg::Value) -> tg::Result<tg::error::Location> {
@@ -1382,16 +1382,16 @@ fn graph_edge_directory(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Di
 }
 
 fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
-	let mut item = None;
+	let mut node = None;
 	let mut options = tg::referent::Options::default();
 	for (key, value) in map {
 		match key.as_str() {
-			"item" => {
+			"node" => {
 				if !value.is_null() {
 					let value = value
 						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object for item"))?;
-					item = Some(Some(tg::graph::Edge::Object(value.clone())));
+						.map_err(|_| tg::error!("expected object for node"))?;
+					node = Some(Some(tg::graph::Edge::Object(value.clone())));
 				}
 			},
 			"options" => {
@@ -1405,8 +1405,8 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 			},
 		}
 	}
-	let item = item.flatten();
-	Ok(tg::graph::Dependency(tg::Referent { item, options }))
+	let node = node.flatten();
+	Ok(tg::graph::Dependency(tg::Referent { node, options }))
 }
 
 fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Options> {
@@ -1729,25 +1729,25 @@ fn parse_module(value: &tg::Value) -> tg::Result<tg::Module> {
 	Ok(tg::Module { kind, referent })
 }
 
-fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::module::Item>> {
-	let mut item = None;
+fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::module::Source>> {
+	let mut node = None;
 	let mut options = tg::referent::Options::default();
 	for (key, value) in map {
 		match key.as_str() {
-			"item" => {
-				item = Some(match value {
+			"node" => {
+				node = Some(match value {
 					tg::Value::Map(map) => {
 						let pointer = parse_graph_pointer(map)?;
 						let edge = tg::graph::Edge::Pointer(pointer);
-						tg::module::Item::Edge(edge)
+						tg::module::Source::Edge(edge)
 					},
 					tg::Value::Object(object) => {
 						let edge = tg::graph::Edge::Object(object.clone());
-						tg::module::Item::Edge(edge)
+						tg::module::Source::Edge(edge)
 					},
-					tg::Value::String(value) => tg::module::Item::Path(PathBuf::from(value)),
+					tg::Value::String(value) => tg::module::Source::Path(PathBuf::from(value)),
 					_ => {
-						return Err(tg::error!("expected a map, object, or string for item"));
+						return Err(tg::error!("expected a map, object, or string for node"));
 					},
 				});
 			},
@@ -1762,8 +1762,8 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 			},
 		}
 	}
-	let item = item.ok_or_else(|| tg::error!("missing item field"))?;
-	Ok(tg::Referent { item, options })
+	let node = node.ok_or_else(|| tg::error!("missing node field"))?;
+	Ok(tg::Referent { node, options })
 }
 
 fn whitespace(input: &mut Input) -> ModalResult<()> {
@@ -1802,10 +1802,14 @@ mod tests {
 		};
 		let token = crate::grant::Token::sign(body, &private_key).unwrap();
 		let tgon =
-			crate::Referent::with_item_and_token(id.clone(), Some(token.clone())).to_string();
+			crate::Referent::with_node_and_token(id.clone(), Some(token.clone())).to_string();
 
 		let value = super::parse(&tgon).unwrap();
-		assert_eq!(value.to_string(), tgon);
+		let options = crate::value::print::Options {
+			tokens: true,
+			..Default::default()
+		};
+		assert_eq!(value.print(options), tgon);
 		let object = value.try_unwrap_object().unwrap();
 
 		assert_eq!(object.id(), id);

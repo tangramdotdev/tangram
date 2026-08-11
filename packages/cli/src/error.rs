@@ -12,7 +12,7 @@ impl Cli {
 		let mut stack = vec![error];
 
 		while let Some(error_referent) = stack.pop() {
-			let error_handle = &error_referent.item;
+			let error_handle = &error_referent.node;
 
 			// Get the object from the handle.
 			let Some(error) = error_handle
@@ -75,12 +75,12 @@ impl Cli {
 
 			// Add the source to the stack.
 			if let Some(source) = &error.source {
-				let source_handle = match &source.item {
+				let source_handle = match &source.node {
 					tg::Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
 					tg::Either::Right(handle) => (**handle).clone(),
 				};
 				let mut source_referent = tg::Referent {
-					item: source_handle,
+					node: source_handle,
 					options: source.options.clone(),
 				};
 				source_referent.inherit(&error_referent);
@@ -108,8 +108,8 @@ impl Cli {
 	}
 
 	fn print_location_basic(module: &tg::Module, range: &tg::Range) {
-		match &module.referent.item {
-			tg::module::Item::Edge(_) => {
+		match &module.referent.node {
+			tg::module::Source::Edge(_) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -134,7 +134,7 @@ impl Cli {
 				eprintln!();
 			},
 
-			tg::module::Item::Path(path) => {
+			tg::module::Source::Path(path) => {
 				eprint!(
 					"   {}:{}:{}",
 					path.display(),
@@ -155,25 +155,25 @@ impl Cli {
 		let mut stack = vec![error];
 		while let Some(error_referent) = stack.pop() {
 			error_referent
-				.item()
+				.node()
 				.state()
 				.inherit_token(error_referent.options.token.clone());
 
 			// Attempt to get the object.
 			let error = if let Some(error) = error_referent
-				.item()
+				.node()
 				.state()
 				.object()
 				.map(|object| object.unwrap_error())
 			{
 				error
 			} else if let Some(error) = match self.client().await {
-				Ok(client) => error_referent.item().load_with_handle(&client).await.ok(),
+				Ok(client) => error_referent.node().load_with_handle(&client).await.ok(),
 				Err(_) => None,
 			} {
 				error
 			} else {
-				eprintln!("{} {}", "->".red(), error_referent.item().id());
+				eprintln!("{} {}", "->".red(), error_referent.node().id());
 				continue;
 			};
 
@@ -215,19 +215,19 @@ impl Cli {
 					if let Some(location) = &mut diagnostic.location {
 						location.module.referent.inherit(&error_referent);
 					}
-					let diagnostic_referent = tg::Referent::with_item(diagnostic);
+					let diagnostic_referent = tg::Referent::with_node(diagnostic);
 					self.print_diagnostic(diagnostic_referent).await;
 				}
 			}
 
 			// Add the source to the stack.
 			if let Some(source) = &error.source {
-				let source_handle = match &source.item {
+				let source_handle = match &source.node {
 					tg::Either::Left(obj) => tg::Error::with_object((**obj).clone()),
 					tg::Either::Right(handle) => (**handle).clone(),
 				};
 				let mut source_referent = tg::Referent {
-					item: source_handle,
+					node: source_handle,
 					options: source.options.clone(),
 				};
 				source_referent.inherit(&error_referent);
@@ -264,7 +264,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn print_diagnostic(&mut self, referent: tg::Referent<tg::Diagnostic>) {
-		let diagnostic = referent.item();
+		let diagnostic = referent.node();
 		let severity = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
@@ -279,8 +279,8 @@ impl Cli {
 
 	async fn print_location(&mut self, location: &tg::module::Location, message: &str) {
 		let tg::module::Location { module, range } = location;
-		match &module.referent.item {
-			tg::module::Item::Edge(edge) => {
+		match &module.referent.node {
+			tg::module::Source::Edge(edge) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -309,7 +309,7 @@ impl Cli {
 				}
 			},
 
-			tg::module::Item::Path(path) => {
+			tg::module::Source::Path(path) => {
 				if true {
 					Self::print_code_with_path(&path.display().to_string(), range, message, path)
 						.await;

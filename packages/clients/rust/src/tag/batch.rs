@@ -17,7 +17,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Item {
-	pub item: tg::tag::data::Item,
+	pub target: tg::tag::data::Target,
 	pub specifier: tg::Specifier,
 }
 

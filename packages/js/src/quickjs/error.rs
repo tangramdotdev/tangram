@@ -102,8 +102,8 @@ pub fn from_exception<'js>(
 			let location_ns = error_constructor.get::<_, qjs::Object>("Location").ok()?;
 			let to_data_fn = location_ns.get::<_, qjs::Function>("toData").ok()?;
 			for i in 0..stack_array.len() {
-				if let Ok(item) = stack_array.get::<qjs::Value>(i)
-					&& let Ok(data) = to_data_fn.call::<_, qjs::Value>((item,))
+				if let Ok(node) = stack_array.get::<qjs::Value>(i)
+					&& let Ok(data) = to_data_fn.call::<_, qjs::Value>((node,))
 					&& let Ok(loc_data) = Serde::<tg::error::data::Location>::from_js(ctx, data)
 					&& let Ok(loc) = tg::error::Location::try_from_data(loc_data.0)
 				{
@@ -146,8 +146,8 @@ pub fn from_exception<'js>(
 
 			let mut locations = Vec::new();
 			for i in 0..stack_array.len() {
-				if let Ok(item) = stack_array.get::<qjs::Value>(i)
-					&& let Ok(data) = to_data.call::<_, qjs::Value>((item,))
+				if let Ok(node) = stack_array.get::<qjs::Value>(i)
+					&& let Ok(data) = to_data.call::<_, qjs::Value>((node,))
 					&& let Ok(loc_data) = Serde::<tg::error::data::Location>::from_js(ctx, data)
 					&& let Ok(loc) = tg::error::Location::try_from_data(loc_data.0)
 				{
@@ -171,7 +171,7 @@ pub fn from_exception<'js>(
 		.filter(|value| !value.is_null() && !value.is_undefined())
 		.and_then(|cause| from_exception(state, ctx, &cause))
 		.map(|error| {
-			let item = error
+			let node = error
 				.to_data_or_id()
 				.map_left(|data| {
 					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
@@ -182,7 +182,7 @@ pub fn from_exception<'js>(
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			tg::Referent::with_item(item)
+			tg::Referent::with_node(node)
 		});
 
 	Some(tg::Error::with_object(tg::error::Object {

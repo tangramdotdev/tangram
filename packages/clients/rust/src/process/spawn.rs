@@ -146,7 +146,7 @@ where
 	let mut options = tg::referent::Options::default();
 	if let Some(command) = arg.command {
 		options = command.options;
-		match command.item {
+		match command.node {
 			tg::Either::Left(command) => {
 				command_arg_.replace(command);
 			},
@@ -450,7 +450,7 @@ impl<O: 'static> tg::Process<O> {
 				|| stderr_is_foreground_controlling_tty);
 		arg.tty = tty.map(tg::Either::Right);
 		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
-			match &mut arg.command.item {
+			match &mut arg.command.node {
 				tg::Either::Left(command) => {
 					add_tty_env_data(&mut command.env);
 				},
@@ -571,7 +571,7 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let command = match &arg.command.item {
+		let command = match &arg.command.node {
 			tg::Either::Left(command) => tg::command::Data {
 				args: command.args.clone(),
 				cwd: command.cwd.clone(),
@@ -893,7 +893,7 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
-		let referent = tg::Referent::with_item_and_token(artifact.clone(), token.cloned());
+		let referent = tg::Referent::with_node_and_token(artifact.clone(), token.cloned());
 		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {
@@ -1072,8 +1072,8 @@ fn render_value_string(
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Object(object) if object.item.is_artifact() => {
-			let artifact: tg::artifact::Id = object.item.clone().try_into().unwrap();
+		tg::value::Data::Object(object) if object.node.is_artifact() => {
+			let artifact: tg::artifact::Id = object.node.clone().try_into().unwrap();
 			Ok(artifacts
 				.get(&artifact)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
@@ -1083,7 +1083,7 @@ fn render_value_string(
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
 			tg::template::data::Component::Artifact(artifact) => Ok(artifacts
-				.get(&artifact.item)
+				.get(&artifact.node)
 				.ok_or_else(|| tg::error!("failed to find the artifact path"))?
 				.to_string_lossy()
 				.into_owned()

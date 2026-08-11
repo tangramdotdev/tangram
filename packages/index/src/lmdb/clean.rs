@@ -387,13 +387,13 @@ impl Index {
 			Self::count_keys_with_prefix(db, transaction, &object_process_prefix)?;
 
 		// Count tags referencing this object.
-		let item_tag_prefix = Self::pack(
+		let target_tag_prefix = Self::pack(
 			subspace,
-			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(Kind::TargetTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
-		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+		let target_tag_count = Self::count_keys_with_prefix(db, transaction, &target_tag_prefix)?;
 
-		Ok(child_object_count + object_process_count + item_tag_count)
+		Ok(child_object_count + object_process_count + target_tag_count)
 	}
 
 	fn compute_process_reference_count(
@@ -410,13 +410,13 @@ impl Index {
 			Self::count_keys_with_prefix(db, transaction, &child_process_prefix)?;
 
 		// Count tags referencing this process.
-		let item_tag_prefix = Self::pack(
+		let target_tag_prefix = Self::pack(
 			subspace,
-			&(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(Kind::TargetTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
-		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+		let target_tag_count = Self::count_keys_with_prefix(db, transaction, &target_tag_prefix)?;
 
-		Ok(child_process_count + item_tag_count)
+		Ok(child_process_count + target_tag_count)
 	}
 
 	fn compute_sandbox_reference_count(

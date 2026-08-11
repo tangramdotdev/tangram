@@ -49,16 +49,16 @@ impl Cli {
 
 		let referent = self.resolve(&args.reference).await?;
 		let is_process = matches!(
-			referent.item(),
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process
+			referent.node(),
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process
 		);
 		if is_process {
-			let process = referent.try_map::<tg::process::Id, _>(|item| match item {
-				tg::get::Item::Id(id) => id.try_into(),
-				tg::get::Item::Pointer(_) => unreachable!(),
+			let process = referent.try_map::<tg::process::Id, _>(|node| match node {
+				tg::get::Node::Id(id) => id.try_into(),
+				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_item_and_token(
-				tg::reference::Item::Id(process.item.into()),
+			let process = tg::Reference::with_node_and_token(
+				tg::reference::Node::Id(process.node.into()),
 				process.options.token,
 			);
 			let args = crate::process::children::Args {
@@ -82,8 +82,8 @@ impl Cli {
 						.map(|object| object.id())
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
-			let object = tg::Reference::with_item_and_token(
-				tg::reference::Item::Id(object.item.into()),
+			let object = tg::Reference::with_node_and_token(
+				tg::reference::Node::Id(object.node.into()),
 				object.options.token,
 			);
 			let args = crate::object::children::Args {

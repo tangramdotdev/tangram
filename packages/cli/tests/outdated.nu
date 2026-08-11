@@ -53,7 +53,7 @@ snapshot $output '
 	    "current": "hello/1.1.0",
 	    "latest": "hello/2.0.0",
 	    "referrer": {
-	      "item": null,
+	      "node": null,
 	      "options": {
 	        "path": "tangram.ts",
 	      },

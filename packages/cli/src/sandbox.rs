@@ -314,7 +314,7 @@ impl Cli {
 		client: &tg::Client,
 		specifier: tg::Specifier,
 	) -> tg::Result<Option<tg::id::Kind>> {
-		let reference = tg::Reference::with_item(tg::reference::Item::Specifier(specifier.into()));
+		let reference = tg::Reference::with_node(tg::reference::Node::Specifier(specifier.into()));
 		let stream = client.try_get(&reference, tg::get::Arg::default()).await?;
 		let stream = std::pin::pin!(stream);
 		let Some(event) = stream.try_last().await? else {
@@ -329,7 +329,7 @@ impl Cli {
 		};
 		let referent = output.referent;
 		let id = referent
-			.item
+			.node
 			.try_unwrap_id()
 			.map_err(|_| tg::error!("failed to resolve the sandbox owner"))?;
 		Ok(Some(id.kind()))

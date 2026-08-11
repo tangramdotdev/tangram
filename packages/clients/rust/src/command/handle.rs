@@ -27,7 +27,7 @@ impl Command {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let command = Self::with_id(referent.item);
+		let command = Self::with_id(referent.node);
 		command.state().set_token(referent.options.token);
 
 		command

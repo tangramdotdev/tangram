@@ -155,7 +155,7 @@ create table tags (
 	id text primary key,
 	name text not null,
 	parent text,
-	item text not null,
+	target text not null,
 	permissions text not null,
 	foreign key (id) references specifiers (id),
 	foreign key (parent) references specifiers (id)

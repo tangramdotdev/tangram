@@ -117,7 +117,7 @@ impl Session {
 		let mut permissions = tg::grant::permission::process::Set::NODE;
 		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
 		let permissions = tg::grant::permission::Set::Process(permissions);
-		let resource = tg::Referent::with_item_and_token(id.clone(), token);
+		let resource = tg::Referent::with_node_and_token(id.clone(), token);
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
 		let mut wakeups = self
@@ -172,7 +172,7 @@ impl Session {
 				error: process
 					.data
 					.error
-					.map(|error| error.map_right(|error| error.item)),
+					.map(|error| error.map_right(|error| error.node)),
 				exit,
 				output: process.data.output,
 			};

@@ -137,7 +137,7 @@ impl Node {
 			},
 			Variant::File(file) => {
 				for referent in file.dependencies.values().flatten() {
-					if let Some(edge) = &referent.item
+					if let Some(edge) = &referent.node
 						&& let Ok(pointer) = edge.try_unwrap_pointer_ref()
 						&& pointer.graph.is_none()
 					{
@@ -256,7 +256,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.filter_map(move |option| {
 					option
 						.as_ref()
-						.and_then(|referent| referent.item.as_ref())
+						.and_then(|referent| referent.node.as_ref())
 						.and_then(|edge| {
 							edge.try_unwrap_pointer_ref().ok().and_then(|pointer| {
 								pointer.graph.is_none().then_some(pointer.index)

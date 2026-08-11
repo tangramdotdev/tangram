@@ -204,7 +204,7 @@ impl Session {
 			solutions: solutions.clone(),
 			visited: im::HashSet::default(),
 		};
-		let referent = tg::Referent::with_item(*index);
+		let referent = tg::Referent::with_node(*index);
 		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, &referent);
 
 		// Solve.
@@ -273,7 +273,7 @@ impl Session {
 			if let Some(pointer) = edge.try_unwrap_pointer_ref().ok()
 				&& pointer.graph.is_none()
 			{
-				let referent = tg::Referent::with_item(pointer.index);
+				let referent = tg::Referent::with_node(pointer.index);
 				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
 			}
 
@@ -288,12 +288,12 @@ impl Session {
 			.ok_or_else(|| tg::error!("expected a file dependency"))?
 			.clone();
 
-		let tg::reference::Item::Specifier(tag) = reference.item() else {
+		let tg::reference::Node::Specifier(tag) = reference.node() else {
 			if state.arg.options.unsolved_dependencies {
 				return Ok(());
 			}
 			return Err(
-				tg::error!(item = %reference.item(), "expected reference to be a specifier"),
+				tg::error!(node = %reference.node(), "expected reference to be a specifier"),
 			);
 		};
 
@@ -315,9 +315,9 @@ impl Session {
 				.get_mut(&pointer.index)
 				.unwrap()
 				.referrers
-				.push(item.referent.item);
+				.push(item.referent.node);
 		}
-		let node = checkpoint.graph.nodes.get_mut(&item.referent.item).unwrap();
+		let node = checkpoint.graph.nodes.get_mut(&item.referent.node).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let edge = match edge {
@@ -343,10 +343,10 @@ impl Session {
 					.get_mut(reference)
 					.unwrap()
 					.get_or_insert_with(|| {
-						tg::graph::data::Dependency(tg::Referent::with_item(Some(edge.clone())))
+						tg::graph::data::Dependency(tg::Referent::with_node(Some(edge.clone())))
 					})
 					.0
-					.item = Some(edge.clone());
+					.node = Some(edge.clone());
 			},
 			ItemVariant::SymlinkArtifact => {
 				let edge = match edge {
@@ -385,7 +385,7 @@ impl Session {
 
 		// Get the referrer.
 		let referrer = Referrer {
-			index: item.referent.item,
+			index: item.referent.node,
 			pattern: Some(tag),
 		};
 		let selected = output.is_selected();
@@ -406,7 +406,7 @@ impl Session {
 				checkpoint
 					.graph
 					.nodes
-					.get_mut(&item.referent.item)
+					.get_mut(&item.referent.node)
 					.unwrap()
 					.variant
 					.unwrap_file_mut()
@@ -420,7 +420,7 @@ impl Session {
 				checkpoint.solutions.add_referrer(&key, referrer);
 
 				// Add the referrer to the target node and enqueue its items.
-				if let Ok(pointer) = referent.item().try_unwrap_pointer_ref()
+				if let Ok(pointer) = referent.node().try_unwrap_pointer_ref()
 					&& pointer.graph.is_none()
 				{
 					checkpoint
@@ -429,7 +429,7 @@ impl Session {
 						.get_mut(&pointer.index)
 						.unwrap()
 						.referrers
-						.push(item.referent.item);
+						.push(item.referent.node);
 					let referent = referent.clone().map(|_| pointer.index);
 					Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
 				}
@@ -529,7 +529,7 @@ impl Session {
 				return Ok(TagInnerOutput::Unsolved);
 			}
 			return Err(tg::error!(
-				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.referent.item),
+				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.referent.node),
 				%pattern,
 				"no matching tags were found",
 			));
@@ -591,7 +591,7 @@ impl Session {
 		let lock_index = checkpoint
 			.graph
 			.nodes
-			.get(&item.referent.item)
+			.get(&item.referent.node)
 			.unwrap()
 			.lock_index?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
@@ -653,7 +653,7 @@ impl Session {
 			.into_iter()
 			.filter_map(|output| {
 				let tg::list::Entry::Tag {
-					item,
+					target,
 					location,
 					specifier: tag,
 					..
@@ -661,7 +661,7 @@ impl Session {
 				else {
 					return None;
 				};
-				let object = item.left()?;
+				let object = target.left()?;
 				let index = None;
 				let candidate = Candidate {
 					index,
@@ -1058,7 +1058,7 @@ impl Session {
 					let Some(dependency) = option else {
 						if !reference.is_solvable() {
 							return Err(
-								tg::error!(item = %reference.item(), "unsolvable unsolved dependency"),
+								tg::error!(node = %reference.node(), "unsolvable unsolved dependency"),
 							);
 						}
 						dependencies.insert(reference.clone(), None);
@@ -1067,7 +1067,7 @@ impl Session {
 					if dependency.tag().is_some() {
 						dependencies.insert(reference.clone(), None);
 					} else {
-						let referent = dependency.0.clone().map(|item| match item {
+						let referent = dependency.0.clone().map(|node| match node {
 							Some(tg::graph::data::Edge::Pointer(pointer)) => {
 								let graph =
 									pointer.graph.clone().or_else(|| Some(graph_id.clone()));
@@ -1156,7 +1156,7 @@ impl Session {
 		let parent_lock_index = checkpoint
 			.graph
 			.nodes
-			.get(&item.referent.item)
+			.get(&item.referent.node)
 			.unwrap()
 			.lock_index?;
 		let parent_node = lock.nodes.get(parent_lock_index).unwrap();
@@ -1180,7 +1180,7 @@ impl Session {
 					.dependencies
 					.get(reference)?
 					.as_ref()?
-					.item()
+					.node()
 					.as_ref()?
 					.try_unwrap_pointer_ref()
 					.ok()?
@@ -1204,7 +1204,7 @@ impl Session {
 		referent: &tg::Referent<usize>,
 	) {
 		// Get the node.
-		let node = checkpoint.graph.nodes.get(&referent.item).unwrap();
+		let node = checkpoint.graph.nodes.get(&referent.node).unwrap();
 
 		// If the node is not solvable or is solved, then do not enqueue any of its items.
 		if !node.solvable || node.solved {
@@ -1241,7 +1241,7 @@ impl Session {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-		let node = checkpoint.graph.nodes.get(&item.referent.item).unwrap();
+		let node = checkpoint.graph.nodes.get(&item.referent.node).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let directory = node.variant.unwrap_directory_ref();
@@ -1258,7 +1258,7 @@ impl Session {
 					.get(reference)
 					.cloned()
 					.unwrap()
-					.and_then(|dependency| dependency.0.item)
+					.and_then(|dependency| dependency.0.node)
 			},
 			ItemVariant::SymlinkArtifact => {
 				let symlink = node.variant.unwrap_symlink_ref();
@@ -1346,7 +1346,7 @@ impl Session {
 						.values()
 						.flatten()
 						.find_map(|referent| {
-							let pointer = referent.item.as_ref()?.try_unwrap_pointer_ref().ok()?;
+							let pointer = referent.node.as_ref()?.try_unwrap_pointer_ref().ok()?;
 							if pointer.graph.is_some() {
 								return None;
 							}
@@ -1424,7 +1424,7 @@ impl Solutions {
 	pub fn insert(&mut self, key: tg::specifier::Pattern, solution: Solution) {
 		if let Some(existing) = self.map.get(&key)
 			&& let Some(referent) = &existing.referent
-			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& let Some(pointer) = referent.node().try_unwrap_pointer_ref().ok()
 			&& pointer.graph.is_none()
 			&& let Some(patterns) = self.referents.get_mut(&pointer.index)
 		{
@@ -1434,7 +1434,7 @@ impl Solutions {
 			}
 		}
 		if let Some(referent) = &solution.referent
-			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& let Some(pointer) = referent.node().try_unwrap_pointer_ref().ok()
 			&& pointer.graph.is_none()
 		{
 			self.referents
@@ -1450,7 +1450,7 @@ impl Solutions {
 		let Some(referent) = &solution.referent else {
 			return Some(solution);
 		};
-		let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok() else {
+		let Some(pointer) = referent.node().try_unwrap_pointer_ref().ok() else {
 			return Some(solution);
 		};
 		if pointer.graph.is_some() {
@@ -1508,7 +1508,7 @@ impl Solutions {
 			for pattern in to_remove {
 				if let Some(solution) = self.map.remove(&pattern)
 					&& let Some(referent) = &solution.referent
-					&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+					&& let Some(pointer) = referent.node().try_unwrap_pointer_ref().ok()
 					&& pointer.graph.is_none()
 					&& let Some(referent_patterns) = self.referents.get_mut(&pointer.index)
 				{
@@ -1524,7 +1524,7 @@ impl Solutions {
 	pub fn clear_referent(&mut self, key: &tg::specifier::Pattern) {
 		if let Some(solution) = self.map.get_mut(key)
 			&& let Some(referent) = solution.referent.take()
-			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& let Some(pointer) = referent.node().try_unwrap_pointer_ref().ok()
 			&& pointer.graph.is_none()
 			&& let Some(patterns) = self.referents.get_mut(&pointer.index)
 		{

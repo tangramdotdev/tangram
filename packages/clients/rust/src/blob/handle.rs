@@ -30,7 +30,7 @@ impl Blob {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let blob = Self::with_id(referent.item);
+		let blob = Self::with_id(referent.node);
 		blob.state().set_token(referent.options.token);
 
 		blob

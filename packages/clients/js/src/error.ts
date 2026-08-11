@@ -101,7 +101,7 @@ export class Error {
 
 	/** Get an error with a referent. */
 	static withReferent(referent: tg.Referent<tg.Error.Id>): tg.Error {
-		let error = tg.Error.withId(referent.item);
+		let error = tg.Error.withId(referent.node);
 		error.state.token = referent.options?.token ?? null;
 		return error;
 	}
@@ -192,7 +192,7 @@ export class Error {
 		if (value.state.stored) {
 			let id = value.state.id as tg.Error.Id;
 			let token = value.state.token;
-			let referent = tg.Referent.withItemAndToken(id, token);
+			let referent = tg.Referent.withNodeAndToken(id, token);
 			return tg.Referent.toData(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
@@ -285,12 +285,12 @@ export class Error {
 			if (object.source === null) {
 				return null;
 			}
-			if (object.source.item instanceof tg.Error) {
+			if (object.source.node instanceof tg.Error) {
 				return object.source as tg.Referent<tg.Error>;
 			} else {
 				return {
 					...object.source,
-					item: tg.Error.withObject(object.source.item),
+					node: tg.Error.withObject(object.source.node),
 				};
 			}
 		})();
@@ -463,17 +463,17 @@ export namespace Error {
 				data.message = object.message;
 			}
 			if (object.source !== null) {
-				data.source = tg.Referent.toData(object.source, (item) => {
-					if (item instanceof tg.Error) {
-						if (item.state.stored) {
-							return item.id;
+				data.source = tg.Referent.toData(object.source, (node) => {
+					if (node instanceof tg.Error) {
+						if (node.state.stored) {
+							return node.id;
 						} else {
-							let obj = item.state.object;
+							let obj = node.state.object;
 							tg.assert(obj?.kind === "error");
 							return tg.Error.Object.toData(obj.value);
 						}
 					} else {
-						return tg.Error.Object.toData(item);
+						return tg.Error.Object.toData(node);
 					}
 				});
 			}
@@ -500,11 +500,11 @@ export namespace Error {
 				message: data.message ?? null,
 				source:
 					data.source !== undefined && data.source !== null
-						? tg.Referent.fromData(data.source, (item) => {
-								if (typeof item === "string") {
-									return tg.Error.withId(item);
+						? tg.Referent.fromData(data.source, (node) => {
+								if (typeof node === "string") {
+									return tg.Error.withId(node);
 								} else {
-									return tg.Error.Object.fromData(item);
+									return tg.Error.Object.fromData(node);
 								}
 							})
 						: null,
@@ -529,10 +529,10 @@ export namespace Error {
 			let source: Array<tg.Object>;
 			if (object.source === null) {
 				source = [];
-			} else if (object.source.item instanceof tg.Error) {
-				source = [object.source.item];
+			} else if (object.source.node instanceof tg.Error) {
+				source = [object.source.node];
 			} else {
-				source = tg.Error.Object.children(object.source.item);
+				source = tg.Error.Object.children(object.source.node);
 			}
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
@@ -572,12 +572,12 @@ export namespace Error {
 			if (data.source === undefined || data.source === null) {
 				source = [];
 			} else if (typeof data.source === "string") {
-				let [item] = data.source.split("?");
-				source = item !== undefined && item !== "" ? [item] : [];
-			} else if (typeof data.source.item === "string") {
-				source = [data.source.item];
+				let [node] = data.source.split("?");
+				source = node !== undefined && node !== "" ? [node] : [];
+			} else if (typeof data.source.node === "string") {
+				source = [data.source.node];
 			} else {
-				source = tg.Error.Data.children(data.source.item);
+				source = tg.Error.Data.children(data.source.node);
 			}
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
@@ -596,19 +596,19 @@ export namespace Error {
 				if (typeof data.source === "string") {
 					let referent = tg.Referent.fromDataString(
 						data.source,
-						(item) => item as tg.Error.Id,
+						(node) => node as tg.Error.Id,
 					);
 					output.source = tg.Referent.toDataString(
 						tg.Referent.withoutToken(referent),
-						(item) => item,
+						(node) => node,
 					);
 				} else {
-					let source = tg.Referent.fromData(data.source, (item) => item);
+					let source = tg.Referent.fromData(data.source, (node) => node);
 					source = tg.Referent.withoutToken(source);
-					if (typeof data.source.item !== "string") {
-						source.item = tg.Error.Data.withoutTokens(data.source.item);
+					if (typeof data.source.node !== "string") {
+						source.node = tg.Error.Data.withoutTokens(data.source.node);
 					}
-					output.source = tg.Referent.toData(source, (item) => item);
+					output.source = tg.Referent.toData(source, (node) => node);
 				}
 			}
 			if (data.stack !== undefined && data.stack !== null) {

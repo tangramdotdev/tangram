@@ -54,7 +54,7 @@ failure (tg --url $local.url group get $local_parent.id | complete)
 
 # A recursive request upgrades an earlier non-recursive ancestor request without resending the node.
 let database_watch = (
-	tg --url $remote.url checkpoint watch sync.put.database.item --params ({
+	tg --url $remote.url checkpoint watch sync.put.database.node --params ({
 		descendants: true,
 		id: $remote_coalesced_parent.id,
 	} | to json)
@@ -62,7 +62,7 @@ let database_watch = (
 	| get watch
 )
 let ancestor_database_watch = (
-	tg --url $remote.url checkpoint watch sync.put.database.item --params ({
+	tg --url $remote.url checkpoint watch sync.put.database.node --params ({
 		descendants: false,
 		id: $remote_coalesced_child.id,
 	} | to json)
@@ -98,18 +98,18 @@ let pull = job spawn {
 	)
 	$output | job send --tag $job_id 0
 }
-tg --url $remote.url checkpoint wait sync.put.database.item $database_watch 0 | ignore
+tg --url $remote.url checkpoint wait sync.put.database.node $database_watch 0 | ignore
 tg --url $remote.url checkpoint wait sync.put.queue.database $ancestor_queue_watch 0 | ignore
 tg --url $remote.url checkpoint continue sync.put.queue.database $ancestor_queue_watch 0
-tg --url $remote.url checkpoint continue sync.put.database.item $database_watch 0
+tg --url $remote.url checkpoint continue sync.put.database.node $database_watch 0
 tg --url $remote.url checkpoint wait sync.put.queue.database $descendants_queue_watch 0 | ignore
-tg --url $remote.url checkpoint wait sync.put.database.item $ancestor_database_watch 0 | ignore
-tg --url $remote.url checkpoint continue sync.put.database.item $ancestor_database_watch 0
+tg --url $remote.url checkpoint wait sync.put.database.node $ancestor_database_watch 0 | ignore
+tg --url $remote.url checkpoint continue sync.put.database.node $ancestor_database_watch 0
 tg --url $remote.url checkpoint wait sync.put.input.end $end_watch 0 | ignore
 tg --url $remote.url checkpoint continue sync.put.input.end $end_watch 0
 tg --url $remote.url checkpoint continue sync.put.queue.database $descendants_queue_watch 0
-tg --url $remote.url checkpoint unwatch sync.put.database.item $ancestor_database_watch
-tg --url $remote.url checkpoint unwatch sync.put.database.item $database_watch
+tg --url $remote.url checkpoint unwatch sync.put.database.node $ancestor_database_watch
+tg --url $remote.url checkpoint unwatch sync.put.database.node $database_watch
 tg --url $remote.url checkpoint unwatch sync.put.input.end $end_watch
 tg --url $remote.url checkpoint unwatch sync.put.queue.database $ancestor_queue_watch
 tg --url $remote.url checkpoint unwatch sync.put.queue.database $descendants_queue_watch

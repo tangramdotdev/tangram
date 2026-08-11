@@ -419,8 +419,8 @@ where
 							return Ok(());
 						};
 						s.start_map()?;
-						if let Some(item) = dependency.0.item() {
-							s.map_entry("item", |s| s.graph_edge_object(item))?;
+						if let Some(node) = dependency.0.node() {
+							s.map_entry("node", |s| s.graph_edge_object(node))?;
 						}
 						if dependency.0.options != tg::referent::Options::default() {
 							s.map_entry("options", |s| s.referent_options(&dependency.0.options))?;
@@ -597,7 +597,7 @@ where
 
 	fn object_id(&mut self, state: &tg::object::State) -> Result {
 		let token = self.options.tokens.then(|| state.token()).flatten();
-		let referent = tg::Referent::with_item_and_token(state.id(), token);
+		let referent = tg::Referent::with_node_and_token(state.id(), token);
 		self.color(referent, Color::Blue)?;
 		Ok(())
 	}
@@ -624,7 +624,7 @@ where
 			self.map_entry("message", |s| s.string(message))?;
 		}
 		if let Some(source) = &object.source {
-			self.map_entry("source", |s| match &source.item {
+			self.map_entry("source", |s| match &source.node {
 				tg::Either::Left(obj) => s.error_object(obj),
 				tg::Either::Right(handle) => s.error(handle),
 			})?;
@@ -772,9 +772,9 @@ where
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {
 			s.start_map()?;
-			s.map_entry("item", |s| match &value.referent.item {
-				tg::module::Item::Edge(edge) => s.graph_edge_object(edge),
-				tg::module::Item::Path(path) => s.string(path.to_string_lossy().as_ref()),
+			s.map_entry("node", |s| match &value.referent.node {
+				tg::module::Source::Edge(edge) => s.graph_edge_object(edge),
+				tg::module::Source::Path(path) => s.string(path.to_string_lossy().as_ref()),
 			})?;
 			if value.referent.options != tg::referent::Options::default() {
 				s.map_entry("options", |s| s.referent_options(&value.referent.options))?;

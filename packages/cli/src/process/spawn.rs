@@ -400,19 +400,19 @@ impl Cli {
 
 		if args.verbose {
 			let output = tg::process::spawn::Output {
-				cached: output.item().cached().unwrap_or(false),
-				lease: output.item().lease().cloned(),
+				cached: output.node().cached().unwrap_or(false),
+				lease: output.node().lease().cloned(),
 				location: output
-					.item()
+					.node()
 					.location()
 					.and_then(|location| location.to_location()),
-				process: output.item().id().cloned(),
-				token: output.item().token(),
-				wait: output.item().wait_output(),
+				process: output.node().id().cloned(),
+				token: output.node().token(),
+				wait: output.node().wait_output(),
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(output.item().id());
+			Self::print_display(output.node().id());
 		}
 
 		Ok(())
@@ -457,7 +457,7 @@ impl Cli {
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
 				ancestors: tg::node::Ancestors::default(),
-				item: id.into(),
+				target: id.into(),
 				location: location.clone(),
 				public: false,
 				specifier: tag.clone(),
@@ -556,7 +556,7 @@ impl Cli {
 		// Create the command builder.
 		let mut command_env = None;
 		let mut command_options = None;
-		let mut command = match referent.item.clone() {
+		let mut command = match referent.node.clone() {
 			tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
 				return Err(tg::error!("expected an artifact for the executable path"));
 			},
@@ -575,8 +575,8 @@ impl Cli {
 
 			_ if executable.is_some() => tg::Command::builder(),
 
-			item => {
-				let artifact = match item.clone() {
+			edge => {
+				let artifact = match edge.clone() {
 					tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
 					tg::graph::Edge::Object(tg::Object::Directory(directory)) => directory.into(),
 					tg::graph::Edge::Object(tg::Object::File(file)) => file.into(),
@@ -614,15 +614,15 @@ impl Cli {
 							}
 							let kind =
 								tg::module::module_kind_for_path(root_module_file_name).unwrap();
-							let item = directory
+							let edge = directory
 								.get_entry_edge_with_handle(&client, root_module_file_name)
 								.await
 								.map_err(|error| {
 									tg::error!(!error, "failed to get the root module")
 								})?;
-							let item = tg::module::Item::Edge(item.into());
+							let source = tg::module::Source::Edge(edge.into());
 							command_options = Some(referent.options.clone());
-							let mut referent = referent.clone().map(|_| item);
+							let mut referent = referent.clone().map(|_| source);
 							referent.options.id.take();
 							referent.options.name.take();
 							referent.options.path.take();
@@ -671,9 +671,9 @@ impl Cli {
 								})?
 							};
 							if let Some(kind) = kind {
-								let item = tg::module::Item::Edge(item);
+								let source = tg::module::Source::Edge(edge);
 								command_options = Some(referent.options.clone());
-								let mut referent = referent.clone().map(|_| item);
+								let mut referent = referent.clone().map(|_| source);
 								referent.options.id.take();
 								referent.options.name.take();
 								referent.options.path.take();

@@ -31,7 +31,7 @@ impl Graph {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let graph = Self::with_id(referent.item);
+		let graph = Self::with_id(referent.node);
 		graph.state().set_token(referent.options.token);
 
 		graph

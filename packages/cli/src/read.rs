@@ -16,7 +16,7 @@ impl Cli {
 
 		for reference in &args.references {
 			let referent = self.resolve(reference).await?;
-			let edge = referent.into_graph_edge()?.item;
+			let edge = referent.into_graph_edge()?.node;
 
 			let blob = match &edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),

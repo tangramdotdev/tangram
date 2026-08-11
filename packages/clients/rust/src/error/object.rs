@@ -21,7 +21,7 @@ impl Error {
 		let location = self.location.as_ref().map(tg::error::Location::to_data);
 		let message = self.message.clone();
 		let source = self.source.as_ref().map(|source| {
-			source.clone().map(|item| match item {
+			source.clone().map(|node| match node {
 				tg::Either::Left(object) => {
 					let data = object.to_data();
 					tg::Either::Left(Box::new(data))
@@ -66,8 +66,8 @@ impl Error {
 		let source = data
 			.source
 			.map(|source| {
-				source.try_map(|item| {
-					let error = match item {
+				source.try_map(|node| {
+					let error = match node {
 						tg::Either::Left(data) => {
 							let object = Error::try_from_data(*data)?;
 							tg::Either::Left(Box::new(object))
@@ -119,7 +119,7 @@ impl Error {
 			}
 		}
 		if let Some(source) = &self.source {
-			match &source.item {
+			match &source.node {
 				tg::Either::Left(object) => {
 					children.extend(object.children());
 				},

@@ -28,4 +28,4 @@ success $local_child "the child process should be present locally after a recurs
 
 # The tag resolves locally to the pulled process.
 let tag = tg tag get tree/1.0.0 | from json
-assert ($tag.item.id == $process) "the tag should resolve locally to the pulled process"
+assert ($tag.target.id == $process) "the tag should resolve locally to the pulled process"

@@ -17,12 +17,12 @@ where
 	let mut stack: Vec<tg::Referent<tg::Object>> = vec![object.clone()];
 	let mut visited = HashSet::new();
 	while let Some(referent) = stack.pop() {
-		referent.item.inherit_token(referent.options.token.clone());
+		referent.node.inherit_token(referent.options.token.clone());
 		if !visited.insert(referent.clone().map(|r| r.id())) {
 			continue;
 		}
 
-		let object = &referent.item;
+		let object = &referent.node;
 		let recurse = match &object {
 			tg::Object::Blob(blob) => {
 				let referent = referent.clone().map(|_| blob);
@@ -73,7 +73,7 @@ where
 						kind: node.kind(),
 					})
 					.into();
-					let mut child = tg::Referent::with_item(object);
+					let mut child = tg::Referent::with_node(object);
 					child.inherit(&referent);
 					child
 				})
@@ -84,7 +84,7 @@ where
 				.into_iter()
 				.map(|(name, object)| {
 					let mut child = tg::Referent {
-						item: object.into(),
+						node: object.into(),
 						options: tg::referent::Options {
 							path: Some(
 								referent
@@ -106,9 +106,9 @@ where
 				.into_values()
 				.filter_map(|option| {
 					let dependency = option?;
-					let item = dependency.0.item?;
+					let node = dependency.0.node?;
 					let mut child = tg::Referent {
-						item,
+						node,
 						options: dependency.0.options,
 					};
 					child.inherit(&referent);
@@ -119,7 +119,7 @@ where
 				.children_with_handle(handle)
 				.await?
 				.into_iter()
-				.map(tg::Referent::with_item)
+				.map(tg::Referent::with_node)
 				.collect::<Vec<_>>(),
 		};
 

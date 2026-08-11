@@ -48,7 +48,7 @@ impl Session {
 		if let Some(path) = &mut arg.path {
 			*path = self.host_path_for_guest_path(path)?;
 		}
-		let artifact = arg.artifact.item.clone();
+		let artifact = arg.artifact.node.clone();
 
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
@@ -123,7 +123,7 @@ impl Session {
 		let task = Task::spawn({
 			let session = self.clone();
 			let artifact = arg.artifact.clone();
-			let artifact_id = artifact.item.clone();
+			let artifact_id = artifact.node.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
@@ -207,7 +207,7 @@ impl Session {
 		artifact: &tg::Referent<tg::artifact::Id>,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
-		let id = &artifact.item;
+		let id = &artifact.node;
 		let stored = self
 			.server
 			.index
@@ -273,7 +273,7 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: vec![artifact.clone().map(tg::Id::from)],
+				nodes: vec![artifact.clone().map(tg::Id::from)],
 				..Default::default()
 			})
 			.await
@@ -519,7 +519,7 @@ impl Session {
 			match node {
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.item
+						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.node
 							&& pointer.graph.is_none()
 						{
 							marks.insert(pointer.index);
@@ -658,7 +658,7 @@ impl Session {
 			let Some(dependency) = dependency else {
 				continue;
 			};
-			let mut edge = match dependency.item.clone() {
+			let mut edge = match dependency.node.clone() {
 				Some(tg::graph::data::Edge::Pointer(graph)) => {
 					tg::graph::data::Edge::Pointer(graph)
 				},

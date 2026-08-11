@@ -18,7 +18,7 @@ impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let object = self.resolve_object(&args.object).await?;
-		let id = object.item;
+		let id = object.node;
 		let arg = tg::object::metadata::Arg {
 			location: args.locations.get(),
 			token: object.options.token,

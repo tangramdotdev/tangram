@@ -465,8 +465,8 @@ impl crate::Index for Index {
 		self.complete_finalization(entry).await
 	}
 
-	async fn enqueue_finalization(&self, item: &crate::finalization::Item) -> tg::Result<()> {
-		self.enqueue_finalization(item).await
+	async fn enqueue_finalization(&self, node: &crate::finalization::Node) -> tg::Result<()> {
+		self.enqueue_finalization(node).await
 	}
 
 	async fn finalization_batch(

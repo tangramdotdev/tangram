@@ -10,7 +10,7 @@ tg tag put foo $id
 
 let tag = tg get foo | from json
 assert equal $tag.specifier foo
-assert equal $tag.item.id $id
+assert equal $tag.target.id $id
 
 let resolved = tg resolve foo | str trim
 assert equal $resolved 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'

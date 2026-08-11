@@ -42,9 +42,9 @@ impl Session {
 		sender
 			.send(super::Message {
 				event: notify::Event {
-					kind,
-					paths: arg.items.clone(),
 					attrs: notify::event::EventAttributes::new(),
+					kind,
+					paths: arg.paths.clone(),
 				},
 				sender: Some(notification_sender),
 			})

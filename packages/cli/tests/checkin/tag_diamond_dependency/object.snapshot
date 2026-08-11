@@ -3,12 +3,12 @@ tg.directory({
     "contents": tg.blob("import b from \"b\";\nimport c from \"c\";"),
     "dependencies": {
       "b": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import d from \"d/^1\";\nexport default () => \"b\";"),
             "dependencies": {
               "d/^1": {
-                "item": tg.directory({
+                "node": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
                     "module": "ts",
@@ -29,12 +29,12 @@ tg.directory({
         },
       },
       "c": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import d from \"d/^1.0\";\nexport default () => \"c\";"),
             "dependencies": {
               "d/^1.0": {
-                "item": tg.directory({
+                "node": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
                     "module": "ts",

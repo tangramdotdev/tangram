@@ -104,7 +104,7 @@ async fn process_and_finalization_share_transaction() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
 			}),
-			crate::batch::Item::EnqueueFinalization(crate::finalization::Item::Process(
+			crate::batch::Item::EnqueueFinalization(crate::finalization::Node::Process(
 				process.clone(),
 			)),
 		],
@@ -125,7 +125,7 @@ async fn process_and_finalization_share_transaction() {
 		.await
 		.unwrap();
 	assert_eq!(entries.len(), 1);
-	assert_eq!(entries[0].item, crate::finalization::Item::Process(process));
+	assert_eq!(entries[0].node, crate::finalization::Node::Process(process));
 }
 
 #[tokio::test]

@@ -117,7 +117,7 @@ export let resolve = async <T>(value: T): Promise<tg.Resolved<T>> => {
 			)) as tg.Resolved<T>;
 		} else if (value_ instanceof Array) {
 			output = (await Promise.all(
-				value_.map((item, index) => inner(item, visited, `${path}[${index}]`)),
+				value_.map((node, index) => inner(node, visited, `${path}[${index}]`)),
 			)) as tg.Resolved<T>;
 		} else if (typeof value_ === "object") {
 			output = Object.fromEntries(

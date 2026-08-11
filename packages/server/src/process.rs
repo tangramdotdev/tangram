@@ -80,7 +80,7 @@ impl Session {
 		let Some(token) = &process.options.token else {
 			return false;
 		};
-		let resource = tg::grant::Resource::Id(process.item.clone().into());
+		let resource = tg::grant::Resource::Id(process.node.clone().into());
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
 		self.authorize_token(&resource, permission.into(), token)
@@ -126,7 +126,7 @@ impl Session {
 				let mut children = std::collections::BTreeSet::new();
 				module.children(&mut children);
 				children.into_iter().all(|id| {
-					let object = tg::Referent::with_item_and_token(
+					let object = tg::Referent::with_node_and_token(
 						id,
 						module.referent.options.token.clone(),
 					);
@@ -184,7 +184,7 @@ impl Session {
 		let Some(token) = object.options.token.as_ref() else {
 			return false;
 		};
-		let resource = tg::grant::Resource::Id(object.item.clone().into());
+		let resource = tg::grant::Resource::Id(object.node.clone().into());
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
 		self.authorize_token(&resource, permission.into(), token)

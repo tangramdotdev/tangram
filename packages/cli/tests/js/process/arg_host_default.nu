@@ -15,7 +15,7 @@ let path = artifact {
 				sandbox: true,
 			});
 			return [object, shorthand].every(({ arg }) =>
-				typeof arg.command.item !== "string" && arg.command.item.host === undefined
+				typeof arg.command.node !== "string" && arg.command.node.host === undefined
 			);
 		}
 	'

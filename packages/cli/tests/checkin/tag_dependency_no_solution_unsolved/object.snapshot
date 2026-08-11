@@ -3,7 +3,7 @@ tg.directory({
     "contents": tg.blob("import * as a from \"a/*\";\nimport * as b from \"b/*\";"),
     "dependencies": {
       "a/*": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^1\""),
             "dependencies": {
@@ -18,7 +18,7 @@ tg.directory({
         },
       },
       "b/*": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^2\""),
             "dependencies": {

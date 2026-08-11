@@ -19,7 +19,7 @@ impl Cli {
 		let client = self.client().await?;
 		let process = self.resolve_process(&args.process).await?;
 		let process = tg::Process::<tg::Value>::new(
-			process.item,
+			process.node,
 			tg::process::Options {
 				lease: Some(args.lease),
 				location: args.location.get(),

@@ -20,8 +20,8 @@ impl Index {
 			.await
 	}
 
-	pub async fn enqueue_finalization(&self, item: &crate::finalization::Item) -> tg::Result<()> {
-		self.send_finalization_request(Request::EnqueueFinalization(item.clone()))
+	pub async fn enqueue_finalization(&self, node: &crate::finalization::Node) -> tg::Result<()> {
+		self.send_finalization_request(Request::EnqueueFinalization(node.clone()))
 			.await
 	}
 
@@ -85,22 +85,22 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get the finalization range"))?;
 			for entry in entries {
 				let key = Self::unpack(subspace, entry.key())?;
-				let (item, partition, version) = match key {
+				let (node, partition, version) = match key {
 					crate::fdb::Key::Finalization(Key::ProcessVersion {
 						id,
 						partition,
 						version,
-					}) => (crate::finalization::Item::Process(id), partition, version),
+					}) => (crate::finalization::Node::Process(id), partition, version),
 					crate::fdb::Key::Finalization(Key::SandboxVersion {
 						id,
 						partition,
 						version,
-					}) => (crate::finalization::Item::Sandbox(id), partition, version),
+					}) => (crate::finalization::Node::Sandbox(id), partition, version),
 					_ => return Err(tg::error!("unexpected finalization key")),
 				};
 				let version = crate::finalization::Version::new(*version.as_bytes());
 				output.push(crate::finalization::Entry {
-					item,
+					node,
 					partition,
 					version,
 				});
@@ -174,7 +174,7 @@ impl Index {
 		subspace: &Subspace,
 		entry: &crate::finalization::Entry,
 	) -> tg::Result<()> {
-		let identity = Self::finalization_identity_key(&entry.item);
+		let identity = Self::finalization_identity_key(&entry.node);
 		let identity_key = Self::pack(subspace, &identity);
 		let value = txn
 			.get(&identity_key, false)
@@ -191,7 +191,7 @@ impl Index {
 		}
 
 		txn.clear(&identity_key);
-		let worker = Self::finalization_version_key(&entry.item, partition, version.clone());
+		let worker = Self::finalization_version_key(&entry.node, partition, version.clone());
 		let worker = Self::pack(subspace, &worker);
 		txn.clear(&worker);
 
@@ -201,10 +201,10 @@ impl Index {
 	pub(super) async fn enqueue_finalization_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		item: &crate::finalization::Item,
+		node: &crate::finalization::Node,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let identity = Self::finalization_identity_key(item);
+		let identity = Self::finalization_identity_key(node);
 		let identity_key = Self::pack(subspace, &identity);
 		let exists = txn
 			.get(&identity_key, false)
@@ -215,9 +215,9 @@ impl Index {
 			return Ok(());
 		}
 
-		let id_bytes = match item {
-			crate::finalization::Item::Process(id) => id.to_bytes(),
-			crate::finalization::Item::Sandbox(id) => id.to_bytes(),
+		let id_bytes = match node {
+			crate::finalization::Node::Process(id) => id.to_bytes(),
+			crate::finalization::Node::Sandbox(id) => id.to_bytes(),
 		};
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let version = fdbt::Versionstamp::incomplete(0);
@@ -228,7 +228,7 @@ impl Index {
 			fdb::options::MutationType::SetVersionstampedValue,
 		);
 
-		let worker = Self::finalization_version_key(item, partition, version.clone());
+		let worker = Self::finalization_version_key(node, partition, version.clone());
 		let worker = Self::pack_with_versionstamp(subspace, &worker);
 		txn.atomic_op(
 			&worker,
@@ -239,26 +239,26 @@ impl Index {
 		Ok(())
 	}
 
-	fn finalization_identity_key(item: &crate::finalization::Item) -> crate::fdb::Key {
-		let key = match item {
-			crate::finalization::Item::Process(id) => Key::Process(id.clone()),
-			crate::finalization::Item::Sandbox(id) => Key::Sandbox(id.clone()),
+	fn finalization_identity_key(node: &crate::finalization::Node) -> crate::fdb::Key {
+		let key = match node {
+			crate::finalization::Node::Process(id) => Key::Process(id.clone()),
+			crate::finalization::Node::Sandbox(id) => Key::Sandbox(id.clone()),
 		};
 		crate::fdb::Key::Finalization(key)
 	}
 
 	fn finalization_version_key(
-		item: &crate::finalization::Item,
+		node: &crate::finalization::Node,
 		partition: u64,
 		version: fdbt::Versionstamp,
 	) -> crate::fdb::Key {
-		let key = match item {
-			crate::finalization::Item::Process(id) => Key::ProcessVersion {
+		let key = match node {
+			crate::finalization::Node::Process(id) => Key::ProcessVersion {
 				id: id.clone(),
 				partition,
 				version,
 			},
-			crate::finalization::Item::Sandbox(id) => Key::SandboxVersion {
+			crate::finalization::Node::Sandbox(id) => Key::SandboxVersion {
 				id: id.clone(),
 				partition,
 				version,

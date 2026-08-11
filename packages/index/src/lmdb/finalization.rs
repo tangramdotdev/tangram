@@ -18,8 +18,8 @@ impl Index {
 			.await
 	}
 
-	pub async fn enqueue_finalization(&self, item: &crate::finalization::Item) -> tg::Result<()> {
-		self.send_finalization_request(Request::EnqueueFinalization(item.clone()))
+	pub async fn enqueue_finalization(&self, node: &crate::finalization::Node) -> tg::Result<()> {
+		self.send_finalization_request(Request::EnqueueFinalization(node.clone()))
 			.await
 	}
 
@@ -78,18 +78,18 @@ impl Index {
 				let (key, _) = entry
 					.map_err(|error| tg::error!(!error, "failed to read the finalization entry"))?;
 				let key = Self::unpack(subspace, key)?;
-				let (item, version) = match key {
+				let (node, version) = match key {
 					crate::lmdb::Key::Finalization(Key::ProcessVersion { id, version }) => {
-						(crate::finalization::Item::Process(id), version)
+						(crate::finalization::Node::Process(id), version)
 					},
 					crate::lmdb::Key::Finalization(Key::SandboxVersion { id, version }) => {
-						(crate::finalization::Item::Sandbox(id), version)
+						(crate::finalization::Node::Sandbox(id), version)
 					},
 					_ => return Err(tg::error!("unexpected finalization key")),
 				};
 				let version = Self::finalization_version(version);
 				Ok(crate::finalization::Entry {
-					item,
+					node,
 					partition: 0,
 					version,
 				})
@@ -146,7 +146,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		entry: &crate::finalization::Entry,
 	) -> tg::Result<()> {
-		let identity = Self::finalization_identity_key(&entry.item);
+		let identity = Self::finalization_identity_key(&entry.node);
 		let identity_key = Self::pack(subspace, &identity);
 		let value = db
 			.get(transaction, &identity_key)
@@ -165,7 +165,7 @@ impl Index {
 
 		db.delete(transaction, &identity_key)
 			.map_err(|error| tg::error!(!error, "failed to delete the finalization identity"))?;
-		let worker = Self::finalization_version_key(&entry.item, version);
+		let worker = Self::finalization_version_key(&entry.node, version);
 		let worker = Self::pack(subspace, &worker);
 		db.delete(transaction, &worker)
 			.map_err(|error| tg::error!(!error, "failed to delete the finalization entry"))?;
@@ -177,9 +177,9 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		item: &crate::finalization::Item,
+		node: &crate::finalization::Node,
 	) -> tg::Result<()> {
-		let identity = Self::finalization_identity_key(item);
+		let identity = Self::finalization_identity_key(node);
 		let identity_key = Self::pack(subspace, &identity);
 		let exists = db
 			.get(transaction, &identity_key)
@@ -192,7 +192,7 @@ impl Index {
 		let version = transaction.id() as u64;
 		db.put(transaction, &identity_key, &version.to_be_bytes())
 			.map_err(|error| tg::error!(!error, "failed to put the finalization identity"))?;
-		let worker = Self::finalization_version_key(item, version);
+		let worker = Self::finalization_version_key(node, version);
 		let worker = Self::pack(subspace, &worker);
 		db.put(transaction, &worker, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the finalization entry"))?;
@@ -200,10 +200,10 @@ impl Index {
 		Ok(())
 	}
 
-	fn finalization_identity_key(item: &crate::finalization::Item) -> crate::lmdb::Key {
-		let key = match item {
-			crate::finalization::Item::Process(id) => Key::Process(id.clone()),
-			crate::finalization::Item::Sandbox(id) => Key::Sandbox(id.clone()),
+	fn finalization_identity_key(node: &crate::finalization::Node) -> crate::lmdb::Key {
+		let key = match node {
+			crate::finalization::Node::Process(id) => Key::Process(id.clone()),
+			crate::finalization::Node::Sandbox(id) => Key::Sandbox(id.clone()),
 		};
 		crate::lmdb::Key::Finalization(key)
 	}
@@ -215,15 +215,15 @@ impl Index {
 	}
 
 	fn finalization_version_key(
-		item: &crate::finalization::Item,
+		node: &crate::finalization::Node,
 		version: u64,
 	) -> crate::lmdb::Key {
-		let key = match item {
-			crate::finalization::Item::Process(id) => Key::ProcessVersion {
+		let key = match node {
+			crate::finalization::Node::Process(id) => Key::ProcessVersion {
 				id: id.clone(),
 				version,
 			},
-			crate::finalization::Item::Sandbox(id) => Key::SandboxVersion {
+			crate::finalization::Node::Sandbox(id) => Key::SandboxVersion {
 				id: id.clone(),
 				version,
 			},

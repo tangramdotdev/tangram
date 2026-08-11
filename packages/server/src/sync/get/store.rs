@@ -15,13 +15,13 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-pub struct ObjectItem {
+pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub bytes: Bytes,
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-pub struct ProcessItem {
+pub struct ProcessNode {
 	pub id: tg::process::Id,
 	pub bytes: Bytes,
 	pub metadata: Option<tg::process::Metadata>,
@@ -31,8 +31,8 @@ impl Session {
 	pub(super) async fn sync_get_store(
 		&self,
 		state: &State,
-		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		let objects_future = async { self.sync_get_store_objects(state, object_receiver).await };
 		let processes_future =
@@ -44,7 +44,7 @@ impl Session {
 	async fn sync_get_store_objects(
 		&self,
 		state: &State,
-		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
 		let store_config = match &self.server.object_store {
@@ -60,31 +60,31 @@ impl Session {
 
 		// Create a stream of batches.
 		struct State_ {
-			item: Option<ObjectItem>,
-			object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
+			node: Option<ObjectNode>,
+			object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 		}
 		let state_ = State_ {
-			item: None,
+			node: None,
 			object_receiver,
 		};
 		let stream = stream::unfold(state_, |mut state| async {
 			let mut batch_bytes = state
-				.item
+				.node
 				.as_ref()
-				.map(|item| item.bytes.len().to_u64().unwrap())
+				.map(|node| node.bytes.len().to_u64().unwrap())
 				.unwrap_or_default();
-			let mut batch = state.item.take().map(|item| vec![item]).unwrap_or_default();
-			while let Some(item) = state.object_receiver.recv().await {
-				let size = item.bytes.len().to_u64().unwrap();
+			let mut batch = state.node.take().map(|node| vec![node]).unwrap_or_default();
+			while let Some(node) = state.object_receiver.recv().await {
+				let size = node.bytes.len().to_u64().unwrap();
 				if !batch.is_empty()
 					&& (batch.len() + 1 >= max_objects_per_batch
 						|| batch_bytes + size >= max_bytes_per_batch)
 				{
-					state.item.replace(item);
+					state.node.replace(node);
 					return Some((batch, state));
 				}
 				batch_bytes += 100 + size;
-				batch.push(item);
+				batch.push(node);
 			}
 			if batch.is_empty() {
 				return None;
@@ -106,18 +106,18 @@ impl Session {
 	async fn sync_get_store_objects_inner(
 		&self,
 		state: &State,
-		items: Vec<ObjectItem>,
+		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
-		let args = items
+		let args = nodes
 			.iter()
-			.map(|item| {
+			.map(|node| {
 				Ok(crate::object::store::PutArg {
-					bytes: Some(item.bytes.clone()),
+					bytes: Some(node.bytes.clone()),
 					cache_pointer: None,
-					id: item.id.clone(),
+					id: node.id.clone(),
 					stored_at: touched_at,
 				})
 			})
@@ -130,14 +130,14 @@ impl Session {
 
 		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
-		for item in &items {
+		for node in &nodes {
 			// Deserialize the bytes.
-			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())
+			let data = tg::object::Data::deserialize(node.id.kind(), node.bytes.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
 			// Get the metadata.
-			let metadata = item.metadata.clone().unwrap_or_else(|| {
-				let size = item.bytes.len().to_u64().unwrap();
+			let metadata = node.metadata.clone().unwrap_or_else(|| {
+				let size = node.bytes.len().to_u64().unwrap();
 				let (node_solvable, node_solved) = match &data {
 					tg::object::Data::File(file) => match file {
 						tg::file::Data::Pointer(_) => (false, true),
@@ -170,7 +170,7 @@ impl Session {
 			// Update the graph.
 			let arg = UpdateObjectLocalArg {
 				data: Some(&data),
-				id: &item.id,
+				id: &node.id,
 				marked: Some(true),
 				metadata: Some(metadata),
 				permissions: None,
@@ -182,10 +182,10 @@ impl Session {
 		drop(graph);
 
 		// Update the progress.
-		let objects = items.len().to_u64().unwrap();
-		let bytes = items
+		let objects = nodes.len().to_u64().unwrap();
+		let bytes = nodes
 			.iter()
-			.map(|item| item.bytes.len().to_u64().unwrap())
+			.map(|node| node.bytes.len().to_u64().unwrap())
 			.sum();
 		state.progress.increment_transferred(0, objects, bytes);
 
@@ -200,7 +200,7 @@ impl Session {
 	async fn sync_get_store_processes(
 		&self,
 		state: &State,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		let process_batch_size = self.server.config.sync.get.store.process_batch_size;
 		let process_batch_timeout = self.server.config.sync.get.store.process_batch_timeout;
@@ -211,8 +211,8 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| async move {
-			self.sync_get_store_processes_inner(state, items).await
+		.try_for_each_concurrent(process_concurrency, |nodes| async move {
+			self.sync_get_store_processes_inner(state, nodes).await
 		})
 		.await
 	}
@@ -220,22 +220,22 @@ impl Session {
 	async fn sync_get_store_processes_inner(
 		&self,
 		state: &State,
-		items: Vec<ProcessItem>,
+		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
 		// Deserialize all processes.
-		let count = items.len();
+		let count = nodes.len();
 		let batch: Vec<(
 			tg::process::Id,
 			tg::process::Data,
 			Option<tg::process::Metadata>,
-		)> = items
+		)> = nodes
 			.into_iter()
-			.map(|item| {
-				let data = serde_json::from_slice(&item.bytes).map_err(|error| {
+			.map(|node| {
+				let data = serde_json::from_slice(&node.bytes).map_err(|error| {
 					tg::error!(!error, "failed to deserialize the process data")
 				})?;
 				Self::validate_process_data(&data)?;
-				Ok((item.id, data, item.metadata))
+				Ok((node.id, data, node.metadata))
 			})
 			.collect::<tg::Result<_>>()?;
 

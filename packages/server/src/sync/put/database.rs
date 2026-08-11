@@ -7,7 +7,7 @@ use {
 	tangram_index::prelude::*,
 };
 
-pub struct Item {
+pub struct Node {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
@@ -17,35 +17,35 @@ pub struct Item {
 
 struct Output {
 	children: Vec<tg::Referent<tg::Id>>,
-	message: Option<tg::sync::PutItemMessage>,
+	message: Option<tg::sync::PutNodeMessage>,
 }
 
 impl Session {
 	pub(super) async fn sync_put_database(
 		&self,
 		state: Arc<State>,
-		mut receiver: tokio::sync::mpsc::Receiver<Item>,
+		mut receiver: tokio::sync::mpsc::Receiver<Node>,
 	) -> tg::Result<()> {
-		while let Some(item) = receiver.recv().await {
-			self.sync_put_database_item(&state, item).await?;
+		while let Some(node) = receiver.recv().await {
+			self.sync_put_database_node(&state, node).await?;
 		}
 
 		Ok(())
 	}
 
-	async fn sync_put_database_item(&self, state: &State, item: Item) -> tg::Result<()> {
-		// Authorize the item.
-		let permission = Self::sync_put_database_read_permission(&item.id)?;
-		let resource = tg::grant::Resource::Id(item.id.clone());
-		let resource = tg::Referent::with_item_and_token(resource, item.token.clone());
+	async fn sync_put_database_node(&self, state: &State, node: Node) -> tg::Result<()> {
+		// Authorize the node.
+		let permission = Self::sync_put_database_read_permission(&node.id)?;
+		let resource = tg::grant::Resource::Id(node.id.clone());
+		let resource = tg::Referent::with_node_and_token(resource, node.token.clone());
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
-		let visible = if item.id.kind() == tg::id::Kind::Tag {
+		let visible = if node.id.kind() == tg::id::Kind::Tag {
 			self.server
 				.index
-				.visible(std::slice::from_ref(&item.id), &self.context.principal)
+				.visible(std::slice::from_ref(&node.id), &self.context.principal)
 				.await?
 				.pop()
 				.unwrap()
@@ -53,88 +53,88 @@ impl Session {
 			false
 		};
 		if !authorized && !visible {
-			if item.send {
-				self.sync_put_database_missing(state, &item.id).await;
+			if node.send {
+				self.sync_put_database_missing(state, &node.id).await;
 			}
-			if item.descendants {
+			if node.descendants {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.finish_item_remote_descendants(&item.id, &[]);
+					.finish_node_remote_descendants(&node.id, &[]);
 			}
-			state.queue.finish_item();
+			state.queue.finish_node();
 			return Ok(());
 		}
 
-		// Read the item.
-		let output = self.sync_put_database_read(state, &item).await?;
+		// Read the node.
+		let output = self.sync_put_database_read(state, &node).await?;
 		let Some(output) = output else {
-			if item.send {
-				self.sync_put_database_missing(state, &item.id).await;
+			if node.send {
+				self.sync_put_database_missing(state, &node.id).await;
 			}
-			if item.descendants {
+			if node.descendants {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.finish_item_remote_descendants(&item.id, &[]);
+					.finish_node_remote_descendants(&node.id, &[]);
 			}
-			state.queue.finish_item();
+			state.queue.finish_node();
 			return Ok(());
 		};
 
-		// Complete the item in the graph.
-		if item.send {
+		// Complete the node in the graph.
+		if node.send {
 			state
 				.graph
 				.lock()
 				.unwrap()
-				.finish_database_item_remote_found(&item.id);
+				.finish_database_node_remote_found(&node.id);
 		}
-		// Send the item.
+		// Send the node.
 		if let Some(message) = output.message {
 			crate::checkpoint!(
 				self.server,
-				"sync.put.database.item.send",
-				descendants = item.descendants,
-				id = %item.id,
+				"sync.put.database.node.send",
+				descendants = node.descendants,
+				id = %node.id,
 			)
 			.await;
-			let message = tg::sync::PutMessage::Item(message);
+			let message = tg::sync::PutMessage::Node(message);
 			state
 				.sender
 				.send(Ok(message))
 				.await
-				.map_err(|error| tg::error!(!error, "failed to send the item"))?;
+				.map_err(|error| tg::error!(!error, "failed to send the node"))?;
 		}
 		crate::checkpoint!(
 			self.server,
-			"sync.put.database.item",
-			descendants = item.descendants,
-			id = %item.id,
+			"sync.put.database.node",
+			descendants = node.descendants,
+			id = %node.id,
 		)
 		.await;
 
 		// Update the graph and enqueue the children.
-		if item.descendants {
+		if node.descendants {
 			let children = output
 				.children
 				.iter()
-				.map(|child| child.item.clone())
+				.map(|child| child.node.clone())
 				.collect::<Vec<_>>();
 			for child in output.children {
 				state
 					.queue
-					.enqueue(item.eager, child.item, child.options.token)?;
+					.enqueue(node.eager, child.node, child.options.token)?;
 			}
 			state
 				.graph
 				.lock()
 				.unwrap()
-				.finish_item_remote_descendants(&item.id, &children);
+				.finish_node_remote_descendants(&node.id, &children);
 		}
-		state.queue.finish_item();
+		state.queue.finish_node();
 
 		Ok(())
 	}
@@ -142,7 +142,7 @@ impl Session {
 	async fn sync_put_database_read(
 		&self,
 		state: &State,
-		item: &Item,
+		node: &Node,
 	) -> tg::Result<Option<Output>> {
 		let mut connection = self
 			.server
@@ -155,24 +155,24 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(&transaction, &item.id).await?
+			Self::try_get_specifier_for_id_with_transaction(&transaction, &node.id).await?
 		else {
 			return Ok(None);
 		};
-		let children = if item.descendants {
-			self.sync_put_database_read_children(state, &transaction, &item.id)
+		let children = if node.descendants {
+			self.sync_put_database_read_children(state, &transaction, &node.id)
 				.await?
 		} else {
 			Vec::new()
 		};
-		let message = if item.send {
-			Some(match item.id.kind() {
+		let message = if node.send {
+			Some(match node.id.kind() {
 				tg::id::Kind::Group => {
-					let id = item.id.clone().try_into()?;
+					let id = node.id.clone().try_into()?;
 					let group = Self::try_get_group_with_transaction(&transaction, &id)
 						.await?
 						.ok_or_else(|| tg::error!("failed to find the group"))?;
-					tg::sync::PutItemMessage::Group(tg::sync::PutItemGroupMessage {
+					tg::sync::PutNodeMessage::Group(tg::sync::PutNodeGroupMessage {
 						id,
 						name: group.name,
 						parent: group.parent,
@@ -180,46 +180,46 @@ impl Session {
 					})
 				},
 				tg::id::Kind::Organization => {
-					let id = item.id.clone().try_into()?;
+					let id = node.id.clone().try_into()?;
 					let organization =
 						Self::try_get_organization_with_transaction(&transaction, &id)
 							.await?
 							.ok_or_else(|| tg::error!("failed to find the organization"))?;
-					tg::sync::PutItemMessage::Organization(tg::sync::PutItemOrganizationMessage {
+					tg::sync::PutNodeMessage::Organization(tg::sync::PutNodeOrganizationMessage {
 						id,
 						name: organization.name,
 						specifier,
 					})
 				},
 				tg::id::Kind::Tag => {
-					let id = item.id.clone().try_into()?;
+					let id = node.id.clone().try_into()?;
 					let data = Self::get_tag_data_with_transaction(&transaction, &id).await?;
 					let id = data.id;
-					let item = match data.item {
-						tg::tag::data::Item::Object(id) => id.into(),
-						tg::tag::data::Item::Process(id) => id.into(),
+					let target = match data.target {
+						tg::tag::data::Target::Object(id) => id.into(),
+						tg::tag::data::Target::Process(id) => id.into(),
 					};
-					tg::sync::PutItemMessage::Tag(tg::sync::PutItemTagMessage {
+					tg::sync::PutNodeMessage::Tag(tg::sync::PutNodeTagMessage {
 						id,
-						item,
 						name: data.name,
 						parent: data.parent,
 						specifier: data.specifier,
+						target,
 					})
 				},
 				tg::id::Kind::User => {
-					let id = item.id.clone().try_into()?;
+					let id = node.id.clone().try_into()?;
 					let user = Self::try_get_user_with_transaction(&transaction, &id)
 						.await?
 						.ok_or_else(|| tg::error!("failed to find the user"))?;
-					tg::sync::PutItemMessage::User(tg::sync::PutItemUserMessage {
+					tg::sync::PutNodeMessage::User(tg::sync::PutNodeUserMessage {
 						emails: user.emails,
 						id,
 						name: user.name,
 						specifier,
 					})
 				},
-				_ => return Err(tg::error!(id = %item.id, "invalid database item kind")),
+				_ => return Err(tg::error!(id = %node.id, "invalid database node kind")),
 			})
 		} else {
 			None
@@ -238,7 +238,7 @@ impl Session {
 		let enabled = match id.kind() {
 			tg::id::Kind::Group => state.arg.group_children,
 			tg::id::Kind::Organization => state.arg.organization_children,
-			tg::id::Kind::Tag => state.arg.tag_items,
+			tg::id::Kind::Tag => state.arg.tag_targets,
 			tg::id::Kind::User => state.arg.user_children,
 			_ => false,
 		};
@@ -247,19 +247,19 @@ impl Session {
 		}
 		if id.kind() == tg::id::Kind::Tag {
 			let tag = id.clone().try_into()?;
-			let item = Self::get_tag_data_with_transaction(transaction, &tag)
+			let target = Self::get_tag_data_with_transaction(transaction, &tag)
 				.await?
-				.item;
-			let id = match item {
-				tg::tag::data::Item::Object(id) => id.into(),
-				tg::tag::data::Item::Process(id) => id.into(),
+				.target;
+			let id = match target {
+				tg::tag::data::Target::Object(id) => id.into(),
+				tg::tag::data::Target::Process(id) => id.into(),
 			};
 			let token = self
-				.create_tag_item_token_with_transaction(transaction, &tag, &id)
+				.create_tag_target_token_with_transaction(transaction, &tag, &id)
 				.await?;
-			let item = tg::Referent::with_item_and_token(id, token);
+			let node = tg::Referent::with_node_and_token(id, token);
 
-			return Ok(vec![item]);
+			return Ok(vec![node]);
 		}
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -281,7 +281,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let children = rows
 			.into_iter()
-			.map(|row| tg::Referent::with_item(row.id))
+			.map(|row| tg::Referent::with_node(row.id))
 			.collect();
 
 		Ok(children)
@@ -292,7 +292,7 @@ impl Session {
 			.graph
 			.lock()
 			.unwrap()
-			.finish_database_item_remote_missing(id);
+			.finish_database_node_remote_missing(id);
 		for selector in selectors {
 			let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 				selector,
@@ -317,7 +317,7 @@ impl Session {
 			tg::id::Kind::User => {
 				tg::grant::Permission::User(tg::grant::permission::user::Permission::Read)
 			},
-			_ => return Err(tg::error!(%id, "invalid database item kind")),
+			_ => return Err(tg::error!(%id, "invalid database node kind")),
 		};
 
 		Ok(permission)

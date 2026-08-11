@@ -97,7 +97,7 @@ impl Session {
 					|artifact| {
 						let session = session.clone();
 						let progress = progress.clone();
-						let artifact = artifact.item;
+						let artifact = artifact.node;
 						async move {
 							AssertUnwindSafe(session.cache_task(&artifact, &progress))
 								.catch_unwind()
@@ -140,7 +140,7 @@ impl Session {
 	) -> tg::Result<()> {
 		let ids = artifacts
 			.iter()
-			.map(|artifact| artifact.item.clone().into())
+			.map(|artifact| artifact.node.clone().into())
 			.collect::<Vec<_>>();
 		let stored = self
 			.server
@@ -186,7 +186,7 @@ impl Session {
 
 		let ids = artifacts
 			.iter()
-			.map(|artifact| artifact.item.clone().into())
+			.map(|artifact| artifact.node.clone().into())
 			.collect::<Vec<_>>();
 		let stored = self
 			.server
@@ -225,7 +225,7 @@ impl Session {
 		// Pull.
 		let stream = self
 			.pull(tg::pull::Arg {
-				items: artifacts
+				nodes: artifacts
 					.iter()
 					.cloned()
 					.map(|artifact| artifact.map(tg::Id::from))
@@ -258,7 +258,7 @@ impl Session {
 
 		let ids = artifacts
 			.iter()
-			.map(|artifact| artifact.item.clone().into())
+			.map(|artifact| artifact.node.clone().into())
 			.collect::<Vec<_>>();
 		let stored = self
 			.server
@@ -803,7 +803,7 @@ impl Session {
 			};
 
 			// Get the edge.
-			let mut edge = match dependency.item.clone() {
+			let mut edge = match dependency.node.clone() {
 				Some(tg::graph::data::Edge::Pointer(graph)) => {
 					tg::graph::data::Edge::Pointer(graph)
 				},
@@ -1173,7 +1173,7 @@ impl Session {
 			match node {
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.item
+						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.node
 							&& pointer.graph.is_none()
 						{
 							marks.insert(pointer.index);

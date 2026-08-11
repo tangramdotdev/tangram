@@ -16,7 +16,7 @@ impl Session {
 		if let Some(error) = &authorization_error {
 			data.actual_checksum = None;
 			data.cacheable = false;
-			data.error = Some(error.to_data_or_id().map_right(tg::Referent::with_item));
+			data.error = Some(error.to_data_or_id().map_right(tg::Referent::with_node));
 			data.exit = Some(1);
 			data.output = None;
 			authorization = self.authorize_process_data(&data).await?;

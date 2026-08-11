@@ -31,7 +31,7 @@ impl Output {
 		let error = self.data.error.clone().map(|error| match error {
 			tg::Either::Left(data) => tg::Either::Left(data),
 			tg::Either::Right(id) => {
-				let id = id.item;
+				let id = id.node;
 				tg::Either::Right(id)
 			},
 		});
@@ -364,7 +364,7 @@ impl Session {
 			actual_checksum: None,
 			cacheable,
 			children: None,
-			command: command.item.clone(),
+			command: command.node.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,
@@ -431,14 +431,14 @@ impl Session {
 			"process.spawn.child.add",
 			cached = output.cached,
 			child = %child,
-			command = %command.item,
+			command = %command.node,
 			parent = %parent,
 		)
 		.await;
 		self.add_process_child(AddProcessChildArg {
 			cached: output.cached,
 			child,
-			command: &command.item,
+			command: &command.node,
 			lease: output.lease.as_deref(),
 			location: output.location.as_ref(),
 			options: &command.options,

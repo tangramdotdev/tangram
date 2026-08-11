@@ -30,7 +30,7 @@ impl Cli {
 		let module = if args.runtime {
 			tg::module::Data {
 				kind: tg::module::Kind::Dts,
-				referent: tg::Referent::with_item(tg::module::data::Item::Path(
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(
 					"tangram.d.ts".into(),
 				)),
 			}

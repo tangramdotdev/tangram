@@ -180,7 +180,7 @@ pub trait Handle:
 		arg: tg::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::get::Item>>>>
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::get::Node>>>>
 			+ Send
 			+ 'static,
 		>,
@@ -224,7 +224,7 @@ pub trait Handle:
 		arg: tg::resolve::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::resolve::Item>>>>
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::resolve::Node>>>>
 			+ Send
 			+ 'static,
 		>,

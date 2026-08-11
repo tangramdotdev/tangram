@@ -82,7 +82,7 @@ impl Session {
 					stored: false,
 					token: process.options.token.clone(),
 				};
-				self.try_get_process(&process.item, arg)
+				self.try_get_process(&process.node, arg)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
@@ -98,7 +98,7 @@ impl Session {
 		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let permissions =
 			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
 		let authorize_future = async { self.authorize(resource, permissions).await }.boxed();

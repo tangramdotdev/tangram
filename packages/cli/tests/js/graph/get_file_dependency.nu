@@ -15,7 +15,7 @@ let path = artifact {
 			});
 			let file = (await graph.get(0)) as tg.File;
 			let dependencies = await file.dependencies;
-			return await dependencies["./dep"].item.text;
+			return await dependencies["./dep"].node.text;
 		}
 	'
 }

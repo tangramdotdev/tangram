@@ -16,8 +16,8 @@ let local = spawn --name local --config {
 		second: { url: $second.url }
 	}
 }
-let item = tg --url $local.url put 'tg.file("data")' | str trim
-tg --url $local.url tag put -p foo/bar/baz $item
+let node = tg --url $local.url put 'tg.file("data")' | str trim
+tg --url $local.url tag put -p foo/bar/baz $node
 
 let local_root = tg --url $local.url group get foo | from json
 let local_parent = tg --url $local.url group get foo/bar | from json
@@ -32,7 +32,7 @@ let local_refresh_parent = tg --url $local.url group create refresh/parent | fro
 assert not equal $local_refresh.id $remote_refresh.id
 assert not equal $local_refresh_parent.id $remote_refresh_parent.id
 
-tg --url $local.url tag put -p --pull-ancestors=always refresh/parent/tag $item
+tg --url $local.url tag put -p --pull-ancestors=always refresh/parent/tag $node
 
 let actual_refresh = tg --url $local.url group get refresh | from json
 let actual_refresh_parent = tg --url $local.url group get refresh/parent | from json

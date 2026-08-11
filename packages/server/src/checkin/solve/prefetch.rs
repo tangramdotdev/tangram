@@ -192,13 +192,13 @@ impl Session {
 			},
 			tg::graph::data::Node::File(file) => {
 				for reference in file.dependencies.keys() {
-					if let tg::reference::Item::Specifier(pattern) = reference.item() {
+					if let tg::reference::Node::Specifier(pattern) = reference.node() {
 						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
 					}
 				}
 				for (reference, dependency) in &file.dependencies {
 					if let Some(dependency) = dependency
-						&& let Some(edge) = &dependency.item()
+						&& let Some(edge) = &dependency.node()
 						&& !reference.is_solvable()
 					{
 						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
@@ -343,8 +343,8 @@ impl Session {
 		};
 
 		// Prefetch the first candidate's object.
-		if let Some(tg::list::Entry::Tag { item, .. }) = output.data.first()
-			&& let Some(id) = item.as_ref().left()
+		if let Some(tg::list::Entry::Tag { target, .. }) = output.data.first()
+			&& let Some(id) = target.as_ref().left()
 		{
 			self.checkin_solve_get_or_spawn_object_task(prefetch, id);
 		}

@@ -63,7 +63,7 @@ impl Session {
 				tg::Either::Left(data) => {
 					let mut children = BTreeSet::new();
 					data.children(&mut children);
-					objects.extend(children.into_iter().map(tg::Referent::with_item));
+					objects.extend(children.into_iter().map(tg::Referent::with_node));
 				},
 				tg::Either::Right(error) => {
 					objects.push(error.clone().map(tg::object::Id::Error));
@@ -120,7 +120,7 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|child| child.process.item.clone())
+			.map(|child| child.process.node.clone())
 			.collect();
 		let error = if error_grants_subtree {
 			arg.data.error.as_ref().map(|error| match error {
@@ -130,7 +130,7 @@ impl Session {
 					children.into_iter().collect::<Vec<_>>()
 				},
 				tg::Either::Right(id) => {
-					let id = id.item.clone().into();
+					let id = id.node.clone().into();
 					vec![id]
 				},
 			})
@@ -150,7 +150,7 @@ impl Session {
 			Some(Vec::new())
 		};
 		let log = (!Self::process_log_needs_compaction(&arg.data))
-			.then(|| arg.data.log.clone().map(|log| log.item.into()));
+			.then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: arg.data.command.clone().into(),
@@ -201,7 +201,7 @@ impl Session {
 					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
 					.chain(finalize.then(|| {
 						tangram_index::batch::Item::EnqueueFinalization(
-							tangram_index::finalization::Item::Process(id.clone()),
+							tangram_index::finalization::Node::Process(id.clone()),
 						)
 					}))
 					.collect(),

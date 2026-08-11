@@ -167,8 +167,8 @@ impl Data {
 			) => {
 				let second = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(object) if object.item.is_artifact() => {
-						let id: tg::artifact::Id = object.item.clone().try_into().unwrap();
+					tg::value::Data::Object(object) if object.node.is_artifact() => {
+						let id: tg::artifact::Id = object.node.clone().try_into().unwrap();
 						tg::template::Data::with_components([id.into()])
 					},
 					tg::value::Data::String(string) => {
@@ -208,8 +208,8 @@ impl Data {
 			) => {
 				let first = match value {
 					tg::value::Data::Template(template) => template.clone(),
-					tg::value::Data::Object(object) if object.item.is_artifact() => {
-						let id: tg::artifact::Id = object.item.clone().try_into().unwrap();
+					tg::value::Data::Object(object) if object.node.is_artifact() => {
+						let id: tg::artifact::Id = object.node.clone().try_into().unwrap();
 						tg::template::Data::with_components([id.into()])
 					},
 					tg::value::Data::String(string) => {

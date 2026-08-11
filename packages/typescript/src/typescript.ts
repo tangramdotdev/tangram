@@ -181,11 +181,11 @@ let resolveLibraryModule = (
 	) {
 		return null;
 	}
-	let item = referrer.referent.item;
-	if (typeof item !== "string") {
+	let source = referrer.referent.node;
+	if (typeof source !== "string") {
 		return null;
 	}
-	let referrerPath = item.startsWith("./") ? item.slice(2) : item;
+	let referrerPath = source.startsWith("./") ? source.slice(2) : source;
 	let referrerDirectory = referrerPath.includes("/")
 		? referrerPath.slice(0, referrerPath.lastIndexOf("/"))
 		: "";
@@ -202,7 +202,7 @@ let resolveLibraryModule = (
 	return {
 		kind: "dts",
 		referent: {
-			item: `./${path}`,
+			node: `./${path}`,
 		},
 	};
 };
@@ -296,9 +296,9 @@ let getImportAttributesFromImportExpression = (
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
-		let item = module.referent.item;
-		assert(typeof item === "string");
-		let path = item.startsWith("./") ? item.slice(2) : item;
+		let source = module.referent.node;
+		assert(typeof source === "string");
+		let path = source.startsWith("./") ? source.slice(2) : source;
 		return `${libraryRoot}/${path}`;
 	}
 	let string = Module.toDataString(module);
@@ -318,10 +318,10 @@ export let fileNameFromModule = (module: Module): string => {
 export let moduleFromFileName = (fileName: string): Module => {
 	if (fileName.startsWith(`${libraryRoot}/`)) {
 		let path = fileName.slice(libraryRoot.length + 1);
-		let item = `./${path}`;
+		let source = `./${path}`;
 		return {
 			kind: "dts",
-			referent: { item },
+			referent: { node: source },
 		};
 	}
 	if (fileName.startsWith(moduleRoot)) {

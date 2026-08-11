@@ -6,7 +6,7 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-pub struct ObjectItem {
+pub struct ObjectNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
@@ -15,7 +15,7 @@ pub struct ObjectItem {
 	pub token: Option<tg::grant::Token>,
 }
 
-pub struct ProcessItem {
+pub struct ProcessNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
@@ -28,8 +28,8 @@ impl Session {
 	pub(super) async fn sync_put_store(
 		&self,
 		state: Arc<State>,
-		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.put.store.object_batch_size;
@@ -41,10 +41,10 @@ impl Session {
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |items| {
+		.try_for_each_concurrent(object_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_put_store_object_batch(&state, items).await }
+			async move { session.sync_put_store_object_batch(&state, nodes).await }
 		});
 
 		// Create the processes future.
@@ -57,10 +57,10 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| {
+		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_put_store_process_batch(&state, items).await }
+			async move { session.sync_put_store_process_batch(&state, nodes).await }
 		});
 
 		// Join the objects and processes futures.
@@ -72,12 +72,12 @@ impl Session {
 	pub(super) async fn sync_put_store_object_batch(
 		&self,
 		state: &State,
-		items: Vec<ObjectItem>,
+		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		// Get the objects.
-		let objects = items
+		let objects = nodes
 			.iter()
-			.map(|item| tg::Referent::with_item_and_token(item.id.clone(), item.token.clone()))
+			.map(|node| tg::Referent::with_node_and_token(node.id.clone(), node.token.clone()))
 			.collect::<Vec<_>>();
 		let outputs = self
 			.try_get_object_batch_local_or_regions(&objects, state.arg.metadata)
@@ -85,12 +85,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
 
 		// Handle the objects.
-		for (item, output) in std::iter::zip(items, outputs) {
+		for (node, output) in std::iter::zip(nodes, outputs) {
 			// If the object is missing, then send a missing message.
 			let Some(mut output) = output else {
-				if item.send {
+				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-						selector: tg::Selector::Id(item.id.clone().into()),
+						selector: tg::Selector::Id(node.id.clone().into()),
 						token: None,
 					});
 					state.sender.send(Ok(message)).await.ok();
@@ -98,26 +98,26 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.update_object_remote_missing(&item.id);
+						.update_object_remote_missing(&node.id);
 				}
-				if item.descendants {
+				if node.descendants {
 					state
 						.graph
 						.lock()
 						.unwrap()
-						.finish_object_remote_descendants(&item.id, item.eager);
+						.finish_object_remote_descendants(&node.id, node.eager);
 				}
-				state.queue.finish_item();
+				state.queue.finish_node();
 				continue;
 			};
 
 			// Deserialize the object and update the graph.
-			let data = tg::object::Data::deserialize(item.id.kind(), output.bytes.clone())
+			let data = tg::object::Data::deserialize(node.id.kind(), output.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-			if item.descendants {
+			if node.descendants {
 				let update = crate::sync::graph::UpdateObjectLocalArg {
 					data: Some(&data),
-					id: &item.id,
+					id: &node.id,
 					marked: None,
 					metadata: None,
 					permissions: None,
@@ -128,7 +128,7 @@ impl Session {
 			}
 
 			// Mask the metadata with the permissions already proven by the graph.
-			if item.send
+			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
 				let required =
@@ -139,17 +139,17 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_object_local_authorization(&item.id, required)
+					.get_object_local_authorization(&node.id, required)
 					.permissions;
 				output.metadata =
 					Self::mask_object_metadata_with_permissions(metadata, permissions);
 			}
 
 			// Send the object.
-			if item.send {
-				let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Object(
-					tg::sync::PutItemObjectMessage {
-						id: item.id.clone(),
+			if node.send {
+				let message = tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Object(
+					tg::sync::PutNodeObjectMessage {
+						id: node.id.clone(),
 						bytes: output.bytes.clone(),
 						metadata: output.metadata,
 					},
@@ -163,33 +163,33 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.update_object_remote_sent(&item.id);
+					.update_object_remote_sent(&node.id);
 			}
 
 			// Enqueue the children.
-			if item.descendants && item.eager {
+			if node.descendants && node.eager {
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
-				let items = children
+				let nodes = children
 					.into_iter()
-					.map(|child| crate::sync::queue::ObjectItem {
+					.map(|child| crate::sync::queue::ObjectNode {
 						descendants: true,
-						eager: item.eager,
+						eager: node.eager,
 						id: child,
-						kind: item.kind,
-						parent: Some(item.id.clone().into()),
+						kind: node.kind,
+						parent: Some(node.id.clone().into()),
 						token: None,
 					});
-				state.queue.enqueue_objects(items)?;
+				state.queue.enqueue_objects(nodes)?;
 			}
-			if item.descendants {
+			if node.descendants {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.finish_object_remote_descendants(&item.id, item.eager);
+					.finish_object_remote_descendants(&node.id, node.eager);
 			}
-			state.queue.finish_item();
+			state.queue.finish_node();
 		}
 
 		state.queue.close_if_end();
@@ -200,12 +200,12 @@ impl Session {
 	pub(super) async fn sync_put_store_process_batch(
 		&self,
 		state: &State,
-		items: Vec<ProcessItem>,
+		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
 		// Get the processes.
-		let processes = items
+		let processes = nodes
 			.iter()
-			.map(|item| tg::Referent::with_item_and_token(item.id.clone(), item.token.clone()))
+			.map(|node| tg::Referent::with_node_and_token(node.id.clone(), node.token.clone()))
 			.collect::<Vec<_>>();
 		let outputs = self
 			.try_get_process_batch_local_or_regions(&processes, state.arg.metadata)
@@ -213,11 +213,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
 
 		// Handle the processes.
-		for (item, output) in std::iter::zip(items, outputs) {
+		for (node, output) in std::iter::zip(nodes, outputs) {
 			let Some(mut output) = output else {
-				if item.send {
+				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
-						selector: tg::Selector::Id(item.id.clone().into()),
+						selector: tg::Selector::Id(node.id.clone().into()),
 						token: None,
 					});
 					state.sender.send(Ok(message)).await.ok();
@@ -225,21 +225,21 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.update_process_remote_missing(&item.id);
+						.update_process_remote_missing(&node.id);
 				}
-				if item.descendants {
+				if node.descendants {
 					state
 						.graph
 						.lock()
 						.unwrap()
-						.finish_process_remote_descendants(&item.id, item.eager);
+						.finish_process_remote_descendants(&node.id, node.eager);
 				}
-				state.queue.finish_item();
+				state.queue.finish_node();
 				continue;
 			};
 
 			// Compact the log if needed before sending the process data.
-			if item.descendants && state.arg.process_logs && output.data.log.is_none() {
+			if node.descendants && state.arg.process_logs && output.data.log.is_none() {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::NodeLog,
 				);
@@ -248,34 +248,34 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_authorization(&item.id, required)
+					.get_process_local_authorization(&node.id, required)
 					.permissions;
 				if !permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
 
 				// Compact.
-				self.compact_process_log(&item.id).boxed().await.map_err(
-					|error| tg::error!(!error, process = %item.id, "failed to compact the log"),
+				self.compact_process_log(&node.id).boxed().await.map_err(
+					|error| tg::error!(!error, process = %node.id, "failed to compact the log"),
 				)?;
 
 				// Get the compacted process data from the index.
 				output.data = self
 					.server
-					.try_get_process_local(&item.id, false)
+					.try_get_process_local(&node.id, false)
 					.await?
 					.ok_or_else(
-						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
+						|| tg::error!(process = %node.id, "failed to get the process after compaction"),
 					)?
 					.data;
 			}
 			Self::validate_process_data(&output.data)?;
 
 			// Update the graph.
-			if item.descendants {
+			if node.descendants {
 				let update = crate::sync::graph::UpdateProcessLocalArg {
 					data: Some(&output.data),
-					id: &item.id,
+					id: &node.id,
 					marked: None,
 					metadata: None,
 					permissions: None,
@@ -286,7 +286,7 @@ impl Session {
 			}
 
 			// Mask the metadata with the permissions already proven by the graph.
-			if item.send
+			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
 				let required =
@@ -295,19 +295,19 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_authorization(&item.id, required)
+					.get_process_local_authorization(&node.id, required)
 					.permissions;
 				output.metadata =
 					Self::mask_process_metadata_with_permissions(&metadata, permissions);
 			}
 
 			// Send the process.
-			if item.send {
+			if node.send {
 				let bytes = serde_json::to_string(&output.data)
 					.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
-				let message = tg::sync::PutMessage::Item(tg::sync::PutItemMessage::Process(
-					tg::sync::PutItemProcessMessage {
-						id: item.id.clone(),
+				let message = tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Process(
+					tg::sync::PutNodeProcessMessage {
+						id: node.id.clone(),
 						bytes: bytes.into(),
 						metadata: output.metadata,
 					},
@@ -321,44 +321,44 @@ impl Session {
 					.graph
 					.lock()
 					.unwrap()
-					.update_process_remote_sent(&item.id);
+					.update_process_remote_sent(&node.id);
 			}
 
 			// Enqueue the children.
-			if item.descendants && state.arg.process_children && item.eager {
+			if node.descendants && state.arg.process_children && node.eager {
 				let children = output
 					.data
 					.children
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected the children to be set"))?;
-				let items = children
+				let nodes = children
 					.iter()
-					.map(|child| crate::sync::queue::ProcessItem {
+					.map(|child| crate::sync::queue::ProcessNode {
 						descendants: true,
-						eager: item.eager,
-						id: child.process.item.clone(),
-						parent: Some(item.id.clone()),
+						eager: node.eager,
+						id: child.process.node.clone(),
+						parent: Some(node.id.clone()),
 						token: None,
 					});
-				state.queue.enqueue_processes(items)?;
+				state.queue.enqueue_processes(nodes)?;
 			}
 
 			// Enqueue the command.
-			if item.descendants && item.eager && state.arg.process_commands {
-				let item = crate::sync::queue::ObjectItem {
+			if node.descendants && node.eager && state.arg.process_commands {
+				let node = crate::sync::queue::ObjectNode {
 					descendants: true,
-					eager: item.eager,
+					eager: node.eager,
 					id: output.data.command.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
-					parent: Some(item.id.clone().into()),
+					parent: Some(node.id.clone().into()),
 					token: None,
 				};
-				state.queue.enqueue_object(item)?;
+				state.queue.enqueue_object(node)?;
 			}
 
 			// Enqueue the error.
-			if item.descendants
-				&& item.eager
+			if node.descendants
+				&& node.eager
 				&& state.arg.process_errors
 				&& let Some(error) = &output.data.error
 			{
@@ -366,78 +366,78 @@ impl Session {
 					tg::Either::Left(data) => {
 						let mut children = BTreeSet::new();
 						data.children(&mut children);
-						let items =
+						let nodes =
 							children
 								.into_iter()
-								.map(|child| crate::sync::queue::ObjectItem {
+								.map(|child| crate::sync::queue::ObjectNode {
 									descendants: true,
-									eager: item.eager,
+									eager: node.eager,
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
-									parent: Some(item.id.clone().into()),
+									parent: Some(node.id.clone().into()),
 									token: None,
 								});
-						state.queue.enqueue_objects(items)?;
+						state.queue.enqueue_objects(nodes)?;
 					},
 					tg::Either::Right(id) => {
-						let item = crate::sync::queue::ObjectItem {
+						let node = crate::sync::queue::ObjectNode {
 							descendants: true,
-							eager: item.eager,
-							id: id.item.clone().into(),
+							eager: node.eager,
+							id: id.node.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
-							parent: Some(item.id.clone().into()),
+							parent: Some(node.id.clone().into()),
 							token: None,
 						};
-						state.queue.enqueue_object(item)?;
+						state.queue.enqueue_object(node)?;
 					},
 				}
 			}
 
 			// Enqueue the log.
-			if item.descendants
-				&& item.eager
+			if node.descendants
+				&& node.eager
 				&& state.arg.process_logs
 				&& let Some(log) = output.data.log.clone()
 			{
-				let item = crate::sync::queue::ObjectItem {
+				let node = crate::sync::queue::ObjectNode {
 					descendants: true,
-					eager: item.eager,
-					id: log.item.into(),
+					eager: node.eager,
+					id: log.node.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
-					parent: Some(item.id.clone().into()),
+					parent: Some(node.id.clone().into()),
 					token: None,
 				};
-				state.queue.enqueue_object(item)?;
+				state.queue.enqueue_object(node)?;
 			}
 
 			// Enqueue the outputs.
-			if item.descendants
-				&& item.eager
+			if node.descendants
+				&& node.eager
 				&& state.arg.process_outputs
 				&& let Some(output) = &output.data.output
 			{
 				let mut children = BTreeSet::new();
 				output.children(&mut children);
-				let items = children
+				let nodes = children
 					.into_iter()
-					.map(|child| crate::sync::queue::ObjectItem {
+					.map(|child| crate::sync::queue::ObjectNode {
 						descendants: true,
-						eager: item.eager,
+						eager: node.eager,
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
-						parent: Some(item.id.clone().into()),
+						parent: Some(node.id.clone().into()),
 						token: None,
 					});
-				state.queue.enqueue_objects(items)?;
+				state.queue.enqueue_objects(nodes)?;
 			}
-			if item.descendants {
+			if node.descendants {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.finish_process_remote_descendants(&item.id, item.eager);
+					.finish_process_remote_descendants(&node.id, node.eager);
 			}
-			state.queue.finish_item();
+			state.queue.finish_node();
 		}
 
 		state.queue.close_if_end();

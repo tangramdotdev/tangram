@@ -134,7 +134,7 @@ impl Error {
 			}
 		}
 		if let Some(source) = &self.source {
-			match &source.item {
+			match &source.node {
 				tg::Either::Left(data) => data.children(children),
 				tg::Either::Right(id) => {
 					children.insert(id.clone().into());
@@ -154,7 +154,7 @@ impl Error {
 		self.location = self.location.map(Location::without_tokens);
 		self.source = self.source.map(|mut source| {
 			source.options.token.take();
-			source.item = match source.item {
+			source.node = match source.node {
 				tg::Either::Left(error) => tg::Either::Left(Box::new((*error).without_tokens())),
 				tg::Either::Right(id) => tg::Either::Right(id),
 			};
@@ -179,7 +179,7 @@ impl Error {
 				stack_locations.retain(|location| !matches!(location.file, File::Internal(_)));
 			}
 			if let Some(source) = &mut error.source
-				&& let tg::Either::Left(data) = &mut source.item
+				&& let tg::Either::Left(data) = &mut source.node
 			{
 				stack.push(data);
 			}

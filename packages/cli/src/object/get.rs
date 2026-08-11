@@ -31,7 +31,7 @@ impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let object = self.resolve_object(&args.object).await?;
-		let id = object.item.clone();
+		let id = object.node.clone();
 		let token = object.options.token.clone();
 		if args.bytes {
 			let arg = tg::object::get::Arg {

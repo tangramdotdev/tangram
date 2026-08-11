@@ -33,7 +33,7 @@ impl Cli {
 		{
 			for diagnostic in diagnostics {
 				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
-				let diagnostic = tg::Referent::with_item(diagnostic);
+				let diagnostic = tg::Referent::with_node(diagnostic);
 				self.print_diagnostic(diagnostic).await;
 			}
 		}

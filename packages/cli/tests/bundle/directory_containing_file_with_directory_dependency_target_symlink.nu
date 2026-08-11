@@ -15,7 +15,7 @@ let path = artifact {
 				contents: "f",
 				dependencies: {
 					"dependency": {
-						item: dependency,
+						node: dependency,
 					},
 				},
 				executable: true,

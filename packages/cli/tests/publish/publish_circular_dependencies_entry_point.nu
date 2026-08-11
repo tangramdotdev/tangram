@@ -32,11 +32,11 @@ let root = artifact {
 
 # Publish from A.
 tg publish ($root | path join "packages/a")
-let a_from_a = tg tag get a/0 | from json | get item.id
+let a_from_a = tg tag get a/0 | from json | get target.id
 
 # Publish from B (without deleting tags).
 tg publish ($root | path join "packages/b")
-let a_from_b = tg tag get a/0 | from json | get item.id
+let a_from_b = tg tag get a/0 | from json | get target.id
 
 # A should have the same ID regardless of entry point.
 assert ($a_from_a == $a_from_b) $"A has different IDs when published from A vs B. From A: ($a_from_a), from B: ($a_from_b)"

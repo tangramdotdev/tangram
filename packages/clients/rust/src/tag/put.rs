@@ -9,7 +9,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub ancestors: tg::node::Ancestors,
 
-	pub item: tg::tag::data::Item,
+	pub target: tg::tag::data::Target,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,

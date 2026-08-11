@@ -10,7 +10,7 @@ tg.directory({
     "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
     "dependencies": {
       "./foo.tg.ts": {
-        "item": tg.file({
+        "node": tg.file({
           "contents": tg.blob("export default bar = \"bar\";"),
           "module": "ts",
         }),

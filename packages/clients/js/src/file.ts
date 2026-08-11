@@ -44,7 +44,7 @@ export class File {
 
 	/** Get a file with a referent. */
 	static withReferent(referent: tg.Referent<tg.File.Id>): tg.File {
-		let file = tg.File.withId(referent.item);
+		let file = tg.File.withId(referent.node);
 		file.state.token = referent.options?.token ?? null;
 		return file;
 	}
@@ -93,13 +93,13 @@ export class File {
 					"index" in value ||
 					tg.Object.is(value)
 				) {
-					let item = tg.Graph.Edge.fromArg(value);
-					dependency = { item, options: {} };
-				} else if (value.item === null) {
-					dependency = { item: null, options: value.options ?? {} };
+					let node = tg.Graph.Edge.fromArg(value);
+					dependency = { node, options: {} };
+				} else if (value.node === null) {
+					dependency = { node: null, options: value.options ?? {} };
 				} else {
-					let item = tg.Graph.Edge.fromArg(value.item);
-					dependency = { item, options: value.options ?? {} };
+					let node = tg.Graph.Edge.fromArg(value.node);
+					dependency = { node, options: value.options ?? {} };
 				}
 				return [reference, dependency];
 			}),
@@ -257,22 +257,22 @@ export class File {
 									return [reference, null];
 								}
 								let object: tg.Object | null;
-								if (dependency.item === null) {
+								if (dependency.node === null) {
 									object = null;
-								} else if (typeof dependency.item === "number") {
-									object = await graph.get(dependency.item);
-								} else if ("index" in dependency.item) {
-									object = await (dependency.item.graph ?? graph).get(
-										dependency.item.index,
+								} else if (typeof dependency.node === "number") {
+									object = await graph.get(dependency.node);
+								} else if ("index" in dependency.node) {
+									object = await (dependency.node.graph ?? graph).get(
+										dependency.node.index,
 									);
 								} else {
-									object = dependency.item;
+									object = dependency.node;
 								}
 								if (object !== null) {
 									tg.Object.inheritToken(object, this.#state.token);
 								}
 								let value: tg.Referent<tg.Object | null> = {
-									item: object,
+									node: object,
 									options: dependency.options ?? {},
 								};
 								return [reference, value];
@@ -290,27 +290,27 @@ export class File {
 									return [reference, null];
 								}
 								let object: tg.Object | null;
-								if (dependency.item === null) {
+								if (dependency.node === null) {
 									object = null;
 								} else {
-									tg.assert(typeof dependency.item === "object");
-									if ("index" in dependency.item) {
+									tg.assert(typeof dependency.node === "object");
+									if ("index" in dependency.node) {
 										tg.assert(
-											dependency.item.graph !== undefined &&
-												dependency.item.graph !== null,
+											dependency.node.graph !== undefined &&
+												dependency.node.graph !== null,
 										);
-										object = await dependency.item.graph.get(
-											dependency.item.index,
+										object = await dependency.node.graph.get(
+											dependency.node.index,
 										);
 									} else {
-										object = dependency.item;
+										object = dependency.node;
 									}
 								}
 								if (object !== null) {
 									tg.Object.inheritToken(object, this.#state.token);
 								}
 								let value: tg.Referent<tg.Object | null> = {
-									item: object,
+									node: object,
 									options: dependency.options ?? {},
 								};
 								return [reference, value];
@@ -329,13 +329,13 @@ export class File {
 			if (dependencies === undefined) {
 				return [];
 			} else {
-				let items = [];
+				let nodes = [];
 				for (let dependency of Object.values(dependencies)) {
-					if (dependency !== null && dependency.item !== null) {
-						items.push(dependency.item);
+					if (dependency !== null && dependency.node !== null) {
+						nodes.push(dependency.node);
 					}
 				}
-				return items;
+				return nodes;
 			}
 		})();
 	}

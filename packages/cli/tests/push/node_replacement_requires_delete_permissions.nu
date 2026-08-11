@@ -14,8 +14,8 @@ tg --url $destination.url --token $alice.token grant $bob.user.id write root-onl
 
 # Group admin authorizes recursively deleting a protected tag in the group's subtree.
 let local_tree = tg --url $destination.url --token $alice.token group create tree | from json
-let item = tg --url $destination.url --token $alice.token put 'tg.file("secret")' | str trim
-tg --url $destination.url --token $alice.token tag put tree/secret $item
+let node = tg --url $destination.url --token $alice.token put 'tg.file("secret")' | str trim
+tg --url $destination.url --token $alice.token tag put tree/secret $node
 let local_tag = tg --url $destination.url --token $alice.token tag get tree/secret | from json
 tg --url $destination.url --token $alice.token grant $bob.user.id admin tree | ignore
 

@@ -312,8 +312,8 @@ where
 	async fn render_progress_stream_update(&mut self, event: tg::progress::Event<T>) {
 		match event {
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				let item = diagnostic.try_into().unwrap();
-				let referent = tg::Referent::with_item(item);
+				let node = diagnostic.try_into().unwrap();
+				let referent = tg::Referent::with_node(node);
 				self.print_diagnostic(referent).boxed_local().await;
 			},
 
@@ -401,7 +401,7 @@ where
 	}
 
 	pub(crate) async fn print_diagnostic(&mut self, referent: tg::Referent<tg::Diagnostic>) {
-		let diagnostic = referent.item();
+		let diagnostic = referent.node();
 		let severity = match diagnostic.severity {
 			tg::diagnostic::Severity::Error => "error".red().bold(),
 			tg::diagnostic::Severity::Warning => "warning".yellow().bold(),
@@ -416,8 +416,8 @@ where
 
 	async fn print_location(&mut self, location: &tg::module::Location, message: &str) {
 		let tg::module::Location { module, range } = location;
-		match &module.referent.item {
-			tg::module::Item::Edge(edge) => {
+		match &module.referent.node {
+			tg::module::Source::Edge(edge) => {
 				let mut title = String::new();
 				if let Some(tag) = module.referent.tag() {
 					write!(title, "{tag}").unwrap();
@@ -448,7 +448,7 @@ where
 				}
 			},
 
-			tg::module::Item::Path(path) => {
+			tg::module::Source::Path(path) => {
 				if true {
 					self.print_code_with_path(&path.display().to_string(), range, message, path)
 						.await;

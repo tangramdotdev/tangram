@@ -208,7 +208,7 @@ impl Session {
 
 				// Look up the path in the graph.
 				let Some(index) = output.graph.paths.get(&path).copied() else {
-					progress.error(tg::error!("failed to get the item"));
+					progress.error(tg::error!("failed to get the node"));
 					return;
 				};
 
@@ -259,7 +259,7 @@ impl Session {
 						return;
 					},
 				};
-				let referent = tg::Referent { item: id, options };
+				let referent = tg::Referent { node: id, options };
 				let output = tg::checkin::Output { artifact: referent };
 				progress.output(output);
 			}
@@ -300,8 +300,8 @@ impl Session {
 		}
 
 		if path.components().count() == 1 {
-			let mut artifact = tg::Referent::with_item(id);
-			artifact.options.token = self.create_artifact_token(&artifact.item)?;
+			let mut artifact = tg::Referent::with_node(id);
+			artifact.options.token = self.create_artifact_token(&artifact.node)?;
 			let output = tg::checkin::Output { artifact };
 			return Ok(output);
 		}
@@ -318,8 +318,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the artifact from the cache"))?;
 
 		let id = artifact.id();
-		let mut referent = tg::Referent::with_item(id);
-		referent.options.token = self.create_artifact_token(&referent.item)?;
+		let mut referent = tg::Referent::with_node(id);
+		referent.options.token = self.create_artifact_token(&referent.node)?;
 		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)

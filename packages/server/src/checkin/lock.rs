@@ -342,7 +342,7 @@ impl Session {
 					for (reference, option) in &file.dependencies {
 						dependencies.insert(reference.clone(), option.clone());
 						if let Some(dependency) = option
-							&& let Some(edge) = &dependency.0.item
+							&& let Some(edge) = &dependency.0.node
 							&& let Ok(edge_pointer) = edge.try_unwrap_pointer_ref()
 							&& edge_pointer.graph.is_none()
 							&& !visited.contains(&edge_pointer.index)
@@ -402,7 +402,7 @@ impl Session {
 				},
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values_mut().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.item
+						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.node
 							&& pointer.graph.is_none()
 							&& let Some(lock_index) = mapping.get(&pointer.index)
 						{
@@ -459,18 +459,18 @@ impl Session {
 								let Some(dependency) = option else {
 									return false;
 								};
-								let Some(edge) = dependency.item() else {
+								let Some(edge) = dependency.node() else {
 									return false;
 								};
-								let Ok(item) = edge.try_unwrap_pointer_ref() else {
+								let Ok(pointer) = edge.try_unwrap_pointer_ref() else {
 									return false;
 								};
-								if item.graph.is_some() {
+								if pointer.graph.is_some() {
 									return reference.is_solvable()
 										&& (dependency.id().is_some()
 											|| dependency.tag().is_some());
 								}
-								marks[item.index]
+								marks[pointer.index]
 									|| (reference.is_solvable()
 										&& (dependency.id().is_some()
 											|| dependency.tag().is_some()))
@@ -533,20 +533,20 @@ impl Session {
 						let Some(dependency) = option else {
 							return false;
 						};
-						let Some(edge) = dependency.item() else {
+						let Some(edge) = dependency.node() else {
 							return false;
 						};
-						let Ok(item) = edge.try_unwrap_pointer_ref() else {
+						let Ok(pointer) = edge.try_unwrap_pointer_ref() else {
 							return false;
 						};
 
 						// Keep references to external graphs.
-						if item.graph.is_some() {
+						if pointer.graph.is_some() {
 							return reference.is_solvable()
 								&& (dependency.id().is_some() || dependency.tag().is_some());
 						}
 
-						marks[item.index]
+						marks[pointer.index]
 							|| (reference.is_solvable()
 								&& (dependency.id().is_some() || dependency.tag().is_some()))
 					});
@@ -556,7 +556,7 @@ impl Session {
 						let Some(dependency) = dependency else {
 							continue;
 						};
-						let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.item
+						let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.node
 						else {
 							continue;
 						};
@@ -569,7 +569,7 @@ impl Session {
 						if marks[pointer.index] {
 							pointer.index = map.get(&pointer.index).copied().unwrap();
 						} else {
-							dependency.item = None;
+							dependency.node = None;
 						}
 					}
 				},
@@ -642,7 +642,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.filter_map(|option| {
 					let pointer = option
 						.as_ref()?
-						.item
+						.node
 						.as_ref()?
 						.try_unwrap_pointer_ref()
 						.ok()?;

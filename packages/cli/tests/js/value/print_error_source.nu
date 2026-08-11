@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let error = tg.error.sync("outer", {
-				source: { item: tg.error.sync("inner"), options: {} },
+				source: { node: tg.error.sync("inner"), options: {} },
 			});
 			let output = tg.Value.print(error);
 			return output.includes(`"source":`) && output.includes("inner");

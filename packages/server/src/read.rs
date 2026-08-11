@@ -242,7 +242,7 @@ impl Reader {
 		let id = blob.id();
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		let resource = tg::Referent::with_item_and_token(
+		let resource = tg::Referent::with_node_and_token(
 			tg::object::Id::from(id.clone()),
 			blob.state().token(),
 		);

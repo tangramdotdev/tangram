@@ -477,12 +477,12 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn enqueue_finalization(&self, item: &index::finalization::Item) -> tg::Result<()> {
+	async fn enqueue_finalization(&self, node: &index::finalization::Node) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.enqueue_finalization(item).await,
+			Self::Fdb(index) => index.enqueue_finalization(node).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.enqueue_finalization(item).await,
+			Self::Lmdb(index) => index.enqueue_finalization(node).await,
 		}
 	}
 

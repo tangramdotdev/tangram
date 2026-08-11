@@ -63,7 +63,7 @@ impl Compiler {
 		text: String,
 	) -> tg::Result<()> {
 		// Find the lockfile if this is a path module.
-		let lockfile = if let Ok(path) = module.referent.item().try_unwrap_path_ref() {
+		let lockfile = if let Ok(path) = module.referent.node().try_unwrap_path_ref() {
 			self.find_lockfile_for_path(path).await
 		} else {
 			None
@@ -119,7 +119,7 @@ impl Compiler {
 		document.text = None;
 
 		// Set the document's modified time if it is a path module.
-		let tg::module::data::Item::Path(path) = &module.referent.item else {
+		let tg::module::data::Source::Path(path) = &module.referent.node else {
 			return Ok(());
 		};
 		let metadata = tokio::fs::symlink_metadata(&path)

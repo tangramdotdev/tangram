@@ -4,7 +4,7 @@ use {
 		sync::{
 			get::State,
 			graph::{Graph, Requested, UpdateObjectLocalArg, UpdateProcessLocalArg},
-			queue::{DatabaseItem, ObjectItem, ProcessItem, SandboxItem},
+			queue::{DatabaseNode, ObjectNode, ProcessNode, SandboxNode},
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},
@@ -16,15 +16,15 @@ impl Session {
 	pub(super) async fn sync_get_queue(
 		&self,
 		state: Arc<State>,
-		queue_database_receiver: async_channel::Receiver<DatabaseItem>,
-		queue_object_receiver: async_channel::Receiver<ObjectItem>,
-		queue_process_receiver: async_channel::Receiver<ProcessItem>,
-		queue_sandbox_receiver: async_channel::Receiver<SandboxItem>,
+		queue_database_receiver: async_channel::Receiver<DatabaseNode>,
+		queue_object_receiver: async_channel::Receiver<ObjectNode>,
+		queue_process_receiver: async_channel::Receiver<ProcessNode>,
+		queue_sandbox_receiver: async_channel::Receiver<SandboxNode>,
 	) -> tg::Result<()> {
 		// Create the database future.
-		let database_future = queue_database_receiver.map(Ok).try_for_each(|item| {
+		let database_future = queue_database_receiver.map(Ok).try_for_each(|node| {
 			let state = state.clone();
-			async move { Self::sync_get_queue_item(&state, item.eager, item.id, item.token).await }
+			async move { Self::sync_get_queue_node(&state, node.eager, node.id, node.token).await }
 		});
 
 		// Create the objects future.
@@ -37,10 +37,10 @@ impl Session {
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |items| {
+		.try_for_each_concurrent(object_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_queue_object_batch(&state, items).await }
+			async move { session.sync_get_queue_object_batch(&state, nodes).await }
 		});
 
 		// Create the processes future.
@@ -53,18 +53,18 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| {
+		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_queue_process_batch(&state, items).await }
+			async move { session.sync_get_queue_process_batch(&state, nodes).await }
 		});
 
 		// Create the sandboxes future.
-		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|item| {
+		let sandboxes_future = queue_sandbox_receiver.map(Ok).try_for_each(|node| {
 			let state = state.clone();
 			async move {
-				let id = item.id.into();
-				Self::sync_get_queue_item(&state, item.eager, id, item.token).await
+				let id = node.id.into();
+				Self::sync_get_queue_node(&state, node.eager, id, node.token).await
 			}
 		});
 
@@ -86,7 +86,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_queue_item(
+	async fn sync_get_queue_node(
 		state: &State,
 		eager: bool,
 		id: tg::Id,
@@ -96,12 +96,12 @@ impl Session {
 			.graph
 			.lock()
 			.unwrap()
-			.update_item_local_requested(&id, token.clone());
+			.update_node_local_requested(&id, token.clone());
 		if !requested {
 			return Ok(());
 		}
 		let selector = tg::Selector::Id(id);
-		let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+		let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 			descendants: true,
 			eager,
 			selector,
@@ -119,20 +119,20 @@ impl Session {
 	async fn sync_get_queue_object_batch(
 		&self,
 		state: &State,
-		items: Vec<ObjectItem>,
+		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		// Store the provided tokens.
 		{
 			let mut graph = state.graph.lock().unwrap();
-			for item in &items {
-				if let Some(token) = &item.token {
-					graph.update_object_token(&item.id, token.clone());
+			for node in &nodes {
+				if let Some(token) = &node.token {
+					graph.update_object_token(&node.id, token.clone());
 				}
 			}
 		}
 
 		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -146,24 +146,24 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 
-		// Handle each item and output.
-		for ((item, output), permissions) in
-			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		// Handle each node and output.
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
 			match output {
-				// If the object is absent, then send a get item message.
+				// If the object is absent, then send a get node message.
 				None => {
 					// Determine if the object has been requested.
 					let requested = {
 						let mut graph = state.graph.lock().unwrap();
-						let requested = graph.get_object_requested(&item.id);
+						let requested = graph.get_object_requested(&node.id);
 						if requested.is_some() {
 							true
 						} else {
-							let requested = Requested { eager: item.eager };
+							let requested = Requested { eager: node.eager };
 							let arg = UpdateObjectLocalArg {
 								data: None,
-								id: &item.id,
+								id: &node.id,
 								marked: None,
 								metadata: None,
 								permissions: None,
@@ -177,11 +177,11 @@ impl Session {
 					if requested {
 						continue;
 					}
-					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
-						eager: item.eager,
-						selector: tg::Selector::Id(item.id.clone().into()),
-						token: item.token,
+						eager: node.eager,
+						selector: tg::Selector::Id(node.id.clone().into()),
+						token: node.token,
 					});
 					state
 						.sender
@@ -197,7 +197,7 @@ impl Session {
 					// Update the graph with stored and metadata.
 					let arg = UpdateObjectLocalArg {
 						data: None,
-						id: &item.id,
+						id: &node.id,
 						marked: None,
 						metadata: Some(metadata.clone()),
 						permissions,
@@ -209,13 +209,13 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.get_object_local_visible(&item.id);
+						.get_object_local_visible(&node.id);
 
 					if visible.subtree {
 						// If the object is visible, then send a stored message.
 						let message = tg::sync::GetMessage::Stored(
 							tg::sync::GetStoredMessage::Object(tg::sync::GetStoredObjectMessage {
-								id: item.id.clone(),
+								id: node.id.clone(),
 							}),
 						);
 						state
@@ -232,19 +232,19 @@ impl Session {
 						// If the object is stored but its subtree is not visible, then enqueue the children.
 						let bytes = self
 							.server
-							.try_get_object_local(&item.id, false)
+							.try_get_object_local(&node.id, false)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to get the object"))?
 							.ok_or_else(|| tg::error!("expected the object to exist"))?
 							.bytes;
-						let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
+						let data = tg::object::Data::deserialize(node.id.kind(), bytes).map_err(
 							|error| tg::error!(!error, "failed to deserialize the object"),
 						)?;
 
 						// Update the graph with data.
 						let arg = UpdateObjectLocalArg {
 							data: Some(&data),
-							id: &item.id,
+							id: &node.id,
 							marked: None,
 							metadata: None,
 							permissions: None,
@@ -255,10 +255,10 @@ impl Session {
 
 						Self::sync_get_enqueue_object_children(
 							state,
-							&item.id,
+							&node.id,
 							&data,
-							item.kind,
-							item.token.as_ref(),
+							node.kind,
+							node.token.as_ref(),
 						);
 
 						// Increment the progress.
@@ -279,20 +279,20 @@ impl Session {
 	async fn sync_get_queue_process_batch(
 		&self,
 		state: &State,
-		items: Vec<ProcessItem>,
+		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
 		// Store the provided tokens.
 		{
 			let mut graph = state.graph.lock().unwrap();
-			for item in &items {
-				if let Some(token) = &item.token {
-					graph.update_process_token(&item.id, token.clone());
+			for node in &nodes {
+				if let Some(token) = &node.token {
+					graph.update_process_token(&node.id, token.clone());
 				}
 			}
 		}
 
 		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -307,24 +307,24 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 
-		// Handle each item and output.
-		for ((item, output), permissions) in
-			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		// Handle each node and output.
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
 			match &output {
-				// If the process is absent, then send a get item message.
+				// If the process is absent, then send a get node message.
 				None => {
 					// Determine if the object has been requested.
 					let requested = {
 						let mut graph = state.graph.lock().unwrap();
-						let requested = graph.get_process_requested(&item.id);
+						let requested = graph.get_process_requested(&node.id);
 						if requested.is_some() {
 							true
 						} else {
-							let requested = Requested { eager: item.eager };
+							let requested = Requested { eager: node.eager };
 							let arg = UpdateProcessLocalArg {
 								data: None,
-								id: &item.id,
+								id: &node.id,
 								marked: None,
 								metadata: None,
 								permissions: None,
@@ -338,11 +338,11 @@ impl Session {
 					if requested {
 						continue;
 					}
-					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
-						eager: item.eager,
-						selector: tg::Selector::Id(item.id.clone().into()),
-						token: item.token,
+						eager: node.eager,
+						selector: tg::Selector::Id(node.id.clone().into()),
+						token: node.token,
 					});
 					state
 						.sender
@@ -357,7 +357,7 @@ impl Session {
 					let metadata = &process.metadata;
 					// Get the process.
 					let data = self
-						.get_process_local(&item.id, false)
+						.get_process_local(&node.id, false)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the process"))?
 						.data;
@@ -365,7 +365,7 @@ impl Session {
 					// Update the graph with stored and metadata and data.
 					let arg = UpdateProcessLocalArg {
 						data: Some(&data),
-						id: &item.id,
+						id: &node.id,
 						marked: None,
 						metadata: Some(metadata.clone()),
 						permissions,
@@ -377,15 +377,15 @@ impl Session {
 						.graph
 						.lock()
 						.unwrap()
-						.get_process_local_visible(&item.id);
+						.get_process_local_visible(&node.id);
 
 					// Enqueue the children as necessary.
 					Self::sync_get_enqueue_process_children(
 						state,
-						&item.id,
+						&node.id,
 						&data,
 						Some(&visible),
-						item.token.as_ref(),
+						node.token.as_ref(),
 					);
 
 					// Send a stored message if the process is visible.
@@ -393,7 +393,7 @@ impl Session {
 						let message =
 							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 								tg::sync::GetStoredProcessMessage {
-									id: item.id.clone(),
+									id: node.id.clone(),
 									node_command_stored: visible.node_command,
 									node_error_stored: visible.node_error,
 									node_log_stored: visible.node_log,
@@ -432,7 +432,7 @@ impl Session {
 		data.children(&mut children);
 		state
 			.queue
-			.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+			.enqueue_objects(children.into_iter().map(|object| ObjectNode {
 				descendants: true,
 				eager: state.arg.eager,
 				id: object,
@@ -461,10 +461,10 @@ impl Session {
 			&& let Some(children) = &data.children
 		{
 			for child in children {
-				state.queue.enqueue_process(ProcessItem {
+				state.queue.enqueue_process(ProcessNode {
 					descendants: true,
 					eager: state.arg.eager,
-					id: child.process.item.clone(),
+					id: child.process.node.clone(),
 					parent: Some(id.clone()),
 					token: token.cloned(),
 				});
@@ -473,7 +473,7 @@ impl Session {
 
 		// Enqueue the command if necessary.
 		if state.arg.process_commands && !stored.is_some_and(|stored| stored.node_command) {
-			let item = ObjectItem {
+			let node = ObjectNode {
 				descendants: true,
 				eager: state.arg.eager,
 				id: data.command.clone().into(),
@@ -481,7 +481,7 @@ impl Session {
 				parent: Some(id.clone().into()),
 				token: token.cloned(),
 			};
-			state.queue.enqueue_object(item);
+			state.queue.enqueue_object(node);
 		}
 
 		// Enqueue the error if necessary.
@@ -495,7 +495,7 @@ impl Session {
 					data.children(&mut children);
 					state
 						.queue
-						.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+						.enqueue_objects(children.into_iter().map(|object| ObjectNode {
 							descendants: true,
 							eager: state.arg.eager,
 							id: object,
@@ -505,15 +505,15 @@ impl Session {
 						}));
 				},
 				tg::Either::Right(error) => {
-					let item = ObjectItem {
+					let node = ObjectNode {
 						descendants: true,
 						eager: state.arg.eager,
-						id: error.clone().item.into(),
+						id: error.clone().node.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						parent: Some(id.clone().into()),
 						token: token.cloned(),
 					};
-					state.queue.enqueue_object(item);
+					state.queue.enqueue_object(node);
 				},
 			}
 		}
@@ -523,15 +523,15 @@ impl Session {
 			&& !stored.is_some_and(|stored| stored.node_log)
 			&& let Some(log) = data.log.clone()
 		{
-			let item = ObjectItem {
+			let node = ObjectNode {
 				descendants: true,
 				eager: state.arg.eager,
-				id: log.item.into(),
+				id: log.node.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
 				parent: Some(id.clone().into()),
 				token: token.cloned(),
 			};
-			state.queue.enqueue_object(item);
+			state.queue.enqueue_object(node);
 		}
 
 		// Enqueue the output if necessary.
@@ -542,7 +542,7 @@ impl Session {
 			output.children(&mut children);
 			state
 				.queue
-				.enqueue_objects(children.into_iter().map(|object| ObjectItem {
+				.enqueue_objects(children.into_iter().map(|object| ObjectNode {
 					descendants: true,
 					eager: state.arg.eager,
 					id: object,

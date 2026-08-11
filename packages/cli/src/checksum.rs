@@ -22,7 +22,7 @@ impl Cli {
 		let referent = self.resolve(&args.reference).await?;
 		let object = referent
 			.into_graph_edge()?
-			.item
+			.node
 			.try_unwrap_object()
 			.map_err(|_| tg::error!("expected a blob or file"))?;
 		let input = if let Ok(blob) = tg::Blob::try_from(object.clone()) {

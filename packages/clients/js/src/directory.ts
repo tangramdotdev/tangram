@@ -33,7 +33,7 @@ export class Directory {
 
 	/** Get a directory with a referent. */
 	static withReferent(referent: tg.Referent<tg.Directory.Id>): tg.Directory {
-		let directory = tg.Directory.withId(referent.item);
+		let directory = tg.Directory.withId(referent.node);
 		directory.state.token = referent.options?.token ?? null;
 		return directory;
 	}

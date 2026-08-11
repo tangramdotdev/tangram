@@ -31,7 +31,7 @@ export class Graph {
 
 	/** Get a graph with a referent. */
 	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
-		let graph = tg.Graph.withId(referent.item);
+		let graph = tg.Graph.withId(referent.node);
 		graph.state.token = referent.options?.token ?? null;
 		return graph;
 	}
@@ -87,13 +87,13 @@ export class Graph {
 								"index" in value ||
 								tg.Object.is(value)
 							) {
-								let item = tg.Graph.Edge.fromArg(value, argNodes);
-								dependency = { item, options: {} };
-							} else if (value.item === null) {
-								dependency = { item: null, options: value.options ?? {} };
+								let node = tg.Graph.Edge.fromArg(value, argNodes);
+								dependency = { node, options: {} };
+							} else if (value.node === null) {
+								dependency = { node: null, options: value.options ?? {} };
 							} else {
-								let item = tg.Graph.Edge.fromArg(value.item, argNodes);
-								dependency = { item, options: value.options ?? {} };
+								let node = tg.Graph.Edge.fromArg(value.node, argNodes);
+								dependency = { node, options: value.options ?? {} };
 							}
 							entries.push([reference, dependency]);
 							return entries;
@@ -196,26 +196,26 @@ export class Graph {
 									"index" in value ||
 									tg.Object.is(value)
 								) {
-									dependency = { item: value, options: {} };
+									dependency = { node: value, options: {} };
 								} else {
 									dependency = value;
 								}
-								if (dependency.item === null) {
+								if (dependency.node === null) {
 									node.dependencies[reference] = dependency;
-								} else if (typeof dependency.item === "number") {
+								} else if (typeof dependency.node === "number") {
 									node.dependencies[reference] = {
-										item: dependency.item + offset,
+										node: dependency.node + offset,
 										options: dependency.options ?? {},
 									};
-								} else if ("index" in dependency.item) {
+								} else if ("index" in dependency.node) {
 									node.dependencies[reference] = {
-										item: {
-											...dependency.item,
-											index: dependency.item.index + offset,
+										node: {
+											...dependency.node,
+											index: dependency.node.index + offset,
 										},
 										options: dependency.options ?? {},
 									};
-								} else if (tg.Object.is(dependency.item)) {
+								} else if (tg.Object.is(dependency.node)) {
 									node.dependencies[reference] = dependency;
 								}
 							}
@@ -683,9 +683,9 @@ export namespace Graph {
 								reference,
 								typeof dependency === "string"
 									? tg.Graph.Dependency.fromDataString(dependency)
-									: tg.Referent.fromData(dependency, (item) =>
-											item !== null
-												? tg.Graph.Edge.fromData(item, tg.Object.withId)
+									: tg.Referent.fromData(dependency, (node) =>
+											node !== null
+												? tg.Graph.Edge.fromData(node, tg.Object.withId)
 												: null,
 										),
 							];
@@ -700,10 +700,10 @@ export namespace Graph {
 		export let children = (object: tg.Graph.File): Array<tg.Object> => {
 			let dependencies = globalThis.Object.entries(object.dependencies)
 				.filter(
-					([_, dependency]) => dependency !== null && dependency.item !== null,
+					([_, dependency]) => dependency !== null && dependency.node !== null,
 				)
 				.flatMap(([_, dependency]) =>
-					tg.Graph.Edge.children(dependency!.item!),
+					tg.Graph.Edge.children(dependency!.node!),
 				);
 			return [object.contents, ...dependencies];
 		};
@@ -713,9 +713,9 @@ export namespace Graph {
 
 	export namespace Dependency {
 		export let toDataString = (value: tg.Graph.Dependency): string => {
-			let item =
-				value.item !== null
-					? tg.Graph.Edge.toDataString(value.item, (item) => item.id)
+			let node =
+				value.node !== null
+					? tg.Graph.Edge.toDataString(value.node, (node) => node.id)
 					: "";
 			let params = [];
 			if (
@@ -744,17 +744,17 @@ export namespace Graph {
 				params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 			}
 			if (params.length > 0) {
-				item += "?";
-				item += params.join("&");
+				node += "?";
+				node += params.join("&");
 			}
-			return item;
+			return node;
 		};
 
 		export let fromDataString = (data: string): tg.Graph.Dependency => {
-			let [itemString, params] = data.split("?");
-			let item: tg.Graph.Edge<tg.Object> | null = null;
-			if (itemString !== undefined && itemString !== "") {
-				item = tg.Graph.Edge.fromDataString(itemString, tg.Object.withId);
+			let [nodeString, params] = data.split("?");
+			let node: tg.Graph.Edge<tg.Object> | null = null;
+			if (nodeString !== undefined && nodeString !== "") {
+				node = tg.Graph.Edge.fromDataString(nodeString, tg.Object.withId);
 			}
 			let options: tg.Referent.Options = {};
 			if (params !== undefined) {
@@ -796,13 +796,13 @@ export namespace Graph {
 					}
 				}
 			}
-			return { item, options };
+			return { node, options };
 		};
 
 		export type Data =
 			| string
 			| {
-					item: tg.Graph.Data.Edge<tg.Object.Id> | null;
+					node: tg.Graph.Data.Edge<tg.Object.Id> | null;
 					options?: tg.Referent.Data.Options;
 			  };
 	}
@@ -897,7 +897,7 @@ export namespace Graph {
 
 		export let toData = <T, U>(
 			object: tg.Graph.Edge<T>,
-			f: (item: T) => U,
+			f: (node: T) => U,
 		): tg.Graph.Data.Edge<U> => {
 			if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.toData(object);
@@ -908,7 +908,7 @@ export namespace Graph {
 
 		export let fromData = <T, U>(
 			data: tg.Graph.Data.Edge<T>,
-			f: (item: T) => U,
+			f: (node: T) => U,
 		): tg.Graph.Edge<U> => {
 			if (tg.Graph.Data.Pointer.is(data)) {
 				try {
@@ -920,7 +920,7 @@ export namespace Graph {
 
 		export let toDataString = <T, U extends string>(
 			object: tg.Graph.Edge<T>,
-			f: (item: T) => U,
+			f: (node: T) => U,
 		): string => {
 			if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.toDataString(object);
@@ -931,7 +931,7 @@ export namespace Graph {
 
 		export let fromDataString = <T>(
 			data: string,
-			f: (item: string) => T,
+			f: (node: string) => T,
 		): tg.Graph.Edge<T> => {
 			if (data.includes("index=")) {
 				return tg.Graph.Pointer.fromDataString(data);
@@ -1293,13 +1293,13 @@ export namespace Graph {
 				data: tg.Graph.Dependency.Data,
 			): Array<tg.Object.Id> => {
 				if (typeof data === "string") {
-					let [item] = data.split("?");
-					if (item === undefined || item === "") {
+					let [node] = data.split("?");
+					if (node === undefined || node === "") {
 						return [];
 					}
-					return tg.Graph.Data.Edge.children(item);
-				} else if (data.item !== null) {
-					return tg.Graph.Data.Edge.children(data.item);
+					return tg.Graph.Data.Edge.children(node);
+				} else if (data.node !== null) {
+					return tg.Graph.Data.Edge.children(data.node);
 				} else {
 					return [];
 				}

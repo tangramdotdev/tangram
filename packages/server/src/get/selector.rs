@@ -43,7 +43,7 @@ impl Session {
 		let mut output = None;
 		for (name, result) in results {
 			let result = result
-				.map_err(|error| tg::error!(!error, remote = %name, "failed to get the item"))?;
+				.map_err(|error| tg::error!(!error, remote = %name, "failed to get the node"))?;
 			if output.is_none() {
 				output = result;
 			}
@@ -84,7 +84,7 @@ impl Session {
 		let token = self.create_read_token(&id)?;
 		let output = tg::get::Output {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			referent: tg::Referent::with_item_and_token(tg::get::Item::Id(id), token),
+			referent: tg::Referent::with_node_and_token(tg::get::Node::Id(id), token),
 		};
 
 		Ok(Some(output))
@@ -107,13 +107,13 @@ impl Session {
 			location: Some(location),
 			..tg::reference::Options::default()
 		};
-		let item = match selector {
-			tg::Selector::Id(id) => tg::reference::Item::Id(id.clone()),
+		let node = match selector {
+			tg::Selector::Id(id) => tg::reference::Node::Id(id.clone()),
 			tg::Selector::Specifier(specifier) => {
-				tg::reference::Item::Specifier(specifier.clone().into())
+				tg::reference::Node::Specifier(specifier.clone().into())
 			},
 		};
-		let reference = tg::Reference::with_item_and_options(item, options.clone());
+		let reference = tg::Reference::with_node_and_options(node, options.clone());
 		let arg = tg::get::Arg {
 			options,
 			..tg::get::Arg::default()
@@ -148,7 +148,7 @@ impl Session {
 					}));
 				}
 				if let Some(output) = &output
-					&& !matches!(output.referent.item, tg::get::Item::Id(_))
+					&& !matches!(output.referent.node, tg::get::Node::Id(_))
 				{
 					return Err(tg::error!("expected an ID"));
 				}
@@ -160,14 +160,14 @@ impl Session {
 			return Ok(None);
 		}
 
-		// Get the item from the remote.
+		// Get the node from the remote.
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let stream = client
 			.try_get(&reference, arg)
 			.await
-			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the item"))?;
+			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the node"))?;
 		let mut stream = std::pin::pin!(stream);
 		let mut output = None;
 		while let Some(event) = stream.next().await {
@@ -192,7 +192,7 @@ impl Session {
 			}));
 		}
 		if let Some(output) = &output
-			&& !matches!(output.referent.item, tg::get::Item::Id(_))
+			&& !matches!(output.referent.node, tg::get::Node::Id(_))
 		{
 			return Err(tg::error!("expected an ID"));
 		}

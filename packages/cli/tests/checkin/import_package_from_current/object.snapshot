@@ -7,7 +7,7 @@ tg.directory({
           "contents": tg.blob("import * as a from \".\";"),
           "dependencies": {
             ".": {
-              "item": {
+              "node": {
                 "index": 1,
                 "kind": "directory",
               },

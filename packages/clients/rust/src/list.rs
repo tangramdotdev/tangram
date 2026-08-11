@@ -83,7 +83,7 @@ pub enum Entry {
 	Tag {
 		id: tg::tag::Id,
 
-		item: tg::Either<tg::object::Id, tg::process::Id>,
+		target: tg::Either<tg::object::Id, tg::process::Id>,
 
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,

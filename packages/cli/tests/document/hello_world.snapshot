@@ -11,7 +11,7 @@
             "module": {
               "kind": "ts",
               "referent": {
-                "item": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
+                "node": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
                 "options": {
                   "path": "tangram.ts",
                   "token": "<token>"
@@ -34,7 +34,7 @@
               "module": {
                 "kind": "ts",
                 "referent": {
-                  "item": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
+                  "node": "fil_01tnsktbyrrq5rnp50kac3ztbt6f2zn06ezw768wdh9m2j6zzarn8g",
                   "options": {
                     "path": "tangram.ts",
                     "token": "<token>"

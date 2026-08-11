@@ -27,7 +27,7 @@ pub struct Graph {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Parent {
-	Item(usize),
+	Node(usize),
 	Object(usize),
 	Process(usize),
 	ProcessObject {
@@ -46,20 +46,20 @@ struct PermissionState {
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Node {
-	Group(ItemNode),
+	Group(DatabaseNode),
 	Object(ObjectNode),
-	Organization(ItemNode),
+	Organization(DatabaseNode),
 	Process(ProcessNode),
-	Sandbox(ItemNode),
-	Tag(ItemNode),
-	User(ItemNode),
+	Sandbox(DatabaseNode),
+	Tag(DatabaseNode),
+	User(DatabaseNode),
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ItemNode {
+pub struct DatabaseNode {
 	pub children: Option<Vec<usize>>,
 	local_end: bool,
-	pub local_message: Option<tg::sync::PutItemMessage>,
+	pub local_message: Option<tg::sync::PutNodeMessage>,
 	pub local_requested: bool,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
@@ -184,18 +184,18 @@ impl Graph {
 			local_replacements: arg
 				.get
 				.iter()
-				.filter_map(|item| match &item.item {
+				.filter_map(|node| match &node.node {
 					tg::Selector::Id(id) => Some(id.clone()),
 					tg::Selector::Specifier(_) => None,
 				})
-				.filter(Self::is_database_item)
+				.filter(Self::is_database_node)
 				.collect(),
 			local_roots: HashSet::default(),
 			local_selector_ids: HashMap::default(),
 			local_selectors: arg
 				.get
 				.iter()
-				.filter_map(|item| match &item.item {
+				.filter_map(|node| match &node.node {
 					tg::Selector::Id(_) => None,
 					tg::Selector::Specifier(specifier) => Some(specifier.clone()),
 				})
@@ -213,13 +213,13 @@ impl Graph {
 
 		// Add the roots.
 		for root in &arg.get {
-			let tg::Selector::Id(id) = &root.item else {
+			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
 			graph.insert_local_root(id.clone(), false);
 		}
 		for root in &arg.put {
-			graph.insert_remote_root(root.item.clone());
+			graph.insert_remote_root(root.node.clone());
 		}
 
 		// Add the root tokens.
@@ -227,7 +227,7 @@ impl Graph {
 			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
-			let tg::Selector::Id(id) = &root.item else {
+			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
 			graph.update_root_token(id, token);
@@ -236,7 +236,7 @@ impl Graph {
 			let Some(token) = root.options.token.clone() else {
 				continue;
 			};
-			graph.update_root_token(&root.item, token);
+			graph.update_root_token(&root.node, token);
 		}
 
 		graph
@@ -251,7 +251,7 @@ impl Graph {
 			| tg::id::Kind::Organization
 			| tg::id::Kind::Sandbox
 			| tg::id::Kind::Tag
-			| tg::id::Kind::User => self.update_item_token(id, token),
+			| tg::id::Kind::User => self.update_node_token(id, token),
 			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
 				self.update_object_token(&id.clone().try_into().unwrap(), token);
 			},
@@ -259,7 +259,7 @@ impl Graph {
 		}
 	}
 
-	fn is_database_item(id: &tg::Id) -> bool {
+	fn is_database_node(id: &tg::Id) -> bool {
 		matches!(
 			id.kind(),
 			tg::id::Kind::Group
@@ -309,9 +309,9 @@ impl Graph {
 
 	pub fn set_local_selector_ids(
 		&mut self,
-		items: impl IntoIterator<Item = (tg::Specifier, Option<tg::Id>)>,
+		nodes: impl IntoIterator<Item = (tg::Specifier, Option<tg::Id>)>,
 	) {
-		self.local_selector_ids.extend(items);
+		self.local_selector_ids.extend(nodes);
 	}
 
 	pub fn insert_remote_root(&mut self, id: tg::Id) {
@@ -369,7 +369,7 @@ impl Graph {
 	}
 
 	#[must_use]
-	pub fn has_local_item(&self, id: &tg::Id) -> bool {
+	pub fn has_local_node(&self, id: &tg::Id) -> bool {
 		self.local_roots.contains(id)
 			|| self.nodes.get(id).is_some_and(|node| match node {
 				Node::Group(node)
@@ -386,7 +386,7 @@ impl Graph {
 		self.local_selectors.contains(specifier)
 	}
 
-	pub fn local_messages(&self) -> Vec<tg::sync::PutItemMessage> {
+	pub fn local_messages(&self) -> Vec<tg::sync::PutNodeMessage> {
 		self.nodes
 			.values()
 			.filter_map(|node| match node {
@@ -405,29 +405,29 @@ impl Graph {
 		&self.local_replacements
 	}
 
-	pub fn update_item_local_message(
+	pub fn update_node_local_message(
 		&mut self,
-		message: tg::sync::PutItemMessage,
+		message: tg::sync::PutNodeMessage,
 		replace: bool,
 	) -> tg::Result<()> {
 		let id = match &message {
-			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
-				return Err(tg::error!("invalid sync item kind"));
+			tg::sync::PutNodeMessage::Group(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Object(_) | tg::sync::PutNodeMessage::Process(_) => {
+				return Err(tg::error!("invalid sync node kind"));
 			},
-			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Sandbox(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Organization(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Sandbox(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Tag(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::User(message) => message.id.clone().into(),
 		};
-		if replace && Self::is_database_item(&id) {
+		if replace && Self::is_database_node(&id) {
 			self.local_replacements.insert(id.clone());
 		}
 		let entry = self.nodes.entry(id);
 		let index = entry.index();
-		let node = entry.or_insert_with_key(Node::for_id).unwrap_item_mut();
+		let node = entry.or_insert_with_key(Node::for_id).unwrap_database_mut();
 		if node.local_message.is_some() {
-			return Err(tg::error!("received the item more than once"));
+			return Err(tg::error!("received the node more than once"));
 		}
 		node.local_message = Some(message);
 		self.update_local_end(index);
@@ -435,7 +435,7 @@ impl Graph {
 		Ok(())
 	}
 
-	pub fn update_item_local_requested(
+	pub fn update_node_local_requested(
 		&mut self,
 		id: &tg::Id,
 		token: Option<tg::grant::Token>,
@@ -444,7 +444,7 @@ impl Graph {
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
-		let node = node.unwrap_item_mut();
+		let node = node.unwrap_database_mut();
 		if let Some(token) = token {
 			node.token.get_or_insert(token);
 		}
@@ -454,7 +454,7 @@ impl Graph {
 		inserted
 	}
 
-	pub fn update_database_item_remote(
+	pub fn update_database_node_remote(
 		&mut self,
 		descendants: bool,
 		id: &tg::Id,
@@ -463,7 +463,9 @@ impl Graph {
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
-		let node = entry.or_insert_with(|| Node::for_id(id)).unwrap_item_mut();
+		let node = entry
+			.or_insert_with(|| Node::for_id(id))
+			.unwrap_database_mut();
 		if let Some(token) = token {
 			node.token.get_or_insert(token);
 		}
@@ -489,7 +491,7 @@ impl Graph {
 		}
 	}
 
-	pub fn update_item_remote(
+	pub fn update_node_remote(
 		&mut self,
 		descendants: bool,
 		id: &tg::Id,
@@ -497,7 +499,9 @@ impl Graph {
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
-		let node = entry.or_insert_with(|| Node::for_id(id)).unwrap_item_mut();
+		let node = entry
+			.or_insert_with(|| Node::for_id(id))
+			.unwrap_database_mut();
 		if let Some(token) = token {
 			node.token.get_or_insert(token);
 		}
@@ -520,30 +524,30 @@ impl Graph {
 		}
 	}
 
-	pub fn finish_database_item_remote_found(&mut self, id: &tg::Id) {
+	pub fn finish_database_node_remote_found(&mut self, id: &tg::Id) {
 		self.nodes
 			.get_mut(id)
 			.unwrap()
-			.unwrap_item_mut()
+			.unwrap_database_mut()
 			.remote_selectors
 			.clear();
-		self.finish_item_remote_found(id);
+		self.finish_node_remote_found(id);
 	}
 
-	pub fn finish_database_item_remote_missing(
+	pub fn finish_database_node_remote_missing(
 		&mut self,
 		id: &tg::Id,
 	) -> BTreeSet<tg::Selector<tg::Id>> {
 		let selectors = {
-			let node = self.nodes.get_mut(id).unwrap().unwrap_item_mut();
+			let node = self.nodes.get_mut(id).unwrap().unwrap_database_mut();
 			std::mem::take(&mut node.remote_selectors)
 		};
-		self.finish_item_remote_missing(id);
+		self.finish_node_remote_missing(id);
 
 		selectors
 	}
 
-	pub fn finish_item_remote_descendants(&mut self, id: &tg::Id, children: &[tg::Id]) {
+	pub fn finish_node_remote_descendants(&mut self, id: &tg::Id, children: &[tg::Id]) {
 		let index = self.nodes.get_index_of(id).unwrap();
 
 		// Collect the children.
@@ -554,7 +558,7 @@ impl Graph {
 				let entry = self.nodes.entry(child.clone());
 				let child_index = entry.index();
 				let child_node = entry.or_insert_with(|| Node::for_id(child));
-				let parent = Parent::Item(index);
+				let parent = Parent::Node(index);
 				child_node.parents_mut().insert(parent);
 				child_indices.insert(child_index).then_some(child_index)
 			})
@@ -562,7 +566,12 @@ impl Graph {
 
 		// Update the node.
 		let remote_pending_children = self.count_remote_pending(&children);
-		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_database_mut();
 		node.children = Some(children);
 		node.remote_descendants.finish(false);
 		node.remote_pending_children = Some(remote_pending_children);
@@ -571,18 +580,28 @@ impl Graph {
 		self.update_remote_end(index);
 	}
 
-	pub fn finish_item_remote_found(&mut self, id: &tg::Id) {
+	pub fn finish_node_remote_found(&mut self, id: &tg::Id) {
 		let index = self.nodes.get_index_of(id).unwrap();
-		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_database_mut();
 		node.remote_missing = false;
 		node.remote_requested = false;
 		node.remote_sent = true;
 		self.update_remote_end(index);
 	}
 
-	pub fn finish_item_remote_missing(&mut self, id: &tg::Id) {
+	pub fn finish_node_remote_missing(&mut self, id: &tg::Id) {
 		let index = self.nodes.get_index_of(id).unwrap();
-		let node = self.nodes.get_index_mut(index).unwrap().1.unwrap_item_mut();
+		let node = self
+			.nodes
+			.get_index_mut(index)
+			.unwrap()
+			.1
+			.unwrap_database_mut();
 		node.remote_descendants.finish(false);
 		node.remote_missing = true;
 		node.remote_pending_children = Some(0);
@@ -591,12 +610,12 @@ impl Graph {
 		self.update_remote_end(index);
 	}
 
-	pub fn update_item_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
+	pub fn update_node_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
 		let node = self
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
-		node.unwrap_item_mut().token.get_or_insert(token);
+		node.unwrap_database_mut().token.get_or_insert(token);
 	}
 
 	pub fn update_object_local(&mut self, update: UpdateObjectLocalArg) {
@@ -760,7 +779,7 @@ impl Graph {
 				children
 					.iter()
 					.filter_map(|child| {
-						let child = child.process.item.clone();
+						let child = child.process.node.clone();
 						let child_entry = self.nodes.entry(child.into());
 						let child_index = child_entry.index();
 						let child_node =
@@ -810,7 +829,7 @@ impl Graph {
 						}
 					},
 					tg::Either::Right(error_id) => {
-						let error_id = error_id.item.clone();
+						let error_id = error_id.node.clone();
 						let error_entry = self.nodes.entry(tg::object::Id::from(error_id).into());
 						let error_index = error_entry.index();
 						let error_node =
@@ -825,7 +844,7 @@ impl Graph {
 				}
 			}
 
-			if let Some(log) = data.log.clone().map(|log| log.item) {
+			if let Some(log) = data.log.clone().map(|log| log.node) {
 				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
 				let log_index = log_entry.index();
 				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
@@ -1126,7 +1145,7 @@ impl Graph {
 								kind: crate::sync::queue::ObjectKind::Output,
 								..
 							} => node.remote_pending_outputs += 1,
-							Parent::Item(_) | Parent::Object(_) | Parent::Process(_) => {
+							Parent::Node(_) | Parent::Object(_) | Parent::Process(_) => {
 								unreachable!()
 							},
 						}
@@ -1604,7 +1623,7 @@ impl Graph {
 		permission: tg::grant::Permission,
 	) -> Option<tg::grant::Permission> {
 		match parent {
-			Parent::Item(_) => None,
+			Parent::Node(_) => None,
 			Parent::Object(_) => match permission {
 				tg::grant::Permission::Object(_) => Some(tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
@@ -1634,7 +1653,7 @@ impl Graph {
 		permission: tg::grant::Permission,
 	) -> tg::grant::Permission {
 		match parent {
-			Parent::Item(_) => unreachable!(),
+			Parent::Node(_) => unreachable!(),
 			Parent::Object(_) => match permission {
 				tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
@@ -2298,7 +2317,7 @@ impl Graph {
 		let (_, node) = self.nodes.get_index_mut(parent.index()).unwrap();
 		let pending = match (parent, node) {
 			(
-				Parent::Item(_),
+				Parent::Node(_),
 				Node::Group(node)
 				| Node::Organization(node)
 				| Node::Sandbox(node)
@@ -2336,7 +2355,7 @@ impl Graph {
 				Node::Process(node),
 			) if node.objects.is_some() => Some(&mut node.remote_pending_outputs),
 			(
-				Parent::Item(_)
+				Parent::Node(_)
 				| Parent::Object(_)
 				| Parent::Process(_)
 				| Parent::ProcessObject { .. },
@@ -2721,7 +2740,7 @@ impl Parent {
 	#[must_use]
 	pub fn index(&self) -> usize {
 		match self {
-			Self::Item(index)
+			Self::Node(index)
 			| Self::Object(index)
 			| Self::Process(index)
 			| Self::ProcessObject { index, .. } => *index,
@@ -2732,12 +2751,12 @@ impl Parent {
 impl Node {
 	fn for_id(id: &tg::Id) -> Self {
 		match id.kind() {
-			tg::id::Kind::Group => Self::Group(ItemNode::default()),
-			tg::id::Kind::Organization => Self::Organization(ItemNode::default()),
+			tg::id::Kind::Group => Self::Group(DatabaseNode::default()),
+			tg::id::Kind::Organization => Self::Organization(DatabaseNode::default()),
 			tg::id::Kind::Process => Self::Process(ProcessNode::default()),
-			tg::id::Kind::Sandbox => Self::Sandbox(ItemNode::default()),
-			tg::id::Kind::Tag => Self::Tag(ItemNode::default()),
-			tg::id::Kind::User => Self::User(ItemNode::default()),
+			tg::id::Kind::Sandbox => Self::Sandbox(DatabaseNode::default()),
+			tg::id::Kind::Tag => Self::Tag(DatabaseNode::default()),
+			tg::id::Kind::User => Self::User(DatabaseNode::default()),
 			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
 				Self::Object(ObjectNode::default())
 			},
@@ -2819,7 +2838,7 @@ impl Node {
 		}
 	}
 
-	fn unwrap_item_mut(&mut self) -> &mut ItemNode {
+	fn unwrap_database_mut(&mut self) -> &mut DatabaseNode {
 		match self {
 			Self::Group(node)
 			| Self::Organization(node)

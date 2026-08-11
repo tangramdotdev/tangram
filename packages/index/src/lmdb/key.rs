@@ -39,7 +39,7 @@ pub enum Kind {
 	ChildProcess = 11,
 	ProcessObject = 12,
 	ObjectProcess = 13,
-	ItemTag = 14,
+	TargetTag = 14,
 	Clean = 15,
 	Update = 16,
 	UpdateVersion = 17,
@@ -242,9 +242,9 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Tag(crate::lmdb::tag::Key::ItemTag { item, tag }) => (
-				Kind::ItemTag.to_i32().unwrap(),
-				item.as_slice(),
+			Key::Tag(crate::lmdb::tag::Key::TargetTag { target, tag }) => (
+				Kind::TargetTag.to_i32().unwrap(),
+				target.as_slice(),
 				tag.to_string(),
 			)
 				.pack(w, tuple_depth),
@@ -756,15 +756,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ItemTag => {
-				let (input, item): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::TargetTag => {
+				let (input, target): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let tag = tag
 					.parse()
 					.map_err(|_| fdbt::PackError::Message("invalid tag id".into()))?;
 				Ok((
 					input,
-					Key::Tag(crate::lmdb::tag::Key::ItemTag { item, tag }),
+					Key::Tag(crate::lmdb::tag::Key::TargetTag { target, tag }),
 				))
 			},
 
@@ -1071,7 +1071,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind_value): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let kind = crate::lmdb::clean::ItemKind::from_i32(kind_value)
-					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
+					.ok_or(fdbt::PackError::Message("invalid cleanup item kind".into()))?;
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id_bytes)
@@ -1174,7 +1174,7 @@ fn pack_update_kind<W: std::io::Write>(
 	kind: &crate::lmdb::update::Kind,
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
-		crate::lmdb::update::Kind::Item => 0i32.pack(w, tuple_depth),
+		crate::lmdb::update::Kind::Node => 0i32.pack(w, tuple_depth),
 		crate::lmdb::update::Kind::Grants(principal) => {
 			let mut offset = 1i32.pack(w, tuple_depth)?;
 			offset += principal.to_string().pack(w, tuple_depth)?;
@@ -1189,7 +1189,7 @@ fn unpack_update_kind(
 ) -> Result<(&[u8], crate::lmdb::update::Kind), fdbt::PackError> {
 	let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 	match kind {
-		0 => Ok((input, crate::lmdb::update::Kind::Item)),
+		0 => Ok((input, crate::lmdb::update::Kind::Node)),
 		1 => {
 			let (input, principal): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let principal = principal

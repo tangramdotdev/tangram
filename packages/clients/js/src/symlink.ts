@@ -35,7 +35,7 @@ export class Symlink {
 
 	/** Get a symlink with a referent. */
 	static withReferent(referent: tg.Referent<tg.Symlink.Id>): tg.Symlink {
-		let symlink = tg.Symlink.withId(referent.item);
+		let symlink = tg.Symlink.withId(referent.node);
 		symlink.state.token = referent.options?.token ?? null;
 		return symlink;
 	}

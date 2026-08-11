@@ -13,7 +13,7 @@ const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
 #[derive(Default)]
 struct Cache {
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
-	item_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
+	target_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
@@ -70,7 +70,7 @@ struct SubtreeSearchBudget {
 impl Cache {
 	fn merge(&mut self, other: Self) {
 		self.resource_parents.extend(other.resource_parents);
-		self.item_tags.extend(other.item_tags);
+		self.target_tags.extend(other.target_tags);
 		self.object_children.extend(other.object_children);
 		self.object_parents.extend(other.object_parents);
 		self.object_processes.extend(other.object_processes);
@@ -118,9 +118,9 @@ impl Cache {
 				.resource_parents
 				.insert(resource.clone(), parent.clone());
 		}
-		if let Some(tags) = self.item_tags.get(&(resource.clone(), permission)) {
+		if let Some(tags) = self.target_tags.get(&(resource.clone(), permission)) {
 			cache
-				.item_tags
+				.target_tags
 				.insert((resource.clone(), permission), tags.clone());
 		}
 		match permission {
@@ -1127,7 +1127,7 @@ impl Index {
 				let cached_parents = cache.object_parents.get(&object).cloned();
 				let cached_processes = cache.object_processes.get(&object).cloned();
 				let tag_key = (resource.clone(), permission);
-				let cached_tags = cache.item_tags.get(&tag_key).cloned();
+				let cached_tags = cache.target_tags.get(&tag_key).cloned();
 				let object_parents = async {
 					if let Some(parents) = cached_parents {
 						Ok(parents)
@@ -1147,7 +1147,7 @@ impl Index {
 						Ok(tags)
 					} else {
 						let mut tag_cache = Cache::default();
-						Self::get_cached_item_tags_with_transaction(
+						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
 							concurrency,
@@ -1164,7 +1164,7 @@ impl Index {
 					.object_parents
 					.insert(object.clone(), object_parents.clone());
 				cache.object_processes.insert(object, processes.clone());
-				cache.item_tags.insert(tag_key, tags.clone());
+				cache.target_tags.insert(tag_key, tags.clone());
 				for parent in object_parents {
 					let permission = tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
@@ -1195,7 +1195,7 @@ impl Index {
 				let cached_sandbox = cache.process_sandboxes.get(&process).cloned();
 				let cached_parents = cache.process_parents.get(&process).cloned();
 				let tag_key = (resource.clone(), permission);
-				let cached_tags = cache.item_tags.get(&tag_key).cloned();
+				let cached_tags = cache.target_tags.get(&tag_key).cloned();
 				let sandbox = async {
 					if let Some(sandbox) = cached_sandbox {
 						Ok(sandbox)
@@ -1219,7 +1219,7 @@ impl Index {
 						Ok(tags)
 					} else {
 						let mut tag_cache = Cache::default();
-						Self::get_cached_item_tags_with_transaction(
+						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
 							concurrency,
@@ -1238,7 +1238,7 @@ impl Index {
 				cache
 					.process_parents
 					.insert(process, process_parents.clone());
-				cache.item_tags.insert(tag_key, tags.clone());
+				cache.target_tags.insert(tag_key, tags.clone());
 				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
 						tg::grant::permission::process::Permission::Write => {
@@ -1548,20 +1548,21 @@ impl Index {
 		Ok(parent)
 	}
 
-	async fn get_cached_item_tags_with_transaction(
+	async fn get_cached_target_tags_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		concurrency: usize,
-		item: &tg::Id,
+		node: &tg::Id,
 		permission: tg::grant::Permission,
 		cache: &mut Cache,
 	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
-		let key = (item.clone(), permission);
-		if let Some(tags) = cache.item_tags.get(&key) {
+		let key = (node.clone(), permission);
+		if let Some(tags) = cache.target_tags.get(&key) {
 			return Ok(tags.clone());
 		}
-		let item_bytes = item.to_bytes();
-		let tags = Self::get_item_tags_with_transaction(txn, subspace, item_bytes.as_ref()).await?;
+		let target_bytes = node.to_bytes();
+		let tags =
+			Self::get_target_tags_with_transaction(txn, subspace, target_bytes.as_ref()).await?;
 		let tags = stream::iter(tags)
 			.map(|tag| async move {
 				let value = Self::try_get_tag_with_transaction(txn, subspace, &tag).await?;
@@ -1586,7 +1587,7 @@ impl Index {
 				));
 			}
 		}
-		cache.item_tags.insert(key, parents.clone());
+		cache.target_tags.insert(key, parents.clone());
 		Ok(parents)
 	}
 

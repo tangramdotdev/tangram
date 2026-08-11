@@ -3,7 +3,7 @@ tg.directory({
     "contents": tg.blob("import hello from \"hello\";"),
     "dependencies": {
       "hello": {
-        "item": tg.file({
+        "node": tg.file({
           "contents": tg.blob("Hello, world!"),
         }),
         "options": {

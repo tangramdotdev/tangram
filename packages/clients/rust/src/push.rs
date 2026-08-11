@@ -23,7 +23,7 @@ pub struct Arg {
 	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub items: Vec<tg::Referent<tg::Id>>,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
@@ -53,7 +53,7 @@ pub struct Arg {
 	pub source: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub tag_items: bool,
+	pub tag_targets: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub user_children: bool,
@@ -64,7 +64,7 @@ pub struct Arg {
 pub struct Output {
 	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub items: Vec<tg::Referent<tg::Id>>,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	pub skipped: Amounts,
 	pub transferred: Amounts,
@@ -154,7 +154,7 @@ impl Default for Arg {
 			})),
 			eager: true,
 			group_children: false,
-			items: Vec::new(),
+			nodes: Vec::new(),
 			metadata: false,
 			organization_children: false,
 			process_children: false,
@@ -164,7 +164,7 @@ impl Default for Arg {
 			process_outputs: true,
 			sandbox_processes: false,
 			source: Some(tg::Location::Local(tg::location::Local::default())),
-			tag_items: true,
+			tag_targets: true,
 			user_children: false,
 		}
 	}

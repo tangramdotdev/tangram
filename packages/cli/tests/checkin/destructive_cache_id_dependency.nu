@@ -32,7 +32,7 @@ snapshot $object '
 	    "contents": tg.blob("import dep from \"dir_016ctc43914rtbp4e8jcbezmrrmxw3kckj976ypm7ss0sna1awsykg\";"),
 	    "dependencies": {
 	      "dir_016ctc43914rtbp4e8jcbezmrrmxw3kckj976ypm7ss0sna1awsykg": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("export default function () { return \"dep\"; }"),
 	            "module": "ts",

@@ -14,7 +14,7 @@ let artifact = artifact {
 				contents: "foo",
 				dependencies: {
 					"bar": {
-						item: bar,
+						node: bar,
 						options: {
 							id: bar.id,
 							tag: "bar"
@@ -35,7 +35,7 @@ snapshot --path $path '
 	  "contents": "foo",
 	  "xattrs": {
 	    "user.tangram.dependencies": "[\"bar\"]",
-	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"item\":null,\"options\":{\"id\":\"fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g\",\"tag\":\"bar\"}}}}]}"
+	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"node\":null,\"options\":{\"id\":\"fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g\",\"tag\":\"bar\"}}}}]}"
 	  }
 	}
 '
@@ -48,7 +48,7 @@ snapshot $lock '
 	      "kind": "file",
 	      "dependencies": {
 	        "bar": {
-	          "item": null,
+	          "node": null,
 	          "options": {
 	            "id": "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g",
 	            "tag": "bar"

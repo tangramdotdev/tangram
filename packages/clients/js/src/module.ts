@@ -4,11 +4,11 @@ import { Resolve } from "./resolve.ts";
 export class Module {
 	[Resolve.atomic]: null;
 	kind: Module.Kind;
-	referent: tg.Referent<tg.Module.Item>;
+	referent: tg.Referent<tg.Module.Source>;
 
 	constructor(arg: {
 		kind: Module.Kind;
-		referent: tg.Referent<tg.Module.Item>;
+		referent: tg.Referent<tg.Module.Source>;
 	}) {
 		this[Resolve.atomic] = null;
 		this.kind = arg.kind;
@@ -30,10 +30,10 @@ export namespace Module {
 		| "graph"
 		| "command";
 
-	export type Item = string | tg.Graph.Edge<tg.Object>;
+	export type Source = string | tg.Graph.Edge<tg.Object>;
 
-	export namespace Item {
-		export let toDataString = (value: tg.Module.Item): string => {
+	export namespace Source {
+		export let toDataString = (value: tg.Module.Source): string => {
 			if (typeof value === "string") {
 				if (value.startsWith(".") || value.startsWith("/")) {
 					return value;
@@ -49,10 +49,10 @@ export namespace Module {
 	export let toData = (value: tg.Module): tg.Module.Data => {
 		return {
 			kind: value.kind,
-			referent: tg.Referent.toData(value.referent, (item) =>
-				typeof item === "string"
-					? item
-					: tg.Graph.Edge.toDataString(item, (object) => object.id),
+			referent: tg.Referent.toData(value.referent, (source) =>
+				typeof source === "string"
+					? source
+					: tg.Graph.Edge.toDataString(source, (object) => object.id),
 			),
 		};
 	};
@@ -60,21 +60,21 @@ export namespace Module {
 	export let fromData = (data: tg.Module.Data): tg.Module => {
 		return new tg.Module({
 			kind: data.kind,
-			referent: tg.Referent.fromData(data.referent, (item) => {
+			referent: tg.Referent.fromData(data.referent, (source) => {
 				if (
-					typeof item === "string" &&
-					(item.startsWith(".") || item.startsWith("/"))
+					typeof source === "string" &&
+					(source.startsWith(".") || source.startsWith("/"))
 				) {
-					return item;
+					return source;
 				} else {
-					return tg.Graph.Edge.fromData(item, tg.Object.withId);
+					return tg.Graph.Edge.fromData(source, tg.Object.withId);
 				}
 			}),
 		});
 	};
 
 	export let toDataString = (value: tg.Module): string => {
-		let string = tg.Module.Item.toDataString(value.referent.item);
+		let string = tg.Module.Source.toDataString(value.referent.node);
 		let params = [];
 		if (
 			value.referent.options?.artifact !== undefined &&
@@ -130,17 +130,17 @@ export namespace Module {
 	};
 
 	export let fromDataString = (data: string): tg.Module => {
-		let [itemString, params] = data.split("?");
-		tg.assert(itemString !== undefined);
+		let [nodeString, params] = data.split("?");
+		tg.assert(nodeString !== undefined);
 		let kind: tg.Module.Kind | undefined;
-		let item: tg.Module.Item;
+		let source: tg.Module.Source;
 		if (
-			typeof itemString === "string" &&
-			(itemString.startsWith(".") || itemString.startsWith("/"))
+			typeof nodeString === "string" &&
+			(nodeString.startsWith(".") || nodeString.startsWith("/"))
 		) {
-			item = itemString;
+			source = nodeString;
 		} else {
-			item = tg.Graph.Edge.fromDataString(itemString, tg.Object.withId);
+			source = tg.Graph.Edge.fromDataString(nodeString, tg.Object.withId);
 		}
 		let options: tg.Referent.Options = {};
 		if (params !== undefined) {
@@ -194,7 +194,7 @@ export namespace Module {
 		let module = new tg.Module({
 			kind,
 			referent: {
-				item,
+				node: source,
 				options,
 			},
 		});
@@ -202,8 +202,8 @@ export namespace Module {
 	};
 
 	export let children = (value: Module): Array<tg.Object> => {
-		if (typeof value.referent.item !== "string") {
-			return tg.Graph.Edge.children(value.referent.item);
+		if (typeof value.referent.node !== "string") {
+			return tg.Graph.Edge.children(value.referent.node);
 		} else {
 			return [];
 		}
@@ -223,37 +223,37 @@ export namespace Module {
 
 	export namespace Data {
 		export let children = (data: tg.Module.Data): Array<tg.Object.Id> => {
-			let item =
-				typeof data.referent === "string" ? data.referent : data.referent.item;
+			let source =
+				typeof data.referent === "string" ? data.referent : data.referent.node;
 			if (
-				typeof item === "string" &&
-				(item.startsWith(".") || item.startsWith("/"))
+				typeof source === "string" &&
+				(source.startsWith(".") || source.startsWith("/"))
 			) {
 				return [];
 			}
-			return tg.Graph.Data.Edge.children(item);
+			return tg.Graph.Data.Edge.children(source);
 		};
 
 		export let withoutTokens = (data: tg.Module.Data): tg.Module.Data => {
 			if (typeof data.referent === "string") {
 				let referent = tg.Referent.fromDataString(
 					data.referent,
-					(item) => item,
+					(source) => source,
 				);
 				return {
 					...data,
 					referent: tg.Referent.toDataString(
 						tg.Referent.withoutToken(referent),
-						(item) => item,
+						(source) => source,
 					),
 				};
 			}
-			let referent = tg.Referent.fromData(data.referent, (item) => item);
+			let referent = tg.Referent.fromData(data.referent, (source) => source);
 			return {
 				...data,
 				referent: tg.Referent.toData(
 					tg.Referent.withoutToken(referent),
-					(item) => item,
+					(source) => source,
 				),
 			};
 		};

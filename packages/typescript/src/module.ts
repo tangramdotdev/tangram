@@ -6,11 +6,11 @@ export type Module = {
 };
 
 type Referent = {
-	item: Item;
+	node: Source;
 	options?: Options;
 };
 
-type Item = string | Id | Reference;
+type Source = string | Id | Reference;
 
 type Reference = {
 	graph: Id;
@@ -30,8 +30,8 @@ type Options = {
 
 export namespace Module {
 	export let toDataString = (value: Module): string => {
-		let item = value.referent.item;
-		let string = item.toString();
+		let source = value.referent.node;
+		let string = source.toString();
 		let params = [];
 		if (
 			value.referent.options?.artifact !== undefined &&
@@ -78,7 +78,7 @@ export namespace Module {
 	};
 
 	export let fromDataString = (data: string): Module => {
-		let [item, params] = data.split("?");
+		let [source, params] = data.split("?");
 		let kind: string | undefined;
 		let options: Options = {};
 		if (params !== undefined) {
@@ -129,7 +129,7 @@ export namespace Module {
 		let module = {
 			kind,
 			referent: {
-				item: item!,
+				node: source!,
 				options,
 			},
 		};
@@ -140,7 +140,7 @@ export namespace Module {
 		let module: Module = {
 			kind: value.kind,
 			referent: {
-				item: value.referent.item,
+				node: value.referent.node,
 			},
 		};
 		if (value.referent.options !== undefined) {

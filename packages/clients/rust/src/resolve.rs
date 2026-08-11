@@ -27,10 +27,10 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
-	pub referent: tg::Referent<tg::resolve::Item>,
+	pub referent: tg::Referent<tg::resolve::Node>,
 }
 
-pub type Item = tg::get::Item;
+pub type Node = tg::get::Node;
 
 impl tg::Session {
 	pub async fn try_resolve(
@@ -45,7 +45,7 @@ impl tg::Session {
 	> {
 		let method = http::Method::GET;
 		arg.options = reference.options().clone();
-		let path = format!("/resolve/{}", reference.item());
+		let path = format!("/resolve/{}", reference.node());
 		let uri = Uri::builder()
 			.path_raw(&path)
 			.query_params_strict(&arg)

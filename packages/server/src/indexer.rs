@@ -250,31 +250,31 @@ impl Indexer {
 			partition_start: config.partition_start,
 			region: region.to_owned(),
 		};
-		let items = self
+		let entries = self
 			.server
 			.database
 			.dequeue_outbox(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to dequeue the database outbox"))?;
-		if items.is_empty() {
+		if entries.is_empty() {
 			return Ok(0);
 		}
 
 		// Deserialize the index batches.
-		let count = items.len();
+		let count = entries.len();
 		let mut args = Vec::with_capacity(count);
 		let mut keys = Vec::with_capacity(count);
-		for item in items {
-			let arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
+		for entry in entries {
+			let arg = tangram_index::batch::Arg::deserialize(&entry.payload)?;
 			args.push(arg);
 			let key = crate::database::outbox::Key {
-				id: item.id,
-				partition: item.partition,
+				id: entry.id,
+				partition: entry.partition,
 			};
 			keys.push(key);
 		}
 
-		// Submit each outbox item separately to preserve its transaction boundary.
+		// Submit each outbox entry separately to preserve its transaction boundary.
 		future::try_join_all(args.into_iter().map(|arg| self.server.index.batch(arg)))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index a database outbox batch"))?;
@@ -324,31 +324,31 @@ impl Indexer {
 			partition_end: config.partition_end,
 			partition_start: config.partition_start,
 		};
-		let items = self
+		let entries = self
 			.server
 			.object_store
 			.dequeue_outbox(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to dequeue the object outbox"))?;
-		if items.is_empty() {
+		if entries.is_empty() {
 			return Ok(0);
 		}
 
 		// Deserialize the index batches.
-		let count = items.len();
+		let count = entries.len();
 		let mut args = Vec::with_capacity(count);
 		let mut keys = Vec::with_capacity(count);
-		for item in items {
-			let arg = tangram_index::batch::Arg::deserialize(&item.payload)?;
+		for entry in entries {
+			let arg = tangram_index::batch::Arg::deserialize(&entry.payload)?;
 			args.push(arg);
 			let key = crate::object::outbox::Key {
-				id: item.id,
-				partition: item.partition,
+				id: entry.id,
+				partition: entry.partition,
 			};
 			keys.push(key);
 		}
 
-		// Submit each outbox item separately to preserve its transaction boundary.
+		// Submit each outbox entry separately to preserve its transaction boundary.
 		future::try_join_all(args.into_iter().map(|arg| self.server.index.batch(arg)))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;

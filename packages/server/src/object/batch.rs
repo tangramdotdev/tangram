@@ -193,7 +193,7 @@ impl Session {
 					vec![tg::grant::Permission::Object(permission)],
 					grant_expires_at,
 				)?;
-				let object = tg::Referent::with_item_and_token(object.id, token);
+				let object = tg::Referent::with_node_and_token(object.id, token);
 				Ok(object)
 			})
 			.collect::<tg::Result<_>>()?;
@@ -210,7 +210,7 @@ impl Session {
 	) -> tg::Result<bool> {
 		let mut children_map = std::collections::BTreeMap::new();
 		for child in children {
-			let id = child.item.clone();
+			let id = child.node.clone();
 			if !actual_children.contains(&id) {
 				continue;
 			}
@@ -235,7 +235,7 @@ impl Session {
 			let Some(token) = child.options.token.as_ref() else {
 				return Ok(false);
 			};
-			let resource = tg::grant::Resource::Id(child.item.clone().into());
+			let resource = tg::grant::Resource::Id(child.node.clone().into());
 			if !self.authorize_token(&resource, permission.into(), token) {
 				authorization_args.push((child.clone(), permission.into()));
 			}

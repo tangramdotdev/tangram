@@ -251,7 +251,7 @@ impl Session {
 						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
 							Some(edge.clone())
 						} else {
-							dependency.item().clone()
+							dependency.node().clone()
 						};
 						let edge = match edge {
 							Some(tg::graph::data::Edge::Pointer(pointer))
@@ -517,7 +517,7 @@ impl Session {
 						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
 							Some(edge.clone())
 						} else {
-							dependency.item().clone()
+							dependency.node().clone()
 						};
 						let edge = match edge {
 							Some(tg::graph::data::Edge::Pointer(pointer))
@@ -540,7 +540,7 @@ impl Session {
 							None => None,
 						};
 						let referent = tg::Referent {
-							item: edge,
+							node: edge,
 							options: dependency.options.clone(),
 						};
 						Ok((
@@ -974,7 +974,7 @@ impl Session {
 							let edge = paths
 								.get(&(index, reference.clone()))
 								.cloned()
-								.or_else(|| dependency.item().clone());
+								.or_else(|| dependency.node().clone());
 							let edge = match edge {
 								Some(tg::graph::data::Edge::Pointer(pointer))
 									if pointer.graph.is_none() && scc.contains(&pointer.index) =>
@@ -991,7 +991,7 @@ impl Session {
 								other => other,
 							};
 							tg::graph::data::Dependency(tg::Referent {
-								item: edge,
+								node: edge,
 								options: dependency.options.clone(),
 							})
 						});
@@ -1101,7 +1101,7 @@ impl Session {
 						let edge = paths
 							.get(&(index, reference.clone()))
 							.cloned()
-							.or_else(|| option.as_ref().and_then(|d| d.item().clone()));
+							.or_else(|| option.as_ref().and_then(|d| d.node().clone()));
 						if let Some(tg::graph::data::Edge::Pointer(pointer)) = edge
 							&& pointer.graph.is_none()
 							&& scc_set.contains(&pointer.index)
@@ -1404,7 +1404,7 @@ impl Session {
 				},
 				Variant::File(file) => {
 					for dependency in file.dependencies.values().flatten() {
-						if let Some(edge) = &dependency.item {
+						if let Some(edge) = &dependency.node {
 							match edge {
 								tg::graph::data::Edge::Object(id) => {
 									if let Ok(artifact_id) = id.clone().try_into() {

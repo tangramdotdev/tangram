@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "cycle": {
-          "item": {
+          "node": {
             "graph": "gph_01qh19pcxcv296r0p2m1savfmqkcqnh83abvmd0ye4pepqm75aakbg",
             "index": 0,
             "kind": "file"

@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let dir = tg put 'tg.directory({ "a": tg.file("first"), "z": tg.file({ "contents": tg.blob("x"), "dependencies": { "dep": { "item": tg.file("d") } } }) })' | str trim
+let dir = tg put 'tg.directory({ "a": tg.file("first"), "z": tg.file({ "contents": tg.blob("x"), "dependencies": { "dep": { "node": tg.file("d") } } }) })' | str trim
 
 let tar_output = tg archive --format tar $dir | complete
 failure $tar_output

@@ -986,7 +986,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&[
 			crate::tag::put::Arg {
 				id: parent_tag.clone(),
-				item: tg::Either::Left(object.clone()),
+				target: tg::Either::Left(object.clone()),
 				name: "parent".into(),
 				parent: None,
 				permissions: Vec::new(),
@@ -994,7 +994,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 			},
 			crate::tag::put::Arg {
 				id: child_tag,
-				item: tg::Either::Left(object.clone()),
+				target: tg::Either::Left(object.clone()),
 				name: "child".into(),
 				parent: Some(parent_tag.clone().into()),
 				permissions: vec![object_permission(

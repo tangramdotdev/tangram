@@ -34,17 +34,17 @@ impl Index {
 				continue;
 			};
 			let data = crate::tag::Tag::deserialize(bytes)?;
-			let item = match &data.item {
+			let target = match &data.target {
 				tg::Either::Left(id) => id.to_bytes().to_vec(),
 				tg::Either::Right(id) => id.to_bytes().to_vec(),
 			};
-			let key = Key::Tag(crate::lmdb::tag::Key::ItemTag {
-				item,
+			let key = Key::Tag(crate::lmdb::tag::Key::TargetTag {
+				target,
 				tag: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the item tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the target tag"))?;
 			let key = Key::Tag(crate::lmdb::tag::Key::ParentTag {
 				parent: data.parent.clone(),
 				name: data.name.clone(),
@@ -65,7 +65,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
-			match &data.item {
+			match &data.target {
 				tg::Either::Left(id) => {
 					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
 				},

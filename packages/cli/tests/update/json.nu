@@ -23,4 +23,4 @@ let updates = $output.stdout | from json
 assert equal ($updates | length) 1 "there should be one update"
 assert equal $updates.0.old "a/1.0.0" "the old tag should be reported"
 assert equal $updates.0.new "a/1.1.0" "the new tag should be reported"
-assert equal $updates.0.pattern.item "a/^1" "the pattern should be reported"
+assert equal $updates.0.pattern.node "a/^1" "the pattern should be reported"

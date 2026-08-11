@@ -14,7 +14,7 @@ pub use self::{data::Module as Data, import::Import, location::Location};
 #[derive(Clone, Debug)]
 pub struct Module {
 	pub kind: Kind,
-	pub referent: tg::Referent<Item>,
+	pub referent: tg::Referent<Source>,
 }
 
 #[derive(
@@ -61,7 +61,7 @@ pub enum Kind {
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-pub enum Item {
+pub enum Source {
 	Edge(tg::graph::Edge<tg::Object>),
 	Path(PathBuf),
 }
@@ -69,9 +69,9 @@ pub enum Item {
 impl Module {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Handle> {
-		match &self.referent.item {
-			Item::Edge(edge) => edge.children(),
-			Item::Path(_) => vec![],
+		match &self.referent.node {
+			Source::Edge(edge) => edge.children(),
+			Source::Path(_) => vec![],
 		}
 	}
 
@@ -86,24 +86,24 @@ impl Module {
 	#[must_use]
 	pub fn to_data(&self) -> Data {
 		let kind = self.kind;
-		let referent = self.referent.clone().map(|item| match item {
-			Item::Edge(edge) => tg::module::data::Item::Edge(edge.to_data()),
-			Item::Path(path) => tg::module::data::Item::Path(path),
+		let referent = self.referent.clone().map(|source| match source {
+			Source::Edge(edge) => tg::module::data::Source::Edge(edge.to_data()),
+			Source::Path(path) => tg::module::data::Source::Path(path),
 		});
 		tg::module::Data { kind, referent }
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
 		let kind = data.kind;
-		let referent = data.referent.try_map(|item| {
-			let item = match item {
-				tg::module::data::Item::Edge(edge) => {
+		let referent = data.referent.try_map(|source| {
+			let source = match source {
+				tg::module::data::Source::Edge(edge) => {
 					let edge = tg::graph::Edge::try_from_data(edge)?;
-					tg::module::Item::Edge(edge)
+					tg::module::Source::Edge(edge)
 				},
-				tg::module::data::Item::Path(path) => tg::module::Item::Path(path),
+				tg::module::data::Source::Path(path) => tg::module::Source::Path(path),
 			};
-			Ok::<_, tg::Error>(item)
+			Ok::<_, tg::Error>(source)
 		})?;
 		let module = Self { kind, referent };
 		Ok(module)

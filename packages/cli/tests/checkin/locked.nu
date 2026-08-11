@@ -17,7 +17,7 @@ let b_path = artifact {
 tg tag -p b/1.0.0 $b_path
 
 # Simulate a case where a new import was added that's not present in the lock.
-let id = tg tag get a/1.0.0 | from json | get item.id
+let id = tg tag get a/1.0.0 | from json | get target.id
 let lock = {
 	nodes: [
 		{
@@ -33,7 +33,7 @@ let lock = {
 			kind: "file",
 			dependencies: {
 				"a/^1": {
-					item: null,
+					node: null,
 					options: {
 						id: $id,
 						tag: "a/1.0.0"

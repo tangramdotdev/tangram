@@ -121,14 +121,14 @@ impl Cli {
 		let mut items = state
 			.tags
 			.iter()
-			.map(|(_, item)| item.clone())
+			.map(|(_, node)| node.clone())
 			.collect::<Vec<_>>();
 
 		// Collect all the local tags.
 		let mut tags = state
 			.tags
 			.into_iter()
-			.map(|(tag, item)| (tag, item.item))
+			.map(|(tag, node)| (tag, node.node))
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
@@ -140,20 +140,20 @@ impl Cli {
 						path,
 						tag,
 					} = item;
-					let item = if let Some(path) = path {
+					let node = if let Some(path) = path {
 						publish_checkin(&client, path, true).await?
 					} else {
-						tg::Referent::with_item_and_token(referent.item, referent.options.token)
+						tg::Referent::with_node_and_token(referent.node, referent.options.token)
 					};
-					let id = item.item.clone();
-					items.push(item);
+					let id = node.node.clone();
+					items.push(node);
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
 						ancestors: tg::node::Ancestors {
 							create: true,
 							..Default::default()
 						},
-						item: id.into(),
+						target: id.into(),
 						location: None,
 						public: false,
 						specifier: tag.clone(),
@@ -170,13 +170,13 @@ impl Cli {
 							.clone()
 							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
 						let checked_in = publish_checkin(&client, path, false).await?;
-						let id = checked_in.item;
+						let id = checked_in.node;
 						let arg = tg::tag::put::Arg {
 							ancestors: tg::node::Ancestors {
 								create: true,
 								..Default::default()
 							},
-							item: id.into(),
+							target: id.into(),
 							location: None,
 							public: false,
 							specifier: item.tag.clone(),
@@ -189,16 +189,16 @@ impl Cli {
 					for item in cycle_items {
 						let Item { path, tag, .. } = item;
 						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let item = publish_checkin(&client, path, true).await?;
-						let id = item.item.clone();
-						items.push(item);
+						let node = publish_checkin(&client, path, true).await?;
+						let id = node.node.clone();
+						items.push(node);
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
 							ancestors: tg::node::Ancestors {
 								create: true,
 								..Default::default()
 							},
-							item: id.into(),
+							target: id.into(),
 							location: None,
 							public: false,
 							specifier: tag.clone(),
@@ -226,7 +226,7 @@ impl Cli {
 		let arg = tg::push::Arg {
 			destination: Some(location.clone()),
 			eager: true,
-			items: items.into_iter().map(|item| item.map(Into::into)).collect(),
+			nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
 			metadata: false,
 			process_errors: true,
 			process_outputs: true,
@@ -258,8 +258,8 @@ impl Cli {
 		// Put tags on the remote.
 		let tags = tags
 			.into_iter()
-			.map(|(tag, item)| tg::tag::batch::Item {
-				item: item.into(),
+			.map(|(tag, node)| tg::tag::batch::Item {
+				target: node.into(),
 				specifier: tag,
 			})
 			.collect::<Vec<_>>();
@@ -273,7 +273,7 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to publish tags to remote"))?;
 		for item in &tags {
-			let message = format!("tagged {} {:?}", item.specifier, item.item);
+			let message = format!("tagged {} {:?}", item.specifier, item.target);
 			self.print_info_message(&message);
 		}
 
@@ -307,8 +307,8 @@ impl Cli {
 					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 					..Default::default()
 				};
-				let reference = tg::Reference::with_item_and_options(
-					tg::reference::Item::Specifier(ancestor.clone().into()),
+				let reference = tg::Reference::with_node_and_options(
+					tg::reference::Node::Specifier(ancestor.clone().into()),
 					options,
 				);
 				let referent = self
@@ -316,17 +316,17 @@ impl Cli {
 					.await
 					.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
 					.referent;
-				let tg::get::Item::Id(id) = referent.item else {
+				let tg::get::Node::Id(id) = referent.node else {
 					return Err(tg::error!(%ancestor, "expected a tag ancestor id"));
 				};
-				let item = tg::Referent::with_item_and_token(id, referent.options.token);
-				items.push(item);
+				let node = tg::Referent::with_node_and_token(id, referent.options.token);
+				items.push(node);
 			}
 			let arg = tg::push::Arg {
 				destination: Some(destination.clone()),
-				items,
+				nodes: items,
 				source: Some(tg::Location::Local(tg::location::Local::default())),
-				tag_items: false,
+				tag_targets: false,
 				..Default::default()
 			};
 			let stream = client
@@ -462,9 +462,9 @@ impl State {
 						.values()
 						.filter_map(|option| {
 							let dependency = option.as_ref()?;
-							let item = dependency.0.item.as_ref()?;
+							let node = dependency.0.node.as_ref()?;
 							let package =
-								all_packages.iter().find(|r| r.item().id() == item.id())?;
+								all_packages.iter().find(|r| r.node().id() == node.id())?;
 							Some(Self::get_package_index(graph, package.clone()))
 						})
 						.collect::<Vec<_>>();
@@ -491,8 +491,8 @@ impl State {
 			.iter()
 			.map(|node| {
 				(
-					node.package.item().id(),
-					node.package.item().clone(),
+					node.package.node().id(),
+					node.package.node().clone(),
 					node.package.path().map(ToOwned::to_owned),
 				)
 			})
@@ -513,7 +513,7 @@ impl State {
 			for index in scc.iter().copied() {
 				// Get the node.
 				let node = &self.graph.nodes[index];
-				node.package.item.unload();
+				node.package.node.unload();
 
 				let publishable = index == 0
 					|| self.source_packages.iter().any(|referent| {
@@ -522,14 +522,14 @@ impl State {
 					.incoming
 					.iter()
 					.copied()
-					.any(|incoming| self.graph.nodes[incoming].package.item().is_directory());
+					.any(|incoming| self.graph.nodes[incoming].package.node().is_directory());
 				if !publishable {
 					continue;
 				}
 
 				// Check if this package has a tag.
 				let override_ = (index == 0).then_some(()).and(tag.take());
-				let original = tags.get(&node.package.item().id()).cloned().flatten();
+				let original = tags.get(&node.package.node().id()).cloned().flatten();
 				let Some(tag) = override_.or(original) else {
 					continue;
 				};
@@ -597,7 +597,7 @@ impl State {
 	}
 
 	fn get_package_index(graph: &mut Graph, referent: tg::Referent<tg::Object>) -> usize {
-		*graph.indices.entry(referent.item.id()).or_insert_with(|| {
+		*graph.indices.entry(referent.node.id()).or_insert_with(|| {
 			let index = graph.nodes.len();
 			graph.nodes.push(Node {
 				package: referent,
@@ -612,7 +612,7 @@ impl State {
 		if self
 			.all_packages
 			.iter()
-			.any(|package| package.item.id() == referent.item.id())
+			.any(|package| package.node.id() == referent.node.id())
 		{
 			return;
 		}
@@ -630,11 +630,11 @@ where
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = blob.tag() {
-			let item = tg::Referent::with_item_and_token(
-				blob.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				blob.node().id().into(),
 				blob.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
 	}
@@ -654,22 +654,22 @@ where
 		}
 
 		if let Some(tag) = directory.tag() {
-			let item = tg::Referent::with_item_and_token(
-				directory.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				directory.node().id().into(),
 				directory.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 		let Some(path) = directory.path() else {
 			return Ok(true);
 		};
 		self.file_tree
-			.insert(path.to_owned(), directory.item.clone().into());
+			.insert(path.to_owned(), directory.node.clone().into());
 
 		// Keep track of files.
 		if tg::module::try_get_root_module_file_name_with_handle(
 			client,
-			tg::Either::Left(directory.item()),
+			tg::Either::Left(directory.node()),
 		)
 		.await?
 		.is_some()
@@ -691,21 +691,21 @@ where
 		}
 
 		if let Some(tag) = file.tag() {
-			let item = tg::Referent::with_item_and_token(
-				file.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				file.node().id().into(),
 				file.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 
 		let Some(path) = file.path() else {
 			return Ok(true);
 		};
 		self.file_tree
-			.insert(path.to_owned(), file.item.clone().into());
+			.insert(path.to_owned(), file.node.clone().into());
 
 		// Mark the packages that come from source overrides.
-		for (reference, option) in file.item.dependencies_with_handle(client).await? {
+		for (reference, option) in file.node.dependencies_with_handle(client).await? {
 			let Some(mut dependency) = option else {
 				continue;
 			};
@@ -713,11 +713,11 @@ where
 			// Make sure to inherit the dependency.
 			dependency.0.inherit(&file);
 			if reference.options().source.is_some() {
-				let Some(item) = dependency.0.item.clone() else {
+				let Some(node) = dependency.0.node.clone() else {
 					continue;
 				};
 				let referent = tg::Referent {
-					item,
+					node,
 					options: dependency.0.options.clone(),
 				};
 				self.source_packages.push(referent.clone());
@@ -741,11 +741,11 @@ where
 			return Err(tg::error!("invalid path"));
 		}
 		if let Some(tag) = symlink.tag() {
-			let item = tg::Referent::with_item_and_token(
-				symlink.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				symlink.node().id().into(),
 				symlink.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 		Ok(true)
 	}
@@ -756,11 +756,11 @@ where
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = command.tag() {
-			let item = tg::Referent::with_item_and_token(
-				command.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				command.node().id().into(),
 				command.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
 	}
@@ -771,11 +771,11 @@ where
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = graph.tag() {
-			let item = tg::Referent::with_item_and_token(
-				graph.item().id().into(),
+			let node = tg::Referent::with_node_and_token(
+				graph.node().id().into(),
 				graph.options.token.clone(),
 			);
-			self.tags.push((tag.clone(), item));
+			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
 	}
@@ -837,6 +837,6 @@ async fn publish_checkin(
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
 	let id = artifact.id().into();
-	let item = tg::Referent::with_item_and_token(id, artifact.state().token());
-	Ok(item)
+	let node = tg::Referent::with_node_and_token(id, artifact.state().token());
+	Ok(node)
 }

@@ -20,7 +20,7 @@ use {
 )]
 pub struct Referent<T> {
 	#[tangram_serialize(id = 0)]
-	pub item: T,
+	pub node: T,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
@@ -68,28 +68,28 @@ pub struct Options {
 }
 
 impl<T> Referent<T> {
-	pub fn new(item: T, options: Options) -> Self {
-		Self { item, options }
+	pub fn new(node: T, options: Options) -> Self {
+		Self { node, options }
 	}
 
-	pub fn with_item(item: T) -> Self {
+	pub fn with_node(node: T) -> Self {
 		Self {
-			item,
+			node,
 			options: Options::default(),
 		}
 	}
 
 	#[must_use]
-	pub fn with_item_and_token(item: T, token: Option<tg::grant::Token>) -> Self {
+	pub fn with_node_and_token(node: T, token: Option<tg::grant::Token>) -> Self {
 		let options = Options {
 			token,
 			..Default::default()
 		};
-		Self::new(item, options)
+		Self::new(node, options)
 	}
 
-	pub fn item(&self) -> &T {
-		&self.item
+	pub fn node(&self) -> &T {
+		&self.node
 	}
 
 	pub fn options(&self) -> &Options {
@@ -120,26 +120,26 @@ impl<T> Referent<T> {
 		self.options.token.as_ref()
 	}
 
-	pub fn replace<U>(self, item: U) -> (tg::Referent<U>, T) {
+	pub fn replace<U>(self, node: U) -> (tg::Referent<U>, T) {
 		(
 			tg::Referent {
-				item,
+				node,
 				options: self.options,
 			},
-			self.item,
+			self.node,
 		)
 	}
 
 	pub fn map<U>(self, f: impl FnOnce(T) -> U) -> tg::Referent<U> {
 		tg::Referent {
-			item: f(self.item),
+			node: f(self.node),
 			options: self.options,
 		}
 	}
 
 	pub fn try_map<U, E>(self, f: impl FnOnce(T) -> Result<U, E>) -> Result<tg::Referent<U>, E> {
 		Ok(tg::Referent {
-			item: f(self.item)?,
+			node: f(self.node)?,
 			options: self.options,
 		})
 	}
@@ -165,7 +165,7 @@ where
 	T: std::fmt::Display,
 {
 	pub fn to_uri(&self) -> Uri {
-		let path = self.item.to_string();
+		let path = self.node.to_string();
 		let mut builder = Uri::builder().path(&path);
 		if self.options != Options::default() {
 			builder = builder
@@ -182,17 +182,17 @@ where
 	T: std::str::FromStr,
 {
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let item = uri
+		let node = uri
 			.path()
 			.parse()
-			.map_err(|_| tg::error!("failed to parse the item"))?;
+			.map_err(|_| tg::error!("failed to parse the node"))?;
 		let options = uri
 			.query_raw()
 			.map(serde_qs::from_str::<Options>)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the query params"))?
 			.unwrap_or_default();
-		Ok(Self { item, options })
+		Ok(Self { node, options })
 	}
 }
 

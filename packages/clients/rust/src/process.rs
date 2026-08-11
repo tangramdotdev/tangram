@@ -157,7 +157,7 @@ impl<O> Process<O> {
 			..Default::default()
 		};
 
-		Self::new(referent.item, options)
+		Self::new(referent.node, options)
 	}
 
 	#[must_use]

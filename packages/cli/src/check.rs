@@ -44,7 +44,7 @@ impl Cli {
 		// Print the diagnostics.
 		for diagnostic in output.diagnostics {
 			let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
-			let mut diagnostic = tg::Referent::with_item(diagnostic);
+			let mut diagnostic = tg::Referent::with_node(diagnostic);
 			// Inherit from the first referent if available.
 			if let Some(referent) = referents.first() {
 				diagnostic.inherit(referent);

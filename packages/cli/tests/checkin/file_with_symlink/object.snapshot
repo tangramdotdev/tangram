@@ -10,7 +10,7 @@ tg.directory({
     "contents": tg.blob("import foo from \"./foo.tg.ts\" with { kind: \"symlink\" };"),
     "dependencies": {
       "./foo.tg.ts": {
-        "item": tg.symlink({
+        "node": tg.symlink({
           "path": "bar.tg.ts",
         }),
         "options": {

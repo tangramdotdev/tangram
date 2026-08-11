@@ -10,7 +10,7 @@ use {
 pub struct Args {
 	/// The paths to touch.
 	#[arg(index = 2)]
-	items: Vec<PathBuf>,
+	paths: Vec<PathBuf>,
 
 	/// The file system event kind.
 	#[arg(default_value = "any", long, value_enum)]
@@ -34,8 +34,8 @@ impl Cli {
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-		let items = args
-			.items
+		let paths = args
+			.paths
 			.into_iter()
 			.map(tangram_util::fs::canonicalize_parent)
 			.collect::<FuturesUnordered<_>>()
@@ -47,7 +47,7 @@ impl Cli {
 			Kind::Remove => tg::watch::touch::Kind::Remove,
 			Kind::Rename => tg::watch::touch::Kind::Rename,
 		};
-		let arg = tg::watch::touch::Arg { items, kind, path };
+		let arg = tg::watch::touch::Arg { kind, path, paths };
 		client
 			.touch_watch(arg)
 			.await

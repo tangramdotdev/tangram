@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "a/*": {
-          "item": {
+          "node": {
             "index": 2,
             "kind": "directory"
           },
@@ -23,7 +23,7 @@
           }
         },
         "b/*": {
-          "item": {
+          "node": {
             "index": 3,
             "kind": "directory"
           },
@@ -61,7 +61,7 @@
       "kind": "file",
       "dependencies": {
         "b/*": {
-          "item": {
+          "node": {
             "index": 3,
             "kind": "directory"
           },
@@ -77,7 +77,7 @@
       "kind": "file",
       "dependencies": {
         "./tangram.ts": {
-          "item": {
+          "node": {
             "index": 6,
             "kind": "file"
           },
@@ -92,7 +92,7 @@
       "kind": "file",
       "dependencies": {
         "./foo.tg.ts": {
-          "item": {
+          "node": {
             "index": 5,
             "kind": "file"
           },
@@ -101,7 +101,7 @@
           }
         },
         "a/*": {
-          "item": {
+          "node": {
             "index": 2,
             "kind": "directory"
           },

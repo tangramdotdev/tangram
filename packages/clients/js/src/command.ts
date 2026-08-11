@@ -23,7 +23,7 @@ export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
 		let command = tg.Command.js(args[0], args.slice(1)).then(
-			(referent) => referent.item,
+			(referent) => referent.node,
 		);
 		return new tg.Command.Builder(command);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
@@ -178,7 +178,7 @@ export class Command<
 			executable: "tg",
 			host: tg.host.current,
 		});
-		return { item: command, options };
+		return { node: command, options };
 	}
 
 	constructor(arg: tg.Command.ConstructorArg) {
@@ -201,7 +201,7 @@ export class Command<
 
 	/** Get a command with a referent. */
 	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
-		let command = tg.Command.withId(referent.item);
+		let command = tg.Command.withId(referent.node);
 		command.state.token = referent.options?.token ?? null;
 		return command;
 	}

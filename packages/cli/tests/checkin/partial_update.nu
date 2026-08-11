@@ -20,8 +20,8 @@ let b_path = artifact {
 }
 tg tag -p b/1.0.0 $b_path
 
-let a_id = tg tag get a/1.0.0 | from json | get item.id
-let b_id = tg tag get b/1.0.0 | from json | get item.id
+let a_id = tg tag get a/1.0.0 | from json | get target.id
+let b_id = tg tag get b/1.0.0 | from json | get target.id
 let lock = {
 	nodes: [
 		{
@@ -37,14 +37,14 @@ let lock = {
 			kind: "file",
 			dependencies: {
 				"a/^1": {
-					item: null,
+					node: null,
 					options: {
 						id: $a_id,
 						tag: "a/1.0.0"
 					}
 				}
 				"b/^1": {
-					item: null,
+					node: null,
 					options: {
 						id: $b_id,
 						tag: "b/1.0.0"
@@ -73,7 +73,7 @@ snapshot $object '
 	    "contents": blb_0136gfs6gd9ddakc51hvcrbwdc993zzd6yp0jsaym87xqjszmjwhx0,
 	    "dependencies": {
 	      "a/^1": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_014f6y57b94nev7tn7ygeqfgcsnyr06bnv4fqz182ytj2p5y0gwav0,
 	            "module": "ts",
@@ -85,7 +85,7 @@ snapshot $object '
 	        },
 	      },
 	      "b/^1": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_01fvxej6sm4nwrxep5554hdh2wbxf8q4zb7nbw8r0qhw746d5wd3dg,
 	            "module": "ts",

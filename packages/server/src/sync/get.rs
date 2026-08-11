@@ -36,13 +36,13 @@ impl Session {
 
 		// Create the queue.
 		let (queue_database_sender, queue_database_receiver) =
-			async_channel::unbounded::<super::queue::DatabaseItem>();
+			async_channel::unbounded::<super::queue::DatabaseNode>();
 		let (queue_object_sender, queue_object_receiver) =
-			async_channel::unbounded::<super::queue::ObjectItem>();
+			async_channel::unbounded::<super::queue::ObjectNode>();
 		let (queue_process_sender, queue_process_receiver) =
-			async_channel::unbounded::<super::queue::ProcessItem>();
+			async_channel::unbounded::<super::queue::ProcessNode>();
 		let (queue_sandbox_sender, queue_sandbox_receiver) =
-			async_channel::unbounded::<super::queue::SandboxItem>();
+			async_channel::unbounded::<super::queue::SandboxNode>();
 		let queue = Queue::new(
 			queue_database_sender,
 			queue_object_sender,
@@ -65,7 +65,7 @@ impl Session {
 				.arg
 				.get
 				.iter()
-				.filter_map(|item| match &item.item {
+				.filter_map(|node| match &node.node {
 					tg::Selector::Id(_) => None,
 					tg::Selector::Specifier(specifier) => Some(specifier.clone()),
 				})
@@ -80,15 +80,15 @@ impl Session {
 				.set_local_selector_ids(std::iter::zip(specifiers, ids));
 		}
 
-		// Enqueue the items.
-		for item in &state.arg.get {
-			let token = item.options.token.clone();
-			match &item.item {
+		// Enqueue the nodes.
+		for node in &state.arg.get {
+			let token = node.options.token.clone();
+			match &node.node {
 				tg::Selector::Id(id) => {
 					state.queue.enqueue(state.arg.eager, id.clone(), token)?;
 				},
 				tg::Selector::Specifier(specifier) => {
-					let message = tg::sync::GetMessage::Item(tg::sync::GetItemMessage {
+					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
 						eager: state.arg.eager,
 						selector: tg::Selector::Specifier(specifier.clone()),
@@ -103,20 +103,20 @@ impl Session {
 			}
 		}
 
-		// Close the queue if there are no items.
+		// Close the queue if there are no nodes.
 		if state.arg.get.is_empty() {
 			state.queue.close();
 		}
 
 		// Create the channels.
 		let (store_object_sender, store_object_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ObjectItem>(256);
+			tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
 		let (store_process_sender, store_process_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ProcessItem>(256);
+			tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
 		let (index_object_sender, index_object_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ObjectItem>(256);
+			tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
 		let (index_process_sender, index_process_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ProcessItem>(256);
+			tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
 		// Create the input future.
 		let input_future = {
 			let session = self.clone();
@@ -203,7 +203,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
-		// Commit the database items.
+		// Commit the database nodes.
 		self.sync_get_database(&graph).await?;
 
 		Ok(())
@@ -386,7 +386,7 @@ impl Session {
 	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
 		let ids = ids.into_iter().collect::<Vec<_>>();
 
-		// Collect the items whose permissions cannot be proven by the graph.
+		// Collect the nodes whose permissions cannot be proven by the graph.
 		let mut args = Vec::<(tg::Referent<tg::Id>, tg::grant::permission::Set)>::new();
 		let mut positions = Vec::new();
 		let mut outputs = vec![None; ids.len()];
@@ -403,7 +403,7 @@ impl Session {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let resource = tg::Referent::with_item_and_token(id.clone(), authorization.token);
+				let resource = tg::Referent::with_node_and_token(id.clone(), authorization.token);
 				args.push((resource, required));
 				positions.push(position);
 			}
@@ -413,11 +413,11 @@ impl Session {
 			return Ok(outputs);
 		}
 
-		// Authorize the remaining items.
+		// Authorize the remaining nodes.
 		let authorization_outputs = self
 			.authorize_batch(args)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the sync items"))?;
+			.map_err(|error| tg::error!(!error, "failed to authorize the sync nodes"))?;
 		let mut graph = graph.lock().unwrap();
 		for (position, output) in std::iter::zip(positions, authorization_outputs) {
 			if let Some(permissions) = output {

@@ -388,7 +388,7 @@ impl Session {
 				},
 				Variant::File(file) => {
 					for dependency in file.dependencies.values().flatten() {
-						if let Some(edge) = &dependency.item {
+						if let Some(edge) = &dependency.node {
 							match edge {
 								tg::graph::data::Edge::Object(id) => {
 									let Ok(id) = tg::artifact::Id::try_from(id.clone()) else {
@@ -467,7 +467,7 @@ impl Session {
 		}
 
 		progress.spinner("dependencies", "caching dependencies");
-		let artifacts = artifacts.into_iter().map(tg::Referent::with_item).collect();
+		let artifacts = artifacts.into_iter().map(tg::Referent::with_node).collect();
 		let stream = self
 			.cache(tg::cache::Arg { artifacts })
 			.await

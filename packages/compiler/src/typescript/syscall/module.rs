@@ -22,7 +22,7 @@ pub fn invalidated_resolutions(
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		// Only path modules have lockfiles.
-		let tg::module::data::Item::Path(module_path) = &module.referent.item else {
+		let tg::module::data::Source::Path(module_path) = &module.referent.node else {
 			return Ok(false);
 		};
 
@@ -111,7 +111,7 @@ pub fn validate_resolutions(
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		// Only path modules have lockfiles.
-		let tg::module::data::Item::Path(path) = &module.referent.item else {
+		let tg::module::data::Source::Path(path) = &module.referent.node else {
 			return Ok(());
 		};
 

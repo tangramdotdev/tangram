@@ -16,8 +16,8 @@ impl Session {
 		let referent = match referrer {
 			None => Self::resolve_module_without_referrer(&import)
 				.map_err(|error| tg::error!(!error, "failed to resolve module without referrer"))?,
-			Some(referrer) => match referrer.referent.item() {
-				tg::module::data::Item::Edge(edge) => {
+			Some(referrer) => match referrer.referent.node() {
+				tg::module::data::Source::Edge(edge) => {
 					let referrer = referrer.referent.clone().map(|_| edge);
 					self.resolve_module_with_edge_referrer(&referrer, &import)
 						.await
@@ -25,7 +25,7 @@ impl Session {
 							tg::error!(!error, "failed to resolve module with edge referrer")
 						})?
 				},
-				tg::module::data::Item::Path(path) => {
+				tg::module::data::Source::Path(path) => {
 					let referrer = referrer.referent.clone().map(|_| path.as_ref());
 					self.resolve_module_with_path_referrer(&referrer, &import)
 						.await
@@ -41,7 +41,7 @@ impl Session {
 			Some(kind)
 		} else if let Some(path) = referent.path() {
 			tg::module::module_kind_for_path(path).ok()
-		} else if let tg::module::data::Item::Path(path) = referent.item() {
+		} else if let tg::module::data::Source::Path(path) = referent.node() {
 			tg::module::module_kind_for_path(path).ok()
 		} else {
 			None
@@ -51,8 +51,8 @@ impl Session {
 		let kind = if let Some(kind) = kind {
 			kind
 		} else {
-			match referent.item() {
-				tg::module::data::Item::Edge(edge) => match edge.kind() {
+			match referent.node() {
+				tg::module::data::Source::Edge(edge) => match edge.kind() {
 					tg::object::Kind::Blob => tg::module::Kind::Blob,
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
 					tg::object::Kind::File => {
@@ -74,7 +74,7 @@ impl Session {
 					tg::object::Kind::Error => tg::module::Kind::Error,
 				},
 
-				tg::module::data::Item::Path(path) => {
+				tg::module::data::Source::Path(path) => {
 					let metadata = tokio::fs::symlink_metadata(&path)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
@@ -102,8 +102,8 @@ impl Session {
 
 	fn resolve_module_without_referrer(
 		import: &tg::module::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		let edge = reference_item_to_object_edge(import.reference.item())
+	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
+		let edge = reference_node_to_object_edge(import.reference.node())
 			.ok_or_else(|| tg::error!("expected a fully specified import"))?;
 		if import.reference.options().get.is_some() {
 			return Err(tg::error!("expected a fully specified import"));
@@ -111,7 +111,7 @@ impl Session {
 		if import.reference.options().source.is_some() {
 			return Err(tg::error!("expected a fully specified import"));
 		}
-		let item = tg::module::data::Item::Edge(edge);
+		let source = tg::module::data::Source::Edge(edge);
 		let reference_options = import.reference.options();
 		let options = tg::referent::Options {
 			artifact: reference_options.artifact.clone(),
@@ -121,7 +121,10 @@ impl Session {
 			tag: reference_options.tag.clone(),
 			token: reference_options.token.clone(),
 		};
-		let referent = tg::Referent { item, options };
+		let referent = tg::Referent {
+			node: source,
+			options,
+		};
 		Ok(referent)
 	}
 
@@ -129,13 +132,13 @@ impl Session {
 		&self,
 		referrer: &tg::Referent<&tg::graph::data::Edge<tg::object::Id>>,
 		import: &tg::module::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.item.clone())?;
+	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
+		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.node.clone())?;
 		let artifact = tg::Artifact::with_edge(edge);
 		artifact.state().set_token(referrer.options.token.clone());
 		let file =
 			artifact.clone().try_unwrap_file().ok().ok_or_else(
-				|| tg::error!(referrer = %referrer.item, "the referrer must be a file"),
+				|| tg::error!(referrer = %referrer.node, "the referrer must be a file"),
 			)?;
 		let dependency = file
 			.get_dependency_edge_with_handle(self, &import.reference)
@@ -144,14 +147,14 @@ impl Session {
 
 		let edge = dependency
 			.0
-			.item
+			.node
 			.as_ref()
-			.ok_or_else(|| tg::error!("dependency has no resolved item"))?;
+			.ok_or_else(|| tg::error!("dependency has no resolved node"))?;
 		let object = edge.try_unwrap_object_ref().map_or_else(
 			|_| {
 				let pointer = edge
 					.try_unwrap_pointer_ref()
-					.map_err(|_| tg::error!("dependency has no resolved item"))?;
+					.map_err(|_| tg::error!("dependency has no resolved node"))?;
 				Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer.clone()).into())
 			},
 			|object| Ok(object.clone()),
@@ -201,16 +204,16 @@ impl Session {
 						token: dependency.0.token().cloned(),
 					};
 					tg::Referent {
-						item: edge,
+						node: edge,
 						options,
 					}
 				} else if import.kind.is_none() {
-					let item = dependency
+					let node = dependency
 						.0
-						.item
-						.ok_or_else(|| tg::error!("expected a resolved item"))?;
+						.node
+						.ok_or_else(|| tg::error!("expected a resolved node"))?;
 					tg::Referent {
-						item,
+						node,
 						options: dependency.0.options,
 					}
 				} else {
@@ -238,12 +241,12 @@ impl Session {
 				Some(tg::module::Kind::Artifact),
 				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
 			) => {
-				let item = dependency
+				let node = dependency
 					.0
-					.item
-					.ok_or_else(|| tg::error!("expected a resolved item"))?;
+					.node
+					.ok_or_else(|| tg::error!("expected a resolved node"))?;
 				tg::Referent {
-					item,
+					node,
 					options: dependency.0.options,
 				}
 			},
@@ -279,7 +282,7 @@ impl Session {
 			},
 		};
 
-		let mut referent = referent.map(|edge| tg::module::data::Item::Edge(edge.to_data()));
+		let mut referent = referent.map(|edge| tg::module::data::Source::Edge(edge.to_data()));
 		referent.inherit(referrer);
 
 		Ok(referent)
@@ -289,10 +292,10 @@ impl Session {
 		&self,
 		referrer: &tg::Referent<&Path>,
 		import: &tg::module::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
 		let path = import.reference.options().source.as_ref().or(import
 			.reference
-			.item()
+			.node()
 			.try_unwrap_path_ref()
 			.ok());
 		if let Some(path) = path {
@@ -302,7 +305,7 @@ impl Session {
 				path.to_owned()
 			};
 			let path =
-				tangram_util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
+				tangram_util::fs::canonicalize_parent(&referrer.node.parent().unwrap().join(path))
 					.await
 					.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 			let metadata = tokio::fs::symlink_metadata(&path)
@@ -320,15 +323,15 @@ impl Session {
 				.await?
 			{
 				let path = path.join(root_module_name);
-				let item = tg::module::data::Item::Path(path);
-				let referent = tg::Referent::with_item(item);
+				let source = tg::module::data::Source::Path(path);
+				let referent = tg::Referent::with_node(source);
 				return Ok(referent);
 			}
-			let item = tg::module::data::Item::Path(path);
-			let referent = tg::Referent::with_item(item);
+			let source = tg::module::data::Source::Path(path);
+			let referent = tg::Referent::with_node(source);
 			Ok(referent)
 		} else if referrer
-			.item()
+			.node()
 			.file_name()
 			.is_some_and(|name| name == "<repl>.tg.js")
 		{
@@ -341,9 +344,9 @@ impl Session {
 				..Default::default()
 			};
 			let path = if let Some(get) = import.reference.options().get.as_ref() {
-				referrer.item().parent().unwrap().join(get)
+				referrer.node().parent().unwrap().join(get)
 			} else {
-				referrer.item().to_path_buf()
+				referrer.node().to_path_buf()
 			};
 			let updates = Vec::new();
 			let arg = tg::checkin::Arg {
@@ -362,13 +365,13 @@ impl Session {
 				.iter()
 				.find(|entry| {
 					entry.key().principal == self.context.principal
-						&& referrer.item().starts_with(&entry.key().path)
+						&& referrer.node().starts_with(&entry.key().path)
 				})
 				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
 			let graph = entry.value().get_unindexed().graph;
 			let index = graph
 				.paths
-				.get(referrer.item())
+				.get(referrer.node())
 				.ok_or_else(|| tg::error!("failed to find a node for the path"))?;
 			let node = graph.nodes.get(index).unwrap();
 			let edge = node.edge.as_ref().unwrap().clone();
@@ -390,19 +393,19 @@ impl Session {
 	async fn resolve_module_with_repl_referrer(
 		&self,
 		import: &tg::module::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
 		let output = import
 			.reference
 			.get_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the reference"))?;
-		let tg::Referent { item, options } = output;
-		let object = match item {
-			tg::get::Item::Id(id) => {
+		let tg::Referent { node, options } = output;
+		let object = match node {
+			tg::get::Node::Id(id) => {
 				let id = tg::object::Id::try_from(id)?;
 				tg::Object::with_id(id)
 			},
-			tg::get::Item::Pointer(pointer) => {
+			tg::get::Node::Pointer(pointer) => {
 				let graph = pointer
 					.graph
 					.clone()
@@ -476,12 +479,12 @@ impl Session {
 						token: options.token.clone(),
 					};
 					tg::Referent {
-						item: tg::module::data::Item::Edge(edge),
+						node: tg::module::data::Source::Edge(edge),
 						options,
 					}
 				} else if import.kind.is_none() {
 					tg::Referent {
-						item: tg::module::data::Item::Edge(edge),
+						node: tg::module::data::Source::Edge(edge),
 						options,
 					}
 				} else {
@@ -509,7 +512,7 @@ impl Session {
 				Some(tg::module::Kind::Artifact),
 				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
 			) => tg::Referent {
-				item: tg::module::data::Item::Edge(edge),
+				node: tg::module::data::Source::Edge(edge),
 				options,
 			},
 			(
@@ -563,13 +566,13 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		if let Some(referrer) = &mut arg.referrer
 			&& !matches!(referrer.kind, tg::module::Kind::Dts)
-			&& let tg::module::data::Item::Path(path) = &mut referrer.referent.item
+			&& let tg::module::data::Source::Path(path) = &mut referrer.referent.node
 		{
 			*path = self.host_path_for_guest_path(path)?;
 		}
 		let reference = &arg.import.reference;
-		let mut item = reference.item().clone();
-		if let tg::reference::Item::Path(path) = &mut item
+		let mut node = reference.node().clone();
+		if let tg::reference::Node::Path(path) = &mut node
 			&& path.is_absolute()
 		{
 			*path = self.host_path_for_guest_path(path)?;
@@ -581,7 +584,7 @@ impl Session {
 			*source = self.host_path_for_guest_path(source)?;
 		}
 		let export = reference.export().map(str::to_owned);
-		arg.import.reference = tg::Reference::new(item, options, export);
+		arg.import.reference = tg::Reference::new(node, options, export);
 
 		// Resolve the module.
 		let mut output = self
@@ -589,7 +592,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the module"))?;
 		if !matches!(output.module.kind, tg::module::Kind::Dts)
-			&& let tg::module::data::Item::Path(path) = &mut output.module.referent.item
+			&& let tg::module::data::Source::Path(path) = &mut output.module.referent.node
 		{
 			*path = self.guest_path_for_host_path(path)?;
 		}
@@ -618,16 +621,16 @@ impl Session {
 	}
 }
 
-fn reference_item_to_object_edge(
-	item: &tg::reference::Item,
+fn reference_node_to_object_edge(
+	node: &tg::reference::Node,
 ) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-	match item {
-		tg::reference::Item::Id(id) => tg::object::Id::try_from(id.clone())
+	match node {
+		tg::reference::Node::Id(id) => tg::object::Id::try_from(id.clone())
 			.ok()
 			.map(tg::graph::data::Edge::Object),
-		tg::reference::Item::Pointer(pointer) => {
+		tg::reference::Node::Pointer(pointer) => {
 			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
 		},
-		tg::reference::Item::Path(_) | tg::reference::Item::Specifier(_) => None,
+		tg::reference::Node::Path(_) | tg::reference::Node::Specifier(_) => None,
 	}
 }

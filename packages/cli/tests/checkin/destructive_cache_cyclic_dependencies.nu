@@ -27,7 +27,7 @@ snapshot $object '
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
 	            "../bar": {
-	              "item": {
+	              "node": {
 	                "index": 2,
 	                "kind": "directory",
 	              },
@@ -61,7 +61,7 @@ snapshot $object '
 	          "contents": tg.blob("import * as foo from \"../foo\";"),
 	          "dependencies": {
 	            "../foo": {
-	              "item": {
+	              "node": {
 	                "index": 1,
 	                "kind": "directory",
 	              },
@@ -85,7 +85,7 @@ snapshot $object '
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
 	            "../bar": {
-	              "item": {
+	              "node": {
 	                "index": 2,
 	                "kind": "directory",
 	              },
@@ -119,7 +119,7 @@ snapshot $object '
 	          "contents": tg.blob("import * as foo from \"../foo\";"),
 	          "dependencies": {
 	            "../foo": {
-	              "item": {
+	              "node": {
 	                "index": 1,
 	                "kind": "directory",
 	              },

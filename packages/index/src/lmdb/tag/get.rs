@@ -23,23 +23,23 @@ impl Index {
 		Ok(Some(crate::tag::Tag::deserialize(bytes)?))
 	}
 
-	pub(crate) fn get_item_tags_with_transaction(
+	pub(crate) fn get_target_tags_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		item: &[u8],
+		target: &[u8],
 	) -> tg::Result<Vec<tg::tag::Id>> {
-		let prefix = &(Kind::ItemTag.to_i32().unwrap(), item);
+		let prefix = &(Kind::TargetTag.to_i32().unwrap(), target);
 		let prefix = Self::pack(subspace, prefix);
 		let mut tags = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the item tags"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the target tags"))?;
 		for entry in iter {
 			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read the item tag entry"))?;
+				entry.map_err(|error| tg::error!(!error, "failed to read the target tag entry"))?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::Tag(crate::lmdb::tag::Key::ItemTag { tag, .. }) = key else {
+			let Key::Tag(crate::lmdb::tag::Key::TargetTag { tag, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			tags.push(tag);

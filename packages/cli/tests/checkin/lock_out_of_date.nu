@@ -23,7 +23,7 @@ let path = artifact {
 				"kind": "file",
 				"dependencies": {
 					"./a.tg.ts": {
-						"item": { "index": 0, "kind": "directory" },
+						"node": { "index": 0, "kind": "directory" },
 						"path": "./a.tg.ts"
 					}
 				}

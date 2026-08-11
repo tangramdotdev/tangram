@@ -159,7 +159,7 @@ impl Session {
 				},
 			};
 
-			// Get the number of items cleaned.
+			// Get the number of nodes cleaned.
 			let bytes = inner_output.bytes;
 			let cache_entries = inner_output.cache_entries.len().to_u64().unwrap();
 			let objects = inner_output.objects.len().to_u64().unwrap();

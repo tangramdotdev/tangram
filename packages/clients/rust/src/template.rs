@@ -140,7 +140,7 @@ impl Data {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		for component in &self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				children.insert(artifact.item.clone().into());
+				children.insert(artifact.node.clone().into());
 			}
 		}
 	}
@@ -213,7 +213,7 @@ impl Data {
 
 			// Add an artifact component.
 			components.push(tg::template::data::Component::Artifact(
-				tg::Referent::with_item(id),
+				tg::Referent::with_node(id),
 			));
 
 			// Advance the cursor to the end of the match.
@@ -240,7 +240,7 @@ impl Component {
 			Self::Artifact(artifact) => {
 				let id = artifact.id();
 				let token = artifact.state().token();
-				let artifact = tg::Referent::with_item_and_token(id, token);
+				let artifact = tg::Referent::with_node_and_token(id, token);
 				tg::template::data::Component::Artifact(artifact)
 			},
 			Self::Placeholder(placeholder) => {

@@ -336,7 +336,7 @@ impl File {
 			.dependencies
 			.values()
 			.filter_map(|option| option.as_ref())
-			.filter_map(|dependency| dependency.0.item.as_ref())
+			.filter_map(|dependency| dependency.0.node.as_ref())
 			.flat_map(Edge::children);
 		std::iter::once(contents).chain(dependencies).collect()
 	}

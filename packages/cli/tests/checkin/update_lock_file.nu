@@ -15,14 +15,14 @@ let a_path = artifact {
 }
 tg tag -p a/1.1.0 $a_path
 
-let a_id = tg tag get a/1.0.0 | from json | get item.id
+let a_id = tg tag get a/1.0.0 | from json | get target.id
 let lock = {
 	nodes: [
 		{
 			kind: "file",
 			dependencies: {
 				"a/^1": {
-					item: null,
+					node: null,
 					options: {
 						id: $a_id,
 						tag: "a/1.0.0"
@@ -50,7 +50,7 @@ snapshot $object '
 	  "contents": tg.blob("import a from \"a/^1\";"),
 	  "dependencies": {
 	    "a/^1": {
-	      "item": tg.directory({
+	      "node": tg.directory({
 	        "tangram.ts": tg.file({
 	          "contents": tg.blob("// a 1.1.0"),
 	          "module": "ts",
@@ -74,7 +74,7 @@ snapshot $lock '
 	      "kind": "file",
 	      "dependencies": {
 	        "a/^1": {
-	          "item": null,
+	          "node": null,
 	          "options": {
 	            "id": "dir_01baya75taqzrf1y70pcwgqyzznzsfqeqg7d2bgpqdaj0j8xzxfvq0",
 	            "tag": "a/1.1.0"

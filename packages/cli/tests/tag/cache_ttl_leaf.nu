@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A cached leaf tag resolves to the old item within its TTL and resolves to the updated item when fetched with --ttl 0.
+# A cached leaf tag resolves to the old node within its TTL and resolves to the updated node when fetched with --ttl 0.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
@@ -21,10 +21,10 @@ let id2 = tg --url $remote.url checkin $path2
 let new = tg --url $remote.url get $id2 | str trim
 tg --url $remote.url tag put -p "a/b" $id2
 
-# Within the TTL the cached item is returned.
+# Within the TTL the cached node is returned.
 let cached = tg --url $local.url resolve "a/b" | str trim
-assert equal $cached $old "within the TTL the old item should be returned"
+assert equal $cached $old "within the TTL the old node should be returned"
 
-# With --ttl 0 the updated item is returned.
+# With --ttl 0 the updated node is returned.
 let fresh = tg --url $local.url resolve --ttl 0 "a/b" | str trim
-assert equal $fresh $new "with --ttl 0 the new item should be returned"
+assert equal $fresh $new "with --ttl 0 the new node should be returned"

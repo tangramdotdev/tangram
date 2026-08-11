@@ -3,8 +3,8 @@ use tangram_client::prelude::*;
 #[derive(Clone, Debug)]
 pub enum Key {
 	Tag(tg::tag::Id),
-	ItemTag {
-		item: Vec<u8>,
+	TargetTag {
+		target: Vec<u8>,
 		tag: tg::tag::Id,
 	},
 	ParentTag {

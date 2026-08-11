@@ -26,7 +26,7 @@ impl Symlink {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let symlink = Self::with_id(referent.item);
+		let symlink = Self::with_id(referent.node);
 		symlink.state().set_token(referent.options.token);
 
 		symlink

@@ -16,7 +16,7 @@ let path = artifact {
 				cwd: null,
 				sandbox: true,
 			});
-			return typeof arg.command.item !== "string" && arg.command.item.cwd === undefined;
+			return typeof arg.command.node !== "string" && arg.command.node.cwd === undefined;
 		}
 	'
 }

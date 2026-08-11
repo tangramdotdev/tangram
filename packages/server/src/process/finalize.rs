@@ -129,8 +129,8 @@ impl Server {
 	}
 
 	async fn finalizer_handle_entry(&self, entry: &index::finalization::Entry) -> tg::Result<()> {
-		let index::finalization::Item::Process(process) = &entry.item else {
-			return Err(tg::error!("unexpected finalization item"));
+		let index::finalization::Node::Process(process) = &entry.node else {
+			return Err(tg::error!("unexpected finalization node"));
 		};
 		let session = self.session(&self.context);
 		session

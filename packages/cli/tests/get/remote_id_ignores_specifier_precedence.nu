@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Getting by ID finds the exact remote item even when a different local item has the same specifier.
+# Getting by ID finds the exact remote node even when a different local node has the same specifier.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {

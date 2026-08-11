@@ -9,8 +9,8 @@ let alice = tg --url $destination.url login --verbose alice | from json
 let bob = tg --url $destination.url login --verbose bob | from json
 
 tg --url $destination.url --token $alice.token group create parent | ignore
-let item = tg --url $destination.url --token $alice.token put 'tg.file("secret")' | str trim
-tg --url $destination.url --token $alice.token tag put parent/child $item
+let node = tg --url $destination.url --token $alice.token put 'tg.file("secret")' | str trim
+tg --url $destination.url --token $alice.token tag put parent/child $node
 let tag = tg --url $destination.url --token $alice.token tag get parent/child | from json
 tg --url $destination.url --token $alice.token grant $bob.user.id read parent | ignore
 tg --url $destination.url --token $alice.token grant $bob.user.id write parent/child | ignore

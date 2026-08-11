@@ -3,7 +3,7 @@ tg.directory({
     "contents": tg.blob("import * as bar from \"../bar\";"),
     "dependencies": {
       "../bar": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob(""),
             "module": "ts",

@@ -37,7 +37,7 @@ impl Object {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let object = Self::with_id(referent.item);
+		let object = Self::with_id(referent.node);
 		object.state().set_token(referent.options.token);
 
 		object

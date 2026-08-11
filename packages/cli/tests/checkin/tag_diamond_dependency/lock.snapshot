@@ -13,7 +13,7 @@
       "kind": "file",
       "dependencies": {
         "b": {
-          "item": {
+          "node": {
             "index": 2,
             "kind": "directory"
           },
@@ -23,7 +23,7 @@
           }
         },
         "c": {
-          "item": {
+          "node": {
             "index": 3,
             "kind": "directory"
           },
@@ -57,7 +57,7 @@
       "kind": "file",
       "dependencies": {
         "d/^1": {
-          "item": null,
+          "node": null,
           "options": {
             "id": "dir_01q0v36ta7py6406v8ypb8e6tzw4trddq05sgdpszgbyyx9jcytysg",
             "tag": "d/1.1.0"
@@ -70,7 +70,7 @@
       "kind": "file",
       "dependencies": {
         "d/^1.0": {
-          "item": null,
+          "node": null,
           "options": {
             "id": "dir_01q0v36ta7py6406v8ypb8e6tzw4trddq05sgdpszgbyyx9jcytysg",
             "tag": "d/1.1.0"

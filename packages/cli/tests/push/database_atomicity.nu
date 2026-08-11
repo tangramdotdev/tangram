@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A failed sync leaves objects and processes as cache entries but does not commit any database items.
+# A failed sync leaves objects and processes as cache entries but does not commit any database nodes.
 
 let remote = spawn --cloud --name remote
 let local = spawn --busybox --name local
@@ -33,7 +33,7 @@ let pushed = tg push --group-children $sandbox atomic | complete
 failure $pushed
 assert ($pushed.stderr | str contains "expected a finished process")
 
-# Neither database item nor the sandbox is committed after the sync fails.
+# Neither database node nor the sandbox is committed after the sync fails.
 failure (tg --url $remote.url group get atomic | complete)
 failure (tg --url $remote.url sandbox get $sandbox | complete)
 failure (tg --url $remote.url tag get atomic/incomplete | complete)

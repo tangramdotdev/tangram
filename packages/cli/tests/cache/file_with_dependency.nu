@@ -10,7 +10,7 @@ let artifact = '
 		"contents": "foo",
 		"dependencies": {
 			"bar": {
-				"item": tg.file("bar")
+				"node": tg.file("bar")
 			}
 		}
 	})

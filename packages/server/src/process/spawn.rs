@@ -125,7 +125,7 @@ impl Session {
 		arg: &mut tg::process::spawn::Arg,
 		sandbox_host: Option<&str>,
 	) -> tg::Result<tg::Referent<tg::command::Id>> {
-		let id = match &arg.command.item {
+		let id = match &arg.command.node {
 			tg::Either::Left(command_arg) => {
 				let host = command_arg
 					.host
@@ -154,7 +154,7 @@ impl Session {
 			},
 			tg::Either::Right(id) => id.clone(),
 		};
-		arg.command.item = tg::Either::Right(id.clone());
+		arg.command.node = tg::Either::Right(id.clone());
 		let command = tg::Referent::new(id, arg.command.options.clone());
 
 		Ok(command)
@@ -498,8 +498,8 @@ impl Session {
 	) -> tg::Result<()> {
 		let push_arg = tg::push::Arg {
 			destination: location,
-			items: vec![tg::Referent::with_item_and_token(
-				command.item.clone().into(),
+			nodes: vec![tg::Referent::with_node_and_token(
+				command.node.clone().into(),
 				command.token().cloned(),
 			)],
 			process_commands: true,

@@ -312,7 +312,7 @@ impl Runtime {
 					options.promise = true;
 					let module = tg::module::Data {
 						kind: tg::module::Kind::Js,
-						referent: tg::Referent::with_item(tg::module::data::Item::Path(
+						referent: tg::Referent::with_node(tg::module::data::Source::Path(
 							state.arg.cwd.join("<repl>.tg.js"),
 						)),
 					};

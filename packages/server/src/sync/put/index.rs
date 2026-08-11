@@ -7,11 +7,11 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-pub struct ObjectItem {
+pub struct ObjectNode {
 	pub id: tg::object::Id,
 }
 
-pub struct ProcessItem {
+pub struct ProcessNode {
 	pub id: tg::process::Id,
 }
 
@@ -20,8 +20,8 @@ impl Session {
 	pub(super) async fn sync_put_index(
 		&self,
 		state: Arc<State>,
-		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
-		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
+		process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.put.index.object_batch_size;
@@ -33,10 +33,10 @@ impl Session {
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |items| {
+		.try_for_each_concurrent(object_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_put_index_object_batch(&state, items).await }
+			async move { session.sync_put_index_object_batch(&state, nodes).await }
 		});
 
 		// Create the processes future.
@@ -49,10 +49,10 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| {
+		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_put_index_process_batch(&state, items).await }
+			async move { session.sync_put_index_process_batch(&state, nodes).await }
 		});
 
 		// Join the objects and processes futures.
@@ -64,9 +64,9 @@ impl Session {
 	pub(super) async fn sync_put_index_object_batch(
 		&self,
 		state: &State,
-		items: Vec<ObjectItem>,
+		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
-		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
+		let ids = nodes.into_iter().map(|node| node.id).collect::<Vec<_>>();
 		let outputs = self
 			.server
 			.index
@@ -92,9 +92,9 @@ impl Session {
 	pub(super) async fn sync_put_index_process_batch(
 		&self,
 		state: &State,
-		items: Vec<ProcessItem>,
+		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
-		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
+		let ids = nodes.into_iter().map(|node| node.id).collect::<Vec<_>>();
 		let outputs = self
 			.server
 			.index

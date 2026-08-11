@@ -44,21 +44,21 @@ impl Index {
 			.map(crate::tag::Tag::deserialize)
 			.transpose()?;
 		if let Some(tag) = tag.as_ref()
-			&& tag.item != arg.item
+			&& tag.target != arg.target
 		{
-			let item = match &tag.item {
+			let target = match &tag.target {
 				tg::Either::Left(id) => id.to_bytes().to_vec(),
 				tg::Either::Right(id) => id.to_bytes().to_vec(),
 			};
-			let key = Key::Tag(crate::lmdb::tag::Key::ItemTag {
-				item,
+			let key = Key::Tag(crate::lmdb::tag::Key::TargetTag {
+				target,
 				tag: arg.id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the old item tag"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete the old target tag"))?;
 
-			match &tag.item {
+			match &tag.target {
 				tg::Either::Left(id) => {
 					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
 				},
@@ -100,7 +100,7 @@ impl Index {
 		let key = Key::Tag(crate::lmdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let value = crate::tag::Tag {
-			item: arg.item.clone(),
+			target: arg.target.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
 			specifier: arg.specifier.clone(),
@@ -116,17 +116,17 @@ impl Index {
 		db.put(transaction, &key, value.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to put the node"))?;
 
-		let item = match &arg.item {
+		let target = match &arg.target {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
 			tg::Either::Right(id) => id.to_bytes().to_vec(),
 		};
-		let key = Key::Tag(crate::lmdb::tag::Key::ItemTag {
-			item,
+		let key = Key::Tag(crate::lmdb::tag::Key::TargetTag {
+			target,
 			tag: arg.id.clone(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|error| tg::error!(!error, "failed to put the item tag"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the target tag"))?;
 
 		let key = Key::Tag(crate::lmdb::tag::Key::ParentTag {
 			parent: arg.parent.clone(),

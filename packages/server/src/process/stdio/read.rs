@@ -127,7 +127,7 @@ impl Session {
 				let permission = tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::Write,
 				);
-				let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+				let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));

@@ -469,9 +469,9 @@ impl Index {
 				.unwrap();
 			Ok::<_, tg::Error>(count)
 		};
-		let item_tag_future = async {
+		let target_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::TargetTag.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -487,10 +487,14 @@ impl Index {
 				.unwrap();
 			Ok::<_, tg::Error>(count)
 		};
-		let (child_object_count, object_process_count, item_tag_count) =
-			futures::future::try_join3(child_object_future, object_process_future, item_tag_future)
-				.await?;
-		let count = child_object_count + object_process_count + item_tag_count;
+		let (child_object_count, object_process_count, target_tag_count) =
+			futures::future::try_join3(
+				child_object_future,
+				object_process_future,
+				target_tag_future,
+			)
+			.await?;
+		let count = child_object_count + object_process_count + target_tag_count;
 		Ok(count)
 	}
 
@@ -517,9 +521,9 @@ impl Index {
 				.unwrap();
 			Ok::<_, tg::Error>(count)
 		};
-		let item_tag_future = async {
+		let target_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::TargetTag.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -535,9 +539,9 @@ impl Index {
 				.unwrap();
 			Ok::<_, tg::Error>(count)
 		};
-		let (child_process_count, item_tag_count) =
-			futures::future::try_join(child_process_future, item_tag_future).await?;
-		let count = child_process_count + item_tag_count;
+		let (child_process_count, target_tag_count) =
+			futures::future::try_join(child_process_future, target_tag_future).await?;
+		let count = child_process_count + target_tag_count;
 		Ok(count)
 	}
 

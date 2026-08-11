@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Push items.
+/// Push nodes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -44,7 +44,7 @@ pub struct Args {
 	pub sandbox_processes: bool,
 
 	#[command(flatten)]
-	pub tag_items: TagItems,
+	pub tag_targets: TagTargets,
 
 	#[arg(long)]
 	pub user_children: bool,
@@ -113,32 +113,32 @@ impl ProcessOutputs {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct TagItems {
+pub struct TagTargets {
 	#[arg(
 		default_missing_value = "true",
-		id = "push.tag_items.tag_items",
-		long = "tag-items",
+		id = "push.tag_targets.tag_targets",
+		long = "tag-targets",
 		num_args = 0..=1,
-		overrides_with = "push.tag_items.no_tag_items",
+		overrides_with = "push.tag_targets.no_tag_targets",
 		require_equals = true,
 	)]
-	tag_items: Option<bool>,
+	tag_targets: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		id = "push.tag_items.no_tag_items",
-		long = "no-tag-items",
+		id = "push.tag_targets.no_tag_targets",
+		long = "no-tag-targets",
 		num_args = 0..=1,
-		overrides_with = "push.tag_items.tag_items",
+		overrides_with = "push.tag_targets.tag_targets",
 		require_equals = true,
 	)]
-	no_tag_items: Option<bool>,
+	no_tag_targets: Option<bool>,
 }
 
-impl TagItems {
+impl TagTargets {
 	pub fn get(&self) -> bool {
-		self.tag_items
-			.or(self.no_tag_items.map(|value| !value))
+		self.tag_targets
+			.or(self.no_tag_targets.map(|value| !value))
 			.unwrap_or(true)
 	}
 }
@@ -158,29 +158,29 @@ impl Cli {
 				let mut options = reference.options().clone();
 				options.location.clone_from(&reference_location);
 				tg::Reference::new(
-					reference.item().clone(),
+					reference.node().clone(),
 					options,
 					reference.export().map(ToOwned::to_owned),
 				)
 			})
 			.collect::<Vec<_>>();
-		let mut items = Vec::with_capacity(references.len());
+		let mut nodes = Vec::with_capacity(references.len());
 		for reference in &references {
 			let referent = self.get(reference).await?.referent;
-			let tg::get::Item::Id(id) = referent.item else {
-				return Err(tg::error!("expected an item id"));
+			let tg::get::Node::Id(id) = referent.node else {
+				return Err(tg::error!("expected a node id"));
 			};
-			let item = tg::Referent::with_item_and_token(id, referent.options.token);
-			items.push(item);
+			let node = tg::Referent::with_node_and_token(id, referent.options.token);
+			nodes.push(node);
 		}
 
-		// Push the items.
+		// Push the nodes.
 		let arg = tg::push::Arg {
 			ancestors: args.ancestors.get(),
 			destination: destination.clone(),
 			eager: args.eager.get(),
 			group_children: args.group_children,
-			items,
+			nodes,
 			metadata: args.metadata,
 			organization_children: args.organization_children,
 			process_children: args.process_children,
@@ -190,7 +190,7 @@ impl Cli {
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,
 			source: Some(source),
-			tag_items: args.tag_items.get(),
+			tag_targets: args.tag_targets.get(),
 			user_children: args.user_children,
 		};
 		let stream = client

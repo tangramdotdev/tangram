@@ -33,20 +33,20 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.resolve_with_arg(&args.reference, arg).await?;
-		let item = match referent.item {
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => id
+		let target = match referent.node {
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => id
 				.try_into()
-				.map(|id: tg::process::Id| tg::tag::data::Item::from(id))?,
-			tg::get::Item::Id(id) => id
+				.map(|id: tg::process::Id| tg::tag::data::Target::from(id))?,
+			tg::get::Node::Id(id) => id
 				.try_into()
-				.map(|id: tg::object::Id| tg::tag::data::Item::from(id))?,
-			tg::get::Item::Pointer(_) => return Err(tg::error!("expected an ID")),
+				.map(|id: tg::object::Id| tg::tag::data::Target::from(id))?,
+			tg::get::Node::Pointer(_) => return Err(tg::error!("expected an ID")),
 		};
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
 			ancestors: args.ancestors.get(),
-			item,
+			target,
 			location: args.location.get(),
 			public: args.public,
 			specifier: args

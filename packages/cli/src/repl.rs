@@ -39,7 +39,7 @@ impl crate::Cli {
 		let export = None;
 		let module = tg::module::Data {
 			kind: tg::module::Kind::Js,
-			referent: tg::Referent::with_item(tg::module::data::Item::Path(PathBuf::from(
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(PathBuf::from(
 				"<repl>",
 			))),
 		};
@@ -131,7 +131,7 @@ impl crate::Cli {
 					match receiver.await {
 						Ok(Ok(())) => (),
 						Ok(Err(error)) => {
-							self.print_error(tg::Referent::with_item(error)).await;
+							self.print_error(tg::Referent::with_node(error)).await;
 						},
 						Err(error) => {
 							return Err(tg::error!(!error, "failed to receive the repl response"));

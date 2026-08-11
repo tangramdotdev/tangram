@@ -16,7 +16,7 @@ impl Session {
 				kind: tg::module::Kind::Dts,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(path),
+						node: tg::module::data::Source::Path(path),
 						..
 					},
 			} => {
@@ -32,7 +32,7 @@ impl Session {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(path),
+						node: tg::module::data::Source::Path(path),
 						..
 					},
 				..
@@ -49,7 +49,7 @@ impl Session {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Edge(edge),
+						node: tg::module::data::Source::Edge(edge),
 						options,
 					},
 				..
@@ -87,7 +87,10 @@ impl Session {
 					| tg::module::Kind::Symlink
 					| tg::module::Kind::Graph
 					| tg::module::Kind::Command,
-				referent: tg::Referent { item, options },
+				referent: tg::Referent {
+					node: source,
+					options,
+				},
 				..
 			} => {
 				let class = match arg.module.kind {
@@ -105,8 +108,8 @@ impl Session {
 					let token = serde_json::to_string(&token.to_string()).unwrap();
 					format!("tg.Object.inheritToken(object, {token});")
 				});
-				let text = match item {
-					tg::module::data::Item::Edge(edge) => match edge {
+				let text = match source {
+					tg::module::data::Source::Edge(edge) => match edge {
 						tg::graph::data::Edge::Pointer(pointer) => {
 							formatdoc!(
 								r#"
@@ -128,7 +131,7 @@ impl Session {
 							)
 						},
 					},
-					tg::module::data::Item::Path(_) => {
+					tg::module::data::Source::Path(_) => {
 						formatdoc!(
 							r"
 								// @ts-nocheck
@@ -160,7 +163,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		if !matches!(arg.module.kind, tg::module::Kind::Dts)
-			&& let tg::module::data::Item::Path(path) = &mut arg.module.referent.item
+			&& let tg::module::data::Source::Path(path) = &mut arg.module.referent.node
 		{
 			*path = self.host_path_for_guest_path(path)?;
 		}

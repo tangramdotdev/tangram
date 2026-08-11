@@ -168,7 +168,7 @@ impl Index {
 			let update = Update::deserialize(value)?;
 
 			let changed = match &kind {
-				Kind::Item => match &id {
+				Kind::Node => match &id {
 					tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
 					tg::Either::Right(id) => {
 						let process_output =
@@ -1642,7 +1642,7 @@ impl Index {
 		source: Source,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		Self::enqueue_update_with_kind(db, subspace, transaction, id, Kind::Item, source, version)
+		Self::enqueue_update_with_kind(db, subspace, transaction, id, Kind::Node, source, version)
 	}
 
 	pub(super) fn enqueue_update_with_kind(

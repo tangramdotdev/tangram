@@ -11,7 +11,7 @@ let path = artifact {
 				start: { line: 0, character: 0 },
 				end: { line: 0, character: 0 },
 			};
-			let makeModule = (item) => ({ kind: "js", referent: { item, options: {} } });
+			let makeModule = (node) => ({ kind: "js", referent: { node, options: {} } });
 
 			// Each file is reachable only through a distinct error field.
 			let locationFile = await tg.file("location");

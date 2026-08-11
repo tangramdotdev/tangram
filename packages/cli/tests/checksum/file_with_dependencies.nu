@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let file = tg put 'tg.file({ "contents": tg.blob("x"), "dependencies": { "dep": { "item": tg.file("d") } } })' | str trim
+let file = tg put 'tg.file({ "contents": tg.blob("x"), "dependencies": { "dep": { "node": tg.file("d") } } })' | str trim
 let blob = tg put 'tg.blob("x")' | str trim
 
 let file_checksum = tg checksum $file | from json

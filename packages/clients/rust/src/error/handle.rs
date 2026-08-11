@@ -23,7 +23,7 @@ impl Error {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let error = Self::with_id(referent.item);
+		let error = Self::with_id(referent.node);
 		error.state().set_token(referent.options.token);
 
 		error
@@ -40,7 +40,7 @@ impl Error {
 	#[must_use]
 	pub fn with_object(object: impl Into<Arc<Object>>) -> Self {
 		let object: Arc<Object> = object.into();
-		let source = object.source.as_ref().map(|s| match &s.item {
+		let source = object.source.as_ref().map(|s| match &s.node {
 			tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
 			tg::Either::Right(handle) => handle.clone(),
 		});
@@ -54,7 +54,7 @@ impl Error {
 	pub fn with_state(state: tg::object::State) -> Self {
 		let source = state.object().and_then(|object| {
 			let object = object.try_unwrap_error_ref().ok()?;
-			object.source.as_ref().map(|source| match &source.item {
+			object.source.as_ref().map(|source| match &source.node {
 				tg::Either::Left(object) => Box::new(Error::with_object(object.clone())),
 				tg::Either::Right(handle) => handle.clone(),
 			})
@@ -280,7 +280,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 			Err(error) => {
 				let source = error.source().map(|s| {
 					let error: Error = s.into();
-					let item = error
+					let node = error
 						.to_data_or_id()
 						.map_left(|data| {
 							Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
@@ -291,7 +291,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 							}))
 						})
 						.map_right(|id| Box::new(tg::Error::with_id(id)));
-					tg::Referent::with_item(item)
+					tg::Referent::with_node(node)
 				});
 				Self::with_object(Object {
 					code: None,
@@ -311,7 +311,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		let source = value.source().map(|s| {
 			let error: Error = s.into();
-			let item = error
+			let node = error
 				.to_data_or_id()
 				.map_left(|data| {
 					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
@@ -322,7 +322,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			tg::Referent::with_item(item)
+			tg::Referent::with_node(node)
 		});
 		Self::with_object(Object {
 			code: None,

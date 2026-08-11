@@ -16,7 +16,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
 		self.index
-			.enqueue_finalization(&index::finalization::Item::Sandbox(id.clone()))
+			.enqueue_finalization(&index::finalization::Node::Sandbox(id.clone()))
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to enqueue the sandbox finalization"),
@@ -152,8 +152,8 @@ impl Server {
 		&self,
 		entry: &index::finalization::Entry,
 	) -> tg::Result<()> {
-		let index::finalization::Item::Sandbox(sandbox) = &entry.item else {
-			return Err(tg::error!("unexpected finalization item"));
+		let index::finalization::Node::Sandbox(sandbox) = &entry.node else {
+			return Err(tg::error!("unexpected finalization node"));
 		};
 		let session = self.session(&self.context);
 		let indexed = session

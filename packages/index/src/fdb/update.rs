@@ -85,7 +85,7 @@ impl Index {
 			txn,
 			subspace,
 			id,
-			&Kind::Item,
+			&Kind::Node,
 			Source::Put,
 			partition_total,
 		);
@@ -273,7 +273,7 @@ impl Index {
 			let update = Update::deserialize(&value)?;
 
 			let changed = match &kind {
-				Kind::Item => match &id {
+				Kind::Node => match &id {
 					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
 					tg::Either::Right(id) => {
 						let process_output =

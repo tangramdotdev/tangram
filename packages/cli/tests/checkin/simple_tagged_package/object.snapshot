@@ -3,7 +3,7 @@ tg.directory({
     "contents": tg.blob("import a from \"a\";\nexport default tg.command(async () => {\n\treturn await a();\n});"),
     "dependencies": {
       "a": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("export default () => \"a\";"),
             "module": "ts",

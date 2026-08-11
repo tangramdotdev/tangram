@@ -24,12 +24,12 @@ impl Index {
 		Ok(Some(crate::tag::Tag::deserialize(&bytes)?))
 	}
 
-	pub(crate) async fn get_item_tags_with_transaction(
+	pub(crate) async fn get_target_tags_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		item: &[u8],
+		target: &[u8],
 	) -> tg::Result<Vec<tg::tag::Id>> {
-		let key = (Kind::ItemTag.to_i32().unwrap(), item);
+		let key = (Kind::TargetTag.to_i32().unwrap(), target);
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -40,13 +40,13 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the item tags"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the target tags"))?;
 
 		let tags = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Tag(crate::fdb::tag::Key::ItemTag { tag, .. }) = key else {
+				let Key::Tag(crate::fdb::tag::Key::TargetTag { tag, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(tag)

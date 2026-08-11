@@ -3,7 +3,7 @@ tg.directory({
     "contents": tg.blob("import * as cycle from \"cycle\";"),
     "dependencies": {
       "cycle": {
-        "item": {
+        "node": {
           "graph": tg.graph({
             "nodes": [
               {
@@ -11,7 +11,7 @@ tg.directory({
                 "contents": tg.blob("import \"./tangram.ts\";"),
                 "dependencies": {
                   "./tangram.ts": {
-                    "item": {
+                    "node": {
                       "index": 1,
                       "kind": "file",
                     },
@@ -27,7 +27,7 @@ tg.directory({
                 "contents": tg.blob("import \"./foo.tg.ts\";"),
                 "dependencies": {
                   "./foo.tg.ts": {
-                    "item": {
+                    "node": {
                       "index": 0,
                       "kind": "file",
                     },

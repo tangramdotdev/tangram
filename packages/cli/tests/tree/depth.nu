@@ -12,5 +12,5 @@ tg tag root $path
 let output = tg tree root --depth 1
 snapshot --normalize-ids $output '
 	root
-	└╴item: dir_010000000000000000000000000000000000000000000000000000
+	└╴target: dir_010000000000000000000000000000000000000000000000000000
 '

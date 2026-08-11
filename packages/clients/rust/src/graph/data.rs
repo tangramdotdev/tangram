@@ -249,7 +249,7 @@ pub struct Pointer {
 	pub kind: tg::artifact::Kind,
 }
 
-/// A file dependency, wrapping a Referent where the item may be None.
+/// A file dependency, wrapping a Referent where the node may be None.
 #[derive(
 	Clone,
 	Debug,
@@ -272,7 +272,7 @@ impl Dependency {
 	pub fn to_uri(&self) -> Uri {
 		let path = self
 			.0
-			.item
+			.node
 			.as_ref()
 			.map_or_else(String::new, ToString::to_string);
 		let mut builder = Uri::builder().path(&path);
@@ -314,13 +314,13 @@ impl Dependency {
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		let item = if uri.path().is_empty() {
+		let node = if uri.path().is_empty() {
 			None
 		} else {
 			Some(
 				uri.path()
 					.parse()
-					.map_err(|_| tg::error!("failed to parse the item"))?,
+					.map_err(|_| tg::error!("failed to parse the node"))?,
 			)
 		};
 		let mut options = tg::referent::Options::default();
@@ -362,7 +362,7 @@ impl Dependency {
 				}
 			}
 		}
-		Ok(Self(tg::Referent { item, options }))
+		Ok(Self(tg::Referent { node, options }))
 	}
 
 	#[must_use]
@@ -524,8 +524,8 @@ impl File {
 			children.insert(contents.clone().into());
 		}
 		for dependency in self.dependencies.values().flatten() {
-			if let Some(item) = &dependency.item {
-				item.children(children);
+			if let Some(node) = &dependency.node {
+				node.children(children);
 			}
 		}
 	}

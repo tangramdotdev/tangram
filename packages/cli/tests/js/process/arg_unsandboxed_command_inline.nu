@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			let { arg } = await tg.Process.spawnArg({ executable: "echo" });
-			return typeof arg.command.item !== "string" && arg.command.item.host === tg.host.current;
+			return typeof arg.command.node !== "string" && arg.command.node.host === tg.host.current;
 		}
 	'
 }

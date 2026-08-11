@@ -46,7 +46,7 @@ impl Artifact {
 
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
-		let artifact = Self::with_id(referent.item);
+		let artifact = Self::with_id(referent.node);
 		artifact.state().set_token(referent.options.token);
 
 		artifact
@@ -236,7 +236,7 @@ impl Artifact {
 				.dependencies_with_handle(handle)
 				.await?
 				.into_values()
-				.filter_map(|option| option?.0.item?.try_into().ok())
+				.filter_map(|option| option?.0.node?.try_into().ok())
 				.collect()),
 
 			Self::Symlink(symlink) => Ok(symlink

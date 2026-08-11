@@ -80,7 +80,7 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub tag_items: bool,
+	pub tag_targets: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -108,7 +108,7 @@ pub enum Message {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetMessage {
 	#[tangram_serialize(id = 0)]
-	Item(GetItemMessage),
+	Node(GetNodeMessage),
 
 	#[tangram_serialize(id = 1)]
 	Stored(GetStoredMessage),
@@ -121,7 +121,7 @@ pub enum GetMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetItemMessage {
+pub struct GetNodeMessage {
 	#[tangram_serialize(default = "return_true", id = 3, skip_serializing_if = "is_true")]
 	pub descendants: bool,
 
@@ -186,7 +186,7 @@ pub struct GetStoredProcessMessage {
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutMessage {
 	#[tangram_serialize(id = 0)]
-	Item(PutItemMessage),
+	Node(PutNodeMessage),
 
 	#[tangram_serialize(id = 1)]
 	Missing(PutMissingMessage),
@@ -199,31 +199,31 @@ pub enum PutMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum PutItemMessage {
+pub enum PutNodeMessage {
 	#[tangram_serialize(id = 0)]
-	Group(PutItemGroupMessage),
+	Group(PutNodeGroupMessage),
 
 	#[tangram_serialize(id = 1)]
-	Object(PutItemObjectMessage),
+	Object(PutNodeObjectMessage),
 
 	#[tangram_serialize(id = 2)]
-	Organization(PutItemOrganizationMessage),
+	Organization(PutNodeOrganizationMessage),
 
 	#[tangram_serialize(id = 3)]
-	Process(PutItemProcessMessage),
+	Process(PutNodeProcessMessage),
 
 	#[tangram_serialize(id = 4)]
-	Sandbox(PutItemSandboxMessage),
+	Sandbox(PutNodeSandboxMessage),
 
 	#[tangram_serialize(id = 5)]
-	Tag(PutItemTagMessage),
+	Tag(PutNodeTagMessage),
 
 	#[tangram_serialize(id = 6)]
-	User(PutItemUserMessage),
+	User(PutNodeUserMessage),
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemGroupMessage {
+pub struct PutNodeGroupMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::group::Id,
 
@@ -238,7 +238,7 @@ pub struct PutItemGroupMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemObjectMessage {
+pub struct PutNodeObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 
@@ -250,7 +250,7 @@ pub struct PutItemObjectMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemOrganizationMessage {
+pub struct PutNodeOrganizationMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::organization::Id,
 
@@ -262,7 +262,7 @@ pub struct PutItemOrganizationMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemProcessMessage {
+pub struct PutNodeProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
@@ -274,7 +274,7 @@ pub struct PutItemProcessMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemSandboxMessage {
+pub struct PutNodeSandboxMessage {
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,
 
@@ -286,12 +286,12 @@ pub struct PutItemSandboxMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemTagMessage {
+pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
 
 	#[tangram_serialize(id = 1)]
-	pub item: tg::Id,
+	pub target: tg::Id,
 
 	#[tangram_serialize(id = 2)]
 	pub name: String,
@@ -304,7 +304,7 @@ pub struct PutItemTagMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct PutItemUserMessage {
+pub struct PutNodeUserMessage {
 	#[tangram_serialize(id = 0)]
 	pub emails: Vec<String>,
 

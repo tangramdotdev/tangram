@@ -240,7 +240,7 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::tag::Id,
-			item: String,
+			target: String,
 			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
@@ -250,7 +250,7 @@ impl Session {
 		let rows = transaction
 			.query_all_into::<Row>(
 				"
-					select tags.id, tags.item, tags.name, tags.parent, specifiers.specifier
+					select tags.id, tags.target, tags.name, tags.parent, specifiers.specifier
 					from tags
 					join specifiers on specifiers.id = tags.id
 					order by specifiers.specifier;
@@ -262,15 +262,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let mut entries = Vec::new();
 		for row in rows {
-			let item = Self::parse_tag_item(&row.item)?;
-			let item = match item {
-				tg::tag::data::Item::Object(id) => tg::Either::Left(id),
-				tg::tag::data::Item::Process(id) => tg::Either::Right(id),
+			let target = Self::parse_tag_target(&row.target)?;
+			let target = match target {
+				tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+				tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 			};
 			let id = row.id.clone().into();
 			let entry = tg::list::Entry::Tag {
 				id: row.id,
-				item,
+				target,
 				location: Some(tg::Location::Local(tg::location::Local::default())),
 				name: row.name,
 				parent: row.parent,

@@ -45,16 +45,16 @@ impl Index {
 			return Ok(());
 		};
 		let data = crate::tag::Tag::deserialize(&bytes)?;
-		let item = match &data.item {
+		let target = match &data.target {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
 			tg::Either::Right(id) => id.to_bytes().to_vec(),
 		};
-		let item_tag_key = Key::Tag(crate::fdb::tag::Key::ItemTag {
-			item,
+		let target_tag_key = Key::Tag(crate::fdb::tag::Key::TargetTag {
+			target,
 			tag: id.clone(),
 		});
-		let item_tag_key = Self::pack(subspace, &item_tag_key);
-		txn.clear(&item_tag_key);
+		let target_tag_key = Self::pack(subspace, &target_tag_key);
+		txn.clear(&target_tag_key);
 
 		let parent_tag_key = Key::Tag(crate::fdb::tag::Key::ParentTag {
 			parent: data.parent.clone(),
@@ -76,7 +76,7 @@ impl Index {
 		let node_key = Self::pack(subspace, &node_key);
 		txn.clear(&node_key);
 
-		match &data.item {
+		match &data.target {
 			tg::Either::Left(id) => {
 				Self::decrement_object_reference_count(txn, subspace, id, partition_total).await?;
 			},

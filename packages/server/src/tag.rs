@@ -18,7 +18,7 @@ impl Session {
 	) -> tg::Result<tg::tag::Data> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			item: String,
+			target: String,
 			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
@@ -32,7 +32,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select item, name, parent, permissions
+				select target, name, parent, permissions
 				from tags
 				where id = {p}1;
 			"
@@ -41,12 +41,12 @@ impl Session {
 			.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let item = Self::parse_tag_item(&row.item)?;
+		let target = Self::parse_tag_target(&row.target)?;
 		let permissions = serde_json::from_str(&row.permissions)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 		Ok(tg::tag::Data {
 			id: id.clone(),
-			item,
+			target,
 			name: row.name,
 			parent: row.parent,
 			permissions,
@@ -54,32 +54,33 @@ impl Session {
 		})
 	}
 
-	pub(crate) fn parse_tag_item(item: &str) -> tg::Result<tg::tag::data::Item> {
-		item.parse::<tg::Either<tg::object::Id, tg::process::Id>>()
+	pub(crate) fn parse_tag_target(target: &str) -> tg::Result<tg::tag::data::Target> {
+		target
+			.parse::<tg::Either<tg::object::Id, tg::process::Id>>()
 			.map(Into::into)
-			.map_err(|error| tg::error!(!error, "failed to parse the tag item"))
+			.map_err(|error| tg::error!(!error, "failed to parse the tag target"))
 	}
 
-	pub(crate) fn tag_item_to_string(item: &tg::tag::data::Item) -> String {
-		match item {
-			tg::tag::data::Item::Object(id) => id.to_string(),
-			tg::tag::data::Item::Process(id) => id.to_string(),
+	pub(crate) fn tag_target_to_string(target: &tg::tag::data::Target) -> String {
+		match target {
+			tg::tag::data::Target::Object(id) => id.to_string(),
+			tg::tag::data::Target::Process(id) => id.to_string(),
 		}
 	}
 
-	/// Compute the permissions the current principal has on a tag item, to be recorded on the tag.
-	pub(crate) async fn recorded_tag_permissions(
+	/// Compute the permissions the current principal has on a tag target, to be recorded on the tag.
+	pub(crate) async fn recorded_tag_target_permissions(
 		&self,
-		item: &tg::tag::data::Item,
+		target: &tg::tag::data::Target,
 	) -> tg::Result<Vec<tg::grant::Permission>> {
-		let (resource, aspects): (tg::Id, Vec<tg::grant::Permission>) = match item {
-			tg::tag::data::Item::Object(id) => (
+		let (resource, aspects): (tg::Id, Vec<tg::grant::Permission>) = match target {
+			tg::tag::data::Target::Object(id) => (
 				id.clone().into(),
 				vec![tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Node,
 				)],
 			),
-			tg::tag::data::Item::Process(id) => (
+			tg::tag::data::Target::Process(id) => (
 				id.clone().into(),
 				[
 					tg::grant::permission::process::Permission::Node,

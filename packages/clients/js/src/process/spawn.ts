@@ -77,9 +77,9 @@ let spawnArgFromResolvedWithSandbox = async (
 		if (
 			typeof arg.command === "object" &&
 			arg.command !== null &&
-			"item" in arg.command
+			"node" in arg.command
 		) {
-			command_ = tg.Command.expect(arg.command.item);
+			command_ = tg.Command.expect(arg.command.node);
 			options = { ...arg.command.options };
 		} else {
 			command_ = arg.command;
@@ -208,7 +208,7 @@ let spawnArgFromResolvedWithSandbox = async (
 	let commandReferent: tg.Referent<
 		tg.Process.Spawn.CommandArg | tg.Command.Id
 	> = {
-		item: command,
+		node: command,
 		options,
 	};
 
@@ -448,13 +448,13 @@ export let prepareUnsandboxedCommand = async (
 	}
 
 	let command =
-		typeof arg.command.item === "string"
+		typeof arg.command.node === "string"
 			? await tg.Command.withReferent(
 					arg.command as tg.Referent<tg.Command.Id>,
 				).object()
 			: tg.Command.Object.fromData({
-					...arg.command.item,
-					host: arg.command.item.host ?? tg.host.current,
+					...arg.command.node,
+					host: arg.command.node.host ?? tg.host.current,
 				});
 	if (command.stdin !== null) {
 		throw new Error(
@@ -573,7 +573,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		(tg.process.env.COLORTERM !== undefined ||
 			tg.process.env.TERM !== undefined)
 	) {
-		if (typeof arg.command.item === "string") {
+		if (typeof arg.command.node === "string") {
 			let command = await tg.Command.withReferent(
 				arg.command as tg.Referent<tg.Command.Id>,
 			).object();
@@ -595,7 +595,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 					env,
 				});
 				let commandId = await newCommand.store();
-				arg.command.item = commandId;
+				arg.command.node = commandId;
 				let token = newCommand.state.token;
 				arg.command.options = {
 					...arg.command.options,
@@ -603,7 +603,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 				};
 			}
 		} else {
-			let env = { ...arg.command.item.env };
+			let env = { ...arg.command.node.env };
 			let changed = false;
 			for (let name of ["COLORTERM", "TERM"] as const) {
 				let value = tg.process.env[name];
@@ -616,7 +616,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 				}
 			}
 			if (changed) {
-				arg.command.item.env = env;
+				arg.command.node.env = env;
 			}
 		}
 	}
@@ -702,7 +702,7 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifact: tg.Referent.withItemAndToken(artifact, token),
+			artifact: tg.Referent.withNodeAndToken(artifact, token),
 			dependencies: true,
 			force: false,
 		});

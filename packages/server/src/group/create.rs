@@ -113,7 +113,7 @@ impl Session {
 			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
 		};
 		let mut group = self
-			.create_group_item_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
+			.insert_group_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
 			.await?;
 		group.token = self.create_read_token(&group.id.clone().into())?;
 
@@ -136,12 +136,7 @@ impl Session {
 			{
 				Some(id) => id,
 				None => self
-					.create_group_item_with_transaction(
-						transaction,
-						&specifier,
-						parent.as_ref(),
-						batch,
-					)
+					.insert_group_with_transaction(transaction, &specifier, parent.as_ref(), batch)
 					.await?
 					.id
 					.into(),
@@ -155,7 +150,7 @@ impl Session {
 		Ok(parent)
 	}
 
-	async fn create_group_item_with_transaction(
+	async fn insert_group_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
@@ -201,7 +196,7 @@ impl Session {
 					tg::grant::Permission::Group(tg::grant::permission::group::Permission::Admin)
 						.into(),
 				),
-				resource: tg::Referent::with_item(tg::grant::Resource::Id(id.clone().into())),
+				resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;

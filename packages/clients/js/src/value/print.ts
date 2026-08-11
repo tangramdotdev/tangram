@@ -312,9 +312,9 @@ export class Printer {
 			return this.null();
 		}
 		let entries: { [key: string]: Print } = {};
-		if (dependency.item !== null) {
-			let item = dependency.item;
-			entries.item = () => this.graphEdgeObject(item);
+		if (dependency.node !== null) {
+			let node = dependency.node;
+			entries.node = () => this.graphEdgeObject(node);
 		}
 		if (this.hasReferentOptions(dependency.options)) {
 			let options = dependency.options;
@@ -496,16 +496,16 @@ export class Printer {
 
 	private errorSource(source: tg.Referent<tg.Error.Object | tg.Error>): string {
 		if (this.hasReferentOptions(source.options)) {
-			return this.referent(source, (item) => this.errorSourceItem(item));
+			return this.referent(source, (node) => this.errorSourceNode(node));
 		}
-		return this.errorSourceItem(source.item);
+		return this.errorSourceNode(source.node);
 	}
 
-	private errorSourceItem(item: tg.Error.Object | tg.Error): string {
-		if (item instanceof tg.Error) {
-			return this.error(item);
+	private errorSourceNode(node: tg.Error.Object | tg.Error): string {
+		if (node instanceof tg.Error) {
+			return this.error(node);
 		}
-		return this.errorObject(item);
+		return this.errorObject(node);
 	}
 
 	private errorLocation(location: tg.Error.Location): string {
@@ -564,20 +564,20 @@ export class Printer {
 		return this.map({
 			kind: () => this.value(module.kind),
 			referent: () =>
-				this.referent(module.referent, (item) =>
-					typeof item === "string"
-						? this.value(item)
-						: this.graphEdgeObject(item),
+				this.referent(module.referent, (node) =>
+					typeof node === "string"
+						? this.value(node)
+						: this.graphEdgeObject(node),
 				),
 		});
 	}
 
 	private referent<T>(
 		referent: tg.Referent<T>,
-		item: (item: T) => string,
+		node: (node: T) => string,
 	): string {
 		let entries: { [key: string]: Print } = {
-			item: () => item(referent.item),
+			node: () => node(referent.node),
 		};
 		if (this.hasReferentOptions(referent.options)) {
 			let options = referent.options;
@@ -706,7 +706,7 @@ export class Printer {
 	}
 
 	private objectId(state: tg.Object.State): string {
-		let referent = tg.Referent.withItemAndToken(state.id, state.token);
+		let referent = tg.Referent.withNodeAndToken(state.id, state.token);
 		let string = tg.Referent.toDataString(referent, (id) => id);
 		return this.id(string);
 	}

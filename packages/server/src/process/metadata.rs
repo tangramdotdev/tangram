@@ -71,7 +71,7 @@ impl Session {
 		metadata: tg::process::Metadata,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let requested =
 			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
 		let Some(permissions) = self.authorize(resource, requested).await? else {

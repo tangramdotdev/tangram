@@ -4,7 +4,7 @@ export let start = async (): Promise<tg.Value.Data> => {
 	// Import the module.
 	let specifier = tg.Referent.toDataString(
 		tg.process.module.referent,
-		tg.Module.Item.toDataString,
+		tg.Module.Source.toDataString,
 	);
 	let attributes = { kind: tg.process.module.kind };
 	let export_ = tg.process.export;

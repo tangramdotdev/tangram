@@ -80,8 +80,8 @@ snapshot --normalize --name "list_test_recursive" $output
 
 # Get test/1.2.0 (exact tag).
 let tag = tg tag get "test/1.2.0" | from json
-assert equal $tag.item.id $id
-assert equal $tag.item.kind object
+assert equal $tag.target.id $id
+assert equal $tag.target.kind object
 assert equal $tag.name "1.2.0"
 assert equal $tag.specifier "test/1.2.0"
 

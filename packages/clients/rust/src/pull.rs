@@ -22,7 +22,7 @@ pub struct Arg {
 	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub items: Vec<tg::Referent<tg::Id>>,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
@@ -52,7 +52,7 @@ pub struct Arg {
 	pub source: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub tag_items: bool,
+	pub tag_targets: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub user_children: bool,
@@ -67,7 +67,7 @@ impl Default for Arg {
 			destination: Some(tg::Location::Local(tg::location::Local::default())),
 			eager: true,
 			group_children: false,
-			items: Vec::new(),
+			nodes: Vec::new(),
 			metadata: false,
 			organization_children: false,
 			process_children: false,
@@ -80,7 +80,7 @@ impl Default for Arg {
 				name: "default".to_owned(),
 				region: None,
 			})),
-			tag_items: true,
+			tag_targets: true,
 			user_children: false,
 		}
 	}
@@ -93,7 +93,7 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			destination: value.destination,
 			eager: value.eager,
 			group_children: value.group_children,
-			items: value.items,
+			nodes: value.nodes,
 			metadata: value.metadata,
 			organization_children: value.organization_children,
 			process_children: value.process_children,
@@ -103,7 +103,7 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			process_outputs: value.process_outputs,
 			sandbox_processes: value.sandbox_processes,
 			source: value.source,
-			tag_items: value.tag_items,
+			tag_targets: value.tag_targets,
 			user_children: value.user_children,
 		}
 	}

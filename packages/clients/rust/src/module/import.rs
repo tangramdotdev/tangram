@@ -75,7 +75,7 @@ impl Import {
 			tag: tag.or(reference.options().tag.clone()),
 			token: reference.options().token.clone(),
 		};
-		let reference = tg::Reference::with_item_and_options(reference.item().clone(), options);
+		let reference = tg::Reference::with_node_and_options(reference.node().clone(), options);
 
 		let import = Import { kind, reference };
 

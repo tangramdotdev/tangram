@@ -21,7 +21,7 @@ snapshot $object '
 	  "contents": tg.blob("import \"foo\""),
 	  "dependencies": {
 	    "foo": {
-	      "item": tg.file({
+	      "node": tg.file({
 	        "contents": tg.blob(""),
 	        "module": "ts",
 	      }),

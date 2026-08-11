@@ -45,7 +45,7 @@ impl Cli {
 		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = self.resolve_process(&args.process).await?;
-		let id = process.item;
+		let id = process.node;
 		let arg = tg::process::status::Arg {
 			location: locations,
 			timeout: args.timeout.get(),

@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Display a tree for an item.
+/// Display a tree for a node.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

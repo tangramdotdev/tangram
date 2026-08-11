@@ -929,7 +929,7 @@ impl Compiler {
 					.to_data_artifact()
 					.into()
 			};
-			let item = tg::module::data::Item::Edge(edge);
+			let source = tg::module::data::Source::Edge(edge);
 			let options = if path.as_os_str().is_empty() {
 				tg::referent::Options::default()
 			} else {
@@ -942,7 +942,10 @@ impl Compiler {
 					token: None,
 				}
 			};
-			let referent = tg::Referent { item, options };
+			let referent = tg::Referent {
+				node: source,
+				options,
+			};
 			let module = tg::module::Data { kind, referent };
 
 			return Ok(module);
@@ -951,8 +954,8 @@ impl Compiler {
 		// Handle a path in the library directory.
 		if let Ok(path) = path.strip_prefix(&self.library_path) {
 			let kind = tg::module::Kind::Dts;
-			let item = tg::module::data::Item::Path(path.to_owned());
-			let referent = tg::Referent::with_item(item);
+			let source = tg::module::data::Source::Path(path.to_owned());
+			let referent = tg::Referent::with_node(source);
 			let module = tg::module::Data { kind, referent };
 			return Ok(module);
 		}
@@ -1062,7 +1065,7 @@ impl Compiler {
 				.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
 
 			// Create the referent.
-			let item = tg::module::data::Item::Edge(edge);
+			let source = tg::module::data::Source::Edge(edge);
 			let path = if relative_path.as_os_str().is_empty() {
 				None
 			} else {
@@ -1076,7 +1079,10 @@ impl Compiler {
 				tag: Some(tag),
 				token: None,
 			};
-			let referent = tg::Referent { item, options };
+			let referent = tg::Referent {
+				node: source,
+				options,
+			};
 			let module = tg::module::Data { kind, referent };
 
 			return Ok(module);
@@ -1094,7 +1100,7 @@ impl Compiler {
 		let kind = tg::module::module_kind_for_path(file_name)?;
 		let module = tg::module::Data {
 			kind,
-			referent: tg::Referent::with_item(tg::module::data::Item::Path(path.to_owned())),
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
 		};
 
 		Ok(module)
@@ -1106,7 +1112,7 @@ impl Compiler {
 				kind: tg::module::Kind::Dts,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(path),
+						node: tg::module::data::Source::Path(path),
 						..
 					},
 				..
@@ -1136,7 +1142,7 @@ impl Compiler {
 				kind,
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Edge(edge),
+						node: tg::module::data::Source::Edge(edge),
 						options,
 					},
 			} => {
@@ -1166,7 +1172,7 @@ impl Compiler {
 					};
 					let artifact = id.clone().try_into()?;
 					let artifact =
-						tg::Referent::with_item_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1267,7 +1273,7 @@ impl Compiler {
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					let artifact = id.clone().try_into()?;
 					let artifact =
-						tg::Referent::with_item_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1285,7 +1291,7 @@ impl Compiler {
 						_ => None,
 					};
 					let artifact =
-						tg::Referent::with_item_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_token(artifact, options.token.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1305,7 +1311,7 @@ impl Compiler {
 			tg::module::Data {
 				referent:
 					tg::Referent {
-						item: tg::module::data::Item::Path(path),
+						node: tg::module::data::Source::Path(path),
 						..
 					},
 				..

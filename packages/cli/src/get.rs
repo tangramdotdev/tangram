@@ -61,7 +61,7 @@ impl Cli {
 			options.location = Some(location);
 		}
 		let reference =
-			tg::Reference::with_item_and_options(args.reference.item().clone(), options);
+			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
 		let arg = tg::get::Arg {
 			cached: args.cached,
 			ttl: args.ttl.get(),
@@ -75,14 +75,14 @@ impl Cli {
 	pub(crate) async fn print_get_output(
 		&mut self,
 		args: Args,
-		referent: tg::Referent<tg::get::Item>,
+		referent: tg::Referent<tg::get::Node>,
 	) -> tg::Result<()> {
 		let locations = args.locations;
 		let print = args.print;
 		self.print_info_message(&referent.without_token().to_string());
-		let kind = match referent.item() {
-			tg::get::Item::Id(id) => Some(id.kind()),
-			tg::get::Item::Pointer(_) => None,
+		let kind = match referent.node() {
+			tg::get::Node::Id(id) => Some(id.kind()),
+			tg::get::Node::Pointer(_) => None,
 		};
 		if kind.is_some_and(|kind| {
 			matches!(
@@ -96,12 +96,12 @@ impl Cli {
 					| tg::id::Kind::Error
 			)
 		}) {
-			let object = referent.try_map::<tg::object::Id, _>(|item| match item {
-				tg::get::Item::Id(id) => id.try_into(),
-				tg::get::Item::Pointer(_) => unreachable!(),
+			let object = referent.try_map::<tg::object::Id, _>(|node| match node {
+				tg::get::Node::Id(id) => id.try_into(),
+				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let object = tg::Reference::with_item_and_token(
-				tg::reference::Item::Id(object.item.into()),
+			let object = tg::Reference::with_node_and_token(
+				tg::reference::Node::Id(object.node.into()),
 				object.options.token,
 			);
 			let args = crate::object::get::Args {
@@ -117,12 +117,12 @@ impl Cli {
 			return Ok(());
 		}
 		if kind == Some(tg::id::Kind::Process) {
-			let process = referent.try_map::<tg::process::Id, _>(|item| match item {
-				tg::get::Item::Id(id) => id.try_into(),
-				tg::get::Item::Pointer(_) => unreachable!(),
+			let process = referent.try_map::<tg::process::Id, _>(|node| match node {
+				tg::get::Node::Id(id) => id.try_into(),
+				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_item_and_token(
-				tg::reference::Item::Id(process.item.into()),
+			let process = tg::Reference::with_node_and_token(
+				tg::reference::Node::Id(process.node.into()),
 				process.options.token,
 			);
 			let args = crate::process::get::Args {
@@ -136,8 +136,8 @@ impl Cli {
 
 			return Ok(());
 		}
-		match referent.item {
-			tg::get::Item::Id(id) => match id.kind() {
+		match referent.node {
+			tg::get::Node::Id(id) => match id.kind() {
 				tg::id::Kind::User => {
 					let args = crate::user::get::Args {
 						cached: args.cached,
@@ -192,7 +192,7 @@ impl Cli {
 					self.print_serde(id, print).await?;
 				},
 			},
-			tg::get::Item::Pointer(pointer) => {
+			tg::get::Node::Pointer(pointer) => {
 				self.print_serde(pointer, print).await?;
 			},
 		}
@@ -202,7 +202,7 @@ impl Cli {
 	pub(crate) async fn resolve(
 		&mut self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::get::Item>> {
+	) -> tg::Result<tg::Referent<tg::get::Node>> {
 		self.resolve_with_arg(reference, tg::resolve::Arg::default())
 			.boxed()
 			.await
@@ -213,11 +213,11 @@ impl Cli {
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::artifact::Id>> {
 		let referent = self.resolve(reference).await?;
-		let referent = referent.try_map(|item| match item {
-			tg::get::Item::Id(id) => id
+		let referent = referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => id
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact")),
-			tg::get::Item::Pointer(_) => Err(tg::error!("expected an artifact")),
+			tg::get::Node::Pointer(_) => Err(tg::error!("expected an artifact")),
 		})?;
 		Ok(referent)
 	}
@@ -227,9 +227,9 @@ impl Cli {
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::object::Id>> {
 		let referent = self.resolve(reference).await?;
-		let referent = referent.try_map(|item| match item {
-			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
-			tg::get::Item::Pointer(_) => Err(tg::error!("expected an object")),
+		let referent = referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
+			tg::get::Node::Pointer(_) => Err(tg::error!("expected an object")),
 		})?;
 		Ok(referent)
 	}
@@ -239,9 +239,9 @@ impl Cli {
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::process::Id>> {
 		let referent = self.resolve(reference).await?;
-		let referent = referent.try_map(|item| match item {
-			tg::get::Item::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
-			tg::get::Item::Pointer(_) => Err(tg::error!("expected a process")),
+		let referent = referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
+			tg::get::Node::Pointer(_) => Err(tg::error!("expected a process")),
 		})?;
 		Ok(referent)
 	}
@@ -259,10 +259,10 @@ impl Cli {
 	) -> tg::Result<tg::get::Output> {
 		let token = reference.options().token.clone();
 		let direct_reference =
-			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
+			tg::Reference::with_node_and_token(reference.node().clone(), token.clone());
 		if reference == &direct_reference {
-			match reference.item() {
-				tg::reference::Item::Id(id)
+			match reference.node() {
+				tg::reference::Node::Id(id)
 					if token.is_some()
 						|| !matches!(
 							id.kind(),
@@ -272,8 +272,8 @@ impl Cli {
 								| tg::id::Kind::User
 						) =>
 				{
-					let referent = tg::Referent::with_item_and_token(
-						tg::get::Item::Id(id.clone()),
+					let referent = tg::Referent::with_node_and_token(
+						tg::get::Node::Id(id.clone()),
 						token.clone(),
 					);
 					let output = tg::get::Output {
@@ -283,9 +283,9 @@ impl Cli {
 
 					return Ok(output);
 				},
-				tg::reference::Item::Pointer(pointer) => {
-					let referent = tg::Referent::with_item_and_token(
-						tg::get::Item::Pointer(pointer.clone()),
+				tg::reference::Node::Pointer(pointer) => {
+					let referent = tg::Referent::with_node_and_token(
+						tg::get::Node::Pointer(pointer.clone()),
 						token,
 					);
 					let output = tg::get::Output {
@@ -303,19 +303,19 @@ impl Cli {
 
 		// Determine if the path is relative.
 		let relative = reference
-			.item()
+			.node()
 			.try_unwrap_path_ref()
 			.is_ok_and(|path| path.is_relative());
 
 		// Make the path absolute.
-		let mut item = reference.item().clone();
+		let mut node = reference.node().clone();
 		let options = reference.options().clone();
-		if let tg::reference::Item::Path(path) = &mut item {
+		if let tg::reference::Node::Path(path) = &mut node {
 			*path = tangram_util::fs::canonicalize_parent(&path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		}
-		let reference = tg::Reference::with_item_and_options(item, options);
+		let reference = tg::Reference::with_node_and_options(node, options);
 
 		// Get the reference.
 		let stream = client
@@ -345,13 +345,13 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::resolve::Arg,
-	) -> tg::Result<tg::Referent<tg::resolve::Item>> {
+	) -> tg::Result<tg::Referent<tg::resolve::Node>> {
 		let token = reference.options().token.clone();
 		let direct_reference =
-			tg::Reference::with_item_and_token(reference.item().clone(), token.clone());
+			tg::Reference::with_node_and_token(reference.node().clone(), token.clone());
 		if reference == &direct_reference {
-			match reference.item() {
-				tg::reference::Item::Id(id)
+			match reference.node() {
+				tg::reference::Node::Id(id)
 					if token.is_some()
 						|| !matches!(
 							id.kind(),
@@ -361,16 +361,16 @@ impl Cli {
 								| tg::id::Kind::User
 						) =>
 				{
-					let referent = tg::Referent::with_item_and_token(
-						tg::resolve::Item::Id(id.clone()),
+					let referent = tg::Referent::with_node_and_token(
+						tg::resolve::Node::Id(id.clone()),
 						token.clone(),
 					);
 
 					return Ok(referent);
 				},
-				tg::reference::Item::Pointer(pointer) => {
-					let referent = tg::Referent::with_item_and_token(
-						tg::resolve::Item::Pointer(pointer.clone()),
+				tg::reference::Node::Pointer(pointer) => {
+					let referent = tg::Referent::with_node_and_token(
+						tg::resolve::Node::Pointer(pointer.clone()),
 						token,
 					);
 
@@ -382,17 +382,17 @@ impl Cli {
 
 		let client = self.client().await?;
 		let relative = reference
-			.item()
+			.node()
 			.try_unwrap_path_ref()
 			.is_ok_and(|path| path.is_relative());
-		let mut item = reference.item().clone();
+		let mut node = reference.node().clone();
 		let options = reference.options().clone();
-		if let tg::reference::Item::Path(path) = &mut item {
+		if let tg::reference::Node::Path(path) = &mut node {
 			*path = tangram_util::fs::canonicalize_parent(&path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		}
-		let reference = tg::Reference::with_item_and_options(item, options);
+		let reference = tg::Reference::with_node_and_options(node, options);
 		let stream = client
 			.resolve(&reference, arg)
 			.await
@@ -416,7 +416,7 @@ impl Cli {
 	pub(crate) async fn resolve_references(
 		&mut self,
 		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<tg::get::Item>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::get::Node>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
 			let referent = self.resolve(reference).await?;
@@ -443,7 +443,7 @@ impl Cli {
 		// Get the reference.
 		let referent = self.resolve(reference).await?;
 		let mut referent = referent.into_graph_edge()?;
-		let module = match referent.item.clone() {
+		let module = match referent.node.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
 				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
 					&client,
@@ -459,12 +459,12 @@ impl Cli {
 					referent.options.path.replace(root_module_name.into());
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
-				let item = directory
+				let edge = directory
 					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = referent.map(|_| item);
+				let source = tg::module::Source::Edge(edge.into());
+				let referent = referent.map(|_| source);
 				tg::Module { kind, referent }
 			},
 
@@ -476,10 +476,10 @@ impl Cli {
 					return Err(tg::error!("expected a module path"));
 				}
 				let kind = tg::module::module_kind_for_path(path).unwrap();
-				let item = file.clone().into();
-				let item = tg::graph::Edge::Object(item);
-				let item = tg::module::Item::Edge(item);
-				let referent = referent.map(|_| item);
+				let object = file.clone().into();
+				let edge = tg::graph::Edge::Object(object);
+				let source = tg::module::Source::Edge(edge);
+				let referent = referent.map(|_| source);
 				tg::Module { kind, referent }
 			},
 
@@ -503,12 +503,12 @@ impl Cli {
 					referent.options.path.replace(root_module_name.into());
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
-				let item = directory
+				let edge = directory
 					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = referent.map(|_| item);
+				let source = tg::module::Source::Edge(edge.into());
+				let referent = referent.map(|_| source);
 				tg::Module { kind, referent }
 			},
 
@@ -520,8 +520,8 @@ impl Cli {
 					return Err(tg::error!("expected a module path"));
 				}
 				let kind = tg::module::module_kind_for_path(path).unwrap();
-				let item = tg::module::Item::Edge(tg::graph::Edge::Pointer(pointer.clone()));
-				let referent = referent.map(|_| item);
+				let source = tg::module::Source::Edge(tg::graph::Edge::Pointer(pointer.clone()));
+				let referent = referent.map(|_| source);
 				tg::Module { kind, referent }
 			},
 

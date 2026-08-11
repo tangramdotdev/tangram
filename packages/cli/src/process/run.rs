@@ -151,25 +151,25 @@ impl Cli {
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
-			process.item().detach();
+			process.node().detach();
 			if options.verbose {
 				let output = tg::process::spawn::Output {
-					cached: process.item().cached().unwrap_or(false),
-					lease: process.item().lease().cloned(),
+					cached: process.node().cached().unwrap_or(false),
+					lease: process.node().lease().cloned(),
 					location: process
-						.item()
+						.node()
 						.location()
 						.and_then(|location| location.to_location()),
-					process: process.item().id().cloned(),
-					token: process.item().token(),
-					wait: process.item().wait_output(),
+					process: process.node().id().cloned(),
+					token: process.node().token(),
+					wait: process.node().wait_output(),
 				};
 				let value = serde_json::to_value(output)
 					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
 					.into();
 				return Ok(value);
 			}
-			return Ok(process.item().id().to_string().into());
+			return Ok(process.node().id().to_string().into());
 		}
 
 		// Spawn the view task if necessary.
@@ -227,7 +227,7 @@ impl Cli {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
 						process
-							.item()
+							.node()
 							.cancel_with_handle(&client)
 							.await
 							.inspect_err(|error| {
@@ -245,11 +245,11 @@ impl Cli {
 
 		// Await the process.
 		let arg = tg::process::wait::Arg {
-			lease: process.item().lease().cloned(),
+			lease: process.node().lease().cloned(),
 			..tg::process::wait::Arg::default()
 		};
 		let wait = process
-			.item()
+			.node()
 			.wait_with_handle(&client, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
@@ -309,7 +309,7 @@ impl Cli {
 			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
 				source: Some(process.clone().map(|_| error)),
-				values: [("id".to_owned(), process.item().id().to_string())].into(),
+				values: [("id".to_owned(), process.node().id().to_string())].into(),
 				..Default::default()
 			});
 			return Err(error);
@@ -343,7 +343,7 @@ impl Cli {
 				None
 			};
 			let artifact =
-				tg::Referent::with_item_and_token(artifact.id(), artifact.state().token());
+				tg::Referent::with_node_and_token(artifact.id(), artifact.state().token());
 			let arg = tg::checkout::Arg {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),
@@ -353,11 +353,11 @@ impl Cli {
 				path,
 			};
 			let stream = client.checkout(arg).await.map_err(
-				|error| tg::error!(!error, artifact = %artifact.item, "failed to check out the artifact"),
+				|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
 			)?;
 			let tg::checkout::Output { path, .. } =
 				self.render_progress_stream(stream).await.map_err(
-					|error| tg::error!(!error, artifact = %artifact.item, "failed to check out the artifact"),
+					|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
 				)?;
 			let value = path.display().to_string().into();
 			return Ok(value);

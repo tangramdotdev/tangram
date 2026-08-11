@@ -38,61 +38,61 @@ impl Namespace {
 
 impl Session {
 	pub(super) async fn sync_get_database(&self, graph: &Arc<Mutex<Graph>>) -> tg::Result<()> {
-		// Get the staged items.
-		let (mut items, replacement_ids) = {
+		// Get the staged nodes.
+		let (mut nodes, replacement_ids) = {
 			let graph = graph.lock().unwrap();
-			let items = graph
+			let nodes = graph
 				.local_messages()
 				.into_iter()
-				.filter(|item| !matches!(item, tg::sync::PutItemMessage::Sandbox(_)))
+				.filter(|node| !matches!(node, tg::sync::PutNodeMessage::Sandbox(_)))
 				.collect::<Vec<_>>();
 			let replacement_ids = graph.local_replacements().clone();
-			(items, replacement_ids)
+			(nodes, replacement_ids)
 		};
-		if items.is_empty() {
+		if nodes.is_empty() {
 			return Ok(());
 		}
 
 		// Authorize the writes.
-		self.sync_get_database_authorize(&items, &replacement_ids)
+		self.sync_get_database_authorize(&nodes, &replacement_ids)
 			.await?;
 
-		// Finalize the tag item permissions in the graph.
-		self.sync_get_database_update_tag_item_permissions(graph, &items)
+		// Finalize the tag node permissions in the graph.
+		self.sync_get_database_update_tag_target_permissions(graph, &nodes)
 			.await?;
-		let tag_permissions = self.sync_get_database_tag_permissions(graph, &items)?;
+		let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
 
-		// Sort the items so that parents are written before their children.
-		items.sort_by_key(Self::sync_get_database_item_depth);
+		// Sort the nodes so that parents are written before their children.
+		nodes.sort_by_key(Self::sync_get_database_node_depth);
 
-		// Write all of the items and enqueue their index mutations atomically.
+		// Write all of the nodes and enqueue their index mutations atomically.
 		let session = self.clone();
 		self.server
 			.database
 			.run(|transaction| {
-				let items = items.clone();
+				let nodes = nodes.clone();
 				let replacement_ids = replacement_ids.clone();
 				let session = session.clone();
 				let tag_permissions = tag_permissions.clone();
 				async move {
 					let mut batch = tangram_index::batch::Arg::default();
 					let mut namespace =
-						Self::sync_get_database_namespace_with_transaction(transaction, &items)
+						Self::sync_get_database_namespace_with_transaction(transaction, &nodes)
 							.await?;
 					session
-						.sync_get_database_replace_items_with_transaction(
+						.sync_get_database_replace_nodes_with_transaction(
 							transaction,
-							&items,
+							&nodes,
 							&mut namespace,
 							&replacement_ids,
 							&mut batch,
 						)
 						.await?;
-					for item in &items {
+					for node in &nodes {
 						let created = session
-							.sync_get_database_item_with_transaction(
+							.sync_get_database_node_with_transaction(
 								transaction,
-								item,
+								node,
 								&mut namespace,
 								&tag_permissions,
 								&mut batch,
@@ -100,7 +100,7 @@ impl Session {
 							.await?;
 						if created
 							&& let Some(arg) = session.sync_get_create_temporary_grant(
-								&Self::sync_get_database_item_id(item)?,
+								&Self::sync_get_database_node_id(node)?,
 							)? {
 							batch.items.push(tangram_index::batch::Item::PutGrant(arg));
 						}
@@ -120,7 +120,7 @@ impl Session {
 
 	async fn sync_get_database_authorize(
 		&self,
-		items: &[tg::sync::PutItemMessage],
+		nodes: &[tg::sync::PutNodeMessage],
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 	) -> tg::Result<()> {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
@@ -128,13 +128,13 @@ impl Session {
 		}
 
 		// Inspect the local namespace after waiting for pending mutations when replacement is possible.
-		let ids = items
+		let ids = nodes
 			.iter()
-			.map(Self::sync_get_database_item_id)
+			.map(Self::sync_get_database_node_id)
 			.collect::<tg::Result<Vec<_>>>()?;
-		let specifiers = items
+		let specifiers = nodes
 			.iter()
-			.map(|item| Self::sync_get_database_item_specifier(item).cloned())
+			.map(|node| Self::sync_get_database_node_specifier(node).cloned())
 			.collect::<tg::Result<Vec<_>>>()?;
 		let output = if replacement_ids.is_empty() {
 			self.try_get_nodes_from_index(&ids, &specifiers).await?
@@ -273,23 +273,23 @@ impl Session {
 			.all(|component| components.next() == Some(component))
 	}
 
-	async fn sync_get_database_update_tag_item_permissions(
+	async fn sync_get_database_update_tag_target_permissions(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
-		items: &[tg::sync::PutItemMessage],
+		nodes: &[tg::sync::PutNodeMessage],
 	) -> tg::Result<()> {
 		let mut objects = BTreeSet::new();
 		let mut processes = BTreeSet::new();
-		for item in items {
-			let tg::sync::PutItemMessage::Tag(message) = item else {
+		for node in nodes {
+			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
-			if let Ok(id) = tg::object::Id::try_from(message.item.clone()) {
+			if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
 				objects.insert(id);
-			} else if let Ok(id) = tg::process::Id::try_from(message.item.clone()) {
+			} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
 				processes.insert(id);
 			} else {
-				return Err(tg::error!("invalid tag item"));
+				return Err(tg::error!("invalid tag target"));
 			}
 		}
 
@@ -329,23 +329,23 @@ impl Session {
 	fn sync_get_database_tag_permissions(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
-		items: &[tg::sync::PutItemMessage],
+		nodes: &[tg::sync::PutNodeMessage],
 	) -> tg::Result<BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>> {
 		let mut outputs = BTreeMap::new();
 		let mut graph = graph.lock().unwrap();
-		for item in items {
-			let tg::sync::PutItemMessage::Tag(message) = item else {
+		for node in nodes {
+			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
 			let (aspects, permissions) =
-				if let Ok(id) = tg::object::Id::try_from(message.item.clone()) {
+				if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
 					let aspects = vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Node,
 					)];
 					let required = tg::grant::permission::Set::from_permission(aspects[0]);
 					let authorization = graph.get_object_local_authorization(&id, required);
 					(aspects, authorization.permissions)
-				} else if let Ok(id) = tg::process::Id::try_from(message.item.clone()) {
+				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
 					let aspects = [
 						tg::grant::permission::process::Permission::Node,
 						tg::grant::permission::process::Permission::NodeCommand,
@@ -365,7 +365,7 @@ impl Session {
 					let authorization = graph.get_process_local_authorization(&id, required);
 					(aspects, authorization.permissions)
 				} else {
-					return Err(tg::error!("invalid tag item"));
+					return Err(tg::error!("invalid tag target"));
 				};
 			let permissions = if matches!(self.context.principal, tg::Principal::Root) {
 				aspects
@@ -390,14 +390,14 @@ impl Session {
 
 	async fn sync_get_database_namespace_with_transaction(
 		transaction: &Transaction<'_>,
-		items: &[tg::sync::PutItemMessage],
+		nodes: &[tg::sync::PutNodeMessage],
 	) -> tg::Result<Namespace> {
 		// Collect the relevant IDs and specifiers.
 		let mut ids = BTreeSet::new();
 		let mut specifiers = BTreeSet::new();
-		for item in items {
-			let id = Self::sync_get_database_item_id(item)?;
-			let specifier = Self::sync_get_database_item_specifier(item)?;
+		for node in nodes {
+			let id = Self::sync_get_database_node_id(node)?;
+			let specifier = Self::sync_get_database_node_specifier(node)?;
 			ids.insert(id.to_string());
 			specifiers.insert(specifier.to_string());
 			if let Some(parent) = specifier.parent() {
@@ -467,29 +467,29 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_database_replace_items_with_transaction(
+	async fn sync_get_database_replace_nodes_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		items: &[tg::sync::PutItemMessage],
+		nodes: &[tg::sync::PutNodeMessage],
 		namespace: &mut Namespace,
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		// Find the current conflicts.
 		let mut roots = BTreeMap::new();
-		for item in items {
-			let id = Self::sync_get_database_item_id(item)?;
+		for node in nodes {
+			let id = Self::sync_get_database_node_id(node)?;
 			if !replacement_ids.contains(&id) {
 				continue;
 			}
-			let specifier = Self::sync_get_database_item_specifier(item)?;
-			let item_roots = Self::sync_get_database_replacement_roots(
+			let specifier = Self::sync_get_database_node_specifier(node)?;
+			let node_roots = Self::sync_get_database_replacement_roots(
 				&id,
 				specifier,
 				namespace.ids.get(&id),
 				namespace.specifiers.get(specifier),
 			);
-			roots.extend(item_roots);
+			roots.extend(node_roots);
 		}
 
 		// Traverse and delete the current conflicting subtrees.
@@ -498,7 +498,7 @@ impl Session {
 			Self::sync_get_database_collect_subtrees_with_transaction(transaction, roots).await?;
 		let ids = Self::sync_get_database_sort_deletions(nodes);
 		for ids in ids.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
-			self.sync_get_database_delete_items_with_transaction(transaction, ids, batch)
+			self.sync_get_database_delete_nodes_with_transaction(transaction, ids, batch)
 				.await?;
 		}
 		namespace.remove_ids(&ids);
@@ -609,15 +609,15 @@ impl Session {
 	}
 
 	fn sync_get_database_sort_deletions(nodes: BTreeMap<tg::Id, usize>) -> Vec<tg::Id> {
-		let mut items = nodes.into_iter().collect::<Vec<_>>();
-		items.sort_by(|(id_a, depth_a), (id_b, depth_b)| {
+		let mut nodes = nodes.into_iter().collect::<Vec<_>>();
+		nodes.sort_by(|(id_a, depth_a), (id_b, depth_b)| {
 			depth_b.cmp(depth_a).then_with(|| id_a.cmp(id_b))
 		});
 
-		items.into_iter().map(|(id, _)| id).collect()
+		nodes.into_iter().map(|(id, _)| id).collect()
 	}
 
-	async fn sync_get_database_delete_items_with_transaction(
+	async fn sync_get_database_delete_nodes_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		ids: &[tg::Id],
@@ -654,7 +654,7 @@ impl Session {
 				tg::id::Kind::Organization => organizations.push(id.clone()),
 				tg::id::Kind::Tag => tags.push(id.clone()),
 				tg::id::Kind::User => users.push(id.clone()),
-				_ => return Err(tg::error!(%id, "invalid database item kind")),
+				_ => return Err(tg::error!(%id, "invalid database node kind")),
 			}
 		}
 
@@ -766,7 +766,7 @@ impl Session {
 
 		// Delete the nodes from the database and index.
 		for id in ids {
-			let item = match id.kind() {
+			let node = match id.kind() {
 				tg::id::Kind::Group => {
 					tangram_index::batch::Item::DeleteGroup(id.clone().try_into()?)
 				},
@@ -779,7 +779,7 @@ impl Session {
 				},
 				_ => unreachable!(),
 			};
-			batch.items.push(item);
+			batch.items.push(node);
 		}
 		for (ids, table) in [
 			(groups.as_slice(), "groups"),
@@ -834,17 +834,17 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_database_item_with_transaction(
+	async fn sync_get_database_node_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
-		item: &tg::sync::PutItemMessage,
+		node: &tg::sync::PutNodeMessage,
 		namespace: &mut Namespace,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<bool> {
-		match item {
-			tg::sync::PutItemMessage::Group(message) => {
-				let created = Self::sync_get_database_validate_item_with_transaction(
+		match node {
+			tg::sync::PutNodeMessage::Group(message) => {
+				let created = Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -883,11 +883,11 @@ impl Session {
 
 				Ok(created)
 			},
-			tg::sync::PutItemMessage::Object(_)
-			| tg::sync::PutItemMessage::Process(_)
-			| tg::sync::PutItemMessage::Sandbox(_) => Err(tg::error!("invalid sync item kind")),
-			tg::sync::PutItemMessage::Organization(message) => {
-				let created = Self::sync_get_database_validate_item_with_transaction(
+			tg::sync::PutNodeMessage::Object(_)
+			| tg::sync::PutNodeMessage::Process(_)
+			| tg::sync::PutNodeMessage::Sandbox(_) => Err(tg::error!("invalid sync node kind")),
+			tg::sync::PutNodeMessage::Organization(message) => {
+				let created = Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -924,8 +924,8 @@ impl Session {
 
 				Ok(created)
 			},
-			tg::sync::PutItemMessage::Tag(message) => {
-				let created = Self::sync_get_database_validate_item_with_transaction(
+			tg::sync::PutNodeMessage::Tag(message) => {
+				let created = Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -934,14 +934,14 @@ impl Session {
 					&message.specifier,
 				)
 				.await?;
-				let item = if let Ok(id) = tg::object::Id::try_from(message.item.clone()) {
+				let target = if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
 					tg::Either::Left(id)
-				} else if let Ok(id) = tg::process::Id::try_from(message.item.clone()) {
+				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
 					tg::Either::Right(id)
 				} else {
-					return Err(tg::error!("invalid tag item"));
+					return Err(tg::error!("invalid tag target"));
 				};
-				let item_string = item.to_string();
+				let target_string = target.to_string();
 				let permissions = tag_permissions
 					.get(&message.id)
 					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
@@ -950,11 +950,11 @@ impl Session {
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
-						insert into tags (id, name, parent, item, permissions)
+						insert into tags (id, name, parent, target, permissions)
 						values ({p}1, {p}2, {p}3, {p}4, {p}5)
 						on conflict (id) do update
-						set name = excluded.name, parent = excluded.parent, item = excluded.item,
-							permissions = case when tags.item = excluded.item then tags.permissions else excluded.permissions end;
+						set name = excluded.name, parent = excluded.parent, target = excluded.target,
+							permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end;
 					"
 				);
 				transaction
@@ -964,7 +964,7 @@ impl Session {
 							message.id.to_string(),
 							message.name.clone(),
 							message.parent.as_ref().map(ToString::to_string),
-							item_string,
+							target_string,
 							permissions
 						],
 					)
@@ -990,7 +990,7 @@ impl Session {
 				batch.items.push(tangram_index::batch::Item::PutTag(
 					tangram_index::tag::put::Arg {
 						id: message.id.clone(),
-						item,
+						target,
 						name: message.name.clone(),
 						parent: message.parent.clone(),
 						permissions,
@@ -1000,8 +1000,8 @@ impl Session {
 
 				Ok(created)
 			},
-			tg::sync::PutItemMessage::User(message) => {
-				let created = Self::sync_get_database_validate_item_with_transaction(
+			tg::sync::PutNodeMessage::User(message) => {
+				let created = Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -1059,7 +1059,7 @@ impl Session {
 		}
 	}
 
-	async fn sync_get_database_validate_item_with_transaction(
+	async fn sync_get_database_validate_node_with_transaction(
 		transaction: &Transaction<'_>,
 		namespace: &mut Namespace,
 		id: &tg::Id,
@@ -1110,50 +1110,50 @@ impl Session {
 		Ok(created)
 	}
 
-	fn sync_get_database_item_depth(item: &tg::sync::PutItemMessage) -> usize {
-		match item {
-			tg::sync::PutItemMessage::Group(message) => message.specifier.components().count(),
-			tg::sync::PutItemMessage::Object(_)
-			| tg::sync::PutItemMessage::Process(_)
-			| tg::sync::PutItemMessage::Sandbox(_) => usize::MAX,
-			tg::sync::PutItemMessage::Organization(message) => {
+	fn sync_get_database_node_depth(node: &tg::sync::PutNodeMessage) -> usize {
+		match node {
+			tg::sync::PutNodeMessage::Group(message) => message.specifier.components().count(),
+			tg::sync::PutNodeMessage::Object(_)
+			| tg::sync::PutNodeMessage::Process(_)
+			| tg::sync::PutNodeMessage::Sandbox(_) => usize::MAX,
+			tg::sync::PutNodeMessage::Organization(message) => {
 				message.specifier.components().count()
 			},
-			tg::sync::PutItemMessage::Tag(message) => message.specifier.components().count(),
-			tg::sync::PutItemMessage::User(message) => message.specifier.components().count(),
+			tg::sync::PutNodeMessage::Tag(message) => message.specifier.components().count(),
+			tg::sync::PutNodeMessage::User(message) => message.specifier.components().count(),
 		}
 	}
 
-	fn sync_get_database_item_id(item: &tg::sync::PutItemMessage) -> tg::Result<tg::Id> {
-		let id = match item {
-			tg::sync::PutItemMessage::Group(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Object(_) | tg::sync::PutItemMessage::Process(_) => {
-				return Err(tg::error!("invalid sync item kind"));
+	fn sync_get_database_node_id(node: &tg::sync::PutNodeMessage) -> tg::Result<tg::Id> {
+		let id = match node {
+			tg::sync::PutNodeMessage::Group(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Object(_) | tg::sync::PutNodeMessage::Process(_) => {
+				return Err(tg::error!("invalid sync node kind"));
 			},
-			tg::sync::PutItemMessage::Organization(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::Sandbox(_) => {
-				return Err(tg::error!("invalid sync item kind"));
+			tg::sync::PutNodeMessage::Organization(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Sandbox(_) => {
+				return Err(tg::error!("invalid sync node kind"));
 			},
-			tg::sync::PutItemMessage::Tag(message) => message.id.clone().into(),
-			tg::sync::PutItemMessage::User(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::Tag(message) => message.id.clone().into(),
+			tg::sync::PutNodeMessage::User(message) => message.id.clone().into(),
 		};
 
 		Ok(id)
 	}
 
-	fn sync_get_database_item_specifier(
-		item: &tg::sync::PutItemMessage,
+	fn sync_get_database_node_specifier(
+		node: &tg::sync::PutNodeMessage,
 	) -> tg::Result<&tg::Specifier> {
-		let specifier = match item {
-			tg::sync::PutItemMessage::Group(message) => &message.specifier,
-			tg::sync::PutItemMessage::Object(_)
-			| tg::sync::PutItemMessage::Process(_)
-			| tg::sync::PutItemMessage::Sandbox(_) => {
-				return Err(tg::error!("invalid sync item kind"));
+		let specifier = match node {
+			tg::sync::PutNodeMessage::Group(message) => &message.specifier,
+			tg::sync::PutNodeMessage::Object(_)
+			| tg::sync::PutNodeMessage::Process(_)
+			| tg::sync::PutNodeMessage::Sandbox(_) => {
+				return Err(tg::error!("invalid sync node kind"));
 			},
-			tg::sync::PutItemMessage::Organization(message) => &message.specifier,
-			tg::sync::PutItemMessage::Tag(message) => &message.specifier,
-			tg::sync::PutItemMessage::User(message) => &message.specifier,
+			tg::sync::PutNodeMessage::Organization(message) => &message.specifier,
+			tg::sync::PutNodeMessage::Tag(message) => &message.specifier,
+			tg::sync::PutNodeMessage::User(message) => &message.specifier,
 		};
 
 		Ok(specifier)

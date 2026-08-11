@@ -102,7 +102,7 @@ impl Session {
 		stored: bool,
 		token: Option<&tg::grant::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let resource = tg::Referent::with_item_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let mut permissions = tg::grant::permission::object::Set::empty();
 		permissions.insert(tg::grant::permission::object::Set::NODE);
 		permissions.insert(tg::grant::permission::object::Set::SUBTREE);
@@ -161,7 +161,7 @@ impl Session {
 					}
 
 					self.try_get_object_regions(
-						&object.item,
+						&object.node,
 						&regions,
 						metadata,
 						false,
@@ -184,7 +184,7 @@ impl Session {
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let ids = objects
 			.iter()
-			.map(|object| object.item.clone())
+			.map(|object| object.node.clone())
 			.collect::<Vec<_>>();
 		let outputs = self
 			.server
@@ -203,7 +203,7 @@ impl Session {
 					.is_some_and(|permissions| permissions.contains(permission))
 				{
 					tracing::trace!(
-						id = %object.item,
+						id = %object.node,
 						principal = ?self.context.principal,
 						"authorization denied"
 					);
@@ -214,7 +214,7 @@ impl Session {
 					&& let Some(metadata) = output.metadata.take()
 				{
 					output.metadata = self
-						.mask_object_metadata(&object.item, metadata, object.options.token.as_ref())
+						.mask_object_metadata(&object.node, metadata, object.options.token.as_ref())
 						.await?;
 				}
 				Ok::<_, tg::Error>(output)

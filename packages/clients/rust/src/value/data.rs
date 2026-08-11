@@ -107,7 +107,7 @@ impl Data {
 				}
 			},
 			Self::Object(object) => {
-				children.insert(object.item.clone());
+				children.insert(object.node.clone());
 			},
 			Self::Mutation(mutation) => mutation.children(children),
 			Self::Module(module) => module.children(children),

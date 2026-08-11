@@ -197,7 +197,7 @@ impl Value {
 			Self::Object(object) => {
 				let id = object.id();
 				let token = object.state().token();
-				Data::Object(tg::Referent::with_item_and_token(id, token))
+				Data::Object(tg::Referent::with_node_and_token(id, token))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -215,7 +215,7 @@ impl Value {
 			return Err(tg::error!("invalid object batch output"));
 		}
 		for (state, object) in states.iter().zip(output.objects) {
-			if state.id() != object.item {
+			if state.id() != object.node {
 				return Err(tg::error!("invalid object batch output"));
 			}
 			state.set_token(object.options.token);
@@ -226,7 +226,7 @@ impl Value {
 	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
 		let id = object.id();
 		let token = object.state().token();
-		tg::Referent::with_item_and_token(id, token)
+		tg::Referent::with_node_and_token(id, token)
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {

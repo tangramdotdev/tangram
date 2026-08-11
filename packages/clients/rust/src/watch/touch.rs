@@ -6,9 +6,9 @@ use {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub items: Vec<PathBuf>,
 	pub kind: Kind,
 	pub path: PathBuf,
+	pub paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

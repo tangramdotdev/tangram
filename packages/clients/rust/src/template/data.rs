@@ -41,24 +41,24 @@ pub enum Component {
 
 impl From<tg::artifact::Id> for Component {
 	fn from(value: tg::artifact::Id) -> Self {
-		Self::Artifact(tg::Referent::with_item(value))
+		Self::Artifact(tg::Referent::with_node(value))
 	}
 }
 
 impl From<tg::directory::Id> for Component {
 	fn from(value: tg::directory::Id) -> Self {
-		Self::Artifact(tg::Referent::with_item(value.into()))
+		Self::Artifact(tg::Referent::with_node(value.into()))
 	}
 }
 
 impl From<tg::file::Id> for Component {
 	fn from(value: tg::file::Id) -> Self {
-		Self::Artifact(tg::Referent::with_item(value.into()))
+		Self::Artifact(tg::Referent::with_node(value.into()))
 	}
 }
 
 impl From<tg::symlink::Id> for Component {
 	fn from(value: tg::symlink::Id) -> Self {
-		Self::Artifact(tg::Referent::with_item(value.into()))
+		Self::Artifact(tg::Referent::with_node(value.into()))
 	}
 }

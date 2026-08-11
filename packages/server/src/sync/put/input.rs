@@ -13,8 +13,8 @@ impl Session {
 	) -> tg::Result<()> {
 		while let Some(message) = stream.next().await {
 			match message {
-				tg::sync::GetMessage::Item(message) => {
-					tracing::trace!(selector = %message.selector, "received get item");
+				tg::sync::GetMessage::Node(message) => {
+					tracing::trace!(selector = %message.selector, "received get node");
 					match message.selector {
 						tg::Selector::Id(id) => {
 							state.queue.enqueue_root_with_descendants(
@@ -32,8 +32,8 @@ impl Session {
 								message.token,
 							);
 							if inserted {
-								let item = super::resolve::Item { specifier };
-								state.resolve_sender.send(item).await.map_err(|_| {
+								let node = super::resolve::Node { specifier };
+								state.resolve_sender.send(node).await.map_err(|_| {
 									tg::error!("failed to send the specifier to the resolve task")
 								})?;
 							}

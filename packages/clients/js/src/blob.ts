@@ -43,7 +43,7 @@ export class Blob {
 
 	/** Get a blob with a referent. */
 	static withReferent(referent: tg.Referent<tg.Blob.Id>): tg.Blob {
-		let blob = tg.Blob.withId(referent.item);
+		let blob = tg.Blob.withId(referent.node);
 		blob.state.token = referent.options?.token ?? null;
 		return blob;
 	}

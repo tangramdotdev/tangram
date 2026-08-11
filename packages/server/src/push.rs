@@ -76,10 +76,10 @@ impl Session {
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		let get = arg
-			.items
+			.nodes
 			.iter()
 			.cloned()
-			.map(|item| item.map(tg::Selector::Id))
+			.map(|node| node.map(tg::Selector::Id))
 			.collect();
 		self.push_or_pull_inner(arg, false, get, None, source, destination)
 			.await
@@ -118,10 +118,10 @@ impl Session {
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		let get = arg
-			.items
+			.nodes
 			.iter()
 			.cloned()
-			.map(|item| item.map(tg::Selector::Id))
+			.map(|node| node.map(tg::Selector::Id))
 			.collect();
 		self.push_or_pull_inner(arg, true, get, None, source, destination)
 			.await
@@ -236,20 +236,20 @@ impl Session {
 		arg: &tg::push::Arg,
 	) -> tg::Result<()> {
 		let mut metadata_futures = arg
-			.items
+			.nodes
 			.iter()
-			.filter_map(|item| {
-				if item.item.kind() != tg::id::Kind::Process && !item.item.kind().is_object() {
+			.filter_map(|node| {
+				if node.node.kind() != tg::id::Kind::Process && !node.node.kind().is_object() {
 					return None;
 				}
 				let session = self.clone();
 				let source = source.clone();
 				Some(async move {
 					loop {
-						if let Ok(object) = tg::object::Id::try_from(item.item.clone()) {
+						if let Ok(object) = tg::object::Id::try_from(node.node.clone()) {
 							let metadata_arg = tg::object::metadata::Arg {
 								location: Some(source.clone().into()),
-								token: item.options.token.clone(),
+								token: node.options.token.clone(),
 							};
 							let metadata = session
 								.try_get_object_metadata(&object, metadata_arg)
@@ -259,10 +259,10 @@ impl Session {
 								break Ok::<_, tg::Error>(tg::Either::Left(metadata));
 							}
 						} else {
-							let process = tg::process::Id::try_from(item.item.clone())?;
+							let process = tg::process::Id::try_from(node.node.clone())?;
 							let metadata_arg = tg::process::metadata::Arg {
 								location: Some(source.clone().into()),
-								token: item.options.token.clone(),
+								token: node.options.token.clone(),
 							};
 							let Some(metadata) = session
 								.try_get_process_metadata(&process, metadata_arg)
@@ -432,7 +432,7 @@ impl Session {
 					process_outputs: arg.process_outputs,
 					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
-					tag_items: arg.tag_items,
+					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
 				let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
@@ -465,7 +465,7 @@ impl Session {
 					process_outputs: arg.process_outputs,
 					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
-					tag_items: arg.tag_items,
+					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
 				let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
@@ -537,7 +537,7 @@ impl Session {
 
 				if push_completed && pull_completed {
 					let mut output = output.lock().unwrap().clone();
-					output.items = session.create_sync_output_items(&arg)?;
+					output.nodes = session.create_sync_output_nodes(&arg)?;
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
@@ -576,17 +576,17 @@ impl Session {
 		let Some(received_specifiers) = received_specifiers else {
 			return;
 		};
-		let tg::sync::Message::Put(tg::sync::PutMessage::Item(item)) = message else {
+		let tg::sync::Message::Put(tg::sync::PutMessage::Node(node)) = message else {
 			return;
 		};
-		let specifier = match item {
-			tg::sync::PutItemMessage::Group(message) => &message.specifier,
-			tg::sync::PutItemMessage::Object(_)
-			| tg::sync::PutItemMessage::Process(_)
-			| tg::sync::PutItemMessage::Sandbox(_) => return,
-			tg::sync::PutItemMessage::Organization(message) => &message.specifier,
-			tg::sync::PutItemMessage::Tag(message) => &message.specifier,
-			tg::sync::PutItemMessage::User(message) => &message.specifier,
+		let specifier = match node {
+			tg::sync::PutNodeMessage::Group(message) => &message.specifier,
+			tg::sync::PutNodeMessage::Object(_)
+			| tg::sync::PutNodeMessage::Process(_)
+			| tg::sync::PutNodeMessage::Sandbox(_) => return,
+			tg::sync::PutNodeMessage::Organization(message) => &message.specifier,
+			tg::sync::PutNodeMessage::Tag(message) => &message.specifier,
+			tg::sync::PutNodeMessage::User(message) => &message.specifier,
 		};
 		received_specifiers
 			.lock()
@@ -613,15 +613,15 @@ impl Session {
 		progress.increment("users", skipped.users + transferred.users);
 	}
 
-	fn create_sync_output_items(
+	fn create_sync_output_nodes(
 		&self,
 		arg: &tg::push::Arg,
 	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		arg.items
+		arg.nodes
 			.iter()
-			.map(|item| {
-				let id = item.item.clone();
+			.map(|node| {
+				let id = node.node.clone();
 				let resource = tg::grant::Resource::Id(id.clone());
 				let (permissions, expires_at) = if id.kind().is_object() {
 					(
@@ -680,13 +680,13 @@ impl Session {
 						| tg::id::Kind::User
 				) {
 					let token = self.create_read_token(&id)?;
-					return Ok(tg::Referent::with_item_and_token(id, token));
+					return Ok(tg::Referent::with_node_and_token(id, token));
 				} else {
-					return Ok(tg::Referent::with_item(id));
+					return Ok(tg::Referent::with_node(id));
 				};
 				let token = self.create_token(resource, permissions, expires_at)?;
-				let item = tg::Referent::with_item_and_token(id, token);
-				Ok(item)
+				let node = tg::Referent::with_node_and_token(id, token);
+				Ok(node)
 			})
 			.collect()
 	}

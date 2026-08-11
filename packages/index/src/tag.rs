@@ -7,7 +7,7 @@ pub mod put;
 )]
 pub struct Tag {
 	#[tangram_serialize(id = 0)]
-	pub item: tg::Either<tg::object::Id, tg::process::Id>,
+	pub target: tg::Either<tg::object::Id, tg::process::Id>,
 
 	#[tangram_serialize(id = 1)]
 	pub name: String,

@@ -12,7 +12,7 @@ const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
 struct Cache {
 	group_members: HashMap<tg::group::Id, Vec<tg::Id>>,
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
-	item_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
+	target_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
@@ -839,7 +839,7 @@ impl Index {
 				}
 
 				// Add the tag relationships.
-				dependencies.extend(Self::get_cached_item_tags_with_transaction(
+				dependencies.extend(Self::get_cached_target_tags_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -888,7 +888,7 @@ impl Index {
 				}
 
 				// Add the tag relationships.
-				dependencies.extend(Self::get_cached_item_tags_with_transaction(
+				dependencies.extend(Self::get_cached_target_tags_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -1281,21 +1281,25 @@ impl Index {
 		Ok(parent)
 	}
 
-	fn get_cached_item_tags_with_transaction(
+	fn get_cached_target_tags_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		item: &tg::Id,
+		node: &tg::Id,
 		permission: tg::grant::Permission,
 		cache: &mut Cache,
 	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
-		let key = (item.clone(), permission);
-		if let Some(tags) = cache.item_tags.get(&key) {
+		let key = (node.clone(), permission);
+		if let Some(tags) = cache.target_tags.get(&key) {
 			return Ok(tags.clone());
 		}
-		let item_bytes = item.to_bytes();
-		let tags =
-			Self::get_item_tags_with_transaction(db, subspace, transaction, item_bytes.as_ref())?;
+		let target_bytes = node.to_bytes();
+		let tags = Self::get_target_tags_with_transaction(
+			db,
+			subspace,
+			transaction,
+			target_bytes.as_ref(),
+		)?;
 		let mut parents = Vec::new();
 		for tag in tags {
 			let Some(value) = Self::try_get_tag_with_transaction(db, subspace, transaction, &tag)?
@@ -1313,7 +1317,7 @@ impl Index {
 				));
 			}
 		}
-		cache.item_tags.insert(key, parents.clone());
+		cache.target_tags.insert(key, parents.clone());
 		Ok(parents)
 	}
 

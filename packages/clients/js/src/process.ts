@@ -591,7 +591,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (wait.error !== null) {
 			let error = wait.error;
 			const source = {
-				item: error,
+				node: error,
 				options: this.#options,
 			};
 			const values: { [key: string]: string } = {
@@ -608,7 +608,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (wait.exit >= 1 && wait.exit < 128) {
 			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
 			const source = {
-				item: error,
+				node: error,
 				options: this.#options,
 			};
 			const values: { [key: string]: string } = {
@@ -625,7 +625,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (wait.exit >= 128) {
 			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
 			const source = {
-				item: error,
+				node: error,
 				options: this.#options,
 			};
 			const values: { [key: string]: string } = {
@@ -1223,7 +1223,7 @@ export namespace Process {
 				...value.options,
 				...(token === null ? {} : { token }),
 			};
-			let referent = { item: process, options };
+			let referent = { node: process, options };
 			return {
 				cached: value.cached,
 				process: tg.Referent.toDataString(referent, (id) => id),
@@ -1241,7 +1241,7 @@ export namespace Process {
 				cached: data.cached ?? false,
 				options,
 				process: new tg.Process({
-					id: referent.item,
+					id: referent.node,
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
 					}),
@@ -1314,7 +1314,7 @@ export namespace Process {
 			}
 			if (value.log !== null) {
 				let token = value.log.state.token;
-				let referent = tg.Referent.withItemAndToken(value.log.id, token);
+				let referent = tg.Referent.withNodeAndToken(value.log.id, token);
 				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
@@ -1354,7 +1354,7 @@ export namespace Process {
 				debug: data.debug ?? null,
 				error:
 					data.error !== undefined && data.error !== null
-						? typeof data.error === "string" || "item" in data.error
+						? typeof data.error === "string" || "node" in data.error
 							? (() => {
 									let referent =
 										typeof data.error === "string"
@@ -1490,7 +1490,7 @@ export namespace Process {
 						tg.Referent.withoutToken(referent),
 						(id) => id,
 					);
-				} else if ("item" in data.error) {
+				} else if ("node" in data.error) {
 					let referent = tg.Referent.fromData(data.error, (id) => id);
 					output.error = tg.Referent.toData(
 						tg.Referent.withoutToken(referent),
@@ -1595,12 +1595,12 @@ async function isJsProcessBuilderArg(
 			arg.command !== null
 		) {
 			let command_ = arg.command;
-			let item =
-				typeof command_ === "object" && command_ !== null && "item" in command_
-					? command_.item
+			let node =
+				typeof command_ === "object" && command_ !== null && "node" in command_
+					? command_.node
 					: command_;
-			if (item instanceof tg.Command) {
-				command = item;
+			if (node instanceof tg.Command) {
+				command = node;
 			}
 		}
 		if (

@@ -19,7 +19,7 @@ impl Cli {
 		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = self.resolve_process(&args.process).await?;
-		let id = process.item;
+		let id = process.node;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {

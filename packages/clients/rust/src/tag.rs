@@ -13,7 +13,7 @@ pub use self::{data::Data, id::Id, selector::Selector};
 #[derive(Clone, Debug)]
 pub struct Tag {
 	pub id: tg::tag::Id,
-	pub item: tg::tag::Item,
+	pub target: tg::tag::Target,
 	pub location: Option<tg::Location>,
 	pub name: String,
 	pub parent: Option<tg::Id>,
@@ -23,12 +23,12 @@ pub struct Tag {
 }
 
 #[derive(Clone, Debug)]
-pub enum Item {
+pub enum Target {
 	Object(tg::Object),
 	Process(tg::Process),
 }
 
-impl From<tg::Either<tg::object::Id, tg::process::Id>> for tg::tag::Item {
+impl From<tg::Either<tg::object::Id, tg::process::Id>> for tg::tag::Target {
 	fn from(value: tg::Either<tg::object::Id, tg::process::Id>) -> Self {
 		match value {
 			tg::Either::Left(id) => id.into(),
@@ -37,13 +37,13 @@ impl From<tg::Either<tg::object::Id, tg::process::Id>> for tg::tag::Item {
 	}
 }
 
-impl From<tg::object::Id> for tg::tag::Item {
+impl From<tg::object::Id> for tg::tag::Target {
 	fn from(value: tg::object::Id) -> Self {
 		Self::Object(tg::Object::with_id(value))
 	}
 }
 
-impl From<tg::process::Id> for tg::tag::Item {
+impl From<tg::process::Id> for tg::tag::Target {
 	fn from(value: tg::process::Id) -> Self {
 		Self::Process(tg::Process::new(value, tg::process::Options::default()))
 	}
@@ -58,15 +58,15 @@ impl From<tg::tag::get::Output> for Tag {
 		} = value;
 		let tg::tag::Data {
 			id,
-			item,
+			target,
 			name,
 			parent,
 			permissions,
 			specifier,
 		} = data;
-		let item = match item {
-			tg::tag::data::Item::Object(id) => tg::tag::Item::Object(tg::Object::with_id(id)),
-			tg::tag::data::Item::Process(id) => tg::tag::Item::Process(tg::Process::new(
+		let target = match target {
+			tg::tag::data::Target::Object(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
+			tg::tag::data::Target::Process(id) => tg::tag::Target::Process(tg::Process::new(
 				id,
 				tg::process::Options {
 					location: location.clone().map(Into::into),
@@ -77,7 +77,7 @@ impl From<tg::tag::get::Output> for Tag {
 
 		Self {
 			id,
-			item,
+			target,
 			location,
 			name,
 			parent,

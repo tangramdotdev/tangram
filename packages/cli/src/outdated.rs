@@ -235,18 +235,18 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 			tg::graph::data::Node::File(file) => {
 				for (reference, dependency) in &file.dependencies {
 					let pattern = reference
-						.item()
+						.node()
 						.try_unwrap_specifier_ref()
 						.ok()
 						.and_then(|pattern| pattern.to_string().parse().ok());
 					let Some(dependency) = dependency else {
 						continue;
 					};
-					match (dependency.item(), dependency.tag()) {
+					match (dependency.node(), dependency.tag()) {
 						(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
 							if pointer.graph.is_none() {
 								let reference = reference
-									.item()
+									.node()
 									.try_unwrap_specifier_ref()
 									.ok()
 									.and_then(|pattern| pattern.to_string().parse().ok());

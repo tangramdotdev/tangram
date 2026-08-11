@@ -9,12 +9,12 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-pub struct ObjectItem {
+pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub missing: bool,
 }
 
-pub struct ProcessItem {
+pub struct ProcessNode {
 	pub id: tg::process::Id,
 	pub missing: bool,
 }
@@ -23,8 +23,8 @@ impl Session {
 	pub(super) async fn sync_get_index(
 		&self,
 		state: Arc<State>,
-		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
-		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
+		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
+		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.get.index.object_batch_size;
@@ -36,10 +36,10 @@ impl Session {
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |items| {
+		.try_for_each_concurrent(object_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_index_object_batch(&state, items).await }
+			async move { session.sync_get_index_object_batch(&state, nodes).await }
 		});
 
 		// Create the processes future.
@@ -52,10 +52,10 @@ impl Session {
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |items| {
+		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_index_process_batch(&state, items).await }
+			async move { session.sync_get_index_process_batch(&state, nodes).await }
 		});
 
 		// Join the objects and processes futures.
@@ -67,10 +67,10 @@ impl Session {
 	pub(super) async fn sync_get_index_object_batch(
 		&self,
 		state: &State,
-		items: Vec<ObjectItem>,
+		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -84,13 +84,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
 
-		for ((item, output), permissions) in
-			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
 			// Update the graph.
 			let arg = UpdateObjectLocalArg {
 				data: None,
-				id: &item.id,
+				id: &node.id,
 				marked: None,
 				metadata: output.as_ref().map(|object| object.metadata.clone()),
 				permissions,
@@ -102,13 +102,13 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_visible(&item.id);
+				.get_object_local_visible(&node.id);
 
 			// If the object is visible, then send a stored message.
 			if visible.subtree {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
 					tg::sync::GetStoredObjectMessage {
-						id: item.id.clone(),
+						id: node.id.clone(),
 					},
 				));
 				state
@@ -118,10 +118,10 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
 			}
 
-			if item.missing {
+			if node.missing {
 				// If the object is not stored, then error.
 				if output.is_none() {
-					return Err(tg::error!(id = %item.id, "failed to find the object"));
+					return Err(tg::error!(id = %node.id, "failed to find the object"));
 				}
 
 				// If the object's subtree is not visible, then enqueue the children.
@@ -129,21 +129,21 @@ impl Session {
 					// Get the object.
 					let bytes = self
 						.server
-						.try_get_object_local(&item.id, false)
+						.try_get_object_local(&node.id, false)
 						.await
 						.map_err(
-							|error| tg::error!(!error, id = %item.id, "failed to get the object locally"),
+							|error| tg::error!(!error, id = %node.id, "failed to get the object locally"),
 						)?
-						.ok_or_else(|| tg::error!(id = %item.id, "expected the object to exist"))?
+						.ok_or_else(|| tg::error!(id = %node.id, "expected the object to exist"))?
 						.bytes;
-					let data = tg::object::Data::deserialize(item.id.kind(), bytes).map_err(
-						|error| tg::error!(!error, id = %item.id, "failed to deserialize the object"),
+					let data = tg::object::Data::deserialize(node.id.kind(), bytes).map_err(
+						|error| tg::error!(!error, id = %node.id, "failed to deserialize the object"),
 					)?;
 
 					// Update the graph.
 					let arg = UpdateObjectLocalArg {
 						data: Some(&data),
-						id: &item.id,
+						id: &node.id,
 						marked: None,
 						metadata: None,
 						permissions: None,
@@ -153,7 +153,7 @@ impl Session {
 					state.graph.lock().unwrap().update_object_local(arg);
 
 					// Enqueue the children.
-					Self::sync_get_enqueue_object_children(state, &item.id, &data, None, None);
+					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, None);
 				}
 			}
 		}
@@ -169,10 +169,10 @@ impl Session {
 	pub(super) async fn sync_get_index_process_batch(
 		&self,
 		state: &State,
-		items: Vec<ProcessItem>,
+		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
 		// Get the ids.
-		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -187,13 +187,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
 
-		for ((item, output), permissions) in
-			std::iter::zip(std::iter::zip(items, outputs), permissions)
+		for ((node, output), permissions) in
+			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
 			// Update the graph.
 			let arg = UpdateProcessLocalArg {
 				data: output.as_ref().and_then(|process| process.data.as_ref()),
-				id: &item.id,
+				id: &node.id,
 				marked: None,
 				metadata: output.as_ref().map(|p| p.metadata.clone()),
 				permissions,
@@ -205,13 +205,13 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_visible(&item.id);
+				.get_process_local_visible(&node.id);
 
 			// If the process is visible, then send a stored message.
 			if Graph::process_visible_any(&visible) {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 					tg::sync::GetStoredProcessMessage {
-						id: item.id.clone(),
+						id: node.id.clone(),
 						node_command_stored: visible.node_command,
 						node_error_stored: visible.node_error,
 						node_log_stored: visible.node_log,
@@ -230,23 +230,23 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
 			}
 
-			if item.missing {
+			if node.missing {
 				// If the process is not stored, then error.
 				if output.is_none() {
-					return Err(tg::error!(id = %item.id, "failed to find the process"));
+					return Err(tg::error!(id = %node.id, "failed to find the process"));
 				}
 
 				let data = output
 					.as_ref()
 					.and_then(|process| process.data.clone())
 					.ok_or_else(
-						|| tg::error!(id = %item.id, "expected the process data to be set"),
+						|| tg::error!(id = %node.id, "expected the process data to be set"),
 					)?;
 
 				// Update the graph.
 				let arg = UpdateProcessLocalArg {
 					data: Some(&data),
-					id: &item.id,
+					id: &node.id,
 					marked: None,
 					metadata: None,
 					permissions: None,
@@ -258,7 +258,7 @@ impl Session {
 				// Enqueue the children.
 				Self::sync_get_enqueue_process_children(
 					state,
-					&item.id,
+					&node.id,
 					&data,
 					Some(&visible),
 					None,
@@ -372,7 +372,7 @@ impl Session {
 			.local_messages()
 			.into_iter()
 			.filter_map(|message| match message {
-				tg::sync::PutItemMessage::Sandbox(message) => Some(message),
+				tg::sync::PutNodeMessage::Sandbox(message) => Some(message),
 				_ => None,
 			})
 			.collect::<Vec<_>>();

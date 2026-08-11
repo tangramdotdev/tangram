@@ -161,7 +161,7 @@ impl Session {
 				)
 				.into(),
 			),
-			resource: tg::Referent::with_item(tg::grant::Resource::Id(organization_id)),
+			resource: tg::Referent::with_node(tg::grant::Resource::Id(organization_id)),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)
 			.await?;

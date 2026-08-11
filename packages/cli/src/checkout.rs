@@ -108,12 +108,12 @@ impl Cli {
 
 		// Get the artifact.
 		let referent = self.resolve(&args.reference).await?;
-		let edge = referent.into_graph_edge()?.item;
+		let edge = referent.into_graph_edge()?.node;
 		let object = edge
 			.try_unwrap_object()
 			.map_err(|_| tg::error!("expected an object"))?;
 		let artifact = tg::Artifact::try_from(object)?;
-		let artifact = tg::Referent::with_item_and_token(artifact.id(), artifact.state().token());
+		let artifact = tg::Referent::with_node_and_token(artifact.id(), artifact.state().token());
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();
@@ -128,10 +128,10 @@ impl Cli {
 			path,
 		};
 		let stream = client.checkout(arg).await.map_err(
-			|error| tg::error!(!error, artifact = %artifact.item, "failed to create the checkout stream"),
+			|error| tg::error!(!error, artifact = %artifact.node, "failed to create the checkout stream"),
 		)?;
 		let output = self.render_progress_stream(stream).await.map_err(
-			|error| tg::error!(!error, artifact = %artifact.item, "failed to check out the artifact"),
+			|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
 		)?;
 
 		// Print the output.

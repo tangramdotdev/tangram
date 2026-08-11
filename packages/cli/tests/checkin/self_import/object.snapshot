@@ -7,7 +7,7 @@ tg.directory({
           "contents": tg.blob("import * as self from \"./tangram.ts\";"),
           "dependencies": {
             "./tangram.ts": {
-              "item": {
+              "node": {
                 "index": 0,
                 "kind": "file",
               },

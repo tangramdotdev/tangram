@@ -32,7 +32,7 @@ snapshot $object '
 	    "contents": tg.blob("import remote_dep from \"remote_dep\";"),
 	    "dependencies": {
 	      "remote_dep": {
-	        "item": tg.directory({
+	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("export default () => \"remote_only\";"),
 	            "module": "ts",

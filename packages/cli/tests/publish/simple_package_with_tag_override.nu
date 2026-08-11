@@ -22,11 +22,11 @@ let override_tag = "overridden-pkg/2.0.0"
 tg publish --tag $override_tag $path
 
 # Verify override tag on local.
-let local_tag = tg tag get $override_tag | from json | get item.id
+let local_tag = tg tag get $override_tag | from json | get target.id
 assert equal $local_tag $id "Local override tag does not match expected ID."
 
 # Verify override tag on remote.
-let remote_tag = tg --url $remote.url tag get $override_tag | from json | get item.id
+let remote_tag = tg --url $remote.url tag get $override_tag | from json | get target.id
 assert equal $remote_tag $id "Remote override tag does not match expected ID."
 
 # Verify object synced.
@@ -54,5 +54,5 @@ let original_tag = "test-pkg/1.0.0"
 let tag_result = tg tag get $original_tag | complete
 if $tag_result.exit_code == 0 {
 	let tag_output = $tag_result.stdout | from json
-	assert ($tag_output.item? | is-empty) "Original metadata tag should not be created when using --tag override."
+	assert ($tag_output.target? | is-empty) "Original metadata tag should not be created when using --tag override."
 }

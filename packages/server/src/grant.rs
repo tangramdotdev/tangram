@@ -14,9 +14,9 @@ mod token;
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
-		let resource = self.resolve_resource(&arg.resource.item).await?;
+		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
-		let authorization_resource = tg::Referent::with_item_and_token(
+		let authorization_resource = tg::Referent::with_node_and_token(
 			tg::grant::Resource::Id(resource.clone()),
 			arg.resource.options.token.clone(),
 		);
@@ -84,9 +84,9 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
-		let resource = self.resolve_resource(&arg.resource.item).await?;
+		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
-		let authorization_resource = tg::Referent::with_item_and_token(
+		let authorization_resource = tg::Referent::with_node_and_token(
 			tg::grant::Resource::Id(resource.clone()),
 			arg.resource.options.token.clone(),
 		);
@@ -137,7 +137,7 @@ impl Session {
 		arg: tg::grant::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<(tg::Grant, bool)> {
-		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource.item)
+		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource.node)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
@@ -265,7 +265,7 @@ impl Session {
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<Option<()>> {
 		let Some(resource) =
-			Self::resolve_resource_with_transaction(transaction, &arg.resource.item).await?
+			Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await?
 		else {
 			return Ok(None);
 		};

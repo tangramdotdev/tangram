@@ -10,12 +10,12 @@ let local = spawn --name local --config {
 }
 
 let remote_root = tg --url $remote.url group create parent | from json
-let item = tg --url $local.url put 'tg.file("data")' | str trim
-tg --url $local.url tag put -p parent/child/tag $item
+let node = tg --url $local.url put 'tg.file("data")' | str trim
+tg --url $local.url tag put -p parent/child/tag $node
 let local_root = tg --url $local.url group get parent | from json
 let local_parent = tg --url $local.url group get parent/child | from json
 let tag = tg --url $local.url tag get parent/child/tag | from json
 
 assert equal $local_root.id $remote_root.id
 assert equal $local_parent.parent $remote_root.id
-assert equal $tag.item.id $item
+assert equal $tag.target.id $node

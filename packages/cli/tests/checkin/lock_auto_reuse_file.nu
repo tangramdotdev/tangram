@@ -14,14 +14,14 @@ let a_path = artifact {
 }
 tg tag -p a/1.1.0 $a_path
 
-let a_id = tg tag get a/1.0.0 | from json | get item.id
+let a_id = tg tag get a/1.0.0 | from json | get target.id
 let lock = {
 	nodes: [
 		{
 			kind: "file",
 			dependencies: {
 				"a/^1": {
-					item: null,
+					node: null,
 					options: {
 						id: $a_id,
 						tag: "a/1.0.0"

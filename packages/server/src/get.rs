@@ -16,19 +16,19 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
-		let stream = match reference.item() {
-			tg::reference::Item::Id(id) => {
+		let stream = match reference.node() {
+			tg::reference::Node::Id(id) => {
 				self.try_get_with_id(id, reference.options(), &arg).await?
 			},
-			tg::reference::Item::Path(path) => {
+			tg::reference::Node::Path(path) => {
 				self.try_get_with_path(path, reference.options(), arg)
 					.await?
 			},
-			tg::reference::Item::Pointer(pointer) => {
+			tg::reference::Node::Pointer(pointer) => {
 				self.try_get_with_pointer(pointer, reference.options())
 					.await?
 			},
-			tg::reference::Item::Specifier(specifier) => {
+			tg::reference::Node::Specifier(specifier) => {
 				self.try_get_with_specifier(specifier, reference.options(), &arg)
 					.await?
 			},
@@ -77,8 +77,8 @@ impl Session {
 				.await?;
 			let output = sandbox.map(|sandbox| tg::get::Output {
 				location: sandbox.location,
-				referent: tg::Referent::with_item_and_token(
-					tg::get::Item::Id(sandbox.id.into()),
+				referent: tg::Referent::with_node_and_token(
+					tg::get::Node::Id(sandbox.id.into()),
 					sandbox.token,
 				),
 			});
@@ -87,7 +87,7 @@ impl Session {
 
 			return Ok(stream.boxed());
 		}
-		let referent = tg::Referent::new(tg::get::Item::Id(id.clone()), options.clone().into());
+		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), options.clone().into());
 		let output = tg::get::Output {
 			location: options
 				.location
@@ -134,9 +134,9 @@ impl Session {
 								Ok(tg::progress::Event::Indicators(indicators))
 							},
 							tg::progress::Event::Output(checkin_output) => {
-								let id = checkin_output.artifact.item.into();
+								let id = checkin_output.artifact.node.into();
 								let referent = tg::Referent::new(
-									tg::get::Item::Id(id),
+									tg::get::Node::Id(id),
 									checkin_output.artifact.options,
 								);
 								let output = tg::get::Output {
@@ -162,8 +162,8 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_item_and_token(
-			tg::get::Item::Pointer(pointer.clone()),
+		let referent = tg::Referent::with_node_and_token(
+			tg::get::Node::Pointer(pointer.clone()),
 			options.token.clone(),
 		);
 		let output = tg::get::Output {
@@ -222,8 +222,8 @@ impl Session {
 		let Some(get) = get else {
 			return Ok(Some(output));
 		};
-		match &output.referent.item {
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Directory => {
+		match &output.referent.node {
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Directory => {
 				let directory = tg::directory::Id::try_from(id.clone())?;
 				let referent = output.referent.clone().map(|_| directory);
 				let directory = tg::Directory::with_referent(referent);
@@ -234,18 +234,18 @@ impl Session {
 					.store_with_handle(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the artifact"))?;
-				output.referent.item = tg::get::Item::Id(id.into());
+				output.referent.node = tg::get::Node::Id(id.into());
 				output.referent.options.id = Some(directory.id().into());
 				output.referent.options.path = Some(get.to_owned());
 				Ok(Some(output))
 			},
-			tg::get::Item::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
+			tg::get::Node::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
 				let graph = pointer
 					.graph
 					.clone()
 					.ok_or_else(|| tg::error!("missing graph"))?;
 				let graph =
-					tg::Referent::with_item_and_token(graph, output.referent.options.token.clone());
+					tg::Referent::with_node_and_token(graph, output.referent.options.token.clone());
 				let graph = tg::Graph::with_referent(graph);
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
 					graph: Some(graph),
@@ -256,28 +256,28 @@ impl Session {
 					return Ok(None);
 				};
 				let edge = match edge {
-					tg::graph::Edge::Object(artifact) => tg::get::Item::Id(artifact.id().into()),
+					tg::graph::Edge::Object(artifact) => tg::get::Node::Id(artifact.id().into()),
 					tg::graph::Edge::Pointer(pointer) => {
-						tg::get::Item::Pointer(tg::graph::data::Pointer {
+						tg::get::Node::Pointer(tg::graph::data::Pointer {
 							graph: pointer.graph.as_ref().map(tg::Graph::id),
 							index: pointer.index,
 							kind: pointer.kind,
 						})
 					},
 				};
-				output.referent.item = edge;
+				output.referent.node = edge;
 				output.referent.options.path = Some(get.to_owned());
 				Ok(Some(output))
 			},
-			tg::get::Item::Pointer(pointer) => {
-				output.referent.item = tg::get::Item::Pointer(pointer.clone());
+			tg::get::Node::Pointer(pointer) => {
+				output.referent.node = tg::get::Node::Pointer(pointer.clone());
 				output.referent.options.path = Some(get.to_owned());
 				Ok(Some(output))
 			},
-			tg::get::Item::Id(id) if id.kind() == tg::id::Kind::Process => {
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				Err(tg::error!("cannot apply a get option to a process"))
 			},
-			tg::get::Item::Id(_) => Err(tg::error!("unexpected reference get option")),
+			tg::get::Node::Id(_) => Err(tg::error!("unexpected reference get option")),
 		}
 	}
 
@@ -292,10 +292,10 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
-		let item = path
+		let node = path
 			.join("/")
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the item"))?;
+			.map_err(|error| tg::error!(!error, "failed to parse the node"))?;
 
 		// Get the reference options and arg.
 		let arg: tg::get::Arg = request
@@ -303,7 +303,7 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
+		let reference = tg::Reference::with_node_and_options(node, arg.options.clone());
 
 		let stream = self
 			.try_get(&reference, arg)

@@ -26,7 +26,7 @@ impl Compiler {
 				| tg::module::Kind::File
 				| tg::module::Kind::Symlink,
 			referent: tg::Referent {
-				item: tg::module::data::Item::Path(path),
+				node: tg::module::data::Source::Path(path),
 				..
 			},
 			..

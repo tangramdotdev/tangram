@@ -4,7 +4,7 @@ tg.directory({
       "contents": tg.blob("import * as baz from \"../baz\";"),
       "dependencies": {
         "../baz": {
-          "item": tg.directory({
+          "node": tg.directory({
             "tangram.ts": tg.file({
               "contents": tg.blob(""),
               "module": "ts",
@@ -28,12 +28,12 @@ tg.directory({
     "contents": tg.blob("import * as bar from \"./bar\";\nimport * as baz from \"./baz\";"),
     "dependencies": {
       "./bar": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as baz from \"../baz\";"),
             "dependencies": {
               "../baz": {
-                "item": tg.directory({
+                "node": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob(""),
                     "module": "ts",
@@ -52,7 +52,7 @@ tg.directory({
         },
       },
       "./baz": {
-        "item": tg.directory({
+        "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob(""),
             "module": "ts",

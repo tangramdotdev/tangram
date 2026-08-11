@@ -53,7 +53,7 @@ impl Session {
 			.index
 			.try_get_cached_processes(
 				&arg.command
-					.item
+					.node
 					.as_ref()
 					.right()
 					.cloned()
@@ -505,7 +505,7 @@ impl Session {
 			children: source.children,
 			command: arg
 				.command
-				.item
+				.node
 				.as_ref()
 				.right()
 				.cloned()

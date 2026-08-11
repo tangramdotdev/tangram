@@ -134,7 +134,7 @@ impl Progress {
 		}
 	}
 
-	pub fn increment_transferred_item(&self, id: &tg::Id) {
+	pub fn increment_transferred_node(&self, id: &tg::Id) {
 		let amount = match id.kind() {
 			tg::id::Kind::Group => &self.transferred.groups,
 			tg::id::Kind::Organization => &self.transferred.organizations,
