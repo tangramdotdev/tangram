@@ -18,14 +18,17 @@ use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Kind {
+	#[tangram_serialize(id = 0)]
 	Command = 0,
 
+	#[tangram_serialize(id = 1)]
 	Error = 1,
 
+	#[tangram_serialize(id = 2)]
 	Log = 2,
 
+	#[tangram_serialize(id = 3)]
 	Output = 3,
 }
 
@@ -53,20 +56,25 @@ impl fdbt::TupleUnpack<'_> for Kind {
 mod tests {
 	use super::*;
 
-	// A process object kind has the same canonical string representation in JSON and Tangram.
+	// A process object kind uses a compact numeric tag in Tangram.
 	#[test]
 	fn serialization() {
-		for kind in [Kind::Command, Kind::Error, Kind::Log, Kind::Output] {
-			let string = kind.to_string();
+		for (kind, expected_id) in [
+			(Kind::Command, 0),
+			(Kind::Error, 1),
+			(Kind::Log, 2),
+			(Kind::Output, 3),
+		] {
 			assert_eq!(
 				serde_json::to_value(kind).unwrap(),
-				serde_json::Value::String(string.clone()),
-			);
-			assert_eq!(
-				tangram_serialize::to_vec(&kind).unwrap(),
-				tangram_serialize::to_vec(&string).unwrap(),
+				serde_json::Value::String(kind.to_string()),
 			);
 			let bytes = tangram_serialize::to_vec(&kind).unwrap();
+			let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
+			let tangram_serialize::Value::Enum(value) = value else {
+				panic!("expected an enum");
+			};
+			assert_eq!(value.id, expected_id);
 			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
 			assert_eq!(actual, kind);
 		}
