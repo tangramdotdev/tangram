@@ -642,10 +642,11 @@ where
 				break;
 			}
 
+			let s = S_IFDIR;
 			let type_ = match attr.inner {
-				AttrsInner::Directory => u32::from(libc::DT_DIR),
-				AttrsInner::File { .. } => u32::from(libc::DT_REG),
-				AttrsInner::Symlink { .. } => u32::from(libc::DT_LNK),
+				AttrsInner::Directory => u32::from(sys::DT_DIR),
+				AttrsInner::File { .. } => u32::from(sys::DT_REG),
+				AttrsInner::Symlink { .. } => u32::from(sys::DT_LNK),
 			};
 
 			let dirent = FuseDirentHeader {
