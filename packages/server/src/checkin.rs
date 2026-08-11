@@ -599,7 +599,7 @@ impl Session {
 					.filter(|watch| watch.id() == id)
 					.ok_or_else(|| tg::error!("the watch changed during checkin"))?;
 				let lock_write_guard = watch
-					.reserve_lock_write(version)
+					.try_reserve_lock_write(version)
 					.ok_or_else(|| tg::error!("files were modified during checkin"))?;
 
 				Ok(Some(lock_write_guard))
@@ -651,7 +651,7 @@ impl Session {
 			if lock_write_guard.is_some() {
 				let actual_lock = Self::checkin_try_read_lock(root)
 					.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
-				if !crate::watch::locks_equal(lock.as_deref(), actual_lock.as_ref()) {
+				if lock.as_deref() != actual_lock.as_ref() {
 					return Err(tg::error!("the lock was modified during checkin"));
 				}
 			}

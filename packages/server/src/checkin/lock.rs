@@ -60,21 +60,18 @@ impl Session {
 	}
 
 	#[tracing::instrument(level = "trace", skip_all)]
-	pub(super) async fn checkin_write_lock<F>(
+	pub(super) async fn checkin_write_lock(
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		next: usize,
 		lock: Option<Arc<tg::graph::Data>>,
 		root: &Path,
-		reserve_lock_write: F,
+		reserve_lock_write: impl FnOnce() -> tg::Result<Option<crate::watch::LockWriteGuard>>,
 	) -> tg::Result<(
 		Option<Arc<tg::graph::Data>>,
 		Option<crate::watch::LockWriteGuard>,
-	)>
-	where
-		F: FnOnce() -> tg::Result<Option<crate::watch::LockWriteGuard>>,
-	{
+	)> {
 		// Get the root node.
 		let root_index = graph.paths.get(root).unwrap();
 		let root_node = graph.nodes.get(root_index).unwrap();

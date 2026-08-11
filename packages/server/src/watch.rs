@@ -41,8 +41,7 @@ pub struct NewArg<F> {
 }
 
 pub struct LockWriteGuard {
-	active: bool,
-	state: Arc<Mutex<State>>,
+	state: Option<Arc<Mutex<State>>>,
 	version: u64,
 }
 
@@ -50,7 +49,7 @@ struct State {
 	graph: crate::checkin::Graph,
 	index_task: Shared<tg::Result<()>>,
 	lock: Option<Arc<tg::graph::Data>>,
-	lock_write_version: Option<u64>,
+	pending_lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	sender: tokio::sync::mpsc::Sender<Message>,
@@ -84,15 +83,6 @@ struct Message {
 	sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-#[must_use]
-pub(crate) fn locks_equal(left: Option<&tg::graph::Data>, right: Option<&tg::graph::Data>) -> bool {
-	match (left, right) {
-		(Some(left), Some(right)) => left.nodes == right.nodes,
-		(None, None) => true,
-		_ => false,
-	}
-}
-
 impl Id {
 	#[must_use]
 	fn new(server: &Server) -> Self {
@@ -102,7 +92,7 @@ impl Id {
 
 impl LockWriteGuard {
 	fn commit(mut self) {
-		self.active = false;
+		self.state = None;
 	}
 }
 
@@ -150,7 +140,7 @@ impl Watch {
 			graph,
 			index_task,
 			lock,
-			lock_write_version: None,
+			pending_lock_write_version: None,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
 			sender,
@@ -187,7 +177,7 @@ impl Watch {
 					}
 					let lock_changed = uses_lock && lockfile_changed;
 					let read_lock =
-						lock_changed && state.lock().unwrap().lock_write_version.is_none();
+						lock_changed && state.lock().unwrap().pending_lock_write_version.is_none();
 					let lock = read_lock.then(|| crate::Session::checkin_try_read_lock(&root));
 
 					// Lock the state.
@@ -195,13 +185,13 @@ impl Watch {
 
 					// Update the lock unless an internal write is pending.
 					let mut modified = false;
-					if state.lock_write_version.is_none()
+					if state.pending_lock_write_version.is_none()
 						&& let Some(lock) = lock
 					{
 						match lock {
 							Ok(lock) => {
 								let lock = lock.map(Arc::new);
-								if !locks_equal(state.lock.as_deref(), lock.as_deref()) {
+								if state.lock != lock {
 									state.lock = lock;
 									modified = true;
 								}
@@ -327,7 +317,7 @@ impl Watch {
 				return Err(error);
 			},
 		};
-		state.lock_write_version.take();
+		state.pending_lock_write_version.take();
 		*self = watch;
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
@@ -336,15 +326,14 @@ impl Watch {
 		Ok(true)
 	}
 
-	pub fn reserve_lock_write(&self, version: u64) -> Option<LockWriteGuard> {
+	pub fn try_reserve_lock_write(&self, version: u64) -> Option<LockWriteGuard> {
 		let mut state = self.state.lock().unwrap();
-		if state.version != version || state.lock_write_version.is_some() {
+		if state.version != version || state.pending_lock_write_version.is_some() {
 			return None;
 		}
-		state.lock_write_version = Some(version);
+		state.pending_lock_write_version = Some(version);
 		let lock_write_guard = LockWriteGuard {
-			active: true,
-			state: self.state.clone(),
+			state: Some(self.state.clone()),
 			version,
 		};
 
@@ -420,7 +409,7 @@ impl Watch {
 		state.graph = graph;
 		state.index_task = index_task;
 		state.lock = lock;
-		state.lock_write_version.take();
+		state.pending_lock_write_version.take();
 		state.solutions = solutions;
 		state.version += 1;
 
@@ -505,7 +494,7 @@ impl Watch {
 
 impl State {
 	fn lock_write_guard_matches(&self, lock_write_guard: Option<&LockWriteGuard>) -> bool {
-		match (self.lock_write_version, lock_write_guard) {
+		match (self.pending_lock_write_version, lock_write_guard) {
 			(Some(version), Some(lock_write_guard)) => version == lock_write_guard.version,
 			(None, None) => true,
 			_ => false,
@@ -583,13 +572,13 @@ impl State {
 
 impl Drop for LockWriteGuard {
 	fn drop(&mut self) {
-		if !self.active {
+		let Some(state) = self.state.take() else {
 			return;
-		}
-		let mut state = self.state.lock().unwrap();
-		if state.lock_write_version == Some(self.version) {
+		};
+		let mut state = state.lock().unwrap();
+		if state.pending_lock_write_version == Some(self.version) {
 			state.lock.take();
-			state.lock_write_version.take();
+			state.pending_lock_write_version.take();
 			state.version += 1;
 		}
 	}

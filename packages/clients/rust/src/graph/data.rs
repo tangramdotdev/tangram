@@ -13,6 +13,8 @@ use {
 #[derive(
 	Clone,
 	Debug,
+	Eq,
+	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
