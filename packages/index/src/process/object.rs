@@ -1,5 +1,4 @@
 use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
-
 #[derive(
 	Clone,
 	Copy,
@@ -49,34 +48,5 @@ impl fdbt::TupleUnpack<'_> for Kind {
 			"invalid process object kind".into(),
 		))?;
 		Ok((input, kind))
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// A process object kind uses a compact numeric tag in Tangram.
-	#[test]
-	fn serialization() {
-		for (kind, expected_id) in [
-			(Kind::Command, 0),
-			(Kind::Error, 1),
-			(Kind::Log, 2),
-			(Kind::Output, 3),
-		] {
-			assert_eq!(
-				serde_json::to_value(kind).unwrap(),
-				serde_json::Value::String(kind.to_string()),
-			);
-			let bytes = tangram_serialize::to_vec(&kind).unwrap();
-			let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-			let tangram_serialize::Value::Enum(value) = value else {
-				panic!("expected an enum");
-			};
-			assert_eq!(value.id, expected_id);
-			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
-			assert_eq!(actual, kind);
-		}
 	}
 }

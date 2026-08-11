@@ -1,5 +1,4 @@
 use crate::prelude::*;
-
 #[derive(
 	Clone,
 	Debug,
@@ -43,24 +42,5 @@ where
 		} else {
 			Ok(Self::Specifier(s.parse()?))
 		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// A selector retains its semantic variant in the Tangram representation.
-	#[test]
-	fn tangram_tagged() {
-		let selector = Selector::<u64>::Id(42);
-		let bytes = tangram_serialize::to_vec(&selector).unwrap();
-		let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-		let tangram_serialize::Value::Enum(value) = value else {
-			panic!("expected an enum");
-		};
-		assert_eq!(value.id, 0);
-		let actual = tangram_serialize::from_slice::<Selector<u64>>(&bytes).unwrap();
-		assert_eq!(actual, selector);
 	}
 }

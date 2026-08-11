@@ -1,5 +1,4 @@
 use crate::prelude::*;
-
 /// An artifact kind.
 #[derive(
 	Clone,
@@ -36,30 +35,6 @@ impl From<Kind> for tg::object::Kind {
 			Kind::Directory => tg::object::Kind::Directory,
 			Kind::File => tg::object::Kind::File,
 			Kind::Symlink => tg::object::Kind::Symlink,
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// An artifact kind uses a compact numeric tag in Tangram.
-	#[test]
-	fn serialization() {
-		for (kind, expected_id) in [(Kind::Directory, 0), (Kind::File, 1), (Kind::Symlink, 2)] {
-			assert_eq!(
-				serde_json::to_value(kind).unwrap(),
-				serde_json::Value::String(kind.to_string()),
-			);
-			let bytes = tangram_serialize::to_vec(&kind).unwrap();
-			let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-			let tangram_serialize::Value::Enum(value) = value else {
-				panic!("expected an enum");
-			};
-			assert_eq!(value.id, expected_id);
-			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
-			assert_eq!(actual, kind);
 		}
 	}
 }

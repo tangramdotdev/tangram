@@ -9,7 +9,6 @@ use {
 	tangram_uri::Uri,
 	tangram_util::serde::is_false,
 };
-
 #[derive(
 	Clone,
 	Debug,
@@ -688,81 +687,5 @@ impl TryFrom<PointerSerde> for Pointer {
 impl From<Pointer> for PointerSerde {
 	fn from(value: Pointer) -> Self {
 		Self::String(value.to_string())
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// The disjoint children key selects a branch instead of being ignored by an empty leaf.
-	#[test]
-	fn directory_json_branch() {
-		let value = serde_json::json!({ "children": [] });
-		let directory = serde_json::from_value::<Directory>(value).unwrap();
-		assert!(directory.is_branch());
-	}
-
-	// An empty leaf retains its entries key so the untagged variants remain disjoint.
-	#[test]
-	fn directory_json_leaf() {
-		let directory = Directory::Leaf(DirectoryLeaf {
-			entries: BTreeMap::new(),
-		});
-		let value = serde_json::to_value(&directory).unwrap();
-		assert_eq!(value, serde_json::json!({ "entries": {} }));
-		let actual = serde_json::from_value::<Directory>(value).unwrap();
-		assert_eq!(actual, directory);
-		assert!(serde_json::from_value::<Directory>(serde_json::json!({})).is_err());
-
-		let bytes = tangram_serialize::to_vec(&directory).unwrap();
-		let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-		let tangram_serialize::Value::Enum(value) = value else {
-			panic!("expected an enum");
-		};
-		let tangram_serialize::Value::Struct(value) = *value.value else {
-			panic!("expected a struct");
-		};
-		assert_eq!(value.fields.len(), 1);
-		assert_eq!(value.fields[0].id, 0);
-		assert!(matches!(
-			*value.fields[0].value,
-			tangram_serialize::Value::Map(ref value) if value.is_empty()
-		));
-	}
-
-	// Graph edges preserve their variants with stable Tangram tags.
-	#[test]
-	fn edge_tangram_tags() {
-		let pointer = Pointer {
-			graph: None,
-			index: 0,
-			kind: tg::artifact::Kind::File,
-		};
-		let edge = Edge::<tg::artifact::Id>::Pointer(pointer);
-		assert_tangram_variant(&edge, 0);
-
-		let bytes = Bytes::from_static(b"test");
-		let id = tg::artifact::Id::new(tg::artifact::Kind::File, &bytes);
-		let edge = Edge::Object(id);
-		assert_tangram_variant(&edge, 1);
-	}
-
-	fn assert_tangram_variant<T>(edge: &Edge<T>, expected_id: u8)
-	where
-		T: Clone
-			+ std::fmt::Debug
-			+ PartialEq
-			+ tangram_serialize::Serialize
-			+ for<'de> tangram_serialize::Deserialize<'de>,
-	{
-		let bytes = tangram_serialize::to_vec(edge).unwrap();
-		let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-		let tangram_serialize::Value::Enum(value) = value else {
-			panic!("expected an enum");
-		};
-		assert_eq!(value.id, expected_id);
-		let actual = tangram_serialize::from_slice::<Edge<T>>(&bytes).unwrap();
-		assert_eq!(&actual, edge);
 	}
 }

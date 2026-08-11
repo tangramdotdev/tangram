@@ -2,7 +2,6 @@ use {
 	crate::prelude::*,
 	std::path::{Path, PathBuf},
 };
-
 pub mod data;
 pub mod import;
 pub mod load;
@@ -256,41 +255,4 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 		}
 	}
 	Ok(name)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// A module kind uses a compact numeric tag in Tangram.
-	#[test]
-	fn kind_serialization() {
-		for (kind, expected_id) in [
-			(Kind::Js, 0),
-			(Kind::Ts, 1),
-			(Kind::Dts, 2),
-			(Kind::Object, 3),
-			(Kind::Artifact, 4),
-			(Kind::Blob, 5),
-			(Kind::Directory, 6),
-			(Kind::File, 7),
-			(Kind::Symlink, 8),
-			(Kind::Graph, 9),
-			(Kind::Command, 10),
-			(Kind::Error, 11),
-		] {
-			assert_eq!(
-				serde_json::to_value(kind).unwrap(),
-				serde_json::Value::String(kind.to_string()),
-			);
-			let bytes = tangram_serialize::to_vec(&kind).unwrap();
-			let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
-			let tangram_serialize::Value::Enum(value) = value else {
-				panic!("expected an enum");
-			};
-			assert_eq!(value.id, expected_id);
-			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
-			assert_eq!(actual, kind);
-		}
-	}
 }

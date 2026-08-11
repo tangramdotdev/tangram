@@ -45,11 +45,15 @@ pub struct Debug {
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Mode {
 	#[default]
+	#[tangram_serialize(id = 0)]
 	Normal,
+
+	#[tangram_serialize(id = 1)]
 	Break,
+
+	#[tangram_serialize(id = 2)]
 	Wait,
 }
 
