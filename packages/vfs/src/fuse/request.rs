@@ -628,6 +628,7 @@ where
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		while let Some((offset, (name, node, attr))) = entries.next() {
 			let offset = request.offset.to_usize().unwrap() + offset;
+			let is_dot = name == "." || name == "..";
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
@@ -642,9 +643,9 @@ where
 			}
 
 			let type_ = match attr.inner {
-				AttrsInner::Directory => S_IFDIR,
-				AttrsInner::File { .. } => S_IFREG,
-				AttrsInner::Symlink { .. } => S_IFLNK,
+				AttrsInner::Directory => sys::DT_DIR,
+				AttrsInner::File { .. } => sys::DT_REG,
+				AttrsInner::Symlink { .. } => sys::DT_LNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -661,7 +662,12 @@ where
 			response.extend_from_slice(entry.as_bytes());
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
-			nodes.push(node);
+
+			if is_dot {
+				self.provider.forget_sync(node, 1);
+			} else {
+				nodes.push(node);
+			}
 		}
 
 		Response::ReadDirPlus {
@@ -883,9 +889,9 @@ where
 	#[must_use]
 	fn fuse_dirent_type(kind: crate::EntryKind) -> u32 {
 		match kind {
-			crate::EntryKind::Directory => S_IFDIR,
-			crate::EntryKind::File => S_IFREG,
-			crate::EntryKind::Symlink => S_IFLNK,
+			crate::EntryKind::Directory => u32::from(libc::DT_DIR),
+			crate::EntryKind::File => u32::from(libc::DT_REG),
+			crate::EntryKind::Symlink => u32::from(libc::DT_LNK),
 		}
 	}
 }

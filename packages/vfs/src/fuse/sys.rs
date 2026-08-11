@@ -7,6 +7,10 @@
 	non_upper_case_globals
 )]
 
+pub const DT_DIR: u32 = 0x4;
+pub const DT_REG: u32 = 0x8;
+pub const DT_LNK: u32 = 0xa;
+
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 45;
 pub const FOPEN_KEEP_CACHE: u32 = 2;
