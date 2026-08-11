@@ -4,6 +4,7 @@ use {
 	std::{
 		collections::{BTreeMap, HashSet, VecDeque},
 		path::Path,
+		sync::Arc,
 	},
 	tangram_client::prelude::*,
 	tangram_util::iter::Ext as _,
@@ -59,29 +60,33 @@ impl Session {
 	}
 
 	#[tracing::instrument(level = "trace", skip_all)]
-	pub(super) async fn checkin_write_lock(
+	pub(super) async fn checkin_write_lock<F>(
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		next: usize,
-		lock: Option<&tg::graph::Data>,
+		lock: Option<Arc<tg::graph::Data>>,
 		root: &Path,
-		progress: &crate::progress::Handle<super::TaskOutput>,
-	) -> tg::Result<()> {
-		progress.spinner("locking", "locking");
-
+		reserve_lock_write: F,
+	) -> tg::Result<(
+		Option<Arc<tg::graph::Data>>,
+		Option<crate::watch::LockWrite>,
+	)>
+	where
+		F: FnOnce() -> tg::Result<Option<crate::watch::LockWrite>>,
+	{
 		// Get the root node.
 		let root_index = graph.paths.get(root).unwrap();
 		let root_node = graph.nodes.get(root_index).unwrap();
 
 		// Do not write a lock if the lock arg is not set.
 		if arg.options.lock.is_none() {
-			return Ok(());
+			return Ok((lock, None));
 		}
 
 		// Do not write a lock if this is a destructive checkin.
 		if arg.options.destructive {
-			return Ok(());
+			return Ok((lock, None));
 		}
 
 		// If the root is not solvable, then remove an existing lock and return.
@@ -89,6 +94,7 @@ impl Session {
 			if arg.options.locked && lock.is_some() {
 				return Err(tg::error!("the lock is out of date"));
 			}
+			let lock_write = reserve_lock_write()?;
 			match root_node.variant {
 				Variant::Directory(_) => {
 					let lockfile_path = root.join(tg::module::LOCKFILE_FILE_NAME);
@@ -101,14 +107,14 @@ impl Session {
 				},
 				Variant::Symlink(_) => (),
 			}
-			return Ok(());
+			return Ok((None, lock_write));
 		}
 
 		// Do not write a lock if the lock was not changed during solving.
-		if let Some(lock) = lock {
+		if let Some(lock) = &lock {
 			let changed = Self::checkin_lock_changed(graph, next, lock);
 			if !changed {
-				return Ok(());
+				return Ok((Some(lock.clone()), None));
 			}
 		}
 
@@ -116,11 +122,17 @@ impl Session {
 		let new_lock = Self::checkin_create_lock(graph, root, arg.options.source_dependencies);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
-		if arg.options.locked && lock.is_some_and(|existing| new_lock.nodes != existing.nodes) {
+		if arg.options.locked
+			&& lock
+				.as_ref()
+				.is_some_and(|existing| new_lock.nodes != existing.nodes)
+		{
 			return Err(tg::error!("the lock is out of date"));
 		}
 
-		let lock = new_lock;
+		let lock = Arc::new(new_lock);
+		let expected = (!lock.nodes.is_empty()).then(|| lock.clone());
+		let lock_write = reserve_lock_write()?;
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a file lock.
 		match root_node.variant {
@@ -133,7 +145,7 @@ impl Session {
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {
-					return Ok(());
+					return Ok((expected, lock_write));
 				}
 
 				// Serialize the lock.
@@ -174,7 +186,7 @@ impl Session {
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
-							return Ok(());
+							return Ok((expected, lock_write));
 						}
 
 						// Serialize the lock.
@@ -198,7 +210,7 @@ impl Session {
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
-							return Ok(());
+							return Ok((expected, lock_write));
 						}
 
 						// Serialize the lock.
@@ -218,9 +230,7 @@ impl Session {
 			Variant::Symlink(_) => {},
 		}
 
-		progress.finish("locking");
-
-		Ok(())
+		Ok((expected, lock_write))
 	}
 
 	fn checkin_lock_changed(

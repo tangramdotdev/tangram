@@ -589,9 +589,29 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to write the objects to the store"))?;
 
 		// Write the lock.
-		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), root, progress)
+		let reserve_lock_write = || match watch_observation {
+			WatchObservation::Compatible { id, version }
+			| WatchObservation::Incompatible { id, version } => {
+				let watch = self
+					.server
+					.watches
+					.get(&watch_key)
+					.filter(|watch| watch.id() == id)
+					.ok_or_else(|| tg::error!("the watch changed during checkin"))?;
+				let lock_write = watch
+					.reserve_lock_write(version)
+					.ok_or_else(|| tg::error!("files were modified during checkin"))?;
+
+				Ok(Some(lock_write))
+			},
+			WatchObservation::Vacant => Ok(None),
+		};
+		progress.spinner("locking", "locking");
+		let (lock, lock_write) = self
+			.checkin_write_lock(&arg, &graph, next, lock, root, reserve_lock_write)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
+		progress.finish("locking");
 
 		// Create the index batch.
 		let index_arg = self.checkin_index(
@@ -627,6 +647,15 @@ impl Session {
 			)
 			.await;
 
+			// Verify that the lock has the expected contents.
+			if lock_write.is_some() {
+				let actual_lock = Self::checkin_try_read_lock(root)
+					.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
+				if !crate::watch::locks_equal(lock.as_deref(), actual_lock.as_ref()) {
+					return Err(tg::error!("the lock was modified during checkin"));
+				}
+			}
+
 			// Create or update the watcher.
 			let entry = self.server.watches.entry(watch_key.clone());
 			match (entry, watch_observation) {
@@ -641,6 +670,7 @@ impl Session {
 						graph: graph.clone(),
 						key: &watch_key,
 						lock,
+						lock_write,
 						next,
 						server: &self.server,
 						solutions,
@@ -666,10 +696,14 @@ impl Session {
 						solutions,
 						spawn_index_task: || self.checkin_index_task(index_arg, &arg, root),
 					};
-					let success = entry.get_mut().replace_if_version(version, || {
-						Watch::new(&self.server, &watch_key, new_arg)
-							.map_err(|error| tg::error!(!error, "failed to create the watch"))
-					})?;
+					let success =
+						entry
+							.get_mut()
+							.replace_if_version(version, lock_write, || {
+								Watch::new(&self.server, &watch_key, new_arg).map_err(|error| {
+									tg::error!(!error, "failed to create the watch")
+								})
+							})?;
 					if !success {
 						return Err(tg::error!("files were modified during checkin"));
 					}
