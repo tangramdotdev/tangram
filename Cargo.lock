@@ -9949,7 +9949,7 @@ dependencies = [
 [[package]]
 name = "virtiofsd"
 version = "1.14.0"
-source = "git+https://github.com/tangramdotdev/virtiofsd?branch=feat%2Fdax#34280d31d10478c41d11c59afbf8ac042816348f"
+source = "git+https://github.com/tangramdotdev/virtiofsd?rev=d0c78f1b1b01f032b575f581b24d901146606abc#d0c78f1b1b01f032b575f581b24d901146606abc"
 dependencies = [
  "bitflags 1.3.2",
  "btree-range-map",
