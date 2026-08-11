@@ -118,6 +118,7 @@ impl Session {
 						bytes,
 						cache_pointer: None,
 						id: id.clone(),
+						length: Some(output.length),
 						stored_at: touched_at,
 					})
 				} else {

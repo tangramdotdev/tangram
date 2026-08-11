@@ -1,5 +1,8 @@
 use {
-	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{
+		DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetLengthBatchArg,
+		TryGetOutput,
+	},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -183,6 +186,14 @@ impl crate::Store for Store {
 		self.try_get_batch(arg).await
 	}
 
+	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		self.try_get_length(arg).await
+	}
+
+	async fn try_get_length_batch(&self, arg: TryGetLengthBatchArg) -> tg::Result<Vec<Option<u64>>> {
+		self.try_get_length_batch(arg).await
+	}
+
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		self.put(arg).await
 	}
@@ -281,6 +292,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
 				stored_at: 12345,
 			})
 			.await
@@ -321,6 +333,7 @@ mod tests {
 				bytes: None,
 				cache_pointer: None,
 				id: id.clone(),
+				length: None,
 				stored_at: 12345,
 			})
 			.await
@@ -343,6 +356,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
 				stored_at: 12346,
 			})
 			.await
@@ -384,6 +398,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
 				stored_at: 12345,
 			})
 			.unwrap();
@@ -421,6 +436,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
 				stored_at: 12345,
 			}])
 			.await
@@ -432,6 +448,86 @@ mod tests {
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
+	}
+
+	// An object put with a length returns the length without its bytes being read, and an object put without one returns none.
+	#[tokio::test]
+	async fn test_put_and_get_object_length() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
+		};
+		let store = Store::new(&config).unwrap();
+
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		// Put an object with a length.
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
+				stored_at: 12345,
+			})
+			.await
+			.unwrap();
+		let length = store
+			.try_get_length(crate::TryGetLengthArg { id: id.clone() })
+			.await
+			.unwrap();
+		assert_eq!(length, Some(u64::try_from(content.len()).unwrap()));
+
+		// A later put without a length preserves the length.
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				length: None,
+				stored_at: 12346,
+			})
+			.await
+			.unwrap();
+		let length = store
+			.try_get_length(crate::TryGetLengthArg { id: id.clone() })
+			.await
+			.unwrap();
+		assert_eq!(length, Some(u64::try_from(content.len()).unwrap()));
+
+		// An object put without a length has no length.
+		let other = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"other"));
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: other.clone(),
+				length: None,
+				stored_at: 12345,
+			})
+			.await
+			.unwrap();
+		let length = store
+			.try_get_length(crate::TryGetLengthArg { id: other })
+			.await
+			.unwrap();
+		assert_eq!(length, None);
+
+		// An absent object has no length.
+		let absent = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"absent"));
+		let length = store
+			.try_get_length(crate::TryGetLengthArg { id: absent })
+			.await
+			.unwrap();
+		assert_eq!(length, None);
 	}
 
 	// Deleting an object removes the object.
@@ -458,6 +554,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(u64::try_from(content.len()).unwrap()),
 				stored_at: 10,
 			})
 			.await

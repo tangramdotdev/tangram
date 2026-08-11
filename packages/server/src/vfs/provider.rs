@@ -1998,6 +1998,23 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
+
+		// Get the length from the store, which avoids reading the blob's bytes.
+		let arg = crate::object::store::TryGetLengthArg { id: id.clone() };
+		let length = self
+			.server
+			.object_store
+			.try_get_length(arg)
+			.await
+			.map_err(|error| {
+				tracing::error!(error = %error.trace(), %id, "failed to get the object length");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		if let Some(length) = length {
+			return Ok(length);
+		}
+
+		// Otherwise, compute the length from the object.
 		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		let object = self
 			.server
@@ -2111,6 +2128,13 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
+
+		// Get the length from the store, which avoids reading the blob's bytes.
+		if let Some(length) = self.try_get_length(&id, transaction)? {
+			return Ok(length);
+		}
+
+		// Otherwise, compute the length from the object.
 		let object = self.try_get_object(&id, transaction)?;
 		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
@@ -2532,6 +2556,30 @@ impl Provider {
 			.object_store
 			.try_get_sync(&arg)
 			.map(|output| output.object)
+			.map_err(|error| Self::map_store_sync_error(&error))
+	}
+
+	fn try_get_length(
+		&self,
+		id: &tg::object::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Option<u64>> {
+		#[cfg(feature = "lmdb")]
+		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.object_store, transaction)
+		{
+			return store
+				.try_get_length_with_transaction(transaction, id)
+				.map_err(|error| Self::map_store_sync_error(&error));
+		}
+
+		#[cfg(not(feature = "lmdb"))]
+		let _ = transaction;
+
+		let arg = crate::object::store::TryGetLengthArg { id: id.clone() };
+		self.server
+			.object_store
+			.try_get_length_sync(&arg)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 

@@ -118,6 +118,7 @@ impl Session {
 					bytes: Some(node.bytes.clone()),
 					cache_pointer: None,
 					id: node.id.clone(),
+					length: crate::object::store::blob_length(&node.id, &node.bytes),
 					stored_at: touched_at,
 				})
 			})

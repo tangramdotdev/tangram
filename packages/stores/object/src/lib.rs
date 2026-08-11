@@ -20,6 +20,7 @@ pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
+	pub length: Option<u64>,
 	pub stored_at: i64,
 }
 
@@ -30,6 +31,16 @@ pub struct TryGetArg {
 
 #[derive(Clone, Debug)]
 pub struct TryGetBatchArg {
+	pub ids: Vec<tg::object::Id>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TryGetLengthArg {
+	pub id: tg::object::Id,
+}
+
+#[derive(Clone, Debug)]
+pub struct TryGetLengthBatchArg {
 	pub ids: Vec<tg::object::Id>,
 }
 
@@ -52,6 +63,10 @@ pub struct Object<'a> {
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub cache_pointer: Option<CachePointer>,
+
+	/// The length of the blob, if the object is a blob. It lets the length be read without deserializing the bytes.
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub length: Option<u64>,
 
 	#[tangram_serialize(id = 2)]
 	pub stored_at: i64,
@@ -90,6 +105,18 @@ pub trait Store {
 		&self,
 		arg: TryGetBatchArg,
 	) -> impl std::future::Future<Output = tg::Result<Vec<TryGetOutput>>> + Send;
+
+	/// Gets the length of a blob without reading its bytes. It returns `None` if the object is absent or its length was not stored.
+	fn try_get_length(
+		&self,
+		arg: TryGetLengthArg,
+	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
+
+	/// Gets the lengths of many blobs without reading their bytes. The output has one entry per requested ID, in order.
+	fn try_get_length_batch(
+		&self,
+		arg: TryGetLengthBatchArg,
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<u64>>>> + Send;
 
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
@@ -138,6 +165,21 @@ impl Object<'_> {
 	}
 }
 
+impl<'a> Object<'a> {
+	/// Deserializes an object, borrowing its bytes from the slice. It avoids copying the bytes when only the metadata is needed.
+	pub fn deserialize_borrowed(bytes: &'a [u8]) -> tg::Result<Self> {
+		if bytes.is_empty() {
+			return Err(tg::error!("empty object value data"));
+		}
+		let format = bytes[0];
+		match format {
+			0 => tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object value")),
+			_ => Err(tg::error!("invalid object value format")),
+		}
+	}
+}
+
 impl Object<'static> {
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		let bytes = bytes.into();
@@ -165,6 +207,7 @@ impl Object<'_> {
 		Object {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			cache_pointer: self.cache_pointer,
+			length: self.length,
 			stored_at: self.stored_at,
 		}
 	}

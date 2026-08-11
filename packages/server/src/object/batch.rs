@@ -67,6 +67,7 @@ impl Session {
 				bytes: Some(object.bytes.clone()),
 				cache_pointer: None,
 				id: object.id.clone(),
+				length: crate::object::store::blob_length(&object.id, &object.bytes),
 				stored_at: now,
 			})
 			.collect();

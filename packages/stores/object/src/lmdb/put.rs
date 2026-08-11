@@ -12,6 +12,7 @@ pub(super) struct Request {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
+	pub length: Option<u64>,
 	pub stored_at: i64,
 }
 
@@ -23,6 +24,7 @@ impl Store {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
+			length: arg.length,
 			stored_at: arg.stored_at,
 		});
 		self.sender
@@ -47,6 +49,7 @@ impl Store {
 					bytes: arg.bytes,
 					cache_pointer: arg.cache_pointer,
 					id: arg.id,
+					length: arg.length,
 					stored_at: arg.stored_at,
 				})
 				.collect(),
@@ -71,6 +74,7 @@ impl Store {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
+			length: arg.length,
 			stored_at: arg.stored_at,
 		};
 		Self::task_put_object(&self.db, &mut transaction, request)?;
@@ -93,6 +97,7 @@ impl Store {
 				bytes: arg.bytes,
 				cache_pointer: arg.cache_pointer,
 				id: arg.id,
+				length: arg.length,
 				stored_at: arg.stored_at,
 			};
 			Self::task_put_object(&self.db, &mut transaction, request)?;
@@ -122,14 +127,19 @@ impl Store {
 			.and_then(|entry| entry.bytes.clone())
 			.or(request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())));
 
+		let length = request
+			.length
+			.or_else(|| existing.as_ref().and_then(|entry| entry.length));
+
 		let cache_pointer = request
 			.cache_pointer
 			.or_else(|| existing.and_then(|entry| entry.cache_pointer));
 
 		let value = Object {
 			bytes,
-			stored_at: request.stored_at,
 			cache_pointer,
+			length,
+			stored_at: request.stored_at,
 		};
 		let value_bytes = value.serialize().unwrap();
 		db.put(transaction, &key_bytes, &value_bytes)

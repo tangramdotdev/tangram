@@ -1,6 +1,8 @@
 use {
 	super::{Db, Key, Store},
-	crate::{Object, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{
+		Object, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetLengthBatchArg, TryGetOutput,
+	},
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
@@ -45,6 +47,64 @@ impl Store {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+	}
+
+	pub(super) async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+				Self::try_get_object_length_with_transaction(&db, &transaction, &arg.id)
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+	}
+
+	pub(super) async fn try_get_length_batch(
+		&self,
+		arg: TryGetLengthBatchArg,
+	) -> tg::Result<Vec<Option<u64>>> {
+		if arg.ids.is_empty() {
+			return Ok(vec![]);
+		}
+		tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+				let mut outputs = Vec::with_capacity(arg.ids.len());
+				for id in &arg.ids {
+					let length =
+						Self::try_get_object_length_with_transaction(&db, &transaction, id)?;
+					outputs.push(length);
+				}
+				Ok(outputs)
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+	}
+
+	pub fn try_get_length_sync(&self, arg: &TryGetLengthArg) -> tg::Result<Option<u64>> {
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		Self::try_get_object_length_with_transaction(&self.db, &transaction, &arg.id)
+	}
+
+	pub fn try_get_length_with_transaction(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<u64>> {
+		Self::try_get_object_length_with_transaction(&self.db, transaction, id)
 	}
 
 	pub fn try_get_sync(&self, arg: &TryGetArg) -> tg::Result<TryGetOutput> {
@@ -104,6 +164,27 @@ impl Store {
 		let value = Object::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		Ok(Some(value))
+	}
+
+	fn try_get_object_length_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<u64>> {
+		let key = Key::Object(id);
+		let key_bytes = key.pack_to_vec();
+		let Some(bytes) = db
+			.get(transaction, &key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+		else {
+			return Ok(None);
+		};
+		let object = Object::deserialize_borrowed(bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		let length = object
+			.length
+			.or_else(|| object.cache_pointer.map(|pointer| pointer.length));
+		Ok(length)
 	}
 
 	pub fn try_get_data_with_transaction(

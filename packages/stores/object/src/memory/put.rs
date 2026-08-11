@@ -10,6 +10,7 @@ impl Store {
 		let object = Object {
 			bytes: arg.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 			cache_pointer: arg.cache_pointer,
+			length: arg.length,
 			stored_at: arg.stored_at,
 		};
 		state.objects.insert(arg.id.clone(), object);
@@ -21,6 +22,7 @@ impl Store {
 			let object = Object {
 				bytes: arg.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 				cache_pointer: arg.cache_pointer,
+				length: arg.length,
 				stored_at: arg.stored_at,
 			};
 			state.objects.insert(arg.id.clone(), object);

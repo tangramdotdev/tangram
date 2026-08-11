@@ -1,8 +1,9 @@
 use {
 	super::Store,
-	crate::{TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	bytes::Bytes,
 	futures::FutureExt as _,
+	num::ToPrimitive as _,
 	std::{borrow::Cow, collections::HashMap},
 	tangram_client::prelude::*,
 };
@@ -49,6 +50,7 @@ impl Store {
 				let object = objects.get(id).cloned().map(|bytes| crate::Object {
 					bytes: Some(Cow::Owned(bytes.to_vec())),
 					cache_pointer: None,
+					length: None,
 					stored_at: 0,
 				});
 				TryGetOutput { object }
@@ -56,6 +58,20 @@ impl Store {
 			.collect();
 
 		Ok(output)
+	}
+
+	pub(super) async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		let length = self
+			.try_get_object_length(&arg.id, &self.statements.get_object_length)
+			.await?;
+		if length.is_some() {
+			return Ok(length);
+		}
+
+		let mut statement = self.statements.get_object_length.clone();
+		statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		let length = self.try_get_object_length(&arg.id, &statement).await?;
+		Ok(length)
 	}
 
 	async fn try_get_object(
@@ -89,8 +105,44 @@ impl Store {
 		Ok(Some(crate::Object {
 			bytes: Some(bytes),
 			cache_pointer: None,
+			length: None,
 			stored_at: 0,
 		}))
+	}
+
+	async fn try_get_object_length(
+		&self,
+		id: &tg::object::Id,
+		statement: &scylla::statement::prepared::PreparedStatement,
+	) -> tg::Result<Option<u64>> {
+		let params = (id.to_bytes().to_vec(),);
+		#[derive(scylla::DeserializeRow)]
+		struct Row {
+			length: Option<i64>,
+		}
+		let result = self
+			.session
+			.execute_unpaged(statement, params)
+			.boxed()
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?
+			.into_rows_result()
+			.map_err(|error| tg::error!(!error, %id, "failed to get the rows"))?;
+		let Some(row) = result
+			.maybe_first_row::<Row>()
+			.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?
+		else {
+			return Ok(None);
+		};
+		let length = row
+			.length
+			.map(|length| {
+				length
+					.to_u64()
+					.ok_or_else(|| tg::error!(%id, "invalid length"))
+			})
+			.transpose()?;
+		Ok(length)
 	}
 
 	async fn try_get_object_batch(

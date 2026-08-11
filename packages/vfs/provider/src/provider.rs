@@ -1039,6 +1039,16 @@ impl Fast {
 			.map_err(eio)
 	}
 
+	fn try_get_length(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+	) -> std::io::Result<Option<u64>> {
+		self.store
+			.try_get_length_with_transaction(transaction, id)
+			.map_err(eio)
+	}
+
 	fn try_get_data(
 		&self,
 		transaction: &lmdb::RoTxn<'_>,
@@ -1253,6 +1263,13 @@ impl Fast {
 		id: &tg::blob::Id,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
+
+		// Get the length from the store, which avoids reading the blob's bytes.
+		if let Some(length) = self.try_get_length(transaction, &id)? {
+			return Ok(length);
+		}
+
+		// Otherwise, compute the length from the object.
 		let Some(object) = self.try_get_object(transaction, &id)? else {
 			return Err(fallback());
 		};
@@ -1905,6 +1922,7 @@ mod tests {
 				bytes: Some(bytes),
 				cache_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
+				length: None,
 				stored_at: 0,
 			})
 			.unwrap();

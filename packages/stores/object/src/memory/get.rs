@@ -1,6 +1,6 @@
 use {
 	super::Store,
-	crate::{Object, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{Object, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
@@ -22,6 +22,12 @@ impl Store {
 				object: Self::try_get_object(&state, id),
 			})
 			.collect()
+	}
+
+	#[must_use]
+	pub fn try_get_length_sync(&self, arg: &TryGetLengthArg) -> Option<u64> {
+		let state = self.state();
+		state.objects.get(&arg.id).and_then(|object| object.length)
 	}
 
 	pub fn try_get_data(&self, id: &tg::object::Id) -> tg::Result<Option<(u64, tg::object::Data)>> {

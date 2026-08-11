@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	futures::FutureExt as _,
 	indoc::indoc,
 	tangram_client::prelude::*,
@@ -45,6 +45,7 @@ struct Statements {
 	enqueue_outbox_fragment: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
 	get_object_batch: scylla::statement::prepared::PreparedStatement,
+	get_object_length: scylla::statement::prepared::PreparedStatement,
 	put_object: scylla::statement::prepared::PreparedStatement,
 	try_get_outbox_batch: scylla::statement::prepared::PreparedStatement,
 	try_get_outbox_batch_at_or_before: scylla::statement::prepared::PreparedStatement,
@@ -136,8 +137,21 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into objects (bytes, id, stored_at)
-				values (?, ?, ?);
+				select length
+				from objects
+				where id = ?;
+			"
+		);
+		let mut get_object_length = session
+			.prepare(statement)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the get length statement"))?;
+		get_object_length.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				insert into objects (bytes, id, length, stored_at)
+				values (?, ?, ?, ?);
 			"
 		);
 		let mut put_object = session
@@ -227,6 +241,7 @@ impl Store {
 				enqueue_outbox_fragment,
 				get_object,
 				get_object_batch,
+				get_object_length,
 				put_object,
 				try_get_outbox_batch,
 				try_get_outbox_batch_at_or_before,
@@ -245,6 +260,10 @@ impl crate::Store for Store {
 
 	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
 		self.try_get_batch(arg).await
+	}
+
+	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		self.try_get_length(arg).await
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {

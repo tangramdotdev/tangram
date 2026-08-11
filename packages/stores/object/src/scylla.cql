@@ -1,6 +1,7 @@
 create table if not exists objects (
 	bytes blob,
 	id blob primary key,
+	length bigint,
 	stored_at bigint
 );
 

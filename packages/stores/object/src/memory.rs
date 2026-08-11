@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteArg, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
+	crate::{DeleteArg, Object, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	std::{
 		collections::{BTreeMap, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
@@ -55,6 +55,10 @@ impl crate::Store for Store {
 
 	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
 		Ok(self.try_get_batch_sync(&arg))
+	}
+
+	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		Ok(self.try_get_length_sync(&arg))
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -125,6 +129,7 @@ mod tests {
 			bytes: Some(bytes.clone()),
 			cache_pointer: None,
 			id: id.clone(),
+			length: Some(u64::try_from(content.len()).unwrap()),
 			stored_at: 10,
 		});
 

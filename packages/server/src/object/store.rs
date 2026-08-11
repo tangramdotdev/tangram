@@ -3,7 +3,8 @@ use std::path::Path;
 use {tangram_client::prelude::*, tangram_object_store as object_store};
 
 pub use object_store::{
-	CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput, outbox,
+	CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput,
+	outbox,
 };
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -17,6 +18,16 @@ pub enum Store {
 
 	#[cfg(feature = "scylla")]
 	Scylla(object_store::scylla::Store),
+}
+
+/// Gets the length of a blob from its serialized bytes. It returns `None` if the object is not a blob or its bytes are invalid.
+#[must_use]
+pub fn blob_length(id: &tg::object::Id, bytes: &bytes::Bytes) -> Option<u64> {
+	if !matches!(id.kind(), tg::object::Kind::Blob) {
+		return None;
+	}
+	let blob = tg::blob::Data::deserialize(bytes.clone()).ok()?;
+	Some(blob.length())
 }
 
 impl Store {
@@ -74,6 +85,20 @@ impl Store {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_sync(arg),
 			Self::Memory(memory) => Ok(memory.try_get_sync(arg)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(_) => Err(tg::error!("unimplemented")),
+		}
+	}
+
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
+	pub fn try_get_length_sync(&self, arg: &TryGetLengthArg) -> tg::Result<Option<u64>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_length_sync(arg),
+			Self::Memory(memory) => Ok(memory.try_get_length_sync(arg)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -220,6 +245,16 @@ impl object_store::Store for Store {
 			Self::Memory(memory) => object_store::Store::try_get_batch(memory, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.try_get_batch(arg).await,
+		}
+	}
+
+	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_length(arg).await,
+			Self::Memory(memory) => object_store::Store::try_get_length(memory, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_length(arg).await,
 		}
 	}
 

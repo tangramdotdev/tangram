@@ -785,6 +785,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			length: None,
 			stored_at: touched_at,
 		};
 
@@ -918,6 +919,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			length: None,
 			stored_at: touched_at,
 		};
 		self.server
@@ -1348,6 +1350,7 @@ impl Session {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
+			length: None,
 			stored_at: touched_at,
 		};
 
