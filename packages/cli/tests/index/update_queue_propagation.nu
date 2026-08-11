@@ -18,14 +18,14 @@ let child_metadata = tg --url $local.url object metadata --pretty $child_id
 snapshot --name child_metadata $child_metadata '
 	{
 	  "node": {
-	    "size": 60,
+	    "size": 62,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 139,
+	    "size": 141,
 	    "solvable": false,
 	    "solved": true,
 	  },
@@ -52,14 +52,14 @@ let parent_metadata = tg --url $local.url object metadata --pretty $parent_id
 snapshot --name parent_metadata $parent_metadata '
 	{
 	  "node": {
-	    "size": 105,
+	    "size": 109,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 9,
 	    "depth": 5,
-	    "size": 555,
+	    "size": 565,
 	    "solvable": false,
 	    "solved": true,
 	  },

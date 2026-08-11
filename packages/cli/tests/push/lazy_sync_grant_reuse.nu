@@ -31,6 +31,6 @@ tg --url $remote.url index
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
 success $output "Bob should push the directory again."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
-	info skipped 0 users, 0 organizations, 0 groups, 0 tags, 0 sandboxes, 0 processes, 3 objects, 109 B
+	info skipped 0 users, 0 organizations, 0 groups, 0 tags, 0 sandboxes, 0 processes, 3 objects, 111 B
 	info transferred 0 users, 0 organizations, 0 groups, 0 tags, 0 sandboxes, 0 processes, 0 objects, 0 B
 '

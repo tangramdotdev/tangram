@@ -2,6 +2,15 @@ tg.directory({
   "graph": tg.graph({
     "nodes": [
       {
+        "kind": "directory",
+        "entries": {
+          "tangram.ts": {
+            "index": 1,
+            "kind": "file",
+          },
+        },
+      },
+      {
         "kind": "file",
         "contents": tg.blob("import * as bar from \"../bar\";"),
         "dependencies": {
@@ -21,15 +30,6 @@ tg.directory({
         "kind": "directory",
         "entries": {
           "tangram.ts": {
-            "index": 0,
-            "kind": "file",
-          },
-        },
-      },
-      {
-        "kind": "directory",
-        "entries": {
-          "tangram.ts": {
             "index": 3,
             "kind": "file",
           },
@@ -41,7 +41,7 @@ tg.directory({
         "dependencies": {
           "../foo": {
             "node": {
-              "index": 1,
+              "index": 0,
               "kind": "directory",
             },
             "options": {
@@ -53,6 +53,6 @@ tg.directory({
       },
     ],
   }),
-  "index": 1,
+  "index": 0,
   "kind": "directory",
 })

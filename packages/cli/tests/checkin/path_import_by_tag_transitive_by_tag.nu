@@ -48,7 +48,7 @@ snapshot $object '
 	                  "module": "ts",
 	                }),
 	                "options": {
-	                  "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
+	                  "id": "dir_01hhyz896t5f9pajra9dettatp06zh39zrjhcmffcecjanq5fv8ha0",
 	                  "path": "lib/utils.tg.ts",
 	                  "tag": "my-lib",
 	                },
@@ -58,7 +58,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01wcq462s4p2ryzr1b9wspd8a8h94ke0w23erkaq52pwvq5dwzcx00",
+	          "id": "dir_01ca6c1b6q2xpzdp38xwcpk8mh6qzse78gqfycjj8ve43fq1ksw7mg",
 	          "tag": "inner-pkg",
 	        },
 	      },

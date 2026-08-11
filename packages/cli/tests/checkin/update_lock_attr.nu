@@ -63,7 +63,7 @@ snapshot $object '
 	        }),
 	      }),
 	      "options": {
-	        "id": "dir_01baya75taqzrf1y70pcwgqyzznzsfqeqg7d2bgpqdaj0j8xzxfvq0",
+	        "id": "dir_01x58egapreve132hnp55xxtc58ppdrkfvktbqpxxv940qra086z5g",
 	        "tag": "a/1.1.0",
 	      },
 	    },
@@ -85,7 +85,7 @@ snapshot $lock '
 	        "a/^1": {
 	          "node": null,
 	          "options": {
-	            "id": "dir_01baya75taqzrf1y70pcwgqyzznzsfqeqg7d2bgpqdaj0j8xzxfvq0",
+	            "id": "dir_01x58egapreve132hnp55xxtc58ppdrkfvktbqpxxv940qra086z5g",
 	            "tag": "a/1.1.0"
 	          }
 	        }

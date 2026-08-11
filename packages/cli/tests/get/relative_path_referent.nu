@@ -13,13 +13,13 @@ let name = $pkg | path basename
 let output = with-env { TANGRAM_QUIET: "false" } { do --env { cd $parent; tg get $"./($name)" | complete } }
 success $output
 snapshot $output.stderr '
-	info dir_01rvv5xmnmngm4xsyeg848w049fnsdf9vz9gqd2sgfqgwqqah13sgg?path=artifact
+	info dir_01e0m7hfbhzaw39gngaz4kecpqh14zef8mzh01jzmayfhbk0zxxa9g?path=artifact
 
 '
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg get $pkg | complete }
 success $output
 snapshot --normalize --redact $parent $output.stderr '
-	info dir_01rvv5xmnmngm4xsyeg848w049fnsdf9vz9gqd2sgfqgwqqah13sgg?path=<redacted>/artifact
+	info dir_01e0m7hfbhzaw39gngaz4kecpqh14zef8mzh01jzmayfhbk0zxxa9g?path=<redacted>/artifact
 
 '

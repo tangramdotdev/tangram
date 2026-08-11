@@ -124,3 +124,12 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Do not add backwards compatibility when changing database schemas, API contracts, or configuration formats.
 - Do not add migrations.
 - Leave schema versions at 1.
+
+### Serialization
+
+- Keep JSON and Tangram serialization semantically congruent: both representations must preserve the same value and enum variant, but their framing may differ.
+- Serialize Tangram enums with stable numeric variant IDs unless the type deliberately delegates to a canonical non-enum representation.
+- Use `display` and `from_str` only for types canonically defined by a stable string grammar.
+- Use `into` and `try_from` only for lossless wrappers or refinements of another wire type.
+- Use untagged Tangram enums only for canonical wire unions with provably disjoint representations; do not use them to infer a semantic enum variant from incidental payload shapes.
+- Use untagged JSON enums only when their representations are disjoint, and reject unknown fields in object variants used for discrimination.

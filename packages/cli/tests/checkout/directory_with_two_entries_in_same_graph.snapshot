@@ -7,7 +7,7 @@
         "artifacts": {
           "kind": "directory",
           "entries": {
-            "dir_01pv2c1enassh7nfr4pbynk6v25rna3t7je9sn9gdqxnrzqss3cv20": {
+            "dir_01dt65ejrcy6g6ne8768bba6myqhgvtcjpq4kr7j5yqbxt7h6zh7k0": {
               "kind": "directory",
               "entries": {
                 "foo": {
@@ -19,7 +19,7 @@
                 }
               }
             },
-            "dir_01s0ezezkd4r1etqrqfgng7v1mftzgyzr809bbt2tahsje7hc0fpxg": {
+            "dir_01pkbcy5nprrj3ct2d7x14fnrgdp9kwfcx81hmscswnp47g1002hvg": {
               "kind": "directory",
               "entries": {
                 "tangram.ts": {

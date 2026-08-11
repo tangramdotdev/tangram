@@ -18,17 +18,14 @@ use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
+#[tangram_serialize(display, from_str)]
 pub enum Kind {
-	#[tangram_serialize(id = 0)]
 	Command = 0,
 
-	#[tangram_serialize(id = 1)]
 	Error = 1,
 
-	#[tangram_serialize(id = 2)]
 	Log = 2,
 
-	#[tangram_serialize(id = 3)]
 	Output = 3,
 }
 
@@ -49,5 +46,29 @@ impl fdbt::TupleUnpack<'_> for Kind {
 			"invalid process object kind".into(),
 		))?;
 		Ok((input, kind))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// A process object kind has the same canonical string representation in JSON and Tangram.
+	#[test]
+	fn serialization() {
+		for kind in [Kind::Command, Kind::Error, Kind::Log, Kind::Output] {
+			let string = kind.to_string();
+			assert_eq!(
+				serde_json::to_value(kind).unwrap(),
+				serde_json::Value::String(string.clone()),
+			);
+			assert_eq!(
+				tangram_serialize::to_vec(&kind).unwrap(),
+				tangram_serialize::to_vec(&string).unwrap(),
+			);
+			let bytes = tangram_serialize::to_vec(&kind).unwrap();
+			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
+			assert_eq!(actual, kind);
+		}
 	}
 }

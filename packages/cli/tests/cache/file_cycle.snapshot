@@ -1,14 +1,14 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_01c9hv1869wgpf6mq55r62ynf1eap3wbgepfvye819ax9t246aegn0": {
+    "fil_01jgkpx4rg358ybw71zw9r4v8jvsg0t517772yvr5yf1tqkmr2rjdg": {
       "kind": "file",
       "contents": "",
       "xattrs": {
         "user.tangram.dependencies": "[\"./foo.tg.ts\"]"
       }
     },
-    "fil_01rcw74s81fxd9kc36m7cmtcaq1pam24ffnwwha50psrr48yce29t0": {
+    "fil_01pea2rtj5c63rfj1swngr59xshfr9zc52eqwbbvyd548msrbab9b0": {
       "kind": "file",
       "contents": "",
       "xattrs": {

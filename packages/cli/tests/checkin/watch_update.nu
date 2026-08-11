@@ -84,7 +84,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01baya75taqzrf1y70pcwgqyzznzsfqeqg7d2bgpqdaj0j8xzxfvq0",
+	          "id": "dir_01x58egapreve132hnp55xxtc58ppdrkfvktbqpxxv940qra086z5g",
 	          "tag": "a/1.1.0",
 	        },
 	      },
@@ -96,7 +96,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01q463vyjr6q4c6b83k3ndfwd6dhbfm8c9af7g26b9j5c83x50ccw0",
+	          "id": "dir_01s9jygf4djz2gjvh5pdmzdq9xmc28yvej8mhv34e49z7x8h2nftjg",
 	          "tag": "b/1.0.0",
 	        },
 	      },
@@ -124,14 +124,14 @@ snapshot $lock '
 	        "a/^1": {
 	          "node": null,
 	          "options": {
-	            "id": "dir_01baya75taqzrf1y70pcwgqyzznzsfqeqg7d2bgpqdaj0j8xzxfvq0",
+	            "id": "dir_01x58egapreve132hnp55xxtc58ppdrkfvktbqpxxv940qra086z5g",
 	            "tag": "a/1.1.0"
 	          }
 	        },
 	        "b/^1": {
 	          "node": null,
 	          "options": {
-	            "id": "dir_01q463vyjr6q4c6b83k3ndfwd6dhbfm8c9af7g26b9j5c83x50ccw0",
+	            "id": "dir_01s9jygf4djz2gjvh5pdmzdq9xmc28yvej8mhv34e49z7x8h2nftjg",
 	            "tag": "b/1.0.0"
 	          }
 	        }

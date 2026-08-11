@@ -12,6 +12,6 @@ failure $output
 snapshot --normalize --redact $dir $output.stderr '
 	error an error occurred
 	-> failed to find a root module
-	   directory = dir_01me3xkeh1893mtxbmxsqhv8kxsds7y2hayhwy3ecqrfxvpzy2pz8g
+	   directory = dir_01f2z5nnejmwayg7y6rhmypyxkqb1pyxzytmjb0bhgrsagfbvz74hg
 
 '

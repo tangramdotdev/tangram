@@ -39,15 +39,15 @@ snapshot $object '
 	      "../inner": {
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0\" with { get: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"dir_01hhyz896t5f9pajra9dettatp06zh39zrjhcmffcecjanq5fv8ha0\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0?get=lib/utils.tg.ts": {
+	              "dir_01hhyz896t5f9pajra9dettatp06zh39zrjhcmffcecjanq5fv8ha0?get=lib/utils.tg.ts": {
 	                "node": tg.file({
 	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),
 	                "options": {
-	                  "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
+	                  "id": "dir_01hhyz896t5f9pajra9dettatp06zh39zrjhcmffcecjanq5fv8ha0",
 	                  "path": "lib/utils.tg.ts",
 	                },
 	              },

@@ -35,7 +35,7 @@ snapshot $object '
 	          "module": "ts",
 	        }),
 	        "options": {
-	          "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
+	          "id": "dir_01hhyz896t5f9pajra9dettatp06zh39zrjhcmffcecjanq5fv8ha0",
 	          "path": "lib/utils.tg.ts",
 	          "tag": "my-lib",
 	        },

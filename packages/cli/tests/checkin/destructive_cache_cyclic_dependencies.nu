@@ -23,6 +23,15 @@ snapshot $object '
 	    "graph": tg.graph({
 	      "nodes": [
 	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": {
+	              "index": 1,
+	              "kind": "file",
+	            },
+	          },
+	        },
+	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
@@ -42,15 +51,6 @@ snapshot $object '
 	          "kind": "directory",
 	          "entries": {
 	            "tangram.ts": {
-	              "index": 0,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
 	              "index": 3,
 	              "kind": "file",
 	            },
@@ -62,7 +62,7 @@ snapshot $object '
 	          "dependencies": {
 	            "../foo": {
 	              "node": {
-	                "index": 1,
+	                "index": 0,
 	                "kind": "directory",
 	              },
 	              "options": {
@@ -81,6 +81,15 @@ snapshot $object '
 	    "graph": tg.graph({
 	      "nodes": [
 	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": {
+	              "index": 1,
+	              "kind": "file",
+	            },
+	          },
+	        },
+	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
@@ -100,15 +109,6 @@ snapshot $object '
 	          "kind": "directory",
 	          "entries": {
 	            "tangram.ts": {
-	              "index": 0,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
 	              "index": 3,
 	              "kind": "file",
 	            },
@@ -120,7 +120,7 @@ snapshot $object '
 	          "dependencies": {
 	            "../foo": {
 	              "node": {
-	                "index": 1,
+	                "index": 0,
 	                "kind": "directory",
 	              },
 	              "options": {
@@ -132,7 +132,7 @@ snapshot $object '
 	        },
 	      ],
 	    }),
-	    "index": 1,
+	    "index": 0,
 	    "kind": "directory",
 	  },
 	})

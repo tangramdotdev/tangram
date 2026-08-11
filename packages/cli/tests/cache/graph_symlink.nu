@@ -29,7 +29,7 @@ snapshot --path $server.cache_directory '
 	{
 	  "kind": "directory",
 	  "entries": {
-	    "sym_01ajczwn8gdjcpjn0fcf2re3qjmzga18cda8hxjn7dgmcyywv5p240": {
+	    "sym_014gcwf6chcc0egb4wy71082hrqsd743xnds4m9vaapk883z6tjg60": {
 	      "kind": "symlink",
 	      "path": "/bin/sh"
 	    }

@@ -60,14 +60,12 @@ pub enum Stdio {
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
+#[tangram_serialize(display, from_str)]
 pub enum Stream {
-	#[tangram_serialize(id = 0)]
 	Stdin,
 
-	#[tangram_serialize(id = 1)]
 	Stdout,
 
-	#[tangram_serialize(id = 2)]
 	Stderr,
 }
 
@@ -370,4 +368,28 @@ pub(super) fn get_tty_size() -> Option<tg::process::tty::Size> {
 		rows: size.rows,
 		cols: size.cols,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// A stdio stream has the same canonical string representation in JSON and Tangram.
+	#[test]
+	fn stream_serialization() {
+		for stream in [Stream::Stdin, Stream::Stdout, Stream::Stderr] {
+			let string = stream.to_string();
+			assert_eq!(
+				serde_json::to_value(stream).unwrap(),
+				serde_json::Value::String(string.clone()),
+			);
+			assert_eq!(
+				tangram_serialize::to_vec(&stream).unwrap(),
+				tangram_serialize::to_vec(&string).unwrap(),
+			);
+			let bytes = tangram_serialize::to_vec(&stream).unwrap();
+			let actual = tangram_serialize::from_slice::<Stream>(&bytes).unwrap();
+			assert_eq!(actual, stream);
+		}
+	}
 }
