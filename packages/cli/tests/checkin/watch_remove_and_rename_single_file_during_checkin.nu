@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Remove and rename events for a watched single-file root invalidate an incremental checkin that already snapshotted it.
+# Extra remove and rename notifications are accepted, but real changes invalidate a snapshotted checkin.
 
 let server = spawn --config {
 	advanced: {
@@ -29,8 +29,36 @@ def check_event [kind: string] {
 	let checkin = checkin_background $path
 	tg checkpoint wait checkin.watch.snapshot $snapshot_watch 0 | ignore
 
-	# Synchronously inject the event for the watched root.
+	# Deliver an extra notification without changing the watched root.
 	tg watch touch $path $path --kind $kind
+
+	# The checkin must revalidate and publish its graph.
+	tg checkpoint continue checkin.watch.snapshot $snapshot_watch 0
+	tg checkpoint unwatch checkin.watch.snapshot $snapshot_watch
+	let output = job recv --tag $checkin --timeout 10sec
+	success $output
+
+	# Hold an incremental checkin after it snapshots the watched file.
+	let snapshot_watch = (
+		tg checkpoint watch checkin.watch.snapshot --params '{"solve":true,"updates":""}'
+		| from json
+		| get watch
+	)
+	let checkin = checkin_background $path
+	tg checkpoint wait checkin.watch.snapshot $snapshot_watch 0 | ignore
+
+	# Change the watched root and synchronously deliver the event.
+	match $kind {
+		remove => {
+			rm $path
+			tg watch touch $path $path --kind remove
+		}
+		rename => {
+			let renamed_path = $path | path dirname | path join renamed
+			mv $path $renamed_path
+			tg watch touch $path $path $renamed_path --kind rename
+		}
+	}
 
 	# The checkin must reject the stale snapshot.
 	tg checkpoint continue checkin.watch.snapshot $snapshot_watch 0

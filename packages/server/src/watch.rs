@@ -3,6 +3,7 @@ use {
 	notify::Watcher as _,
 	std::{
 		collections::HashSet,
+		os::unix::fs::MetadataExt as _,
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex, atomic::Ordering},
 	},
@@ -46,12 +47,15 @@ pub struct LockWriteGuard {
 }
 
 struct State {
+	affected_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	graph: crate::checkin::Graph,
 	index_task: Shared<tg::Result<()>>,
+	invalidated_paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	lock: Option<Arc<tg::graph::Data>>,
 	pending_lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+	revalidation_version: u64,
 	sender: tokio::sync::mpsc::Sender<Message>,
 	solutions: crate::checkin::Solutions,
 	timeout_task: Option<Task<()>>,
@@ -137,12 +141,15 @@ impl Watch {
 		// Create the state.
 		let index_task = spawn_index_task();
 		let state = State {
+			affected_paths: HashSet::default(),
 			graph,
 			index_task,
+			invalidated_paths: HashSet::default(),
 			lock,
 			pending_lock_write_version: None,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
+			revalidation_version: 0,
 			sender,
 			solutions,
 			timeout_task: None,
@@ -165,6 +172,7 @@ impl Watch {
 			move |_| async move {
 				while let Some(message) = receiver.recv().await {
 					// Get the paths.
+					let event_paths = message.event.paths.clone();
 					let mut paths = Self::changes(&message.event);
 					let lockfile_changed = paths.remove(lockfile_path.as_path());
 					let only_lockfile_changed = message
@@ -184,6 +192,7 @@ impl Watch {
 					let mut state = state.lock().unwrap();
 
 					// Update the lock unless an internal write is pending.
+					let mut lock_modified = false;
 					let mut modified = false;
 					if state.pending_lock_write_version.is_none()
 						&& let Some(lock) = lock
@@ -193,12 +202,14 @@ impl Watch {
 								let lock = lock.map(Arc::new);
 								if state.lock != lock {
 									state.lock = lock;
+									lock_modified = true;
 									modified = true;
 								}
 							},
 							Err(error) => {
 								tracing::error!(%error, "failed to read the lock");
 								state.lock.take();
+								lock_modified = true;
 								modified = true;
 							},
 						}
@@ -206,6 +217,9 @@ impl Watch {
 
 					// Update the nodes for the affected paths along with their ancestors.
 					for path in paths {
+						if state.affected_paths.contains(path) {
+							modified = true;
+						}
 						let Some(index) = state.graph.paths.get(path).copied() else {
 							continue;
 						};
@@ -238,6 +252,7 @@ impl Watch {
 							}
 							if let Some(path) = &node.path {
 								state.graph.paths.remove(path).unwrap();
+								state.affected_paths.insert(path.clone());
 							}
 
 							// Remove solutions that reference this node.
@@ -260,9 +275,15 @@ impl Watch {
 						}
 					}
 
-					// Increment the version if the lock or any nodes changed.
+					// Record the event and increment the version if the lock or any nodes changed.
 					if modified {
 						state.version += 1;
+						if lock_modified {
+							state.invalidated_paths.clear();
+							state.revalidation_version = state.version;
+						} else {
+							state.invalidated_paths.extend(event_paths);
+						}
 					}
 
 					// Notify any tasks waiting that the message has been received.
@@ -297,6 +318,7 @@ impl Watch {
 
 	pub fn replace_if_version<F>(
 		&mut self,
+		graph: &crate::checkin::Graph,
 		version: u64,
 		lock_write_guard: Option<LockWriteGuard>,
 		replace: F,
@@ -306,7 +328,12 @@ impl Watch {
 	{
 		let state = self.state.clone();
 		let mut state = state.lock().unwrap();
-		if state.version != version || !state.lock_write_guard_matches(lock_write_guard.as_ref()) {
+		let version = lock_write_guard
+			.as_ref()
+			.map_or(version, |lock_write_guard| lock_write_guard.version);
+		if !state.lock_write_guard_matches(lock_write_guard.as_ref())
+			|| !state.can_publish(graph, version)
+		{
 			drop(state);
 			return Ok(false);
 		}
@@ -326,11 +353,16 @@ impl Watch {
 		Ok(true)
 	}
 
-	pub fn try_reserve_lock_write(&self, version: u64) -> Option<LockWriteGuard> {
+	pub fn try_reserve_lock_write(
+		&self,
+		graph: &crate::checkin::Graph,
+		version: u64,
+	) -> Option<LockWriteGuard> {
 		let mut state = self.state.lock().unwrap();
-		if state.version != version || state.pending_lock_write_version.is_some() {
+		if state.pending_lock_write_version.is_some() || !state.can_publish(graph, version) {
 			return None;
 		}
+		let version = state.version;
 		state.pending_lock_write_version = Some(version);
 		let lock_write_guard = LockWriteGuard {
 			state: Some(self.state.clone()),
@@ -399,19 +431,27 @@ impl Watch {
 		} = arg;
 		let mut state = self.state.lock().unwrap();
 
-		if state.version != version || !state.lock_write_guard_matches(lock_write_guard.as_ref()) {
+		let version = lock_write_guard
+			.as_ref()
+			.map_or(version, |lock_write_guard| lock_write_guard.version);
+		if !state.lock_write_guard_matches(lock_write_guard.as_ref())
+			|| !state.can_publish(&graph, version)
+		{
 			drop(state);
 			return false;
 		}
 
 		// Update the state.
 		let index_task = spawn_index_task();
+		state.affected_paths.clear();
 		state.graph = graph;
 		state.index_task = index_task;
+		state.invalidated_paths.clear();
 		state.lock = lock;
 		state.pending_lock_write_version.take();
 		state.solutions = solutions;
 		state.version += 1;
+		state.revalidation_version = state.version;
 
 		// Reset the timeout task.
 		state
@@ -493,6 +533,58 @@ impl Watch {
 }
 
 impl State {
+	fn can_publish(&self, graph: &crate::checkin::Graph, version: u64) -> bool {
+		if self.version == version {
+			return true;
+		}
+		if version < self.revalidation_version || version > self.version {
+			return false;
+		}
+
+		self.invalidated_paths
+			.iter()
+			.all(|path| Self::graph_matches_path(graph, path))
+	}
+
+	fn graph_matches_path(graph: &crate::checkin::Graph, path: &Path) -> bool {
+		let graph_metadata = graph.paths.get(path).map(|index| {
+			graph
+				.nodes
+				.get(index)
+				.and_then(|node| node.path_metadata.as_ref())
+		});
+		let path_metadata = std::fs::symlink_metadata(path);
+		match (graph_metadata, path_metadata) {
+			(Some(Some(graph_metadata)), Ok(path_metadata)) => {
+				Self::metadata_matches(graph_metadata, &path_metadata)
+			},
+			(None, Err(error))
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+				) =>
+			{
+				true
+			},
+			_ => false,
+		}
+	}
+
+	fn metadata_matches(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+		left.ctime() == right.ctime()
+			&& left.ctime_nsec() == right.ctime_nsec()
+			&& left.dev() == right.dev()
+			&& left.gid() == right.gid()
+			&& left.ino() == right.ino()
+			&& left.len() == right.len()
+			&& left.mode() == right.mode()
+			&& left.mtime() == right.mtime()
+			&& left.mtime_nsec() == right.mtime_nsec()
+			&& left.nlink() == right.nlink()
+			&& left.rdev() == right.rdev()
+			&& left.uid() == right.uid()
+	}
+
 	fn lock_write_guard_matches(&self, lock_write_guard: Option<&LockWriteGuard>) -> bool {
 		match (self.pending_lock_write_version, lock_write_guard) {
 			(Some(version), Some(lock_write_guard)) => version == lock_write_guard.version,
@@ -580,6 +672,8 @@ impl Drop for LockWriteGuard {
 			state.lock.take();
 			state.pending_lock_write_version.take();
 			state.version += 1;
+			state.invalidated_paths.clear();
+			state.revalidation_version = state.version;
 		}
 	}
 }

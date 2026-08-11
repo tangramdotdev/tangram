@@ -603,7 +603,7 @@ impl Session {
 					.filter(|watch| watch.id() == id)
 					.ok_or_else(|| tg::error!("the watch changed during checkin"))?;
 				let lock_write_guard = watch
-					.try_reserve_lock_write(version)
+					.try_reserve_lock_write(&graph, version)
 					.ok_or_else(|| tg::error!("files were modified during checkin"))?;
 
 				Ok(Some(lock_write_guard))
@@ -714,14 +714,15 @@ impl Session {
 						solutions,
 						spawn_index_task: || self.checkin_index_task(index_arg, &arg, root),
 					};
-					let success =
-						entry
-							.get_mut()
-							.replace_if_version(version, lock_write_guard, || {
-								Watch::new(&self.server, &watch_key, new_arg).map_err(|error| {
-									tg::error!(!error, "failed to create the watch")
-								})
-							})?;
+					let success = entry.get_mut().replace_if_version(
+						&graph,
+						version,
+						lock_write_guard,
+						|| {
+							Watch::new(&self.server, &watch_key, new_arg)
+								.map_err(|error| tg::error!(!error, "failed to create the watch"))
+						},
+					)?;
 					if !success {
 						return Err(tg::error!("files were modified during checkin"));
 					}
