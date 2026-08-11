@@ -504,7 +504,7 @@ impl Session {
 		sandbox_state.processes.insert(
 			id.clone(),
 			crate::process::State {
-				children: Vec::new(),
+				child_leases: Vec::new(),
 				control: control_sender.clone(),
 				data: state.to_data(),
 				finish: None,
@@ -946,19 +946,27 @@ impl Session {
 		process_state.data.finished_at = Some(time::OffsetDateTime::now_utc().unix_timestamp());
 		process_state.data.output = value;
 		process_state.data.status = tg::process::Status::Finished;
-		let children = std::mem::take(&mut process_state.children);
+		let child_leases = std::mem::take(&mut process_state.child_leases);
 		let data = process_state.data.clone();
 		drop(sandbox);
 
-		children
+		child_leases
 			.into_iter()
-			.map(|child| {
+			.map(|child_lease| {
+				let parent = id.clone();
 				let session = session.clone();
 				async move {
-					let id = child.process;
+					let id = child_lease.process;
+					crate::checkpoint!(
+						session.server,
+						"runner.process.child_lease.release",
+						child = %id,
+						parent = %parent,
+					)
+					.await;
 					let arg = tg::process::cancel::Arg {
-						lease: child.lease,
-						location: child.location,
+						lease: child_lease.lease,
+						location: child_lease.location,
 					};
 					if let Err(error) = session.cancel_process(&id, arg).await {
 						tracing::error!(error = %error.trace(), process = %id, "failed to release a child process lease");

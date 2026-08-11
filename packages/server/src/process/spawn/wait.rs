@@ -323,15 +323,18 @@ impl Session {
 		output: Output,
 		wait: Option<tg::process::wait::Output>,
 	) -> tg::Result<tg::process::spawn::Output> {
-		let data_wait = output.wait()?;
-		Ok(tg::process::spawn::Output {
+		let wait = wait.or(output.wait()?);
+		let lease = if wait.is_some() { None } else { output.lease };
+		let output = tg::process::spawn::Output {
 			cached: output.cached,
-			lease: output.lease,
+			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			process: tg::Either::Right(output.id),
 			token: output.token,
-			wait: wait.or(data_wait),
-		})
+			wait,
+		};
+
+		Ok(output)
 	}
 
 	async fn spawn_process_get_cached_process_region_or_remote(

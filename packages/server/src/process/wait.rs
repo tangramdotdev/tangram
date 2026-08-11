@@ -64,7 +64,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
 				let future =
-					self.attach_wait_process_cancel_guard(id, &arg, None, stopper.clone(), future);
+					self.attach_wait_process_guard(id, &arg, None, stopper.clone(), future);
 				return Ok(Some(future));
 			}
 
@@ -77,7 +77,7 @@ impl Session {
 				let location = Some(tg::Location::Local(tg::location::Local {
 					region: Some(region),
 				}));
-				let future = self.attach_wait_process_cancel_guard(
+				let future = self.attach_wait_process_guard(
 					id,
 					&arg,
 					location.map(Into::into),
@@ -104,7 +104,7 @@ impl Session {
 			})
 			.into(),
 		);
-		let future = self.attach_wait_process_cancel_guard(id, &arg, location, stopper, future);
+		let future = self.attach_wait_process_guard(id, &arg, location, stopper, future);
 
 		Ok(Some(future))
 	}
@@ -328,7 +328,7 @@ impl Session {
 		Ok(Some((future.boxed(), remote.clone())))
 	}
 
-	fn attach_wait_process_cancel_guard(
+	fn attach_wait_process_guard(
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::wait::Arg,
@@ -336,6 +336,30 @@ impl Session {
 		stopper: Option<Stopper>,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
+		// Remove the parent's child leases when the child finishes.
+		let future = if let tg::Principal::Process(parent) = &self.context.principal {
+			let child = id.clone();
+			let parent = parent.clone();
+			let server = self.server.clone();
+			async move {
+				let output = future.await;
+				if matches!(&output, Ok(Some(_))) {
+					server
+						.runner
+						.state()
+						.try_update_process(&parent, |process| {
+							process
+								.child_leases
+								.retain(|child_lease| child_lease.process != child);
+						});
+				}
+				output
+			}
+			.boxed()
+		} else {
+			future
+		};
+
 		// If a lease is provided, attach a cancellation guard.
 		if let Some(lease) = arg.lease.clone() {
 			let cancel = Arc::new(AtomicBool::new(true));

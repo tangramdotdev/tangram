@@ -1,7 +1,7 @@
 use ../../test.nu *
 
-# A build fanning out eight children across four concurrent remote
-# runners completes and returns every child's result.
+# A build fanning out eight children across four concurrent remote runners
+# completes without releasing leases for children it already waited for.
 #
 # Regression test for 802b850c (#765).
 
@@ -19,6 +19,9 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 
 	# Start the runner server.
 	let config = {
+		advanced: {
+			checkpoints: true,
+		},
 		remotes: {
 			default: {
 				token: $created.token.token
@@ -34,6 +37,13 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 		}
 	}
 	spawn --name $name --config $config
+}
+
+# Block any attempt by a parent to release an awaited child's lease.
+let release_watches = $runners | each { |runner|
+	tg --url $runner.url checkpoint watch runner.process.child_lease.release
+	| from json
+	| get watch
 }
 
 # Start the local server.
@@ -66,5 +76,10 @@ let path = artifact {
 
 # Run a remote build
 let id = tg build --remote --detach $path
-let output = tg wait $id
-snapshot $output '{"exit":0,"output":[0,1,2,3,4,5,6,7]}'
+let output = timeout 10s tg wait $id | complete
+for entry in ($runners | enumerate) {
+	let watch = $release_watches | get $entry.index
+	tg --url $entry.item.url checkpoint unwatch runner.process.child_lease.release $watch
+}
+success $output "the parent should not release leases for children it waited for"
+snapshot ($output.stdout | str trim) '{"exit":0,"output":[0,1,2,3,4,5,6,7]}'

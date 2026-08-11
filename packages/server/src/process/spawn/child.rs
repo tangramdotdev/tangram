@@ -49,11 +49,13 @@ impl Session {
 				process: tg::Referent::new(child.clone(), options),
 			});
 		if let Some(lease) = arg.lease {
-			parent_process.children.push(crate::process::Child {
-				lease: lease.to_owned(),
-				location: arg.location.cloned().map(Into::into),
-				process: child.clone(),
-			});
+			parent_process
+				.child_leases
+				.push(crate::process::ChildLease {
+					lease: lease.to_owned(),
+					location: arg.location.cloned().map(Into::into),
+					process: child.clone(),
+				});
 		}
 		let parent_data = parent_process.data.clone();
 		let control = parent_process.control.clone();
