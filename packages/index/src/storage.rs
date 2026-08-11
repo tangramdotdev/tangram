@@ -13,7 +13,7 @@ pub mod put;
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub enum Owner {
+pub enum Account {
 	#[tangram_serialize(id = 0)]
 	Organization(tg::organization::Id),
 
@@ -50,7 +50,7 @@ pub enum Kind {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub struct Association {
+pub struct Entry {
 	#[tangram_serialize(id = 0)]
 	pub reference_count: u64,
 
@@ -65,19 +65,19 @@ pub struct Usage {
 	pub process_count: u64,
 }
 
-impl Association {
+impl Entry {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the storage association"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the storage entry"))
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the storage association"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the storage entry"))
 	}
 }
 
-impl Owner {
+impl Account {
 	#[must_use]
 	pub fn id(&self) -> tg::Id {
 		match self {
@@ -95,26 +95,26 @@ impl Owner {
 	}
 }
 
-impl TryFrom<tg::Id> for Owner {
+impl TryFrom<tg::Id> for Account {
 	type Error = tg::Error;
 
 	fn try_from(id: tg::Id) -> tg::Result<Self> {
 		match id.kind() {
 			tg::id::Kind::Organization => Ok(Self::Organization(id.try_into()?)),
 			tg::id::Kind::User => Ok(Self::User(id.try_into()?)),
-			_ => Err(tg::error!(%id, "invalid storage owner")),
+			_ => Err(tg::error!(%id, "invalid storage account")),
 		}
 	}
 }
 
-impl TryFrom<tg::Principal> for Owner {
+impl TryFrom<tg::Principal> for Account {
 	type Error = tg::Error;
 
 	fn try_from(principal: tg::Principal) -> tg::Result<Self> {
 		match principal {
 			tg::Principal::Organization(id) => Ok(Self::Organization(id)),
 			tg::Principal::User(id) => Ok(Self::User(id)),
-			_ => Err(tg::error!(%principal, "invalid storage owner")),
+			_ => Err(tg::error!(%principal, "invalid storage account")),
 		}
 	}
 }

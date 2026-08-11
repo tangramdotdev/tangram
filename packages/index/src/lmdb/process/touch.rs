@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key, Request, Response},
+	crate::lmdb::{Db, Index, Key, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -16,33 +16,33 @@ impl Index {
 			.await
 	}
 
-	pub async fn touch_processes_and_put_owner(
+	pub async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_inner(ids, Some(owner), true, touched_at, time_to_touch)
+		self.touch_processes_inner(ids, Some(account), true, touched_at, time_to_touch)
 			.await
 	}
 
-	pub async fn touch_processes_with_owner(
+	pub async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_inner(ids, owner, false, touched_at, time_to_touch)
+		self.touch_processes_inner(ids, account, false, touched_at, time_to_touch)
 			.await
 	}
 
 	async fn touch_processes_inner(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
-		put_owner: bool,
+		account: Option<&crate::storage::Account>,
+		put_account: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
@@ -50,9 +50,9 @@ impl Index {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchProcesses(crate::lmdb::TouchProcesses {
+			account: account.cloned(),
 			ids: ids.to_vec(),
-			owner: owner.cloned(),
-			put_owner,
+			put_account,
 			time_to_touch,
 			touched_at,
 		});
@@ -63,7 +63,7 @@ impl Index {
 		Ok(processes)
 	}
 
-	pub(in crate::lmdb) fn touch_processes_with_owner_with_transaction(
+	pub(in crate::lmdb) fn touch_processes_with_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -71,9 +71,9 @@ impl Index {
 		storage_partition_total: u64,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		let crate::lmdb::TouchProcesses {
+			account,
 			ids,
-			owner,
-			put_owner,
+			put_account,
 			time_to_touch,
 			touched_at,
 		} = arg;
@@ -85,30 +85,31 @@ impl Index {
 			*touched_at,
 			*time_to_touch,
 		)?;
-		if let Some(owner) = owner.as_ref() {
+		if let Some(account) = account.as_ref() {
 			for (id, process) in std::iter::zip(ids, &processes) {
 				if process.is_none() {
 					continue;
 				}
 				let arg = crate::storage::put::ProcessArg {
-					owner: owner.clone(),
+					account: account.clone(),
 					process: id.clone(),
 					touched_at: *touched_at,
 				};
-				if *put_owner {
-					let inserted = Self::put_owner_process(
+				if *put_account {
+					let inserted = Self::put_account_process(
 						db,
 						subspace,
 						transaction,
 						&arg,
 						storage_partition_total,
 						false,
+						None,
 					)?;
 					if inserted {
 						continue;
 					}
 				}
-				Self::touch_owner_process(db, subspace, transaction, &arg, *time_to_touch)?;
+				Self::touch_account_process(db, subspace, transaction, &arg, *time_to_touch)?;
 			}
 		}
 
@@ -147,10 +148,9 @@ impl Index {
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 			if process.reference_count == 0 {
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Process {
+					id: id.clone(),
 					touched_at: process.touched_at,
-					kind: ItemKind::Process,
-					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])

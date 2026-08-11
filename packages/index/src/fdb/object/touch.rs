@@ -1,5 +1,5 @@
 use {
-	crate::fdb::{Index, ItemKind, Key, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
@@ -14,14 +14,14 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
-		self.touch_objects_with_owner(ids, None, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, None, touched_at, time_to_touch)
 			.await
 	}
 
-	pub async fn touch_objects_with_owner(
+	pub async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
@@ -29,8 +29,8 @@ impl Index {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchObjects(crate::fdb::TouchObjects {
+			account: account.cloned(),
 			ids: ids.to_vec(),
-			owner: owner.cloned(),
 			time_to_touch,
 			touched_at,
 		});
@@ -41,11 +41,11 @@ impl Index {
 		Ok(objects)
 	}
 
-	pub(crate) async fn touch_objects_with_owner_with_transaction(
+	pub(crate) async fn touch_objects_with_account_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
@@ -59,18 +59,18 @@ impl Index {
 			partition_total,
 		)
 		.await?;
-		if let Some(owner) = owner {
+		if let Some(account) = account {
 			future::try_join_all(
 				std::iter::zip(ids, &objects)
 					.filter(|(_, object)| object.is_some())
 					.map(|(id, _)| {
 						let arg = crate::storage::put::ObjectArg {
+							account: account.clone(),
 							object: id.clone(),
-							owner: owner.clone(),
 							touched_at,
 						};
 						async move {
-							Self::touch_owner_object(
+							Self::touch_account_object(
 								txn,
 								subspace,
 								&arg,
@@ -151,11 +151,10 @@ impl Index {
 		if object.reference_count == 0 {
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Object {
+				id: id.clone(),
 				partition,
 				touched_at: object.touched_at,
-				kind: ItemKind::Object,
-				id: id.clone().into(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

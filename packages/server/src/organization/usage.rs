@@ -44,7 +44,7 @@ impl Session {
 		let usage = self
 			.server
 			.index
-			.get_owner_usage(&tangram_index::storage::Owner::Organization(id))
+			.get_account_usage(&tangram_index::storage::Account::Organization(id))
 			.await?;
 		let output = tg::usage::Output {
 			object_count: usage.object_count,

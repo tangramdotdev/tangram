@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key},
+	crate::lmdb::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -49,10 +49,9 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the dependency cache entry"))?;
 		}
 
-		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+			id: arg.id.clone(),
 			touched_at,
-			kind: ItemKind::CacheEntry,
-			id: tg::object::Id::from(arg.id.clone()).into(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])

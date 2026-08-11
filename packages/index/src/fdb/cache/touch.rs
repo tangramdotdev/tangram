@@ -1,5 +1,5 @@
 use {
-	crate::fdb::{Index, ItemKind, Key, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
@@ -93,11 +93,10 @@ impl Index {
 		if cache_entry.reference_count == 0 {
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::CacheEntry {
+				id: id.clone(),
 				partition,
 				touched_at: cache_entry.touched_at,
-				kind: ItemKind::CacheEntry,
-				id: tg::object::Id::from(id.clone()).into(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

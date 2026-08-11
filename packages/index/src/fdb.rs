@@ -1,6 +1,5 @@
 use {
 	self::{
-		clean::ItemKind,
 		request::{Clean, Request, TouchCacheEntries, TouchObjects, TouchProcesses, Update},
 		response::Response,
 	},
@@ -236,11 +235,11 @@ impl Index {
 }
 
 impl crate::Index for Index {
-	async fn get_owner_usage(
+	async fn get_account_usage(
 		&self,
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 	) -> tg::Result<crate::storage::Usage> {
-		self.get_owner_usage(owner).await
+		self.get_account_usage(account).await
 	}
 
 	async fn authorize_batch(
@@ -321,14 +320,14 @@ impl crate::Index for Index {
 		self.touch_objects(ids, touched_at, time_to_touch).await
 	}
 
-	async fn touch_objects_with_owner(
+	async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
-		self.touch_objects_with_owner(ids, owner, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, account, touched_at, time_to_touch)
 			.await
 	}
 
@@ -402,25 +401,25 @@ impl crate::Index for Index {
 		self.touch_processes(ids, touched_at, time_to_touch).await
 	}
 
-	async fn touch_processes_and_put_owner(
+	async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_and_put_owner(ids, owner, touched_at, time_to_touch)
+		self.touch_processes_and_put_account(ids, account, touched_at, time_to_touch)
 			.await
 	}
 
-	async fn touch_processes_with_owner(
+	async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_with_owner(ids, owner, touched_at, time_to_touch)
+		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
 			.await
 	}
 
@@ -536,17 +535,21 @@ impl crate::Index for Index {
 		self.try_get_oldest_finalization_transaction_id(kind).await
 	}
 
-	async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
-		self.try_get_oldest_update_transaction_id().await
+	async fn try_get_oldest_update_transaction_id(
+		&self,
+		kind: crate::update::Kind,
+	) -> tg::Result<Option<u64>> {
+		self.try_get_oldest_update_transaction_id(kind).await
 	}
 
 	async fn update_batch(
 		&self,
+		kind: crate::update::Kind,
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<crate::update::Output> {
-		self.update_batch(batch_size, partition_start, partition_end)
+		self.update_batch(kind, batch_size, partition_start, partition_end)
 			.await
 	}
 

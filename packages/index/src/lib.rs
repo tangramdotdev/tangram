@@ -126,9 +126,9 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn get_owner_usage(
+	fn get_account_usage(
 		&self,
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 	) -> impl Future<Output = tg::Result<crate::storage::Usage>> + Send;
 
 	fn touch_cache_entries(
@@ -168,10 +168,10 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
 
-	fn touch_objects_with_owner(
+	fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
@@ -186,15 +186,20 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn touch_object_with_owner(
+	fn touch_object_with_account(
 		&self,
 		id: &tg::object::Id,
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::object::Object>>> + Send {
-		self.touch_objects_with_owner(std::slice::from_ref(id), owner, touched_at, time_to_touch)
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
+		self.touch_objects_with_account(
+			std::slice::from_ref(id),
+			account,
+			touched_at,
+			time_to_touch,
+		)
+		.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
 	fn try_get_processes(
@@ -296,18 +301,18 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
-	fn touch_processes_and_put_owner(
+	fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
-	fn touch_processes_with_owner(
+	fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
@@ -322,31 +327,36 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn touch_process_and_put_owner(
+	fn touch_process_and_put_account(
 		&self,
 		id: &tg::process::Id,
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
-		self.touch_processes_and_put_owner(
+		self.touch_processes_and_put_account(
 			std::slice::from_ref(id),
-			owner,
+			account,
 			touched_at,
 			time_to_touch,
 		)
 		.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn touch_process_with_owner(
+	fn touch_process_with_account(
 		&self,
 		id: &tg::process::Id,
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
-		self.touch_processes_with_owner(std::slice::from_ref(id), owner, touched_at, time_to_touch)
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
+		self.touch_processes_with_account(
+			std::slice::from_ref(id),
+			account,
+			touched_at,
+			time_to_touch,
+		)
+		.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
 	fn put_grants(
@@ -435,10 +445,12 @@ pub trait Index {
 
 	fn try_get_oldest_update_transaction_id(
 		&self,
+		kind: crate::update::Kind,
 	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn update_batch(
 		&self,
+		kind: crate::update::Kind,
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,

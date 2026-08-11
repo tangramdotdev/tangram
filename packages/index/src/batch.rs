@@ -58,10 +58,10 @@ pub enum Item {
 	PutOrganizationMember(crate::organization::member::put::Arg),
 
 	#[tangram_serialize(id = 20)]
-	PutOwnerObject(crate::storage::put::ObjectArg),
+	PutAccountObject(crate::storage::put::ObjectArg),
 
 	#[tangram_serialize(id = 21)]
-	PutOwnerProcess(crate::storage::put::ProcessArg),
+	PutAccountProcess(crate::storage::put::ProcessArg),
 
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),

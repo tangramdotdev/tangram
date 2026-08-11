@@ -157,7 +157,7 @@ impl Session {
 				let data = process.data.as_ref().unwrap();
 				let output = self.cached_process_output(id.clone(), data.clone())?;
 				if let Some(output) = self.acquire_cached_process_lease(output).boxed().await? {
-					if !self.put_cached_process_owner(id).await? {
+					if !self.put_cached_process_account(id).await? {
 						continue;
 					}
 					return Ok(Some(output));
@@ -443,17 +443,17 @@ impl Session {
 		Ok(process.is_some())
 	}
 
-	async fn put_cached_process_owner(&self, id: &tg::process::Id) -> tg::Result<bool> {
-		let Some(owner) = self.storage_owner(&self.context.principal).await? else {
+	async fn put_cached_process_account(&self, id: &tg::process::Id) -> tg::Result<bool> {
+		let Some(account) = self.storage_account(&self.context.principal).await? else {
 			return Ok(true);
 		};
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let process = self
 			.server
 			.index
-			.touch_process_and_put_owner(
+			.touch_process_and_put_account(
 				id,
-				&owner,
+				&account,
 				touched_at,
 				self.server.config.process.time_to_touch,
 			)

@@ -1,4 +1,5 @@
 mod key;
+mod storage;
 
 pub(super) use key::{ItemKind, Key};
 
@@ -19,6 +20,14 @@ struct Candidate {
 
 #[derive(Clone)]
 enum Item {
+	AccountObject {
+		account: crate::storage::Account,
+		object: tg::object::Id,
+	},
+	AccountProcess {
+		account: crate::storage::Account,
+		process: tg::process::Id,
+	},
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
@@ -92,23 +101,11 @@ impl Index {
 			partition_total,
 		)
 		.await?;
-		let storage = Self::clean_storage_associations(
-			txn,
-			subspace,
-			batch_size.saturating_sub(grants),
-			max_object_touched_at,
-			max_process_touched_at,
-			partition_start,
-			partition_end,
-			partition_total,
-			storage_partition_total,
-		)
-		.await?;
 		let mut output = crate::clean::Output {
 			grants,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants + storage);
+		let remaining_batch_size = batch_size.saturating_sub(grants);
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
@@ -116,8 +113,11 @@ impl Index {
 			.max(max_process_touched_at)
 			.max(max_sandbox_touched_at);
 		for partition in partition_start..partition_end {
-			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
-			let end = Self::pack(subspace, &(key_kind, partition, max_touched_at + 1));
+			let begin = Self::pack(subspace, &(key_kind, partition, i64::MIN));
+			let end = Self::pack(
+				subspace,
+				&(key_kind, partition, max_touched_at.saturating_add(1)),
+			);
 			if candidates.len() >= remaining_batch_size {
 				break;
 			}
@@ -139,48 +139,76 @@ impl Index {
 				};
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
-				let crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
-					partition,
-					touched_at,
-					kind,
-					id,
-				}) = key
-				else {
+				let crate::fdb::Key::Clean(key) = key else {
 					return Err(tg::error!("expected clean key"));
 				};
-				let max_touched_at = match kind {
-					ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
-					ItemKind::Process => max_process_touched_at,
-					ItemKind::Sandbox => max_sandbox_touched_at,
+				let (item, partition, touched_at, max_touched_at) = match key {
+					crate::fdb::clean::Key::AccountObject {
+						account,
+						object,
+						partition,
+						touched_at,
+					} => (
+						Item::AccountObject { account, object },
+						partition,
+						touched_at,
+						max_object_touched_at,
+					),
+					crate::fdb::clean::Key::AccountProcess {
+						account,
+						partition,
+						process,
+						touched_at,
+					} => (
+						Item::AccountProcess { account, process },
+						partition,
+						touched_at,
+						max_process_touched_at,
+					),
+					crate::fdb::clean::Key::CacheEntry {
+						id,
+						partition,
+						touched_at,
+					} => (
+						Item::CacheEntry(id),
+						partition,
+						touched_at,
+						max_object_touched_at,
+					),
+					crate::fdb::clean::Key::Object {
+						id,
+						partition,
+						touched_at,
+					} => (
+						Item::Object(id),
+						partition,
+						touched_at,
+						max_object_touched_at,
+					),
+					crate::fdb::clean::Key::Process {
+						id,
+						partition,
+						touched_at,
+					} => (
+						Item::Process(id),
+						partition,
+						touched_at,
+						max_process_touched_at,
+					),
+					crate::fdb::clean::Key::Sandbox {
+						id,
+						partition,
+						touched_at,
+					} => (
+						Item::Sandbox(id),
+						partition,
+						touched_at,
+						max_sandbox_touched_at,
+					),
 				};
 				if touched_at > max_touched_at {
 					continue;
 				}
-				let item = match kind {
-					ItemKind::CacheEntry => {
-						let object_id = tg::object::Id::try_from(id).map_err(|error| {
-							tg::error!(!error, "expected object id for cache entry")
-						})?;
-						let artifact_id = tg::artifact::Id::try_from(object_id)
-							.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
-						Item::CacheEntry(artifact_id)
-					},
-					ItemKind::Object => {
-						let object_id = tg::object::Id::try_from(id)
-							.map_err(|error| tg::error!(!error, "expected object id"))?;
-						Item::Object(object_id)
-					},
-					ItemKind::Process => {
-						let process_id = tg::process::Id::try_from(id)
-							.map_err(|error| tg::error!(!error, "expected process id"))?;
-						Item::Process(process_id)
-					},
-					ItemKind::Sandbox => {
-						let sandbox_id = tg::sandbox::Id::try_from(id)
-							.map_err(|error| tg::error!(!error, "expected sandbox id"))?;
-						Item::Sandbox(sandbox_id)
-					},
-				};
 				candidates.push(Candidate {
 					partition,
 					touched_at,
@@ -190,6 +218,37 @@ impl Index {
 		}
 
 		for candidate in &candidates {
+			match &candidate.item {
+				Item::AccountObject { account, object } => {
+					Self::clean_account_object_entry(
+						txn,
+						subspace,
+						account,
+						object,
+						candidate.partition,
+						candidate.touched_at,
+						partition_total,
+						storage_partition_total,
+					)
+					.await?;
+					continue;
+				},
+				Item::AccountProcess { account, process } => {
+					Self::clean_account_process_entry(
+						txn,
+						subspace,
+						account,
+						process,
+						candidate.partition,
+						candidate.touched_at,
+						partition_total,
+						storage_partition_total,
+					)
+					.await?;
+					continue;
+				},
+				Item::CacheEntry(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
+			}
 			let touched_at = Self::get_touched_at(txn, subspace, &candidate.item).await?;
 			if touched_at != candidate.touched_at {
 				Self::delete_clean_key(txn, subspace, candidate);
@@ -197,6 +256,7 @@ impl Index {
 			}
 
 			let reference_count = match &candidate.item {
+				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 				Item::CacheEntry(id) => {
 					Self::compute_cache_entry_reference_count(txn, subspace, id).await?
 				},
@@ -221,6 +281,7 @@ impl Index {
 
 			if let Some(item) = item {
 				match item {
+					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 					Item::CacheEntry(id) => output.cache_entries.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
@@ -229,7 +290,7 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && storage == 0 && candidates.is_empty();
+		output.done = grants == 0 && candidates.is_empty();
 
 		Ok(output)
 	}
@@ -329,6 +390,7 @@ impl Index {
 		item: &Item,
 	) -> tg::Result<i64> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let entry = Self::try_get_cache_entry_with_transaction(txn, subspace, id)
 					.await?
@@ -360,29 +422,41 @@ impl Index {
 
 	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
 		let key = match &candidate.item {
-			Item::CacheEntry(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			Item::AccountObject { account, object } => {
+				crate::fdb::Key::Clean(crate::fdb::clean::Key::AccountObject {
+					account: account.clone(),
+					object: object.clone(),
+					partition: candidate.partition,
+					touched_at: candidate.touched_at,
+				})
+			},
+			Item::AccountProcess { account, process } => {
+				crate::fdb::Key::Clean(crate::fdb::clean::Key::AccountProcess {
+					account: account.clone(),
+					partition: candidate.partition,
+					process: process.clone(),
+					touched_at: candidate.touched_at,
+				})
+			},
+			Item::CacheEntry(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::CacheEntry {
+				id: id.clone(),
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
-				kind: ItemKind::CacheEntry,
-				id: tg::object::Id::from(id.clone()).into(),
 			}),
-			Item::Object(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			Item::Object(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Object {
+				id: id.clone(),
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Object,
-				id: id.clone().into(),
 			}),
-			Item::Process(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			Item::Process(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Process {
+				id: id.clone(),
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Process,
-				id: id.clone().into(),
 			}),
-			Item::Sandbox(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			Item::Sandbox(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Sandbox {
+				id: id.clone(),
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Sandbox,
-				id: id.clone().into(),
 			}),
 		};
 		let key = Self::pack(subspace, &key);
@@ -508,9 +582,9 @@ impl Index {
 				target_tag_future,
 			)
 			.await?;
-		let object_owner_future = async {
+		let object_account_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ObjectOwner.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ObjectAccount.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
@@ -527,25 +601,28 @@ impl Index {
 		};
 		let update_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::Update.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
-				.len()
-				.to_u64()
-				.unwrap();
+			let mut count = 0;
+			for kind in [Kind::GrantUpdate, Kind::NodeUpdate, Kind::StorageUpdate] {
+				let prefix = (kind.to_i32().unwrap(), id.as_ref());
+				let prefix = Self::pack(subspace, &prefix);
+				let range = fdb::RangeOption {
+					mode: fdb::options::StreamingMode::WantAll,
+					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+				};
+				count += txn
+					.get_range(&range, 1, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get range"))?
+					.len()
+					.to_u64()
+					.unwrap();
+			}
 			Ok::<_, tg::Error>(count)
 		};
-		let (object_owner_count, update_count) =
-			futures::future::try_join(object_owner_future, update_future).await?;
+		let (object_account_count, update_count) =
+			futures::future::try_join(object_account_future, update_future).await?;
 		let count = child_object_count
-			+ object_owner_count
+			+ object_account_count
 			+ object_process_count
 			+ target_tag_count
 			+ update_count;
@@ -595,9 +672,9 @@ impl Index {
 		};
 		let (child_process_count, target_tag_count) =
 			futures::future::try_join(child_process_future, target_tag_future).await?;
-		let process_owner_future = async {
+		let process_account_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ProcessOwner.to_i32().unwrap(), id.as_ref());
+			let prefix = (Kind::ProcessAccount.to_i32().unwrap(), id.as_ref());
 			let prefix = Self::pack(subspace, &prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
@@ -614,24 +691,27 @@ impl Index {
 		};
 		let update_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::Update.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
-				.len()
-				.to_u64()
-				.unwrap();
+			let mut count = 0;
+			for kind in [Kind::GrantUpdate, Kind::NodeUpdate, Kind::StorageUpdate] {
+				let prefix = (kind.to_i32().unwrap(), id.as_ref());
+				let prefix = Self::pack(subspace, &prefix);
+				let range = fdb::RangeOption {
+					mode: fdb::options::StreamingMode::WantAll,
+					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+				};
+				count += txn
+					.get_range(&range, 1, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get range"))?
+					.len()
+					.to_u64()
+					.unwrap();
+			}
 			Ok::<_, tg::Error>(count)
 		};
-		let (process_owner_count, update_count) =
-			futures::future::try_join(process_owner_future, update_future).await?;
-		let count = child_process_count + process_owner_count + target_tag_count + update_count;
+		let (process_account_count, update_count) =
+			futures::future::try_join(process_account_future, update_future).await?;
+		let count = child_process_count + process_account_count + target_tag_count + update_count;
 		Ok(count)
 	}
 
@@ -666,6 +746,7 @@ impl Index {
 		reference_count: u64,
 	) -> tg::Result<()> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
@@ -733,6 +814,7 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				Self::delete_cache_entry(txn, subspace, id, partition_total).await
 			},
@@ -1132,11 +1214,10 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::CacheEntry {
+				id: id.clone(),
 				partition,
 				touched_at: entry.touched_at,
-				kind: ItemKind::CacheEntry,
-				id: tg::object::Id::from(id.clone()).into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
@@ -1172,11 +1253,10 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Object {
+				id: id.clone(),
 				partition,
 				touched_at: object.touched_at,
-				kind: ItemKind::Object,
-				id: id.clone().into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
@@ -1212,11 +1292,10 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Process {
+				id: id.clone(),
 				partition,
 				touched_at: process.touched_at,
-				kind: ItemKind::Process,
-				id: id.clone().into(),
 			});
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
@@ -1252,11 +1331,10 @@ impl Index {
 		{
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Sandbox {
+				id: id.clone(),
 				partition,
 				touched_at: sandbox.touched_at,
-				kind: ItemKind::Sandbox,
-				id: id.clone().into(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);

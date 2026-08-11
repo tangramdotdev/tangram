@@ -640,12 +640,6 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -664,6 +658,32 @@ pub struct Indexer {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub updates: Option<IndexerUpdates>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUpdates {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grants: Option<IndexerUpdate>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub nodes: Option<IndexerUpdate>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<IndexerUpdate>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUpdate {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -2411,12 +2431,6 @@ fn resolve_indexer(source: Indexer) -> server::Indexer {
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
 	}
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
 	if let Some(value) = source.max_process_depth {
 		target.max_process_depth = value;
 	}
@@ -2431,6 +2445,34 @@ fn resolve_indexer(source: Indexer) -> server::Indexer {
 	}
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
+	}
+	if let Some(source) = source.updates {
+		target.updates = resolve_indexer_updates(source);
+	}
+	target
+}
+
+fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
+	let mut target = server::IndexerUpdates::default();
+	if let Some(source) = source.grants {
+		target.grants = resolve_indexer_update(source);
+	}
+	if let Some(source) = source.nodes {
+		target.nodes = resolve_indexer_update(source);
+	}
+	if let Some(source) = source.storage {
+		target.storage = resolve_indexer_update(source);
+	}
+	target
+}
+
+fn resolve_indexer_update(source: IndexerUpdate) -> server::IndexerUpdate {
+	let mut target = server::IndexerUpdate::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
 	}
 	target
 }
@@ -3290,6 +3332,35 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn resolves_indexer_update_queues() {
+		let source = Indexer {
+			updates: Some(IndexerUpdates {
+				grants: Some(IndexerUpdate {
+					batch_size: Some(11),
+					concurrency: Some(2),
+				}),
+				nodes: Some(IndexerUpdate {
+					batch_size: Some(22),
+					concurrency: Some(3),
+				}),
+				storage: Some(IndexerUpdate {
+					batch_size: Some(33),
+					concurrency: Some(4),
+				}),
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(source);
+
+		assert_eq!(target.updates.grants.batch_size, 11);
+		assert_eq!(target.updates.grants.concurrency, 2);
+		assert_eq!(target.updates.nodes.batch_size, 22);
+		assert_eq!(target.updates.nodes.concurrency, 3);
+		assert_eq!(target.updates.storage.batch_size, 33);
+		assert_eq!(target.updates.storage.concurrency, 4);
+	}
 
 	#[test]
 	fn resolves_nats_username_and_password() {

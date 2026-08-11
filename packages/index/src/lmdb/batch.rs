@@ -134,24 +134,26 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				crate::batch::Item::PutOwnerObject(arg) => {
-					Self::put_owner_object(
+				crate::batch::Item::PutAccountObject(arg) => {
+					Self::put_account_object(
 						db,
 						subspace,
 						transaction,
 						arg,
 						storage_partition_total,
 						true,
+						None,
 					)?;
 				},
-				crate::batch::Item::PutOwnerProcess(arg) => {
-					Self::put_owner_process(
+				crate::batch::Item::PutAccountProcess(arg) => {
+					Self::put_account_process(
 						db,
 						subspace,
 						transaction,
 						arg,
 						storage_partition_total,
 						true,
+						None,
 					)?;
 				},
 				crate::batch::Item::PutOrganization(arg) => {

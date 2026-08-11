@@ -307,7 +307,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the index args and update the graph with the permissions being granted.
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let (put_grant_args, put_object_args, put_process_args, storage_roots) = {
 			let mut graph = graph.lock().unwrap();
 			let args = self
@@ -351,20 +351,22 @@ impl Session {
 						.chain(put_sandbox_grant_args)
 						.map(tangram_index::batch::Item::PutGrant),
 				)
-				.chain(owner.into_iter().flat_map(|owner| {
+				.chain(account.into_iter().flat_map(|account| {
 					storage_roots.iter().filter_map(move |id| match id.kind() {
-						tg::id::Kind::Process => Some(tangram_index::batch::Item::PutOwnerProcess(
-							tangram_index::storage::put::ProcessArg {
-								owner: owner.clone(),
-								process: id.clone().try_into().unwrap(),
-								touched_at,
-							},
-						)),
+						tg::id::Kind::Process => {
+							Some(tangram_index::batch::Item::PutAccountProcess(
+								tangram_index::storage::put::ProcessArg {
+									account: account.clone(),
+									process: id.clone().try_into().unwrap(),
+									touched_at,
+								},
+							))
+						},
 						_ => tg::object::Id::try_from(id.clone()).ok().map(|object| {
-							tangram_index::batch::Item::PutOwnerObject(
+							tangram_index::batch::Item::PutAccountObject(
 								tangram_index::storage::put::ObjectArg {
+									account: account.clone(),
 									object,
-									owner: owner.clone(),
 									touched_at,
 								},
 							)

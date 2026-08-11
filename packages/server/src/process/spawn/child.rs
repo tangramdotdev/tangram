@@ -126,16 +126,16 @@ impl Session {
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let mut items = Vec::with_capacity(3);
 		if let Some(parent_arg) = parent_arg {
 			items.push(tangram_index::batch::Item::PutProcess(parent_arg));
 		}
 		items.push(tangram_index::batch::Item::PutProcess(child_arg));
-		if let Some(owner) = owner {
-			items.push(tangram_index::batch::Item::PutOwnerProcess(
+		if let Some(account) = account {
+			items.push(tangram_index::batch::Item::PutAccountProcess(
 				tangram_index::storage::put::ProcessArg {
-					owner,
+					account,
 					process: child.clone(),
 					touched_at: now,
 				},

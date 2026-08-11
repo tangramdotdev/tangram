@@ -191,7 +191,7 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Left(id),
-						&crate::fdb::update::Kind::Grants(principal.clone()),
+						&crate::fdb::update::Kind::Grant(principal.clone()),
 						crate::fdb::update::Source::Put,
 						partition_total,
 					);
@@ -203,7 +203,7 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Right(id),
-						&crate::fdb::update::Kind::Grants(principal.clone()),
+						&crate::fdb::update::Kind::Grant(principal.clone()),
 						crate::fdb::update::Source::Put,
 						partition_total,
 					);

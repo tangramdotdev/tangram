@@ -273,15 +273,21 @@ impl Server {
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
-			if indexer.batch_size == 0 {
-				return Err(tg::error!(
-					"the indexer batch size must be greater than zero"
-				));
-			}
-			if indexer.concurrency == 0 {
-				return Err(tg::error!(
-					"the indexer concurrency must be greater than zero"
-				));
+			for (name, update) in [
+				("grant", &indexer.updates.grants),
+				("node", &indexer.updates.nodes),
+				("storage", &indexer.updates.storage),
+			] {
+				if update.batch_size == 0 {
+					return Err(tg::error!(
+						"the indexer {name} update batch size must be greater than zero"
+					));
+				}
+				if update.concurrency == 0 {
+					return Err(tg::error!(
+						"the indexer {name} update concurrency must be greater than zero"
+					));
+				}
 			}
 			if indexer.message_timeout.is_zero() {
 				return Err(tg::error!(

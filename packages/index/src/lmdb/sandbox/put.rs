@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key},
+	crate::lmdb::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -46,10 +46,9 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;
 
 			if let Some(existing) = &existing {
-				let key = Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = Key::Clean(crate::lmdb::clean::Key::Sandbox {
+					id: arg.id.clone(),
 					touched_at: existing.touched_at,
-					kind: ItemKind::Sandbox,
-					id: arg.id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.delete(transaction, &key)
@@ -61,10 +60,9 @@ impl Index {
 				.as_ref()
 				.is_some_and(|data| data.status.is_destroyed())
 			{
-				let key = Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = Key::Clean(crate::lmdb::clean::Key::Sandbox {
+					id: arg.id.clone(),
 					touched_at,
-					kind: ItemKind::Sandbox,
-					id: arg.id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])

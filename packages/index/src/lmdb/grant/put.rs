@@ -191,7 +191,7 @@ impl Index {
 						subspace,
 						transaction,
 						tg::Either::Left(id),
-						crate::lmdb::update::Kind::Grants(principal.clone()),
+						crate::lmdb::update::Kind::Grant(principal.clone()),
 						crate::lmdb::update::Source::Put,
 						None,
 					)?;
@@ -204,7 +204,7 @@ impl Index {
 						subspace,
 						transaction,
 						tg::Either::Right(id),
-						crate::lmdb::update::Kind::Grants(principal.clone()),
+						crate::lmdb::update::Kind::Grant(principal.clone()),
 						crate::lmdb::update::Source::Put,
 						None,
 					)?;

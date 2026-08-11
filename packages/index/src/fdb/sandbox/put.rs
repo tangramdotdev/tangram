@@ -1,5 +1,5 @@
 use {
-	crate::fdb::{Index, ItemKind, Key},
+	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
@@ -48,11 +48,10 @@ impl Index {
 			let id_bytes = arg.id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 			if let Some(existing) = &existing {
-				let key = Key::Clean(crate::fdb::clean::Key::Clean {
+				let key = Key::Clean(crate::fdb::clean::Key::Sandbox {
+					id: arg.id.clone(),
 					partition,
 					touched_at: existing.touched_at,
-					kind: ItemKind::Sandbox,
-					id: arg.id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);
@@ -63,11 +62,10 @@ impl Index {
 				.as_ref()
 				.is_some_and(|data| data.status.is_destroyed())
 			{
-				let key = Key::Clean(crate::fdb::clean::Key::Clean {
+				let key = Key::Clean(crate::fdb::clean::Key::Sandbox {
+					id: arg.id.clone(),
 					partition,
 					touched_at,
-					kind: ItemKind::Sandbox,
-					id: arg.id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				txn.set(&key, &[]);

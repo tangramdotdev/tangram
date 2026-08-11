@@ -1,5 +1,12 @@
 use tangram_client::prelude::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Kind {
+	Grant,
+	Node,
+	Storage,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Output {
 	pub count: usize,

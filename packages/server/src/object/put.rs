@@ -136,15 +136,15 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		});
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
 				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
-				.chain(owner.map(|owner| {
-					tangram_index::batch::Item::PutOwnerObject(
+				.chain(account.map(|account| {
+					tangram_index::batch::Item::PutAccountObject(
 						tangram_index::storage::put::ObjectArg {
+							account,
 							object: id.clone(),
-							owner,
 							touched_at: now,
 						},
 					)

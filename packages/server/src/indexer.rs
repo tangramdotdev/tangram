@@ -120,11 +120,52 @@ impl Server {
 			move |_| async move { indexer.object_outbox_task(&config, outbox.as_ref()).await }
 		});
 
-		// Spawn the update task.
-		let update_task = Task::spawn({
+		// Spawn the grant update task.
+		let grant_update_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
-			move |_| async move { indexer.update_task(&config).await }
+			move |_| async move {
+				indexer
+					.update_task(
+						tangram_index::update::Kind::Grant,
+						&config.updates.grants,
+						config.partition_start,
+						config.partition_end,
+					)
+					.await
+			}
+		});
+
+		// Spawn the node update task.
+		let node_update_task = Task::spawn({
+			let config = config.clone();
+			let indexer = indexer.clone();
+			move |_| async move {
+				indexer
+					.update_task(
+						tangram_index::update::Kind::Node,
+						&config.updates.nodes,
+						config.partition_start,
+						config.partition_end,
+					)
+					.await
+			}
+		});
+
+		// Spawn the storage update task.
+		let storage_update_task = Task::spawn({
+			let config = config.clone();
+			let indexer = indexer.clone();
+			move |_| async move {
+				indexer
+					.update_task(
+						tangram_index::update::Kind::Storage,
+						&config.updates.storage,
+						config.partition_start,
+						config.partition_end,
+					)
+					.await
+			}
 		});
 
 		// Spawn the request task.
@@ -146,11 +187,33 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the object outbox task panicked"))?
 		};
-		let update_future = async move {
-			update_task
+		let grant_update_future = async move {
+			grant_update_task
 				.wait()
 				.await
-				.map_err(|error| tg::error!(!error, "the index update task panicked"))?
+				.map_err(|error| tg::error!(!error, "the grant index update task panicked"))?
+		};
+		let node_update_future = async move {
+			node_update_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the node index update task panicked"))?
+		};
+		let storage_update_future = async move {
+			storage_update_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the storage index update task panicked"))?
+		};
+		let update_future = async move {
+			future::try_join3(
+				grant_update_future,
+				node_update_future,
+				storage_update_future,
+			)
+			.await?;
+
+			Ok(())
 		};
 		let request_future = async move {
 			request_task
@@ -465,13 +528,22 @@ impl Indexer {
 		Err(tg::error!("the indexer client message stream ended"))
 	}
 
-	async fn update_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
+	async fn update_task(
+		&self,
+		kind: tangram_index::update::Kind,
+		config: &crate::config::IndexerUpdate,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
 		let concurrency = config.concurrency.to_u64().unwrap();
-		let partition_end = config.partition_end;
-		let partition_start = config.partition_start;
 		let partition_length = partition_end - partition_start;
+		let checkpoint = match kind {
+			tangram_index::update::Kind::Grant => "indexer.update.grant.batch",
+			tangram_index::update::Kind::Node => "indexer.update.node.batch",
+			tangram_index::update::Kind::Storage => "indexer.update.storage.batch",
+		};
 		loop {
-			crate::checkpoint!(self.server, "indexer.update.batch").await;
+			crate::checkpoint!(self.server, checkpoint).await;
 			let futures = (0..config.concurrency).map(|task_index| {
 				let task_index = task_index.to_u64().unwrap();
 				let partitions_per_task = partition_length / concurrency;
@@ -482,7 +554,7 @@ impl Indexer {
 				let task_end = task_start + task_count;
 				self.server
 					.index
-					.update_batch(config.batch_size, task_start, task_end)
+					.update_batch(kind, config.batch_size, task_start, task_end)
 			});
 			let result = future::try_join_all(futures).await.map(|outputs| {
 				outputs.into_iter().fold(
@@ -878,7 +950,18 @@ impl State {
 		if !poll {
 			return Ok(());
 		}
-		let oldest = server.index.try_get_oldest_update_transaction_id().await?;
+		let oldests = future::try_join3(
+			server
+				.index
+				.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Grant),
+			server
+				.index
+				.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Node),
+			server
+				.index
+				.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Storage),
+		)
+		.await?;
 		let ids = self
 			.requests
 			.iter()
@@ -889,8 +972,9 @@ impl State {
 				else {
 					return None;
 				};
-				oldest
-					.is_none_or(|oldest| oldest > transaction_id)
+				[oldests.0, oldests.1, oldests.2]
+					.into_iter()
+					.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
 					.then(|| id.clone())
 			})
 			.collect::<Vec<_>>();

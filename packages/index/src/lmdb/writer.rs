@@ -325,22 +325,22 @@ impl Index {
 					)
 					.map(Response::CacheEntries),
 					Request::TouchObjects(crate::lmdb::TouchObjects {
+						account,
 						ids,
-						owner,
 						time_to_touch,
 						touched_at,
-					}) => Self::touch_objects_with_owner_with_transaction(
+					}) => Self::touch_objects_with_account_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
 						&ids,
-						owner.as_ref(),
+						account.as_ref(),
 						touched_at,
 						time_to_touch,
 					)
 					.map(Response::Objects),
 					Request::TouchProcesses(arg) => {
-						Self::touch_processes_with_owner_with_transaction(
+						Self::touch_processes_with_account_with_transaction(
 							db,
 							subspace,
 							&mut transaction,
@@ -349,12 +349,13 @@ impl Index {
 						)
 						.map(Response::Processes)
 					},
-					Request::Update(crate::lmdb::Update { batch_size }) => {
+					Request::Update(crate::lmdb::Update { batch_size, kind }) => {
 						Self::update_batch_with_transaction(
 							db,
 							subspace,
 							&mut transaction,
 							batch_size,
+							kind,
 							max_process_depth,
 							storage_partition_total,
 						)
@@ -667,8 +668,8 @@ impl Index {
 				)
 			},
 			Request::TouchObjects(crate::lmdb::TouchObjects {
+				account,
 				ids,
-				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -676,16 +677,16 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
-						owner,
+						account,
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
 			Request::TouchProcesses(crate::lmdb::TouchProcesses {
+				account,
 				ids,
-				owner,
-				put_owner,
+				put_account,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -693,16 +694,16 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
-						owner,
-						put_owner,
+						account,
+						put_account,
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
-			Request::Update(crate::lmdb::Update { batch_size }) => {
+			Request::Update(crate::lmdb::Update { batch_size, kind }) => {
 				let items = (0..batch_size).map(|_| Item::Update).collect();
-				(items, Kind::Update)
+				(items, Kind::Update { kind })
 			},
 		}
 	}
@@ -943,7 +944,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
-				owner,
+				account,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -955,15 +956,15 @@ impl Index {
 					})
 					.collect();
 				Request::TouchObjects(crate::lmdb::TouchObjects {
+					account: account.clone(),
 					ids,
-					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
-				owner,
-				put_owner,
+				account,
+				put_account,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -975,15 +976,16 @@ impl Index {
 					})
 					.collect();
 				Request::TouchProcesses(crate::lmdb::TouchProcesses {
+					account: account.clone(),
 					ids,
-					owner: owner.clone(),
-					put_owner: *put_owner,
+					put_account: *put_account,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
-			Kind::Update => Request::Update(crate::lmdb::Update {
+			Kind::Update { kind } => Request::Update(crate::lmdb::Update {
 				batch_size: items.len(),
+				kind: *kind,
 			}),
 		}
 	}

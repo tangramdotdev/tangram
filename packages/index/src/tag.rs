@@ -6,23 +6,23 @@ pub mod put;
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Tag {
-	#[tangram_serialize(id = 0)]
-	pub target: tg::Either<tg::object::Id, tg::process::Id>,
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub account: Option<crate::storage::Account>,
 
 	#[tangram_serialize(id = 1)]
 	pub name: String,
 
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub owner: Option<crate::storage::Owner>,
-
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
+
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
+	pub permissions: Vec<tg::grant::Permission>,
 
 	#[tangram_serialize(id = 3)]
 	pub specifier: tg::Specifier,
 
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub permissions: Vec<tg::grant::Permission>,
+	#[tangram_serialize(id = 0)]
+	pub target: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
 impl Tag {

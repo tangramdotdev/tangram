@@ -1,5 +1,5 @@
 use {
-	crate::fdb::{Index, ItemKind, Key, Request, Response},
+	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
@@ -18,33 +18,33 @@ impl Index {
 			.await
 	}
 
-	pub async fn touch_processes_and_put_owner(
+	pub async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_inner(ids, Some(owner), true, touched_at, time_to_touch)
+		self.touch_processes_inner(ids, Some(account), true, touched_at, time_to_touch)
 			.await
 	}
 
-	pub async fn touch_processes_with_owner(
+	pub async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
-		self.touch_processes_inner(ids, owner, false, touched_at, time_to_touch)
+		self.touch_processes_inner(ids, account, false, touched_at, time_to_touch)
 			.await
 	}
 
 	async fn touch_processes_inner(
 		&self,
 		ids: &[tg::process::Id],
-		owner: Option<&crate::storage::Owner>,
-		put_owner: bool,
+		account: Option<&crate::storage::Account>,
+		put_account: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
@@ -52,9 +52,9 @@ impl Index {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchProcesses(crate::fdb::TouchProcesses {
+			account: account.cloned(),
 			ids: ids.to_vec(),
-			owner: owner.cloned(),
-			put_owner,
+			put_account,
 			time_to_touch,
 			touched_at,
 		});
@@ -65,7 +65,7 @@ impl Index {
 		Ok(processes)
 	}
 
-	pub(in crate::fdb) async fn touch_processes_with_owner_with_transaction(
+	pub(in crate::fdb) async fn touch_processes_with_account_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &crate::fdb::TouchProcesses,
@@ -73,9 +73,9 @@ impl Index {
 		storage_partition_total: u64,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		let crate::fdb::TouchProcesses {
+			account,
 			ids,
-			owner,
-			put_owner,
+			put_account,
 			time_to_touch,
 			touched_at,
 		} = arg;
@@ -88,31 +88,32 @@ impl Index {
 			partition_total,
 		)
 		.await?;
-		if let Some(owner) = owner.as_ref() {
+		if let Some(account) = account.as_ref() {
 			future::try_join_all(
 				std::iter::zip(ids, &processes)
 					.filter(|(_, process)| process.is_some())
 					.map(|(id, _)| {
 						let arg = crate::storage::put::ProcessArg {
-							owner: owner.clone(),
+							account: account.clone(),
 							process: id.clone(),
 							touched_at: *touched_at,
 						};
 						async move {
-							if *put_owner
-								&& Self::put_owner_process(
+							if *put_account
+								&& Self::put_account_process(
 									txn,
 									subspace,
 									&arg,
 									partition_total,
 									storage_partition_total,
 									false,
+									None,
 								)
 								.await?
 							{
 								return Ok(());
 							}
-							Self::touch_owner_process(
+							Self::touch_account_process(
 								txn,
 								subspace,
 								&arg,
@@ -193,11 +194,10 @@ impl Index {
 		if process.reference_count == 0 {
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Process {
+				id: id.clone(),
 				partition,
 				touched_at: process.touched_at,
-				kind: ItemKind::Process,
-				id: id.clone().into(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

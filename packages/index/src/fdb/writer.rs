@@ -419,8 +419,8 @@ impl Index {
 				)
 			},
 			Request::TouchObjects(crate::fdb::TouchObjects {
+				account,
 				ids,
-				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -428,16 +428,16 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
-						owner,
+						account,
 						time_to_touch,
 						touched_at,
 					},
 				)
 			},
 			Request::TouchProcesses(crate::fdb::TouchProcesses {
+				account,
 				ids,
-				owner,
-				put_owner,
+				put_account,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -445,8 +445,8 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
-						owner,
-						put_owner,
+						account,
+						put_account,
 						time_to_touch,
 						touched_at,
 					},
@@ -454,6 +454,7 @@ impl Index {
 			},
 			Request::Update(crate::fdb::Update {
 				batch_size,
+				kind,
 				partition_start,
 				partition_end,
 			}) => {
@@ -461,6 +462,7 @@ impl Index {
 				(
 					items,
 					Kind::Update {
+						kind,
 						partition_start,
 						partition_end,
 					},
@@ -709,7 +711,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
-				owner,
+				account,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -721,15 +723,15 @@ impl Index {
 					})
 					.collect();
 				Request::TouchObjects(crate::fdb::TouchObjects {
+					account: account.clone(),
 					ids,
-					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
-				owner,
-				put_owner,
+				account,
+				put_account,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -741,18 +743,20 @@ impl Index {
 					})
 					.collect();
 				Request::TouchProcesses(crate::fdb::TouchProcesses {
+					account: account.clone(),
 					ids,
-					owner: owner.clone(),
-					put_owner: *put_owner,
+					put_account: *put_account,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::Update {
+				kind,
 				partition_start,
 				partition_end,
 			} => Request::Update(crate::fdb::Update {
 				batch_size: items.len(),
+				kind: *kind,
 				partition_start: *partition_start,
 				partition_end: *partition_end,
 			}),
@@ -1064,22 +1068,22 @@ impl Index {
 			.await
 			.map(Response::CacheEntries),
 			Request::TouchObjects(crate::fdb::TouchObjects {
+				account,
 				ids,
-				owner,
 				time_to_touch,
 				touched_at,
-			}) => Self::touch_objects_with_owner_with_transaction(
+			}) => Self::touch_objects_with_account_with_transaction(
 				txn,
 				subspace,
 				ids,
-				owner.as_ref(),
+				account.as_ref(),
 				*touched_at,
 				*time_to_touch,
 				partition_total,
 			)
 			.await
 			.map(Response::Objects),
-			Request::TouchProcesses(arg) => Self::touch_processes_with_owner_with_transaction(
+			Request::TouchProcesses(arg) => Self::touch_processes_with_account_with_transaction(
 				txn,
 				subspace,
 				arg,
@@ -1090,12 +1094,14 @@ impl Index {
 			.map(Response::Processes),
 			Request::Update(crate::fdb::Update {
 				batch_size,
+				kind,
 				partition_start,
 				partition_end,
 			}) => Self::update_with_transaction(
 				txn,
 				subspace,
 				*batch_size,
+				*kind,
 				*partition_start,
 				*partition_end,
 				max_process_depth,

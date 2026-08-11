@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key, Request, Response},
+	crate::lmdb::{Db, Index, Key, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -12,14 +12,14 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
-		self.touch_objects_with_owner(ids, None, touched_at, time_to_touch)
+		self.touch_objects_with_account(ids, None, touched_at, time_to_touch)
 			.await
 	}
 
-	pub async fn touch_objects_with_owner(
+	pub async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
@@ -27,8 +27,8 @@ impl Index {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchObjects(crate::lmdb::TouchObjects {
+			account: account.cloned(),
 			ids: ids.to_vec(),
-			owner: owner.cloned(),
 			time_to_touch,
 			touched_at,
 		});
@@ -39,12 +39,12 @@ impl Index {
 		Ok(objects)
 	}
 
-	pub(crate) fn touch_objects_with_owner_with_transaction(
+	pub(crate) fn touch_objects_with_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		ids: &[tg::object::Id],
-		owner: Option<&crate::storage::Owner>,
+		account: Option<&crate::storage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
@@ -56,18 +56,18 @@ impl Index {
 			touched_at,
 			time_to_touch,
 		)?;
-		if let Some(owner) = owner {
+		if let Some(account) = account {
 			for (id, object) in std::iter::zip(ids, &objects) {
 				if object.is_none() {
 					continue;
 				}
-				Self::touch_owner_object(
+				Self::touch_account_object(
 					db,
 					subspace,
 					transaction,
 					&crate::storage::put::ObjectArg {
+						account: account.clone(),
 						object: id.clone(),
-						owner: owner.clone(),
 						touched_at,
 					},
 					time_to_touch,
@@ -110,10 +110,9 @@ impl Index {
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 			if object.reference_count == 0 {
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Object {
+					id: id.clone(),
 					touched_at: object.touched_at,
-					kind: ItemKind::Object,
-					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])

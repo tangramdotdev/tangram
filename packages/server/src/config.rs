@@ -426,10 +426,6 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
-	pub batch_size: usize,
-
-	pub concurrency: usize,
-
 	pub max_process_depth: usize,
 
 	pub message_retry: Retry,
@@ -441,6 +437,24 @@ pub struct Indexer {
 	pub partition_start: u64,
 
 	pub poll_interval: Duration,
+
+	pub updates: IndexerUpdates,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct IndexerUpdates {
+	pub grants: IndexerUpdate,
+
+	pub nodes: IndexerUpdate,
+
+	pub storage: IndexerUpdate,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerUpdate {
+	pub batch_size: usize,
+
+	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1250,14 +1264,22 @@ impl Default for LmdbIndex {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
-			batch_size: 1024,
-			concurrency: 1,
 			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
 			partition_end: 256,
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
+			updates: IndexerUpdates::default(),
+		}
+	}
+}
+
+impl Default for IndexerUpdate {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			concurrency: 1,
 		}
 	}
 }

@@ -1,8 +1,10 @@
 mod ancestor;
 mod authorize;
 mod batch;
+mod clean;
 mod reader;
 mod storage;
+mod update;
 
 use super::{Config, Index};
 

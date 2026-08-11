@@ -66,13 +66,13 @@ impl Session {
 			return Ok(None);
 		}
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let Some(_) = self
 			.server
 			.index
-			.touch_object_with_owner(
+			.touch_object_with_account(
 				id,
-				owner.as_ref(),
+				account.as_ref(),
 				touched_at,
 				self.server.config.object.time_to_touch,
 			)

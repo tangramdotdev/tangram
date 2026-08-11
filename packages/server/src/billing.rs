@@ -9,11 +9,11 @@ mod stripe;
 pub(super) use stripe::{CreateCustomerArg, Stripe};
 
 impl Session {
-	pub(crate) async fn storage_owner_for_specifier_with_transaction(
+	pub(crate) async fn storage_account_for_specifier_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+	) -> tg::Result<Option<tangram_index::storage::Account>> {
 		let prefix = specifier
 			.prefixes()
 			.next()
@@ -29,22 +29,22 @@ impl Session {
 				None => None,
 			};
 		if let Some(principal) = principal
-			&& let Some(owner) = self
-				.storage_owner_with_transaction(transaction, &principal)
+			&& let Some(account) = self
+				.storage_account_with_transaction(transaction, &principal)
 				.await?
 		{
-			return Ok(Some(owner));
+			return Ok(Some(account));
 		}
 
-		self.storage_owner_with_transaction(transaction, &self.context.principal)
+		self.storage_account_with_transaction(transaction, &self.context.principal)
 			.await
 	}
 
-	async fn storage_owner_with_transaction(
+	async fn storage_account_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		principal: &tg::Principal,
-	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+	) -> tg::Result<Option<tangram_index::storage::Account>> {
 		let mut principal = principal.clone();
 		loop {
 			match principal {
@@ -72,23 +72,23 @@ impl Session {
 					};
 				},
 				tg::Principal::Organization(id) => {
-					return Ok(Some(tangram_index::storage::Owner::Organization(id)));
+					return Ok(Some(tangram_index::storage::Account::Organization(id)));
 				},
 				tg::Principal::User(id) => {
-					return Ok(Some(tangram_index::storage::Owner::User(id)));
+					return Ok(Some(tangram_index::storage::Account::User(id)));
 				},
 				tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-					return self.storage_owner(&principal).await;
+					return self.storage_account(&principal).await;
 				},
 				_ => return Ok(None),
 			}
 		}
 	}
 
-	pub(crate) async fn storage_owner(
+	pub(crate) async fn storage_account(
 		&self,
 		principal: &tg::Principal,
-	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+	) -> tg::Result<Option<tangram_index::storage::Account>> {
 		let mut principal = match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
 				let Some(principal) = self.try_resolve_remote_context_principal(principal).await?
@@ -125,10 +125,10 @@ impl Session {
 					};
 				},
 				tg::Principal::Organization(id) => {
-					return Ok(Some(tangram_index::storage::Owner::Organization(id)));
+					return Ok(Some(tangram_index::storage::Account::Organization(id)));
 				},
 				tg::Principal::User(id) => {
-					return Ok(Some(tangram_index::storage::Owner::User(id)));
+					return Ok(Some(tangram_index::storage::Account::User(id)));
 				},
 				tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => {
 					return Ok(None);

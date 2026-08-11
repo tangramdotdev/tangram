@@ -42,8 +42,6 @@ pub enum Kind {
 	ObjectProcess = 13,
 	TargetTag = 14,
 	Clean = 15,
-	Update = 16,
-	UpdateVersion = 17,
 	ParentTag = 18,
 	TagParent = 19,
 	User = 20,
@@ -70,13 +68,17 @@ pub enum Kind {
 	ProcessFinalizationVersion = 47,
 	SandboxFinalization = 48,
 	SandboxFinalizationVersion = 50,
-	OwnerObject = 51,
-	ObjectOwner = 52,
-	OwnerProcess = 53,
-	ProcessOwner = 54,
-	OwnerStorage = 55,
-	OwnerObjectClean = 56,
-	OwnerProcessClean = 57,
+	AccountObject = 51,
+	ObjectAccount = 52,
+	AccountProcess = 53,
+	ProcessAccount = 54,
+	AccountUsage = 55,
+	GrantUpdate = 58,
+	GrantUpdateVersion = 59,
+	NodeUpdate = 60,
+	NodeUpdateVersion = 61,
+	StorageUpdate = 62,
+	StorageUpdateVersion = 63,
 }
 
 impl fdbt::TuplePack for Key {
@@ -86,67 +88,39 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::Storage(crate::fdb::storage::Key::OwnerObject { object, owner }) => (
-				Kind::OwnerObject.to_i32().unwrap(),
-				owner.id().to_bytes().as_ref(),
+			Key::Storage(crate::fdb::storage::Key::AccountObject { account, object }) => (
+				Kind::AccountObject.to_i32().unwrap(),
+				account.id().to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Storage(crate::fdb::storage::Key::OwnerObjectClean {
-				object,
-				owner,
-				partition,
-				touched_at,
-			}) => (
-				Kind::OwnerObjectClean.to_i32().unwrap(),
-				partition,
-				touched_at,
-				owner.id().to_bytes().as_ref(),
+			Key::Storage(crate::fdb::storage::Key::ObjectAccount { account, object }) => (
+				Kind::ObjectAccount.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
+				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Storage(crate::fdb::storage::Key::ObjectOwner { object, owner }) => (
-				Kind::ObjectOwner.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-				owner.id().to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Storage(crate::fdb::storage::Key::OwnerProcess { owner, process }) => (
-				Kind::OwnerProcess.to_i32().unwrap(),
-				owner.id().to_bytes().as_ref(),
+			Key::Storage(crate::fdb::storage::Key::AccountProcess { account, process }) => (
+				Kind::AccountProcess.to_i32().unwrap(),
+				account.id().to_bytes().as_ref(),
 				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Storage(crate::fdb::storage::Key::OwnerProcessClean {
-				owner,
-				partition,
-				process,
-				touched_at,
-			}) => (
-				Kind::OwnerProcessClean.to_i32().unwrap(),
-				partition,
-				touched_at,
-				owner.id().to_bytes().as_ref(),
+			Key::Storage(crate::fdb::storage::Key::ProcessAccount { account, process }) => (
+				Kind::ProcessAccount.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
+				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Storage(crate::fdb::storage::Key::ProcessOwner { owner, process }) => (
-				Kind::ProcessOwner.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-				owner.id().to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Storage(crate::fdb::storage::Key::OwnerStorage {
+			Key::Storage(crate::fdb::storage::Key::AccountUsage {
+				account,
 				kind,
-				owner,
 				partition,
 			}) => (
-				Kind::OwnerStorage.to_i32().unwrap(),
-				owner.id().to_bytes().as_ref(),
+				Kind::AccountUsage.to_i32().unwrap(),
+				account.id().to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
 				partition,
 			)
@@ -462,18 +436,82 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Clean(crate::fdb::clean::Key::Clean {
-				partition,
-				touched_at,
-				kind,
-				id,
-			}) => {
+			Key::Clean(key) => {
 				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
-				partition.pack(w, tuple_depth)?;
-				touched_at.pack(w, tuple_depth)?;
-				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = id.to_bytes();
-				id.as_ref().pack(w, tuple_depth)
+				match key {
+					crate::fdb::clean::Key::AccountObject {
+						account,
+						object,
+						partition,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::AccountObject.to_i32().unwrap(),
+						account.id().to_bytes().as_ref(),
+						object.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+					crate::fdb::clean::Key::AccountProcess {
+						account,
+						partition,
+						process,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::AccountProcess
+							.to_i32()
+							.unwrap(),
+						account.id().to_bytes().as_ref(),
+						process.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+					crate::fdb::clean::Key::CacheEntry {
+						id,
+						partition,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::CacheEntry.to_i32().unwrap(),
+						id.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+					crate::fdb::clean::Key::Object {
+						id,
+						partition,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::Object.to_i32().unwrap(),
+						id.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+					crate::fdb::clean::Key::Process {
+						id,
+						partition,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::Process.to_i32().unwrap(),
+						id.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+					crate::fdb::clean::Key::Sandbox {
+						id,
+						partition,
+						touched_at,
+					} => (
+						partition,
+						touched_at,
+						crate::fdb::clean::ItemKind::Sandbox.to_i32().unwrap(),
+						id.to_bytes().as_ref(),
+					)
+						.pack(w, tuple_depth),
+				}
 			},
 
 			Key::Finalization(crate::fdb::finalization::Key::Process(id)) => (
@@ -513,7 +551,12 @@ impl fdbt::TuplePack for Key {
 				.pack(w, tuple_depth),
 
 			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
-				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
+				let key_kind = match kind {
+					crate::fdb::update::Kind::Grant(_) => Kind::GrantUpdate,
+					crate::fdb::update::Kind::Node => Kind::NodeUpdate,
+					crate::fdb::update::Kind::Storage(_) => Kind::StorageUpdate,
+				};
+				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
@@ -529,7 +572,12 @@ impl fdbt::TuplePack for Key {
 				partition,
 				version,
 			}) => {
-				let mut offset = Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
+				let key_kind = match kind {
+					crate::fdb::update::Kind::Grant(_) => Kind::GrantUpdateVersion,
+					crate::fdb::update::Kind::Node => Kind::NodeUpdateVersion,
+					crate::fdb::update::Kind::Storage(_) => Kind::StorageUpdateVersion,
+				};
+				let mut offset = key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				offset += partition.pack(w, tuple_depth)?;
 				offset += version.pack(w, tuple_depth)?;
 				let id = match &id {
@@ -550,110 +598,72 @@ impl fdbt::TupleUnpack<'_> for Key {
 		let kind = Kind::from_i32(kind).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
-			Kind::OwnerObject => {
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::AccountObject => {
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let account = crate::storage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
 				let object = tg::object::Id::from_slice(&object)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::OwnerObject { object, owner });
+				let key = Key::Storage(crate::fdb::storage::Key::AccountObject { account, object });
 				Ok((input, key))
 			},
-			Kind::OwnerObjectClean => {
-				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::ObjectAccount => {
 				let (input, object): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let object = tg::object::Id::from_slice(&object)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::OwnerObjectClean {
-					object,
-					owner,
-					partition,
-					touched_at,
-				});
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let account = crate::storage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let key = Key::Storage(crate::fdb::storage::Key::ObjectAccount { account, object });
 				Ok((input, key))
 			},
 
-			Kind::ObjectOwner => {
-				let (input, object): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let object = tg::object::Id::from_slice(&object)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::ObjectOwner { object, owner });
-				Ok((input, key))
-			},
-
-			Kind::OwnerProcess => {
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::AccountProcess => {
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let account = crate::storage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
 				let process = tg::process::Id::from_slice(&process)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess { owner, process });
+				let key =
+					Key::Storage(crate::fdb::storage::Key::AccountProcess { account, process });
 				Ok((input, key))
 			},
-			Kind::OwnerProcessClean => {
-				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::ProcessAccount => {
 				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let process = tg::process::Id::from_slice(&process)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::OwnerProcessClean {
-					owner,
-					partition,
-					process,
-					touched_at,
-				});
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let account = crate::storage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let key =
+					Key::Storage(crate::fdb::storage::Key::ProcessAccount { account, process });
 				Ok((input, key))
 			},
 
-			Kind::ProcessOwner => {
-				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&process)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::ProcessOwner { owner, process });
-				Ok((input, key))
-			},
-
-			Kind::OwnerStorage => {
-				let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::AccountUsage => {
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, storage_kind): (_, i32) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let owner = tg::Id::from_slice(&owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-				let owner = crate::storage::Owner::try_from(owner)
-					.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+				let account = crate::storage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
 				let kind = crate::storage::Kind::from_i32(storage_kind)
 					.ok_or_else(|| fdbt::PackError::Message("invalid storage kind".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::OwnerStorage {
+				let key = Key::Storage(crate::fdb::storage::Key::AccountUsage {
+					account,
 					kind,
-					owner,
 					partition,
 				});
 				Ok((input, key))
@@ -1274,16 +1284,101 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let kind = crate::fdb::clean::ItemKind::from_i32(kind)
 					.ok_or(fdbt::PackError::Message("invalid cleanup item kind".into()))?;
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let key = Key::Clean(crate::fdb::clean::Key::Clean {
-					partition,
-					touched_at,
-					kind,
-					id,
-				});
+				let (input, key) = match kind {
+					crate::fdb::clean::ItemKind::AccountObject => {
+						let (input, account): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let (input, object): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let account = tg::Id::from_slice(&account).map_err(|_| {
+							fdbt::PackError::Message("invalid storage account".into())
+						})?;
+						let account = crate::storage::Account::try_from(account).map_err(|_| {
+							fdbt::PackError::Message("invalid storage account".into())
+						})?;
+						let object = tg::object::Id::from_slice(&object)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						let key = crate::fdb::clean::Key::AccountObject {
+							account,
+							object,
+							partition,
+							touched_at,
+						};
+						(input, key)
+					},
+					crate::fdb::clean::ItemKind::AccountProcess => {
+						let (input, account): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let (input, process): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let account = tg::Id::from_slice(&account).map_err(|_| {
+							fdbt::PackError::Message("invalid storage account".into())
+						})?;
+						let account = crate::storage::Account::try_from(account).map_err(|_| {
+							fdbt::PackError::Message("invalid storage account".into())
+						})?;
+						let process = tg::process::Id::from_slice(&process)
+							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+						let key = crate::fdb::clean::Key::AccountProcess {
+							account,
+							partition,
+							process,
+							touched_at,
+						};
+						(input, key)
+					},
+					crate::fdb::clean::ItemKind::CacheEntry => {
+						let (input, id): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let id = tg::object::Id::from_slice(&id)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						let id = tg::artifact::Id::try_from(id)
+							.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+						let key = crate::fdb::clean::Key::CacheEntry {
+							id,
+							partition,
+							touched_at,
+						};
+						(input, key)
+					},
+					crate::fdb::clean::ItemKind::Object => {
+						let (input, id): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let id = tg::object::Id::from_slice(&id)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						let key = crate::fdb::clean::Key::Object {
+							id,
+							partition,
+							touched_at,
+						};
+						(input, key)
+					},
+					crate::fdb::clean::ItemKind::Process => {
+						let (input, id): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let id = tg::process::Id::from_slice(&id)
+							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+						let key = crate::fdb::clean::Key::Process {
+							id,
+							partition,
+							touched_at,
+						};
+						(input, key)
+					},
+					crate::fdb::clean::ItemKind::Sandbox => {
+						let (input, id): (_, Vec<u8>) =
+							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+						let id = tg::sandbox::Id::from_slice(&id)
+							.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
+						let key = crate::fdb::clean::Key::Sandbox {
+							id,
+							partition,
+							touched_at,
+						};
+						(input, key)
+					},
+				};
+				let key = Key::Clean(key);
 				Ok((input, key))
 			},
 
@@ -1335,7 +1430,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::Update => {
+			Kind::GrantUpdate | Kind::NodeUpdate | Kind::StorageUpdate => {
+				let update_kind = match kind {
+					Kind::GrantUpdate => crate::update::Kind::Grant,
+					Kind::NodeUpdate => crate::update::Kind::Node,
+					Kind::StorageUpdate => crate::update::Kind::Storage,
+					_ => unreachable!(),
+				};
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
@@ -1346,14 +1447,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
-				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
+				let (input, kind) = unpack_update_kind(input, tuple_depth, update_kind)?;
 				Ok((
 					input,
 					Key::Update(crate::fdb::update::Key::Update { id, kind }),
 				))
 			},
 
-			Kind::UpdateVersion => {
+			Kind::GrantUpdateVersion | Kind::NodeUpdateVersion | Kind::StorageUpdateVersion => {
+				let update_kind = match kind {
+					Kind::GrantUpdateVersion => crate::update::Kind::Grant,
+					Kind::NodeUpdateVersion => crate::update::Kind::Node,
+					Kind::StorageUpdateVersion => crate::update::Kind::Storage,
+					_ => unreachable!(),
+				};
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1366,7 +1473,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
-				let (input, kind) = unpack_update_kind(input, tuple_depth)?;
+				let (input, kind) = unpack_update_kind(input, tuple_depth, update_kind)?;
 				let key = Key::Update(crate::fdb::update::Key::UpdateVersion {
 					id,
 					kind,
@@ -1385,27 +1492,25 @@ fn pack_update_kind<W: std::io::Write>(
 	kind: &crate::fdb::update::Kind,
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
-		crate::fdb::update::Kind::Grants(principal) => {
-			let mut offset = 1i32.pack(w, tuple_depth)?;
-			offset += principal.to_string().pack(w, tuple_depth)?;
-			Ok(offset)
-		},
-		crate::fdb::update::Kind::Node => 0i32.pack(w, tuple_depth),
-		crate::fdb::update::Kind::Storage(owner) => {
-			let mut offset = 2i32.pack(w, tuple_depth)?;
-			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
-			Ok(offset)
-		},
-		crate::fdb::update::Kind::StorageClean(owner) => {
-			let mut offset = 3i32.pack(w, tuple_depth)?;
-			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
-			Ok(offset)
-		},
-		crate::fdb::update::Kind::StorageOwnersClean => 5i32.pack(w, tuple_depth),
-		crate::fdb::update::Kind::StorageRelationships(owner) => {
-			let mut offset = 4i32.pack(w, tuple_depth)?;
-			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
-			Ok(offset)
+		crate::fdb::update::Kind::Grant(principal) => principal.to_string().pack(w, tuple_depth),
+		crate::fdb::update::Kind::Node => ().pack(w, tuple_depth),
+		crate::fdb::update::Kind::Storage(kind) => match kind {
+			crate::fdb::update::StorageKind::Add(account) => {
+				let mut offset = 0i32.pack(w, tuple_depth)?;
+				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				Ok(offset)
+			},
+			crate::fdb::update::StorageKind::Clean(account) => {
+				let mut offset = 1i32.pack(w, tuple_depth)?;
+				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				Ok(offset)
+			},
+			crate::fdb::update::StorageKind::CleanAll => 2i32.pack(w, tuple_depth),
+			crate::fdb::update::StorageKind::Propagate(account) => {
+				let mut offset = 3i32.pack(w, tuple_depth)?;
+				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				Ok(offset)
+			},
 		},
 	}
 }
@@ -1413,43 +1518,44 @@ fn pack_update_kind<W: std::io::Write>(
 fn unpack_update_kind(
 	input: &[u8],
 	tuple_depth: fdbt::TupleDepth,
+	kind: crate::update::Kind,
 ) -> Result<(&[u8], crate::fdb::update::Kind), fdbt::PackError> {
-	let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 	match kind {
-		0 => Ok((input, crate::fdb::update::Kind::Node)),
-		1 => {
+		crate::update::Kind::Grant => {
 			let (input, principal): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let principal = principal
 				.parse()
 				.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
-			Ok((input, crate::fdb::update::Kind::Grants(principal)))
+			Ok((input, crate::fdb::update::Kind::Grant(principal)))
 		},
-		2 => {
-			let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-			let owner = tg::Id::from_slice(&owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			let owner = crate::storage::Owner::try_from(owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			Ok((input, crate::fdb::update::Kind::Storage(owner)))
+		crate::update::Kind::Node => Ok((input, crate::fdb::update::Kind::Node)),
+		crate::update::Kind::Storage => {
+			let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			let (input, kind) = match kind {
+				0 | 1 | 3 => {
+					let (input, account): (_, Vec<u8>) =
+						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+					let account = tg::Id::from_slice(&account)
+						.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					let account = crate::storage::Account::try_from(account)
+						.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					let kind = match kind {
+						0 => crate::fdb::update::StorageKind::Add(account),
+						1 => crate::fdb::update::StorageKind::Clean(account),
+						3 => crate::fdb::update::StorageKind::Propagate(account),
+						_ => unreachable!(),
+					};
+					(input, kind)
+				},
+				2 => (input, crate::fdb::update::StorageKind::CleanAll),
+				_ => {
+					return Err(fdbt::PackError::Message(
+						"invalid storage update kind".into(),
+					));
+				},
+			};
+			Ok((input, crate::fdb::update::Kind::Storage(kind)))
 		},
-		3 => {
-			let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-			let owner = tg::Id::from_slice(&owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			let owner = crate::storage::Owner::try_from(owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			Ok((input, crate::fdb::update::Kind::StorageClean(owner)))
-		},
-		4 => {
-			let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-			let owner = tg::Id::from_slice(&owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			let owner = crate::storage::Owner::try_from(owner)
-				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
-			Ok((input, crate::fdb::update::Kind::StorageRelationships(owner)))
-		},
-		5 => Ok((input, crate::fdb::update::Kind::StorageOwnersClean)),
-		_ => Err(fdbt::PackError::Message("invalid update kind".into())),
 	}
 }
 

@@ -304,8 +304,8 @@ impl Session {
 
 		if let Some(data) = data {
 			let data = data.without_tokens();
-			let owner = session
-				.storage_owner(&tg::Principal::Sandbox(data.sandbox.clone()))
+			let account = session
+				.storage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
 			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let index_arg = tangram_index::batch::Arg {
@@ -326,10 +326,10 @@ impl Session {
 						touched_at,
 					},
 				))
-				.chain(owner.map(|owner| {
-					tangram_index::batch::Item::PutOwnerProcess(
+				.chain(account.map(|account| {
+					tangram_index::batch::Item::PutAccountProcess(
 						tangram_index::storage::put::ProcessArg {
-							owner,
+							account,
 							process: id.clone(),
 							touched_at,
 						},

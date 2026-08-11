@@ -1,9 +1,9 @@
 mod key;
 
-pub(super) use key::{Key, Kind};
+pub(super) use key::{Key, Kind, StorageKind};
 
 use {
-	super::{Index, ItemKind, Kind as KeyKind, Request, Response},
+	super::{Index, Kind as KeyKind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::future,
@@ -17,12 +17,25 @@ const STORAGE_RELATION_BATCH_SIZE: usize = 8;
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct Update {
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub cursor: Option<StorageCursor>,
-
+pub(super) struct GrantUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct NodeUpdate {
+	#[tangram_serialize(id = 0)]
+	pub source: Source,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct StorageUpdate {
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<StorageCursor>,
 }
 
 #[derive(
@@ -33,7 +46,7 @@ pub(super) enum StorageCursor {
 	Object(tg::object::Id),
 
 	#[tangram_serialize(id = 3)]
-	ObjectOwner(crate::storage::Owner),
+	ObjectAccount(crate::storage::Account),
 
 	#[tangram_serialize(id = 1)]
 	ProcessChild(tg::process::Id),
@@ -42,7 +55,7 @@ pub(super) enum StorageCursor {
 	ProcessObject(Option<ProcessObjectCursor>),
 
 	#[tangram_serialize(id = 4)]
-	ProcessOwner(crate::storage::Owner),
+	ProcessAccount(crate::storage::Account),
 }
 
 #[derive(
@@ -99,12 +112,9 @@ struct GrantCover {
 	expires_at: Option<i64>,
 }
 
-impl Update {
+impl GrantUpdate {
 	pub fn new(source: Source) -> Self {
-		Self {
-			cursor: None,
-			source,
-		}
+		Self { source }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -115,6 +125,38 @@ impl Update {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the update"))
+	}
+}
+
+impl NodeUpdate {
+	pub fn new(source: Source) -> Self {
+		Self { source }
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the node update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the node update"))
+	}
+}
+
+impl StorageUpdate {
+	pub fn new() -> Self {
+		Self { cursor: None }
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the storage update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the storage update"))
 	}
 }
 
@@ -143,8 +185,28 @@ impl Index {
 		source: Source,
 		partition_total: u64,
 	) {
-		let update = Update::new(source);
-		Self::enqueue_update_value(txn, subspace, id, kind, &update, partition_total);
+		Self::enqueue_update_with_kind_at_version(
+			txn,
+			subspace,
+			id,
+			kind,
+			source,
+			partition_total,
+			None,
+		);
+	}
+
+	pub(super) fn enqueue_update_with_kind_at_version(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
+		source: Source,
+		partition_total: u64,
+		version: Option<&fdbt::Versionstamp>,
+	) {
+		let value = serialize_update(kind, source).unwrap();
+		Self::enqueue_update_value(txn, subspace, id, kind, &value, partition_total, version);
 	}
 
 	fn enqueue_update_value(
@@ -152,8 +214,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
-		update: &Update,
+		value: &[u8],
 		partition_total: u64,
+		version: Option<&fdbt::Versionstamp>,
 	) {
 		let key = Self::pack(
 			subspace,
@@ -162,32 +225,49 @@ impl Index {
 				kind: kind.clone(),
 			}),
 		);
-		let value = update.serialize().unwrap();
-		txn.set(&key, &value);
+		txn.set(&key, value);
 
 		let id_bytes = match &id {
 			tg::Either::Left(id) => id.to_bytes(),
 			tg::Either::Right(id) => id.to_bytes(),
 		};
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-		let version = fdbt::Versionstamp::incomplete(0);
-		let key = Self::pack_with_versionstamp(
-			subspace,
-			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
-				id: id.clone(),
-				kind: kind.clone(),
-				partition,
-				version: version.clone(),
-			}),
-		);
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
+		if let Some(version) = version {
+			let key = Self::pack(
+				subspace,
+				&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+					id: id.clone(),
+					kind: kind.clone(),
+					partition,
+					version: version.clone(),
+				}),
+			);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &[]);
+		} else {
+			let version = fdbt::Versionstamp::incomplete(0);
+			let key = Self::pack_with_versionstamp(
+				subspace,
+				&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
+					id: id.clone(),
+					kind: kind.clone(),
+					partition,
+					version,
+				}),
+			);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
+		}
 	}
 
-	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
+	pub async fn try_get_oldest_update_transaction_id(
+		&self,
+		kind: crate::update::Kind,
+	) -> tg::Result<Option<u64>> {
 		let response = self
-			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId)
+			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId { kind })
 			.await?;
 		let crate::read::Response::TryGetOldestUpdateTransactionId(output) = response else {
 			return Err(tg::error!("unexpected read response"));
@@ -199,9 +279,10 @@ impl Index {
 	pub(crate) async fn try_get_oldest_update_transaction_id_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
+		kind: crate::update::Kind,
 		partition_total: u64,
 	) -> tg::Result<Option<u64>> {
-		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
 		let futures = (0..partition_total).map(|partition| {
 			let begin = Self::pack(subspace, &(key_kind, partition));
 			let end = Self::pack(subspace, &(key_kind, partition.saturating_add(1)));
@@ -242,12 +323,14 @@ impl Index {
 
 	pub async fn update_batch(
 		&self,
+		kind: crate::update::Kind,
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<crate::update::Output> {
 		let request = Request::Update(crate::fdb::Update {
 			batch_size,
+			kind,
 			partition_end,
 			partition_start,
 		});
@@ -264,6 +347,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
+		kind: crate::update::Kind,
 		partition_start: u64,
 		partition_end: u64,
 		max_process_depth: Option<u64>,
@@ -272,7 +356,7 @@ impl Index {
 	) -> tg::Result<crate::update::Output> {
 		let mut entries = Vec::new();
 
-		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
 		for partition in partition_start..partition_end {
 			let remaining = batch_size.saturating_sub(entries.len());
 			if remaining == 0 {
@@ -326,11 +410,16 @@ impl Index {
 				continue;
 			};
 
-			let update = Update::deserialize(&value)?;
+			let (cursor, source) = match &kind {
+				Kind::Grant(_) | Kind::Node => {
+					(None, Some(deserialize_source_update(&kind, &value)?))
+				},
+				Kind::Storage(_) => (StorageUpdate::deserialize(&value)?.cursor, None),
+			};
 			let mut next_cursor = None;
 
 			let changed = match &kind {
-				Kind::Grants(principal) => match &id {
+				Kind::Grant(principal) => match &id {
 					tg::Either::Left(id) => {
 						Self::update_object_grants_for_principal(
 							txn,
@@ -363,7 +452,7 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(owner) => {
+				Kind::Storage(StorageKind::Add(account)) => {
 					let touched_at = i64::try_from(
 						std::time::SystemTime::now()
 							.duration_since(std::time::UNIX_EPOCH)
@@ -373,93 +462,98 @@ impl Index {
 					.map_err(|_| tg::error!("the system time is out of range"))?;
 					match &id {
 						tg::Either::Left(object) => {
-							Self::put_owner_object(
+							Self::put_account_object(
 								txn,
 								subspace,
 								&crate::storage::put::ObjectArg {
+									account: account.clone(),
 									object: object.clone(),
-									owner: owner.clone(),
 									touched_at,
 								},
 								partition_total,
 								storage_partition_total,
 								false,
+								Some(&version),
 							)
 							.await?
 						},
 						tg::Either::Right(process) => {
-							Self::put_owner_process(
+							Self::put_account_process(
 								txn,
 								subspace,
 								&crate::storage::put::ProcessArg {
-									owner: owner.clone(),
+									account: account.clone(),
 									process: process.clone(),
 									touched_at,
 								},
 								partition_total,
 								storage_partition_total,
 								false,
+								Some(&version),
 							)
 							.await?
 						},
 					}
 				},
-				Kind::StorageClean(owner) => {
+				Kind::Storage(StorageKind::Clean(account)) => {
 					next_cursor = Self::propagate_storage_clean(
 						txn,
 						subspace,
 						&id,
-						owner,
-						update.cursor.as_ref(),
+						account,
+						cursor.as_ref(),
 						partition_total,
 					)
 					.await?;
 					false
 				},
-				Kind::StorageOwnersClean => {
-					next_cursor = Self::propagate_storage_owners_clean(
+				Kind::Storage(StorageKind::CleanAll) => {
+					next_cursor = Self::propagate_storage_accounts_clean(
 						txn,
 						subspace,
 						&id,
-						update.cursor.as_ref(),
+						cursor.as_ref(),
 						partition_total,
 					)
 					.await?;
 					false
 				},
-				Kind::StorageRelationships(owner) => {
+				Kind::Storage(StorageKind::Propagate(account)) => {
 					next_cursor = Self::propagate_storage_relationships(
 						txn,
 						subspace,
 						&id,
-						owner,
-						update.cursor.as_ref(),
+						account,
+						cursor.as_ref(),
 						partition_total,
+						&version,
 					)
 					.await?;
 					false
 				},
 			};
 
-			if !matches!(
-				kind,
-				Kind::Storage(_)
-					| Kind::StorageClean(_)
-					| Kind::StorageOwnersClean
-					| Kind::StorageRelationships(_)
-			) && match update.source {
-				Source::Put => true,
-				Source::Propagate => changed,
-			} {
+			if !matches!(kind, Kind::Storage(_))
+				&& match source.unwrap() {
+					Source::Put => true,
+					Source::Propagate => changed,
+				} {
 				Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total).await?;
 			}
 
-			if let Some(cursor) = next_cursor {
-				let update = Update {
+			let continued = if let Some(cursor) = next_cursor {
+				let update = StorageUpdate {
 					cursor: Some(cursor),
-					source: update.source,
 				};
-				Self::enqueue_update_value(txn, subspace, &id, &kind, &update, partition_total);
+				let key = Self::pack(
+					subspace,
+					&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+						id: id.clone(),
+						kind: kind.clone(),
+					}),
+				);
+				txn.set(&key, &update.serialize()?);
+				true
 			} else {
 				Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await?;
 				let key = Self::pack(
@@ -470,8 +564,11 @@ impl Index {
 					}),
 				);
 				txn.clear(&key);
+				false
+			};
+			if !continued {
+				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 			}
-			Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 
 			output.count += 1;
 		}
@@ -483,19 +580,28 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
+		version: &fdbt::Versionstamp,
 	) -> tg::Result<Option<StorageCursor>> {
 		let (relationships, cursor) =
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
-		let kind = Kind::Storage(owner.clone());
+		let kind = Kind::Storage(StorageKind::Add(account.clone()));
 		for relationship in relationships {
 			let id = match relationship {
 				StorageRelationship::Object(id) => tg::Either::Left(id),
 				StorageRelationship::Process(id) => tg::Either::Right(id),
 			};
-			Self::enqueue_update_with_kind(txn, subspace, &id, &kind, Source::Put, partition_total);
+			Self::enqueue_update_with_kind_at_version(
+				txn,
+				subspace,
+				&id,
+				&kind,
+				Source::Put,
+				partition_total,
+				Some(version),
+			);
 		}
 
 		Ok(cursor)
@@ -505,7 +611,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		owner: &crate::storage::Owner,
+		account: &crate::storage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
 	) -> tg::Result<Option<StorageCursor>> {
@@ -514,14 +620,20 @@ impl Index {
 		future::try_join_all(relationships.iter().map(|relationship| async move {
 			match relationship {
 				StorageRelationship::Object(object) => {
-					Self::schedule_owner_object_clean(txn, subspace, owner, object, partition_total)
-						.await
-				},
-				StorageRelationship::Process(process) => {
-					Self::schedule_owner_process_clean(
+					Self::schedule_account_object_for_cleaning(
 						txn,
 						subspace,
-						owner,
+						account,
+						object,
+						partition_total,
+					)
+					.await
+				},
+				StorageRelationship::Process(process) => {
+					Self::schedule_account_process_for_cleaning(
+						txn,
+						subspace,
+						account,
 						process,
 						partition_total,
 					)
@@ -533,25 +645,31 @@ impl Index {
 		Ok(cursor)
 	}
 
-	async fn propagate_storage_owners_clean(
+	async fn propagate_storage_accounts_clean(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
 	) -> tg::Result<Option<StorageCursor>> {
-		let (owners, cursor) = Self::get_storage_owners_page(txn, subspace, id, cursor).await?;
-		future::try_join_all(owners.iter().map(|owner| async move {
+		let (accounts, cursor) = Self::get_storage_accounts_page(txn, subspace, id, cursor).await?;
+		future::try_join_all(accounts.iter().map(|account| async move {
 			match id {
 				tg::Either::Left(object) => {
-					Self::schedule_owner_object_clean(txn, subspace, owner, object, partition_total)
-						.await
-				},
-				tg::Either::Right(process) => {
-					Self::schedule_owner_process_clean(
+					Self::schedule_account_object_for_cleaning(
 						txn,
 						subspace,
-						owner,
+						account,
+						object,
+						partition_total,
+					)
+					.await
+				},
+				tg::Either::Right(process) => {
+					Self::schedule_account_process_for_cleaning(
+						txn,
+						subspace,
+						account,
 						process,
 						partition_total,
 					)
@@ -576,10 +694,10 @@ impl Index {
 					None => None,
 					Some(StorageCursor::Object(object)) => Some(object),
 					Some(
-						StorageCursor::ObjectOwner(_)
+						StorageCursor::ObjectAccount(_)
 						| StorageCursor::ProcessChild(_)
 						| StorageCursor::ProcessObject(_)
-						| StorageCursor::ProcessOwner(_),
+						| StorageCursor::ProcessAccount(_),
 					) => {
 						return Err(tg::error!(%object, "an object update has an invalid cursor"));
 					},
@@ -591,8 +709,8 @@ impl Index {
 					cursor,
 					Some(
 						StorageCursor::Object(_)
-							| StorageCursor::ObjectOwner(_)
-							| StorageCursor::ProcessOwner(_)
+							| StorageCursor::ObjectAccount(_)
+							| StorageCursor::ProcessAccount(_)
 					)
 				) {
 					return Err(tg::error!(%process, "a process update has an invalid cursor"));
@@ -602,40 +720,42 @@ impl Index {
 		}
 	}
 
-	async fn get_storage_owners_page(
+	async fn get_storage_accounts_page(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> tg::Result<(Vec<crate::storage::Owner>, Option<StorageCursor>)> {
+	) -> tg::Result<(Vec<crate::storage::Account>, Option<StorageCursor>)> {
 		let (kind, item, after) = match (id, cursor) {
-			(tg::Either::Left(object), None) => (KeyKind::ObjectOwner, object.to_bytes(), None),
-			(tg::Either::Left(object), Some(StorageCursor::ObjectOwner(owner))) => (
-				KeyKind::ObjectOwner,
+			(tg::Either::Left(object), None) => (KeyKind::ObjectAccount, object.to_bytes(), None),
+			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
+				KeyKind::ObjectAccount,
 				object.to_bytes(),
 				Some(crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ObjectOwner {
+					crate::fdb::storage::Key::ObjectAccount {
+						account: account.clone(),
 						object: object.clone(),
-						owner: owner.clone(),
 					},
 				)),
 			),
-			(tg::Either::Right(process), None) => (KeyKind::ProcessOwner, process.to_bytes(), None),
-			(tg::Either::Right(process), Some(StorageCursor::ProcessOwner(owner))) => (
-				KeyKind::ProcessOwner,
+			(tg::Either::Right(process), None) => {
+				(KeyKind::ProcessAccount, process.to_bytes(), None)
+			},
+			(tg::Either::Right(process), Some(StorageCursor::ProcessAccount(account))) => (
+				KeyKind::ProcessAccount,
 				process.to_bytes(),
 				Some(crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ProcessOwner {
-						owner: owner.clone(),
+					crate::fdb::storage::Key::ProcessAccount {
+						account: account.clone(),
 						process: process.clone(),
 					},
 				)),
 			),
 			(tg::Either::Left(object), Some(_)) => {
-				return Err(tg::error!(%object, "an object owner update has an invalid cursor"));
+				return Err(tg::error!(%object, "an object account update has an invalid cursor"));
 			},
 			(tg::Either::Right(process), Some(_)) => {
-				return Err(tg::error!(%process, "a process owner update has an invalid cursor"));
+				return Err(tg::error!(%process, "a process account update has an invalid cursor"));
 			},
 		};
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), item.as_ref()));
@@ -652,29 +772,29 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get storage owners"))?;
-		let mut owners = entries
+			.map_err(|error| tg::error!(!error, "failed to get storage accounts"))?;
+		let mut accounts = entries
 			.iter()
 			.map(|entry| match Self::unpack(subspace, entry.key())? {
 				crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ObjectOwner { owner, .. }
-					| crate::fdb::storage::Key::ProcessOwner { owner, .. },
-				) => Ok(owner),
+					crate::fdb::storage::Key::ObjectAccount { account, .. }
+					| crate::fdb::storage::Key::ProcessAccount { account, .. },
+				) => Ok(account),
 				_ => Err(tg::error!("unexpected key type")),
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let cursor = if owners.len() > STORAGE_RELATION_BATCH_SIZE {
-			owners.truncate(STORAGE_RELATION_BATCH_SIZE);
-			let owner = owners.last().unwrap().clone();
+		let cursor = if accounts.len() > STORAGE_RELATION_BATCH_SIZE {
+			accounts.truncate(STORAGE_RELATION_BATCH_SIZE);
+			let account = accounts.last().unwrap().clone();
 			Some(match id {
-				tg::Either::Left(_) => StorageCursor::ObjectOwner(owner),
-				tg::Either::Right(_) => StorageCursor::ProcessOwner(owner),
+				tg::Either::Left(_) => StorageCursor::ObjectAccount(account),
+				tg::Either::Right(_) => StorageCursor::ProcessAccount(account),
 			})
 		} else {
 			None
 		};
 
-		Ok((owners, cursor))
+		Ok((accounts, cursor))
 	}
 
 	async fn get_storage_object_relationships_page(
@@ -765,8 +885,8 @@ impl Index {
 			Some(StorageCursor::ProcessObject(cursor)) => cursor.as_ref(),
 			Some(
 				StorageCursor::Object(_)
-				| StorageCursor::ObjectOwner(_)
-				| StorageCursor::ProcessOwner(_),
+				| StorageCursor::ObjectAccount(_)
+				| StorageCursor::ProcessAccount(_),
 			) => unreachable!(),
 		};
 		let limit = STORAGE_RELATION_BATCH_SIZE - relationships.len();
@@ -902,17 +1022,18 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let (id, kind, touched_at) = match id {
+		let key = match id {
 			tg::Either::Left(id) => {
 				let Some(object) = Self::try_get_object_with_transaction(txn, subspace, id).await?
 				else {
 					return Ok(());
 				};
-				(
-					tg::Id::from(id.clone()),
-					ItemKind::Object,
-					object.touched_at,
-				)
+				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
+				crate::fdb::clean::Key::Object {
+					id: id.clone(),
+					partition,
+					touched_at: object.touched_at,
+				}
 			},
 			tg::Either::Right(id) => {
 				let Some(process) =
@@ -920,20 +1041,15 @@ impl Index {
 				else {
 					return Ok(());
 				};
-				(
-					tg::Id::from(id.clone()),
-					ItemKind::Process,
-					process.touched_at,
-				)
+				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
+				crate::fdb::clean::Key::Process {
+					id: id.clone(),
+					partition,
+					touched_at: process.touched_at,
+				}
 			},
 		};
-		let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
-		let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
-			id,
-			kind,
-			partition,
-			touched_at,
-		});
+		let key = crate::fdb::Key::Clean(key);
 		txn.set(&Self::pack(subspace, &key), &[]);
 
 		Ok(())
@@ -2363,20 +2479,14 @@ impl Index {
 				kind: kind.clone(),
 			}),
 		);
-		let update = txn
+		let source = txn
 			.get(&key, false)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
-			.map(|bytes| Update::deserialize(&bytes))
+			.map(|bytes| deserialize_source_update(kind, &bytes))
 			.transpose()?;
-		if !matches!(
-			update,
-			Some(Update {
-				source: Source::Put,
-				..
-			})
-		) {
-			let value = Update::new(Source::Propagate).serialize()?;
+		if !matches!(source, Some(Source::Put)) {
+			let value = serialize_update(kind, Source::Propagate)?;
 			txn.set(&key, &value);
 		}
 
@@ -2420,4 +2530,32 @@ impl Index {
 		);
 		txn.clear(&key);
 	}
+}
+
+fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
+	match kind {
+		crate::update::Kind::Grant => KeyKind::GrantUpdateVersion,
+		crate::update::Kind::Node => KeyKind::NodeUpdateVersion,
+		crate::update::Kind::Storage => KeyKind::StorageUpdateVersion,
+	}
+}
+
+fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
+	let source = match kind {
+		Kind::Grant(_) => GrantUpdate::deserialize(bytes)?.source,
+		Kind::Node => NodeUpdate::deserialize(bytes)?.source,
+		Kind::Storage(_) => return Err(tg::error!("expected a source update")),
+	};
+
+	Ok(source)
+}
+
+fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
+	let value = match kind {
+		Kind::Grant(_) => GrantUpdate::new(source).serialize()?,
+		Kind::Node => NodeUpdate::new(source).serialize()?,
+		Kind::Storage(_) => StorageUpdate::new().serialize()?,
+	};
+
+	Ok(value)
 }

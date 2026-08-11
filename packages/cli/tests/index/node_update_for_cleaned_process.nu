@@ -27,11 +27,11 @@ let data = tg process get $process
 
 # Hold the update task so that the queue cannot drain.
 let batch_watch = (
-	tg checkpoint watch indexer.update.batch
+	tg checkpoint watch indexer.update.node.batch
 	| from json
 	| get watch
 )
-tg checkpoint wait indexer.update.batch $batch_watch 0 | ignore
+tg checkpoint wait indexer.update.node.batch $batch_watch 0 | ignore
 
 # Putting the process queues a node update for it.
 $data | tg process put $process
@@ -49,8 +49,8 @@ tg checkpoint continue cleaner.process.delete $delete_watch 0
 tg checkpoint unwatch cleaner.process.delete $delete_watch
 
 # Release the update task.
-tg checkpoint continue indexer.update.batch $batch_watch 0
-tg checkpoint unwatch indexer.update.batch $batch_watch
+tg checkpoint continue indexer.update.node.batch $batch_watch 0
+tg checkpoint unwatch indexer.update.node.batch $batch_watch
 
 # The update queue must drain.
 let index = timeout 15 tg index | complete

@@ -1,4 +1,5 @@
 mod key;
+mod storage;
 
 pub(super) use key::{ItemKind, Key};
 
@@ -16,6 +17,14 @@ struct Candidate {
 
 #[derive(Clone)]
 enum Item {
+	AccountObject {
+		account: crate::storage::Account,
+		object: tg::object::Id,
+	},
+	AccountProcess {
+		account: crate::storage::Account,
+		process: tg::process::Id,
+	},
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
@@ -74,20 +83,11 @@ impl Index {
 			transaction,
 		} = arg;
 		let grants = Self::delete_expired_grants(db, subspace, transaction, now, batch_size)?;
-		let storage = Self::clean_storage_associations(
-			db,
-			subspace,
-			transaction,
-			batch_size.saturating_sub(grants),
-			max_object_touched_at,
-			max_process_touched_at,
-			storage_partition_total,
-		)?;
 		let mut output = crate::clean::Output {
 			grants,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants + storage);
+		let remaining_batch_size = batch_size.saturating_sub(grants);
 
 		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -102,51 +102,75 @@ impl Index {
 			let (key, _) =
 				result.map_err(|error| tg::error!(!error, "failed to read clean key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
-				touched_at,
-				kind,
-				id,
-			}) = key
-			else {
+			let crate::lmdb::Key::Clean(key) = key else {
 				return Err(tg::error!("expected clean key"));
 			};
-			let max_touched_at = match kind {
-				ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
-				ItemKind::Process => max_process_touched_at,
-				ItemKind::Sandbox => max_sandbox_touched_at,
+			let (item, touched_at, max_touched_at) = match key {
+				crate::lmdb::clean::Key::AccountObject {
+					account,
+					object,
+					touched_at,
+				} => (
+					Item::AccountObject { account, object },
+					touched_at,
+					max_object_touched_at,
+				),
+				crate::lmdb::clean::Key::AccountProcess {
+					account,
+					process,
+					touched_at,
+				} => (
+					Item::AccountProcess { account, process },
+					touched_at,
+					max_process_touched_at,
+				),
+				crate::lmdb::clean::Key::CacheEntry { id, touched_at } => {
+					(Item::CacheEntry(id), touched_at, max_object_touched_at)
+				},
+				crate::lmdb::clean::Key::Object { id, touched_at } => {
+					(Item::Object(id), touched_at, max_object_touched_at)
+				},
+				crate::lmdb::clean::Key::Process { id, touched_at } => {
+					(Item::Process(id), touched_at, max_process_touched_at)
+				},
+				crate::lmdb::clean::Key::Sandbox { id, touched_at } => {
+					(Item::Sandbox(id), touched_at, max_sandbox_touched_at)
+				},
 			};
 			if touched_at > max_touched_at {
 				continue;
 			}
-			let item = match kind {
-				ItemKind::CacheEntry => {
-					let id = tg::object::Id::try_from(id).map_err(|error| {
-						tg::error!(!error, "expected object id for cache entry")
-					})?;
-					let id = tg::artifact::Id::try_from(id)
-						.map_err(|error| tg::error!(!error, "invalid artifact id"))?;
-					Item::CacheEntry(id)
-				},
-				ItemKind::Object => {
-					let id = tg::object::Id::try_from(id)
-						.map_err(|error| tg::error!(!error, "expected object id for object"))?;
-					Item::Object(id)
-				},
-				ItemKind::Process => {
-					let id = tg::process::Id::try_from(id)
-						.map_err(|error| tg::error!(!error, "expected process id for process"))?;
-					Item::Process(id)
-				},
-				ItemKind::Sandbox => {
-					let id = tg::sandbox::Id::try_from(id)
-						.map_err(|error| tg::error!(!error, "expected sandbox id for sandbox"))?;
-					Item::Sandbox(id)
-				},
-			};
 			candidates.push(Candidate { touched_at, item });
 		}
 
 		for candidate in &candidates {
+			match &candidate.item {
+				Item::AccountObject { account, object } => {
+					Self::clean_account_object_entry(
+						db,
+						subspace,
+						transaction,
+						account,
+						object,
+						candidate.touched_at,
+						storage_partition_total,
+					)?;
+					continue;
+				},
+				Item::AccountProcess { account, process } => {
+					Self::clean_account_process_entry(
+						db,
+						subspace,
+						transaction,
+						account,
+						process,
+						candidate.touched_at,
+						storage_partition_total,
+					)?;
+					continue;
+				},
+				Item::CacheEntry(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
+			}
 			let touched_at = Self::get_touched_at(db, subspace, transaction, &candidate.item)?;
 			if touched_at != candidate.touched_at {
 				Self::delete_clean_key(db, subspace, transaction, candidate)?;
@@ -154,6 +178,7 @@ impl Index {
 			}
 
 			let reference_count = match &candidate.item {
+				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 				Item::CacheEntry(id) => {
 					Self::compute_cache_entry_reference_count(db, subspace, transaction, id)?
 				},
@@ -186,6 +211,7 @@ impl Index {
 
 			if let Some(item) = item {
 				match item {
+					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 					Item::CacheEntry(id) => output.cache_entries.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
@@ -194,7 +220,7 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && storage == 0 && candidates.is_empty();
+		output.done = grants == 0 && candidates.is_empty();
 
 		Ok(output)
 	}
@@ -279,6 +305,7 @@ impl Index {
 		item: &Item,
 	) -> tg::Result<i64> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let entry =
 					Self::try_get_cache_entry_with_transaction(db, subspace, transaction, id)?
@@ -318,25 +345,35 @@ impl Index {
 		candidate: &Candidate,
 	) -> tg::Result<()> {
 		let key = match &candidate.item {
-			Item::CacheEntry(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+			Item::AccountObject { account, object } => {
+				crate::lmdb::Key::Clean(crate::lmdb::clean::Key::AccountObject {
+					account: account.clone(),
+					object: object.clone(),
+					touched_at: candidate.touched_at,
+				})
+			},
+			Item::AccountProcess { account, process } => {
+				crate::lmdb::Key::Clean(crate::lmdb::clean::Key::AccountProcess {
+					account: account.clone(),
+					process: process.clone(),
+					touched_at: candidate.touched_at,
+				})
+			},
+			Item::CacheEntry(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+				id: id.clone(),
 				touched_at: candidate.touched_at,
-				kind: ItemKind::CacheEntry,
-				id: tg::object::Id::from(id.clone()).into(),
 			}),
-			Item::Object(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+			Item::Object(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Object {
+				id: id.clone(),
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Object,
-				id: id.clone().into(),
 			}),
-			Item::Process(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+			Item::Process(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Process {
+				id: id.clone(),
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Process,
-				id: id.clone().into(),
 			}),
-			Item::Sandbox(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+			Item::Sandbox(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Sandbox {
+				id: id.clone(),
 				touched_at: candidate.touched_at,
-				kind: ItemKind::Sandbox,
-				id: id.clone().into(),
 			}),
 		};
 		let key = Self::pack(subspace, &key);
@@ -403,14 +440,17 @@ impl Index {
 			&(Kind::TargetTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let target_tag_count = Self::count_keys_with_prefix(db, transaction, &target_tag_prefix)?;
-		let object_owner_prefix = Self::pack(
+		let object_account_prefix = Self::pack(
 			subspace,
-			&(Kind::ObjectOwner.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(
+				Kind::ObjectAccount.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			),
 		);
-		let object_owner_count =
-			Self::count_keys_with_prefix(db, transaction, &object_owner_prefix)?;
+		let object_account_count =
+			Self::count_keys_with_prefix(db, transaction, &object_account_prefix)?;
 
-		Ok(child_object_count + object_owner_count + object_process_count + target_tag_count)
+		Ok(child_object_count + object_account_count + object_process_count + target_tag_count)
 	}
 
 	fn compute_process_reference_count(
@@ -432,14 +472,17 @@ impl Index {
 			&(Kind::TargetTag.to_i32().unwrap(), id.to_bytes().as_ref()),
 		);
 		let target_tag_count = Self::count_keys_with_prefix(db, transaction, &target_tag_prefix)?;
-		let process_owner_prefix = Self::pack(
+		let process_account_prefix = Self::pack(
 			subspace,
-			&(Kind::ProcessOwner.to_i32().unwrap(), id.to_bytes().as_ref()),
+			&(
+				Kind::ProcessAccount.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			),
 		);
-		let process_owner_count =
-			Self::count_keys_with_prefix(db, transaction, &process_owner_prefix)?;
+		let process_account_count =
+			Self::count_keys_with_prefix(db, transaction, &process_account_prefix)?;
 
-		Ok(child_process_count + process_owner_count + target_tag_count)
+		Ok(child_process_count + process_account_count + target_tag_count)
 	}
 
 	fn compute_sandbox_reference_count(
@@ -484,6 +527,7 @@ impl Index {
 		reference_count: u64,
 	) -> tg::Result<()> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
@@ -551,6 +595,7 @@ impl Index {
 		item: &Item,
 	) -> tg::Result<()> {
 		match item {
+			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => Self::delete_cache_entry(db, subspace, transaction, id),
 			Item::Object(id) => Self::delete_object(db, subspace, transaction, id),
 			Item::Process(id) => Self::delete_process(db, subspace, transaction, id),
@@ -922,10 +967,9 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
 
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+					id: id.clone(),
 					touched_at: entry.touched_at,
-					kind: ItemKind::CacheEntry,
-					id: tg::object::Id::from(id.clone()).into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
@@ -960,10 +1004,9 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put object"))?;
 
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Object {
+					id: id.clone(),
 					touched_at: object.touched_at,
-					kind: ItemKind::Object,
-					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
@@ -998,10 +1041,9 @@ impl Index {
 				db.put(transaction, &key, &bytes)
 					.map_err(|error| tg::error!(!error, "failed to put process"))?;
 
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Process {
+					id: id.clone(),
 					touched_at: process.touched_at,
-					kind: ItemKind::Process,
-					id: id.clone().into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])
@@ -1037,10 +1079,9 @@ impl Index {
 				.as_ref()
 				.is_some_and(|data| data.status.is_destroyed())
 		{
-			let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+			let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Sandbox {
+				id: id.clone(),
 				touched_at: sandbox.touched_at,
-				kind: ItemKind::Sandbox,
-				id: id.clone().into(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])

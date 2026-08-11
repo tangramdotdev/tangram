@@ -507,7 +507,7 @@ impl Session {
 			self.server.config.object.grant_time_to_touch,
 			self.server.config.object.time_to_touch,
 		);
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let root_object = tg::object::Id::from(blob.id.clone());
 		let arg = tangram_index::batch::Arg {
 			items: put_cache_entry_args
@@ -523,11 +523,11 @@ impl Session {
 						.into_iter()
 						.map(tangram_index::batch::Item::PutGrant),
 				)
-				.chain(owner.map(|owner| {
-					tangram_index::batch::Item::PutOwnerObject(
+				.chain(account.map(|account| {
+					tangram_index::batch::Item::PutAccountObject(
 						tangram_index::storage::put::ObjectArg {
+							account,
 							object: root_object,
-							owner,
 							touched_at,
 						},
 					)

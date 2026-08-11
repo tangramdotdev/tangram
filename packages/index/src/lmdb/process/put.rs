@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key},
+	crate::lmdb::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -248,10 +248,9 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the object process"))?;
 		}
 
-		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Process {
+			id: id.clone(),
 			touched_at,
-			kind: ItemKind::Process,
-			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
@@ -266,8 +265,8 @@ impl Index {
 				crate::lmdb::update::Source::Put,
 				None,
 			)?;
-			Self::enqueue_owned_process_from_parents(db, subspace, transaction, id)?;
-			Self::enqueue_owned_process_relationships(db, subspace, transaction, id)?;
+			Self::enqueue_account_process_from_parents(db, subspace, transaction, id)?;
+			Self::enqueue_account_process_relationships(db, subspace, transaction, id)?;
 		}
 
 		Ok(())

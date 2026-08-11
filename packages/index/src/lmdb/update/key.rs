@@ -15,7 +15,15 @@ pub enum Key {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
-	Grants(tg::grant::Principal),
+	Grant(tg::grant::Principal),
 	Node,
-	Storage(crate::storage::Owner),
+	Storage(StorageKind),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StorageKind {
+	Add(crate::storage::Account),
+	Clean(crate::storage::Account),
+	CleanAll,
+	Propagate(crate::storage::Account),
 }

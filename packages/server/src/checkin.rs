@@ -618,7 +618,7 @@ impl Session {
 		progress.finish("locking");
 
 		// Create the index batch.
-		let owner = self.storage_owner(&self.context.principal).await?;
+		let account = self.storage_account(&self.context.principal).await?;
 		let mut index_arg = self.checkin_index(
 			&arg,
 			&graph,
@@ -627,15 +627,15 @@ impl Session {
 			root,
 			touched_at,
 		)?;
-		if let Some(owner) = owner {
+		if let Some(account) = account {
 			let index = graph.paths.get(root).unwrap();
 			let object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
 			index_arg
 				.items
-				.push(tangram_index::batch::Item::PutOwnerObject(
+				.push(tangram_index::batch::Item::PutAccountObject(
 					tangram_index::storage::put::ObjectArg {
+						account,
 						object,
-						owner,
 						touched_at,
 					},
 				));

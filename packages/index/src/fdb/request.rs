@@ -58,17 +58,17 @@ pub(super) struct TouchCacheEntries {
 
 #[derive(Clone)]
 pub(super) struct TouchObjects {
+	pub account: Option<crate::storage::Account>,
 	pub ids: Vec<tg::object::Id>,
-	pub owner: Option<crate::storage::Owner>,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
 
 #[derive(Clone)]
 pub(super) struct TouchProcesses {
+	pub account: Option<crate::storage::Account>,
 	pub ids: Vec<tg::process::Id>,
-	pub owner: Option<crate::storage::Owner>,
-	pub put_owner: bool,
+	pub put_account: bool,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
@@ -76,6 +76,7 @@ pub(super) struct TouchProcesses {
 #[derive(Clone)]
 pub(super) struct Update {
 	pub batch_size: usize,
+	pub kind: crate::update::Kind,
 	pub partition_end: u64,
 	pub partition_start: u64,
 }
@@ -144,17 +145,18 @@ pub(super) enum Kind {
 		touched_at: i64,
 	},
 	TouchObjects {
-		owner: Option<crate::storage::Owner>,
+		account: Option<crate::storage::Account>,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	TouchProcesses {
-		owner: Option<crate::storage::Owner>,
-		put_owner: bool,
+		account: Option<crate::storage::Account>,
+		put_account: bool,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	Update {
+		kind: crate::update::Kind,
 		partition_end: u64,
 		partition_start: u64,
 	},

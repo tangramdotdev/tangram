@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Db, Index, ItemKind, Key, Request, Response},
+	crate::lmdb::{Db, Index, Key, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -57,10 +57,9 @@ impl Index {
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, %id, "failed to put the cache entry"))?;
 			if cache_entry.reference_count == 0 {
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Clean {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+					id: id.clone(),
 					touched_at: cache_entry.touched_at,
-					kind: ItemKind::CacheEntry,
-					id: tg::object::Id::from(id.clone()).into(),
 				});
 				let key = Self::pack(subspace, &key);
 				db.put(transaction, &key, &[])

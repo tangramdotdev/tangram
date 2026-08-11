@@ -127,25 +127,27 @@ impl Index {
 					)
 					.await?;
 				},
-				crate::batch::Item::PutOwnerObject(arg) => {
-					Self::put_owner_object(
+				crate::batch::Item::PutAccountObject(arg) => {
+					Self::put_account_object(
 						txn,
 						subspace,
 						arg,
 						partition_total,
 						storage_partition_total,
 						true,
+						None,
 					)
 					.await?;
 				},
-				crate::batch::Item::PutOwnerProcess(arg) => {
-					Self::put_owner_process(
+				crate::batch::Item::PutAccountProcess(arg) => {
+					Self::put_account_process(
 						txn,
 						subspace,
 						arg,
 						partition_total,
 						storage_partition_total,
 						true,
+						None,
 					)
 					.await?;
 				},

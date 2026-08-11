@@ -2,35 +2,25 @@ use {crate::storage, tangram_client::prelude::*};
 
 #[derive(Clone, Debug)]
 pub enum Key {
-	ObjectOwner {
+	AccountObject {
+		account: storage::Account,
 		object: tg::object::Id,
-		owner: storage::Owner,
 	},
-	OwnerObject {
-		object: tg::object::Id,
-		owner: storage::Owner,
-	},
-	OwnerObjectClean {
-		object: tg::object::Id,
-		owner: storage::Owner,
-		touched_at: i64,
-	},
-	OwnerProcess {
-		owner: storage::Owner,
+	AccountProcess {
+		account: storage::Account,
 		process: tg::process::Id,
 	},
-	OwnerProcessClean {
-		owner: storage::Owner,
-		process: tg::process::Id,
-		touched_at: i64,
-	},
-	OwnerStorage {
+	AccountUsage {
+		account: storage::Account,
 		kind: storage::Kind,
-		owner: storage::Owner,
 		partition: u64,
 	},
-	ProcessOwner {
-		owner: storage::Owner,
+	ObjectAccount {
+		account: storage::Account,
+		object: tg::object::Id,
+	},
+	ProcessAccount {
+		account: storage::Account,
 		process: tg::process::Id,
 	},
 }

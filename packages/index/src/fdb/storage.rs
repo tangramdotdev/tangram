@@ -1,4 +1,3 @@
-mod clean;
 mod get;
 mod key;
 mod put;

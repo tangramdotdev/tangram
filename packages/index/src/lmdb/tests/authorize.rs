@@ -986,24 +986,24 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&mut txn,
 		&[
 			crate::tag::put::Arg {
+				account: None,
 				id: parent_tag.clone(),
-				target: tg::Either::Left(object.clone()),
 				name: "parent".into(),
-				owner: None,
 				parent: None,
 				permissions: Vec::new(),
 				specifier: "parent".parse().unwrap(),
+				target: tg::Either::Left(object.clone()),
 			},
 			crate::tag::put::Arg {
+				account: None,
 				id: child_tag,
-				target: tg::Either::Left(object.clone()),
 				name: "child".into(),
-				owner: None,
 				parent: Some(parent_tag.clone().into()),
 				permissions: vec![object_permission(
 					tg::grant::permission::object::Permission::Node,
 				)],
 				specifier: "parent/child".parse().unwrap(),
+				target: tg::Either::Left(object.clone()),
 			},
 		],
 	)

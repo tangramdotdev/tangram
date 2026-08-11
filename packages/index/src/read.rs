@@ -23,8 +23,8 @@ pub(crate) enum Request {
 	GetRequesterPrincipals {
 		principal: tg::Principal,
 	},
-	GetOwnerUsage {
-		owner: crate::storage::Owner,
+	GetAccountUsage {
+		account: crate::storage::Account,
 	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
@@ -65,7 +65,9 @@ pub(crate) enum Request {
 	TryGetOldestFinalizationTransactionId {
 		kind: crate::finalization::Kind,
 	},
-	TryGetOldestUpdateTransactionId,
+	TryGetOldestUpdateTransactionId {
+		kind: crate::update::Kind,
+	},
 	TryGetOrganizations {
 		ids: Vec<tg::organization::Id>,
 	},
@@ -92,7 +94,7 @@ pub(crate) enum Response {
 	ContainsIds(Vec<bool>),
 	FinalizationBatch(Vec<crate::finalization::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
-	GetOwnerUsage(crate::storage::Usage),
+	GetAccountUsage(crate::storage::Usage),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),

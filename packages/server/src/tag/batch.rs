@@ -73,8 +73,8 @@ impl Session {
 						let data = session
 							.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 							.await?;
-						let owner = session
-							.storage_owner_for_specifier_with_transaction(
+						let account = session
+							.storage_account_for_specifier_with_transaction(
 								transaction,
 								&data.specifier,
 							)
@@ -85,30 +85,30 @@ impl Session {
 						};
 						batch.items.push(tangram_index::batch::Item::PutTag(
 							tangram_index::tag::put::Arg {
+								account: account.clone(),
 								id: data.id,
 								name: data.name,
-								owner: owner.clone(),
 								parent: data.parent,
 								permissions: data.permissions,
 								specifier: data.specifier,
 								target: target.clone(),
 							},
 						));
-						if let Some(owner) = owner {
+						if let Some(account) = account {
 							let item = match target {
 								tg::Either::Left(object) => {
-									tangram_index::batch::Item::PutOwnerObject(
+									tangram_index::batch::Item::PutAccountObject(
 										tangram_index::storage::put::ObjectArg {
+											account,
 											object,
-											owner,
 											touched_at,
 										},
 									)
 								},
 								tg::Either::Right(process) => {
-									tangram_index::batch::Item::PutOwnerProcess(
+									tangram_index::batch::Item::PutAccountProcess(
 										tangram_index::storage::put::ProcessArg {
-											owner,
+											account,
 											process,
 											touched_at,
 										},

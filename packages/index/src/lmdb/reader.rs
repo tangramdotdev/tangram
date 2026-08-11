@@ -163,10 +163,10 @@ impl Index {
 				)?;
 				crate::read::Response::GetRequesterPrincipals(output)
 			},
-			crate::read::Request::GetOwnerUsage { owner } => {
+			crate::read::Request::GetAccountUsage { account } => {
 				let output =
-					Self::get_owner_usage_with_transaction(db, subspace, transaction, &owner)?;
-				crate::read::Response::GetOwnerUsage(output)
+					Self::get_account_usage_with_transaction(db, subspace, transaction, &account)?;
+				crate::read::Response::GetAccountUsage(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(
@@ -270,11 +270,12 @@ impl Index {
 				)?;
 				crate::read::Response::TryGetOldestFinalizationTransactionId(output)
 			},
-			crate::read::Request::TryGetOldestUpdateTransactionId => {
+			crate::read::Request::TryGetOldestUpdateTransactionId { kind } => {
 				let output = Self::try_get_oldest_update_transaction_id_with_transaction(
 					db,
 					subspace,
 					transaction,
+					kind,
 				)?;
 				crate::read::Response::TryGetOldestUpdateTransactionId(output)
 			},

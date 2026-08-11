@@ -72,34 +72,37 @@ fn new_index(storage_partition_total: u64) -> (tempfile::TempDir, Index) {
 }
 
 #[tokio::test]
-async fn owner_storage_deduplicates_a_diamond_and_cleans() {
+async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	let (_dir, index) = new_index(4);
 	let a = object_id(1);
 	let b = object_id(2);
 	let c = object_id(3);
 	let d = object_id(4);
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(d.clone(), [], 4)),
 			crate::batch::Item::PutObject(object_arg(b.clone(), [d.clone()], 3)),
 			crate::batch::Item::PutObject(object_arg(c.clone(), [d], 2)),
 			crate::batch::Item::PutObject(object_arg(a.clone(), [b, c], 1)),
-			crate::batch::Item::PutOwnerObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+				account: account.clone(),
 				object: a,
-				owner: owner.clone(),
 				touched_at: 1,
 			}),
 		],
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 4);
 	assert_eq!(usage.object_size, 10);
 	assert_eq!(usage.process_count, 0);
@@ -121,24 +124,24 @@ async fn owner_storage_deduplicates_a_diamond_and_cleans() {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage, crate::storage::Usage::default());
 }
 
 #[tokio::test]
-async fn owner_storage_traverses_process_relationships() {
+async fn account_storage_traverses_process_relationships() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(10);
 	let child = tg::process::Id::new();
 	let root = tg::process::Id::new();
-	let owner = crate::storage::Owner::Organization(tg::organization::Id::new());
+	let account = crate::storage::Account::Organization(tg::organization::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
 			crate::batch::Item::PutProcess(process_arg(child.clone(), Vec::new(), command.clone())),
 			crate::batch::Item::PutProcess(process_arg(root.clone(), vec![child], command)),
-			crate::batch::Item::PutOwnerProcess(crate::storage::put::ProcessArg {
-				owner: owner.clone(),
+			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+				account: account.clone(),
 				process: root,
 				touched_at: 1,
 			}),
@@ -146,24 +149,27 @@ async fn owner_storage_traverses_process_relationships() {
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 2);
 }
 
 #[tokio::test]
-async fn owner_storage_traverses_new_process_relationships() {
+async fn account_storage_traverses_new_process_relationships() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(15);
 	let child = tg::process::Id::new();
 	let root = tg::process::Id::new();
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let partial_root = crate::process::put::Arg {
 		children: None,
 		command: command.clone(),
@@ -183,8 +189,8 @@ async fn owner_storage_traverses_new_process_relationships() {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
 			crate::batch::Item::PutProcess(partial_root),
-			crate::batch::Item::PutOwnerProcess(crate::storage::put::ProcessArg {
-				owner: owner.clone(),
+			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+				account: account.clone(),
 				process: root.clone(),
 				touched_at: 1,
 			}),
@@ -192,7 +198,10 @@ async fn owner_storage_traverses_new_process_relationships() {
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
@@ -210,41 +219,47 @@ async fn owner_storage_traverses_new_process_relationships() {
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 2);
 }
 
 #[tokio::test]
-async fn owner_storage_traverses_objects_indexed_after_their_parents() {
+async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	let (_dir, index) = new_index(1);
 	let child = object_id(17);
 	let parent = object_id(16);
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(parent.clone(), [child.clone()], 3)),
-			crate::batch::Item::PutOwnerObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+				account: account.clone(),
 				object: parent,
-				owner: owner.clone(),
 				touched_at: 1,
 			}),
 		],
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 3);
 
@@ -255,25 +270,28 @@ async fn owner_storage_traverses_objects_indexed_after_their_parents() {
 		.await
 		.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 8);
 }
 
 #[tokio::test]
-async fn owner_storage_traverses_a_tagged_process_log_indexed_later() {
+async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(21);
 	let log = object_id(22);
 	let process = tg::process::Id::new();
 	let tag = tg::tag::Id::new();
 	let user = tg::user::Id::new();
-	let owner = crate::storage::Owner::User(user.clone());
+	let account = crate::storage::Account::User(user.clone());
 	let mut process_arg = process_arg(process.clone(), Vec::new(), command.clone());
 	process_arg.log = Some(Some(log.clone()));
 	let arg = crate::batch::Arg {
@@ -286,16 +304,16 @@ async fn owner_storage_traverses_a_tagged_process_log_indexed_later() {
 			crate::batch::Item::PutObject(object_arg(command, [], 7)),
 			crate::batch::Item::PutProcess(process_arg),
 			crate::batch::Item::PutTag(crate::tag::put::Arg {
+				account: Some(account.clone()),
 				id: tag,
-				target: tg::Either::Right(process.clone()),
 				name: "tag".to_owned(),
-				owner: Some(owner.clone()),
 				parent: Some(user.into()),
 				permissions: Vec::new(),
 				specifier: "user/tag".parse().unwrap(),
+				target: tg::Either::Right(process.clone()),
 			}),
-			crate::batch::Item::PutOwnerProcess(crate::storage::put::ProcessArg {
-				owner: owner.clone(),
+			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+				account: account.clone(),
 				process,
 				touched_at: 1,
 			}),
@@ -303,7 +321,10 @@ async fn owner_storage_traverses_a_tagged_process_log_indexed_later() {
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
@@ -326,7 +347,7 @@ async fn owner_storage_traverses_a_tagged_process_log_indexed_later() {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 1);
@@ -338,24 +359,27 @@ async fn owner_storage_traverses_a_tagged_process_log_indexed_later() {
 		.await
 		.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 12);
 	assert_eq!(usage.process_count, 1);
 }
 
 #[tokio::test]
-async fn owner_storage_traverses_processes_indexed_after_their_parents() {
+async fn account_storage_traverses_processes_indexed_after_their_parents() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(18);
 	let child = tg::process::Id::new();
 	let parent = tg::process::Id::new();
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
@@ -364,8 +388,8 @@ async fn owner_storage_traverses_processes_indexed_after_their_parents() {
 				vec![child.clone()],
 				command.clone(),
 			)),
-			crate::batch::Item::PutOwnerProcess(crate::storage::put::ProcessArg {
-				owner: owner.clone(),
+			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+				account: account.clone(),
 				process: parent,
 				touched_at: 1,
 			}),
@@ -373,12 +397,15 @@ async fn owner_storage_traverses_processes_indexed_after_their_parents() {
 	};
 	index.batch(arg).await.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.process_count, 1);
 
@@ -393,22 +420,25 @@ async fn owner_storage_traverses_processes_indexed_after_their_parents() {
 		.await
 		.unwrap();
 	loop {
-		let output = index.update_batch(100, 0, 1).await.unwrap();
+		let output = index
+			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.await
+			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.process_count, 2);
 }
 
 #[tokio::test]
-async fn owner_storage_is_retained_by_a_tag() {
+async fn account_storage_is_retained_by_a_tag() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(20);
 	let user = tg::user::Id::new();
-	let owner = crate::storage::Owner::User(user.clone());
+	let account = crate::storage::Account::User(user.clone());
 	let tag = tg::tag::Id::new();
 	let arg = crate::batch::Arg {
 		items: vec![
@@ -419,17 +449,17 @@ async fn owner_storage_is_retained_by_a_tag() {
 			}),
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
 			crate::batch::Item::PutTag(crate::tag::put::Arg {
+				account: Some(account.clone()),
 				id: tag.clone(),
-				target: tg::Either::Left(object.clone()),
 				name: "tag".to_owned(),
-				owner: Some(owner.clone()),
 				parent: Some(user.into()),
 				permissions: Vec::new(),
 				specifier: "user/tag".parse().unwrap(),
+				target: tg::Either::Left(object.clone()),
 			}),
-			crate::batch::Item::PutOwnerObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+				account: account.clone(),
 				object,
-				owner: owner.clone(),
 				touched_at: 1,
 			}),
 		],
@@ -448,7 +478,7 @@ async fn owner_storage_is_retained_by_a_tag() {
 		.await
 		.unwrap();
 	assert!(!output.done);
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 5);
 
@@ -475,15 +505,15 @@ async fn owner_storage_is_retained_by_a_tag() {
 			break;
 		}
 	}
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage, crate::storage::Usage::default());
 }
 
 #[tokio::test]
-async fn touching_does_not_create_a_storage_association() {
+async fn touching_does_not_create_a_storage_entry() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(30);
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![crate::batch::Item::PutObject(object_arg(
 			object.clone(),
@@ -493,38 +523,38 @@ async fn touching_does_not_create_a_storage_association() {
 	};
 	index.batch(arg).await.unwrap();
 	index
-		.touch_objects_with_owner(
+		.touch_objects_with_account(
 			std::slice::from_ref(&object),
-			Some(&owner),
+			Some(&account),
 			2,
 			std::time::Duration::ZERO,
 		)
 		.await
 		.unwrap();
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage, crate::storage::Usage::default());
 }
 
 #[tokio::test]
-async fn touching_an_object_with_its_owner_updates_both_lifetimes() {
+async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(31);
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
-			crate::batch::Item::PutOwnerObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+				account: account.clone(),
 				object: object.clone(),
-				owner: owner.clone(),
 				touched_at: 1,
 			}),
 		],
 	};
 	index.batch(arg).await.unwrap();
 	let objects = index
-		.touch_objects_with_owner(
+		.touch_objects_with_account(
 			std::slice::from_ref(&object),
-			Some(&owner),
+			Some(&account),
 			10,
 			std::time::Duration::ZERO,
 		)
@@ -544,23 +574,23 @@ async fn touching_an_object_with_its_owner_updates_both_lifetimes() {
 		})
 		.await
 		.unwrap();
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 5);
 }
 
 #[tokio::test]
-async fn touching_a_process_with_its_owner_updates_both_lifetimes() {
+async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(32);
 	let process = tg::process::Id::new();
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 5)),
 			crate::batch::Item::PutProcess(process_arg(process.clone(), Vec::new(), command)),
-			crate::batch::Item::PutOwnerProcess(crate::storage::put::ProcessArg {
-				owner: owner.clone(),
+			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+				account: account.clone(),
 				process: process.clone(),
 				touched_at: 1,
 			}),
@@ -568,9 +598,9 @@ async fn touching_a_process_with_its_owner_updates_both_lifetimes() {
 	};
 	index.batch(arg).await.unwrap();
 	let processes = index
-		.touch_processes_with_owner(
+		.touch_processes_with_account(
 			std::slice::from_ref(&process),
-			Some(&owner),
+			Some(&account),
 			10,
 			std::time::Duration::ZERO,
 		)
@@ -590,30 +620,30 @@ async fn touching_a_process_with_its_owner_updates_both_lifetimes() {
 		})
 		.await
 		.unwrap();
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage.process_count, 1);
 }
 
 #[tokio::test]
-async fn touching_with_an_owner_honors_time_to_touch() {
+async fn touching_with_an_account_honors_time_to_touch() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(33);
-	let owner = crate::storage::Owner::User(tg::user::Id::new());
+	let account = crate::storage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
-			crate::batch::Item::PutOwnerObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+				account: account.clone(),
 				object: object.clone(),
-				owner: owner.clone(),
 				touched_at: 1,
 			}),
 		],
 	};
 	index.batch(arg).await.unwrap();
 	index
-		.touch_objects_with_owner(
+		.touch_objects_with_account(
 			std::slice::from_ref(&object),
-			Some(&owner),
+			Some(&account),
 			10,
 			std::time::Duration::from_secs(100),
 		)
@@ -632,7 +662,7 @@ async fn touching_with_an_owner_honors_time_to_touch() {
 		})
 		.await
 		.unwrap();
-	let usage = index.get_owner_usage(&owner).await.unwrap();
+	let usage = index.get_account_usage(&account).await.unwrap();
 	assert_eq!(usage, crate::storage::Usage::default());
 }
 

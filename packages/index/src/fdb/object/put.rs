@@ -1,5 +1,5 @@
 use {
-	crate::fdb::{Index, ItemKind, Key},
+	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
@@ -121,11 +121,10 @@ impl Index {
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+		let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Object {
+			id: id.clone(),
 			partition,
 			touched_at,
-			kind: ItemKind::Object,
-			id: id.clone().into(),
 		});
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);
@@ -137,7 +136,7 @@ impl Index {
 				&tg::Either::Left(id.clone()),
 				partition_total,
 			);
-			Self::enqueue_owned_object_from_parents(txn, subspace, id, partition_total)
+			Self::enqueue_account_object_from_parents(txn, subspace, id, partition_total)
 				.await
 				.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		}

@@ -1,6 +1,6 @@
 mod key;
 
-pub(super) use key::{Key, Kind};
+pub(super) use key::{Key, Kind, StorageKind};
 
 use {
 	super::{Db, Index, Kind as KeyKind, Request, Response},
@@ -13,10 +13,23 @@ use {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct Update {
+pub(super) struct GrantUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
 }
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct NodeUpdate {
+	#[tangram_serialize(id = 0)]
+	pub source: Source,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct StorageUpdate {}
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
@@ -56,26 +69,61 @@ struct GrantCover {
 	expires_at: Option<i64>,
 }
 
-impl Update {
+impl GrantUpdate {
 	pub fn new(source: Source) -> Self {
 		Self { source }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the update"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the grant update"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the update"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the grant update"))
+	}
+}
+
+impl NodeUpdate {
+	pub fn new(source: Source) -> Self {
+		Self { source }
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the node update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the node update"))
+	}
+}
+
+impl StorageUpdate {
+	pub fn new() -> Self {
+		Self {}
+	}
+
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the storage update"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the storage update"))
 	}
 }
 
 impl Index {
-	pub async fn try_get_oldest_update_transaction_id(&self) -> tg::Result<Option<u64>> {
+	pub async fn try_get_oldest_update_transaction_id(
+		&self,
+		kind: crate::update::Kind,
+	) -> tg::Result<Option<u64>> {
 		let response = self
-			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId)
+			.send_read_request(crate::read::Request::TryGetOldestUpdateTransactionId { kind })
 			.await?;
 		let crate::read::Response::TryGetOldestUpdateTransactionId(output) = response else {
 			return Err(tg::error!("unexpected read response"));
@@ -88,8 +136,9 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
+		kind: crate::update::Kind,
 	) -> tg::Result<Option<u64>> {
-		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = &(update_version_key_kind(kind).to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let entry = db
 			.prefix_iter(transaction, &prefix)
@@ -111,11 +160,12 @@ impl Index {
 
 	pub async fn update_batch(
 		&self,
+		kind: crate::update::Kind,
 		batch_size: usize,
 		_partition_start: u64,
 		_partition_end: u64,
 	) -> tg::Result<crate::update::Output> {
-		let request = Request::Update(crate::lmdb::Update { batch_size });
+		let request = Request::Update(crate::lmdb::Update { batch_size, kind });
 		let response = self.send_write_request(request).await?;
 		let Response::UpdateOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
@@ -129,10 +179,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
+		kind: crate::update::Kind,
 		max_process_depth: Option<u64>,
 		storage_partition_total: u64,
 	) -> tg::Result<crate::update::Output> {
-		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = &(update_version_key_kind(kind).to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
@@ -166,10 +217,16 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get update key"))?
 				.ok_or_else(|| tg::error!("expected an update key for the update version key"))?;
 
-			let update = Update::deserialize(value)?;
+			let source = match &kind {
+				Kind::Grant(_) | Kind::Node => Some(deserialize_source_update(&kind, value)?),
+				Kind::Storage(_) => {
+					StorageUpdate::deserialize(value)?;
+					None
+				},
+			};
 
 			let changed = match &kind {
-				Kind::Grants(principal) => match &id {
+				Kind::Grant(principal) => match &id {
 					tg::Either::Left(id) => Self::update_object_grants_for_principal(
 						db,
 						subspace,
@@ -196,7 +253,7 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(owner) => {
+				Kind::Storage(StorageKind::Add(account)) => {
 					let touched_at = i64::try_from(
 						std::time::SystemTime::now()
 							.duration_since(std::time::UNIX_EPOCH)
@@ -205,36 +262,41 @@ impl Index {
 					)
 					.map_err(|_| tg::error!("the system time is out of range"))?;
 					match &id {
-						tg::Either::Left(object) => Self::put_owner_object(
+						tg::Either::Left(object) => Self::put_account_object(
 							db,
 							subspace,
 							transaction,
 							&crate::storage::put::ObjectArg {
+								account: account.clone(),
 								object: object.clone(),
-								owner: owner.clone(),
 								touched_at,
 							},
 							storage_partition_total,
 							false,
+							Some(version),
 						)?,
-						tg::Either::Right(process) => Self::put_owner_process(
+						tg::Either::Right(process) => Self::put_account_process(
 							db,
 							subspace,
 							transaction,
 							&crate::storage::put::ProcessArg {
-								owner: owner.clone(),
+								account: account.clone(),
 								process: process.clone(),
 								touched_at,
 							},
 							storage_partition_total,
 							false,
+							Some(version),
 						)?,
 					}
 				},
+				Kind::Storage(
+					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate(_),
+				) => return Err(tg::error!("unsupported LMDB storage update kind")),
 			};
 
 			if !matches!(kind, Kind::Storage(_))
-				&& match update.source {
+				&& match source.unwrap() {
 					Source::Put => true,
 					Source::Propagate => changed,
 				} {
@@ -1700,16 +1762,19 @@ impl Index {
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
 		{
-			let existing = Update::deserialize(existing)?;
-			if existing.source == Source::Propagate && source == Source::Put {
-				let value = Update::new(source).serialize()?;
+			if matches!(kind, Kind::Storage(_)) {
+				return Ok(());
+			}
+			let existing = deserialize_source_update(&kind, existing)?;
+			if existing == Source::Propagate && source == Source::Put {
+				let value = serialize_update(&kind, source)?;
 				db.put(transaction, &key, &value)
 					.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 			}
 			return Ok(());
 		}
 
-		let value = Update::new(source).serialize()?;
+		let value = serialize_update(&kind, source)?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 
@@ -1722,4 +1787,32 @@ impl Index {
 
 		Ok(())
 	}
+}
+
+fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
+	match kind {
+		crate::update::Kind::Grant => KeyKind::GrantUpdateVersion,
+		crate::update::Kind::Node => KeyKind::NodeUpdateVersion,
+		crate::update::Kind::Storage => KeyKind::StorageUpdateVersion,
+	}
+}
+
+fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
+	let source = match kind {
+		Kind::Grant(_) => GrantUpdate::deserialize(bytes)?.source,
+		Kind::Node => NodeUpdate::deserialize(bytes)?.source,
+		Kind::Storage(_) => return Err(tg::error!("expected a source update")),
+	};
+
+	Ok(source)
+}
+
+fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
+	let value = match kind {
+		Kind::Grant(_) => GrantUpdate::new(source).serialize()?,
+		Kind::Node => NodeUpdate::new(source).serialize()?,
+		Kind::Storage(_) => StorageUpdate::new().serialize()?,
+	};
+
+	Ok(value)
 }
