@@ -23,6 +23,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::batch::Arg,
+		storage_partition_total: u64,
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
@@ -131,6 +132,26 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutOwnerObject(arg) => {
+					Self::put_owner_object(
+						db,
+						subspace,
+						transaction,
+						arg,
+						storage_partition_total,
+						true,
+					)?;
+				},
+				crate::batch::Item::PutOwnerProcess(arg) => {
+					Self::put_owner_process(
+						db,
+						subspace,
+						transaction,
+						arg,
+						storage_partition_total,
+						true,
 					)?;
 				},
 				crate::batch::Item::PutOrganization(arg) => {

@@ -27,6 +27,7 @@ mod request;
 mod response;
 mod runner;
 mod sandbox;
+mod storage;
 mod tag;
 mod update;
 mod user;
@@ -54,6 +55,7 @@ pub struct Options {
 	pub prefix: Option<String>,
 	pub read_batch_size: usize,
 	pub read_concurrency: usize,
+	pub storage_partition_total: u64,
 	pub write_batch_size: usize,
 	pub write_concurrency: usize,
 }
@@ -79,6 +81,7 @@ impl Index {
 		};
 
 		let partition_total = options.partition_total;
+		let storage_partition_total = options.storage_partition_total;
 		let config = AuthorizeConfig {
 			concurrency: options.authorize.concurrency,
 			object_subtree: options.authorize.object_subtree,
@@ -132,6 +135,7 @@ impl Index {
 					receiver_low: writer_receiver_low,
 					receiver_medium: writer_receiver_medium,
 					subspace,
+					storage_partition_total,
 					write_batch_size,
 					write_concurrency,
 				};
@@ -169,6 +173,11 @@ impl Index {
 		if options.read_concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index read concurrency must be greater than zero"
+			));
+		}
+		if options.storage_partition_total == 0 {
+			return Err(tg::error!(
+				"the FDB index storage partition total must be greater than zero"
 			));
 		}
 		if options.write_batch_size == 0 {
@@ -227,6 +236,13 @@ impl Index {
 }
 
 impl crate::Index for Index {
+	async fn get_owner_usage(
+		&self,
+		owner: &crate::storage::Owner,
+	) -> tg::Result<crate::storage::Usage> {
+		self.get_owner_usage(owner).await
+	}
+
 	async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
@@ -305,6 +321,17 @@ impl crate::Index for Index {
 		self.touch_objects(ids, touched_at, time_to_touch).await
 	}
 
+	async fn touch_objects_with_owner(
+		&self,
+		ids: &[tg::object::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		self.touch_objects_with_owner(ids, owner, touched_at, time_to_touch)
+			.await
+	}
+
 	async fn try_get_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -373,6 +400,28 @@ impl crate::Index for Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		self.touch_processes(ids, touched_at, time_to_touch).await
+	}
+
+	async fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_and_put_owner(ids, owner, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_with_owner(ids, owner, touched_at, time_to_touch)
+			.await
 	}
 
 	async fn try_get_sandboxes(

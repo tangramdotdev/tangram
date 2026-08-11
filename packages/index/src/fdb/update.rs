@@ -3,7 +3,7 @@ mod key;
 pub(super) use key::{Key, Kind};
 
 use {
-	super::{Index, Kind as KeyKind, Request, Response},
+	super::{Index, ItemKind, Kind as KeyKind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::future,
@@ -12,12 +12,48 @@ use {
 	tangram_client::prelude::*,
 };
 
+const STORAGE_RELATION_BATCH_SIZE: usize = 8;
+
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub(super) struct Update {
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<StorageCursor>,
+
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) enum StorageCursor {
+	#[tangram_serialize(id = 0)]
+	Object(tg::object::Id),
+
+	#[tangram_serialize(id = 3)]
+	ObjectOwner(crate::storage::Owner),
+
+	#[tangram_serialize(id = 1)]
+	ProcessChild(tg::process::Id),
+
+	#[tangram_serialize(id = 2)]
+	ProcessObject(Option<ProcessObjectCursor>),
+
+	#[tangram_serialize(id = 4)]
+	ProcessOwner(crate::storage::Owner),
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub(super) struct ProcessObjectCursor {
+	#[tangram_serialize(id = 0)]
+	pub kind: crate::process::object::Kind,
+
+	#[tangram_serialize(id = 1)]
+	pub object: tg::object::Id,
 }
 
 #[derive(
@@ -53,6 +89,11 @@ struct ProcessOutput {
 	depth_exceeded: bool,
 }
 
+enum StorageRelationship {
+	Object(tg::object::Id),
+	Process(tg::process::Id),
+}
+
 #[derive(Clone, Copy)]
 struct GrantCover {
 	expires_at: Option<i64>,
@@ -60,7 +101,10 @@ struct GrantCover {
 
 impl Update {
 	pub fn new(source: Source) -> Self {
-		Self { source }
+		Self {
+			cursor: None,
+			source,
+		}
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -99,6 +143,18 @@ impl Index {
 		source: Source,
 		partition_total: u64,
 	) {
+		let update = Update::new(source);
+		Self::enqueue_update_value(txn, subspace, id, kind, &update, partition_total);
+	}
+
+	fn enqueue_update_value(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
+		update: &Update,
+		partition_total: u64,
+	) {
 		let key = Self::pack(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
@@ -106,9 +162,7 @@ impl Index {
 				kind: kind.clone(),
 			}),
 		);
-		let value = Update::new(source).serialize().unwrap();
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
+		let value = update.serialize().unwrap();
 		txn.set(&key, &value);
 
 		let id_bytes = match &id {
@@ -205,6 +259,7 @@ impl Index {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn update_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -213,6 +268,7 @@ impl Index {
 		partition_end: u64,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
+		storage_partition_total: u64,
 	) -> tg::Result<crate::update::Output> {
 		let mut entries = Vec::new();
 
@@ -271,19 +327,9 @@ impl Index {
 			};
 
 			let update = Update::deserialize(&value)?;
+			let mut next_cursor = None;
 
 			let changed = match &kind {
-				Kind::Node => match &id {
-					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
-					tg::Either::Right(id) => {
-						let process_output =
-							Self::update_process(txn, subspace, id, max_process_depth).await?;
-						if process_output.depth_exceeded {
-							output.processes_with_depth_exceeded.push(id.clone());
-						}
-						process_output.changed
-					},
-				},
 				Kind::Grants(principal) => match &id {
 					tg::Either::Left(id) => {
 						Self::update_object_grants_for_principal(
@@ -306,29 +352,591 @@ impl Index {
 						.await?
 					},
 				},
+				Kind::Node => match &id {
+					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
+					tg::Either::Right(id) => {
+						let process_output =
+							Self::update_process(txn, subspace, id, max_process_depth).await?;
+						if process_output.depth_exceeded {
+							output.processes_with_depth_exceeded.push(id.clone());
+						}
+						process_output.changed
+					},
+				},
+				Kind::Storage(owner) => {
+					let touched_at = i64::try_from(
+						std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.map_err(|error| tg::error!(!error, "the system time is invalid"))?
+							.as_secs(),
+					)
+					.map_err(|_| tg::error!("the system time is out of range"))?;
+					match &id {
+						tg::Either::Left(object) => {
+							Self::put_owner_object(
+								txn,
+								subspace,
+								&crate::storage::put::ObjectArg {
+									object: object.clone(),
+									owner: owner.clone(),
+									touched_at,
+								},
+								partition_total,
+								storage_partition_total,
+								false,
+							)
+							.await?
+						},
+						tg::Either::Right(process) => {
+							Self::put_owner_process(
+								txn,
+								subspace,
+								&crate::storage::put::ProcessArg {
+									owner: owner.clone(),
+									process: process.clone(),
+									touched_at,
+								},
+								partition_total,
+								storage_partition_total,
+								false,
+							)
+							.await?
+						},
+					}
+				},
+				Kind::StorageClean(owner) => {
+					next_cursor = Self::propagate_storage_clean(
+						txn,
+						subspace,
+						&id,
+						owner,
+						update.cursor.as_ref(),
+						partition_total,
+					)
+					.await?;
+					false
+				},
+				Kind::StorageOwnersClean => {
+					next_cursor = Self::propagate_storage_owners_clean(
+						txn,
+						subspace,
+						&id,
+						update.cursor.as_ref(),
+						partition_total,
+					)
+					.await?;
+					false
+				},
+				Kind::StorageRelationships(owner) => {
+					next_cursor = Self::propagate_storage_relationships(
+						txn,
+						subspace,
+						&id,
+						owner,
+						update.cursor.as_ref(),
+						partition_total,
+					)
+					.await?;
+					false
+				},
 			};
 
-			if match update.source {
+			if !matches!(
+				kind,
+				Kind::Storage(_)
+					| Kind::StorageClean(_)
+					| Kind::StorageOwnersClean
+					| Kind::StorageRelationships(_)
+			) && match update.source {
 				Source::Put => true,
 				Source::Propagate => changed,
 			} {
 				Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total).await?;
 			}
 
-			let key = Self::pack(
-				subspace,
-				&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
-					id: id.clone(),
-					kind: kind.clone(),
-				}),
-			);
-			txn.clear(&key);
+			if let Some(cursor) = next_cursor {
+				let update = Update {
+					cursor: Some(cursor),
+					source: update.source,
+				};
+				Self::enqueue_update_value(txn, subspace, &id, &kind, &update, partition_total);
+			} else {
+				Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await?;
+				let key = Self::pack(
+					subspace,
+					&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
+						id: id.clone(),
+						kind: kind.clone(),
+					}),
+				);
+				txn.clear(&key);
+			}
 			Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 
 			output.count += 1;
 		}
 
 		Ok(output)
+	}
+
+	async fn propagate_storage_relationships(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		owner: &crate::storage::Owner,
+		cursor: Option<&StorageCursor>,
+		partition_total: u64,
+	) -> tg::Result<Option<StorageCursor>> {
+		let (relationships, cursor) =
+			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
+		let kind = Kind::Storage(owner.clone());
+		for relationship in relationships {
+			let id = match relationship {
+				StorageRelationship::Object(id) => tg::Either::Left(id),
+				StorageRelationship::Process(id) => tg::Either::Right(id),
+			};
+			Self::enqueue_update_with_kind(txn, subspace, &id, &kind, Source::Put, partition_total);
+		}
+
+		Ok(cursor)
+	}
+
+	async fn propagate_storage_clean(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		owner: &crate::storage::Owner,
+		cursor: Option<&StorageCursor>,
+		partition_total: u64,
+	) -> tg::Result<Option<StorageCursor>> {
+		let (relationships, cursor) =
+			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
+		future::try_join_all(relationships.iter().map(|relationship| async move {
+			match relationship {
+				StorageRelationship::Object(object) => {
+					Self::schedule_owner_object_clean(txn, subspace, owner, object, partition_total)
+						.await
+				},
+				StorageRelationship::Process(process) => {
+					Self::schedule_owner_process_clean(
+						txn,
+						subspace,
+						owner,
+						process,
+						partition_total,
+					)
+					.await
+				},
+			}
+		}))
+		.await?;
+		Ok(cursor)
+	}
+
+	async fn propagate_storage_owners_clean(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		cursor: Option<&StorageCursor>,
+		partition_total: u64,
+	) -> tg::Result<Option<StorageCursor>> {
+		let (owners, cursor) = Self::get_storage_owners_page(txn, subspace, id, cursor).await?;
+		future::try_join_all(owners.iter().map(|owner| async move {
+			match id {
+				tg::Either::Left(object) => {
+					Self::schedule_owner_object_clean(txn, subspace, owner, object, partition_total)
+						.await
+				},
+				tg::Either::Right(process) => {
+					Self::schedule_owner_process_clean(
+						txn,
+						subspace,
+						owner,
+						process,
+						partition_total,
+					)
+					.await
+				},
+			}
+		}))
+		.await?;
+
+		Ok(cursor)
+	}
+
+	async fn get_storage_relationships_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		cursor: Option<&StorageCursor>,
+	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+		match id {
+			tg::Either::Left(object) => {
+				let after = match cursor {
+					None => None,
+					Some(StorageCursor::Object(object)) => Some(object),
+					Some(
+						StorageCursor::ObjectOwner(_)
+						| StorageCursor::ProcessChild(_)
+						| StorageCursor::ProcessObject(_)
+						| StorageCursor::ProcessOwner(_),
+					) => {
+						return Err(tg::error!(%object, "an object update has an invalid cursor"));
+					},
+				};
+				Self::get_storage_object_relationships_page(txn, subspace, object, after).await
+			},
+			tg::Either::Right(process) => {
+				if matches!(
+					cursor,
+					Some(
+						StorageCursor::Object(_)
+							| StorageCursor::ObjectOwner(_)
+							| StorageCursor::ProcessOwner(_)
+					)
+				) {
+					return Err(tg::error!(%process, "a process update has an invalid cursor"));
+				}
+				Self::get_storage_process_relationships_page(txn, subspace, process, cursor).await
+			},
+		}
+	}
+
+	async fn get_storage_owners_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		cursor: Option<&StorageCursor>,
+	) -> tg::Result<(Vec<crate::storage::Owner>, Option<StorageCursor>)> {
+		let (kind, item, after) = match (id, cursor) {
+			(tg::Either::Left(object), None) => (KeyKind::ObjectOwner, object.to_bytes(), None),
+			(tg::Either::Left(object), Some(StorageCursor::ObjectOwner(owner))) => (
+				KeyKind::ObjectOwner,
+				object.to_bytes(),
+				Some(crate::fdb::Key::Storage(
+					crate::fdb::storage::Key::ObjectOwner {
+						object: object.clone(),
+						owner: owner.clone(),
+					},
+				)),
+			),
+			(tg::Either::Right(process), None) => (KeyKind::ProcessOwner, process.to_bytes(), None),
+			(tg::Either::Right(process), Some(StorageCursor::ProcessOwner(owner))) => (
+				KeyKind::ProcessOwner,
+				process.to_bytes(),
+				Some(crate::fdb::Key::Storage(
+					crate::fdb::storage::Key::ProcessOwner {
+						owner: owner.clone(),
+						process: process.clone(),
+					},
+				)),
+			),
+			(tg::Either::Left(object), Some(_)) => {
+				return Err(tg::error!(%object, "an object owner update has an invalid cursor"));
+			},
+			(tg::Either::Right(process), Some(_)) => {
+				return Err(tg::error!(%process, "a process owner update has an invalid cursor"));
+			},
+		};
+		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), item.as_ref()));
+		let mut range = fdb::RangeOption {
+			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		if let Some(after) = after {
+			let mut begin = Self::pack(subspace, &after);
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get storage owners"))?;
+		let mut owners = entries
+			.iter()
+			.map(|entry| match Self::unpack(subspace, entry.key())? {
+				crate::fdb::Key::Storage(
+					crate::fdb::storage::Key::ObjectOwner { owner, .. }
+					| crate::fdb::storage::Key::ProcessOwner { owner, .. },
+				) => Ok(owner),
+				_ => Err(tg::error!("unexpected key type")),
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let cursor = if owners.len() > STORAGE_RELATION_BATCH_SIZE {
+			owners.truncate(STORAGE_RELATION_BATCH_SIZE);
+			let owner = owners.last().unwrap().clone();
+			Some(match id {
+				tg::Either::Left(_) => StorageCursor::ObjectOwner(owner),
+				tg::Either::Right(_) => StorageCursor::ProcessOwner(owner),
+			})
+		} else {
+			None
+		};
+
+		Ok((owners, cursor))
+	}
+
+	async fn get_storage_object_relationships_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		object: &tg::object::Id,
+		after: Option<&tg::object::Id>,
+	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+		let object_bytes = object.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ObjectChild.to_i32().unwrap(),
+				object_bytes.as_ref(),
+			),
+		);
+		let mut range = fdb::RangeOption {
+			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		if let Some(after) = after {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild {
+				child: after.clone(),
+				object: object.clone(),
+			});
+			let mut begin = Self::pack(subspace, &key);
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, %object, "failed to get object relationships"))?;
+		let mut children = entries
+			.iter()
+			.map(|entry| {
+				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
+					Self::unpack(subspace, entry.key())?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let cursor = if children.len() > STORAGE_RELATION_BATCH_SIZE {
+			children.truncate(STORAGE_RELATION_BATCH_SIZE);
+			Some(StorageCursor::Object(children.last().unwrap().clone()))
+		} else {
+			None
+		};
+		let relationships = children
+			.into_iter()
+			.map(StorageRelationship::Object)
+			.collect();
+
+		Ok((relationships, cursor))
+	}
+
+	async fn get_storage_process_relationships_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		cursor: Option<&StorageCursor>,
+	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+		let mut relationships = Vec::new();
+		let process_object_cursor = match cursor {
+			None | Some(StorageCursor::ProcessChild(_)) => {
+				let after = match cursor {
+					Some(StorageCursor::ProcessChild(process)) => Some(process),
+					_ => None,
+				};
+				let (children, more) =
+					Self::get_storage_process_children_page(txn, subspace, process, after).await?;
+				let cursor = children.last().cloned();
+				relationships.extend(children.into_iter().map(StorageRelationship::Process));
+				if more {
+					return Ok((
+						relationships,
+						Some(StorageCursor::ProcessChild(cursor.unwrap())),
+					));
+				}
+				if relationships.len() == STORAGE_RELATION_BATCH_SIZE {
+					return Ok((relationships, Some(StorageCursor::ProcessObject(None))));
+				}
+				None
+			},
+			Some(StorageCursor::ProcessObject(cursor)) => cursor.as_ref(),
+			Some(
+				StorageCursor::Object(_)
+				| StorageCursor::ObjectOwner(_)
+				| StorageCursor::ProcessOwner(_),
+			) => unreachable!(),
+		};
+		let limit = STORAGE_RELATION_BATCH_SIZE - relationships.len();
+		let (objects, more) = Self::get_storage_process_objects_page(
+			txn,
+			subspace,
+			process,
+			process_object_cursor,
+			limit,
+		)
+		.await?;
+		let cursor = objects.last().map(|(object, kind)| ProcessObjectCursor {
+			kind: *kind,
+			object: object.clone(),
+		});
+		relationships.extend(
+			objects
+				.into_iter()
+				.map(|(object, _)| StorageRelationship::Object(object)),
+		);
+		let cursor = more.then_some(StorageCursor::ProcessObject(cursor));
+
+		Ok((relationships, cursor))
+	}
+
+	async fn get_storage_process_children_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		after: Option<&tg::process::Id>,
+	) -> tg::Result<(Vec<tg::process::Id>, bool)> {
+		let process_bytes = process.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ProcessChild.to_i32().unwrap(),
+				process_bytes.as_ref(),
+			),
+		);
+		let mut range = fdb::RangeOption {
+			limit: Some(STORAGE_RELATION_BATCH_SIZE + 1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		if let Some(after) = after {
+			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
+				child: after.clone(),
+				process: process.clone(),
+			});
+			let mut begin = Self::pack(subspace, &key);
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, %process, "failed to get process children"))?;
+		let mut children = entries
+			.iter()
+			.map(|entry| {
+				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
+					child, ..
+				}) = Self::unpack(subspace, entry.key())?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let more = children.len() > STORAGE_RELATION_BATCH_SIZE;
+		children.truncate(STORAGE_RELATION_BATCH_SIZE);
+
+		Ok((children, more))
+	}
+
+	async fn get_storage_process_objects_page(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		process: &tg::process::Id,
+		after: Option<&ProcessObjectCursor>,
+		limit: usize,
+	) -> tg::Result<(Vec<(tg::object::Id, crate::process::object::Kind)>, bool)> {
+		let process_bytes = process.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(
+				KeyKind::ProcessObject.to_i32().unwrap(),
+				process_bytes.as_ref(),
+			),
+		);
+		let mut range = fdb::RangeOption {
+			limit: Some(limit + 1),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		if let Some(after) = after {
+			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
+				kind: after.kind,
+				object: after.object.clone(),
+				process: process.clone(),
+			});
+			let mut begin = Self::pack(subspace, &key);
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|error| tg::error!(!error, %process, "failed to get process objects"))?;
+		let mut objects = entries
+			.iter()
+			.map(|entry| {
+				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
+					kind,
+					object,
+					..
+				}) = Self::unpack(subspace, entry.key())?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((object, kind))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let more = objects.len() > limit;
+		objects.truncate(limit);
+
+		Ok((objects, more))
+	}
+
+	async fn schedule_update_item_clean(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		partition_total: u64,
+	) -> tg::Result<()> {
+		let (id, kind, touched_at) = match id {
+			tg::Either::Left(id) => {
+				let Some(object) = Self::try_get_object_with_transaction(txn, subspace, id).await?
+				else {
+					return Ok(());
+				};
+				(
+					tg::Id::from(id.clone()),
+					ItemKind::Object,
+					object.touched_at,
+				)
+			},
+			tg::Either::Right(id) => {
+				let Some(process) =
+					Self::try_get_process_with_transaction(txn, subspace, id).await?
+				else {
+					return Ok(());
+				};
+				(
+					tg::Id::from(id.clone()),
+					ItemKind::Process,
+					process.touched_at,
+				)
+			},
+		};
+		let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
+		let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Clean {
+			id,
+			kind,
+			partition,
+			touched_at,
+		});
+		txn.set(&Self::pack(subspace, &key), &[]);
+
+		Ok(())
 	}
 
 	async fn update_object(
@@ -1764,12 +2372,11 @@ impl Index {
 		if !matches!(
 			update,
 			Some(Update {
-				source: Source::Put
+				source: Source::Put,
+				..
 			})
 		) {
 			let value = Update::new(Source::Propagate).serialize()?;
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			txn.set(&key, &value);
 		}
 

@@ -12,6 +12,11 @@ pub trait Organization: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::organization::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::organization::get::Output>>> + Send;
 
+	fn try_get_organization_usage(
+		&self,
+		organization: &tg::organization::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> + Send;
+
 	fn delete_organization(
 		&self,
 		organization: &tg::organization::Selector,
@@ -71,6 +76,15 @@ impl tg::handle::Organization for tg::Client {
 	) -> tg::Result<Option<tg::organization::get::Output>> {
 		self.session(&self.context)
 			.try_get_organization(organization, arg)
+			.await
+	}
+
+	async fn try_get_organization_usage(
+		&self,
+		organization: &tg::organization::Selector,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		self.session(&self.context)
+			.try_get_organization_usage(organization)
 			.await
 	}
 

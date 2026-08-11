@@ -117,6 +117,7 @@ pub mod sync;
 pub mod tag;
 pub mod template;
 pub mod token;
+pub mod usage;
 pub mod user;
 pub mod value;
 pub mod watch;

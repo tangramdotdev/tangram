@@ -66,10 +66,16 @@ impl Session {
 			return Ok(None);
 		}
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let Some(_) = self
 			.server
 			.index
-			.touch_object(id, touched_at, self.server.config.object.time_to_touch)
+			.touch_object_with_owner(
+				id,
+				owner.as_ref(),
+				touched_at,
+				self.server.config.object.time_to_touch,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
 		else {

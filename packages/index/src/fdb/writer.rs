@@ -34,6 +34,7 @@ pub(super) struct Arg {
 	pub receiver_low: RequestReceiver,
 	pub receiver_medium: RequestReceiver,
 	pub subspace: fdbt::Subspace,
+	pub storage_partition_total: u64,
 	pub write_batch_size: usize,
 	pub write_concurrency: usize,
 }
@@ -60,6 +61,7 @@ impl Index {
 			mut receiver_low,
 			mut receiver_medium,
 			subspace,
+			storage_partition_total,
 			write_batch_size,
 			write_concurrency,
 		} = arg;
@@ -133,6 +135,7 @@ impl Index {
 					batch,
 					max_process_depth,
 					partition_total,
+					storage_partition_total,
 					&metrics,
 				)
 				.await;
@@ -417,6 +420,7 @@ impl Index {
 			},
 			Request::TouchObjects(crate::fdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -424,6 +428,7 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
+						owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -431,6 +436,8 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::fdb::TouchProcesses {
 				ids,
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -438,6 +445,8 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
+						owner,
+						put_owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -700,6 +709,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
+				owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -712,11 +722,14 @@ impl Index {
 					.collect();
 				Request::TouchObjects(crate::fdb::TouchObjects {
 					ids,
+					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -729,6 +742,8 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::fdb::TouchProcesses {
 					ids,
+					owner: owner.clone(),
+					put_owner: *put_owner,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
@@ -778,6 +793,7 @@ impl Index {
 		batch: Batch,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
+		storage_partition_total: u64,
 		metrics: &Metrics,
 	) {
 		let start = std::time::Instant::now();
@@ -823,6 +839,7 @@ impl Index {
 							&request,
 							max_process_depth,
 							partition_total,
+							storage_partition_total,
 						)
 						.await
 						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
@@ -874,6 +891,7 @@ impl Index {
 						left,
 						max_process_depth,
 						partition_total,
+						storage_partition_total,
 						metrics,
 					))
 					.await;
@@ -883,6 +901,7 @@ impl Index {
 						right,
 						max_process_depth,
 						partition_total,
+						storage_partition_total,
 						metrics,
 					))
 					.await;
@@ -903,10 +922,18 @@ impl Index {
 		request: &Request,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
+		storage_partition_total: u64,
 	) -> tg::Result<Response> {
 		match request {
 			Request::Batch(arg) => {
-				Self::batch_with_transaction(txn, subspace, arg, partition_total).await?;
+				Self::batch_with_transaction(
+					txn,
+					subspace,
+					arg,
+					partition_total,
+					storage_partition_total,
+				)
+				.await?;
 				Ok(Response::Unit)
 			},
 			Request::Clean(crate::fdb::Clean {
@@ -928,6 +955,7 @@ impl Index {
 					partition_start: *partition_start,
 					partition_total,
 					subspace,
+					storage_partition_total,
 					txn,
 				};
 				Self::clean_with_transaction(arg)
@@ -1037,29 +1065,26 @@ impl Index {
 			.map(Response::CacheEntries),
 			Request::TouchObjects(crate::fdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
-			}) => Self::touch_objects_with_transaction(
+			}) => Self::touch_objects_with_owner_with_transaction(
 				txn,
 				subspace,
 				ids,
+				owner.as_ref(),
 				*touched_at,
 				*time_to_touch,
 				partition_total,
 			)
 			.await
 			.map(Response::Objects),
-			Request::TouchProcesses(crate::fdb::TouchProcesses {
-				ids,
-				time_to_touch,
-				touched_at,
-			}) => Self::touch_processes_with_transaction(
+			Request::TouchProcesses(arg) => Self::touch_processes_with_owner_with_transaction(
 				txn,
 				subspace,
-				ids,
-				*touched_at,
-				*time_to_touch,
+				arg,
 				partition_total,
+				storage_partition_total,
 			)
 			.await
 			.map(Response::Processes),
@@ -1075,6 +1100,7 @@ impl Index {
 				*partition_end,
 				max_process_depth,
 				partition_total,
+				storage_partition_total,
 			)
 			.await
 			.map(Response::UpdateOutput),

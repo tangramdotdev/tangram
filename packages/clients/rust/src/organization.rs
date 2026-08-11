@@ -7,6 +7,7 @@ pub mod id;
 pub mod member;
 pub mod members;
 pub mod selector;
+pub mod usage;
 
 pub use self::{
 	data::Data, get::Output as Organization, id::Id, member::Member, selector::Selector,

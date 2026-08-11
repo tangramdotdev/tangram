@@ -55,11 +55,13 @@ impl Session {
 			.iter()
 			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let touch_objects_future = async {
 			self.server
 				.index
-				.touch_objects(
+				.touch_objects_with_owner(
 					&object_ids,
+					owner.as_ref(),
 					touched_at,
 					self.server.config.object.time_to_touch,
 				)
@@ -69,8 +71,9 @@ impl Session {
 		let touch_processes_future = async {
 			self.server
 				.index
-				.touch_processes(
+				.touch_processes_with_owner(
 					&process_ids,
+					owner.as_ref(),
 					touched_at,
 					self.server.config.process.time_to_touch,
 				)

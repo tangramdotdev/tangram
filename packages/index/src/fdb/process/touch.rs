@@ -14,11 +14,47 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, None, false, touched_at, time_to_touch)
+			.await
+	}
+
+	pub async fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, Some(owner), true, touched_at, time_to_touch)
+			.await
+	}
+
+	pub async fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, owner, false, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_inner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		put_owner: bool,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchProcesses(crate::fdb::TouchProcesses {
 			ids: ids.to_vec(),
+			owner: owner.cloned(),
+			put_owner,
 			time_to_touch,
 			touched_at,
 		});
@@ -26,6 +62,70 @@ impl Index {
 		let Response::Processes(processes) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
+		Ok(processes)
+	}
+
+	pub(in crate::fdb) async fn touch_processes_with_owner_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		arg: &crate::fdb::TouchProcesses,
+		partition_total: u64,
+		storage_partition_total: u64,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		let crate::fdb::TouchProcesses {
+			ids,
+			owner,
+			put_owner,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		let processes = Self::touch_processes_with_transaction(
+			txn,
+			subspace,
+			ids,
+			*touched_at,
+			*time_to_touch,
+			partition_total,
+		)
+		.await?;
+		if let Some(owner) = owner.as_ref() {
+			future::try_join_all(
+				std::iter::zip(ids, &processes)
+					.filter(|(_, process)| process.is_some())
+					.map(|(id, _)| {
+						let arg = crate::storage::put::ProcessArg {
+							owner: owner.clone(),
+							process: id.clone(),
+							touched_at: *touched_at,
+						};
+						async move {
+							if *put_owner
+								&& Self::put_owner_process(
+									txn,
+									subspace,
+									&arg,
+									partition_total,
+									storage_partition_total,
+									false,
+								)
+								.await?
+							{
+								return Ok(());
+							}
+							Self::touch_owner_process(
+								txn,
+								subspace,
+								&arg,
+								*time_to_touch,
+								partition_total,
+							)
+							.await
+						}
+					}),
+			)
+			.await?;
+		}
+
 		Ok(processes)
 	}
 

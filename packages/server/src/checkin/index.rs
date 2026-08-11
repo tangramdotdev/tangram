@@ -86,7 +86,6 @@ impl Session {
 				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			}
 		});
-
 		// Create the index batch.
 		let arg = tangram_index::batch::Arg {
 			items: put_index_cache_entry_args

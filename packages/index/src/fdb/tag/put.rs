@@ -44,6 +44,22 @@ impl Index {
 			.map(|bytes| crate::tag::Tag::deserialize(&bytes))
 			.transpose()?;
 		if let Some(tag) = tag.as_ref()
+			&& (tag.owner != arg.owner
+				|| tag.specifier != arg.specifier
+				|| tag.target != arg.target)
+		{
+			match &tag.target {
+				tg::Either::Left(id) => {
+					Self::schedule_object_owners_for_cleaning(txn, subspace, id, partition_total)
+						.await?;
+				},
+				tg::Either::Right(id) => {
+					Self::schedule_process_owners_for_cleaning(txn, subspace, id, partition_total)
+						.await?;
+				},
+			}
+		}
+		if let Some(tag) = tag.as_ref()
 			&& tag.target != arg.target
 		{
 			let target = match &tag.target {
@@ -100,6 +116,7 @@ impl Index {
 		let value = crate::tag::Tag {
 			target: arg.target.clone(),
 			name: arg.name.clone(),
+			owner: arg.owner.clone(),
 			parent: arg.parent.clone(),
 			specifier: arg.specifier.clone(),
 			permissions: arg.permissions.clone(),

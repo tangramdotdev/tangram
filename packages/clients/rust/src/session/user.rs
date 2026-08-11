@@ -49,6 +49,13 @@ impl tg::handle::User for tg::Session {
 		self.try_get_user(user, arg)
 	}
 
+	fn try_get_user_usage(
+		&self,
+		user: &tg::user::Selector,
+	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
+		self.try_get_user_usage(user)
+	}
+
 	fn manage_user_billing(
 		&self,
 		arg: tg::user::billing::manage::Arg,

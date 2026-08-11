@@ -192,6 +192,7 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 		});
+		let owner = self.storage_owner(&self.context.principal).await?;
 
 		// Put the process in the index.
 		self.server
@@ -202,6 +203,15 @@ impl Session {
 					.chain(finalize.then(|| {
 						tangram_index::batch::Item::EnqueueFinalization(
 							tangram_index::finalization::Node::Process(id.clone()),
+						)
+					}))
+					.chain(owner.map(|owner| {
+						tangram_index::batch::Item::PutOwnerProcess(
+							tangram_index::storage::put::ProcessArg {
+								owner,
+								process: id.clone(),
+								touched_at: now,
+							},
 						)
 					}))
 					.collect(),

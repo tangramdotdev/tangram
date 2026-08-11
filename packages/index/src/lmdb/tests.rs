@@ -2,6 +2,7 @@ mod ancestor;
 mod authorize;
 mod batch;
 mod reader;
+mod storage;
 
 use super::{Config, Index};
 
@@ -17,6 +18,7 @@ fn new_index() -> (tempfile::TempDir, Index) {
 		path: dir.path().join("index"),
 		read_batch_size: 64,
 		read_concurrency: 4,
+		storage_partition_total: 1,
 		write_batch_size: 1,
 	})
 	.unwrap();

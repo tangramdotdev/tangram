@@ -23,6 +23,7 @@ pub(super) struct Arg<'a> {
 	pub receiver_low: &'a RequestReceiver,
 	pub receiver_medium: &'a RequestReceiver,
 	pub subspace: &'a fdbt::Subspace,
+	pub storage_partition_total: u64,
 	pub write_batch_size: usize,
 }
 
@@ -47,6 +48,7 @@ impl Index {
 			receiver_low,
 			receiver_medium,
 			subspace,
+			storage_partition_total,
 			write_batch_size,
 		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
@@ -157,10 +159,14 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
-					Request::Batch(arg) => {
-						Self::batch_with_transaction(db, subspace, &mut transaction, &arg)
-							.map(|()| Response::Unit)
-					},
+					Request::Batch(arg) => Self::batch_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&arg,
+						storage_partition_total,
+					)
+					.map(|()| Response::Unit),
 					Request::Clean(crate::lmdb::Clean {
 						batch_size,
 						max_object_touched_at,
@@ -175,6 +181,7 @@ impl Index {
 						max_sandbox_touched_at,
 						now,
 						subspace,
+						storage_partition_total,
 						transaction: &mut transaction,
 					})
 					.map(Response::CleanOutput),
@@ -319,30 +326,29 @@ impl Index {
 					.map(Response::CacheEntries),
 					Request::TouchObjects(crate::lmdb::TouchObjects {
 						ids,
+						owner,
 						time_to_touch,
 						touched_at,
-					}) => Self::touch_objects_with_transaction(
+					}) => Self::touch_objects_with_owner_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
 						&ids,
+						owner.as_ref(),
 						touched_at,
 						time_to_touch,
 					)
 					.map(Response::Objects),
-					Request::TouchProcesses(crate::lmdb::TouchProcesses {
-						ids,
-						time_to_touch,
-						touched_at,
-					}) => Self::touch_processes_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&ids,
-						touched_at,
-						time_to_touch,
-					)
-					.map(Response::Processes),
+					Request::TouchProcesses(arg) => {
+						Self::touch_processes_with_owner_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&arg,
+							storage_partition_total,
+						)
+						.map(Response::Processes)
+					},
 					Request::Update(crate::lmdb::Update { batch_size }) => {
 						Self::update_batch_with_transaction(
 							db,
@@ -350,6 +356,7 @@ impl Index {
 							&mut transaction,
 							batch_size,
 							max_process_depth,
+							storage_partition_total,
 						)
 						.map(Response::UpdateOutput)
 					},
@@ -661,6 +668,7 @@ impl Index {
 			},
 			Request::TouchObjects(crate::lmdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -668,6 +676,7 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
+						owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -675,6 +684,8 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::lmdb::TouchProcesses {
 				ids,
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -682,6 +693,8 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
+						owner,
+						put_owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -930,6 +943,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
+				owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -942,11 +956,14 @@ impl Index {
 					.collect();
 				Request::TouchObjects(crate::lmdb::TouchObjects {
 					ids,
+					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -959,6 +976,8 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::lmdb::TouchProcesses {
 					ids,
+					owner: owner.clone(),
+					put_owner: *put_owner,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})

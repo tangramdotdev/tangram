@@ -23,6 +23,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
 		partition_total: u64,
+		storage_partition_total: u64,
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
@@ -123,6 +124,28 @@ impl Index {
 						subspace,
 						std::slice::from_ref(arg),
 						partition_total,
+					)
+					.await?;
+				},
+				crate::batch::Item::PutOwnerObject(arg) => {
+					Self::put_owner_object(
+						txn,
+						subspace,
+						arg,
+						partition_total,
+						storage_partition_total,
+						true,
+					)
+					.await?;
+				},
+				crate::batch::Item::PutOwnerProcess(arg) => {
+					Self::put_owner_process(
+						txn,
+						subspace,
+						arg,
+						partition_total,
+						storage_partition_total,
+						true,
 					)
 					.await?;
 				},

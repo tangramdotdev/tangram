@@ -257,10 +257,11 @@ impl Session {
 				touch_ids.push(id.clone());
 			}
 		}
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let touched = self
 			.server
 			.index
-			.touch_objects(&touch_ids, touched_at, time_to_touch)
+			.touch_objects_with_owner(&touch_ids, owner.as_ref(), touched_at, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 		let mut outputs = vec![None; ids.len()];
@@ -309,10 +310,11 @@ impl Session {
 				touch_ids.push(id.clone());
 			}
 		}
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let touched = self
 			.server
 			.index
-			.touch_processes(&touch_ids, touched_at, time_to_touch)
+			.touch_processes_with_owner(&touch_ids, owner.as_ref(), touched_at, time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 		let mut outputs = vec![None; ids.len()];

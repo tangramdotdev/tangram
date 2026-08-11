@@ -618,7 +618,8 @@ impl Session {
 		progress.finish("locking");
 
 		// Create the index batch.
-		let index_arg = self.checkin_index(
+		let owner = self.storage_owner(&self.context.principal).await?;
+		let mut index_arg = self.checkin_index(
 			&arg,
 			&graph,
 			index_object_args,
@@ -626,6 +627,19 @@ impl Session {
 			root,
 			touched_at,
 		)?;
+		if let Some(owner) = owner {
+			let index = graph.paths.get(root).unwrap();
+			let object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
+			index_arg
+				.items
+				.push(tangram_index::batch::Item::PutOwnerObject(
+					tangram_index::storage::put::ObjectArg {
+						object,
+						owner,
+						touched_at,
+					},
+				));
+		}
 
 		// Create or update the watcher and spawn its index task.
 		if self

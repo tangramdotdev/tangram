@@ -10,6 +10,7 @@ pub mod create;
 pub mod delete;
 pub mod get;
 pub mod members;
+pub mod usage;
 
 impl Session {
 	pub(crate) async fn try_get_organization_with_transaction(
