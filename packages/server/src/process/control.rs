@@ -305,7 +305,7 @@ impl Session {
 		if let Some(data) = data {
 			let data = data.without_tokens();
 			let account = session
-				.storage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
+				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
 			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 			let index_arg = tangram_index::batch::Arg {

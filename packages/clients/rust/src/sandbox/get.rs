@@ -68,6 +68,16 @@ pub struct Output {
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub owner: Option<tg::Principal>,
 
+	/// The allocated CPU time in CPU-milliseconds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
+	pub sandbox_cpu: Option<u64>,
+
+	/// The allocated memory time in mebibyte-milliseconds.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
+	pub sandbox_memory: Option<u64>,
+
 	#[tangram_serialize(id = 10)]
 	pub status: tg::sandbox::Status,
 

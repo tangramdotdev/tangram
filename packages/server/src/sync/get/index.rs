@@ -307,7 +307,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
 		// Create the index args and update the graph with the permissions being granted.
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let (put_grant_args, put_object_args, put_process_args, storage_roots) = {
 			let mut graph = graph.lock().unwrap();
 			let args = self

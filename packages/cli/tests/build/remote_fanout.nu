@@ -31,7 +31,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 		runner: {
 			cpus: 1,
 			id: $created.runner.id
-			memory: (1e9 | into int),
+			memory: 1_073_741_824,
 			remote: "default",
 			token: $created.token.token
 		}

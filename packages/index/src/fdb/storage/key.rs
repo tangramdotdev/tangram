@@ -1,26 +1,26 @@
-use {crate::storage, tangram_client::prelude::*};
+use {crate::usage, tangram_client::prelude::*};
 
 #[derive(Clone, Debug)]
 pub enum Key {
 	AccountObject {
-		account: storage::Account,
+		account: usage::Account,
 		object: tg::object::Id,
 	},
 	AccountProcess {
-		account: storage::Account,
+		account: usage::Account,
 		process: tg::process::Id,
 	},
 	AccountUsage {
-		account: storage::Account,
-		kind: storage::Kind,
+		account: usage::Account,
+		kind: usage::Kind,
 		partition: u64,
 	},
 	ObjectAccount {
-		account: storage::Account,
+		account: usage::Account,
 		object: tg::object::Id,
 	},
 	ProcessAccount {
-		account: storage::Account,
+		account: usage::Account,
 		process: tg::process::Id,
 	},
 }

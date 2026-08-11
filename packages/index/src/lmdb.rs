@@ -45,7 +45,7 @@ pub struct Config {
 	pub path: PathBuf,
 	pub read_batch_size: usize,
 	pub read_concurrency: usize,
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 	pub write_batch_size: usize,
 }
 
@@ -147,7 +147,7 @@ impl Index {
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
 			let write_batch_size = config.write_batch_size;
-			let storage_partition_total = config.storage_partition_total;
+			let usage_partition_total = config.usage_partition_total;
 			move || {
 				Self::writer_task(writer::Arg {
 					db: &db,
@@ -157,7 +157,7 @@ impl Index {
 					receiver_low: &writer_receiver_low,
 					receiver_medium: &writer_receiver_medium,
 					subspace: &subspace,
-					storage_partition_total,
+					usage_partition_total,
 					write_batch_size,
 				});
 			}
@@ -187,9 +187,9 @@ impl Index {
 				"the LMDB index read concurrency must be greater than zero"
 			));
 		}
-		if config.storage_partition_total == 0 {
+		if config.usage_partition_total == 0 {
 			return Err(tg::error!(
-				"the LMDB index storage partition total must be greater than zero"
+				"the LMDB index usage partition total must be greater than zero"
 			));
 		}
 		if config.write_batch_size == 0 {
@@ -257,8 +257,8 @@ impl Drop for Index {
 impl crate::Index for Index {
 	async fn get_account_usage(
 		&self,
-		account: &crate::storage::Account,
-	) -> tg::Result<crate::storage::Usage> {
+		account: &crate::usage::Account,
+	) -> tg::Result<crate::usage::Usage> {
 		self.get_account_usage(account).await
 	}
 
@@ -343,7 +343,7 @@ impl crate::Index for Index {
 	async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
@@ -424,7 +424,7 @@ impl crate::Index for Index {
 	async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
@@ -435,7 +435,7 @@ impl crate::Index for Index {
 	async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {

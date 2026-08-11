@@ -34,7 +34,7 @@ async fn separates_update_queues() {
 		&mut transaction,
 		id,
 		super::super::update::Kind::Storage(super::super::update::StorageKind::Add(
-			crate::storage::Account::User(user),
+			crate::usage::Account::User(user),
 		)),
 		super::super::update::Source::Put,
 		None,

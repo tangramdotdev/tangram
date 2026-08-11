@@ -161,7 +161,7 @@ impl Session {
 				});
 			}
 		}
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let mut account_objects = batch_objects.clone();
 		for children in object_children.values() {
 			for child in children {

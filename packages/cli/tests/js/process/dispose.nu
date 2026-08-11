@@ -27,5 +27,7 @@ let outcome = tg wait $process | from json
 assert equal $outcome.exit 1 "the process should be cancelled when its handle is disposed"
 assert ($outcome.error? | is-not-empty) "the cancelled process should have an error"
 let state = tg sandbox get $sandbox | from json
+assert ($state.sandbox_cpu > 0) "the sandbox should record allocated CPU time"
+assert ($state.sandbox_memory > 0) "the sandbox should record allocated memory time"
 assert equal $state.status "destroyed" "the sandbox should be destroyed with the process"
 assert equal $state.ttl 0 "an implicit process sandbox should have a zero TTL"

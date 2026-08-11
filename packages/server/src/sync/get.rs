@@ -257,7 +257,7 @@ impl Session {
 				touch_ids.push(id.clone());
 			}
 		}
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let touched = self
 			.server
 			.index
@@ -310,7 +310,7 @@ impl Session {
 				touch_ids.push(id.clone());
 			}
 		}
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let touched = self
 			.server
 			.index

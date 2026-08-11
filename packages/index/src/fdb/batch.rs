@@ -23,7 +23,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
@@ -133,7 +133,7 @@ impl Index {
 						subspace,
 						arg,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 						true,
 						None,
 					)
@@ -145,7 +145,7 @@ impl Index {
 						subspace,
 						arg,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 						true,
 						None,
 					)

@@ -190,7 +190,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		object: &tg::object::Id,
-	) -> tg::Result<Vec<crate::storage::Account>> {
+	) -> tg::Result<Vec<crate::usage::Account>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -222,7 +222,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		process: &tg::process::Id,
-	) -> tg::Result<Vec<crate::storage::Account>> {
+	) -> tg::Result<Vec<crate::usage::Account>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -254,7 +254,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::storage::put::ObjectArg,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<u64>,
 	) -> tg::Result<bool> {
@@ -282,7 +282,7 @@ impl Index {
 		let Some(object) = object else {
 			if touch_existing {
 				return Err(
-					tg::error!(object = %arg.object, "cannot add a missing object to a storage account"),
+					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -309,9 +309,9 @@ impl Index {
 			subspace,
 			transaction,
 			&arg.account,
-			crate::storage::Kind::ObjectCount,
+			crate::usage::Kind::ObjectCount,
 			1,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 		let size = i64::try_from(object.metadata.node.size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
@@ -320,9 +320,9 @@ impl Index {
 			subspace,
 			transaction,
 			&arg.account,
-			crate::storage::Kind::ObjectSize,
+			crate::usage::Kind::ObjectSize,
 			size,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 
 		let children =
@@ -349,7 +349,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::storage::put::ProcessArg,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<u64>,
 	) -> tg::Result<bool> {
@@ -378,7 +378,7 @@ impl Index {
 		if process.is_none() {
 			if touch_existing {
 				return Err(
-					tg::error!(process = %arg.process, "cannot add a missing process to a storage account"),
+					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -405,9 +405,9 @@ impl Index {
 			subspace,
 			transaction,
 			&arg.account,
-			crate::storage::Kind::ProcessCount,
+			crate::usage::Kind::ProcessCount,
 			1,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 
 		let children =
@@ -448,12 +448,12 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
-		kind: crate::storage::Kind,
+		account: &crate::usage::Account,
+		kind: crate::usage::Kind,
 		delta: i64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
-		let partition = rand::random_range(0..storage_partition_total);
+		let partition = rand::random_range(0..usage_partition_total);
 		let key = Key::Storage(crate::lmdb::storage::Key::AccountUsage {
 			account: account.clone(),
 			kind,
@@ -462,20 +462,20 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let value = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get the account storage value"))?
+			.map_err(|error| tg::error!(!error, "failed to get the account usage value"))?
 			.map(|value| {
 				i64::from_le_bytes(
 					value
 						.try_into()
-						.map_err(|_| tg::error!("invalid account storage value"))?,
+						.map_err(|_| tg::error!("invalid account usage value"))?,
 				)
 				.checked_add(delta)
-				.ok_or_else(|| tg::error!("the account storage value overflowed"))
+				.ok_or_else(|| tg::error!("the account usage value overflowed"))
 			})
 			.transpose()?
 			.unwrap_or(delta);
 		db.put(transaction, &key, &value.to_le_bytes())
-			.map_err(|error| tg::error!(!error, "failed to put the account storage value"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the account usage value"))?;
 
 		Ok(())
 	}

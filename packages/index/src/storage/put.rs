@@ -1,4 +1,4 @@
-use {super::Account, tangram_client::prelude::*};
+use {crate::usage::Account, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct ObjectArg {

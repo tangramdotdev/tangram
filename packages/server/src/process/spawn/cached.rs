@@ -444,7 +444,7 @@ impl Session {
 	}
 
 	async fn put_cached_process_account(&self, id: &tg::process::Id) -> tg::Result<bool> {
-		let Some(account) = self.storage_account(&self.context.principal).await? else {
+		let Some(account) = self.usage_account(&self.context.principal).await? else {
 			return Ok(true);
 		};
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();

@@ -545,9 +545,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let account = tg::Id::from_slice(&account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let account = crate::storage::Account::try_from(account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let object = tg::object::Id::from_slice(&object)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let key =
@@ -560,9 +560,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let object = tg::object::Id::from_slice(&object)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let account = tg::Id::from_slice(&account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let account = crate::storage::Account::try_from(account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let key =
 					Key::Storage(crate::lmdb::storage::Key::ObjectAccount { account, object });
 				Ok((input, key))
@@ -572,9 +572,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let account = tg::Id::from_slice(&account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let account = crate::storage::Account::try_from(account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let process = tg::process::Id::from_slice(&process)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let key =
@@ -587,9 +587,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let process = tg::process::Id::from_slice(&process)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let account = tg::Id::from_slice(&account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let account = crate::storage::Account::try_from(account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let key =
 					Key::Storage(crate::lmdb::storage::Key::ProcessAccount { account, process });
 				Ok((input, key))
@@ -601,10 +601,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let account = tg::Id::from_slice(&account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let account = crate::storage::Account::try_from(account)
-					.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-				let kind = crate::storage::Kind::from_i32(storage_kind)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let kind = crate::usage::Kind::from_i32(storage_kind)
 					.ok_or_else(|| fdbt::PackError::Message("invalid storage kind".into()))?;
 				let key = Key::Storage(crate::lmdb::storage::Key::AccountUsage {
 					account,
@@ -1239,10 +1239,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 						let (input, object): (_, Vec<u8>) =
 							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 						let account = tg::Id::from_slice(&account).map_err(|_| {
-							fdbt::PackError::Message("invalid storage account".into())
+							fdbt::PackError::Message("invalid usage account".into())
 						})?;
-						let account = crate::storage::Account::try_from(account).map_err(|_| {
-							fdbt::PackError::Message("invalid storage account".into())
+						let account = crate::usage::Account::try_from(account).map_err(|_| {
+							fdbt::PackError::Message("invalid usage account".into())
 						})?;
 						let object = tg::object::Id::from_slice(&object)
 							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
@@ -1259,10 +1259,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 						let (input, process): (_, Vec<u8>) =
 							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 						let account = tg::Id::from_slice(&account).map_err(|_| {
-							fdbt::PackError::Message("invalid storage account".into())
+							fdbt::PackError::Message("invalid usage account".into())
 						})?;
-						let account = crate::storage::Account::try_from(account).map_err(|_| {
-							fdbt::PackError::Message("invalid storage account".into())
+						let account = crate::usage::Account::try_from(account).map_err(|_| {
+							fdbt::PackError::Message("invalid usage account".into())
 						})?;
 						let process = tg::process::Id::from_slice(&process)
 							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
@@ -1433,9 +1433,9 @@ fn unpack_update_kind(
 					let (input, account): (_, Vec<u8>) =
 						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 					let account = tg::Id::from_slice(&account)
-						.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
-					let account = crate::storage::Account::try_from(account)
-						.map_err(|_| fdbt::PackError::Message("invalid storage account".into()))?;
+						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+					let account = crate::usage::Account::try_from(account)
+						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let kind = match kind {
 						0 => crate::lmdb::update::StorageKind::Add(account),
 						1 => crate::lmdb::update::StorageKind::Clean(account),

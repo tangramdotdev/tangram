@@ -20,6 +20,7 @@ pub mod sandbox;
 pub mod storage;
 pub mod tag;
 pub mod update;
+pub mod usage;
 pub mod user;
 
 pub mod prelude {
@@ -128,8 +129,8 @@ pub trait Index {
 
 	fn get_account_usage(
 		&self,
-		account: &crate::storage::Account,
-	) -> impl Future<Output = tg::Result<crate::storage::Usage>> + Send;
+		account: &crate::usage::Account,
+	) -> impl Future<Output = tg::Result<crate::usage::Usage>> + Send;
 
 	fn touch_cache_entries(
 		&self,
@@ -171,7 +172,7 @@ pub trait Index {
 	fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
@@ -189,7 +190,7 @@ pub trait Index {
 	fn touch_object_with_account(
 		&self,
 		id: &tg::object::Id,
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::object::Object>>> + Send {
@@ -304,7 +305,7 @@ pub trait Index {
 	fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
@@ -312,7 +313,7 @@ pub trait Index {
 	fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
@@ -330,7 +331,7 @@ pub trait Index {
 	fn touch_process_and_put_account(
 		&self,
 		id: &tg::process::Id,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
@@ -346,7 +347,7 @@ pub trait Index {
 	fn touch_process_with_account(
 		&self,
 		id: &tg::process::Id,
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {

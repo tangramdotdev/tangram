@@ -8,6 +8,7 @@ use {
 		collections::{BTreeMap, HashMap},
 		pin::pin,
 		sync::Arc,
+		time::Instant,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
@@ -114,6 +115,7 @@ struct RunSandboxTaskArg {
 	process_tasks: JoinSet<tg::Result<()>>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
+	started_at: Instant,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 }
@@ -359,6 +361,8 @@ impl Session {
 			mounts: arg.mounts,
 			network: arg.network,
 			owner: arg.owner,
+			sandbox_cpu: None,
+			sandbox_memory: None,
 			status: tg::sandbox::Status::Started,
 			token: None,
 			ttl: arg.ttl,
@@ -714,6 +718,7 @@ impl Session {
 			vfs_principal,
 		} = create_output;
 
+		let started_at = Instant::now();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = sandbox.index();
 		self.server.runner.state.sandboxes.insert(
@@ -753,6 +758,7 @@ impl Session {
 			process_tasks,
 			sandbox,
 			serve_task,
+			started_at,
 			state,
 			stopper,
 		};
@@ -790,6 +796,7 @@ impl Session {
 			mut process_tasks,
 			sandbox,
 			serve_task,
+			started_at,
 			state,
 			stopper,
 		} = arg;
@@ -1003,9 +1010,40 @@ impl Session {
 			sandbox = %id,
 		)
 		.await;
-		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(&id) {
-			state.allocation.take();
-		}
+		let allocation = {
+			let mut state = self
+				.server
+				.runner
+				.state
+				.sandboxes
+				.get_mut_by_id(&id)
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+			state
+				.allocation
+				.take()
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
+		};
+		let usage = {
+			let mut allocation = allocation.lock().await;
+			let duration = started_at.elapsed();
+			let usage = allocation
+				.as_ref()
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
+				.usage(duration)?;
+			drop(allocation.take());
+
+			usage
+		};
+		let mut state = self
+			.server
+			.runner
+			.state
+			.sandboxes
+			.get_mut_by_id(&id)
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+		state.data.sandbox_cpu = Some(usage.sandbox_cpu);
+		state.data.sandbox_memory = Some(usage.sandbox_memory);
+		drop(state);
 
 		// Stop and await the serve task.
 		serve_task.stop();

@@ -66,7 +66,7 @@ impl Session {
 			return Ok(None);
 		}
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let Some(_) = self
 			.server
 			.index

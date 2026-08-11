@@ -23,7 +23,7 @@ pub(crate) enum Request {
 		principal: tg::Principal,
 	},
 	GetAccountUsage {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
@@ -91,7 +91,7 @@ pub(crate) enum Response {
 	ContainsIds(Vec<bool>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
-	GetAccountUsage(crate::storage::Usage),
+	GetAccountUsage(crate::usage::Usage),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),

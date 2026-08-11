@@ -14,12 +14,12 @@ pub enum ItemKind {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Key {
 	AccountObject {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		object: tg::object::Id,
 		touched_at: i64,
 	},
 	AccountProcess {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		process: tg::process::Id,
 		touched_at: i64,
 	},
@@ -54,7 +54,7 @@ mod tests {
 	#[test]
 	fn roundtrips_centralized_clean_keys() {
 		let subspace = fdbt::Subspace::all();
-		let account = crate::storage::Account::User(tg::user::Id::new());
+		let account = crate::usage::Account::User(tg::user::Id::new());
 		let artifact = tg::artifact::Id::new(tg::artifact::Kind::Directory, &vec![0].into());
 		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 		let process = tg::process::Id::new();

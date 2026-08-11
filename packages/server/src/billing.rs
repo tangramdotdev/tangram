@@ -9,11 +9,11 @@ mod stripe;
 pub(super) use stripe::{CreateCustomerArg, Stripe};
 
 impl Session {
-	pub(crate) async fn storage_account_for_specifier_with_transaction(
+	pub(crate) async fn usage_account_for_specifier_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tangram_index::storage::Account>> {
+	) -> tg::Result<Option<tg::usage::Account>> {
 		let prefix = specifier
 			.prefixes()
 			.next()
@@ -30,21 +30,21 @@ impl Session {
 			};
 		if let Some(principal) = principal
 			&& let Some(account) = self
-				.storage_account_with_transaction(transaction, &principal)
+				.usage_account_with_transaction(transaction, &principal)
 				.await?
 		{
 			return Ok(Some(account));
 		}
 
-		self.storage_account_with_transaction(transaction, &self.context.principal)
+		self.usage_account_with_transaction(transaction, &self.context.principal)
 			.await
 	}
 
-	async fn storage_account_with_transaction(
+	async fn usage_account_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		principal: &tg::Principal,
-	) -> tg::Result<Option<tangram_index::storage::Account>> {
+	) -> tg::Result<Option<tg::usage::Account>> {
 		let mut principal = principal.clone();
 		loop {
 			match principal {
@@ -72,23 +72,23 @@ impl Session {
 					};
 				},
 				tg::Principal::Organization(id) => {
-					return Ok(Some(tangram_index::storage::Account::Organization(id)));
+					return Ok(Some(tg::usage::Account::Organization(id)));
 				},
 				tg::Principal::User(id) => {
-					return Ok(Some(tangram_index::storage::Account::User(id)));
+					return Ok(Some(tg::usage::Account::User(id)));
 				},
 				tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-					return self.storage_account(&principal).await;
+					return self.usage_account(&principal).await;
 				},
 				_ => return Ok(None),
 			}
 		}
 	}
 
-	pub(crate) async fn storage_account(
+	pub(crate) async fn usage_account(
 		&self,
 		principal: &tg::Principal,
-	) -> tg::Result<Option<tangram_index::storage::Account>> {
+	) -> tg::Result<Option<tg::usage::Account>> {
 		let mut principal = match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
 				let Some(principal) = self.try_resolve_remote_context_principal(principal).await?
@@ -125,10 +125,10 @@ impl Session {
 					};
 				},
 				tg::Principal::Organization(id) => {
-					return Ok(Some(tangram_index::storage::Account::Organization(id)));
+					return Ok(Some(tg::usage::Account::Organization(id)));
 				},
 				tg::Principal::User(id) => {
-					return Ok(Some(tangram_index::storage::Account::User(id)));
+					return Ok(Some(tg::usage::Account::User(id)));
 				},
 				tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => {
 					return Ok(None);

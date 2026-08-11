@@ -8,8 +8,8 @@ use {
 impl Index {
 	pub async fn get_account_usage(
 		&self,
-		account: &crate::storage::Account,
-	) -> tg::Result<crate::storage::Usage> {
+		account: &crate::usage::Account,
+	) -> tg::Result<crate::usage::Usage> {
 		let response = self
 			.send_read_request(crate::read::Request::GetAccountUsage {
 				account: account.clone(),
@@ -25,8 +25,8 @@ impl Index {
 	pub(crate) async fn get_account_usage_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
-	) -> tg::Result<crate::storage::Usage> {
+		account: &crate::usage::Account,
+	) -> tg::Result<crate::usage::Usage> {
 		let account = account.id().to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -39,7 +39,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the account storage keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the account usage keys"))?;
 		let mut object_count = 0i128;
 		let mut object_size = 0i128;
 		let mut process_count = 0i128;
@@ -53,12 +53,12 @@ impl Index {
 				entry
 					.value()
 					.try_into()
-					.map_err(|_| tg::error!("invalid account storage value"))?,
+					.map_err(|_| tg::error!("invalid account usage value"))?,
 			);
 			match kind {
-				crate::storage::Kind::ObjectCount => object_count += i128::from(value),
-				crate::storage::Kind::ObjectSize => object_size += i128::from(value),
-				crate::storage::Kind::ProcessCount => process_count += i128::from(value),
+				crate::usage::Kind::ObjectCount => object_count += i128::from(value),
+				crate::usage::Kind::ObjectSize => object_size += i128::from(value),
+				crate::usage::Kind::ProcessCount => process_count += i128::from(value),
 			}
 		}
 		let object_count = u64::try_from(object_count)
@@ -67,7 +67,7 @@ impl Index {
 			.map_err(|_| tg::error!("the account object size is out of range"))?;
 		let process_count = u64::try_from(process_count)
 			.map_err(|_| tg::error!("the account process count is out of range"))?;
-		let usage = crate::storage::Usage {
+		let usage = crate::usage::Usage {
 			object_count,
 			object_size,
 			process_count,

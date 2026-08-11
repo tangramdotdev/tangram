@@ -34,7 +34,7 @@ pub(super) struct Arg {
 	pub receiver_low: RequestReceiver,
 	pub receiver_medium: RequestReceiver,
 	pub subspace: fdbt::Subspace,
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 	pub write_batch_size: usize,
 	pub write_concurrency: usize,
 }
@@ -61,7 +61,7 @@ impl Index {
 			mut receiver_low,
 			mut receiver_medium,
 			subspace,
-			storage_partition_total,
+			usage_partition_total,
 			write_batch_size,
 			write_concurrency,
 		} = arg;
@@ -135,7 +135,7 @@ impl Index {
 					batch,
 					max_process_depth,
 					partition_total,
-					storage_partition_total,
+					usage_partition_total,
 					&metrics,
 				)
 				.await;
@@ -797,7 +797,7 @@ impl Index {
 		batch: Batch,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 		metrics: &Metrics,
 	) {
 		let start = std::time::Instant::now();
@@ -843,7 +843,7 @@ impl Index {
 							&request,
 							max_process_depth,
 							partition_total,
-							storage_partition_total,
+							usage_partition_total,
 						)
 						.await
 						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
@@ -895,7 +895,7 @@ impl Index {
 						left,
 						max_process_depth,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 						metrics,
 					))
 					.await;
@@ -905,7 +905,7 @@ impl Index {
 						right,
 						max_process_depth,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 						metrics,
 					))
 					.await;
@@ -926,7 +926,7 @@ impl Index {
 		request: &Request,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<Response> {
 		match request {
 			Request::Batch(arg) => {
@@ -935,7 +935,7 @@ impl Index {
 					subspace,
 					arg,
 					partition_total,
-					storage_partition_total,
+					usage_partition_total,
 				)
 				.await?;
 				Ok(Response::Unit)
@@ -959,7 +959,7 @@ impl Index {
 					partition_start: *partition_start,
 					partition_total,
 					subspace,
-					storage_partition_total,
+					usage_partition_total,
 					txn,
 				};
 				Self::clean_with_transaction(arg)
@@ -1093,7 +1093,7 @@ impl Index {
 				subspace,
 				arg,
 				partition_total,
-				storage_partition_total,
+				usage_partition_total,
 			)
 			.await
 			.map(Response::Processes),
@@ -1111,7 +1111,7 @@ impl Index {
 				*partition_end,
 				max_process_depth,
 				partition_total,
-				storage_partition_total,
+				usage_partition_total,
 			)
 			.await
 			.map(Response::UpdateOutput),

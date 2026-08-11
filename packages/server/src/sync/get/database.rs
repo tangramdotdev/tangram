@@ -93,7 +93,7 @@ impl Session {
 					for node in &nodes {
 						if let tg::sync::PutNodeMessage::Tag(message) = node {
 							let account = session
-								.storage_account_for_specifier_with_transaction(
+								.usage_account_for_specifier_with_transaction(
 									transaction,
 									&message.specifier,
 								)
@@ -879,7 +879,7 @@ impl Session {
 		transaction: &Transaction<'_>,
 		node: &tg::sync::PutNodeMessage,
 		namespace: &mut Namespace,
-		tag_accounts: &BTreeMap<tg::tag::Id, Option<tangram_index::storage::Account>>,
+		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<bool> {

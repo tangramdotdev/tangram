@@ -6,13 +6,13 @@ use {
 
 enum Candidate {
 	Object {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		object: tg::object::Id,
 		partition: u64,
 		touched_at: i64,
 	},
 	Process {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		partition: u64,
 		process: tg::process::Id,
 		touched_at: i64,
@@ -60,12 +60,12 @@ impl Index {
 	pub(in crate::fdb) async fn clean_account_object_entry(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		partition: u64,
 		touched_at: i64,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let candidate = Candidate::Object {
 			account: account.clone(),
@@ -78,7 +78,7 @@ impl Index {
 			subspace,
 			&candidate,
 			partition_total,
-			storage_partition_total,
+			usage_partition_total,
 		)
 		.await
 	}
@@ -87,12 +87,12 @@ impl Index {
 	pub(in crate::fdb) async fn clean_account_process_entry(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		partition: u64,
 		touched_at: i64,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let candidate = Candidate::Process {
 			account: account.clone(),
@@ -105,7 +105,7 @@ impl Index {
 			subspace,
 			&candidate,
 			partition_total,
-			storage_partition_total,
+			usage_partition_total,
 		)
 		.await
 	}
@@ -115,7 +115,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		candidate: &Candidate,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let (entry_key, clean_key, touched_at) = match candidate {
 			Candidate::Object {
@@ -199,7 +199,7 @@ impl Index {
 					account,
 					object,
 					partition_total,
-					storage_partition_total,
+					usage_partition_total,
 				)
 				.await?;
 			},
@@ -212,7 +212,7 @@ impl Index {
 					account,
 					process,
 					partition_total,
-					storage_partition_total,
+					usage_partition_total,
 				)
 				.await?;
 			},
@@ -225,7 +225,7 @@ impl Index {
 	async fn compute_account_object_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 	) -> tg::Result<u64> {
 		let (parents, processes) = futures::future::try_join(
@@ -266,7 +266,7 @@ impl Index {
 	async fn compute_account_process_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 	) -> tg::Result<u64> {
 		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
@@ -297,7 +297,7 @@ impl Index {
 	async fn count_account_tags(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		target: &[u8],
 	) -> tg::Result<u64> {
 		let tags = Self::get_target_tags_with_transaction(txn, subspace, target).await?;
@@ -319,10 +319,10 @@ impl Index {
 	async fn delete_account_object(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::fdb::storage::Key::AccountObject {
 			account: account.clone(),
@@ -338,9 +338,9 @@ impl Index {
 			txn,
 			subspace,
 			account,
-			crate::storage::Kind::ObjectCount,
+			crate::usage::Kind::ObjectCount,
 			-1,
-			storage_partition_total,
+			usage_partition_total,
 		);
 		Self::enqueue_update_with_kind(
 			txn,
@@ -361,9 +361,9 @@ impl Index {
 			txn,
 			subspace,
 			account,
-			crate::storage::Kind::ObjectSize,
+			crate::usage::Kind::ObjectSize,
 			-size,
-			storage_partition_total,
+			usage_partition_total,
 		);
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::Object {
@@ -380,10 +380,10 @@ impl Index {
 	async fn delete_account_process(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
 			account: account.clone(),
@@ -399,9 +399,9 @@ impl Index {
 			txn,
 			subspace,
 			account,
-			crate::storage::Kind::ProcessCount,
+			crate::usage::Kind::ProcessCount,
 			-1,
-			storage_partition_total,
+			usage_partition_total,
 		);
 		Self::enqueue_update_with_kind(
 			txn,
@@ -430,7 +430,7 @@ impl Index {
 	pub(in crate::fdb) async fn schedule_account_object_for_cleaning(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
@@ -461,7 +461,7 @@ impl Index {
 	pub(in crate::fdb) async fn schedule_account_process_for_cleaning(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {

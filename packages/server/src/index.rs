@@ -131,8 +131,8 @@ impl index::Index for Index {
 
 	async fn get_account_usage(
 		&self,
-		account: &index::storage::Account,
-	) -> tg::Result<index::storage::Usage> {
+		account: &index::usage::Account,
+	) -> tg::Result<index::usage::Usage> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_account_usage(account).await,
@@ -192,7 +192,7 @@ impl index::Index for Index {
 	async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		account: Option<&index::storage::Account>,
+		account: Option<&index::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::object::Object>>> {
@@ -335,7 +335,7 @@ impl index::Index for Index {
 	async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: &index::storage::Account,
+		account: &index::usage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::process::Process>>> {
@@ -358,7 +358,7 @@ impl index::Index for Index {
 	async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: Option<&index::storage::Account>,
+		account: Option<&index::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::process::Process>>> {

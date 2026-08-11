@@ -23,7 +23,7 @@ pub(super) struct Arg<'a> {
 	pub receiver_low: &'a RequestReceiver,
 	pub receiver_medium: &'a RequestReceiver,
 	pub subspace: &'a fdbt::Subspace,
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 	pub write_batch_size: usize,
 }
 
@@ -48,7 +48,7 @@ impl Index {
 			receiver_low,
 			receiver_medium,
 			subspace,
-			storage_partition_total,
+			usage_partition_total,
 			write_batch_size,
 		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
@@ -164,7 +164,7 @@ impl Index {
 						subspace,
 						&mut transaction,
 						&arg,
-						storage_partition_total,
+						usage_partition_total,
 					)
 					.map(|()| Response::Unit),
 					Request::Clean(crate::lmdb::Clean {
@@ -181,7 +181,7 @@ impl Index {
 						max_sandbox_touched_at,
 						now,
 						subspace,
-						storage_partition_total,
+						usage_partition_total,
 						transaction: &mut transaction,
 					})
 					.map(Response::CleanOutput),
@@ -345,7 +345,7 @@ impl Index {
 							subspace,
 							&mut transaction,
 							&arg,
-							storage_partition_total,
+							usage_partition_total,
 						)
 						.map(Response::Processes)
 					},
@@ -357,7 +357,7 @@ impl Index {
 							batch_size,
 							kind,
 							max_process_depth,
-							storage_partition_total,
+							usage_partition_total,
 						)
 						.map(Response::UpdateOutput)
 					},

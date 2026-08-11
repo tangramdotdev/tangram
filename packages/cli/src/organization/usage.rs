@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get an organization's storage usage.
+/// Get an organization's usage.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

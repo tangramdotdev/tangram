@@ -190,6 +190,8 @@ impl Session {
 			mounts: data.arg.mounts,
 			network: data.arg.network,
 			owner: data.arg.owner,
+			sandbox_cpu: None,
+			sandbox_memory: None,
 			status: tg::sandbox::Status::Started,
 			token: None,
 			ttl: data.arg.ttl,

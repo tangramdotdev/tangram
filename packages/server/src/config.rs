@@ -398,7 +398,7 @@ pub struct FdbIndex {
 
 	pub read_concurrency: usize,
 
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 
 	pub write_batch_size: usize,
 
@@ -417,7 +417,7 @@ pub struct LmdbIndex {
 
 	pub read_concurrency: usize,
 
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 
 	pub write_batch_size: usize,
 }
@@ -1234,7 +1234,7 @@ impl Default for FdbIndex {
 			prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 64,
-			storage_partition_total: 1,
+			usage_partition_total: 1,
 			write_batch_size: 8_000,
 			write_concurrency: 256,
 		}
@@ -1249,7 +1249,7 @@ impl Default for LmdbIndex {
 			path: PathBuf::from("index"),
 			read_batch_size: 64,
 			read_concurrency: 4,
-			storage_partition_total: 1,
+			usage_partition_total: 1,
 			write_batch_size: 8_000,
 		}
 	}
@@ -1837,5 +1837,5 @@ fn default_scheduler_max_create_sandbox_requests_per_runner() -> usize {
 }
 
 fn default_scheduler_memory() -> u64 {
-	1_000_000_000
+	1_073_741_824
 }

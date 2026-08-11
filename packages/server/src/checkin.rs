@@ -618,7 +618,7 @@ impl Session {
 		progress.finish("locking");
 
 		// Create the index batch.
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let mut index_arg = self.checkin_index(
 			&arg,
 			&graph,

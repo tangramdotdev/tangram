@@ -557,7 +557,7 @@ impl Server {
 						prefix: options.prefix.clone(),
 						read_batch_size: options.read_batch_size,
 						read_concurrency: options.read_concurrency,
-						storage_partition_total: options.storage_partition_total,
+						usage_partition_total: options.usage_partition_total,
 						write_batch_size: options.write_batch_size,
 						write_concurrency: options.write_concurrency,
 					};
@@ -596,7 +596,7 @@ impl Server {
 						path,
 						read_batch_size: options.read_batch_size,
 						read_concurrency: options.read_concurrency,
-						storage_partition_total: options.storage_partition_total,
+						usage_partition_total: options.usage_partition_total,
 						write_batch_size: options.write_batch_size,
 					};
 					Index::new_lmdb(&config)

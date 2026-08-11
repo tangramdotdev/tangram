@@ -20,7 +20,7 @@ fn count_clean_keys(index: &Index) -> usize {
 async fn account_and_entity_candidates_share_the_clean_batch() {
 	let (_dir, index) = super::new_index();
 	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(crate::object::put::Arg {

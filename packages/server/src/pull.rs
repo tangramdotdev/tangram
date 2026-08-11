@@ -55,7 +55,7 @@ impl Session {
 			.iter()
 			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let touch_objects_future = async {
 			self.server
 				.index

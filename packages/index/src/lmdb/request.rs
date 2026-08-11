@@ -56,7 +56,7 @@ pub(super) struct TouchCacheEntries {
 
 #[derive(Clone)]
 pub(super) struct TouchObjects {
-	pub account: Option<crate::storage::Account>,
+	pub account: Option<crate::usage::Account>,
 	pub ids: Vec<tg::object::Id>,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
@@ -64,7 +64,7 @@ pub(super) struct TouchObjects {
 
 #[derive(Clone)]
 pub(super) struct TouchProcesses {
-	pub account: Option<crate::storage::Account>,
+	pub account: Option<crate::usage::Account>,
 	pub ids: Vec<tg::process::Id>,
 	pub put_account: bool,
 	pub time_to_touch: std::time::Duration,
@@ -139,12 +139,12 @@ pub(super) enum Kind {
 		touched_at: i64,
 	},
 	TouchObjects {
-		account: Option<crate::storage::Account>,
+		account: Option<crate::usage::Account>,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	TouchProcesses {
-		account: Option<crate::storage::Account>,
+		account: Option<crate::usage::Account>,
 		put_account: bool,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,

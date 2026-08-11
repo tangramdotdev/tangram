@@ -3,7 +3,7 @@ use tangram_client::prelude::*;
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
-	pub account: Option<crate::storage::Account>,
+	pub account: Option<crate::usage::Account>,
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
 	#[tangram_serialize(id = 2)]

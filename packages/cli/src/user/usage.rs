@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get the current user's storage usage.
+/// Get the current user's usage.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

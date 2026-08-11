@@ -5,9 +5,13 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 };
+
+const BYTES_PER_MEBIBYTE: u128 = 1_048_576;
+const NANOSECONDS_PER_MILLISECOND: u128 = 1_000_000;
 
 #[derive(Clone)]
 pub struct Pool {
@@ -29,6 +33,12 @@ pub struct ReservationGuard {
 	index: u64,
 	parent: tg::sandbox::Id,
 	reservations: Reservations,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Usage {
+	pub(crate) sandbox_cpu: u64,
+	pub(crate) sandbox_memory: u64,
 }
 
 struct State {
@@ -173,6 +183,27 @@ impl Reservations {
 }
 
 impl Allocation {
+	pub fn usage(&self, duration: Duration) -> tg::Result<Usage> {
+		let milliseconds = duration.as_nanos().div_ceil(NANOSECONDS_PER_MILLISECOND);
+		let sandbox_cpu = u128::from(self.capacity.cpus)
+			.checked_mul(milliseconds)
+			.ok_or_else(|| tg::error!("the sandbox CPU usage overflowed"))?;
+		let sandbox_cpu = u64::try_from(sandbox_cpu)
+			.map_err(|_| tg::error!("the sandbox CPU usage is out of range"))?;
+		let sandbox_memory = u128::from(self.capacity.memory)
+			.checked_mul(milliseconds)
+			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?
+			.div_ceil(BYTES_PER_MEBIBYTE);
+		let sandbox_memory = u64::try_from(sandbox_memory)
+			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
+		let usage = Usage {
+			sandbox_cpu,
+			sandbox_memory,
+		};
+
+		Ok(usage)
+	}
+
 	#[must_use]
 	pub fn try_borrow(
 		parent: tokio::sync::OwnedMutexGuard<Option<Self>>,

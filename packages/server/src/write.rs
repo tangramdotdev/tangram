@@ -507,7 +507,7 @@ impl Session {
 			self.server.config.object.grant_time_to_touch,
 			self.server.config.object.time_to_touch,
 		);
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 		let root_object = tg::object::Id::from(blob.id.clone());
 		let arg = tangram_index::batch::Arg {
 			items: put_cache_entry_args

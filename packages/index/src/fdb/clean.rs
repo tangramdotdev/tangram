@@ -21,11 +21,11 @@ struct Candidate {
 #[derive(Clone)]
 enum Item {
 	AccountObject {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		object: tg::object::Id,
 	},
 	AccountProcess {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
 	CacheEntry(tg::artifact::Id),
@@ -44,7 +44,7 @@ pub(super) struct TransactionArg<'a> {
 	pub partition_start: u64,
 	pub partition_total: u64,
 	pub subspace: &'a Subspace,
-	pub storage_partition_total: u64,
+	pub usage_partition_total: u64,
 	pub txn: &'a fdb::Transaction,
 }
 
@@ -88,7 +88,7 @@ impl Index {
 			partition_start,
 			partition_total,
 			subspace,
-			storage_partition_total,
+			usage_partition_total,
 			txn,
 		} = arg;
 		let grants = Self::delete_expired_grants(
@@ -228,7 +228,7 @@ impl Index {
 						candidate.partition,
 						candidate.touched_at,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 					)
 					.await?;
 					continue;
@@ -242,7 +242,7 @@ impl Index {
 						candidate.partition,
 						candidate.touched_at,
 						partition_total,
-						storage_partition_total,
+						usage_partition_total,
 					)
 					.await?;
 					continue;

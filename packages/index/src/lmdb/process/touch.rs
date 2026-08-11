@@ -19,7 +19,7 @@ impl Index {
 	pub async fn touch_processes_and_put_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
@@ -30,7 +30,7 @@ impl Index {
 	pub async fn touch_processes_with_account(
 		&self,
 		ids: &[tg::process::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
@@ -41,7 +41,7 @@ impl Index {
 	async fn touch_processes_inner(
 		&self,
 		ids: &[tg::process::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		put_account: bool,
 		touched_at: i64,
 		time_to_touch: Duration,
@@ -68,7 +68,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::lmdb::TouchProcesses,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		let crate::lmdb::TouchProcesses {
 			account,
@@ -101,7 +101,7 @@ impl Index {
 						subspace,
 						transaction,
 						&arg,
-						storage_partition_total,
+						usage_partition_total,
 						false,
 						None,
 					)?;

@@ -181,7 +181,7 @@ impl Index {
 		batch_size: usize,
 		kind: crate::update::Kind,
 		max_process_depth: Option<u64>,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<crate::update::Output> {
 		let prefix = &(update_version_key_kind(kind).to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -271,7 +271,7 @@ impl Index {
 								object: object.clone(),
 								touched_at,
 							},
-							storage_partition_total,
+							usage_partition_total,
 							false,
 							Some(version),
 						)?,
@@ -284,7 +284,7 @@ impl Index {
 								process: process.clone(),
 								touched_at,
 							},
-							storage_partition_total,
+							usage_partition_total,
 							false,
 							Some(version),
 						)?,

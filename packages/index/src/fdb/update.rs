@@ -46,7 +46,7 @@ pub(super) enum StorageCursor {
 	Object(tg::object::Id),
 
 	#[tangram_serialize(id = 3)]
-	ObjectAccount(crate::storage::Account),
+	ObjectAccount(crate::usage::Account),
 
 	#[tangram_serialize(id = 1)]
 	ProcessChild(tg::process::Id),
@@ -55,7 +55,7 @@ pub(super) enum StorageCursor {
 	ProcessObject(Option<ProcessObjectCursor>),
 
 	#[tangram_serialize(id = 4)]
-	ProcessAccount(crate::storage::Account),
+	ProcessAccount(crate::usage::Account),
 }
 
 #[derive(
@@ -352,7 +352,7 @@ impl Index {
 		partition_end: u64,
 		max_process_depth: Option<u64>,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<crate::update::Output> {
 		let mut entries = Vec::new();
 
@@ -471,7 +471,7 @@ impl Index {
 									touched_at,
 								},
 								partition_total,
-								storage_partition_total,
+								usage_partition_total,
 								false,
 								Some(&version),
 							)
@@ -487,7 +487,7 @@ impl Index {
 									touched_at,
 								},
 								partition_total,
-								storage_partition_total,
+								usage_partition_total,
 								false,
 								Some(&version),
 							)
@@ -580,7 +580,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
 		version: &fdbt::Versionstamp,
@@ -611,7 +611,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
 	) -> tg::Result<Option<StorageCursor>> {
@@ -725,7 +725,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> tg::Result<(Vec<crate::storage::Account>, Option<StorageCursor>)> {
+	) -> tg::Result<(Vec<crate::usage::Account>, Option<StorageCursor>)> {
 		let (kind, item, after) = match (id, cursor) {
 			(tg::Either::Left(object), None) => (KeyKind::ObjectAccount, object.to_bytes(), None),
 			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
@@ -772,7 +772,7 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get storage accounts"))?;
+			.map_err(|error| tg::error!(!error, "failed to get usage accounts"))?;
 		let mut accounts = entries
 			.iter()
 			.map(|entry| match Self::unpack(subspace, entry.key())? {

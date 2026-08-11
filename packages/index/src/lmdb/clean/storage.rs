@@ -7,12 +7,12 @@ use {
 
 enum Candidate {
 	Object {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		object: tg::object::Id,
 		touched_at: i64,
 	},
 	Process {
-		account: crate::storage::Account,
+		account: crate::usage::Account,
 		process: tg::process::Id,
 		touched_at: i64,
 	},
@@ -103,46 +103,34 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		touched_at: i64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let candidate = Candidate::Object {
 			account: account.clone(),
 			object: object.clone(),
 			touched_at,
 		};
-		Self::clean_account_entry(
-			db,
-			subspace,
-			transaction,
-			&candidate,
-			storage_partition_total,
-		)
+		Self::clean_account_entry(db, subspace, transaction, &candidate, usage_partition_total)
 	}
 
 	pub(in crate::lmdb) fn clean_account_process_entry(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		touched_at: i64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let candidate = Candidate::Process {
 			account: account.clone(),
 			process: process.clone(),
 			touched_at,
 		};
-		Self::clean_account_entry(
-			db,
-			subspace,
-			transaction,
-			&candidate,
-			storage_partition_total,
-		)
+		Self::clean_account_entry(db, subspace, transaction, &candidate, usage_partition_total)
 	}
 
 	fn clean_account_entry(
@@ -150,7 +138,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		candidate: &Candidate,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let clean_key = match candidate {
 			Candidate::Object {
@@ -247,7 +235,7 @@ impl Index {
 				transaction,
 				account,
 				object,
-				storage_partition_total,
+				usage_partition_total,
 			)?,
 			Candidate::Process {
 				account, process, ..
@@ -257,7 +245,7 @@ impl Index {
 				transaction,
 				account,
 				process,
-				storage_partition_total,
+				usage_partition_total,
 			)?,
 		}
 		db.delete(transaction, &clean_key)
@@ -270,7 +258,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 	) -> tg::Result<u64> {
 		let mut count = 0;
@@ -312,7 +300,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 	) -> tg::Result<u64> {
 		let mut count = 0;
@@ -340,7 +328,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		target: &[u8],
 	) -> tg::Result<u64> {
 		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
@@ -362,9 +350,9 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let children =
 			Self::get_object_children_with_transaction(db, subspace, transaction, object)?;
@@ -388,9 +376,9 @@ impl Index {
 			subspace,
 			transaction,
 			account,
-			crate::storage::Kind::ObjectCount,
+			crate::usage::Kind::ObjectCount,
 			-1,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 		let object_value =
 			Self::try_get_object_with_transaction(db, subspace, transaction, object)?
@@ -402,9 +390,9 @@ impl Index {
 			subspace,
 			transaction,
 			account,
-			crate::storage::Kind::ObjectSize,
+			crate::usage::Kind::ObjectSize,
 			-size,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 		let key = Key::Clean(crate::lmdb::clean::Key::Object {
 			id: object.clone(),
@@ -420,9 +408,9 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let children =
 			Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
@@ -463,9 +451,9 @@ impl Index {
 			subspace,
 			transaction,
 			account,
-			crate::storage::Kind::ProcessCount,
+			crate::usage::Kind::ProcessCount,
 			-1,
-			storage_partition_total,
+			usage_partition_total,
 		)?;
 		let process_value =
 			Self::try_get_process_with_transaction(db, subspace, transaction, process)?
@@ -484,7 +472,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
 		let entry_key = Key::Storage(crate::lmdb::storage::Key::AccountObject {
@@ -515,7 +503,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		account: &crate::storage::Account,
+		account: &crate::usage::Account,
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
 		let entry_key = Key::Storage(crate::lmdb::storage::Key::AccountProcess {

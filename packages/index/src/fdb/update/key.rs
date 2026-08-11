@@ -23,8 +23,8 @@ pub enum Kind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StorageKind {
-	Add(crate::storage::Account),
-	Clean(crate::storage::Account),
+	Add(crate::usage::Account),
+	Clean(crate::usage::Account),
 	CleanAll,
-	Propagate(crate::storage::Account),
+	Propagate(crate::usage::Account),
 }

@@ -7,7 +7,7 @@ use ../../test.nu *
 let server = spawn --config {
 	runner: {
 		cpus: 1,
-		memory: (1e9 | into int),
+		memory: 1_073_741_824,
 	},
 }
 

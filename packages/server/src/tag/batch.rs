@@ -74,7 +74,7 @@ impl Session {
 							.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 							.await?;
 						let account = session
-							.storage_account_for_specifier_with_transaction(
+							.usage_account_for_specifier_with_transaction(
 								transaction,
 								&data.specifier,
 							)

@@ -152,7 +152,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
-	) -> tg::Result<Vec<crate::storage::Account>> {
+	) -> tg::Result<Vec<crate::usage::Account>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -188,7 +188,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
-	) -> tg::Result<Vec<crate::storage::Account>> {
+	) -> tg::Result<Vec<crate::usage::Account>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -225,7 +225,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::storage::put::ObjectArg,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<bool> {
@@ -253,7 +253,7 @@ impl Index {
 		let Some(object) = object else {
 			if touch_existing {
 				return Err(
-					tg::error!(object = %arg.object, "cannot add a missing object to a storage account"),
+					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -277,9 +277,9 @@ impl Index {
 			txn,
 			subspace,
 			&arg.account,
-			crate::storage::Kind::ObjectCount,
+			crate::usage::Kind::ObjectCount,
 			1,
-			storage_partition_total,
+			usage_partition_total,
 		);
 		let size = i64::try_from(object.metadata.node.size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
@@ -287,9 +287,9 @@ impl Index {
 			txn,
 			subspace,
 			&arg.account,
-			crate::storage::Kind::ObjectSize,
+			crate::usage::Kind::ObjectSize,
 			size,
-			storage_partition_total,
+			usage_partition_total,
 		);
 
 		Self::enqueue_update_with_kind_at_version(
@@ -312,7 +312,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::storage::put::ProcessArg,
 		partition_total: u64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<bool> {
@@ -340,7 +340,7 @@ impl Index {
 		if process.is_none() {
 			if touch_existing {
 				return Err(
-					tg::error!(process = %arg.process, "cannot add a missing process to a storage account"),
+					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -364,9 +364,9 @@ impl Index {
 			txn,
 			subspace,
 			&arg.account,
-			crate::storage::Kind::ProcessCount,
+			crate::usage::Kind::ProcessCount,
 			1,
-			storage_partition_total,
+			usage_partition_total,
 		);
 
 		Self::enqueue_update_with_kind_at_version(
@@ -387,12 +387,12 @@ impl Index {
 	pub(crate) fn add_account_usage(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		account: &crate::storage::Account,
-		kind: crate::storage::Kind,
+		account: &crate::usage::Account,
+		kind: crate::usage::Kind,
 		delta: i64,
-		storage_partition_total: u64,
+		usage_partition_total: u64,
 	) {
-		let partition = rand::random_range(0..storage_partition_total);
+		let partition = rand::random_range(0..usage_partition_total);
 		let key = Key::Storage(crate::fdb::storage::Key::AccountUsage {
 			account: account.clone(),
 			kind,

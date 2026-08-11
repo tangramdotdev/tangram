@@ -193,7 +193,7 @@ impl Session {
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 		});
-		let account = self.storage_account(&self.context.principal).await?;
+		let account = self.usage_account(&self.context.principal).await?;
 
 		// Put the process in the index.
 		self.server

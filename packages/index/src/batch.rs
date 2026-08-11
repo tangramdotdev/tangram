@@ -118,7 +118,9 @@ mod tests {
 				ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
 			})),
 			owner: Some(tg::Principal::Root),
-			status: tg::sandbox::Status::Started,
+			sandbox_cpu: Some(123),
+			sandbox_memory: Some(456),
+			status: tg::sandbox::Status::Destroyed,
 			token: None,
 			ttl: Some(std::time::Duration::new(60, 123)),
 		};
@@ -184,6 +186,8 @@ mod tests {
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
 		assert_eq!(data.cpu, Some(2));
+		assert_eq!(data.sandbox_cpu, Some(123));
+		assert_eq!(data.sandbox_memory, Some(456));
 		assert_eq!(data.ttl, Some(std::time::Duration::new(60, 123)));
 		assert_eq!(data.network.as_ref().unwrap().ports().len(), 1);
 	}

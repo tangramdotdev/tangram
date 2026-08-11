@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get storage usage for a user or organization.
+/// Get usage for a user or organization.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -57,7 +57,7 @@ impl Cli {
 				.try_get_user_usage(&tg::user::Selector::Id(user.id))
 				.await?
 		};
-		let usage = usage.ok_or_else(|| tg::error!("failed to find the storage owner"))?;
+		let usage = usage.ok_or_else(|| tg::error!("failed to find the usage account"))?;
 		self.print_serde(usage, args.print).await?;
 
 		Ok(())

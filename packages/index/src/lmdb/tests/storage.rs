@@ -52,7 +52,7 @@ fn process_arg(
 	}
 }
 
-fn new_index(storage_partition_total: u64) -> (tempfile::TempDir, Index) {
+fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
 		authorize: super::super::AuthorizeConfig {
@@ -64,7 +64,7 @@ fn new_index(storage_partition_total: u64) -> (tempfile::TempDir, Index) {
 		path: dir.path().join("index"),
 		read_batch_size: 64,
 		read_concurrency: 4,
-		storage_partition_total,
+		usage_partition_total,
 		write_batch_size: 100_000,
 	})
 	.unwrap();
@@ -78,7 +78,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	let b = object_id(2);
 	let c = object_id(3);
 	let d = object_id(4);
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(d.clone(), [], 4)),
@@ -125,7 +125,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 		}
 	}
 	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::storage::Usage::default());
+	assert_eq!(usage, crate::usage::Usage::default());
 }
 
 #[tokio::test]
@@ -134,7 +134,7 @@ async fn account_storage_traverses_process_relationships() {
 	let command = object_id(10);
 	let child = tg::process::Id::new();
 	let root = tg::process::Id::new();
-	let account = crate::storage::Account::Organization(tg::organization::Id::new());
+	let account = crate::usage::Account::Organization(tg::organization::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
@@ -169,7 +169,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	let command = object_id(15);
 	let child = tg::process::Id::new();
 	let root = tg::process::Id::new();
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let partial_root = crate::process::put::Arg {
 		children: None,
 		command: command.clone(),
@@ -238,7 +238,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	let (_dir, index) = new_index(1);
 	let child = object_id(17);
 	let parent = object_id(16);
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(parent.clone(), [child.clone()], 3)),
@@ -291,7 +291,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	let process = tg::process::Id::new();
 	let tag = tg::tag::Id::new();
 	let user = tg::user::Id::new();
-	let account = crate::storage::Account::User(user.clone());
+	let account = crate::usage::Account::User(user.clone());
 	let mut process_arg = process_arg(process.clone(), Vec::new(), command.clone());
 	process_arg.log = Some(Some(log.clone()));
 	let arg = crate::batch::Arg {
@@ -379,7 +379,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 	let command = object_id(18);
 	let child = tg::process::Id::new();
 	let parent = tg::process::Id::new();
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
@@ -438,7 +438,7 @@ async fn account_storage_is_retained_by_a_tag() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(20);
 	let user = tg::user::Id::new();
-	let account = crate::storage::Account::User(user.clone());
+	let account = crate::usage::Account::User(user.clone());
 	let tag = tg::tag::Id::new();
 	let arg = crate::batch::Arg {
 		items: vec![
@@ -506,14 +506,14 @@ async fn account_storage_is_retained_by_a_tag() {
 		}
 	}
 	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::storage::Usage::default());
+	assert_eq!(usage, crate::usage::Usage::default());
 }
 
 #[tokio::test]
 async fn touching_does_not_create_a_storage_entry() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(30);
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![crate::batch::Item::PutObject(object_arg(
 			object.clone(),
@@ -532,14 +532,14 @@ async fn touching_does_not_create_a_storage_entry() {
 		.await
 		.unwrap();
 	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::storage::Usage::default());
+	assert_eq!(usage, crate::usage::Usage::default());
 }
 
 #[tokio::test]
 async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(31);
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
@@ -584,7 +584,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 	let (_dir, index) = new_index(1);
 	let command = object_id(32);
 	let process = tg::process::Id::new();
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 5)),
@@ -628,7 +628,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 async fn touching_with_an_account_honors_time_to_touch() {
 	let (_dir, index) = new_index(1);
 	let object = object_id(33);
-	let account = crate::storage::Account::User(tg::user::Id::new());
+	let account = crate::usage::Account::User(tg::user::Id::new());
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
@@ -663,11 +663,11 @@ async fn touching_with_an_account_honors_time_to_touch() {
 		.await
 		.unwrap();
 	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::storage::Usage::default());
+	assert_eq!(usage, crate::usage::Usage::default());
 }
 
 #[test]
-fn rejects_zero_storage_partitions() {
+fn rejects_zero_usage_partitions() {
 	let dir = tempfile::TempDir::new().unwrap();
 	let result = Index::new(&Config {
 		authorize: super::super::AuthorizeConfig {
@@ -679,7 +679,7 @@ fn rejects_zero_storage_partitions() {
 		path: dir.path().join("index"),
 		read_batch_size: 64,
 		read_concurrency: 4,
-		storage_partition_total: 0,
+		usage_partition_total: 0,
 		write_batch_size: 100_000,
 	});
 	assert!(result.is_err());

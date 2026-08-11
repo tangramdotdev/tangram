@@ -19,7 +19,7 @@ impl Index {
 	pub async fn touch_objects_with_account(
 		&self,
 		ids: &[tg::object::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
@@ -44,7 +44,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		ids: &[tg::object::Id],
-		account: Option<&crate::storage::Account>,
+		account: Option<&crate::usage::Account>,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {

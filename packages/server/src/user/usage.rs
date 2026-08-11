@@ -43,7 +43,7 @@ impl Session {
 		let usage = self
 			.server
 			.index
-			.get_account_usage(&tangram_index::storage::Account::User(id))
+			.get_account_usage(&tg::usage::Account::User(id))
 			.await?;
 		let output = tg::usage::Output {
 			object_count: usage.object_count,
