@@ -13,7 +13,7 @@ tg.directory({
           }),
         }),
         "options": {
-          "id": "dir_01xnmvcr90x11yrqnxr3gxd77cpcv2zxk8c3a1hft8crfwfkwbjyzg",
+          "id": "dir_01vgzj912txjttk979pb2he5792s0g80cgn30qyzdnc2zjs8z1knhg",
           "tag": "a/1.0.0",
         },
       },
@@ -28,7 +28,7 @@ tg.directory({
           }),
         }),
         "options": {
-          "id": "dir_01w7rh62pxtrxksej414dr178nwwp1azffgyw0htcwbq16rwzfqmt0",
+          "id": "dir_010f1zhm2ykjx4hgd0psp2wyge4g178d5r7725k0rv96tjp1jty7k0",
           "tag": "b/1.0.0",
         },
       },

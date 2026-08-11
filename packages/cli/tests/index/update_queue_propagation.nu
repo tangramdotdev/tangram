@@ -25,7 +25,7 @@ snapshot --name child_metadata $child_metadata '
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 141,
+	    "size": 140,
 	    "solvable": false,
 	    "solved": true,
 	  },
@@ -59,7 +59,7 @@ snapshot --name parent_metadata $parent_metadata '
 	  "subtree": {
 	    "count": 9,
 	    "depth": 5,
-	    "size": 565,
+	    "size": 562,
 	    "solvable": false,
 	    "solved": true,
 	  },

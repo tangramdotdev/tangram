@@ -19,12 +19,14 @@ use crate::prelude::*;
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Kind {
+	#[tangram_serialize(id = 0)]
 	Directory,
 
+	#[tangram_serialize(id = 1)]
 	File,
 
+	#[tangram_serialize(id = 2)]
 	Symlink,
 }
 
@@ -42,20 +44,20 @@ impl From<Kind> for tg::object::Kind {
 mod tests {
 	use super::*;
 
-	// An artifact kind has the same canonical string representation in JSON and Tangram.
+	// An artifact kind uses a compact numeric tag in Tangram.
 	#[test]
 	fn serialization() {
-		for kind in [Kind::Directory, Kind::File, Kind::Symlink] {
-			let string = kind.to_string();
+		for (kind, expected_id) in [(Kind::Directory, 0), (Kind::File, 1), (Kind::Symlink, 2)] {
 			assert_eq!(
 				serde_json::to_value(kind).unwrap(),
-				serde_json::Value::String(string.clone()),
-			);
-			assert_eq!(
-				tangram_serialize::to_vec(&kind).unwrap(),
-				tangram_serialize::to_vec(&string).unwrap(),
+				serde_json::Value::String(kind.to_string()),
 			);
 			let bytes = tangram_serialize::to_vec(&kind).unwrap();
+			let value = tangram_serialize::from_slice::<tangram_serialize::Value>(&bytes).unwrap();
+			let tangram_serialize::Value::Enum(value) = value else {
+				panic!("expected an enum");
+			};
+			assert_eq!(value.id, expected_id);
 			let actual = tangram_serialize::from_slice::<Kind>(&bytes).unwrap();
 			assert_eq!(actual, kind);
 		}

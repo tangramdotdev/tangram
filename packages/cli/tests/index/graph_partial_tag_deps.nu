@@ -39,14 +39,14 @@ let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '
 	{
 	  "node": {
-	    "size": 248,
+	    "size": 239,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 17,
 	    "depth": 6,
-	    "size": 2006,
+	    "size": 1967,
 	    "solvable": true,
 	    "solved": true,
 	  },
