@@ -86,10 +86,10 @@ pub enum Directory {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct DirectoryLeaf {
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
-	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(id = 0)]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
@@ -103,6 +103,7 @@ pub struct DirectoryLeaf {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct DirectoryBranch {
 	#[tangram_serialize(id = 0)]
 	pub children: Vec<DirectoryChild>,
@@ -140,6 +141,7 @@ pub struct DirectoryChild {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
@@ -170,6 +172,7 @@ pub struct File {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct Symlink {
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,11 +201,13 @@ pub struct Symlink {
 	tangram_serialize::Serialize,
 )]
 #[serde(untagged)]
-#[tangram_serialize(untagged)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Edge<T> {
+	#[tangram_serialize(id = 0)]
 	Pointer(Pointer),
+
+	#[tangram_serialize(id = 1)]
 	Object(T),
 }
 
@@ -239,6 +244,7 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct Pointer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]

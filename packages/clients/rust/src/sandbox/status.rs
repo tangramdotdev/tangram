@@ -23,9 +23,11 @@ use {
 	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Status {
+	#[tangram_serialize(id = 0)]
 	Started,
+
+	#[tangram_serialize(id = 1)]
 	Destroyed,
 }
 

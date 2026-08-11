@@ -67,7 +67,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01s98pk3ygcmxvhmr2f61y37hfyqsktrcrw808rpmhz603pfkm6azg",
+	          "id": "dir_01bf6zscaw3mrpb34z4ykc55pahngr04ma7bvh0g61cjgpjvyfjdf0",
 	          "tag": "a/1.0.0",
 	        },
 	      },

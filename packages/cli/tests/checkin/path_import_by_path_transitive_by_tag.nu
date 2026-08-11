@@ -55,7 +55,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01y4e3v62knfrjq5dxhfp5gtk7em0jy6mfq55x88nbt3yjtmb099tg",
+	          "id": "dir_01cb5kf21s1acw79cq3amgy4m9arge8mez8va3rve05dhbf32k9t6g",
 	          "tag": "inner-pkg",
 	        },
 	      },

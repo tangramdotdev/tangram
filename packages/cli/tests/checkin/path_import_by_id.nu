@@ -27,15 +27,15 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import { helper } from \"dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0\" with { get: \"lib/utils.tg.ts\" };"),
+	    "contents": tg.blob("import { helper } from \"dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0\" with { get: \"lib/utils.tg.ts\" };"),
 	    "dependencies": {
-	      "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0?get=lib/utils.tg.ts": {
+	      "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0?get=lib/utils.tg.ts": {
 	        "node": tg.file({
 	          "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	          "module": "ts",
 	        }),
 	        "options": {
-	          "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
+	          "id": "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0",
 	          "path": "lib/utils.tg.ts",
 	        },
 	      },

@@ -24,11 +24,17 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Code {
+	#[tangram_serialize(id = 0)]
 	Cancellation,
+
+	#[tangram_serialize(id = 1)]
 	ChecksumMismatch,
+
+	#[tangram_serialize(id = 2)]
 	HeartbeatExpiration,
+
+	#[tangram_serialize(id = 3)]
 	Internal,
 }
 

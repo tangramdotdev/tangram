@@ -11,7 +11,7 @@
               "kind": "file",
               "contents": "baz"
             },
-            "fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0": {
+            "fil_01ggn2me3j21vbjc2fetv113qcksrj4ybh3np5wtqe63f97tyqprf0": {
               "kind": "file",
               "contents": "bar",
               "xattrs": {
@@ -26,7 +26,7 @@
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"fil_01g631a2y68g7g5432taycp4bh7b2sv91kxb37x6q0m9vxvewrpsd0\"]"
+        "user.tangram.dependencies": "[\"fil_01ggn2me3j21vbjc2fetv113qcksrj4ybh3np5wtqe63f97tyqprf0\"]"
       }
     }
   }

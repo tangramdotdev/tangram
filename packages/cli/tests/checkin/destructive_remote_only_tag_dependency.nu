@@ -39,7 +39,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01stfjn9km4b3vq5w8bgqc0xdgkwwn4307p5kysj41z1gsvacytp1g",
+	          "id": "dir_0171jwqyee4c5s71m536krbjqbrgffwc1mq1fg7p4k50j9vdwhrhd0",
 	          "tag": "remote_dep",
 	        },
 	      },

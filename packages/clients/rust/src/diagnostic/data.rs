@@ -34,11 +34,17 @@ pub struct Diagnostic {
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Severity {
+	#[tangram_serialize(id = 0)]
 	Error,
+
+	#[tangram_serialize(id = 1)]
 	Warning,
+
+	#[tangram_serialize(id = 2)]
 	Info,
+
+	#[tangram_serialize(id = 3)]
 	Hint,
 }
 

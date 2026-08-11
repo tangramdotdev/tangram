@@ -49,14 +49,14 @@ let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '
 	{
 	  "node": {
-	    "size": 124,
+	    "size": 128,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 917,
+	    "size": 929,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -78,7 +78,7 @@ snapshot --name file_metadata $file_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 844,
+	    "size": 852,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -100,7 +100,7 @@ snapshot --name file_b_metadata $file_b_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 844,
+	    "size": 852,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -116,14 +116,14 @@ let graph_metadata = tg --url $local.url object metadata --pretty $graph_id
 snapshot --name graph_metadata $graph_metadata '
 	{
 	  "node": {
-	    "size": 376,
+	    "size": 382,
 	    "solvable": true,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 9,
 	    "depth": 4,
-	    "size": 793,
+	    "size": 801,
 	    "solvable": true,
 	    "solved": false,
 	  },

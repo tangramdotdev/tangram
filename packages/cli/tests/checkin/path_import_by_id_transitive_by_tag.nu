@@ -40,15 +40,15 @@ snapshot $object '
 	      "inner-pkg": {
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0\" with { get: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0?get=lib/utils.tg.ts": {
+	              "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0?get=lib/utils.tg.ts": {
 	                "node": tg.file({
 	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
 	                  "module": "ts",
 	                }),
 	                "options": {
-	                  "id": "dir_016ac1gtqf1n59p5rm2bqztfvxtk7rwj7cgyfvz76d00g1cjt422t0",
+	                  "id": "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0",
 	                  "path": "lib/utils.tg.ts",
 	                },
 	              },
@@ -57,7 +57,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_01rcevvr4cmvv2a5vnn03zzmm9d78d6tcy7mqpydg72k19pcfad1w0",
+	          "id": "dir_0193vz0b2a2z8abvr5tqt0jnmzynmjz51evvn1tfbkfe0j6y0kgceg",
 	          "tag": "inner-pkg",
 	        },
 	      },

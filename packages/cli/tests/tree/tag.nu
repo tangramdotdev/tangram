@@ -22,18 +22,18 @@ snapshot $output '
 	└╴tree/of
 	  └╴tree/of/tags
 	    ├╴tree/of/tags/bar
-	    │ └╴target: dir_01fpb7jsgxkj5cf755q2ya402cy6eg0ydvawhep133v0pdzf3sebj0
+	    │ └╴target: dir_01a2v2xx6h1atd6bxncf5h08racw5rvdxr2r0dt855j9r0hc5k1290
 	    │   └╴entries: map
-	    │     └╴tangram.ts: fil_01rnnxz52enh0fdjb7vf17m8krfry1arc280cebr617zpnaapyg9r0
+	    │     └╴tangram.ts: fil_01z47zpv1n98qnjqv439p8s9kh6cbta4gz8p0d0jv2p5fj762kq25g
 	    │       ├╴contents: blb_0171ytyz9bccy0k15hrep1as9ccybpy2ny0bjq2cmshydz9265zbz0
 	    │       └╴dependencies: map
 	    │         └╴tree/of/tags/foo: map
-	    │           ├╴id: "dir_01jdb1dnyvm0g4ks4y5cj3shqxq0wvscqxg4s84nqkjrm0vqbye7ng"
-	    │           ├╴node: dir_01jdb1dnyvm0g4ks4y5cj3shqxq0wvscqxg4s84nqkjrm0vqbye7ng
+	    │           ├╴id: "dir_01bjvydgbza6t9bfv9pre2th2kvesar72b8ygds6h0rqpvxgndjfw0"
+	    │           ├╴node: dir_01bjvydgbza6t9bfv9pre2th2kvesar72b8ygds6h0rqpvxgndjfw0
 	    │           └╴tag: "tree/of/tags/foo"
 	    └╴tree/of/tags/foo
-	      └╴target: dir_01jdb1dnyvm0g4ks4y5cj3shqxq0wvscqxg4s84nqkjrm0vqbye7ng
+	      └╴target: dir_01bjvydgbza6t9bfv9pre2th2kvesar72b8ygds6h0rqpvxgndjfw0
 	        └╴entries: map
-	          └╴tangram.ts: fil_01casadjaen6c5zjwghqhctht695vw52x41x5tfnj2dkv8b245ygbg
+	          └╴tangram.ts: fil_01v6086g1en270899j96jw2t3brkdnwapkxasewzwhx3n0mnrkzsa0
 	            └╴contents: blb_0194cvce5k7jhd4ywjr3b9k3ax0gqv8af172q1mk1y287bwz6gaarg
 '

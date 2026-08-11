@@ -11,6 +11,6 @@ failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to get the reference
-	   reference = dir_01wfkxw25hxs3w1m4q1b505j4qrywc6d343zjf6z6pvspex7fczstg?get=nope.txt
+	   reference = dir_01jj08423k0g8xdtzxdw2ezy5fjd2nyss1y7qsp6bejvgdaht0y5g0?get=nope.txt
 
 '

@@ -571,18 +571,16 @@ export namespace Graph {
 			object: tg.Graph.Directory,
 		): tg.Graph.Data.Directory => {
 			if (tg.Graph.Directory.isLeaf(object)) {
-				let data: tg.Graph.Data.DirectoryLeaf = {};
-				if (globalThis.Object.entries(object.entries).length > 0) {
-					data.entries = globalThis.Object.fromEntries(
+				return {
+					entries: globalThis.Object.fromEntries(
 						globalThis.Object.entries(object.entries).map(
 							([name, artifact]) => [
 								name,
 								tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
 							],
 						),
-					);
-				}
-				return data;
+					),
+				};
 			} else {
 				return {
 					children: object.children.map((child) => ({
@@ -611,12 +609,10 @@ export namespace Graph {
 			} else {
 				return {
 					entries: globalThis.Object.fromEntries(
-						globalThis.Object.entries(data.entries ?? {}).map(
-							([name, edge]) => [
-								name,
-								tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
-							],
-						),
+						globalThis.Object.entries(data.entries).map(([name, edge]) => [
+							name,
+							tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
+						]),
 					),
 				};
 			}
@@ -1122,7 +1118,7 @@ export namespace Graph {
 			export let isLeaf = (
 				data: tg.Graph.Data.Directory,
 			): data is tg.Graph.Data.DirectoryLeaf => {
-				return !("children" in data);
+				return "entries" in data;
 			};
 
 			export let isBranch = (
@@ -1137,7 +1133,7 @@ export namespace Graph {
 				if (tg.Graph.Data.Directory.isBranch(data)) {
 					return data.children.flatMap(tg.Graph.Data.DirectoryChild.children);
 				} else {
-					return globalThis.Object.values(data.entries ?? {}).flatMap(
+					return globalThis.Object.values(data.entries).flatMap(
 						tg.Graph.Data.Edge.children,
 					);
 				}
@@ -1145,7 +1141,7 @@ export namespace Graph {
 		}
 
 		export type DirectoryLeaf = {
-			entries?: { [name: string]: tg.Graph.Data.Edge<tg.Artifact.Id> };
+			entries: { [name: string]: tg.Graph.Data.Edge<tg.Artifact.Id> };
 		};
 
 		export type DirectoryBranch = {

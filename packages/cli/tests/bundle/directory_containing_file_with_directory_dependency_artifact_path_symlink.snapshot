@@ -7,7 +7,7 @@
         "artifacts": {
           "kind": "directory",
           "entries": {
-            "dir_01545297gcdeh2zqzs0e4yjq4c32k3pe3dmgtqq648vfr8dmwemzb0": {
+            "dir_01fczet3j09dq7y6y5bbczn34v3cvqcf9jeq9acmb68496ptp6h3k0": {
               "kind": "directory",
               "entries": {
                 "dep": {
@@ -16,11 +16,11 @@
                 },
                 "link": {
                   "kind": "symlink",
-                  "path": "../../../.tangram/artifacts/dir_016gzra6sz1f1cxxfwg0pje3e12rxz2wzqcd3t102mcek7fxn8ara0/a"
+                  "path": "../../../.tangram/artifacts/dir_01kq2wscftva7h84b5hknjb7n7r732rrmj1m82r20n9dx0r8dcscgg/a"
                 }
               }
             },
-            "dir_016gzra6sz1f1cxxfwg0pje3e12rxz2wzqcd3t102mcek7fxn8ara0": {
+            "dir_01kq2wscftva7h84b5hknjb7n7r732rrmj1m82r20n9dx0r8dcscgg": {
               "kind": "directory",
               "entries": {
                 "a": {

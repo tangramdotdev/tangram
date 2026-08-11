@@ -35,19 +35,41 @@ pub struct Module {
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
-#[tangram_serialize(display, from_str)]
 pub enum Kind {
+	#[tangram_serialize(id = 0)]
 	Js,
+
+	#[tangram_serialize(id = 1)]
 	Ts,
+
+	#[tangram_serialize(id = 2)]
 	Dts,
+
+	#[tangram_serialize(id = 3)]
 	Object,
+
+	#[tangram_serialize(id = 4)]
 	Artifact,
+
+	#[tangram_serialize(id = 5)]
 	Blob,
+
+	#[tangram_serialize(id = 6)]
 	Directory,
+
+	#[tangram_serialize(id = 7)]
 	File,
+
+	#[tangram_serialize(id = 8)]
 	Symlink,
+
+	#[tangram_serialize(id = 9)]
 	Graph,
+
+	#[tangram_serialize(id = 10)]
 	Command,
+
+	#[tangram_serialize(id = 11)]
 	Error,
 }
 

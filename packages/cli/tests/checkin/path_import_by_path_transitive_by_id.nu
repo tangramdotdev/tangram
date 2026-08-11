@@ -34,9 +34,9 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import * as inner from \"dir_01y4e3v62knfrjq5dxhfp5gtk7em0jy6mfq55x88nbt3yjtmb099tg\";"),
+	    "contents": tg.blob("import * as inner from \"dir_01cb5kf21s1acw79cq3amgy4m9arge8mez8va3rve05dhbf32k9t6g\";"),
 	    "dependencies": {
-	      "dir_01y4e3v62knfrjq5dxhfp5gtk7em0jy6mfq55x88nbt3yjtmb099tg": {
+	      "dir_01cb5kf21s1acw79cq3amgy4m9arge8mez8va3rve05dhbf32k9t6g": {
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),

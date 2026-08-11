@@ -1,18 +1,18 @@
 {
   "kind": "directory",
   "entries": {
-    "fil_01c9hv1869wgpf6mq55r62ynf1eap3wbgepfvye819ax9t246aegn0": {
-      "kind": "file",
-      "contents": "",
-      "xattrs": {
-        "user.tangram.dependencies": "[\"./foo.tg.ts\"]"
-      }
-    },
-    "fil_01rcw74s81fxd9kc36m7cmtcaq1pam24ffnwwha50psrr48yce29t0": {
+    "fil_010edfran0r27r0bym29syg2ybtpeg8jpjr84wst88g2xyc5kx8ywg": {
       "kind": "file",
       "contents": "",
       "xattrs": {
         "user.tangram.dependencies": "[\"./bar.tg.ts\"]"
+      }
+    },
+    "fil_01t01smnant87zs0e8pq1z305js3gjh1yw600977k1at3ztdspb720": {
+      "kind": "file",
+      "contents": "",
+      "xattrs": {
+        "user.tangram.dependencies": "[\"./foo.tg.ts\"]"
       }
     }
   }

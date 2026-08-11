@@ -7,7 +7,7 @@ tg.directory({
         "dependencies": {
           "../bar": {
             "node": {
-              "index": 2,
+              "index": 1,
               "kind": "directory",
             },
             "options": {
@@ -21,7 +21,7 @@ tg.directory({
         "kind": "directory",
         "entries": {
           "tangram.ts": {
-            "index": 0,
+            "index": 3,
             "kind": "file",
           },
         },
@@ -30,7 +30,7 @@ tg.directory({
         "kind": "directory",
         "entries": {
           "tangram.ts": {
-            "index": 3,
+            "index": 0,
             "kind": "file",
           },
         },
@@ -41,7 +41,7 @@ tg.directory({
         "dependencies": {
           "../foo": {
             "node": {
-              "index": 1,
+              "index": 2,
               "kind": "directory",
             },
             "options": {
@@ -53,6 +53,6 @@ tg.directory({
       },
     ],
   }),
-  "index": 1,
+  "index": 2,
   "kind": "directory",
 })

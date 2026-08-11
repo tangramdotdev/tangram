@@ -1,19 +1,7 @@
 {
   "kind": "directory",
   "entries": {
-    "dir_012p0df7104891wbd2y0zdf37t4akd468zt3vs2bpbrt02kf9jh5kg": {
-      "kind": "directory",
-      "entries": {
-        "c": {
-          "kind": "file",
-          "contents": "",
-          "xattrs": {
-            "user.tangram.dependencies": "[\"a\"]"
-          }
-        }
-      }
-    },
-    "dir_01cyph460j3nz8456qmm3frpah29hpky9qyjerya8b0gjkbr6s5mzg": {
+    "dir_015gc60f03ek0tp0hzn2k7fs9sh4xcwwrppr0ypmvmz4nmx3vdqp3g": {
       "kind": "directory",
       "entries": {
         "b": {
@@ -26,6 +14,18 @@
                 "user.tangram.dependencies": "[\"a\"]"
               }
             }
+          }
+        }
+      }
+    },
+    "dir_01ywdh7ywt3kbvzr7yc0kfx8b4bggme854gq8rvn5asrh2g9w0whz0": {
+      "kind": "directory",
+      "entries": {
+        "c": {
+          "kind": "file",
+          "contents": "",
+          "xattrs": {
+            "user.tangram.dependencies": "[\"a\"]"
           }
         }
       }

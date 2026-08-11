@@ -15,10 +15,14 @@ use crate::prelude::*;
 )]
 #[display(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case", tag = "kind")]
-#[tangram_serialize(display, from_str)]
 pub enum Isolation {
+	#[tangram_serialize(id = 0)]
 	Container,
+
+	#[tangram_serialize(id = 1)]
 	Seatbelt,
+
+	#[tangram_serialize(id = 2)]
 	Vm,
 }
 
