@@ -387,9 +387,13 @@ impl Session {
 			match snapshot.await {
 				Ok(snapshot) => {
 					if compatible {
-						let graph = snapshot.graph;
+						// Rebuild the graph when explicit updates invalidate its solved nodes.
+						let (graph, solutions) = if arg.updates.is_empty() {
+							(snapshot.graph, snapshot.solutions)
+						} else {
+							(Graph::default(), Solutions::default())
+						};
 						let lock = snapshot.lock;
-						let solutions = snapshot.solutions;
 						let watch_observation = WatchObservation::Compatible {
 							id: snapshot.id,
 							version: snapshot.version,

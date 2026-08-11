@@ -136,13 +136,6 @@ impl Session {
 			// If solutions is empty, then just solve.
 			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
 				.await?;
-		} else if !arg.updates.is_empty() {
-			// If there are updates, then unsolve and clean the graph, clear the solutions, and solve from the beginning.
-			graph.unsolve();
-			graph.clean(root);
-			solutions.clear();
-			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await?;
 		} else {
 			// Otherwise, attempt to solve.
 			let result = self
