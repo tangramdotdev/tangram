@@ -27,7 +27,7 @@ pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connec
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
 
 pub struct State {
-	pub children: Vec<Child>,
+	pub child_leases: Vec<ChildLease>,
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
@@ -37,7 +37,7 @@ pub struct State {
 	pub stopper: tangram_futures::task::Stopper,
 }
 
-pub struct Child {
+pub struct ChildLease {
 	pub lease: String,
 	pub location: Option<tg::location::Arg>,
 	pub process: tg::process::Id,
