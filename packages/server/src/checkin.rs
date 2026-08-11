@@ -598,16 +598,16 @@ impl Session {
 					.get(&watch_key)
 					.filter(|watch| watch.id() == id)
 					.ok_or_else(|| tg::error!("the watch changed during checkin"))?;
-				let lock_write = watch
+				let lock_write_guard = watch
 					.reserve_lock_write(version)
 					.ok_or_else(|| tg::error!("files were modified during checkin"))?;
 
-				Ok(Some(lock_write))
+				Ok(Some(lock_write_guard))
 			},
 			WatchObservation::Vacant => Ok(None),
 		};
 		progress.spinner("locking", "locking");
-		let (lock, lock_write) = self
+		let (lock, lock_write_guard) = self
 			.checkin_write_lock(&arg, &graph, next, lock, root, reserve_lock_write)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the lock"))?;
@@ -648,7 +648,7 @@ impl Session {
 			.await;
 
 			// Verify that the lock has the expected contents.
-			if lock_write.is_some() {
+			if lock_write_guard.is_some() {
 				let actual_lock = Self::checkin_try_read_lock(root)
 					.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
 				if !crate::watch::locks_equal(lock.as_deref(), actual_lock.as_ref()) {
@@ -670,7 +670,7 @@ impl Session {
 						graph: graph.clone(),
 						key: &watch_key,
 						lock,
-						lock_write,
+						lock_write_guard,
 						next,
 						server: &self.server,
 						solutions,
@@ -699,7 +699,7 @@ impl Session {
 					let success =
 						entry
 							.get_mut()
-							.replace_if_version(version, lock_write, || {
+							.replace_if_version(version, lock_write_guard, || {
 								Watch::new(&self.server, &watch_key, new_arg).map_err(|error| {
 									tg::error!(!error, "failed to create the watch")
 								})

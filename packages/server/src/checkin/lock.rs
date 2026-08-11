@@ -70,10 +70,10 @@ impl Session {
 		reserve_lock_write: F,
 	) -> tg::Result<(
 		Option<Arc<tg::graph::Data>>,
-		Option<crate::watch::LockWrite>,
+		Option<crate::watch::LockWriteGuard>,
 	)>
 	where
-		F: FnOnce() -> tg::Result<Option<crate::watch::LockWrite>>,
+		F: FnOnce() -> tg::Result<Option<crate::watch::LockWriteGuard>>,
 	{
 		// Get the root node.
 		let root_index = graph.paths.get(root).unwrap();
@@ -94,7 +94,7 @@ impl Session {
 			if arg.options.locked && lock.is_some() {
 				return Err(tg::error!("the lock is out of date"));
 			}
-			let lock_write = reserve_lock_write()?;
+			let lock_write_guard = reserve_lock_write()?;
 			match root_node.variant {
 				Variant::Directory(_) => {
 					let lockfile_path = root.join(tg::module::LOCKFILE_FILE_NAME);
@@ -107,7 +107,7 @@ impl Session {
 				},
 				Variant::Symlink(_) => (),
 			}
-			return Ok((None, lock_write));
+			return Ok((None, lock_write_guard));
 		}
 
 		// Do not write a lock if the lock was not changed during solving.
@@ -132,7 +132,7 @@ impl Session {
 
 		let lock = Arc::new(new_lock);
 		let expected = (!lock.nodes.is_empty()).then(|| lock.clone());
-		let lock_write = reserve_lock_write()?;
+		let lock_write_guard = reserve_lock_write()?;
 
 		// If the root is a directory, then write a lockfile. Otherwise, write a file lock.
 		match root_node.variant {
@@ -145,7 +145,7 @@ impl Session {
 
 				// Do not write an empty lock.
 				if lock.nodes.is_empty() {
-					return Ok((expected, lock_write));
+					return Ok((expected, lock_write_guard));
 				}
 
 				// Serialize the lock.
@@ -186,7 +186,7 @@ impl Session {
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
-							return Ok((expected, lock_write));
+							return Ok((expected, lock_write_guard));
 						}
 
 						// Serialize the lock.
@@ -210,7 +210,7 @@ impl Session {
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
-							return Ok((expected, lock_write));
+							return Ok((expected, lock_write_guard));
 						}
 
 						// Serialize the lock.
@@ -230,7 +230,7 @@ impl Session {
 			Variant::Symlink(_) => {},
 		}
 
-		Ok((expected, lock_write))
+		Ok((expected, lock_write_guard))
 	}
 
 	fn checkin_lock_changed(

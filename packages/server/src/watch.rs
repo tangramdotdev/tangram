@@ -40,7 +40,7 @@ pub struct NewArg<F> {
 	pub spawn_index_task: F,
 }
 
-pub struct LockWrite {
+pub struct LockWriteGuard {
 	active: bool,
 	state: Arc<Mutex<State>>,
 	version: u64,
@@ -50,7 +50,7 @@ struct State {
 	graph: crate::checkin::Graph,
 	index_task: Shared<tg::Result<()>>,
 	lock: Option<Arc<tg::graph::Data>>,
-	lock_write: Option<u64>,
+	lock_write_version: Option<u64>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	sender: tokio::sync::mpsc::Sender<Message>,
@@ -72,7 +72,7 @@ pub struct UpdateArg<'a> {
 	pub graph: crate::checkin::Graph,
 	pub key: &'a Key,
 	pub lock: Option<Arc<tg::graph::Data>>,
-	pub lock_write: Option<LockWrite>,
+	pub lock_write_guard: Option<LockWriteGuard>,
 	pub next: usize,
 	pub server: &'a Server,
 	pub solutions: crate::checkin::Solutions,
@@ -100,8 +100,8 @@ impl Id {
 	}
 }
 
-impl LockWrite {
-	fn complete(mut self) {
+impl LockWriteGuard {
+	fn commit(mut self) {
 		self.active = false;
 	}
 }
@@ -150,7 +150,7 @@ impl Watch {
 			graph,
 			index_task,
 			lock,
-			lock_write: None,
+			lock_write_version: None,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
 			sender,
@@ -186,7 +186,8 @@ impl Watch {
 						paths.remove(root.as_path());
 					}
 					let lock_changed = uses_lock && lockfile_changed;
-					let read_lock = lock_changed && state.lock().unwrap().lock_write.is_none();
+					let read_lock =
+						lock_changed && state.lock().unwrap().lock_write_version.is_none();
 					let lock = read_lock.then(|| crate::Session::checkin_try_read_lock(&root));
 
 					// Lock the state.
@@ -194,7 +195,7 @@ impl Watch {
 
 					// Update the lock unless an internal write is pending.
 					let mut modified = false;
-					if state.lock_write.is_none()
+					if state.lock_write_version.is_none()
 						&& let Some(lock) = lock
 					{
 						match lock {
@@ -307,7 +308,7 @@ impl Watch {
 	pub fn replace_if_version<F>(
 		&mut self,
 		version: u64,
-		lock_write: Option<LockWrite>,
+		lock_write_guard: Option<LockWriteGuard>,
 		replace: F,
 	) -> tg::Result<bool>
 	where
@@ -315,7 +316,7 @@ impl Watch {
 	{
 		let state = self.state.clone();
 		let mut state = state.lock().unwrap();
-		if state.version != version || !state.lock_write_matches(lock_write.as_ref()) {
+		if state.version != version || !state.lock_write_guard_matches(lock_write_guard.as_ref()) {
 			drop(state);
 			return Ok(false);
 		}
@@ -326,28 +327,28 @@ impl Watch {
 				return Err(error);
 			},
 		};
-		state.lock_write.take();
+		state.lock_write_version.take();
 		*self = watch;
-		if let Some(lock_write) = lock_write {
-			lock_write.complete();
+		if let Some(lock_write_guard) = lock_write_guard {
+			lock_write_guard.commit();
 		}
 
 		Ok(true)
 	}
 
-	pub fn reserve_lock_write(&self, version: u64) -> Option<LockWrite> {
+	pub fn reserve_lock_write(&self, version: u64) -> Option<LockWriteGuard> {
 		let mut state = self.state.lock().unwrap();
-		if state.version != version || state.lock_write.is_some() {
+		if state.version != version || state.lock_write_version.is_some() {
 			return None;
 		}
-		state.lock_write = Some(version);
-		let lock_write = LockWrite {
+		state.lock_write_version = Some(version);
+		let lock_write_guard = LockWriteGuard {
 			active: true,
 			state: self.state.clone(),
 			version,
 		};
 
-		Some(lock_write)
+		Some(lock_write_guard)
 	}
 
 	pub fn get(&self) -> impl Future<Output = tg::Result<Snapshot>> + Send + use<> {
@@ -401,7 +402,7 @@ impl Watch {
 			graph,
 			key,
 			lock,
-			lock_write,
+			lock_write_guard,
 			next,
 			server,
 			solutions,
@@ -409,7 +410,7 @@ impl Watch {
 		} = arg;
 		let mut state = self.state.lock().unwrap();
 
-		if state.version != version || !state.lock_write_matches(lock_write.as_ref()) {
+		if state.version != version || !state.lock_write_guard_matches(lock_write_guard.as_ref()) {
 			drop(state);
 			return false;
 		}
@@ -419,7 +420,7 @@ impl Watch {
 		state.graph = graph;
 		state.index_task = index_task;
 		state.lock = lock;
-		state.lock_write.take();
+		state.lock_write_version.take();
 		state.solutions = solutions;
 		state.version += 1;
 
@@ -433,8 +434,8 @@ impl Watch {
 		state.add_paths_linux(next);
 		#[cfg(not(target_os = "linux"))]
 		let _ = next;
-		if let Some(lock_write) = lock_write {
-			lock_write.complete();
+		if let Some(lock_write_guard) = lock_write_guard {
+			lock_write_guard.commit();
 		}
 
 		true
@@ -503,9 +504,9 @@ impl Watch {
 }
 
 impl State {
-	fn lock_write_matches(&self, lock_write: Option<&LockWrite>) -> bool {
-		match (self.lock_write, lock_write) {
-			(Some(version), Some(lock_write)) => version == lock_write.version,
+	fn lock_write_guard_matches(&self, lock_write_guard: Option<&LockWriteGuard>) -> bool {
+		match (self.lock_write_version, lock_write_guard) {
+			(Some(version), Some(lock_write_guard)) => version == lock_write_guard.version,
 			(None, None) => true,
 			_ => false,
 		}
@@ -580,15 +581,15 @@ impl State {
 	}
 }
 
-impl Drop for LockWrite {
+impl Drop for LockWriteGuard {
 	fn drop(&mut self) {
 		if !self.active {
 			return;
 		}
 		let mut state = self.state.lock().unwrap();
-		if state.lock_write == Some(self.version) {
+		if state.lock_write_version == Some(self.version) {
 			state.lock.take();
-			state.lock_write.take();
+			state.lock_write_version.take();
 			state.version += 1;
 		}
 	}
