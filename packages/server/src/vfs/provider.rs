@@ -2003,20 +2003,24 @@ impl Provider {
 			.map_err(|error| {
 				tracing::error!(error = %error.trace(), %id, "failed to get the object");
 				std::io::Error::from_raw_os_error(libc::EIO)
+			})?
+			.object;
+		if let Some(object) = object {
+			if let Some(length) = object.cache_pointer.map(|pointer| pointer.length) {
+				return Ok(length);
+			}
+			let Some(bytes) = object.bytes else {
+				return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+			};
+			let data = tg::object::Data::deserialize(id.kind(), &*bytes).map_err(|error| {
+				tracing::error!(error = %error.trace(), %id, "failed to deserialize the object data");
+				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-		let Some(object) = object.object else {
-			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
-		};
-		if let Some(cache_pointer) = object.cache_pointer {
-			return Ok(cache_pointer.length);
+			return Self::blob_length_from_data(&id, data);
 		}
-		let Some(bytes) = object.bytes else {
-			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		let Some(data) = self.try_get_data_inner(&id).await? else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 		};
-		let data = tg::object::Data::deserialize(id.kind(), &*bytes).map_err(|error| {
-			tracing::error!(error = %error.trace(), %id, "failed to deserialize object data");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
 		Self::blob_length_from_data(&id, data)
 	}
 
