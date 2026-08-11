@@ -1,15 +1,16 @@
 use ../../test.nu *
 
-# The owner may still pull and read a live process log. The compaction gate that withholds the log from an unauthorized puller must not withhold it from the process owner, who is authorized to read it. The remote's finalizer is disabled so the log stays live, exercising the on-demand compaction path during the pull.
+# The owner may still pull and read a live process log. The compaction gate that withholds the log from an unauthorized puller must not withhold it from the process owner, who is authorized to read it. The remote's log compaction task is disabled so the log stays live, exercising the on-demand compaction path during the pull.
 
 let remote = spawn --cloud --name remote --config {
 	authentication: { users: { providers: { insecure: true } } },
+	indexer: { log_compaction: { enabled: false } },
 	roles: [cleaner http indexer runner scheduler],
 }
 
 let alice = tg --url $remote.url login --verbose alice | from json
 
-# Alice builds a process on the remote whose stdout holds a secret. With the finalizer disabled the log stays live (data.log is null).
+# Alice builds a process on the remote whose stdout holds a secret. With log compaction disabled the log stays live (data.log is null).
 let path = artifact { tangram.ts: 'export default function () { console.log("alicesecret"); }' }
 let process = tg --url $remote.url --token $alice.token build --detach $path | str trim
 wait_until { (tg --url $remote.url --token $alice.token process status $process | from json | get 0) == "finished" } --timeout 30sec

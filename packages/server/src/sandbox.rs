@@ -13,7 +13,6 @@ use {
 pub mod control;
 pub mod create;
 pub mod destroy;
-pub mod finalize;
 pub mod get;
 pub mod isolation;
 pub mod list;

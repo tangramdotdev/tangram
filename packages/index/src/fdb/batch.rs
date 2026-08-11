@@ -82,11 +82,11 @@ impl Index {
 					Self::delete_users_with_transaction(txn, subspace, std::slice::from_ref(id))
 						.await?;
 				},
-				crate::batch::Item::EnqueueFinalization(item) => {
-					Self::enqueue_finalization_with_transaction(
+				crate::batch::Item::EnqueueLogCompaction(process) => {
+					Self::enqueue_log_compaction_with_transaction(
 						txn,
 						subspace,
-						item,
+						process,
 						partition_total,
 					)
 					.await?;

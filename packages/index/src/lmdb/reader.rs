@@ -137,22 +137,20 @@ impl Index {
 				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::ContainsIds(output)
 			},
-			crate::read::Request::FinalizationBatch {
+			crate::read::Request::LogCompactionBatch {
 				batch_size,
-				kind,
 				partition_end,
 				partition_start,
 			} => {
-				let output = Self::finalization_batch_with_transaction(
+				let output = Self::log_compaction_batch_with_transaction(
 					db,
 					subspace,
 					transaction,
-					kind,
 					batch_size,
 					partition_start,
 					partition_end,
 				)?;
-				crate::read::Response::FinalizationBatch(output)
+				crate::read::Response::LogCompactionBatch(output)
 			},
 			crate::read::Request::GetRequesterPrincipals { principal } => {
 				let output = Self::requester_principals_with_transaction(
@@ -261,14 +259,13 @@ impl Index {
 					Self::try_get_objects_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::TryGetObjects(output)
 			},
-			crate::read::Request::TryGetOldestFinalizationTransactionId { kind } => {
-				let output = Self::try_get_oldest_finalization_transaction_id_with_transaction(
+			crate::read::Request::TryGetOldestLogCompactionTransactionId => {
+				let output = Self::try_get_oldest_log_compaction_transaction_id_with_transaction(
 					db,
 					subspace,
 					transaction,
-					kind,
 				)?;
-				crate::read::Response::TryGetOldestFinalizationTransactionId(output)
+				crate::read::Response::TryGetOldestLogCompactionTransactionId(output)
 			},
 			crate::read::Request::TryGetOldestUpdateTransactionId { kind } => {
 				let output = Self::try_get_oldest_update_transaction_id_with_transaction(

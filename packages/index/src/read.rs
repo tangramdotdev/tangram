@@ -14,9 +14,8 @@ pub(crate) enum Request {
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
-	FinalizationBatch {
+	LogCompactionBatch {
 		batch_size: usize,
-		kind: crate::finalization::Kind,
 		partition_end: u64,
 		partition_start: u64,
 	},
@@ -62,9 +61,7 @@ pub(crate) enum Request {
 	TryGetObjects {
 		ids: Vec<tg::object::Id>,
 	},
-	TryGetOldestFinalizationTransactionId {
-		kind: crate::finalization::Kind,
-	},
+	TryGetOldestLogCompactionTransactionId,
 	TryGetOldestUpdateTransactionId {
 		kind: crate::update::Kind,
 	},
@@ -92,7 +89,7 @@ pub(crate) enum Request {
 pub(crate) enum Response {
 	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
 	ContainsIds(Vec<bool>),
-	FinalizationBatch(Vec<crate::finalization::Entry>),
+	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
 	GetAccountUsage(crate::storage::Usage),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
@@ -106,7 +103,7 @@ pub(crate) enum Response {
 	TryGetGroups(Vec<Option<crate::group::Group>>),
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
-	TryGetOldestFinalizationTransactionId(Option<u64>),
+	TryGetOldestLogCompactionTransactionId(Option<u64>),
 	TryGetOldestUpdateTransactionId(Option<u64>),
 	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),

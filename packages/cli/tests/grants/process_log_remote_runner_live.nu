@@ -4,10 +4,11 @@ use ../../test.nu *
 
 let root_token = random chars
 
-# The remote authenticates users and schedules work but holds no runner role, so the build can only complete by way of the separate runner. The finalizer is disabled so the log stays live.
+# The remote authenticates users and schedules work but holds no runner role, so the build can only complete by way of the separate runner. Log compaction is disabled so the log stays live.
 let remote = spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+	indexer: { log_compaction: { enabled: false } },
 	roles: [cleaner http indexer scheduler],
 }
 
@@ -24,7 +25,7 @@ let local = spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-# Alice starts a long-running process on the runner that logs a secret and then sleeps, so it stays unfinalized.
+# Alice starts a long-running process on the runner that logs a secret and then sleeps, so its log stays live.
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

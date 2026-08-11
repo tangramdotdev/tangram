@@ -264,7 +264,7 @@ impl Index {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
 			Request::Batch(_)
-			| Request::CompleteFinalization(_)
+			| Request::CompleteLogCompaction(_)
 			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
@@ -273,7 +273,7 @@ impl Index {
 			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
-			| Request::EnqueueFinalization(_)
+			| Request::EnqueueLogCompaction(_)
 			| Request::PutCacheEntries(_)
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
@@ -317,9 +317,9 @@ impl Index {
 					},
 				)
 			},
-			Request::CompleteFinalization(entry) => (
-				vec![Item::CompleteFinalization(entry)],
-				Kind::CompleteFinalization,
+			Request::CompleteLogCompaction(entry) => (
+				vec![Item::CompleteLogCompaction(entry)],
+				Kind::CompleteLogCompaction,
 			),
 			Request::DeleteGrants(args) => {
 				let items = args.into_iter().map(Item::DeleteGrant).collect();
@@ -356,9 +356,9 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteUser).collect();
 				(items, Kind::DeleteUsers)
 			},
-			Request::EnqueueFinalization(item) => (
-				vec![Item::EnqueueFinalization(item)],
-				Kind::EnqueueFinalization,
+			Request::EnqueueLogCompaction(process) => (
+				vec![Item::EnqueueLogCompaction(process)],
+				Kind::EnqueueLogCompaction,
 			),
 			Request::PutCacheEntries(args) => {
 				let items = args.into_iter().map(Item::PutCacheEntry).collect();
@@ -489,12 +489,12 @@ impl Index {
 				partition_end: *partition_end,
 				partition_start: *partition_start,
 			}),
-			Kind::CompleteFinalization => {
+			Kind::CompleteLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::CompleteFinalization(entry)] = items else {
+				let [Item::CompleteLogCompaction(entry)] = items else {
 					unreachable!();
 				};
-				Request::CompleteFinalization(entry)
+				Request::CompleteLogCompaction(entry)
 			},
 			Kind::DeleteGrants => {
 				let args = items
@@ -576,12 +576,12 @@ impl Index {
 					.collect();
 				Request::DeleteUsers(ids)
 			},
-			Kind::EnqueueFinalization => {
+			Kind::EnqueueLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::EnqueueFinalization(item)] = items else {
+				let [Item::EnqueueLogCompaction(process)] = items else {
 					unreachable!();
 				};
-				Request::EnqueueFinalization(item)
+				Request::EnqueueLogCompaction(process)
 			},
 			Kind::PutCacheEntries => {
 				let args = items
@@ -808,8 +808,8 @@ impl Index {
 				request,
 				Request::Batch(_)
 					| Request::Clean(_)
-					| Request::CompleteFinalization(_)
-					| Request::EnqueueFinalization(_)
+					| Request::CompleteLogCompaction(_)
+					| Request::EnqueueLogCompaction(_)
 					| Request::PutCacheEntries(_)
 					| Request::PutGrants(_)
 					| Request::PutGroupMembers(_)
@@ -966,8 +966,8 @@ impl Index {
 					.await
 					.map(Response::CleanOutput)
 			},
-			Request::CompleteFinalization(entry) => {
-				Self::complete_finalization_with_transaction(txn, subspace, entry).await?;
+			Request::CompleteLogCompaction(entry) => {
+				Self::complete_log_compaction_with_transaction(txn, subspace, entry).await?;
 				Ok(Response::Unit)
 			},
 			Request::DeleteGrants(args) => {
@@ -1003,9 +1003,14 @@ impl Index {
 					.await
 					.map(|()| Response::Unit)
 			},
-			Request::EnqueueFinalization(item) => {
-				Self::enqueue_finalization_with_transaction(txn, subspace, item, partition_total)
-					.await?;
+			Request::EnqueueLogCompaction(process) => {
+				Self::enqueue_log_compaction_with_transaction(
+					txn,
+					subspace,
+					process,
+					partition_total,
+				)
+				.await?;
 				Ok(Response::Unit)
 			},
 			Request::PutCacheEntries(args) => {

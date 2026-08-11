@@ -1,6 +1,6 @@
 use ../test.nu *
 
-# A sandbox can be created with hostname, mount, and network options, listed with those options reflected, and destroyed so that it is eventually finalized and no longer found.
+# A sandbox can be created with hostname, mount, and network options, listed with those options reflected, and destroyed so that it is eventually cleaned and no longer found.
 
 let server = spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
 
@@ -26,9 +26,9 @@ tg sandbox destroy $create
 let list = tg sandbox list | from json
 assert (($list | where id == $create | is-empty))
 
-wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be finalized"
+wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be cleaned"
 let output = tg sandbox get $create | complete
-failure $output "the sandbox should be finalized"
+failure $output "the sandbox should be cleaned"
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to find the sandbox

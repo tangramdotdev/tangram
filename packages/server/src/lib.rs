@@ -273,6 +273,23 @@ impl Server {
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
+			if indexer.log_compaction.enabled {
+				if indexer.log_compaction.batch_size == 0 {
+					return Err(tg::error!(
+						"the indexer log compaction batch size must be greater than zero"
+					));
+				}
+				if indexer.log_compaction.concurrency == 0 {
+					return Err(tg::error!(
+						"the indexer log compaction concurrency must be greater than zero"
+					));
+				}
+				if indexer.log_compaction.poll_interval.is_zero() {
+					return Err(tg::error!(
+						"the indexer log compaction poll interval must be greater than zero"
+					));
+				}
+			}
 			for (name, update) in [
 				("grant", &indexer.updates.grants),
 				("node", &indexer.updates.nodes),
@@ -1097,48 +1114,6 @@ impl Server {
 			}
 		}));
 
-		// Spawn the process finalizer task.
-		let process_finalizer_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Finalizer)
-			.then(|| {
-				let config = server.config.process.finalizer.clone();
-				Task::spawn({
-					let server = server.clone();
-					|stopper| async move {
-						server
-							.finalizer_task(&config, stopper)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(error = %error.trace(), "the process finalizer task failed");
-							})
-							.ok();
-					}
-				})
-			});
-
-		// Spawn the sandbox finalizer task.
-		let sandbox_finalizer_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Finalizer)
-			.then(|| {
-				let config = server.config.sandbox.finalizer.clone();
-				Task::spawn({
-					let server = server.clone();
-					|stopper| async move {
-						server
-							.sandbox_finalizer_task(&config, stopper)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
-							})
-							.ok();
-					}
-				})
-			});
-
 		// Spawn the runner task.
 		if server.config.roles.contains(&self::config::Role::Runner) {
 			let task = Task::spawn({
@@ -1214,30 +1189,6 @@ impl Server {
 				// Abort the diagnostics task.
 				if let Some(task) = diagnostics_task {
 					task.abort();
-				}
-
-				// Abort the process finalizer task.
-				if let Some(task) = process_finalizer_task {
-					task.abort();
-					let result = task.wait().await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the process finalizer task panicked");
-					}
-					tracing::trace!("process finalizer task");
-				}
-
-				// Abort the sandbox finalizer task.
-				if let Some(task) = sandbox_finalizer_task {
-					task.abort();
-					let result = task.wait().await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the sandbox finalizer task panicked");
-					}
-					tracing::trace!("sandbox finalizer task");
 				}
 
 				// Remove the watches.

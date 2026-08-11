@@ -8,9 +8,9 @@ use {
 pub enum Key {
 	Cache(crate::fdb::cache::Key),
 	Clean(crate::fdb::clean::Key),
-	Finalization(crate::fdb::finalization::Key),
 	Grant(crate::fdb::grant::Key),
 	Group(crate::fdb::group::Key),
+	LogCompaction(crate::fdb::log::Key),
 	Node(crate::fdb::node::Key),
 	Object(crate::fdb::object::Key),
 	Organization(crate::fdb::organization::Key),
@@ -64,10 +64,8 @@ pub enum Kind {
 	ProcessSandbox = 41,
 	CreatorSandbox = 42,
 	OwnerSandbox = 43,
-	ProcessFinalization = 45,
-	ProcessFinalizationVersion = 47,
-	SandboxFinalization = 48,
-	SandboxFinalizationVersion = 50,
+	LogCompaction = 45,
+	LogCompactionVersion = 47,
 	AccountObject = 51,
 	ObjectAccount = 52,
 	AccountProcess = 53,
@@ -514,39 +512,21 @@ impl fdbt::TuplePack for Key {
 				}
 			},
 
-			Key::Finalization(crate::fdb::finalization::Key::Process(id)) => (
-				Kind::ProcessFinalization.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
+			Key::LogCompaction(crate::fdb::log::Key::Identity(process)) => (
+				Kind::LogCompaction.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
-				id,
+			Key::LogCompaction(crate::fdb::log::Key::Version {
 				partition,
+				process,
 				version,
 			}) => (
-				Kind::ProcessFinalizationVersion.to_i32().unwrap(),
+				Kind::LogCompactionVersion.to_i32().unwrap(),
 				partition,
 				version,
-				id.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)) => (
-				Kind::SandboxFinalization.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
-				id,
-				partition,
-				version,
-			}) => (
-				Kind::SandboxFinalizationVersion.to_i32().unwrap(),
-				partition,
-				version,
-				id.to_bytes().as_ref(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -1382,49 +1362,25 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ProcessFinalization => {
+			Kind::LogCompaction => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::process::Id::from_slice(&id)
+				let process = tg::process::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				Ok((
 					input,
-					Key::Finalization(crate::fdb::finalization::Key::Process(id)),
+					Key::LogCompaction(crate::fdb::log::Key::Identity(process)),
 				))
 			},
 
-			Kind::ProcessFinalizationVersion => {
+			Kind::LogCompactionVersion => {
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::process::Id::from_slice(&id)
+				let process = tg::process::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::Finalization(crate::fdb::finalization::Key::ProcessVersion {
-					id,
+				let key = Key::LogCompaction(crate::fdb::log::Key::Version {
 					partition,
-					version,
-				});
-				Ok((input, key))
-			},
-
-			Kind::SandboxFinalization => {
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::sandbox::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
-				Ok((
-					input,
-					Key::Finalization(crate::fdb::finalization::Key::Sandbox(id)),
-				))
-			},
-
-			Kind::SandboxFinalizationVersion => {
-				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::sandbox::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
-				let key = Key::Finalization(crate::fdb::finalization::Key::SandboxVersion {
-					id,
-					partition,
+					process,
 					version,
 				});
 				Ok((input, key))

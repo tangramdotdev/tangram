@@ -324,8 +324,6 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to update the destroyed sandbox in the index"),
 			)?;
-		self.enqueue_sandbox_finalization(id).await?;
-
 		self.spawn_publish_sandbox_status_task(id);
 
 		Ok(())

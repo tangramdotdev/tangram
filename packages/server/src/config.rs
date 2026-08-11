@@ -72,8 +72,6 @@ pub struct Config {
 pub enum Role {
 	Cleaner,
 
-	Finalizer,
-
 	Http,
 
 	Indexer,
@@ -426,6 +424,8 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
+	pub log_compaction: IndexerLogCompaction,
+
 	pub max_process_depth: usize,
 
 	pub message_retry: Retry,
@@ -439,6 +439,17 @@ pub struct Indexer {
 	pub poll_interval: Duration,
 
 	pub updates: IndexerUpdates,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerLogCompaction {
+	pub batch_size: usize,
+
+	pub concurrency: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -585,8 +596,6 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 
 #[derive(Clone, Debug)]
 pub struct Process {
-	pub finalizer: Finalizer,
-
 	pub grant_time_to_live: Duration,
 
 	pub grant_time_to_touch: Duration,
@@ -603,19 +612,6 @@ pub struct Process {
 #[derive(Clone, Debug, Default)]
 pub struct Spawn {
 	pub host: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Finalizer {
-	pub concurrency: usize,
-
-	pub message_batch_size: usize,
-
-	pub message_batch_timeout: Duration,
-
-	pub partition_end: u64,
-
-	pub partition_start: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -736,8 +732,6 @@ pub struct Scheduler {
 
 #[derive(Clone, Debug)]
 pub struct Sandbox {
-	pub finalizer: Finalizer,
-
 	pub isolation: SandboxIsolation,
 
 	pub network: SandboxNetwork,
@@ -1264,6 +1258,7 @@ impl Default for LmdbIndex {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
+			log_compaction: IndexerLogCompaction::default(),
 			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
@@ -1271,6 +1266,17 @@ impl Default for Indexer {
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
 			updates: IndexerUpdates::default(),
+		}
+	}
+}
+
+impl Default for IndexerLogCompaction {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			concurrency: 1,
+			enabled: true,
+			poll_interval: Duration::from_millis(100),
 		}
 	}
 }
@@ -1376,25 +1382,12 @@ impl LmdbObjectStore {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
-			finalizer: Finalizer::default(),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
-		}
-	}
-}
-
-impl Default for Finalizer {
-	fn default() -> Self {
-		Self {
-			concurrency: 1,
-			message_batch_size: 1024,
-			message_batch_timeout: Duration::from_millis(100),
-			partition_end: 256,
-			partition_start: 0,
 		}
 	}
 }
@@ -1450,7 +1443,6 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			finalizer: Finalizer::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
@@ -1815,7 +1807,6 @@ fn default_grant_tokens() -> Option<TokenKeys> {
 fn default_roles() -> BTreeSet<Role> {
 	[
 		Role::Cleaner,
-		Role::Finalizer,
 		Role::Http,
 		Role::Indexer,
 		Role::Runner,

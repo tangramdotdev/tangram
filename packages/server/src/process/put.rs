@@ -42,12 +42,12 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-		finalize: bool,
+		enqueue_log_compaction: bool,
 	) -> tg::Result<tg::process::put::Output> {
 		Self::validate_process_data(&arg.data)?;
 		let authorization = self.authorize_process_data(&arg.data).await?;
 		let output = self
-			.put_process_local_inner(id, arg, authorization, finalize)
+			.put_process_local_inner(id, arg, authorization, enqueue_log_compaction)
 			.await?;
 
 		Ok(output)
@@ -102,7 +102,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
 		authorization: Authorization,
-		finalize: bool,
+		enqueue_log_compaction: bool,
 	) -> tg::Result<tg::process::put::Output> {
 		let Authorization {
 			error_grants_subtree,
@@ -149,8 +149,9 @@ impl Session {
 		} else {
 			Some(Vec::new())
 		};
-		let log = (!Self::process_log_needs_compaction(&arg.data))
-			.then(|| arg.data.log.clone().map(|log| log.node.into()));
+		let log_needs_compaction = Self::process_log_needs_compaction(&arg.data);
+		let log = (!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
+		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
 		let put_process_arg = tangram_index::process::put::Arg {
 			children: Some(children),
 			command: arg.data.command.clone().into(),
@@ -200,11 +201,10 @@ impl Session {
 			.batch(tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
-					.chain(finalize.then(|| {
-						tangram_index::batch::Item::EnqueueFinalization(
-							tangram_index::finalization::Node::Process(id.clone()),
-						)
-					}))
+					.chain(
+						enqueue_log_compaction
+							.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
+					)
 					.chain(account.map(|account| {
 						tangram_index::batch::Item::PutAccountProcess(
 							tangram_index::storage::put::ProcessArg {
@@ -218,10 +218,6 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
-		if finalize {
-			self.server.spawn_publish_process_finalize_message_task();
-		}
-
 		let permission = self.process_permission_for_data(&token_data);
 		let token = self.create_token(
 			tg::grant::Resource::Id(id.clone().into()),

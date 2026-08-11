@@ -549,56 +549,52 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn complete_finalization(&self, entry: &index::finalization::Entry) -> tg::Result<()> {
+	async fn complete_log_compaction(&self, entry: &index::log::Entry) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.complete_finalization(entry).await,
+			Self::Fdb(index) => index.complete_log_compaction(entry).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.complete_finalization(entry).await,
+			Self::Lmdb(index) => index.complete_log_compaction(entry).await,
 		}
 	}
 
-	async fn enqueue_finalization(&self, node: &index::finalization::Node) -> tg::Result<()> {
+	async fn enqueue_log_compaction(&self, process: &tg::process::Id) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.enqueue_finalization(node).await,
+			Self::Fdb(index) => index.enqueue_log_compaction(process).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.enqueue_finalization(node).await,
+			Self::Lmdb(index) => index.enqueue_log_compaction(process).await,
 		}
 	}
 
-	async fn finalization_batch(
+	async fn log_compaction_batch(
 		&self,
-		kind: index::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<Vec<index::finalization::Entry>> {
+	) -> tg::Result<Vec<index::log::Entry>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.finalization_batch(kind, batch_size, partition_start, partition_end)
+					.log_compaction_batch(batch_size, partition_start, partition_end)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.finalization_batch(kind, batch_size, partition_start, partition_end)
+					.log_compaction_batch(batch_size, partition_start, partition_end)
 					.await
 			},
 		}
 	}
 
-	async fn try_get_oldest_finalization_transaction_id(
-		&self,
-		kind: index::finalization::Kind,
-	) -> tg::Result<Option<u64>> {
+	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_oldest_finalization_transaction_id(kind).await,
+			Self::Fdb(index) => index.try_get_oldest_log_compaction_transaction_id().await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_oldest_finalization_transaction_id(kind).await,
+			Self::Lmdb(index) => index.try_get_oldest_log_compaction_transaction_id().await,
 		}
 	}
 

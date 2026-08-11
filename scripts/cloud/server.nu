@@ -35,7 +35,7 @@ let config = {
 		},
 	},
 	remotes: [],
-	roles: [cleaner finalizer http indexer scheduler],
+	roles: [cleaner http indexer scheduler],
 	telemetry: {
 		endpoint: 'http://localhost:4317',
 		service_name: 'server',

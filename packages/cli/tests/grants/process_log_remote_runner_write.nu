@@ -11,7 +11,7 @@ let root_token = random chars
 let remote = spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	roles: [cleaner finalizer http indexer scheduler],
+	roles: [cleaner http indexer scheduler],
 }
 
 let created = tg --url $remote.url --token $root_token runner create | from json

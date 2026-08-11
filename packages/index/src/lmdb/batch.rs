@@ -91,8 +91,13 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				crate::batch::Item::EnqueueFinalization(item) => {
-					Self::enqueue_finalization_with_transaction(db, subspace, transaction, item)?;
+				crate::batch::Item::EnqueueLogCompaction(process) => {
+					Self::enqueue_log_compaction_with_transaction(
+						db,
+						subspace,
+						transaction,
+						process,
+					)?;
 				},
 				crate::batch::Item::PutCacheEntry(arg) => {
 					Self::put_cache_entries_with_transaction(

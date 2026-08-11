@@ -153,8 +153,6 @@ pub enum BoolOr<T> {
 pub enum Role {
 	Cleaner,
 
-	Finalizer,
-
 	Http,
 
 	Indexer,
@@ -640,6 +638,9 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_compaction: Option<IndexerLogCompaction>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -661,6 +662,24 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub updates: Option<IndexerUpdates>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerLogCompaction {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub enabled: Option<bool>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -882,9 +901,6 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub finalizer: Option<Finalizer>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_live: Option<Duration>,
@@ -914,27 +930,6 @@ pub struct Process {
 pub struct Spawn {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub host: Option<String>,
-}
-
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Finalizer {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_batch_size: Option<usize>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_batch_timeout: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_end: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_start: Option<u64>,
 }
 
 #[serde_as]
@@ -1133,9 +1128,6 @@ pub struct Scheduler {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sandbox {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub finalizer: Option<Finalizer>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub isolation: Option<SandboxIsolation>,
 
@@ -1864,7 +1856,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.index = resolve_index(source);
 	}
 	if let Some(source) = source.indexer {
-		target.indexer = resolve_indexer(source);
+		target.indexer = resolve_indexer(&source);
 	}
 	if let Some(source) = source.logs {
 		target.logs = resolve_logs(source);
@@ -1934,7 +1926,6 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 fn resolve_role(source: Role) -> server::Role {
 	match source {
 		Role::Cleaner => server::Role::Cleaner,
-		Role::Finalizer => server::Role::Finalizer,
 		Role::Http => server::Role::Http,
 		Role::Indexer => server::Role::Indexer,
 		Role::Runner => server::Role::Runner,
@@ -2426,8 +2417,11 @@ fn resolve_index_authorize_process_subtree(
 	target
 }
 
-fn resolve_indexer(source: Indexer) -> server::Indexer {
+fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
+	if let Some(source) = source.log_compaction {
+		target.log_compaction = resolve_indexer_log_compaction(source);
+	}
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
 	}
@@ -2448,6 +2442,23 @@ fn resolve_indexer(source: Indexer) -> server::Indexer {
 	}
 	if let Some(source) = source.updates {
 		target.updates = resolve_indexer_updates(source);
+	}
+	target
+}
+
+fn resolve_indexer_log_compaction(source: IndexerLogCompaction) -> server::IndexerLogCompaction {
+	let mut target = server::IndexerLogCompaction::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.enabled {
+		target.enabled = value;
+	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
 	}
 	target
 }
@@ -2686,9 +2697,6 @@ fn resolve_scylla_object_store_simple_speculative_execution(
 
 fn resolve_process(source: Process) -> server::Process {
 	let mut target = server::Process::default();
-	if let Some(source) = source.finalizer {
-		target.finalizer = resolve_finalizer(source);
-	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
 	}
@@ -2712,26 +2720,6 @@ fn resolve_process(source: Process) -> server::Process {
 
 fn resolve_spawn(source: Spawn) -> server::Spawn {
 	server::Spawn { host: source.host }
-}
-
-fn resolve_finalizer(source: Finalizer) -> server::Finalizer {
-	let mut target = server::Finalizer::default();
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
-	if let Some(value) = source.message_batch_size {
-		target.message_batch_size = value;
-	}
-	if let Some(value) = source.message_batch_timeout {
-		target.message_batch_timeout = value;
-	}
-	if let Some(value) = source.partition_end {
-		target.partition_end = value;
-	}
-	if let Some(value) = source.partition_start {
-		target.partition_start = value;
-	}
-	target
 }
 
 fn resolve_region(source: Region) -> tg::Result<server::Region> {
@@ -2914,9 +2902,6 @@ fn resolve_scheduler(source: Scheduler) -> server::Scheduler {
 
 fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	let mut target = server::Sandbox::default();
-	if let Some(source) = source.finalizer {
-		target.finalizer = resolve_finalizer(source);
-	}
 	if let Some(source) = source.isolation {
 		target.isolation = resolve_sandbox_isolation(source)?;
 	}
@@ -3334,6 +3319,28 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn resolves_indexer_log_compaction() {
+		let source = Indexer {
+			log_compaction: Some(IndexerLogCompaction {
+				batch_size: Some(11),
+				concurrency: Some(2),
+				enabled: Some(false),
+				poll_interval: Some(Duration::from_millis(250)),
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+
+		assert_eq!(target.log_compaction.batch_size, 11);
+		assert_eq!(target.log_compaction.concurrency, 2);
+		assert!(!target.log_compaction.enabled);
+		assert_eq!(
+			target.log_compaction.poll_interval,
+			Duration::from_millis(250)
+		);
+	}
+
+	#[test]
 	fn resolves_indexer_update_queues() {
 		let source = Indexer {
 			updates: Some(IndexerUpdates {
@@ -3352,7 +3359,7 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(source);
+		let target = resolve_indexer(&source);
 
 		assert_eq!(target.updates.grants.batch_size, 11);
 		assert_eq!(target.updates.grants.concurrency, 2);

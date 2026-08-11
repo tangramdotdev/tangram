@@ -2,6 +2,7 @@ mod ancestor;
 mod authorize;
 mod batch;
 mod clean;
+mod log;
 mod reader;
 mod storage;
 mod update;

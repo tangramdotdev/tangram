@@ -13,10 +13,10 @@ mod authorize;
 mod batch;
 mod cache;
 mod clean;
-mod finalization;
 mod grant;
 mod group;
 mod key;
+mod log;
 mod node;
 mod object;
 mod organization;
@@ -529,30 +529,26 @@ impl crate::Index for Index {
 		self.delete_users(ids).await
 	}
 
-	async fn complete_finalization(&self, entry: &crate::finalization::Entry) -> tg::Result<()> {
-		self.complete_finalization(entry).await
+	async fn complete_log_compaction(&self, entry: &crate::log::Entry) -> tg::Result<()> {
+		self.complete_log_compaction(entry).await
 	}
 
-	async fn enqueue_finalization(&self, node: &crate::finalization::Node) -> tg::Result<()> {
-		self.enqueue_finalization(node).await
+	async fn enqueue_log_compaction(&self, process: &tg::process::Id) -> tg::Result<()> {
+		self.enqueue_log_compaction(process).await
 	}
 
-	async fn finalization_batch(
+	async fn log_compaction_batch(
 		&self,
-		kind: crate::finalization::Kind,
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<Vec<crate::finalization::Entry>> {
-		self.finalization_batch(kind, batch_size, partition_start, partition_end)
+	) -> tg::Result<Vec<crate::log::Entry>> {
+		self.log_compaction_batch(batch_size, partition_start, partition_end)
 			.await
 	}
 
-	async fn try_get_oldest_finalization_transaction_id(
-		&self,
-		kind: crate::finalization::Kind,
-	) -> tg::Result<Option<u64>> {
-		self.try_get_oldest_finalization_transaction_id(kind).await
+	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
+		self.try_get_oldest_log_compaction_transaction_id().await
 	}
 
 	async fn try_get_oldest_update_transaction_id(

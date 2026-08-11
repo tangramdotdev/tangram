@@ -34,7 +34,7 @@ struct IndexRequest {
 enum IndexRequestState {
 	DatabaseOutbox,
 	DatabaseOutboxPending,
-	Finalizations { transaction_id: Option<u64> },
+	LogCompactions { transaction_id: Option<u64> },
 	ObjectOutbox,
 	ObjectOutboxPending,
 	Tasks,
@@ -120,6 +120,24 @@ impl Server {
 			move |_| async move { indexer.object_outbox_task(&config, outbox.as_ref()).await }
 		});
 
+		// Spawn the log compaction task.
+		let log_compaction_task = Task::spawn({
+			let config = config.clone();
+			let indexer = indexer.clone();
+			move |_| async move {
+				if !config.log_compaction.enabled {
+					return future::pending().await;
+				}
+				indexer
+					.log_compaction_task(
+						&config.log_compaction,
+						config.partition_start,
+						config.partition_end,
+					)
+					.await
+			}
+		});
+
 		// Spawn the grant update task.
 		let grant_update_task = Task::spawn({
 			let config = config.clone();
@@ -187,6 +205,12 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the object outbox task panicked"))?
 		};
+		let log_compaction_future = async move {
+			log_compaction_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the indexer log compaction task panicked"))?
+		};
 		let grant_update_future = async move {
 			grant_update_task
 				.wait()
@@ -215,6 +239,11 @@ impl Server {
 
 			Ok(())
 		};
+		let queue_future = async move {
+			future::try_join(log_compaction_future, update_future).await?;
+
+			Ok(())
+		};
 		let request_future = async move {
 			request_task
 				.wait()
@@ -224,7 +253,7 @@ impl Server {
 		future::try_join4(
 			database_outbox_future,
 			object_outbox_future,
-			update_future,
+			queue_future,
 			request_future,
 		)
 		.await?;
@@ -423,6 +452,88 @@ impl Indexer {
 			.map_err(|error| tg::error!(!error, "failed to delete an object outbox batch"))?;
 
 		Ok(count)
+	}
+
+	async fn log_compaction_task(
+		&self,
+		config: &crate::config::IndexerLogCompaction,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
+		let concurrency = config.concurrency.to_u64().unwrap();
+		let partition_length = partition_end - partition_start;
+		let futures = (0..config.concurrency).filter_map(|task_index| {
+			let task_index = task_index.to_u64().unwrap();
+			let partitions_per_task = partition_length / concurrency;
+			let extra = partition_length % concurrency;
+			let task_start =
+				partition_start + task_index * partitions_per_task + task_index.min(extra);
+			let task_count = partitions_per_task + u64::from(task_index < extra);
+			let task_end = task_start + task_count;
+			(task_count > 0).then(|| self.log_compaction_task_inner(config, task_start, task_end))
+		});
+		future::try_join_all(futures).await?;
+
+		Ok(())
+	}
+
+	async fn log_compaction_task_inner(
+		&self,
+		config: &crate::config::IndexerLogCompaction,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
+		loop {
+			crate::checkpoint!(self.server, "indexer.log_compaction.batch").await;
+			let entries = match self
+				.server
+				.index
+				.log_compaction_batch(config.batch_size, partition_start, partition_end)
+				.await
+			{
+				Ok(entries) if entries.is_empty() => {
+					tokio::time::sleep(config.poll_interval).await;
+					continue;
+				},
+				Ok(entries) => entries,
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to read log compactions");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+					continue;
+				},
+			};
+			if let Err(error) = self.compact_logs(&entries).boxed().await {
+				tracing::error!(error = %error.trace(), "failed to compact logs");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn compact_logs(&self, entries: &[tangram_index::log::Entry]) -> tg::Result<()> {
+		for entry in entries {
+			self.compact_log(entry).boxed().await?;
+		}
+
+		Ok(())
+	}
+
+	async fn compact_log(&self, entry: &tangram_index::log::Entry) -> tg::Result<()> {
+		let process = &entry.process;
+		let session = self.server.session(&self.server.context);
+		session
+			.compact_process_log(process)
+			.boxed()
+			.await
+			.map_err(|error| tg::error!(!error, %process, "failed to compact the process log"))?;
+		self.server
+			.index
+			.complete_log_compaction(entry)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %process, "failed to complete the log compaction"),
+			)?;
+
+		Ok(())
 	}
 
 	async fn request_task(&self, poll_interval: Duration) -> tg::Result<()> {
@@ -670,9 +781,9 @@ impl State {
 		// Wait for the database outbox.
 		self.poll_database_outbox(server).await?;
 
-		// Wait for the process finalization queue.
-		self.set_finalization_targets(server).await?;
-		self.poll_finalizations(server).await?;
+		// Wait for the log compaction queue.
+		self.set_log_compaction_targets(server).await?;
+		self.poll_log_compactions(server).await?;
 
 		// Wait for the index update queue.
 		self.set_update_targets(server).await?;
@@ -767,8 +878,14 @@ impl State {
 			}
 			for request in self.requests.values_mut() {
 				if matches!(request.state, IndexRequestState::DatabaseOutboxPending) {
-					request.state = IndexRequestState::Finalizations {
-						transaction_id: None,
+					request.state = if server.config.indexer.log_compaction.enabled {
+						IndexRequestState::LogCompactions {
+							transaction_id: None,
+						}
+					} else {
+						IndexRequestState::Updates {
+							transaction_id: None,
+						}
 					};
 				}
 			}
@@ -802,8 +919,12 @@ impl State {
 			}
 			request.state = if id.is_some() {
 				IndexRequestState::DatabaseOutboxPending
+			} else if server.config.indexer.log_compaction.enabled {
+				IndexRequestState::LogCompactions {
+					transaction_id: None,
+				}
 			} else {
-				IndexRequestState::Finalizations {
+				IndexRequestState::Updates {
 					transaction_id: None,
 				}
 			};
@@ -813,11 +934,11 @@ impl State {
 		Ok(())
 	}
 
-	async fn set_finalization_targets(&mut self, server: &Server) -> tg::Result<()> {
+	async fn set_log_compaction_targets(&mut self, server: &Server) -> tg::Result<()> {
 		let set_target = self.requests.values().any(|request| {
 			matches!(
 				request.state,
-				IndexRequestState::Finalizations {
+				IndexRequestState::LogCompactions {
 					transaction_id: None
 				}
 			)
@@ -827,7 +948,7 @@ impl State {
 		}
 		let transaction_id = server.index.get_transaction_id().await?;
 		for request in self.requests.values_mut() {
-			if let IndexRequestState::Finalizations {
+			if let IndexRequestState::LogCompactions {
 				transaction_id: target @ None,
 			} = &mut request.state
 			{
@@ -838,11 +959,11 @@ impl State {
 		Ok(())
 	}
 
-	async fn poll_finalizations(&mut self, server: &Server) -> tg::Result<()> {
+	async fn poll_log_compactions(&mut self, server: &Server) -> tg::Result<()> {
 		let poll = self.requests.values().any(|request| {
 			matches!(
 				request.state,
-				IndexRequestState::Finalizations {
+				IndexRequestState::LogCompactions {
 					transaction_id: Some(_)
 				}
 			)
@@ -852,10 +973,10 @@ impl State {
 		}
 		let oldest = server
 			.index
-			.try_get_oldest_finalization_transaction_id(tangram_index::finalization::Kind::Process)
+			.try_get_oldest_log_compaction_transaction_id()
 			.await?;
 		for request in self.requests.values_mut() {
-			let IndexRequestState::Finalizations {
+			let IndexRequestState::LogCompactions {
 				transaction_id: Some(transaction_id),
 			} = request.state
 			else {
@@ -1030,7 +1151,7 @@ impl State {
 				request.state,
 				IndexRequestState::DatabaseOutbox
 					| IndexRequestState::DatabaseOutboxPending
-					| IndexRequestState::Finalizations { .. }
+					| IndexRequestState::LogCompactions { .. }
 					| IndexRequestState::ObjectOutbox
 					| IndexRequestState::ObjectOutboxPending
 					| IndexRequestState::Updates { .. }

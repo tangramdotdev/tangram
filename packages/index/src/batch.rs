@@ -34,7 +34,7 @@ pub enum Item {
 	DeleteUser(tg::user::Id),
 
 	#[tangram_serialize(id = 16)]
-	EnqueueFinalization(crate::finalization::Node),
+	EnqueueLogCompaction(tg::process::Id),
 
 	#[tangram_serialize(id = 8)]
 	PutCacheEntry(crate::cache::put::Arg),
@@ -137,7 +137,7 @@ mod tests {
 				Item::DeleteOrganization(organization.clone()),
 				Item::DeleteTag(tag),
 				Item::DeleteUser(user.clone()),
-				Item::EnqueueFinalization(crate::finalization::Node::Process(process)),
+				Item::EnqueueLogCompaction(process),
 				Item::PutGrant(crate::grant::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
@@ -169,10 +169,7 @@ mod tests {
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
 		assert_eq!(arg.items.len(), 10);
-		assert!(matches!(
-			&arg.items[5],
-			Item::EnqueueFinalization(crate::finalization::Node::Process(_))
-		));
+		assert!(matches!(&arg.items[5], Item::EnqueueLogCompaction(_)));
 		let Item::PutGrant(grant_arg) = &arg.items[6] else {
 			panic!();
 		};

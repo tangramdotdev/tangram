@@ -83,7 +83,7 @@ async fn partial_account_updates_preserve_billing() {
 }
 
 #[tokio::test]
-async fn process_and_finalization_share_transaction() {
+async fn process_and_log_compaction_share_transaction() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let before = index.get_transaction_id().await.unwrap();
@@ -104,9 +104,7 @@ async fn process_and_finalization_share_transaction() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
 			}),
-			crate::batch::Item::EnqueueFinalization(crate::finalization::Node::Process(
-				process.clone(),
-			)),
+			crate::batch::Item::EnqueueLogCompaction(process.clone()),
 		],
 	};
 	index.batch(arg).await.unwrap();
@@ -120,12 +118,9 @@ async fn process_and_finalization_share_transaction() {
 			.unwrap()[0]
 			.is_some()
 	);
-	let entries = index
-		.finalization_batch(crate::finalization::Kind::Process, 1, 0, 1)
-		.await
-		.unwrap();
+	let entries = index.log_compaction_batch(1, 0, 1).await.unwrap();
 	assert_eq!(entries.len(), 1);
-	assert_eq!(entries[0].node, crate::finalization::Node::Process(process));
+	assert_eq!(entries[0].process, process);
 }
 
 #[tokio::test]

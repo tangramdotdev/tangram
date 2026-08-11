@@ -32,8 +32,6 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
 			)?;
-		self.server.enqueue_sandbox_finalization(id).await?;
-
 		self.server.spawn_publish_sandbox_status_task(id);
 
 		Ok(tg::sandbox::control::DestroyServerResponseOutput {})

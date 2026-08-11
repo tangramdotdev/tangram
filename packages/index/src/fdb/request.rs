@@ -11,7 +11,7 @@ pub(super) enum Priority {
 pub(super) enum Request {
 	Batch(crate::batch::Arg),
 	Clean(Clean),
-	CompleteFinalization(crate::finalization::Entry),
+	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
 	DeleteGroups(Vec<tg::group::Id>),
@@ -20,7 +20,7 @@ pub(super) enum Request {
 	DeleteSandboxes(Vec<tg::sandbox::Id>),
 	DeleteTags(Vec<tg::tag::Id>),
 	DeleteUsers(Vec<tg::user::Id>),
-	EnqueueFinalization(crate::finalization::Node),
+	EnqueueLogCompaction(tg::process::Id),
 	PutCacheEntries(Vec<crate::cache::put::Arg>),
 	PutGrants(Vec<crate::grant::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
@@ -83,7 +83,7 @@ pub(super) struct Update {
 
 pub(super) enum Item {
 	Clean,
-	CompleteFinalization(crate::finalization::Entry),
+	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrant(crate::grant::delete::Arg),
 	DeleteGroup(tg::group::Id),
 	DeleteGroupMember(crate::group::member::delete::Arg),
@@ -92,7 +92,7 @@ pub(super) enum Item {
 	DeleteSandbox(tg::sandbox::Id),
 	DeleteTag(tg::tag::Id),
 	DeleteUser(tg::user::Id),
-	EnqueueFinalization(crate::finalization::Node),
+	EnqueueLogCompaction(tg::process::Id),
 	PutCacheEntry(crate::cache::put::Arg),
 	PutGrant(crate::grant::put::Arg),
 	PutGroup(crate::group::put::Arg),
@@ -119,7 +119,7 @@ pub(super) enum Kind {
 		partition_end: u64,
 		partition_start: u64,
 	},
-	CompleteFinalization,
+	CompleteLogCompaction,
 	DeleteGrants,
 	DeleteGroupMembers,
 	DeleteGroups,
@@ -128,7 +128,7 @@ pub(super) enum Kind {
 	DeleteSandboxes,
 	DeleteTags,
 	DeleteUsers,
-	EnqueueFinalization,
+	EnqueueLogCompaction,
 	PutCacheEntries,
 	PutGrants,
 	PutGroupMembers,
@@ -167,8 +167,8 @@ impl Request {
 	pub(super) fn priority(&self) -> Priority {
 		match self {
 			Self::Batch(_)
-			| Self::CompleteFinalization(_)
-			| Self::EnqueueFinalization(_)
+			| Self::CompleteLogCompaction(_)
+			| Self::EnqueueLogCompaction(_)
 			| Self::PutCacheEntries(_)
 			| Self::PutGrants(_)
 			| Self::PutGroupMembers(_)

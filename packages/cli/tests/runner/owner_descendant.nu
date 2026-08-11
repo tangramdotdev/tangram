@@ -5,7 +5,7 @@ use ../../test.nu *
 let remote = spawn --cloud --name remote --config {
 	advanced: { single_process: false },
 	authentication: { users: { providers: { insecure: true } } },
-	roles: [cleaner finalizer http indexer scheduler],
+	roles: [cleaner http indexer scheduler],
 }
 
 let alice = tg --url $remote.url login --verbose alice | from json

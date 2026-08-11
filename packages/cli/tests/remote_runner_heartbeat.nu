@@ -6,7 +6,7 @@ let config = {
 		single_process: false,
 	},
 	authentication: { root: { token: $root_token } },
-	roles: [cleaner finalizer http indexer scheduler],
+	roles: [cleaner http indexer scheduler],
 	scheduler: {
 		runner_ttl: 3,
 	},

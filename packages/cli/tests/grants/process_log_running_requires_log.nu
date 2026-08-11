@@ -1,13 +1,13 @@
 use ../../test.nu *
 
-# A running (not yet finalized) process's log is the live process stream. Reading it requires the log permission, just as reading the log once compacted to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access. This guards the live-log read path, which a node-only reader must not use to read a log it could not read once compacted.
+# A running process's log is the live process stream. Reading it requires the log permission, just as reading the log once compacted to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access. This guards the live-log read path, which a node-only reader must not use to read a log it could not read once compacted.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose alice | from json
 let eve = tg login --verbose eve | from json
 
-# Alice starts a long-running process that logs a secret and then sleeps, so it stays unfinalized.
+# Alice starts a long-running process that logs a secret and then sleeps, so its log stays live.
 let path = artifact { tangram.ts: 'export default async function () { console.log("loghello"); await tg.sleep(60) }' }
 let started = tg --token $alice.token build --detach --verbose $path | from json
 let process = $started.process
