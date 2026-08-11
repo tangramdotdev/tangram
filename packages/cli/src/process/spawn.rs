@@ -139,6 +139,9 @@ pub struct Options {
 	pub tag: Option<tg::Specifier>,
 
 	#[command(flatten)]
+	pub tag_ancestors: crate::node::TagAncestors,
+
+	#[command(flatten)]
 	pub tty: Tty,
 }
 
@@ -352,6 +355,7 @@ pub(crate) struct InnerOutput {
 	pub referent: tg::Referent<tg::graph::Edge<tg::Object>>,
 	pub sandboxed: bool,
 	pub tag: Option<tg::Specifier>,
+	pub tag_ancestors: tg::node::Ancestors,
 }
 
 impl Cli {
@@ -432,6 +436,7 @@ impl Cli {
 			referent,
 			sandboxed,
 			tag,
+			tag_ancestors,
 		} = self.spawn_inner(options, reference, trailing).await?;
 
 		let process = tg::Process::spawn_with_progress_with_handle(&client, arg, |stream| {
@@ -456,7 +461,7 @@ impl Cli {
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
-				ancestors: tg::node::Ancestors::default(),
+				ancestors: tag_ancestors,
 				target: id.into(),
 				location: location.clone(),
 				public: false,
@@ -950,6 +955,7 @@ impl Cli {
 			referent,
 			sandboxed,
 			tag: options.tag,
+			tag_ancestors: options.tag_ancestors.get(),
 		})
 	}
 }
