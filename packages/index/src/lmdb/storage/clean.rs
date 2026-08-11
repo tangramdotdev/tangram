@@ -350,9 +350,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		owner: &crate::storage::Owner,
-		item: &[u8],
+		target: &[u8],
 	) -> tg::Result<u64> {
-		let tags = Self::get_item_tags_with_transaction(db, subspace, transaction, item)?;
+		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
 		let mut count = 0;
 		for tag in tags {
 			let Some(tag) = Self::try_get_tag_with_transaction(db, subspace, transaction, &tag)?

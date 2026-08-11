@@ -11,6 +11,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::storage::put::ObjectArg,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::fdb::storage::Key::OwnerObject {
@@ -26,7 +27,8 @@ impl Index {
 			return Ok(());
 		};
 		let mut association = crate::storage::Association::deserialize(&value)?;
-		if arg.touched_at > association.touched_at {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if arg.touched_at.saturating_sub(association.touched_at) >= time_to_touch {
 			association.touched_at = arg.touched_at;
 			txn.set(&key, &association.serialize()?);
 			Self::put_owner_object_clean_key(txn, subspace, arg, partition_total);
@@ -39,6 +41,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::storage::put::ProcessArg,
+		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess {
@@ -54,7 +57,8 @@ impl Index {
 			return Ok(());
 		};
 		let mut association = crate::storage::Association::deserialize(&value)?;
-		if arg.touched_at > association.touched_at {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if arg.touched_at.saturating_sub(association.touched_at) >= time_to_touch {
 			association.touched_at = arg.touched_at;
 			txn.set(&key, &association.serialize()?);
 			Self::put_owner_process_clean_key(txn, subspace, arg, partition_total);
@@ -125,33 +129,15 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		let owners = Self::get_process_owners_with_transaction(txn, subspace, process).await?;
-		if owners.is_empty() {
-			return Ok(());
-		}
-		let children = Self::get_process_children_with_transaction(txn, subspace, process).await?;
-		let objects = Self::get_process_objects_with_transaction(txn, subspace, process).await?;
 		for owner in owners {
-			let kind = crate::fdb::update::Kind::Storage(owner);
-			for child in &children {
-				Self::enqueue_update_with_kind(
-					txn,
-					subspace,
-					&tg::Either::Right(child.clone()),
-					&kind,
-					crate::fdb::update::Source::Put,
-					partition_total,
-				);
-			}
-			for (object, _) in &objects {
-				Self::enqueue_update_with_kind(
-					txn,
-					subspace,
-					&tg::Either::Left(object.clone()),
-					&kind,
-					crate::fdb::update::Source::Put,
-					partition_total,
-				);
-			}
+			Self::enqueue_update_with_kind(
+				txn,
+				subspace,
+				&tg::Either::Right(process.clone()),
+				&crate::fdb::update::Kind::StorageRelationships(owner),
+				crate::fdb::update::Source::Put,
+				partition_total,
+			);
 		}
 
 		Ok(())
@@ -296,18 +282,14 @@ impl Index {
 			storage_partition_total,
 		);
 
-		let children =
-			Self::get_object_children_with_transaction(txn, subspace, &arg.object).await?;
-		for child in children {
-			Self::enqueue_update_with_kind(
-				txn,
-				subspace,
-				&tg::Either::Left(child),
-				&crate::fdb::update::Kind::Storage(arg.owner.clone()),
-				crate::fdb::update::Source::Put,
-				partition_total,
-			);
-		}
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			&tg::Either::Left(arg.object.clone()),
+			&crate::fdb::update::Kind::StorageRelationships(arg.owner.clone()),
+			crate::fdb::update::Source::Put,
+			partition_total,
+		);
 
 		Ok(true)
 	}
@@ -371,30 +353,14 @@ impl Index {
 			storage_partition_total,
 		);
 
-		let children =
-			Self::get_process_children_with_transaction(txn, subspace, &arg.process).await?;
-		for child in children {
-			Self::enqueue_update_with_kind(
-				txn,
-				subspace,
-				&tg::Either::Right(child),
-				&crate::fdb::update::Kind::Storage(arg.owner.clone()),
-				crate::fdb::update::Source::Put,
-				partition_total,
-			);
-		}
-		let objects =
-			Self::get_process_objects_with_transaction(txn, subspace, &arg.process).await?;
-		for (object, _) in objects {
-			Self::enqueue_update_with_kind(
-				txn,
-				subspace,
-				&tg::Either::Left(object),
-				&crate::fdb::update::Kind::Storage(arg.owner.clone()),
-				crate::fdb::update::Source::Put,
-				partition_total,
-			);
-		}
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			&tg::Either::Right(arg.process.clone()),
+			&crate::fdb::update::Kind::StorageRelationships(arg.owner.clone()),
+			crate::fdb::update::Source::Put,
+			partition_total,
+		);
 
 		Ok(true)
 	}

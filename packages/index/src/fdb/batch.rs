@@ -195,12 +195,6 @@ impl Index {
 					Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg))
 						.await?;
 				},
-				crate::batch::Item::TouchOwnerObject(arg) => {
-					Self::touch_owner_object(txn, subspace, arg, partition_total).await?;
-				},
-				crate::batch::Item::TouchOwnerProcess(arg) => {
-					Self::touch_owner_process(txn, subspace, arg, partition_total).await?;
-				},
 			}
 		}
 

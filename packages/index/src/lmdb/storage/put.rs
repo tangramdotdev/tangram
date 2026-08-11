@@ -12,6 +12,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::storage::put::ObjectArg,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::lmdb::storage::Key::OwnerObject {
 			object: arg.object.clone(),
@@ -25,7 +26,8 @@ impl Index {
 			return Ok(());
 		};
 		let mut association = crate::storage::Association::deserialize(value)?;
-		if arg.touched_at > association.touched_at {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if arg.touched_at.saturating_sub(association.touched_at) >= time_to_touch {
 			association.touched_at = arg.touched_at;
 			db.put(transaction, &key, &association.serialize()?)
 				.map_err(|error| tg::error!(!error, "failed to touch the owner object"))?;
@@ -40,6 +42,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::storage::put::ProcessArg,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<()> {
 		let key = Key::Storage(crate::lmdb::storage::Key::OwnerProcess {
 			owner: arg.owner.clone(),
@@ -53,7 +56,8 @@ impl Index {
 			return Ok(());
 		};
 		let mut association = crate::storage::Association::deserialize(value)?;
-		if arg.touched_at > association.touched_at {
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if arg.touched_at.saturating_sub(association.touched_at) >= time_to_touch {
 			association.touched_at = arg.touched_at;
 			db.put(transaction, &key, &association.serialize()?)
 				.map_err(|error| tg::error!(!error, "failed to touch the owner process"))?;

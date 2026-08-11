@@ -28,36 +28,14 @@ impl Index {
 		object: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let prefix = Self::pack(
+		Self::enqueue_update_with_kind(
+			txn,
 			subspace,
-			&(
-				Kind::ObjectOwner.to_i32().unwrap(),
-				object.to_bytes().as_ref(),
-			),
+			&tg::Either::Left(object.clone()),
+			&crate::fdb::update::Kind::StorageOwnersClean,
+			crate::fdb::update::Source::Put,
+			partition_total,
 		);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the object owners"))?;
-		let owners = entries
-			.iter()
-			.map(|entry| {
-				let Key::Storage(crate::fdb::storage::Key::ObjectOwner { owner, .. }) =
-					Self::unpack(subspace, entry.key())?
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(owner)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		for owner in owners {
-			Self::schedule_owner_object_clean(txn, subspace, &owner, object, partition_total)
-				.await?;
-		}
 
 		Ok(())
 	}
@@ -68,36 +46,14 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let prefix = Self::pack(
+		Self::enqueue_update_with_kind(
+			txn,
 			subspace,
-			&(
-				Kind::ProcessOwner.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-			),
+			&tg::Either::Right(process.clone()),
+			&crate::fdb::update::Kind::StorageOwnersClean,
+			crate::fdb::update::Source::Put,
+			partition_total,
 		);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process owners"))?;
-		let owners = entries
-			.iter()
-			.map(|entry| {
-				let Key::Storage(crate::fdb::storage::Key::ProcessOwner { owner, .. }) =
-					Self::unpack(subspace, entry.key())?
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(owner)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		for owner in owners {
-			Self::schedule_owner_process_clean(txn, subspace, &owner, process, partition_total)
-				.await?;
-		}
 
 		Ok(())
 	}
@@ -300,38 +256,39 @@ impl Index {
 		owner: &crate::storage::Owner,
 		object: &tg::object::Id,
 	) -> tg::Result<u64> {
-		let mut count = 0;
-		for parent in Self::get_object_parents_with_transaction(txn, subspace, object).await? {
-			let key = Key::Storage(crate::fdb::storage::Key::OwnerObject {
-				object: parent,
-				owner: owner.clone(),
-			});
-			if txn
-				.get(&Self::pack(subspace, &key), false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get an owner object"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		for (process, _) in
-			Self::get_object_processes_with_transaction(txn, subspace, object).await?
-		{
-			let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess {
-				owner: owner.clone(),
-				process,
-			});
-			if txn
-				.get(&Self::pack(subspace, &key), false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get an owner process"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		count += Self::count_owner_tags(txn, subspace, owner, object.to_bytes().as_ref()).await?;
+		let (parents, processes) = futures::future::try_join(
+			Self::get_object_parents_with_transaction(txn, subspace, object),
+			Self::get_object_processes_with_transaction(txn, subspace, object),
+		)
+		.await?;
+		let keys = parents
+			.into_iter()
+			.map(|object| {
+				Key::Storage(crate::fdb::storage::Key::OwnerObject {
+					object,
+					owner: owner.clone(),
+				})
+			})
+			.chain(processes.into_iter().map(|(process, _)| {
+				Key::Storage(crate::fdb::storage::Key::OwnerProcess {
+					owner: owner.clone(),
+					process,
+				})
+			}))
+			.map(|key| Self::pack(subspace, &key))
+			.collect::<Vec<_>>();
+		let associations_future =
+			futures::future::try_join_all(keys.iter().map(|key| async move {
+				txn.get(key, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get a storage association"))
+			}));
+		let object_bytes = object.to_bytes();
+		let tags_future = Self::count_owner_tags(txn, subspace, owner, object_bytes.as_ref());
+		let (associations, tag_count) =
+			futures::future::try_join(associations_future, tags_future).await?;
+		let association_count = associations.iter().filter(|value| value.is_some()).count();
+		let count = u64::try_from(association_count).unwrap() + tag_count;
 
 		Ok(count)
 	}
@@ -342,22 +299,29 @@ impl Index {
 		owner: &crate::storage::Owner,
 		process: &tg::process::Id,
 	) -> tg::Result<u64> {
-		let mut count = 0;
-		for parent in Self::get_process_parents_with_transaction(txn, subspace, process).await? {
-			let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess {
-				owner: owner.clone(),
-				process: parent,
-			});
-			if txn
-				.get(&Self::pack(subspace, &key), false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get an owner process"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		count += Self::count_owner_tags(txn, subspace, owner, process.to_bytes().as_ref()).await?;
+		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
+		let keys = parents
+			.into_iter()
+			.map(|process| {
+				let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess {
+					owner: owner.clone(),
+					process,
+				});
+				Self::pack(subspace, &key)
+			})
+			.collect::<Vec<_>>();
+		let associations_future =
+			futures::future::try_join_all(keys.iter().map(|key| async move {
+				txn.get(key, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get an owner process"))
+			}));
+		let process_bytes = process.to_bytes();
+		let tags_future = Self::count_owner_tags(txn, subspace, owner, process_bytes.as_ref());
+		let (associations, tag_count) =
+			futures::future::try_join(associations_future, tags_future).await?;
+		let association_count = associations.iter().filter(|value| value.is_some()).count();
+		let count = u64::try_from(association_count).unwrap() + tag_count;
 
 		Ok(count)
 	}
@@ -366,18 +330,19 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		owner: &crate::storage::Owner,
-		item: &[u8],
+		target: &[u8],
 	) -> tg::Result<u64> {
-		let tags = Self::get_item_tags_with_transaction(txn, subspace, item).await?;
-		let mut count = 0;
-		for tag in tags {
-			let Some(tag) = Self::try_get_tag_with_transaction(txn, subspace, &tag).await? else {
-				continue;
-			};
-			if tag.owner.as_ref() == Some(owner) {
-				count += 1;
-			}
-		}
+		let tags = Self::get_target_tags_with_transaction(txn, subspace, target).await?;
+		let tags = futures::future::try_join_all(
+			tags.iter()
+				.map(|tag| Self::try_get_tag_with_transaction(txn, subspace, tag)),
+		)
+		.await?;
+		let count = tags
+			.iter()
+			.filter(|tag| tag.as_ref().and_then(|tag| tag.owner.as_ref()) == Some(owner))
+			.count();
+		let count = u64::try_from(count).unwrap();
 
 		Ok(count)
 	}
@@ -391,11 +356,6 @@ impl Index {
 		partition_total: u64,
 		storage_partition_total: u64,
 	) -> tg::Result<()> {
-		let children = Self::get_object_children_with_transaction(txn, subspace, object).await?;
-		for child in children {
-			Self::schedule_owner_object_clean(txn, subspace, owner, &child, partition_total)
-				.await?;
-		}
 		let key = Key::Storage(crate::fdb::storage::Key::OwnerObject {
 			object: object.clone(),
 			owner: owner.clone(),
@@ -413,6 +373,14 @@ impl Index {
 			crate::storage::Kind::ObjectCount,
 			-1,
 			storage_partition_total,
+		);
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			&tg::Either::Left(object.clone()),
+			&crate::fdb::update::Kind::StorageClean(owner.clone()),
+			crate::fdb::update::Source::Put,
+			partition_total,
 		);
 		let value = Self::try_get_object_with_transaction(txn, subspace, object)
 			.await?
@@ -448,16 +416,6 @@ impl Index {
 		partition_total: u64,
 		storage_partition_total: u64,
 	) -> tg::Result<()> {
-		for child in Self::get_process_children_with_transaction(txn, subspace, process).await? {
-			Self::schedule_owner_process_clean(txn, subspace, owner, &child, partition_total)
-				.await?;
-		}
-		for (object, _) in
-			Self::get_process_objects_with_transaction(txn, subspace, process).await?
-		{
-			Self::schedule_owner_object_clean(txn, subspace, owner, &object, partition_total)
-				.await?;
-		}
 		let key = Key::Storage(crate::fdb::storage::Key::OwnerProcess {
 			owner: owner.clone(),
 			process: process.clone(),
@@ -476,6 +434,14 @@ impl Index {
 			-1,
 			storage_partition_total,
 		);
+		Self::enqueue_update_with_kind(
+			txn,
+			subspace,
+			&tg::Either::Right(process.clone()),
+			&crate::fdb::update::Kind::StorageClean(owner.clone()),
+			crate::fdb::update::Source::Put,
+			partition_total,
+		);
 		let value = Self::try_get_process_with_transaction(txn, subspace, process)
 			.await?
 			.ok_or_else(|| tg::error!(%process, "an owned process is missing"))?;
@@ -491,7 +457,7 @@ impl Index {
 		Ok(())
 	}
 
-	async fn schedule_owner_object_clean(
+	pub(in crate::fdb) async fn schedule_owner_object_clean(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		owner: &crate::storage::Owner,
@@ -522,7 +488,7 @@ impl Index {
 		Ok(())
 	}
 
-	async fn schedule_owner_process_clean(
+	pub(in crate::fdb) async fn schedule_owner_process_clean(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		owner: &crate::storage::Owner,

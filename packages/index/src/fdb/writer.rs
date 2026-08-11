@@ -420,6 +420,7 @@ impl Index {
 			},
 			Request::TouchObjects(crate::fdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -427,6 +428,7 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
+						owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -434,6 +436,8 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::fdb::TouchProcesses {
 				ids,
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -441,6 +445,8 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
+						owner,
+						put_owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -703,6 +709,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
+				owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -715,11 +722,14 @@ impl Index {
 					.collect();
 				Request::TouchObjects(crate::fdb::TouchObjects {
 					ids,
+					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -732,6 +742,8 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::fdb::TouchProcesses {
 					ids,
+					owner: owner.clone(),
+					put_owner: *put_owner,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
@@ -1053,29 +1065,26 @@ impl Index {
 			.map(Response::CacheEntries),
 			Request::TouchObjects(crate::fdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
-			}) => Self::touch_objects_with_transaction(
+			}) => Self::touch_objects_with_owner_with_transaction(
 				txn,
 				subspace,
 				ids,
+				owner.as_ref(),
 				*touched_at,
 				*time_to_touch,
 				partition_total,
 			)
 			.await
 			.map(Response::Objects),
-			Request::TouchProcesses(crate::fdb::TouchProcesses {
-				ids,
-				time_to_touch,
-				touched_at,
-			}) => Self::touch_processes_with_transaction(
+			Request::TouchProcesses(arg) => Self::touch_processes_with_owner_with_transaction(
 				txn,
 				subspace,
-				ids,
-				*touched_at,
-				*time_to_touch,
+				arg,
 				partition_total,
+				storage_partition_total,
 			)
 			.await
 			.map(Response::Processes),

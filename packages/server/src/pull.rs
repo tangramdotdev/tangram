@@ -55,11 +55,13 @@ impl Session {
 			.iter()
 			.filter_map(|node| tg::process::Id::try_from(node.node.clone()).ok())
 			.collect::<Vec<_>>();
+		let owner = self.storage_owner(&self.context.principal).await?;
 		let touch_objects_future = async {
 			self.server
 				.index
-				.touch_objects(
+				.touch_objects_with_owner(
 					&object_ids,
+					owner.as_ref(),
 					touched_at,
 					self.server.config.object.time_to_touch,
 				)
@@ -69,8 +71,9 @@ impl Session {
 		let touch_processes_future = async {
 			self.server
 				.index
-				.touch_processes(
+				.touch_processes_with_owner(
 					&process_ids,
+					owner.as_ref(),
 					touched_at,
 					self.server.config.process.time_to_touch,
 				)
@@ -79,33 +82,6 @@ impl Session {
 		};
 		let (objects, processes) =
 			futures::try_join!(touch_objects_future, touch_processes_future)?;
-		if let Some(owner) = self.storage_owner(&self.context.principal).await? {
-			let items = object_ids
-				.iter()
-				.cloned()
-				.map(|object| {
-					tangram_index::batch::Item::TouchOwnerObject(
-						tangram_index::storage::put::ObjectArg {
-							object,
-							owner: owner.clone(),
-							touched_at,
-						},
-					)
-				})
-				.chain(process_ids.iter().cloned().map(|process| {
-					tangram_index::batch::Item::TouchOwnerProcess(
-						tangram_index::storage::put::ProcessArg {
-							owner: owner.clone(),
-							process,
-							touched_at,
-						},
-					)
-				}))
-				.collect();
-			self.server
-				.index_batch(tangram_index::batch::Arg { items })
-				.await?;
-		}
 		let objects_stored = objects
 			.into_iter()
 			.all(|object| object.is_some_and(|object| object.stored.subtree));

@@ -11,6 +11,7 @@ assert ($initial.object_size == 0)
 assert ($initial.process_count == 0)
 
 tg put 'tg.file("hello")'
+tg index
 
 let top_level = tg usage $alice.user.id | from json
 let user = tg user usage | from json

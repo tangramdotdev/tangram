@@ -12,11 +12,47 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, None, false, touched_at, time_to_touch)
+			.await
+	}
+
+	pub async fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, Some(owner), true, touched_at, time_to_touch)
+			.await
+	}
+
+	pub async fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_inner(ids, owner, false, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_inner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		put_owner: bool,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchProcesses(crate::lmdb::TouchProcesses {
 			ids: ids.to_vec(),
+			owner: owner.cloned(),
+			put_owner,
 			time_to_touch,
 			touched_at,
 		});
@@ -24,6 +60,58 @@ impl Index {
 		let Response::Processes(processes) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
+		Ok(processes)
+	}
+
+	pub(in crate::lmdb) fn touch_processes_with_owner_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &crate::lmdb::TouchProcesses,
+		storage_partition_total: u64,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		let crate::lmdb::TouchProcesses {
+			ids,
+			owner,
+			put_owner,
+			time_to_touch,
+			touched_at,
+		} = arg;
+		let processes = Self::touch_processes_with_transaction(
+			db,
+			subspace,
+			transaction,
+			ids,
+			*touched_at,
+			*time_to_touch,
+		)?;
+		if let Some(owner) = owner.as_ref() {
+			for (id, process) in std::iter::zip(ids, &processes) {
+				if process.is_none() {
+					continue;
+				}
+				let arg = crate::storage::put::ProcessArg {
+					owner: owner.clone(),
+					process: id.clone(),
+					touched_at: *touched_at,
+				};
+				if *put_owner {
+					let inserted = Self::put_owner_process(
+						db,
+						subspace,
+						transaction,
+						&arg,
+						storage_partition_total,
+						false,
+					)?;
+					if inserted {
+						continue;
+					}
+				}
+				Self::touch_owner_process(db, subspace, transaction, &arg, *time_to_touch)?;
+			}
+		}
+
 		Ok(processes)
 	}
 

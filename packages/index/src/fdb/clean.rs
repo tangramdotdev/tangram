@@ -508,22 +508,47 @@ impl Index {
 				target_tag_future,
 			)
 			.await?;
-		let id = id.to_bytes();
-		let prefix = (Kind::ObjectOwner.to_i32().unwrap(), id.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		let object_owner_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::ObjectOwner.to_i32().unwrap(), id.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
 		};
-		let object_owner_count = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?
-			.len()
-			.to_u64()
-			.unwrap();
-		let count =
-			child_object_count + object_owner_count + object_process_count + target_tag_count;
+		let update_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::Update.to_i32().unwrap(), id.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+		let (object_owner_count, update_count) =
+			futures::future::try_join(object_owner_future, update_future).await?;
+		let count = child_object_count
+			+ object_owner_count
+			+ object_process_count
+			+ target_tag_count
+			+ update_count;
 		Ok(count)
 	}
 
@@ -570,21 +595,43 @@ impl Index {
 		};
 		let (child_process_count, target_tag_count) =
 			futures::future::try_join(child_process_future, target_tag_future).await?;
-		let id = id.to_bytes();
-		let prefix = (Kind::ProcessOwner.to_i32().unwrap(), id.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		let process_owner_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::ProcessOwner.to_i32().unwrap(), id.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
 		};
-		let process_owner_count = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?
-			.len()
-			.to_u64()
-			.unwrap();
-		let count = child_process_count + process_owner_count + target_tag_count;
+		let update_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::Update.to_i32().unwrap(), id.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+		let (process_owner_count, update_count) =
+			futures::future::try_join(process_owner_future, update_future).await?;
+		let count = child_process_count + process_owner_count + target_tag_count + update_count;
 		Ok(count)
 	}
 

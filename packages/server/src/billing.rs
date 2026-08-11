@@ -1,34 +1,88 @@
-use {crate::Session, tangram_client::prelude::*, tangram_index::prelude::*};
+use {
+	crate::{Session, database::Transaction},
+	tangram_client::prelude::*,
+	tangram_index::prelude::*,
+};
 
 mod stripe;
 
 pub(super) use stripe::{CreateCustomerArg, Stripe};
 
 impl Session {
-	pub(crate) async fn storage_owner_for_specifier(
+	pub(crate) async fn storage_owner_for_specifier_with_transaction(
 		&self,
+		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
 	) -> tg::Result<Option<tangram_index::storage::Owner>> {
 		let prefix = specifier
 			.prefixes()
 			.next()
 			.expect("a specifier should have a component");
-		let principal = match self.server.index.try_get_node(&prefix).await? {
-			Some(id) => match id.kind() {
-				tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
-				tg::id::Kind::Organization => Some(tg::Principal::Organization(id.try_into()?)),
-				tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
-				_ => None,
-			},
-			None => None,
-		};
+		let principal =
+			match Self::try_get_id_for_specifier_with_transaction(transaction, &prefix).await? {
+				Some(id) => match id.kind() {
+					tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
+					tg::id::Kind::Organization => Some(tg::Principal::Organization(id.try_into()?)),
+					tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
+					_ => None,
+				},
+				None => None,
+			};
 		if let Some(principal) = principal
-			&& let Some(owner) = self.storage_owner(&principal).await?
+			&& let Some(owner) = self
+				.storage_owner_with_transaction(transaction, &principal)
+				.await?
 		{
 			return Ok(Some(owner));
 		}
 
-		self.storage_owner(&self.context.principal).await
+		self.storage_owner_with_transaction(transaction, &self.context.principal)
+			.await
+	}
+
+	async fn storage_owner_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		principal: &tg::Principal,
+	) -> tg::Result<Option<tangram_index::storage::Owner>> {
+		let mut principal = principal.clone();
+		loop {
+			match principal {
+				tg::Principal::Group(id) => {
+					let Some(group) =
+						Self::try_get_group_with_transaction(transaction, &id).await?
+					else {
+						return Ok(None);
+					};
+					let specifier = group
+						.specifier
+						.prefixes()
+						.next()
+						.expect("a specifier should have a component");
+					let Some(id) =
+						Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
+							.await?
+					else {
+						return Ok(None);
+					};
+					principal = match id.kind() {
+						tg::id::Kind::Organization => tg::Principal::Organization(id.try_into()?),
+						tg::id::Kind::User => tg::Principal::User(id.try_into()?),
+						_ => return Ok(None),
+					};
+				},
+				tg::Principal::Organization(id) => {
+					return Ok(Some(tangram_index::storage::Owner::Organization(id)));
+				},
+				tg::Principal::User(id) => {
+					return Ok(Some(tangram_index::storage::Owner::User(id)));
+				},
+				tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
+					return self.storage_owner(&principal).await;
+				},
+				_ => return Ok(None),
+			}
+		}
 	}
 
 	pub(crate) async fn storage_owner(
@@ -37,7 +91,8 @@ impl Session {
 	) -> tg::Result<Option<tangram_index::storage::Owner>> {
 		let mut principal = match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
-				let Ok(principal) = self.resolve_remote_context_principal(principal).await else {
+				let Some(principal) = self.try_resolve_remote_context_principal(principal).await?
+				else {
 					return Ok(None);
 				};
 				principal
@@ -47,23 +102,22 @@ impl Session {
 		loop {
 			match principal {
 				tg::Principal::Group(id) => {
-					let group = self
-						.server
-						.index
-						.try_get_group(&id)
-						.await?
-						.ok_or_else(|| tg::error!(%id, "failed to find the storage owner"))?;
+					let Some(group) = self.server.index.try_get_group(&id).await? else {
+						return Ok(None);
+					};
 					let specifier = group
 						.specifier
 						.prefixes()
 						.next()
 						.expect("a specifier should have a component");
-					let id = self
+					let Some(id) = self
 						.server
 						.index
-						.try_get_node(&specifier)
+						.try_get_id_for_specifier(&specifier)
 						.await?
-						.ok_or_else(|| tg::error!("the group does not have a storage owner"))?;
+					else {
+						return Ok(None);
+					};
 					principal = match id.kind() {
 						tg::id::Kind::Organization => tg::Principal::Organization(id.try_into()?),
 						tg::id::Kind::User => tg::Principal::User(id.try_into()?),

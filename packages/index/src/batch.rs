@@ -74,12 +74,6 @@ pub enum Item {
 
 	#[tangram_serialize(id = 19)]
 	PutUser(crate::user::put::Arg),
-
-	#[tangram_serialize(id = 22)]
-	TouchOwnerObject(crate::storage::put::ObjectArg),
-
-	#[tangram_serialize(id = 23)]
-	TouchOwnerProcess(crate::storage::put::ProcessArg),
 }
 
 impl Arg {

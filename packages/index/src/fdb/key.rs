@@ -1396,6 +1396,17 @@ fn pack_update_kind<W: std::io::Write>(
 			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
 			Ok(offset)
 		},
+		crate::fdb::update::Kind::StorageClean(owner) => {
+			let mut offset = 3i32.pack(w, tuple_depth)?;
+			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+			Ok(offset)
+		},
+		crate::fdb::update::Kind::StorageOwnersClean => 5i32.pack(w, tuple_depth),
+		crate::fdb::update::Kind::StorageRelationships(owner) => {
+			let mut offset = 4i32.pack(w, tuple_depth)?;
+			offset += owner.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+			Ok(offset)
+		},
 	}
 }
 
@@ -1421,6 +1432,23 @@ fn unpack_update_kind(
 				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
 			Ok((input, crate::fdb::update::Kind::Storage(owner)))
 		},
+		3 => {
+			let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			let owner = tg::Id::from_slice(&owner)
+				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+			let owner = crate::storage::Owner::try_from(owner)
+				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+			Ok((input, crate::fdb::update::Kind::StorageClean(owner)))
+		},
+		4 => {
+			let (input, owner): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			let owner = tg::Id::from_slice(&owner)
+				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+			let owner = crate::storage::Owner::try_from(owner)
+				.map_err(|_| fdbt::PackError::Message("invalid storage owner".into()))?;
+			Ok((input, crate::fdb::update::Kind::StorageRelationships(owner)))
+		},
+		5 => Ok((input, crate::fdb::update::Kind::StorageOwnersClean)),
 		_ => Err(fdbt::PackError::Message("invalid update kind".into())),
 	}
 }

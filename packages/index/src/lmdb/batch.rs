@@ -202,12 +202,6 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				crate::batch::Item::TouchOwnerObject(arg) => {
-					Self::touch_owner_object(db, subspace, transaction, arg)?;
-				},
-				crate::batch::Item::TouchOwnerProcess(arg) => {
-					Self::touch_owner_process(db, subspace, transaction, arg)?;
-				},
 			}
 		}
 

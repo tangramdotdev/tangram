@@ -168,6 +168,14 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
 
+	fn touch_objects_with_owner(
+		&self,
+		ids: &[tg::object::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::object::Object>>>> + Send;
+
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,
@@ -175,6 +183,17 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::object::Object>>> + Send {
 		self.touch_objects(std::slice::from_ref(id), touched_at, time_to_touch)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_object_with_owner(
+		&self,
+		id: &tg::object::Id,
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::object::Object>>> + Send {
+		self.touch_objects_with_owner(std::slice::from_ref(id), owner, touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -277,6 +296,22 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
+	fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
 	fn touch_process(
 		&self,
 		id: &tg::process::Id,
@@ -284,6 +319,33 @@ pub trait Index {
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
 		self.touch_processes(std::slice::from_ref(id), touched_at, time_to_touch)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_process_and_put_owner(
+		&self,
+		id: &tg::process::Id,
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.touch_processes_and_put_owner(
+			std::slice::from_ref(id),
+			owner,
+			touched_at,
+			time_to_touch,
+		)
+		.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_process_with_owner(
+		&self,
+		id: &tg::process::Id,
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.touch_processes_with_owner(std::slice::from_ref(id), owner, touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 

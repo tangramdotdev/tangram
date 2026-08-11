@@ -189,6 +189,29 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn touch_objects_with_owner(
+		&self,
+		ids: &[tg::object::Id],
+		owner: Option<&index::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<index::object::Object>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.touch_objects_with_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.touch_objects_with_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
+		}
+	}
+
 	async fn try_get_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -306,6 +329,52 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
+		}
+	}
+
+	async fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &index::storage::Owner,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<index::process::Process>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.touch_processes_and_put_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.touch_processes_and_put_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
+		}
+	}
+
+	async fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&index::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<index::process::Process>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.touch_processes_with_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.touch_processes_with_owner(ids, owner, touched_at, time_to_touch)
+					.await
+			},
 		}
 	}
 

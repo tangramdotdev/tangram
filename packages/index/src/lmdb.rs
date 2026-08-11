@@ -341,6 +341,17 @@ impl crate::Index for Index {
 		self.touch_objects(ids, touched_at, time_to_touch).await
 	}
 
+	async fn touch_objects_with_owner(
+		&self,
+		ids: &[tg::object::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		self.touch_objects_with_owner(ids, owner, touched_at, time_to_touch)
+			.await
+	}
+
 	async fn try_get_processes(
 		&self,
 		ids: &[tg::process::Id],
@@ -409,6 +420,28 @@ impl crate::Index for Index {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::process::Process>>> {
 		self.touch_processes(ids, touched_at, time_to_touch).await
+	}
+
+	async fn touch_processes_and_put_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: &crate::storage::Owner,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_and_put_owner(ids, owner, touched_at, time_to_touch)
+			.await
+	}
+
+	async fn touch_processes_with_owner(
+		&self,
+		ids: &[tg::process::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: std::time::Duration,
+	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+		self.touch_processes_with_owner(ids, owner, touched_at, time_to_touch)
+			.await
 	}
 
 	async fn try_get_sandboxes(

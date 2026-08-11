@@ -158,6 +158,15 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<tg::Principal> {
+		self.try_resolve_remote_context_principal(principal)
+			.await?
+			.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))
+	}
+
+	pub(crate) async fn try_resolve_remote_context_principal(
+		&self,
+		principal: &tg::Principal,
+	) -> tg::Result<Option<tg::Principal>> {
 		let owner = match principal {
 			tg::Principal::Process(id) => self
 				.server
@@ -175,7 +184,7 @@ impl Session {
 			_ => None,
 		};
 		if let Some(owner) = owner {
-			return Ok(owner.unwrap_or(tg::Principal::Root));
+			return Ok(Some(owner.unwrap_or(tg::Principal::Root)));
 		}
 
 		let owner = match principal {
@@ -217,11 +226,11 @@ impl Session {
 				)?
 				.and_then(|sandbox| sandbox.data)
 				.map(|sandbox| sandbox.owner),
-			_ => return Ok(principal.clone()),
+			_ => return Ok(Some(principal.clone())),
 		};
-		let owner = owner.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
+		let owner = owner.map(|owner| owner.unwrap_or(tg::Principal::Root));
 
-		Ok(owner.unwrap_or(tg::Principal::Root))
+		Ok(owner)
 	}
 
 	pub async fn get_remote_session(&self, remote: &str) -> tg::Result<tg::Session> {

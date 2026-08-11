@@ -19,4 +19,7 @@ pub enum Kind {
 	Grants(tg::grant::Principal),
 	Node,
 	Storage(crate::storage::Owner),
+	StorageClean(crate::storage::Owner),
+	StorageOwnersClean,
+	StorageRelationships(crate::storage::Owner),
 }

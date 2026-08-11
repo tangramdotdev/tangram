@@ -326,30 +326,29 @@ impl Index {
 					.map(Response::CacheEntries),
 					Request::TouchObjects(crate::lmdb::TouchObjects {
 						ids,
+						owner,
 						time_to_touch,
 						touched_at,
-					}) => Self::touch_objects_with_transaction(
+					}) => Self::touch_objects_with_owner_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
 						&ids,
+						owner.as_ref(),
 						touched_at,
 						time_to_touch,
 					)
 					.map(Response::Objects),
-					Request::TouchProcesses(crate::lmdb::TouchProcesses {
-						ids,
-						time_to_touch,
-						touched_at,
-					}) => Self::touch_processes_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&ids,
-						touched_at,
-						time_to_touch,
-					)
-					.map(Response::Processes),
+					Request::TouchProcesses(arg) => {
+						Self::touch_processes_with_owner_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&arg,
+							storage_partition_total,
+						)
+						.map(Response::Processes)
+					},
 					Request::Update(crate::lmdb::Update { batch_size }) => {
 						Self::update_batch_with_transaction(
 							db,
@@ -669,6 +668,7 @@ impl Index {
 			},
 			Request::TouchObjects(crate::lmdb::TouchObjects {
 				ids,
+				owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -676,6 +676,7 @@ impl Index {
 				(
 					items,
 					Kind::TouchObjects {
+						owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -683,6 +684,8 @@ impl Index {
 			},
 			Request::TouchProcesses(crate::lmdb::TouchProcesses {
 				ids,
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			}) => {
@@ -690,6 +693,8 @@ impl Index {
 				(
 					items,
 					Kind::TouchProcesses {
+						owner,
+						put_owner,
 						time_to_touch,
 						touched_at,
 					},
@@ -938,6 +943,7 @@ impl Index {
 				})
 			},
 			Kind::TouchObjects {
+				owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -950,11 +956,14 @@ impl Index {
 					.collect();
 				Request::TouchObjects(crate::lmdb::TouchObjects {
 					ids,
+					owner: owner.clone(),
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})
 			},
 			Kind::TouchProcesses {
+				owner,
+				put_owner,
 				time_to_touch,
 				touched_at,
 			} => {
@@ -967,6 +976,8 @@ impl Index {
 					.collect();
 				Request::TouchProcesses(crate::lmdb::TouchProcesses {
 					ids,
+					owner: owner.clone(),
+					put_owner: *put_owner,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				})

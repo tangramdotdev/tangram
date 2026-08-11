@@ -85,15 +85,14 @@ impl Session {
 		// Try the mismatched checksum candidates.
 		let mismatched_checksum_candidate_indices =
 			Self::cached_process_mismatched_checksum_candidate_indices(arg, &candidates);
-		let output = self
-			.try_get_cached_process_with_mismatched_checksum_local(
-				arg,
-				&candidates,
-				&mismatched_checksum_candidate_indices,
-				&mut cycle,
-				public,
-			)
-			.await?;
+		let output = Box::pin(self.try_get_cached_process_with_mismatched_checksum_local(
+			arg,
+			&candidates,
+			&mismatched_checksum_candidate_indices,
+			&mut cycle,
+			public,
+		))
+		.await?;
 		if output.is_some() {
 			return Ok(output);
 		}
@@ -158,6 +157,9 @@ impl Session {
 				let data = process.data.as_ref().unwrap();
 				let output = self.cached_process_output(id.clone(), data.clone())?;
 				if let Some(output) = self.acquire_cached_process_lease(output).boxed().await? {
+					if !self.put_cached_process_owner(id).await? {
+						continue;
+					}
 					return Ok(Some(output));
 				}
 			}
@@ -231,9 +233,9 @@ impl Session {
 				}
 				let data = process.data.as_ref().unwrap();
 				let host = data.host.clone();
-				let output = self
-					.create_mismatched_checksum_process(arg, &host, data.clone())
-					.await?;
+				let output =
+					Box::pin(self.create_mismatched_checksum_process(arg, &host, data.clone()))
+						.await?;
 
 				return Ok(Some(output));
 			}
@@ -438,6 +440,26 @@ impl Session {
 			.touch_process(id, now, self.server.config.process.time_to_touch)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
+		Ok(process.is_some())
+	}
+
+	async fn put_cached_process_owner(&self, id: &tg::process::Id) -> tg::Result<bool> {
+		let Some(owner) = self.storage_owner(&self.context.principal).await? else {
+			return Ok(true);
+		};
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let process = self
+			.server
+			.index
+			.touch_process_and_put_owner(
+				id,
+				&owner,
+				touched_at,
+				self.server.config.process.time_to_touch,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to own the cached process"))?;
+
 		Ok(process.is_some())
 	}
 

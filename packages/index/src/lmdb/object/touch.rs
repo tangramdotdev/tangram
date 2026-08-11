@@ -12,11 +12,23 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		self.touch_objects_with_owner(ids, None, touched_at, time_to_touch)
+			.await
+	}
+
+	pub async fn touch_objects_with_owner(
+		&self,
+		ids: &[tg::object::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
 		let request = Request::TouchObjects(crate::lmdb::TouchObjects {
 			ids: ids.to_vec(),
+			owner: owner.cloned(),
 			time_to_touch,
 			touched_at,
 		});
@@ -24,6 +36,45 @@ impl Index {
 		let Response::Objects(objects) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
+		Ok(objects)
+	}
+
+	pub(crate) fn touch_objects_with_owner_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		ids: &[tg::object::Id],
+		owner: Option<&crate::storage::Owner>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> tg::Result<Vec<Option<crate::object::Object>>> {
+		let objects = Self::touch_objects_with_transaction(
+			db,
+			subspace,
+			transaction,
+			ids,
+			touched_at,
+			time_to_touch,
+		)?;
+		if let Some(owner) = owner {
+			for (id, object) in std::iter::zip(ids, &objects) {
+				if object.is_none() {
+					continue;
+				}
+				Self::touch_owner_object(
+					db,
+					subspace,
+					transaction,
+					&crate::storage::put::ObjectArg {
+						object: id.clone(),
+						owner: owner.clone(),
+						touched_at,
+					},
+					time_to_touch,
+				)?;
+			}
+		}
+
 		Ok(objects)
 	}
 
