@@ -204,7 +204,7 @@ impl Client {
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url);
-		let service = Self::service(&version, &pool);
+		let service = Self::service(&version, &pool, &url);
 		let client = Self(Arc::new(State {
 			context,
 			pool,
@@ -265,7 +265,7 @@ impl Client {
 			Err(tg::error!("cannot create a connection for a stream client"))
 		});
 		pool.add(self::http::Connection::new(sender));
-		let service = Self::service(&version, &pool);
+		let service = Self::service(&version, &pool, &url);
 		let client = Self(Arc::new(crate::State {
 			context,
 			pool,

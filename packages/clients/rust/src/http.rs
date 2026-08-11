@@ -69,12 +69,20 @@ impl tg::Client {
 		})
 	}
 
-	pub(crate) fn service(version: &str, pool: &Pool) -> Service {
+	pub(crate) fn service(version: &str, pool: &Pool, url: &Uri) -> Service {
+		let origin = match (url.scheme(), url.authority_raw()) {
+			(Some(scheme @ ("http" | "https")), Some(authority)) => {
+				Some(format!("{scheme}://{authority}"))
+			},
+			_ => None,
+		};
 		let service = tower::service_fn({
 			let pool = pool.clone();
 			move |request| {
 				let pool = pool.clone();
+				let origin = origin.clone();
 				async move {
+					let request = with_origin(request, origin.as_deref())?;
 					let connection = loop {
 						let connection = pool
 							.get_shared(tangram_pool::Priority::default())
@@ -587,6 +595,23 @@ impl http_body::Body for Body {
 	fn size_hint(&self) -> http_body::SizeHint {
 		self.body.size_hint()
 	}
+}
+
+fn with_origin(
+	mut request: http::Request<tangram_http::body::Boxed>,
+	origin: Option<&str>,
+) -> Result<http::Request<tangram_http::body::Boxed>, Error> {
+	if request.uri().scheme().is_none()
+		&& let Some(origin) = origin
+	{
+		let uri = format!("{origin}{}", request.uri())
+			.parse()
+			.map_err(|error| {
+				Error::Other(tg::error!(!error, "failed to create the request uri"))
+			})?;
+		*request.uri_mut() = uri;
+	}
+	Ok(request)
 }
 
 fn is_retryable_error(error: &hyper::Error) -> bool {
