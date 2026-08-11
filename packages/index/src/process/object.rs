@@ -1,4 +1,5 @@
 use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
+
 #[derive(
 	Clone,
 	Copy,

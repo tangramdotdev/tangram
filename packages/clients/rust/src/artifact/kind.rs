@@ -1,4 +1,5 @@
 use crate::prelude::*;
+
 /// An artifact kind.
 #[derive(
 	Clone,
