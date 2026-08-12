@@ -37,7 +37,7 @@ impl Session {
 			));
 		}
 
-		// List the tags. This must happen before the write transaction begins, because listing acquires its own database connection and would otherwise wait forever for a connection the write transaction holds.
+		// List the tags before acquiring the write transaction.
 		let tags = {
 			let mut connection = self
 				.server
@@ -53,7 +53,7 @@ impl Session {
 				.await?
 		};
 
-		// Authorize the tags. This must also happen before the write transaction begins, because indexing acquires its own database connection.
+		// Authorize the tags.
 		for tag in &tags {
 			let authorized = self
 				.authorize(
