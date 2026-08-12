@@ -86,7 +86,7 @@ let spawnArgFromResolvedWithSandbox = async (
 		}
 		if (command_ !== undefined) {
 			options.tokens ??= {};
-			tg.Grant.Tokens.inherit(options.tokens, command_.state.tokens);
+			tg.Authorization.Tokens.inherit(options.tokens, command_.state.tokens);
 		}
 	}
 	if (arg.name !== undefined) {
@@ -692,7 +692,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 
 async function checkoutArtifacts(
 	command: tg.Command.Object,
-	tokens: tg.Grant.Tokens,
+	tokens: tg.Authorization.Tokens,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Set<tg.Artifact.Id>();
 	let data = tg.Command.Object.toData(command);

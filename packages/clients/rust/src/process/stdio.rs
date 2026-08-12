@@ -122,7 +122,7 @@ pub(super) struct StdioTaskArg<H> {
 	pub stderr: Option<tg::process::Stdio>,
 	pub stdin: Option<tg::process::Stdio>,
 	pub stdout: Option<tg::process::Stdio>,
-	pub tokens: tg::grant::Tokens,
+	pub tokens: tg::authorization::Tokens,
 	pub tty: bool,
 }
 
@@ -198,7 +198,7 @@ async fn stdin_task<H>(
 	location: Option<tg::Location>,
 	stdin: tg::process::Stdio,
 	raw: bool,
-	tokens: tg::grant::Tokens,
+	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -269,7 +269,7 @@ async fn stdout_stderr_task<H>(
 	location: Option<tg::Location>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
-	tokens: tg::grant::Tokens,
+	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -340,7 +340,7 @@ async fn sigwinch_task<H>(
 	handle: &H,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
-	tokens: tg::grant::Tokens,
+	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,

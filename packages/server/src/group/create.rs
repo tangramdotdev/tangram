@@ -213,7 +213,7 @@ impl Session {
 			name,
 			parent: parent.cloned(),
 			specifier: specifier.clone(),
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(group)

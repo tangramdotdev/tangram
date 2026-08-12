@@ -78,7 +78,7 @@ pub(super) enum Event {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConnectedEvent {
-	pub grant: Option<tg::grant::Token>,
+	pub grant: Option<tg::authorization::Token>,
 	pub lease: String,
 	pub process: tg::process::Id,
 }
@@ -639,7 +639,7 @@ impl Session {
 					let arg = tg::process::stdio::write::Arg {
 						location: Some(location.into()),
 						streams: log_streams,
-						tokens: tg::grant::Tokens::default(),
+						tokens: tg::authorization::Tokens::default(),
 					};
 					if let Some(output) = session.try_write_process_stdio(&id, arg, input).await? {
 						let mut output = std::pin::pin!(output);

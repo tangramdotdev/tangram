@@ -85,8 +85,8 @@ pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	pub tokens: tg::grant::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Reference {
@@ -109,12 +109,12 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_node_and_token(node: Node, token: Option<tg::grant::Token>) -> Self {
-		Self::with_node_and_tokens(node, tg::grant::Tokens::with_local(token))
+	pub fn with_node_and_token(node: Node, token: Option<tg::authorization::Token>) -> Self {
+		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(token))
 	}
 
 	#[must_use]
-	pub fn with_node_and_tokens(node: Node, tokens: tg::grant::Tokens) -> Self {
+	pub fn with_node_and_tokens(node: Node, tokens: tg::authorization::Tokens) -> Self {
 		let options = Options {
 			tokens,
 			..Default::default()

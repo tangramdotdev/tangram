@@ -684,7 +684,7 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 		crate::authorize::Arg {
 			permissions: node,
 			resource: tg::grant::Resource::Id(child.clone().into()),
-			token: Some(tg::grant::Body {
+			token: Some(tg::authorization::Body {
 				expires_at: i64::MAX,
 				permissions: vec![object_permission(
 					tg::grant::permission::object::Permission::Subtree,

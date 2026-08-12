@@ -129,7 +129,7 @@ pub struct SpawnProcessServerRequestArg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SpawnProcessClientResponseOutput {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant: Option<tg::grant::Token>,
+	pub grant: Option<tg::authorization::Token>,
 
 	pub lease: String,
 

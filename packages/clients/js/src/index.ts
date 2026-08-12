@@ -1,6 +1,7 @@
 import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, todo, unimplemented, unreachable } from "./assert.ts";
+import { Authorization } from "./authorization.ts";
 import { Blob, blob } from "./blob.ts";
 import {
 	type ArchiveFormat,
@@ -20,7 +21,6 @@ import { Directory, directory } from "./directory.ts";
 import { type Encoding, encoding, setEncoding } from "./encoding.ts";
 import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
-import { Grant } from "./grant.ts";
 import { Graph, graph } from "./graph.ts";
 import { type Host, host, setHost } from "./host.ts";
 import { Request, Response, Uri } from "./http.ts";
@@ -78,7 +78,7 @@ export type {
 	ValueOrMaybeMutationMap,
 };
 
-export { Grant };
+export { Authorization };
 
 export type { Checkin } from "./client/checkin.ts";
 export type { Checkout } from "./client/checkout.ts";

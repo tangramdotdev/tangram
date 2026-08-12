@@ -6,7 +6,7 @@ export namespace Signal {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
 		signal: tg.Process.Signal;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 }
 

@@ -7,7 +7,7 @@ export class Sandbox {
 	#location: tg.Location.Arg | null;
 	#owned: boolean;
 	#state: tg.Sandbox.Get.Output | null;
-	#tokens: tg.Grant.Tokens;
+	#tokens: tg.Authorization.Tokens;
 
 	constructor(arg: tg.Sandbox.ConstructorArg) {
 		this.#id = arg.id;
@@ -16,7 +16,7 @@ export class Sandbox {
 		this.#state = arg.state ?? null;
 		this.#tokens = arg.tokens ?? {};
 		if (this.#state !== null) {
-			tg.Grant.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
+			tg.Authorization.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
 		}
 	}
 
@@ -52,7 +52,7 @@ export class Sandbox {
 			arg.location = this.#location;
 		}
 		let output = await tg.client.getSandbox(this.#id, arg);
-		tg.Grant.Tokens.inherit(this.#tokens, output.tokens ?? {});
+		tg.Authorization.Tokens.inherit(this.#tokens, output.tokens ?? {});
 		this.#location =
 			output.location === undefined || output.location === null
 				? null
@@ -110,7 +110,7 @@ export class Sandbox {
 		return this.#state;
 	}
 
-	get tokens(): tg.Grant.Tokens {
+	get tokens(): tg.Authorization.Tokens {
 		return { ...this.#tokens };
 	}
 
@@ -170,7 +170,7 @@ export namespace Sandbox {
 			network?: tg.Sandbox.Network.Data | null;
 			owner?: string | null;
 			status: tg.Sandbox.Status;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 			ttl?: number | null;
 			usage?: Usage | null;
 		};
@@ -379,7 +379,7 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		owned?: boolean;
 		state?: tg.Sandbox.Get.Output | null;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export namespace Create {

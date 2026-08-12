@@ -45,7 +45,7 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: row.name,
 			specifier,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		});
 
 		Ok(organization)

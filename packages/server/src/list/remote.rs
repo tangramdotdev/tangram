@@ -72,7 +72,7 @@ impl Session {
 						entry.tokens().local(),
 						&self.server.clock,
 					) {
-						entry.set_tokens(tg::grant::Tokens::default());
+						entry.set_tokens(tg::authorization::Tokens::default());
 					}
 					self.set_remote_entry_location(entry, &remote.name)?;
 				}

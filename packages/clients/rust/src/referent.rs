@@ -62,9 +62,13 @@ pub struct Options {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	pub tokens: tg::grant::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 5,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl<T> Referent<T> {
@@ -80,12 +84,12 @@ impl<T> Referent<T> {
 	}
 
 	#[must_use]
-	pub fn with_node_and_token(node: T, token: Option<tg::grant::Token>) -> Self {
-		Self::with_node_and_tokens(node, tg::grant::Tokens::with_local(token))
+	pub fn with_node_and_token(node: T, token: Option<tg::authorization::Token>) -> Self {
+		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(token))
 	}
 
 	#[must_use]
-	pub fn with_node_and_tokens(node: T, tokens: tg::grant::Tokens) -> Self {
+	pub fn with_node_and_tokens(node: T, tokens: tg::authorization::Tokens) -> Self {
 		let options = Options {
 			tokens,
 			..Default::default()
@@ -121,11 +125,11 @@ impl<T> Referent<T> {
 		self.options.tag.as_ref()
 	}
 
-	pub fn token(&self) -> Option<&tg::grant::Token> {
+	pub fn token(&self) -> Option<&tg::authorization::Token> {
 		self.options.tokens.local()
 	}
 
-	pub fn tokens(&self) -> &tg::grant::Tokens {
+	pub fn tokens(&self) -> &tg::authorization::Tokens {
 		&self.options.tokens
 	}
 
@@ -213,7 +217,7 @@ impl Options {
 			name: None,
 			path: Some(path.into()),
 			tag: None,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		}
 	}
 
@@ -269,16 +273,16 @@ mod tests {
 		let id: tg::file::Id = "fil_010000000000000000000000000000000000000000000000000000"
 			.parse()
 			.unwrap();
-		let token = tg::grant::Token {
-			body: tg::grant::token::Body {
+		let token = tg::authorization::Token {
+			body: tg::authorization::token::Body {
 				expires_at: i64::MAX,
 				permissions: vec![tg::grant::Permission::Object(
 					tg::grant::permission::object::Permission::Subtree,
 				)],
 				resource: tg::grant::Resource::Id(id.clone().into()),
 			},
-			metadata: tg::grant::token::Metadata {
-				algorithm: tg::grant::token::Algorithm::Ed25519,
+			metadata: tg::authorization::token::Metadata {
+				algorithm: tg::authorization::token::Algorithm::Ed25519,
 				key: "default".into(),
 			},
 			signature: Vec::new(),
@@ -287,7 +291,7 @@ mod tests {
 			name: "default".into(),
 			region: None,
 		});
-		let tokens = tg::grant::Tokens(BTreeMap::from([
+		let tokens = tg::authorization::Tokens(BTreeMap::from([
 			(
 				tg::Location::Local(tg::location::Local::default()),
 				token.clone(),

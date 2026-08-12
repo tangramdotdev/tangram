@@ -12,7 +12,7 @@ pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
 	pub send: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub struct ProcessNode {
@@ -20,7 +20,7 @@ pub struct ProcessNode {
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub send: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 impl Session {

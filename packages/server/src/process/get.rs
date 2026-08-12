@@ -90,7 +90,7 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let permissions =
@@ -331,7 +331,7 @@ impl Session {
 			location: Some(location),
 			metadata,
 			stored: None,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		}
 	}
 
@@ -341,7 +341,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -372,7 +372,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -403,7 +403,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -462,7 +462,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -615,7 +615,7 @@ impl Server {
 					location: Some(location.clone()),
 					metadata,
 					stored: None,
-					tokens: tg::grant::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				})
 			})
 			.collect();

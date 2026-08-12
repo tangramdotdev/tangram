@@ -9,7 +9,7 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub options: &'a tg::referent::Options,
 	pub parent: &'a tg::process::Id,
 	pub sandbox: Option<&'a tg::sandbox::Id>,
-	pub tokens: &'a tg::grant::Tokens,
+	pub tokens: &'a tg::authorization::Tokens,
 }
 
 impl Session {

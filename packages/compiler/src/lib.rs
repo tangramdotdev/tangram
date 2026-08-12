@@ -939,7 +939,7 @@ impl Compiler {
 					name: None,
 					path: Some(path),
 					tag: None,
-					tokens: tg::grant::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				}
 			};
 			let referent = tg::Referent {
@@ -1077,7 +1077,7 @@ impl Compiler {
 				name: None,
 				path,
 				tag: Some(tag),
-				tokens: tg::grant::Tokens::default(),
+				tokens: tg::authorization::Tokens::default(),
 			};
 			let referent = tg::Referent {
 				node: source,

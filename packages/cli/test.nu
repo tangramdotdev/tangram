@@ -1103,7 +1103,7 @@ export def --env spawn [
 			authentication: {
 				tokens: $keys,
 			},
-			grants: {
+			authorization: {
 				tokens: $keys,
 			},
 		}

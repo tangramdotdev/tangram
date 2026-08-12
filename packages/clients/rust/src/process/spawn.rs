@@ -102,8 +102,8 @@ pub struct Output {
 
 	pub process: tg::Either<u32, tg::process::Id>,
 
-	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	pub tokens: tg::grant::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wait: Option<tg::process::wait::Output>,
@@ -364,7 +364,7 @@ impl<O: 'static> tg::Process<O> {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
-				tokens: tg::grant::Tokens::default(),
+				tokens: tg::authorization::Tokens::default(),
 				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
@@ -725,7 +725,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task: None,
 			stdout,
 			task: Some(task),
-			tokens: RwLock::new(tg::grant::Tokens::default()),
+			tokens: RwLock::new(tg::authorization::Tokens::default()),
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -881,7 +881,7 @@ impl tg::Session {
 async fn checkout_artifacts<H>(
 	handle: &H,
 	command: &tg::command::Data,
-	tokens: &tg::grant::Tokens,
+	tokens: &tg::authorization::Tokens,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,

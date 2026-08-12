@@ -64,8 +64,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-		tokens: tg::grant::Tokens,
+		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+		tokens: tg::authorization::Tokens,
 	},
 	Organization {
 		id: tg::organization::Id,
@@ -77,8 +77,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-		tokens: tg::grant::Tokens,
+		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+		tokens: tg::authorization::Tokens,
 	},
 	Tag {
 		id: tg::tag::Id,
@@ -95,8 +95,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-		tokens: tg::grant::Tokens,
+		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+		tokens: tg::authorization::Tokens,
 	},
 	User {
 		id: tg::user::Id,
@@ -108,8 +108,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-		tokens: tg::grant::Tokens,
+		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+		tokens: tg::authorization::Tokens,
 	},
 }
 
@@ -171,7 +171,7 @@ impl Entry {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> &tg::grant::Tokens {
+	pub fn tokens(&self) -> &tg::authorization::Tokens {
 		match self {
 			Self::Group { tokens, .. }
 			| Self::Organization { tokens, .. }
@@ -180,7 +180,7 @@ impl Entry {
 		}
 	}
 
-	pub fn set_tokens(&mut self, value: tg::grant::Tokens) {
+	pub fn set_tokens(&mut self, value: tg::authorization::Tokens) {
 		match self {
 			Self::Group { tokens, .. }
 			| Self::Organization { tokens, .. }

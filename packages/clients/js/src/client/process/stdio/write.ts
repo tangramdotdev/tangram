@@ -9,7 +9,7 @@ export namespace Stdio {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			streams: Array<tg.Process.Stdio.Stream>;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 }

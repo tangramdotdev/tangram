@@ -114,7 +114,7 @@ pub struct State {
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	grant_tokens: Tokens,
+	authorization_tokens: Tokens,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	#[cfg(target_os = "linux")]
@@ -148,8 +148,8 @@ pub struct State {
 }
 
 pub struct Tokens {
-	pub private_key: Option<tg::grant::PrivateKey>,
-	pub public_keys: BTreeMap<String, tg::grant::PublicKey>,
+	pub private_key: Option<tg::authorization::PrivateKey>,
+	pub public_keys: BTreeMap<String, tg::authorization::PublicKey>,
 }
 
 impl Owned {
@@ -815,7 +815,7 @@ impl Server {
 		// Create the token keys.
 		let authentication_tokens =
 			load_token_keys(Some(&config.authentication.tokens.keys)).await?;
-		let grant_tokens = load_token_keys(config.grants.tokens.as_ref()).await?;
+		let authorization_tokens = load_token_keys(config.authorization.tokens.as_ref()).await?;
 
 		// Create the billing provider.
 		let billing = config
@@ -836,7 +836,7 @@ impl Server {
 			context,
 			database,
 			diagnostics,
-			grant_tokens,
+			authorization_tokens,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -1567,18 +1567,21 @@ async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Token
 		Some(config) => {
 			let bytes = match &config.path {
 				Some(path) => match config.algorithm {
-					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+					tg::authorization::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
 						|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
 					)?,
 				},
 				None => match config.algorithm {
-					tg::grant::Algorithm::Ed25519 => {
-						tg::grant::PrivateKey::generate(config.name.clone(), config.algorithm)?
-							.bytes
+					tg::authorization::Algorithm::Ed25519 => {
+						tg::authorization::PrivateKey::generate(
+							config.name.clone(),
+							config.algorithm,
+						)?
+						.bytes
 					},
 				},
 			};
-			Some(tg::grant::PrivateKey::new(
+			Some(tg::authorization::PrivateKey::new(
 				config.name.clone(),
 				config.algorithm,
 				bytes,
@@ -1591,30 +1594,31 @@ async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Token
 		for config in &config.public_keys {
 			let bytes = match &config.path {
 				Some(path) => match config.algorithm {
-					tg::grant::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
+					tg::authorization::Algorithm::Ed25519 => tokio::fs::read(path).await.map_err(
 						|error| tg::error!(!error, path = %path.display(), "failed to read the public key"),
 					)?,
 				},
 				None => match config.algorithm {
-					tg::grant::Algorithm::Ed25519 => {
+					tg::authorization::Algorithm::Ed25519 => {
 						let matching_private_key = private_key.as_ref().filter(|private_key| {
 							private_key.name == config.name
 								&& private_key.algorithm == config.algorithm
 						});
 						let key = if let Some(private_key) = matching_private_key {
-							tg::grant::PublicKey::from_private_key(private_key)?
+							tg::authorization::PublicKey::from_private_key(private_key)?
 						} else {
-							let private_key = tg::grant::PrivateKey::generate(
+							let private_key = tg::authorization::PrivateKey::generate(
 								config.name.clone(),
 								config.algorithm,
 							)?;
-							tg::grant::PublicKey::from_private_key(&private_key)?
+							tg::authorization::PublicKey::from_private_key(&private_key)?
 						};
 						key.bytes
 					},
 				},
 			};
-			let key = tg::grant::PublicKey::new(config.name.clone(), config.algorithm, bytes);
+			let key =
+				tg::authorization::PublicKey::new(config.name.clone(), config.algorithm, bytes);
 			if public_keys.insert(config.name.clone(), key).is_some() {
 				return Err(tg::error!(name = %config.name, "duplicate public key"));
 			}

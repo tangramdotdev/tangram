@@ -59,6 +59,7 @@ pub use {
 pub(crate) use self::handle::handle;
 
 pub mod artifact;
+pub mod authorization;
 pub mod blob;
 pub mod builtin;
 pub mod bytes;

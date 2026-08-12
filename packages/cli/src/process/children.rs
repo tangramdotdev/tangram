@@ -75,7 +75,7 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
 			timeout: args.timeout.get(),
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let stream = process
 			.children_with_handle(&client, arg)

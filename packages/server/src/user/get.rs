@@ -45,7 +45,7 @@ impl Session {
 	async fn try_get_user_local(
 		&self,
 		id: &tg::user::Id,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		let permission = tg::grant::Permission::User(tg::grant::permission::user::Permission::Read);
 		let authorized = self
@@ -131,7 +131,7 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: user.name,
 			specifier,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(Some(user))
@@ -142,7 +142,7 @@ impl Session {
 		id: &tg::user::Id,
 		mut arg: tg::user::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;

@@ -370,7 +370,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		now: i64,
-	) -> tg::Result<Option<tg::grant::Token>> {
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let expires_at = now
 			+ self
 				.server

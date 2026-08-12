@@ -12,7 +12,7 @@ pub struct DatabaseNode {
 	pub eager: bool,
 	pub id: tg::Id,
 	pub selector: tg::Selector<tg::Id>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub struct ObjectNode {
@@ -21,7 +21,7 @@ pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
 	pub parent: Option<tg::Id>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub struct ProcessNode {
@@ -29,14 +29,14 @@ pub struct ProcessNode {
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub parent: Option<tg::process::Id>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub struct SandboxNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -66,7 +66,7 @@ impl Queue {
 		&self,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		self.enqueue_with_descendants(true, eager, id, token)
 	}
@@ -76,7 +76,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group

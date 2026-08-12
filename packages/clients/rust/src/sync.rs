@@ -132,7 +132,7 @@ pub struct GetNodeMessage {
 	pub selector: tg::Selector<tg::Id>,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -324,7 +324,7 @@ pub struct PutMissingMessage {
 	pub selector: tg::Selector<tg::Id>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(

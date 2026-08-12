@@ -339,7 +339,7 @@ export namespace Command {
 		id?: tg.Command.Id;
 		object?: tg.Command.Object;
 		stored: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Value {

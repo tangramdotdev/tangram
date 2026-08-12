@@ -14,12 +14,12 @@ export namespace Object {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			metadata?: boolean;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type Output = {
 			data: tg.Object.Data;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 
@@ -97,7 +97,7 @@ export namespace Object {
 		#id: tg.Object.Id | null;
 		#object: tg.Object.Object | null;
 		#stored: boolean;
-		#tokens: tg.Grant.Tokens;
+		#tokens: tg.Authorization.Tokens;
 
 		constructor(arg: tg.Object.State.ConstructorArg) {
 			this.#id = arg.id ?? null;
@@ -137,16 +137,16 @@ export namespace Object {
 			this.#stored = stored;
 		}
 
-		get tokens(): tg.Grant.Tokens {
+		get tokens(): tg.Authorization.Tokens {
 			return { ...this.#tokens };
 		}
 
-		set tokens(tokens: tg.Grant.Tokens) {
+		set tokens(tokens: tg.Authorization.Tokens) {
 			this.#tokens = tokens;
 		}
 
-		inheritTokens(tokens: tg.Grant.Tokens): void {
-			tg.Grant.Tokens.inherit(this.#tokens, tokens);
+		inheritTokens(tokens: tg.Authorization.Tokens): void {
+			tg.Authorization.Tokens.inherit(this.#tokens, tokens);
 		}
 
 		get kind(): tg.Object.Kind {
@@ -161,7 +161,7 @@ export namespace Object {
 				let arg = { tokens: this.#tokens };
 				let output = await tg.client.getObject(this.#id!, arg);
 				if (output.tokens !== undefined && output.tokens !== null) {
-					tg.Grant.Tokens.inherit(this.#tokens, output.tokens);
+					tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
 				}
 				this.#object = tg.Object.Object.fromData(output.data);
 			}
@@ -193,7 +193,7 @@ export namespace Object {
 			id?: tg.Object.Id | null;
 			object?: tg.Object.Object | null;
 			stored: boolean;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 
@@ -417,7 +417,7 @@ export namespace Object {
 
 	export let inheritTokens = (
 		object: tg.Object,
-		tokens: tg.Grant.Tokens,
+		tokens: tg.Authorization.Tokens,
 	): void => {
 		object.state.inheritTokens(tokens);
 	};

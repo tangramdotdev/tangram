@@ -409,7 +409,7 @@ export namespace File {
 		id?: tg.File.Id;
 		object?: tg.File.Object;
 		stored: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Builder {

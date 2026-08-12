@@ -45,7 +45,7 @@ impl Session {
 	async fn try_get_organization_local(
 		&self,
 		id: &tg::organization::Id,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let permission = tg::grant::Permission::Organization(
 			tg::grant::permission::organization::Permission::Read,
@@ -87,7 +87,7 @@ impl Session {
 		id: &tg::organization::Id,
 		mut arg: tg::organization::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;

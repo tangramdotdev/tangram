@@ -161,7 +161,7 @@ async fn ensure_process_with_handle<H>(
 ) -> tg::Result<(
 	Option<tg::location::Arg>,
 	tg::process::Id,
-	tg::grant::Tokens,
+	tg::authorization::Tokens,
 )>
 where
 	H: tg::Handle,

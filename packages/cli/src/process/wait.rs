@@ -32,7 +32,7 @@ impl Cli {
 		let arg = tg::process::wait::Arg {
 			lease: None,
 			location: locations,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let output = process
 			.wait_with_handle(&client, arg)

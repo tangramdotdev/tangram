@@ -104,7 +104,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		source: &Source,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let Source::Pipe(streams) = source else {
 			return Ok(());

@@ -97,7 +97,7 @@ impl Cli {
 				location,
 				metadata: false,
 				stored: false,
-				tokens: tg::grant::Tokens::default(),
+				tokens: tg::authorization::Tokens::default(),
 			};
 			self.print_value(&output, print, arg).await?;
 		}

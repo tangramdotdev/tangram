@@ -61,7 +61,7 @@ impl Session {
 	pub(crate) async fn try_get_object_stored_local(
 		&self,
 		id: &tg::object::Id,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let Some(stored) = self.server.try_get_object_stored_local(id).await? else {
 			return Ok(None);
@@ -73,7 +73,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		stored: tg::object::Stored,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let subtree =
@@ -102,7 +102,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let mut futures = regions
 			.iter()
@@ -128,7 +128,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		region: &str,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -149,7 +149,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let mut futures = remotes
 			.iter()
@@ -175,7 +175,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),

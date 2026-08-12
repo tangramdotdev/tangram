@@ -119,7 +119,8 @@ impl Session {
 		}
 
 		let node = list_target_to_id(target);
-		let tokens = tg::grant::Tokens::with_local(self.create_tag_target_token(&id, &node).await?);
+		let tokens =
+			tg::authorization::Tokens::with_local(self.create_tag_target_token(&id, &node).await?);
 		let referent = tg::Referent::new(
 			tg::get::Node::Id(node),
 			tg::referent::Options {
@@ -253,7 +254,7 @@ impl Session {
 		&self,
 		id: &tg::tag::Id,
 		target: &tg::Id,
-	) -> tg::Result<Option<tg::grant::Token>> {
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		// Get the tag.
 		let mut connection = self
 			.server
@@ -274,7 +275,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::tag::Id,
 		target: &tg::Id,
-	) -> tg::Result<Option<tg::grant::Token>> {
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let data = Self::get_tag_data_with_transaction(transaction, id).await?;
 		let actual: tg::Id = match data.target {
 			tg::tag::data::Target::Object(id) => id.into(),

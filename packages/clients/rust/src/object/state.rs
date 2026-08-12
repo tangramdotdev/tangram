@@ -11,7 +11,7 @@ struct Inner {
 	id: Option<tg::object::Id>,
 	object: Option<tg::object::Object>,
 	stored: bool,
-	tokens: tg::grant::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 impl State {
@@ -24,7 +24,7 @@ impl State {
 			id,
 			object,
 			stored,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -34,7 +34,7 @@ impl State {
 			id: Some(id.into()),
 			object: None,
 			stored: true,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -44,7 +44,7 @@ impl State {
 			id: None,
 			object: Some(object.into()),
 			stored: false,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -91,11 +91,11 @@ impl State {
 		self.0.write().unwrap().stored = stored;
 	}
 
-	pub fn set_tokens(&self, tokens: tg::grant::Tokens) {
+	pub fn set_tokens(&self, tokens: tg::authorization::Tokens) {
 		self.0.write().unwrap().tokens = tokens;
 	}
 
-	pub fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+	pub fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		self.0.write().unwrap().tokens.inherit(tokens);
 	}
 
@@ -104,7 +104,7 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::grant::Tokens {
+	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.read().unwrap().tokens.clone()
 	}
 

@@ -220,7 +220,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 		let permission = self.process_permission_for_data(&token_data);
-		let tokens = tg::grant::Tokens::with_local(
+		let tokens = tg::authorization::Tokens::with_local(
 			self.create_token(
 				tg::grant::Resource::Id(id.clone().into()),
 				permission

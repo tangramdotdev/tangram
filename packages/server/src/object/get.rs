@@ -38,7 +38,7 @@ pub(crate) struct TaskKey {
 	pub location: tg::Location,
 	pub metadata: bool,
 	pub stored: bool,
-	pub tokens: tg::grant::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Session {
@@ -94,7 +94,7 @@ impl Session {
 		id: &tg::object::Id,
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let mut permissions = tg::grant::permission::object::Set::empty();
@@ -230,7 +230,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -263,7 +263,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -286,7 +286,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -320,7 +320,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
@@ -349,7 +349,7 @@ impl Session {
 		location: tg::Location,
 		metadata: bool,
 		stored: bool,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let key = TaskKey {
 			id: id.clone(),
@@ -582,7 +582,7 @@ impl Server {
 			bytes,
 			metadata,
 			stored: None,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(Some(output))
@@ -613,7 +613,7 @@ impl Server {
 			bytes,
 			metadata: None,
 			stored: None,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		Ok(Some(output))
 	}
@@ -649,7 +649,7 @@ impl Server {
 					bytes,
 					metadata,
 					stored: None,
-					tokens: tg::grant::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				})
 			})
 			.collect();

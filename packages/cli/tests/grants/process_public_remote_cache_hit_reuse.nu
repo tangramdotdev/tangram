@@ -7,8 +7,8 @@ use ../../test.nu *
 let remote = spawn --name remote --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
-let alice = tg --url $remote.url login --verbose alice | from json
-let eve = tg --url $remote.url login --verbose eve | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let eve = tg --url $remote.url login --verbose --name eve | from json
 
 let path = artifact {
 	tangram.ts: 'export function dep() { return tg.file("dep"); }

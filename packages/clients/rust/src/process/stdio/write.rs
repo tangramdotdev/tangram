@@ -18,8 +18,8 @@ pub struct Arg {
 	#[serde_as(as = "CommaSeparatedString")]
 	pub streams: Vec<Stream>,
 
-	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	pub tokens: tg::grant::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]

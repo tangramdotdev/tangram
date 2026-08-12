@@ -11,7 +11,7 @@ export namespace Stdio {
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 }

@@ -96,7 +96,7 @@ impl Artifact {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		self.state().inherit_tokens(tokens);
 	}
 

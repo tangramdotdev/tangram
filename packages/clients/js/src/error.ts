@@ -317,7 +317,7 @@ export namespace Error {
 		id?: tg.Error.Id;
 		object?: tg.Error.Object;
 		stored: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Builder {

@@ -132,7 +132,8 @@ impl Session {
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;
 		}
-		let tokens = tg::grant::Tokens::with_local(self.create_read_token(&id.clone().into())?);
+		let tokens =
+			tg::authorization::Tokens::with_local(self.create_read_token(&id.clone().into())?);
 		Ok(tg::Organization {
 			id,
 			location: Some(tg::Location::Local(tg::location::Local::default())),

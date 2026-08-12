@@ -19,7 +19,7 @@ export namespace Reference {
 		path?: string | null;
 		source?: string | null;
 		tag?: tg.Tag | null;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export let toData = <T, U>(
@@ -267,7 +267,7 @@ export namespace Reference {
 			path?: string | null;
 			source?: string | null;
 			tag?: tg.Tag | null;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 }

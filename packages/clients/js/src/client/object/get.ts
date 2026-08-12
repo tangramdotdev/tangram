@@ -51,7 +51,7 @@ export async function tryGetObject(
 		data,
 		...(tokens === undefined
 			? {}
-			: { tokens: JSON.parse(tokens) as tg.Grant.Tokens }),
+			: { tokens: JSON.parse(tokens) as tg.Authorization.Tokens }),
 	};
 	return output;
 }

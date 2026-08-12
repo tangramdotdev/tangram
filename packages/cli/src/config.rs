@@ -24,6 +24,9 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub authorization: Option<Authorization>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing: Option<Billing>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,9 +44,6 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grants: Option<Grants>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub http: Option<Http>,
@@ -303,7 +303,7 @@ pub struct Stripe {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Grants {
+pub struct Authorization {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
 }
@@ -324,7 +324,7 @@ pub struct TokenKeys {
 #[serde(deny_unknown_fields)]
 pub struct TokenPrivateKey {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub algorithm: Option<tg::grant::Algorithm>,
+	pub algorithm: Option<tg::authorization::Algorithm>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
@@ -338,7 +338,7 @@ pub struct TokenPrivateKey {
 #[serde(deny_unknown_fields)]
 pub struct TokenPublicKey {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub algorithm: Option<tg::grant::Algorithm>,
+	pub algorithm: Option<tg::authorization::Algorithm>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
@@ -1892,6 +1892,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
 	}
+	if let Some(source) = source.authorization {
+		target.authorization = resolve_authorization(source)?;
+	}
 	if let Some(source) = source.billing {
 		target.billing = Some(resolve_billing(source)?);
 	}
@@ -1906,9 +1909,6 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(directory) = source.directory {
 		target.directory = Some(directory);
-	}
-	if let Some(source) = source.grants {
-		target.grants = resolve_grants(source)?;
 	}
 	if let Some(source) = source.http {
 		target.http = resolve_http(source)?;
@@ -2145,8 +2145,8 @@ fn resolve_stripe(source: Stripe) -> tg::Result<server::Stripe> {
 	Ok(target)
 }
 
-fn resolve_grants(source: Grants) -> tg::Result<server::Grants> {
-	let mut target = server::Grants::default();
+fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorization> {
+	let mut target = server::Authorization::default();
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
 	}

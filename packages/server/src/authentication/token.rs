@@ -7,7 +7,7 @@ const VERSION: &str = "0";
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(super) struct Token {
 	pub body: Body,
-	pub metadata: tg::grant::Metadata,
+	pub metadata: tg::authorization::Metadata,
 	pub signature: Vec<u8>,
 }
 
@@ -26,15 +26,15 @@ pub(super) enum Principal {
 }
 
 impl Token {
-	pub fn sign(body: Body, private_key: &tg::grant::PrivateKey) -> tg::Result<Self> {
+	pub fn sign(body: Body, private_key: &tg::authorization::PrivateKey) -> tg::Result<Self> {
 		body.validate()?;
-		let metadata = tg::grant::Metadata {
+		let metadata = tg::authorization::Metadata {
 			algorithm: private_key.algorithm,
 			key: private_key.name.clone(),
 		};
 		let input = Self::input(&body, &metadata)?;
 		let signature = match metadata.algorithm {
-			tg::grant::Algorithm::Ed25519 => {
+			tg::authorization::Algorithm::Ed25519 => {
 				let key =
 					aws_lc_rs::signature::Ed25519KeyPair::from_seed_unchecked(&private_key.bytes)
 						.map_err(|_| tg::error!("invalid private key"))?;
@@ -50,7 +50,7 @@ impl Token {
 		Ok(token)
 	}
 
-	pub fn verify_at(&self, public_key: &tg::grant::PublicKey, now: i64) -> tg::Result<()> {
+	pub fn verify_at(&self, public_key: &tg::authorization::PublicKey, now: i64) -> tg::Result<()> {
 		if self.metadata.algorithm != public_key.algorithm {
 			return Err(tg::error!("invalid algorithm"));
 		}
@@ -59,7 +59,7 @@ impl Token {
 		}
 		let input = Self::input(&self.body, &self.metadata)?;
 		match self.metadata.algorithm {
-			tg::grant::Algorithm::Ed25519 => {
+			tg::authorization::Algorithm::Ed25519 => {
 				let key = aws_lc_rs::signature::UnparsedPublicKey::new(
 					&aws_lc_rs::signature::ED25519,
 					&public_key.bytes,
@@ -82,7 +82,7 @@ impl Token {
 		self.body.validate_at(now)
 	}
 
-	fn input(body: &Body, metadata: &tg::grant::Metadata) -> tg::Result<String> {
+	fn input(body: &Body, metadata: &tg::authorization::Metadata) -> tg::Result<String> {
 		let body = serde_json::to_vec(body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the body"))
 			.map(|bytes| tg::id::ENCODING.encode(&bytes))?;

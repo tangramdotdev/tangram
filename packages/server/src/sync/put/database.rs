@@ -12,7 +12,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::Id,
 	pub send: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 struct Output {

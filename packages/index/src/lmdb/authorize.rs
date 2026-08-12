@@ -51,7 +51,7 @@ struct AuthorizationContext<'a, 'txn> {
 	transaction: &'a lmdb::RoTxn<'txn>,
 	authorize: crate::lmdb::AuthorizeConfig,
 	requester: &'a Requester<'a>,
-	token: Option<(tg::grant::Body, tg::Id)>,
+	token: Option<(tg::authorization::Body, tg::Id)>,
 	authorization: &'a mut HashMap<(tg::Id, tg::grant::Permission), bool>,
 	cache: &'a mut Cache,
 }

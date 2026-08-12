@@ -408,7 +408,7 @@ export namespace Directory {
 		id?: tg.Directory.Id;
 		object?: tg.Directory.Object;
 		stored: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Builder {

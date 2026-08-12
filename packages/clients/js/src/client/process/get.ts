@@ -6,7 +6,7 @@ export namespace Get {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
 		metadata?: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export type Output = {
@@ -14,7 +14,7 @@ export namespace Get {
 		id: tg.Process.Id;
 		location?: tg.Location | null;
 		metadata?: unknown;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 }
 

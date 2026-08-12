@@ -30,7 +30,7 @@ pub(super) struct DatabaseNode {
 	pub id: tg::Id,
 	pub selector: tg::Selector<tg::Id>,
 	pub send: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub(super) struct ObjectNode {
@@ -55,7 +55,7 @@ pub(super) struct SandboxNode {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub(super) struct SyncPutQueueArg {
@@ -94,7 +94,7 @@ impl Queue {
 		&self,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		self.enqueue_with_descendants(true, eager, id, token)
 	}
@@ -104,7 +104,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		graph.insert_remote_root(id.clone());
@@ -116,7 +116,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, token)
@@ -204,7 +204,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group

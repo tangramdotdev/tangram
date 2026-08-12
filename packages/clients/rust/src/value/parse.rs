@@ -1478,7 +1478,7 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 		name,
 		path,
 		tag,
-		tokens: tg::grant::Tokens::default(),
+		tokens: tg::authorization::Tokens::default(),
 	})
 }
 
@@ -1798,17 +1798,19 @@ mod tests {
 	#[test]
 	fn parse_object_id_with_token() {
 		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
-		let private_key =
-			crate::grant::PrivateKey::generate("default", crate::grant::Algorithm::Ed25519)
-				.unwrap();
-		let body = crate::grant::Body {
+		let private_key = crate::authorization::PrivateKey::generate(
+			"default",
+			crate::authorization::Algorithm::Ed25519,
+		)
+		.unwrap();
+		let body = crate::authorization::Body {
 			expires_at: 20,
 			permissions: vec![crate::grant::Permission::Object(
 				crate::grant::permission::object::Permission::Subtree,
 			)],
 			resource: crate::grant::Resource::Id(id.clone().into()),
 		};
-		let token = crate::grant::Token::sign(body, &private_key).unwrap();
+		let token = crate::authorization::Token::sign(body, &private_key).unwrap();
 		let tgon =
 			crate::Referent::with_node_and_token(id.clone(), Some(token.clone())).to_string();
 
@@ -1828,25 +1830,31 @@ mod tests {
 	#[test]
 	fn parse_object_ids_with_tokens() {
 		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
-		let body = crate::grant::Body {
+		let body = crate::authorization::Body {
 			expires_at: i64::MAX,
 			permissions: vec![crate::grant::Permission::Object(
 				crate::grant::permission::object::Permission::Subtree,
 			)],
 			resource: crate::grant::Resource::Id(id.clone().into()),
 		};
-		let local_key =
-			crate::grant::PrivateKey::generate("local", crate::grant::Algorithm::Ed25519).unwrap();
-		let local_token = crate::grant::Token::sign(body.clone(), &local_key).unwrap();
-		let remote_key =
-			crate::grant::PrivateKey::generate("remote", crate::grant::Algorithm::Ed25519).unwrap();
-		let remote_token = crate::grant::Token::sign(body, &remote_key).unwrap();
+		let local_key = crate::authorization::PrivateKey::generate(
+			"local",
+			crate::authorization::Algorithm::Ed25519,
+		)
+		.unwrap();
+		let local_token = crate::authorization::Token::sign(body.clone(), &local_key).unwrap();
+		let remote_key = crate::authorization::PrivateKey::generate(
+			"remote",
+			crate::authorization::Algorithm::Ed25519,
+		)
+		.unwrap();
+		let remote_token = crate::authorization::Token::sign(body, &remote_key).unwrap();
 		let local = crate::Location::Local(crate::location::Local::default());
 		let remote = crate::Location::Remote(crate::location::Remote {
 			name: "production".into(),
 			region: Some("east".into()),
 		});
-		let tokens = crate::grant::Tokens(BTreeMap::from([
+		let tokens = crate::authorization::Tokens(BTreeMap::from([
 			(local, local_token),
 			(remote, remote_token),
 		]));

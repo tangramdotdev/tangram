@@ -44,7 +44,7 @@ impl Session {
 	async fn try_get_tag_local(
 		&self,
 		id: &tg::tag::Id,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let mut connection = self
 			.server
@@ -99,7 +99,7 @@ impl Session {
 		id: &tg::tag::Id,
 		mut arg: tg::tag::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;

@@ -76,7 +76,7 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	tokens: RwLock<tg::grant::Tokens>,
+	tokens: RwLock<tg::authorization::Tokens>,
 	wait: Mutex<Option<Wait>>,
 }
 
@@ -87,7 +87,7 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub metadata: Option<Metadata>,
 	pub state: Option<State>,
-	pub tokens: tg::grant::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -221,7 +221,7 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::grant::Tokens {
+	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.tokens.read().unwrap().clone()
 	}
 
@@ -236,7 +236,7 @@ impl<O> Process<O> {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		self.tokens.write().unwrap().inherit(tokens);
 	}
 

@@ -164,7 +164,7 @@ pub struct TgConfig {
 	pub object_store_posix_sem_prefix: *const c_char,
 	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
 	pub principal: *const c_char,
-	/// The grant tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of grant tokens. A null pointer or an empty string provides no tokens.
+	/// The authorization tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of authorization tokens. A null pointer or an empty string provides no tokens.
 	pub tokens: *const c_char,
 }
 

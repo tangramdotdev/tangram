@@ -10,8 +10,6 @@ use {
 	},
 };
 
-mod token;
-
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
 		let resource = self.resolve_resource(&arg.resource.node).await?;

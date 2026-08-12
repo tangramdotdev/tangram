@@ -90,7 +90,7 @@ impl Session {
 		state: &State,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let requested = state
 			.graph
@@ -426,7 +426,7 @@ impl Session {
 		id: &tg::object::Id,
 		data: &tg::object::Data,
 		kind: Option<crate::sync::queue::ObjectKind>,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
@@ -447,7 +447,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		stored: Option<&tangram_index::process::Stored>,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.process_children

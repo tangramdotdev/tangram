@@ -90,7 +90,7 @@ impl Cli {
 			size: args.size,
 			streams,
 			timeout: args.timeout.get(),
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let mut stdio = process
 			.try_read_stdio_all(&client, arg)

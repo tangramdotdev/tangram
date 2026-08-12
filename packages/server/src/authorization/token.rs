@@ -1,7 +1,10 @@
 use {crate::Session, num::ToPrimitive as _, tangram_client::prelude::*};
 
 impl Session {
-	pub(crate) fn create_read_token(&self, id: &tg::Id) -> tg::Result<Option<tg::grant::Token>> {
+	pub(crate) fn create_read_token(
+		&self,
+		id: &tg::Id,
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let permission = Self::read_permission_for_resource(id)?;
 		let expires_at = self.server.clock.unix_timestamp()?
 			+ self
@@ -64,7 +67,7 @@ impl Session {
 
 	pub(crate) fn update_tokens_for_location(
 		&self,
-		tokens: &mut tg::grant::Tokens,
+		tokens: &mut tg::authorization::Tokens,
 		location: &tg::Location,
 	) -> tg::Result<()> {
 		if location == &tg::Location::Local(tg::location::Local::default()) {

@@ -275,7 +275,7 @@ fn sandbox_data(
 		network: None,
 		owner: Some(owner),
 		status,
-		tokens: tg::grant::Tokens::default(),
+		tokens: tg::authorization::Tokens::default(),
 		ttl: None,
 		usage,
 	}

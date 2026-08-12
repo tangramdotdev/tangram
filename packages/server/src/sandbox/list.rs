@@ -130,7 +130,7 @@ impl Session {
 					network: data.network,
 					owner: Some(data.owner.unwrap_or(tg::Principal::Root)),
 					status: data.status,
-					tokens: tg::grant::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 					ttl: data.ttl,
 				})
 			})

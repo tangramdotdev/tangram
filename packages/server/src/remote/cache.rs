@@ -312,7 +312,10 @@ impl Request {
 	}
 }
 
-pub(crate) fn token_valid(token: Option<&tg::grant::Token>, clock: &crate::clock::Clock) -> bool {
+pub(crate) fn token_valid(
+	token: Option<&tg::authorization::Token>,
+	clock: &crate::clock::Clock,
+) -> bool {
 	token.is_none_or(|token| {
 		clock
 			.unix_timestamp()

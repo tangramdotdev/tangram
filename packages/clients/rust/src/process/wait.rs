@@ -19,8 +19,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
-	pub tokens: tg::grant::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -127,7 +127,7 @@ impl tg::Session {
 }
 
 impl Wait {
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		if let Some(error) = &self.error {
 			error.state().inherit_tokens(tokens);
 		}

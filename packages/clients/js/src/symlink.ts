@@ -264,7 +264,7 @@ export namespace Symlink {
 		id?: tg.Symlink.Id;
 		object?: tg.Symlink.Object;
 		stored: boolean;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Builder {

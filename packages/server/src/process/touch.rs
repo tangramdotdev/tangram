@@ -53,7 +53,7 @@ impl Session {
 	async fn try_touch_process_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<()>> {
 		let permission =
 			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
@@ -88,7 +88,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = regions
 			.iter()
@@ -117,7 +117,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		region: &str,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
@@ -142,7 +142,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = remotes
 			.iter()
@@ -171,7 +171,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
-		tokens: &tg::grant::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)

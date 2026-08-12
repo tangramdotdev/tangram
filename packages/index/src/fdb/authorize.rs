@@ -59,7 +59,7 @@ struct AuthorizationContext<'a> {
 	subspace: &'a Subspace,
 	config: crate::fdb::AuthorizeConfig,
 	requester: &'a Requester<'a>,
-	token: Option<(&'a tg::grant::Body, &'a tg::Id)>,
+	token: Option<(&'a tg::authorization::Body, &'a tg::Id)>,
 }
 
 struct SubtreeSearchBudget {

@@ -70,7 +70,7 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let Some(tg::process::get::Output { data, .. }) = self
 			.try_get_process_local(id, false, false, token)
@@ -191,7 +191,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		token: Option<&tg::grant::Token>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams

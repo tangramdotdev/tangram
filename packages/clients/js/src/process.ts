@@ -37,7 +37,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdioPromise: Promise<void> | null;
 	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
-	#tokens: tg.Grant.Tokens;
+	#tokens: tg.Authorization.Tokens;
 	#wait: tg.Process.Wait | null;
 
 	static build<
@@ -319,7 +319,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		arg.tokens = this.#tokens;
 		let output = await tg.client.getProcess(this.#id, arg);
 		if (output.tokens !== undefined && output.tokens !== null) {
-			tg.Grant.Tokens.inherit(this.#tokens, output.tokens);
+			tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
 		}
 		this.#location =
 			output.location === undefined || output.location === null
@@ -352,16 +352,16 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#location ?? null;
 	}
 
-	get tokens(): tg.Grant.Tokens {
+	get tokens(): tg.Authorization.Tokens {
 		return { ...this.#tokens };
 	}
 
-	set tokens(tokens: tg.Grant.Tokens) {
+	set tokens(tokens: tg.Authorization.Tokens) {
 		this.#tokens = tokens;
 	}
 
-	inheritTokens(tokens: tg.Grant.Tokens): void {
-		tg.Grant.Tokens.inherit(this.#tokens, tokens);
+	inheritTokens(tokens: tg.Authorization.Tokens): void {
+		tg.Authorization.Tokens.inherit(this.#tokens, tokens);
 	}
 
 	/** Get this process's command. */
@@ -700,7 +700,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
-				tokens?: tg.Grant.Tokens | null;
+				tokens?: tg.Authorization.Tokens | null;
 			};
 		}
 	}
@@ -1068,7 +1068,7 @@ export namespace Process {
 		stdioPromise?: Promise<void> | null;
 		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
-		tokens?: tg.Grant.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 		wait?: tg.Process.Wait | null;
 	};
 
@@ -1257,7 +1257,7 @@ export namespace Process {
 	export namespace State {
 		export let inheritTokens = (
 			state: State,
-			tokens: tg.Grant.Tokens,
+			tokens: tg.Authorization.Tokens,
 		): void => {
 			tg.Object.inheritTokens(state.command, tokens);
 			for (let child of state.children ?? []) {
@@ -1511,7 +1511,7 @@ export namespace Process {
 		export type Arg = {
 			lease?: string | null;
 			location?: tg.Location.Arg | null;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type Data = {
@@ -1543,7 +1543,7 @@ export namespace Process {
 
 		export let inheritTokens = (
 			wait: tg.Process.Wait,
-			tokens: tg.Grant.Tokens,
+			tokens: tg.Authorization.Tokens,
 		): void => {
 			if (wait.error !== null) {
 				tg.Object.inheritTokens(wait.error, tokens);

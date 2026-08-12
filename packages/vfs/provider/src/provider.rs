@@ -64,8 +64,8 @@ pub struct Config {
 	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
 	pub principal: Option<tg::Principal>,
 
-	/// The grant tokens the mount holds, which authorize access to their artifacts and, by extension, their subtrees without consulting the server.
-	pub tokens: Vec<tg::grant::Token>,
+	/// The authorization tokens the mount holds, which authorize access to their artifacts and, by extension, their subtrees without consulting the server.
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub struct Provider {
@@ -80,7 +80,7 @@ struct Inner {
 	file_handles: Mutex<BTreeMap<u64, FileHandle>>,
 	nodes: Nodes,
 	principal: Option<tg::Principal>,
-	tokens: BTreeMap<tg::artifact::Id, Vec<tg::grant::Token>>,
+	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
 /// The state the fast path requires. It reads the object store and the cache directory directly instead of sending a request to the server.
@@ -584,7 +584,7 @@ impl Inner {
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let stream = self
 			.client
@@ -1931,17 +1931,17 @@ mod tests {
 		}
 	}
 
-	fn token(artifact: &tg::artifact::Id) -> tg::grant::Token {
+	fn token(artifact: &tg::artifact::Id) -> tg::authorization::Token {
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		tg::grant::Token {
-			body: tg::grant::Body {
+		tg::authorization::Token {
+			body: tg::authorization::Body {
 				expires_at: i64::MAX,
 				permissions: vec![permission],
 				resource: tg::grant::Resource::Id(tg::object::Id::from(artifact.clone()).into()),
 			},
-			metadata: tg::grant::Metadata {
-				algorithm: tg::grant::Algorithm::Ed25519,
+			metadata: tg::authorization::Metadata {
+				algorithm: tg::authorization::Algorithm::Ed25519,
 				key: "test".to_owned(),
 			},
 			signature: Vec::new(),

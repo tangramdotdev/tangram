@@ -69,7 +69,7 @@ pub struct DatabaseNode {
 	pub remote_requested: bool,
 	remote_selectors: BTreeSet<tg::Selector<tg::Id>>,
 	pub remote_sent: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,7 +91,7 @@ pub struct ObjectNode {
 	pub remote_sent: bool,
 	pub remote_stored: Option<tangram_index::object::Stored>,
 	pub requested: Option<Requested>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -121,7 +121,7 @@ pub struct ProcessNode {
 	remote_sent: bool,
 	pub remote_stored: Option<tangram_index::process::Stored>,
 	pub requested: Option<Requested>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -141,7 +141,7 @@ pub struct RemoteAction {
 pub struct RemoteSelector {
 	pub descendants: bool,
 	pub eager: bool,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -151,7 +151,7 @@ pub struct Requested {
 
 pub struct Authorization {
 	pub permissions: tg::grant::permission::Set,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 pub struct UpdateObjectLocalArg<'a> {
@@ -242,7 +242,7 @@ impl Graph {
 		graph
 	}
 
-	fn update_root_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
+	fn update_root_token(&mut self, id: &tg::Id, token: tg::authorization::Token) {
 		match id.kind() {
 			tg::id::Kind::Process => {
 				self.update_process_token(&id.clone().try_into().unwrap(), token);
@@ -326,7 +326,7 @@ impl Graph {
 		descendants: bool,
 		eager: bool,
 		specifier: tg::Specifier,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> bool {
 		let Some(request) = self.remote_selectors.get_mut(&specifier) else {
 			let request = RemoteSelector {
@@ -438,7 +438,7 @@ impl Graph {
 	pub fn update_node_local_requested(
 		&mut self,
 		id: &tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> bool {
 		let node = self
 			.nodes
@@ -459,7 +459,7 @@ impl Graph {
 		descendants: bool,
 		id: &tg::Id,
 		selector: tg::Selector<tg::Id>,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
@@ -495,7 +495,7 @@ impl Graph {
 		&mut self,
 		descendants: bool,
 		id: &tg::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
@@ -610,7 +610,7 @@ impl Graph {
 		self.update_remote_end(index);
 	}
 
-	pub fn update_node_token(&mut self, id: &tg::Id, token: tg::grant::Token) {
+	pub fn update_node_token(&mut self, id: &tg::Id, token: tg::authorization::Token) {
 		let node = self
 			.nodes
 			.entry(id.clone())
@@ -1410,7 +1410,7 @@ impl Graph {
 		self.get_local_authorization(index, required)
 	}
 
-	pub fn update_object_token(&mut self, id: &tg::object::Id, token: tg::grant::Token) {
+	pub fn update_object_token(&mut self, id: &tg::object::Id, token: tg::authorization::Token) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
@@ -1418,7 +1418,7 @@ impl Graph {
 		node.unwrap_object_mut().token.get_or_insert(token);
 	}
 
-	pub fn update_process_token(&mut self, id: &tg::process::Id, token: tg::grant::Token) {
+	pub fn update_process_token(&mut self, id: &tg::process::Id, token: tg::authorization::Token) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
@@ -2826,7 +2826,7 @@ impl Node {
 		}
 	}
 
-	fn token(&self) -> Option<&tg::grant::Token> {
+	fn token(&self) -> Option<&tg::authorization::Token> {
 		match self {
 			Self::Group(node)
 			| Self::Organization(node)

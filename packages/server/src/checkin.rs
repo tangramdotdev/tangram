@@ -332,7 +332,10 @@ impl Session {
 		Ok(output)
 	}
 
-	fn create_artifact_token(&self, id: &tg::artifact::Id) -> tg::Result<Option<tg::grant::Token>> {
+	fn create_artifact_token(
+		&self,
+		id: &tg::artifact::Id,
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let now = self.server.clock.unix_timestamp()?;
 		let expires_at = now
 			+ self

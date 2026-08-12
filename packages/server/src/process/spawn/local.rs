@@ -20,7 +20,7 @@ pub(super) struct Output {
 	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
 	pub sandbox_token: Option<String>,
 	pub scheduler: Option<tg::scheduler::Id>,
-	pub token: Option<tg::grant::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 impl Output {

@@ -28,7 +28,7 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant: Option<tg::grant::Token>,
+	pub grant: Option<tg::authorization::Token>,
 
 	pub id: tg::process::Id,
 

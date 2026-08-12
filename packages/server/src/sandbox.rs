@@ -33,7 +33,7 @@ pub struct State {
 	pub processes: HashMap<tg::process::Id, crate::process::State>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub token: Option<String>,
-	pub tokens: BTreeMap<tg::artifact::Id, tg::grant::Token>,
+	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;

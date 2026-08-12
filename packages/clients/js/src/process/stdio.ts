@@ -19,7 +19,7 @@ export namespace Stdio {
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type Event =
@@ -82,7 +82,7 @@ export namespace Stdio {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			streams: Array<tg.Process.Stdio.Stream>;
-			tokens?: tg.Grant.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type Event = { kind: "end" } | { kind: "stop" };
@@ -365,7 +365,7 @@ export namespace Stdio {
 export let task = async (
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Grant.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty" | null,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
@@ -445,7 +445,7 @@ async function cleanup(
 async function stdinTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Grant.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
@@ -510,7 +510,7 @@ async function stdinTask(
 async function stdoutStderrTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Grant.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
 ): Promise<void> {
@@ -544,7 +544,7 @@ async function stdoutStderrTask(
 async function sigwinchTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Grant.Tokens,
+	tokens: tg.Authorization.Tokens,
 	signalListener: tg.Host.SignalListener,
 ): Promise<void> {
 	for await (let _ of signalListener) {

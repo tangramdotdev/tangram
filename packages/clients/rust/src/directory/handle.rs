@@ -267,7 +267,7 @@ impl Directory {
 		handle: &H,
 		directory: &tg::graph::Directory,
 		graph: Option<tg::Graph>,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<BTreeMap<String, tg::Artifact>>
 	where
 		H: tg::Handle,

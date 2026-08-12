@@ -40,14 +40,14 @@ struct Inner {
 	location: RwLock<Option<tg::location::Arg>>,
 	owned: AtomicBool,
 	state: RwLock<Option<Arc<tg::sandbox::get::Output>>>,
-	tokens: RwLock<tg::grant::Tokens>,
+	tokens: RwLock<tg::authorization::Tokens>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<tg::sandbox::get::Output>,
-	pub tokens: tg::grant::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Sandbox {
@@ -123,7 +123,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::grant::Tokens {
+	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.tokens.read().unwrap().clone()
 	}
 
@@ -233,7 +233,7 @@ impl Sandbox {
 		let options = tg::sandbox::Options {
 			location,
 			state: None,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let sandbox = Self::new_inner(output.id, options, Some(handle));
 

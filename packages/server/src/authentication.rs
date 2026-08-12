@@ -463,7 +463,7 @@ impl Server {
 			location: None,
 			name: user.name,
 			specifier: user.specifier,
-			tokens: tg::grant::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(Some((billing, user)))

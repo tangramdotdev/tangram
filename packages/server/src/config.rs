@@ -15,6 +15,8 @@ pub struct Config {
 
 	pub authentication: Authentication,
 
+	pub authorization: Authorization,
+
 	pub billing: Option<Billing>,
 
 	pub checkin: Checkin,
@@ -24,8 +26,6 @@ pub struct Config {
 	pub database: Database,
 
 	pub directory: Option<PathBuf>,
-
-	pub grants: Grants,
 
 	pub http: Http,
 
@@ -168,7 +168,7 @@ pub struct Stripe {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Grants {
+pub struct Authorization {
 	pub tokens: Option<TokenKeys>,
 }
 
@@ -181,7 +181,7 @@ pub struct TokenKeys {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TokenPrivateKey {
-	pub algorithm: tg::grant::Algorithm,
+	pub algorithm: tg::authorization::Algorithm,
 
 	pub name: String,
 
@@ -190,7 +190,7 @@ pub struct TokenPrivateKey {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TokenPublicKey {
-	pub algorithm: tg::grant::Algorithm,
+	pub algorithm: tg::authorization::Algorithm,
 
 	pub name: String,
 
@@ -206,10 +206,10 @@ impl Default for AuthenticationTokens {
 	}
 }
 
-impl Default for Grants {
+impl Default for Authorization {
 	fn default() -> Self {
 		Self {
-			tokens: default_grant_tokens(),
+			tokens: default_authorization_tokens(),
 		}
 	}
 }
@@ -218,12 +218,12 @@ impl Default for TokenKeys {
 	fn default() -> Self {
 		Self {
 			private_key: Some(TokenPrivateKey {
-				algorithm: tg::grant::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
 			}),
 			public_keys: vec![TokenPublicKey {
-				algorithm: tg::grant::Algorithm::Ed25519,
+				algorithm: tg::authorization::Algorithm::Ed25519,
 				name: "default".to_owned(),
 				path: None,
 			}],
@@ -1071,12 +1071,12 @@ impl Default for Config {
 		Self {
 			advanced: Advanced::default(),
 			authentication: Authentication::default(),
+			authorization: Authorization::default(),
 			billing: None,
 			checkin: Checkin::default(),
 			cleaner: Cleaner::default(),
 			database: Database::default(),
 			directory: None,
-			grants: Grants::default(),
 			http: Http::default(),
 			index: Index::default(),
 			indexer: Indexer::default(),
@@ -1886,7 +1886,7 @@ fn sync_retry_default() -> Retry {
 }
 
 #[expect(clippy::unnecessary_wraps)]
-fn default_grant_tokens() -> Option<TokenKeys> {
+fn default_authorization_tokens() -> Option<TokenKeys> {
 	Some(TokenKeys::default())
 }
 

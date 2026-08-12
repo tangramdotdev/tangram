@@ -117,7 +117,7 @@ impl Session {
 	async fn try_wait_process_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<tg::grant::Token>,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let mut permissions = tg::grant::permission::process::Set::NODE;
 		permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
@@ -208,7 +208,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 		regions: &[String],
 	) -> tg::Result<
 		Option<(
@@ -243,7 +243,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 		region: &str,
 	) -> tg::Result<
 		Option<(
@@ -277,7 +277,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
@@ -312,7 +312,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::grant::Tokens,
+		tokens: tg::authorization::Tokens,
 		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(
