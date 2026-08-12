@@ -80,7 +80,7 @@ impl Cli {
 			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
 		let mut options = tg::referent::Options::with_path(args.path.clone());
-		options.token = artifact.state().token();
+		options.tokens = artifact.state().tokens();
 		let referent = tg::Referent::new(artifact.into(), options);
 
 		// Create the state.
@@ -143,7 +143,7 @@ impl Cli {
 					let node = if let Some(path) = path {
 						publish_checkin(&client, path, true).await?
 					} else {
-						tg::Referent::with_node_and_token(referent.node, referent.options.token)
+						tg::Referent::with_node_and_tokens(referent.node, referent.options.tokens)
 					};
 					let id = node.node.clone();
 					items.push(node);
@@ -319,7 +319,7 @@ impl Cli {
 				let tg::get::Node::Id(id) = referent.node else {
 					return Err(tg::error!(%ancestor, "expected a tag ancestor id"));
 				};
-				let node = tg::Referent::with_node_and_token(id, referent.options.token);
+				let node = tg::Referent::with_node_and_tokens(id, referent.options.tokens);
 				items.push(node);
 			}
 			let arg = tg::push::Arg {
@@ -630,9 +630,9 @@ where
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = blob.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				blob.node().id().into(),
-				blob.options.token.clone(),
+				blob.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -654,9 +654,9 @@ where
 		}
 
 		if let Some(tag) = directory.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				directory.node().id().into(),
-				directory.options.token.clone(),
+				directory.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -691,9 +691,9 @@ where
 		}
 
 		if let Some(tag) = file.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				file.node().id().into(),
-				file.options.token.clone(),
+				file.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -741,9 +741,9 @@ where
 			return Err(tg::error!("invalid path"));
 		}
 		if let Some(tag) = symlink.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				symlink.node().id().into(),
-				symlink.options.token.clone(),
+				symlink.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -756,9 +756,9 @@ where
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = command.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				command.node().id().into(),
-				command.options.token.clone(),
+				command.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -771,9 +771,9 @@ where
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = graph.tag() {
-			let node = tg::Referent::with_node_and_token(
+			let node = tg::Referent::with_node_and_tokens(
 				graph.node().id().into(),
-				graph.options.token.clone(),
+				graph.options.tokens.clone(),
 			);
 			self.tags.push((tag.clone(), node));
 		}
@@ -837,6 +837,6 @@ async fn publish_checkin(
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
 	let id = artifact.id().into();
-	let node = tg::Referent::with_node_and_token(id, artifact.state().token());
+	let node = tg::Referent::with_node_and_tokens(id, artifact.state().tokens());
 	Ok(node)
 }

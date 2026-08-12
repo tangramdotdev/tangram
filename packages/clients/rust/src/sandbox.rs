@@ -40,14 +40,14 @@ struct Inner {
 	location: RwLock<Option<tg::location::Arg>>,
 	owned: AtomicBool,
 	state: RwLock<Option<Arc<tg::sandbox::get::Output>>>,
-	token: RwLock<Option<tg::grant::Token>>,
+	tokens: RwLock<tg::grant::Tokens>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<tg::sandbox::get::Output>,
-	pub token: Option<tg::grant::Token>,
+	pub tokens: tg::grant::Tokens,
 }
 
 impl Sandbox {
@@ -59,7 +59,7 @@ impl Sandbox {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let options = tg::sandbox::Options {
-			token: referent.options.token,
+			tokens: referent.options.tokens,
 			..tg::sandbox::Options::default()
 		};
 
@@ -85,20 +85,23 @@ impl Sandbox {
 		let tg::sandbox::Options {
 			location,
 			state,
-			token,
+			tokens,
 		} = options;
 		let location = RwLock::new(location);
 		let owned = AtomicBool::new(handle.is_some());
-		let token = token.or_else(|| state.as_ref().and_then(|state| state.token.clone()));
+		let mut tokens = tokens;
+		if let Some(state) = &state {
+			tokens.inherit(&state.tokens);
+		}
 		let state = RwLock::new(state.map(Arc::new));
-		let token = RwLock::new(token);
+		let tokens = RwLock::new(tokens);
 		let inner = Inner {
 			handle,
 			id,
 			location,
 			owned,
 			state,
-			token,
+			tokens,
 		};
 
 		Self(Arc::new(inner))
@@ -120,8 +123,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<tg::grant::Token> {
-		self.0.token.read().unwrap().clone()
+	pub fn tokens(&self) -> tg::grant::Tokens {
+		self.0.tokens.read().unwrap().clone()
 	}
 
 	pub async fn destroy(&self) -> tg::Result<()> {
@@ -190,8 +193,8 @@ impl Sandbox {
 				.unwrap()
 				.replace(location.clone().into());
 		}
-		if let Some(token) = &output.token {
-			self.0.token.write().unwrap().replace(token.clone());
+		if !output.tokens.is_empty() {
+			*self.0.tokens.write().unwrap() = output.tokens.clone();
 		}
 		let state = Arc::new(output);
 		self.0.state.write().unwrap().replace(state.clone());
@@ -230,7 +233,7 @@ impl Sandbox {
 		let options = tg::sandbox::Options {
 			location,
 			state: None,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 		let sandbox = Self::new_inner(output.id, options, Some(handle));
 
@@ -280,8 +283,8 @@ impl Sandbox {
 		if arg.location.is_none() {
 			arg.location = self.location();
 		}
-		if arg.token.is_none() {
-			arg.token = self.token();
+		if arg.tokens.is_empty() {
+			arg.tokens = self.tokens();
 		}
 		let location = arg.location.clone();
 		let Some(stream) = handle.try_get_sandbox_processes(self.id(), arg).await? else {

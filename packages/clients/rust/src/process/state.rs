@@ -40,21 +40,21 @@ impl State {
 		}
 	}
 
-	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
-		self.command.state().inherit_token(token.cloned());
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+		self.command.state().inherit_tokens(tokens);
 		if let Some(children) = &self.children {
 			for child in children {
-				child.process.inherit_token(token.cloned());
+				child.process.inherit_tokens(tokens);
 			}
 		}
 		if let Some(error) = &self.error {
-			error.state().inherit_token(token.cloned());
+			error.state().inherit_tokens(tokens);
 		}
 		if let Some(log) = &self.log {
-			log.state().inherit_token(token.cloned());
+			log.state().inherit_tokens(tokens);
 		}
 		if let Some(output) = &self.output {
-			output.inherit_token(token);
+			output.inherit_tokens(tokens);
 		}
 	}
 
@@ -72,7 +72,7 @@ impl State {
 		let error = self.error.as_ref().map(|error| {
 			error
 				.to_data_or_id()
-				.map_right(|id| tg::Referent::with_node_and_token(id, error.state().token()))
+				.map_right(|id| tg::Referent::with_node_and_tokens(id, error.state().tokens()))
 		});
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
@@ -81,7 +81,7 @@ impl State {
 		let log = self
 			.log
 			.as_ref()
-			.map(|log| tg::Referent::with_node_and_token(log.id(), log.state().token()));
+			.map(|log| tg::Referent::with_node_and_tokens(log.id(), log.state().tokens()));
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
@@ -185,7 +185,7 @@ impl Child {
 	#[must_use]
 	pub fn to_data(&self) -> tg::process::data::Child {
 		let mut options = self.options.clone();
-		options.token = self.process.token();
+		options.tokens = self.process.tokens();
 		tg::process::data::Child {
 			cached: self.process.cached().unwrap_or(false),
 			process: tg::Referent::new(self.process.id().unwrap_right().clone(), options),
@@ -195,13 +195,13 @@ impl Child {
 	pub fn try_from_data(value: tg::process::data::Child) -> tg::Result<Self> {
 		let process = value.process.node;
 		let options = value.process.options;
-		let token = options.token.clone();
+		let tokens = options.tokens.clone();
 		Ok(Self {
 			process: tg::Process::new(
 				process,
 				tg::process::Options {
 					cached: Some(value.cached),
-					token,
+					tokens,
 					..Default::default()
 				},
 			),

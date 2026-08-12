@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use {crate::prelude::*, std::collections::BTreeMap};
 
 const VERSION: &str = "0";
 
@@ -21,6 +21,24 @@ pub struct Token {
 	pub metadata: Metadata,
 	pub signature: Vec<u8>,
 }
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(transparent)]
+#[tangram_serialize(transparent)]
+pub struct Tokens(pub BTreeMap<tg::Location, Token>);
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
@@ -197,6 +215,62 @@ impl Token {
 			return Err(tg::error!("invalid key"));
 		}
 		Ok(())
+	}
+}
+
+impl Tokens {
+	#[must_use]
+	pub fn with_local(token: Option<Token>) -> Self {
+		let mut tokens = Self::default();
+		if let Some(token) = token {
+			tokens.insert_local(token);
+		}
+		tokens
+	}
+
+	#[must_use]
+	pub fn get(&self, location: &tg::Location) -> Option<&Token> {
+		self.0.get(location)
+	}
+
+	#[must_use]
+	pub fn local(&self) -> Option<&Token> {
+		self.get(&tg::Location::Local(tg::location::Local::default()))
+	}
+
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
+	pub fn clear(&mut self) {
+		self.0.clear();
+	}
+
+	pub fn insert(&mut self, location: tg::Location, token: Token) -> Option<Token> {
+		self.0.insert(location, token)
+	}
+
+	pub fn insert_local(&mut self, token: Token) -> Option<Token> {
+		self.insert(tg::Location::Local(tg::location::Local::default()), token)
+	}
+
+	pub fn inherit(&mut self, parent: &Self) {
+		for (location, token) in &parent.0 {
+			self.0
+				.entry(location.clone())
+				.or_insert_with(|| token.clone());
+		}
+	}
+
+	#[must_use]
+	pub fn for_location(&self, location: &tg::Location) -> Self {
+		Self::with_local(self.get(location).cloned())
+	}
+
+	pub fn remove_local(&mut self) -> Option<Token> {
+		self.0
+			.remove(&tg::Location::Local(tg::location::Local::default()))
 	}
 }
 

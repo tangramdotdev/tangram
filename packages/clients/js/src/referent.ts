@@ -13,16 +13,23 @@ export namespace Referent {
 		name?: string | null;
 		path?: string | null;
 		tag?: tg.Tag | null;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export let withNodeAndToken = <T>(
 		node: T,
 		token: tg.Grant.Token | null,
 	): tg.Referent<T> => {
+		return withNodeAndTokens(node, tg.Grant.Tokens.withLocal(token));
+	};
+
+	export let withNodeAndTokens = <T>(
+		node: T,
+		tokens: tg.Grant.Tokens,
+	): tg.Referent<T> => {
 		let referent: tg.Referent<T> = { node };
-		if (token !== null) {
-			referent.options = { token };
+		if (Object.keys(tokens).length > 0) {
+			referent.options = { tokens };
 		}
 		return referent;
 	};
@@ -57,8 +64,8 @@ export namespace Referent {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			options.tag = value.options.tag;
 		}
-		if (value.options?.token !== undefined && value.options.token !== null) {
-			options.token = value.options.token;
+		if (value.options?.tokens !== undefined && value.options.tokens !== null) {
+			options.tokens = value.options.tokens;
 		}
 		return {
 			node,
@@ -97,8 +104,8 @@ export namespace Referent {
 		if (data.options?.tag !== undefined && data.options.tag !== null) {
 			options.tag = data.options.tag;
 		}
-		if (data.options?.token !== undefined && data.options.token !== null) {
-			options.token = data.options.token;
+		if (data.options?.tokens !== undefined && data.options.tokens !== null) {
+			options.tokens = data.options.tokens;
 		}
 		return {
 			node,
@@ -138,8 +145,10 @@ export namespace Referent {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
-		if (value.options?.token !== undefined && value.options.token !== null) {
-			params.push(`token=${encodeURIComponent(value.options.token)}`);
+		for (let [location, token] of Object.entries(value.options?.tokens ?? {})) {
+			params.push(
+				`tokens[${encodeURIComponent(location)}]=${encodeURIComponent(token)}`,
+			);
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -188,12 +197,14 @@ export namespace Referent {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
-					case "token": {
-						options.token = decodeURIComponent(value);
-						break;
-					}
 					default: {
-						throw new Error("invalid key");
+						let match = key?.match(/^tokens\[(.*)\]$/);
+						if (match === null || match === undefined) {
+							throw new Error("invalid key");
+						}
+						options.tokens ??= {};
+						options.tokens[decodeURIComponent(match[1]!)] =
+							decodeURIComponent(value);
 					}
 				}
 			}
@@ -211,7 +222,7 @@ export namespace Referent {
 		};
 		if (value.options !== undefined) {
 			referent.options = { ...value.options };
-			delete referent.options.token;
+			delete referent.options.tokens;
 		}
 		return referent;
 	};
@@ -231,7 +242,7 @@ export namespace Referent {
 			name?: string | null;
 			path?: string | null;
 			tag?: tg.Tag | null;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 	}
 }

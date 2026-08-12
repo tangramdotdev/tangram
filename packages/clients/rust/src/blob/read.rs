@@ -21,11 +21,11 @@ impl tg::Blob {
 	{
 		let handle = handle.clone();
 		let id = self.store_with_handle(&handle).await?.clone();
-		let token = self.state().token();
+		let tokens = self.state().tokens();
 		let arg = tg::read::Arg {
 			blob: id,
-			token,
 			options,
+			tokens,
 		};
 		let stream = handle.read(arg).boxed().await?.boxed();
 		let reader = StreamReader::new(

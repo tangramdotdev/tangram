@@ -25,7 +25,7 @@ export class Symlink {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -36,7 +36,7 @@ export class Symlink {
 	/** Get a symlink with a referent. */
 	static withReferent(referent: tg.Referent<tg.Symlink.Id>): tg.Symlink {
 		let symlink = tg.Symlink.withId(referent.node);
-		symlink.state.token = referent.options?.token ?? null;
+		symlink.state.tokens = referent.options?.tokens ?? {};
 		return symlink;
 	}
 
@@ -215,7 +215,7 @@ export class Symlink {
 				}
 			}
 			if (artifact !== null) {
-				tg.Object.inheritToken(artifact, this.#state.token);
+				tg.Object.inheritTokens(artifact, this.#state.tokens);
 			}
 			return artifact;
 		})();
@@ -264,7 +264,7 @@ export namespace Symlink {
 		id?: tg.Symlink.Id;
 		object?: tg.Symlink.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {

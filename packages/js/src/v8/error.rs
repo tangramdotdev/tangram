@@ -32,13 +32,15 @@ pub(super) fn to_exception<'s>(
 			Some(exception)
 		},
 		tg::Either::Right(id) => {
-			let with_id = v8::String::new_external_onebyte_static(scope, b"withId").unwrap();
-			let with_id = error_constructor.get(scope, with_id.into()).unwrap();
-			let with_id = v8::Local::<v8::Function>::try_from(with_id).unwrap();
+			let with_referent =
+				v8::String::new_external_onebyte_static(scope, b"withReferent").unwrap();
+			let with_referent = error_constructor.get(scope, with_referent.into()).unwrap();
+			let with_referent = v8::Local::<v8::Function>::try_from(with_referent).unwrap();
 
-			let id = Serde(id).serialize(scope).unwrap();
+			let referent = tg::Referent::with_node_and_tokens(id, error.state().tokens());
+			let referent = Serde(referent).serialize(scope).unwrap();
 			let undefined = v8::undefined(scope);
-			let exception = with_id.call(scope, undefined.into(), &[id])?;
+			let exception = with_referent.call(scope, undefined.into(), &[referent])?;
 			Some(exception)
 		},
 	}
@@ -120,7 +122,9 @@ pub(super) fn from_exception<'s>(
 		.and_then(|exception| exception.get(scope, cause_string.into()))
 		.and_then(|value| value.to_object(scope))
 	{
-		let node = from_exception(state, scope, source.into())?
+		let error = from_exception(state, scope, source.into())?;
+		let tokens = error.state().tokens();
+		let node = error
 			.to_data_or_id()
 			.map_left(|data| {
 				Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
@@ -131,7 +135,7 @@ pub(super) fn from_exception<'s>(
 				}))
 			})
 			.map_right(|id| Box::new(tg::Error::with_id(id)));
-		let referent = tg::Referent::with_node(node);
+		let referent = tg::Referent::with_node_and_tokens(node, tokens);
 		Some(referent)
 	} else {
 		None

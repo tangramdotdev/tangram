@@ -28,13 +28,7 @@ impl Output {
 		if !self.data.status.is_finished() {
 			return Ok(None);
 		}
-		let error = self.data.error.clone().map(|error| match error {
-			tg::Either::Left(data) => tg::Either::Left(data),
-			tg::Either::Right(id) => {
-				let id = id.node;
-				tg::Either::Right(id)
-			},
-		});
+		let error = self.data.error.clone();
 		let exit = self
 			.data
 			.exit
@@ -408,9 +402,13 @@ impl Session {
 			output.location,
 			Some(tg::Location::Local(tg::location::Local { region: None }))
 		) && let Some(wait) = &mut output.wait
-			&& let Some(output) = &mut wait.output
 		{
-			self.add_tokens_to_value_data(output)?;
+			if let Some(output) = &mut wait.output {
+				self.add_tokens_to_value_data(output)?;
+			}
+			if let Some(tg::Either::Right(error)) = &mut wait.error {
+				self.add_token_to_object_referent(error)?;
+			}
 		}
 		Ok(())
 	}
@@ -444,7 +442,7 @@ impl Session {
 			options: &command.options,
 			parent,
 			sandbox: sandbox.as_ref(),
-			token: output.token.as_ref(),
+			tokens: &output.tokens,
 		})
 		.await
 		.map_err(

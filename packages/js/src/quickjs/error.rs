@@ -29,13 +29,19 @@ pub fn to_exception<'js>(ctx: &qjs::Ctx<'js>, error: &tg::Error) -> tg::Result<q
 			Ok(exception)
 		},
 		tg::Either::Right(id) => {
-			let with_id = error_constructor.get::<_, qjs::Function>("withId").unwrap();
-			let id_value = Serde(&id).into_js(ctx).map_err(|error| {
-				tg::error!(!error, "failed to serialize error ID to JavaScript")
+			let with_referent = error_constructor
+				.get::<_, qjs::Function>("withReferent")
+				.unwrap();
+			let referent = tg::Referent::with_node_and_tokens(id, error.state().tokens());
+			let referent = Serde(&referent).into_js(ctx).map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to serialize the error referent to JavaScript"
+				)
 			})?;
-			let exception = with_id
-				.call((id_value,))
-				.map_err(|error| tg::error!(!error, "failed to call Tangram.Error.withId"))?;
+			let exception = with_referent
+				.call((referent,))
+				.map_err(|error| tg::error!(!error, "failed to call Tangram.Error.withReferent"))?;
 			Ok(exception)
 		},
 	}
@@ -171,6 +177,7 @@ pub fn from_exception<'js>(
 		.filter(|value| !value.is_null() && !value.is_undefined())
 		.and_then(|cause| from_exception(state, ctx, &cause))
 		.map(|error| {
+			let tokens = error.state().tokens();
 			let node = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -182,7 +189,7 @@ pub fn from_exception<'js>(
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			tg::Referent::with_node(node)
+			tg::Referent::with_node_and_tokens(node, tokens)
 		});
 
 	Some(tg::Error::with_object(tg::error::Object {

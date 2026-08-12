@@ -64,8 +64,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		token: Option<tg::grant::Token>,
+		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+		tokens: tg::grant::Tokens,
 	},
 	Organization {
 		id: tg::organization::Id,
@@ -77,8 +77,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		token: Option<tg::grant::Token>,
+		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+		tokens: tg::grant::Tokens,
 	},
 	Tag {
 		id: tg::tag::Id,
@@ -95,8 +95,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		token: Option<tg::grant::Token>,
+		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+		tokens: tg::grant::Tokens,
 	},
 	User {
 		id: tg::user::Id,
@@ -108,8 +108,8 @@ pub enum Entry {
 
 		specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		token: Option<tg::grant::Token>,
+		#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+		tokens: tg::grant::Tokens,
 	},
 }
 
@@ -171,21 +171,21 @@ impl Entry {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<&tg::grant::Token> {
+	pub fn tokens(&self) -> &tg::grant::Tokens {
 		match self {
-			Self::Group { token, .. }
-			| Self::Organization { token, .. }
-			| Self::Tag { token, .. }
-			| Self::User { token, .. } => token.as_ref(),
+			Self::Group { tokens, .. }
+			| Self::Organization { tokens, .. }
+			| Self::Tag { tokens, .. }
+			| Self::User { tokens, .. } => tokens,
 		}
 	}
 
-	pub fn set_token(&mut self, value: Option<tg::grant::Token>) {
+	pub fn set_tokens(&mut self, value: tg::grant::Tokens) {
 		match self {
-			Self::Group { token, .. }
-			| Self::Organization { token, .. }
-			| Self::Tag { token, .. }
-			| Self::User { token, .. } => *token = value,
+			Self::Group { tokens, .. }
+			| Self::Organization { tokens, .. }
+			| Self::Tag { tokens, .. }
+			| Self::User { tokens, .. } => *tokens = value,
 		}
 	}
 }

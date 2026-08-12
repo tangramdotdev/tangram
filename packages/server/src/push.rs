@@ -249,7 +249,7 @@ impl Session {
 						if let Ok(object) = tg::object::Id::try_from(node.node.clone()) {
 							let metadata_arg = tg::object::metadata::Arg {
 								location: Some(source.clone().into()),
-								token: node.options.token.clone(),
+								tokens: node.options.tokens.clone(),
 							};
 							let metadata = session
 								.try_get_object_metadata(&object, metadata_arg)
@@ -262,7 +262,7 @@ impl Session {
 							let process = tg::process::Id::try_from(node.node.clone())?;
 							let metadata_arg = tg::process::metadata::Arg {
 								location: Some(source.clone().into()),
-								token: node.options.token.clone(),
+								tokens: node.options.tokens.clone(),
 							};
 							let Some(metadata) = session
 								.try_get_process_metadata(&process, metadata_arg)

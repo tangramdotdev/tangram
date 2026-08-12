@@ -250,12 +250,13 @@ impl Session {
 		candidate_indices: &[usize],
 		public: bool,
 	) -> tg::Result<Vec<bool>> {
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let mut permissions = tg::grant::permission::process::Set::NODE;
+		permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
+		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
+		let permissions = tg::grant::permission::Set::Process(permissions);
 		let args = candidate_indices
 			.iter()
 			.map(|index| {
-				let permissions = tg::grant::permission::Set::from_permission(permission);
 				let resource = tg::grant::Resource::Id(candidates[*index].0.clone().into());
 				(resource, permissions)
 			})
@@ -279,7 +280,7 @@ impl Session {
 		let authorized = authorizations
 			.into_iter()
 			.map(|authorization| {
-				authorization.is_some_and(|permissions| permissions.contains(permission))
+				authorization.is_some_and(|authorized| authorized.contains(permissions))
 			})
 			.collect();
 
@@ -573,7 +574,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			token: output.token,
+			token: output.tokens.local().cloned(),
 		})
 	}
 
@@ -628,6 +629,7 @@ impl Session {
 			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
 				continue;
 			};
+			self.update_spawn_process_output_tokens_for_location(&mut output, &location)?;
 			output.location = Some(location);
 			return Ok(Some(Output::new(self, output)));
 		}
@@ -693,10 +695,12 @@ impl Session {
 				Some(tg::Location::Remote(remote)) => remote.region,
 				None => None,
 			};
-			output.location = Some(tg::Location::Remote(tg::location::Remote {
+			let location = tg::Location::Remote(tg::location::Remote {
 				name: remote.to_owned(),
 				region,
-			}));
+			});
+			self.update_spawn_process_output_tokens_for_location(&mut output, &location)?;
+			output.location = Some(location);
 			return Ok(Some(Output::new(self, output)));
 		}
 		Ok(None)

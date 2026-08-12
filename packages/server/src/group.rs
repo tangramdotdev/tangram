@@ -46,7 +46,7 @@ impl Session {
 			name: row.name,
 			parent: row.parent,
 			specifier,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		});
 
 		Ok(group)

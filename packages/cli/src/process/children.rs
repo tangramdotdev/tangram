@@ -60,12 +60,12 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = self.resolve_process(&args.process).await?;
 		let id = process.node;
-		let token = process.options.token;
+		let tokens = process.options.tokens;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {
 				location: locations.clone(),
-				token: token.clone(),
+				tokens: tokens.clone(),
 				..Default::default()
 			},
 		);
@@ -75,7 +75,7 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
 			timeout: args.timeout.get(),
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 		let stream = process
 			.children_with_handle(&client, arg)

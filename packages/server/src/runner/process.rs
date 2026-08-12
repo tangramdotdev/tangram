@@ -639,7 +639,7 @@ impl Session {
 					let arg = tg::process::stdio::write::Arg {
 						location: Some(location.into()),
 						streams: log_streams,
-						token: None,
+						tokens: tg::grant::Tokens::default(),
 					};
 					if let Some(output) = session.try_write_process_stdio(&id, arg, input).await? {
 						let mut output = std::pin::pin!(output);
@@ -1305,10 +1305,17 @@ impl Session {
 
 		// Try to read the user.tangram.error xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
-			let error = serde_json::from_slice::<tg::error::Data>(&bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the error xattr"))?;
-			let error = tg::Error::try_from(error)
-				.map_err(|error| tg::error!(!error, "failed to convert the error data"))?;
+			let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
+				tg::Error::try_from(data)
+					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?
+			} else {
+				let string = String::from_utf8(bytes)
+					.map_err(|error| tg::error!(!error, "failed to decode the error xattr"))?;
+				let referent = string
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
+				tg::Error::with_referent(referent)
+			};
 			output.error = Some(error);
 		}
 
@@ -1387,7 +1394,7 @@ impl Session {
 			.into_iter()
 			.filter_map(|object| {
 				let id = object.id().try_into().ok()?;
-				let artifact = tg::Referent::with_node_and_token(id, object.state().token());
+				let artifact = tg::Referent::with_node_and_tokens(id, object.state().tokens());
 				Some(artifact)
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
@@ -1398,7 +1405,7 @@ impl Session {
 				tg::grant::permission::object::Permission::Subtree,
 			));
 			let tokens = artifacts.iter().filter_map(|artifact| {
-				let token = artifact.options.token.clone()?;
+				let token = artifact.options.tokens.local()?.clone();
 				let resource =
 					tg::grant::Resource::Id(tg::object::Id::from(artifact.node.clone()).into());
 				self.authorize_token(&resource, permissions, &token)

@@ -28,7 +28,7 @@ export async function tryGetObject(
 					? null
 					: tg.Location.Arg.toDataString(arg.location),
 			metadata: arg?.metadata === true ? true.toString() : null,
-			token: arg?.token ?? null,
+			tokens: arg?.tokens ?? null,
 		},
 	});
 	let headers = {
@@ -46,12 +46,12 @@ export async function tryGetObject(
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
 	let data = await response.json<tg.Object.Data>();
-	let token = response.headers.get("x-tg-object-token");
+	let tokens = response.headers.get("x-tg-object-tokens");
 	let output = {
 		data,
-		...(token === undefined
+		...(tokens === undefined
 			? {}
-			: { token: JSON.parse(token) as tg.Grant.Token }),
+			: { tokens: JSON.parse(tokens) as tg.Grant.Tokens }),
 	};
 	return output;
 }

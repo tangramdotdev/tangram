@@ -26,7 +26,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_process_local(id, arg.metadata, arg.stored, arg.token.as_ref())
+					.try_get_process_local(id, arg.metadata, arg.stored, arg.tokens.local())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			{
@@ -34,13 +34,7 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_get_process_regions(
-					id,
-					&local.regions,
-					arg.metadata,
-					arg.stored,
-					arg.token.as_ref(),
-				)
+				.try_get_process_regions(id, &local.regions, arg.metadata, arg.stored, &arg.tokens)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process from another region"),
@@ -55,7 +49,7 @@ impl Session {
 				&locations.remotes,
 				arg.metadata,
 				arg.stored,
-				arg.token.as_ref(),
+				&arg.tokens,
 			)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process from a remote"))?
@@ -80,7 +74,7 @@ impl Session {
 					location: Some(location.clone()),
 					metadata,
 					stored: false,
-					token: process.options.token.clone(),
+					tokens: process.options.tokens.clone(),
 				};
 				self.try_get_process(&process.node, arg)
 			})
@@ -122,7 +116,11 @@ impl Session {
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
 		let resource = tg::grant::Resource::Id(id.clone().into());
-		output.token = self.create_token(resource, permissions.iter().collect(), expires_at)?;
+		if let Some(token) =
+			self.create_token(resource, permissions.iter().collect(), expires_at)?
+		{
+			output.tokens.insert_local(token);
+		}
 		if let Some(metadata) = output.metadata.take() {
 			output.metadata = self
 				.mask_process_metadata(id, metadata, token)
@@ -333,7 +331,7 @@ impl Session {
 			location: Some(location),
 			metadata,
 			stored: None,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		}
 	}
 
@@ -343,11 +341,11 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_region(id, region, metadata, stored, token))
+			.map(|region| self.try_get_process_region(id, region, metadata, stored, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -374,7 +372,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -386,7 +384,7 @@ impl Session {
 			location: Some(location.clone().into()),
 			metadata,
 			stored,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, region = %region, "failed to get the process"),
@@ -394,6 +392,7 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		self.update_tokens_for_location(&mut output.tokens, &location)?;
 		output.location = Some(location);
 		Ok(Some(output))
 	}
@@ -404,11 +403,11 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_remote(id, remote, metadata, stored, token))
+			.map(|remote| self.try_get_process_remote(id, remote, metadata, stored, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -463,7 +462,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		stored: bool,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -480,7 +479,10 @@ impl Session {
 			location: Some(location),
 			metadata,
 			stored,
-			token: token.cloned(),
+			tokens: tokens.for_location(&tg::Location::Remote(tg::location::Remote {
+				name: remote.name.clone(),
+				region: None,
+			})),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the process"),
@@ -493,10 +495,12 @@ impl Session {
 			Some(tg::Location::Remote(remote)) => remote.region,
 			None => None,
 		};
-		output.location = Some(tg::Location::Remote(tg::location::Remote {
+		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region,
-		}));
+		});
+		self.update_tokens_for_location(&mut output.tokens, &location)?;
+		output.location = Some(location);
 		Ok(Some(output))
 	}
 
@@ -611,7 +615,7 @@ impl Server {
 					location: Some(location.clone()),
 					metadata,
 					stored: None,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 				})
 			})
 			.collect();

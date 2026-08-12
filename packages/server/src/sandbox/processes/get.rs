@@ -70,7 +70,7 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
 		let permission =
 			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
-		let resource = tg::Referent::with_node_and_token(id.clone(), arg.token.clone());
+		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
 		let check_future = async move {
 			let authorized = self.authorize(resource, permission).await?;
 			let authorized = authorized.is_some_and(|permissions| permissions.contains(permission));
@@ -337,8 +337,10 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::sandbox::processes::get::Arg {
 			location: Some(location.into()),
+			tokens,
 			..arg
 		};
 		let Some(stream) = client
@@ -383,12 +385,18 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::sandbox::processes::get::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			tokens,
 			..arg
 		};
 		let Some(stream) = client

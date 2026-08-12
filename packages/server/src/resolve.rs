@@ -119,12 +119,12 @@ impl Session {
 		}
 
 		let node = list_target_to_id(target);
-		let token = self.create_tag_target_token(&id, &node).await?;
+		let tokens = tg::grant::Tokens::with_local(self.create_tag_target_token(&id, &node).await?);
 		let referent = tg::Referent::new(
 			tg::get::Node::Id(node),
 			tg::referent::Options {
 				tag: Some(specifier),
-				token,
+				tokens,
 				..tg::referent::Options::default()
 			},
 		);
@@ -181,9 +181,14 @@ impl Session {
 						output.referent.token(),
 						&self.server.clock,
 					) {
-						output.referent.options.token = None;
+						output.referent.options.tokens.clear();
 					}
-					output.location = Some(tg::Location::Remote(remote));
+					let location = tg::Location::Remote(remote.clone());
+					self.update_tokens_for_location(
+						&mut output.referent.options.tokens,
+						&location,
+					)?;
+					output.location = Some(location);
 				}
 				let output = output.map(|output| tg::get::Output {
 					location: output.location,
@@ -229,13 +234,17 @@ impl Session {
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
-		let output = output.map(|mut output| {
-			output.location = Some(tg::Location::Remote(remote));
-			tg::get::Output {
-				location: output.location,
-				referent: output.referent,
-			}
-		});
+		let output = output
+			.map(|mut output| {
+				let location = tg::Location::Remote(remote);
+				self.update_tokens_for_location(&mut output.referent.options.tokens, &location)?;
+				output.location = Some(location);
+				Ok::<_, tg::Error>(tg::get::Output {
+					location: output.location,
+					referent: output.referent,
+				})
+			})
+			.transpose()?;
 
 		Ok(output)
 	}
@@ -336,7 +345,7 @@ impl Session {
 						let tg::tag::get::Output {
 							data,
 							location,
-							token,
+							tokens,
 						} = output;
 						let target = match data.target {
 							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
@@ -349,7 +358,7 @@ impl Session {
 							name: data.name,
 							parent: data.parent,
 							specifier: data.specifier,
-							token,
+							tokens,
 						};
 						return Ok(tg::match_::Output { data: vec![entry] });
 					},

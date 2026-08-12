@@ -584,7 +584,7 @@ impl Inner {
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 		let stream = self
 			.client

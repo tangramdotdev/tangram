@@ -32,7 +32,7 @@ impl Graph {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let graph = Self::with_id(referent.node);
-		graph.state().set_token(referent.options.token);
+		graph.state().set_tokens(referent.options.tokens);
 
 		graph
 	}
@@ -220,7 +220,7 @@ impl Graph {
 			index,
 			kind: node.kind(),
 		});
-		artifact.inherit_token(self.state.token());
+		artifact.inherit_tokens(&self.state.tokens());
 
 		Ok(artifact)
 	}

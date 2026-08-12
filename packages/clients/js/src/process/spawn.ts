@@ -85,10 +85,8 @@ let spawnArgFromResolvedWithSandbox = async (
 			command_ = arg.command;
 		}
 		if (command_ !== undefined) {
-			let token = command_.state.token;
-			if (token !== null) {
-				options.token ??= token;
-			}
+			options.tokens ??= {};
+			tg.Grant.Tokens.inherit(options.tokens, command_.state.tokens);
 		}
 	}
 	if (arg.name !== undefined) {
@@ -375,7 +373,11 @@ export let waitUnsandboxed = async (
 							? tg.Error.withId(value)
 							: tg.Error.fromData(value);
 				} catch {
-					wait_.error = tg.Error.withId(string);
+					let referent = tg.Referent.fromDataString(
+						string,
+						(id) => id as tg.Error.Id,
+					);
+					wait_.error = tg.Error.withReferent(referent);
 				}
 			}
 			if (wait_.output === undefined) {
@@ -471,7 +473,7 @@ export let prepareUnsandboxedCommand = async (
 	outputPath ??= tg.path.join(tempPath, "output");
 	let artifacts = await checkoutArtifacts(
 		command,
-		arg.command.options?.token ?? null,
+		arg.command.options?.tokens ?? {},
 	);
 	let env = await renderEnv(command.env, artifacts, outputPath);
 	env.TANGRAM_JS_ENGINE =
@@ -596,10 +598,10 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 				});
 				let commandId = await newCommand.store();
 				arg.command.node = commandId;
-				let token = newCommand.state.token;
+				let tokens = newCommand.state.tokens;
 				arg.command.options = {
 					...arg.command.options,
-					...(token !== null ? { token } : {}),
+					tokens,
 				};
 			}
 		} else {
@@ -653,7 +655,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			? stdio.task(
 					output.process,
 					location,
-					output.token ?? null,
+					output.tokens ?? {},
 					stdin,
 					stdout,
 					stderr,
@@ -680,8 +682,8 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			unavailable: !provideStdout,
 			stream: "stdout",
 		}),
-		...(output.token !== undefined && output.token !== null
-			? { token: output.token }
+		...(output.tokens !== undefined && output.tokens !== null
+			? { tokens: output.tokens }
 			: {}),
 		wait,
 	});
@@ -690,7 +692,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 
 async function checkoutArtifacts(
 	command: tg.Command.Object,
-	token: tg.Grant.Token | null,
+	tokens: tg.Grant.Tokens,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Set<tg.Artifact.Id>();
 	let data = tg.Command.Object.toData(command);
@@ -702,7 +704,7 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifact: tg.Referent.withNodeAndToken(artifact, token),
+			artifact: tg.Referent.withNodeAndTokens(artifact, tokens),
 			dependencies: true,
 			force: false,
 		});

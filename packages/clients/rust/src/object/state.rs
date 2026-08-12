@@ -11,7 +11,7 @@ struct Inner {
 	id: Option<tg::object::Id>,
 	object: Option<tg::object::Object>,
 	stored: bool,
-	token: Option<tg::grant::Token>,
+	tokens: tg::grant::Tokens,
 }
 
 impl State {
@@ -24,7 +24,7 @@ impl State {
 			id,
 			object,
 			stored,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		})))
 	}
 
@@ -34,7 +34,7 @@ impl State {
 			id: Some(id.into()),
 			object: None,
 			stored: true,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		})))
 	}
 
@@ -44,7 +44,7 @@ impl State {
 			id: None,
 			object: Some(object.into()),
 			stored: false,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		})))
 	}
 
@@ -91,14 +91,12 @@ impl State {
 		self.0.write().unwrap().stored = stored;
 	}
 
-	pub fn set_token(&self, token: Option<tg::grant::Token>) {
-		self.0.write().unwrap().token = token;
+	pub fn set_tokens(&self, tokens: tg::grant::Tokens) {
+		self.0.write().unwrap().tokens = tokens;
 	}
 
-	pub fn inherit_token(&self, token: Option<tg::grant::Token>) {
-		if self.token().is_none() {
-			self.set_token(token);
-		}
+	pub fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+		self.0.write().unwrap().tokens.inherit(tokens);
 	}
 
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
@@ -106,8 +104,8 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<tg::grant::Token> {
-		self.0.read().unwrap().token.clone()
+	pub fn tokens(&self) -> tg::grant::Tokens {
+		self.0.read().unwrap().tokens.clone()
 	}
 
 	#[must_use]
@@ -192,16 +190,16 @@ impl State {
 
 		// Get the id.
 		let id = self.0.read().unwrap().id.clone().unwrap();
-		if arg.token.is_none() {
-			arg.token = self.token();
+		if arg.tokens.is_empty() {
+			arg.tokens = self.tokens();
 		}
 
 		// Load the object.
 		let Some(output) = handle.try_get_object(&id, arg).await? else {
 			return Ok(None);
 		};
-		if output.token.is_some() {
-			self.set_token(output.token);
+		if !output.tokens.is_empty() {
+			self.set_tokens(output.tokens);
 		}
 
 		// Deserialize.
@@ -225,10 +223,10 @@ impl State {
 	{
 		let object = self.load_with_handle(handle).await?;
 		let children = object.children();
-		let token = self.token();
+		let tokens = self.tokens();
 
 		for child in &children {
-			child.inherit_token(token.clone());
+			child.inherit_tokens(&tokens);
 		}
 
 		Ok(children)

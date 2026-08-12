@@ -66,12 +66,12 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = self.resolve_process(&args.process).await?;
 		let id = process.node;
-		let token = process.options.token;
+		let tokens = process.options.tokens;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {
 				location: locations.clone(),
-				token: token.clone(),
+				tokens: tokens.clone(),
 				..Default::default()
 			},
 		);
@@ -90,7 +90,7 @@ impl Cli {
 			size: args.size,
 			streams,
 			timeout: args.timeout.get(),
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 		let mut stdio = process
 			.try_read_stdio_all(&client, arg)

@@ -149,7 +149,7 @@ impl Session {
 					.store_with_handle(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-				arg.command.options.token = command.state().token();
+				arg.command.options.tokens = command.state().tokens();
 				id
 			},
 			tg::Either::Right(id) => id.clone(),
@@ -385,6 +385,9 @@ impl Session {
 			vec![
 				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node),
 				tg::grant::Permission::Process(
+					tg::grant::permission::process::Permission::NodeError,
+				),
+				tg::grant::Permission::Process(
 					tg::grant::permission::process::Permission::NodeOutput,
 				),
 			],
@@ -408,22 +411,29 @@ impl Session {
 		self.spawn_process_push_command(command, Some(location.clone()), progress)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
-		let arg = tg::process::spawn::Arg {
+		let mut arg = tg::process::spawn::Arg {
 			location: Some(location.clone().into()),
 			..arg
 		};
+		arg.command.options.tokens = arg.command.options.tokens.for_location(&location);
 		let stream = client
 			.try_spawn_process(arg)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to spawn the process"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
-			let event = event.map(|event| {
-				event.map_output(|output| {
-					output.map(|mut output| {
-						output.location = Some(location.clone());
-						output
-					})
+			let event = event.and_then(|event| {
+				event.try_map_output(|output| {
+					output
+						.map(|mut output| -> tg::Result<_> {
+							self.update_spawn_process_output_tokens_for_location(
+								&mut output,
+								&location,
+							)?;
+							output.location = Some(location.clone());
+							Ok(output)
+						})
+						.transpose()
 				})
 			});
 			if let Some(output) = progress.forward(event) {
@@ -448,10 +458,10 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(command, Some(destination), progress)
+		self.spawn_process_push_command(command, Some(destination.clone()), progress)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
-		let arg = tg::process::spawn::Arg {
+		let mut arg = tg::process::spawn::Arg {
 			location: Some(
 				tg::Location::Local(tg::location::Local {
 					region: region.clone(),
@@ -460,6 +470,7 @@ impl Session {
 			),
 			..arg
 		};
+		arg.command.options.tokens = arg.command.options.tokens.for_location(&destination);
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -467,20 +478,27 @@ impl Session {
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
 			let remote = remote.clone();
-			let event = event.map(|event| {
-				event.map_output(|output| {
-					output.map(|mut output| {
-						let region = match output.location.take() {
-							Some(tg::Location::Local(local)) => local.region,
-							Some(tg::Location::Remote(remote)) => remote.region,
-							None => None,
-						};
-						output.location = Some(tg::Location::Remote(tg::location::Remote {
-							name: remote.clone(),
-							region,
-						}));
-						output
-					})
+			let event = event.and_then(|event| {
+				event.try_map_output(|output| {
+					output
+						.map(|mut output| -> tg::Result<_> {
+							let region = match output.location.take() {
+								Some(tg::Location::Local(local)) => local.region,
+								Some(tg::Location::Remote(remote)) => remote.region,
+								None => None,
+							};
+							let location = tg::Location::Remote(tg::location::Remote {
+								name: remote.clone(),
+								region,
+							});
+							self.update_spawn_process_output_tokens_for_location(
+								&mut output,
+								&location,
+							)?;
+							output.location = Some(location);
+							Ok(output)
+						})
+						.transpose()
 				})
 			});
 			if let Some(output) = progress.forward(event) {
@@ -498,9 +516,9 @@ impl Session {
 	) -> tg::Result<()> {
 		let push_arg = tg::push::Arg {
 			destination: location,
-			nodes: vec![tg::Referent::with_node_and_token(
+			nodes: vec![tg::Referent::with_node_and_tokens(
 				command.node.clone().into(),
-				command.token().cloned(),
+				command.options.tokens.clone(),
 			)],
 			process_commands: true,
 			..Default::default()
@@ -517,6 +535,18 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 		Err(tg::error!("expected an output"))
+	}
+
+	fn update_spawn_process_output_tokens_for_location(
+		&self,
+		output: &mut tg::process::spawn::Output,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		self.update_tokens_for_location(&mut output.tokens, location)?;
+		if let Some(wait) = &mut output.wait {
+			self.update_wait_output_tokens_for_location(wait, location)?;
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn try_spawn_process_request(

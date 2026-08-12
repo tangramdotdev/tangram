@@ -211,7 +211,7 @@ impl Session {
 					}
 					message.data.location =
 						Some(tg::Location::Local(tg::location::Local::default()));
-					message.data.token = None;
+					message.data.tokens.clear();
 					let message = tg::sync::PutNodeMessage::Sandbox(message);
 					self.sync_get_input_node(state, message).await?;
 				},

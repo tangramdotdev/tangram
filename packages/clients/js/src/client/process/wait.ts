@@ -6,7 +6,7 @@ export namespace Wait {
 	export type Arg = {
 		lease?: string | null;
 		location?: tg.Location.Arg | null;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 }
 

@@ -596,8 +596,12 @@ where
 	}
 
 	fn object_id(&mut self, state: &tg::object::State) -> Result {
-		let token = self.options.tokens.then(|| state.token()).flatten();
-		let referent = tg::Referent::with_node_and_token(state.id(), token);
+		let tokens = if self.options.tokens {
+			state.tokens()
+		} else {
+			tg::grant::Tokens::default()
+		};
+		let referent = tg::Referent::with_node_and_tokens(state.id(), tokens);
 		self.color(referent, Color::Blue)?;
 		Ok(())
 	}

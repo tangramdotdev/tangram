@@ -7,12 +7,17 @@ export class Sandbox {
 	#location: tg.Location.Arg | null;
 	#owned: boolean;
 	#state: tg.Sandbox.Get.Output | null;
+	#tokens: tg.Grant.Tokens;
 
 	constructor(arg: tg.Sandbox.ConstructorArg) {
 		this.#id = arg.id;
 		this.#location = arg.location ?? null;
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
+		this.#tokens = arg.tokens ?? {};
+		if (this.#state !== null) {
+			tg.Grant.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
+		}
 	}
 
 	static create(...args: tg.Args<tg.Sandbox.Arg>): tg.Sandbox.Builder {
@@ -47,6 +52,7 @@ export class Sandbox {
 			arg.location = this.#location;
 		}
 		let output = await tg.client.getSandbox(this.#id, arg);
+		tg.Grant.Tokens.inherit(this.#tokens, output.tokens ?? {});
 		this.#location =
 			output.location === undefined || output.location === null
 				? null
@@ -102,6 +108,10 @@ export class Sandbox {
 	/** Get this sandbox's loaded state. */
 	get state(): tg.Sandbox.Get.Output | null {
 		return this.#state;
+	}
+
+	get tokens(): tg.Grant.Tokens {
+		return { ...this.#tokens };
 	}
 
 	run<A extends tg.UnresolvedArgs<Array<tg.Value>>, O extends tg.ReturnValue>(
@@ -160,6 +170,7 @@ export namespace Sandbox {
 			network?: tg.Sandbox.Network.Data | null;
 			owner?: string | null;
 			status: tg.Sandbox.Status;
+			tokens?: tg.Grant.Tokens | null;
 			ttl?: number | null;
 			usage?: Usage | null;
 		};
@@ -368,6 +379,7 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		owned?: boolean;
 		state?: tg.Sandbox.Get.Output | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export namespace Create {

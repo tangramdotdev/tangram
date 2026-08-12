@@ -32,11 +32,11 @@ impl Session {
 		let location = output
 			.location
 			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
-		let token = output.referent.options.token;
+		let tokens = output.referent.options.tokens;
 		match location {
-			tg::Location::Local(_) => self.try_get_group_local(&id, token).await,
+			tg::Location::Local(_) => self.try_get_group_local(&id, tokens).await,
 			tg::Location::Remote(remote) => {
-				self.try_get_group_remote(&id, arg, remote, token).await
+				self.try_get_group_remote(&id, arg, remote, tokens).await
 			},
 		}
 	}
@@ -44,12 +44,18 @@ impl Session {
 	async fn try_get_group_local(
 		&self,
 		id: &tg::group::Id,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let permission =
 			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read);
 		let authorized = self
-			.authorize(tg::group::Selector::Id(id.clone()), permission)
+			.authorize(
+				tg::Referent::with_node_and_tokens(
+					tg::group::Selector::Id(id.clone()),
+					tokens.clone(),
+				),
+				permission,
+			)
 			.await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
@@ -67,7 +73,7 @@ impl Session {
 		let Some(mut group) = Self::try_get_group_with_transaction(&transaction, id).await? else {
 			return Ok(None);
 		};
-		group.token = token;
+		group.tokens = tokens;
 
 		Ok(Some(group))
 	}
@@ -77,10 +83,11 @@ impl Session {
 		id: &tg::group::Id,
 		mut arg: tg::group::get::Arg,
 		remote: tg::location::Remote,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;
+		let location = tg::Location::Remote(remote.clone());
 		arg.cached = false;
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
@@ -99,19 +106,18 @@ impl Session {
 			.await?
 		{
 			let mut output = response.output;
-			if let Some(group) = &mut output {
-				group.token = group.token.take().or_else(|| token.clone());
-			}
 			let valid = output.as_ref().is_none_or(|group| {
-				crate::remote::cache::token_valid(group.token.as_ref(), &self.server.clock)
+				crate::remote::cache::token_valid(group.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
 				if let Some(group) = &mut output {
-					if !crate::remote::cache::token_valid(group.token.as_ref(), &self.server.clock)
+					if !crate::remote::cache::token_valid(group.tokens.local(), &self.server.clock)
 					{
-						group.token = None;
+						group.tokens.remove_local();
 					}
-					group.location = Some(tg::Location::Remote(remote));
+					self.update_tokens_for_location(&mut group.tokens, &location)?;
+					group.tokens.inherit(&tokens);
+					group.location = Some(location);
 				}
 
 				return Ok(output);
@@ -127,9 +133,6 @@ impl Session {
 		let mut output = client.try_get_group(&group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the group"),
 		)?;
-		if let Some(group) = &mut output {
-			group.token = group.token.take().or(token);
-		}
 		let response =
 			crate::remote::cache::Response::GroupGet(crate::remote::cache::GroupGetResponse {
 				output: output.clone(),
@@ -137,7 +140,9 @@ impl Session {
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(group) = &mut output {
-			group.location = Some(tg::Location::Remote(remote));
+			self.update_tokens_for_location(&mut group.tokens, &location)?;
+			group.tokens.inherit(&tokens);
+			group.location = Some(location);
 		}
 
 		Ok(output)

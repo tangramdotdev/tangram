@@ -191,7 +191,7 @@ export class Command<
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -202,7 +202,7 @@ export class Command<
 	/** Get a command with a referent. */
 	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
 		let command = tg.Command.withId(referent.node);
-		command.state.token = referent.options?.token ?? null;
+		command.state.tokens = referent.options?.tokens ?? {};
 		return command;
 	}
 
@@ -339,7 +339,7 @@ export namespace Command {
 		id?: tg.Command.Id;
 		object?: tg.Command.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Value {

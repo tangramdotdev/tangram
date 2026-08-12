@@ -27,7 +27,7 @@ impl Cli {
 			id.clone(),
 			tg::process::Options {
 				location: args.location.get(),
-				token: process.options.token,
+				tokens: process.options.tokens,
 				..Default::default()
 			},
 		);
@@ -38,7 +38,7 @@ impl Cli {
 		let arg = tg::process::stdio::write::Arg {
 			location: process.location(),
 			streams: vec![stream],
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 		let input = tangram_util::io::stdin()
 			.map_err(|error| tg::error!(!error, "failed to open stdin"))?

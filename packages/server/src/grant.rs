@@ -16,9 +16,9 @@ impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
-		let authorization_resource = tg::Referent::with_node_and_token(
+		let authorization_resource = tg::Referent::with_node_and_tokens(
 			tg::grant::Resource::Id(resource.clone()),
-			arg.resource.options.token.clone(),
+			arg.resource.options.tokens.clone(),
 		);
 		match &resource {
 			id if tg::object::Id::try_from(id.clone()).is_ok()
@@ -86,9 +86,9 @@ impl Session {
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
-		let authorization_resource = tg::Referent::with_node_and_token(
+		let authorization_resource = tg::Referent::with_node_and_tokens(
 			tg::grant::Resource::Id(resource.clone()),
-			arg.resource.options.token.clone(),
+			arg.resource.options.tokens.clone(),
 		);
 		match &resource {
 			id if tg::object::Id::try_from(id.clone()).is_ok()

@@ -49,7 +49,7 @@ impl Cli {
 		let arg = tg::process::status::Arg {
 			location: locations,
 			timeout: args.timeout.get(),
-			token: process.options.token,
+			tokens: process.options.tokens,
 		};
 		let stream = client
 			.get_process_status(&id, arg)

@@ -9,7 +9,7 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub options: &'a tg::referent::Options,
 	pub parent: &'a tg::process::Id,
 	pub sandbox: Option<&'a tg::sandbox::Id>,
-	pub token: Option<&'a tg::grant::Token>,
+	pub tokens: &'a tg::grant::Tokens,
 }
 
 impl Session {
@@ -39,7 +39,7 @@ impl Session {
 			return Err(tg::error!("the parent process was finished"));
 		}
 		let mut options = arg.options.clone();
-		options.token = arg.token.cloned();
+		options.tokens = arg.tokens.clone();
 		parent_process
 			.data
 			.children

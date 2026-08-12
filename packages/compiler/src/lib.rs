@@ -939,7 +939,7 @@ impl Compiler {
 					name: None,
 					path: Some(path),
 					tag: None,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 				}
 			};
 			let referent = tg::Referent {
@@ -1077,7 +1077,7 @@ impl Compiler {
 				name: None,
 				path,
 				tag: Some(tag),
-				token: None,
+				tokens: tg::grant::Tokens::default(),
 			};
 			let referent = tg::Referent {
 				node: source,
@@ -1172,7 +1172,7 @@ impl Compiler {
 					};
 					let artifact = id.clone().try_into()?;
 					let artifact =
-						tg::Referent::with_node_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1273,7 +1273,7 @@ impl Compiler {
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					let artifact = id.clone().try_into()?;
 					let artifact =
-						tg::Referent::with_node_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1291,7 +1291,7 @@ impl Compiler {
 						_ => None,
 					};
 					let artifact =
-						tg::Referent::with_node_and_token(artifact, options.token.clone());
+						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,

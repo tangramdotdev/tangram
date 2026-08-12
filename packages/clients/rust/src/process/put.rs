@@ -13,8 +13,8 @@ pub struct Arg {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 impl tg::Session {

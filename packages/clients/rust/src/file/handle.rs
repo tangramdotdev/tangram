@@ -24,7 +24,7 @@ impl File {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let file = Self::with_id(referent.node);
-		file.state().set_token(referent.options.token);
+		file.state().set_tokens(referent.options.tokens);
 
 		file
 	}
@@ -234,7 +234,7 @@ impl File {
 			Object::Node(object) => object.contents.clone(),
 		};
 
-		contents.state().inherit_token(self.state.token());
+		contents.state().inherit_tokens(&self.state.tokens());
 
 		Ok(contents)
 	}
@@ -254,7 +254,7 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
-		let token = self.state.token();
+		let tokens = self.state.tokens();
 		let dependencies = match object.as_ref() {
 			Object::Pointer(pointer) => {
 				let graph = pointer.graph.as_ref().unwrap();
@@ -293,7 +293,7 @@ impl File {
 									));
 								},
 							};
-							object.inherit_token(token.clone());
+							object.inherit_tokens(&tokens);
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
 							))
@@ -332,7 +332,7 @@ impl File {
 									));
 								},
 							};
-							object.inherit_token(token.clone());
+							object.inherit_tokens(&tokens);
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
 							))
@@ -393,11 +393,11 @@ impl File {
 		let node = match dependency.0.node {
 			Some(tg::graph::Edge::Pointer(pointer)) => {
 				let object: tg::Object = tg::Artifact::with_pointer(pointer).into();
-				object.inherit_token(self.state.token());
+				object.inherit_tokens(&self.state.tokens());
 				Some(object)
 			},
 			Some(tg::graph::Edge::Object(object)) => {
-				object.inherit_token(self.state.token());
+				object.inherit_tokens(&self.state.tokens());
 				Some(object)
 			},
 			None => None,

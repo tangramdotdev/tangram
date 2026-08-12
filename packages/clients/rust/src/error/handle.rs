@@ -24,7 +24,7 @@ impl Error {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let error = Self::with_id(referent.node);
-		error.state().set_token(referent.options.token);
+		error.state().set_tokens(referent.options.tokens);
 
 		error
 	}
@@ -280,6 +280,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 			Err(error) => {
 				let source = error.source().map(|s| {
 					let error: Error = s.into();
+					let tokens = error.state().tokens();
 					let node = error
 						.to_data_or_id()
 						.map_left(|data| {
@@ -291,7 +292,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 							}))
 						})
 						.map_right(|id| Box::new(tg::Error::with_id(id)));
-					tg::Referent::with_node(node)
+					tg::Referent::with_node_and_tokens(node, tokens)
 				});
 				Self::with_object(Object {
 					code: None,
@@ -311,6 +312,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		let source = value.source().map(|s| {
 			let error: Error = s.into();
+			let tokens = error.state().tokens();
 			let node = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -322,7 +324,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			tg::Referent::with_node(node)
+			tg::Referent::with_node_and_tokens(node, tokens)
 		});
 		Self::with_object(Object {
 			code: None,

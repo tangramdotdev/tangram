@@ -84,7 +84,7 @@ impl Cli {
 			let tg::get::Node::Id(id) = referent.node else {
 				return Err(tg::error!("expected a node id"));
 			};
-			let node = tg::Referent::with_node_and_token(id, referent.options.token);
+			let node = tg::Referent::with_node_and_tokens(id, referent.options.tokens);
 			nodes.push(node);
 		}
 

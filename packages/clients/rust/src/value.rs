@@ -84,9 +84,9 @@ impl Value {
 		}
 	}
 
-	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
 		for object in self.objects() {
-			object.inherit_token(token.cloned());
+			object.inherit_tokens(tokens);
 		}
 	}
 
@@ -196,8 +196,8 @@ impl Value {
 			),
 			Self::Object(object) => {
 				let id = object.id();
-				let token = object.state().token();
-				Data::Object(tg::Referent::with_node_and_token(id, token))
+				let tokens = object.state().tokens();
+				Data::Object(tg::Referent::with_node_and_tokens(id, tokens))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -218,15 +218,15 @@ impl Value {
 			if state.id() != object.node {
 				return Err(tg::error!("invalid object batch output"));
 			}
-			state.set_token(object.options.token);
+			state.set_tokens(object.options.tokens);
 		}
 		Ok(())
 	}
 
 	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
 		let id = object.id();
-		let token = object.state().token();
-		tg::Referent::with_node_and_token(id, token)
+		let tokens = object.state().tokens();
+		tg::Referent::with_node_and_tokens(id, tokens)
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {

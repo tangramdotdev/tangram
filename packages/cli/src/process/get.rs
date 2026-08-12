@@ -31,7 +31,7 @@ impl Cli {
 			location: args.locations.get(),
 			metadata: args.metadata,
 			stored: args.stored,
-			token: process.options.token,
+			tokens: process.options.tokens,
 		};
 		let output = client
 			.try_get_process(&id, arg)

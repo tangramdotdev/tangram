@@ -22,7 +22,7 @@ tg push $sandbox
 let remote_sandbox = tg --url $remote.url sandbox get $sandbox | from json
 assert equal $remote_sandbox.id $sandbox
 assert equal $remote_sandbox.status destroyed
-assert (($remote_sandbox | get --optional token) != null) "sandbox get should return a token"
+assert (($remote_sandbox | get --optional tokens.local) != null) "sandbox get should return a token"
 failure (tg --url $remote.url process get $process | complete)
 
 tg push --sandbox-processes $sandbox

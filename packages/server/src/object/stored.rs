@@ -22,7 +22,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stored) = self
-					.try_get_object_stored_local(id, arg.token.as_ref())
+					.try_get_object_stored_local(id, arg.tokens.local())
 					.await
 					.map_err(|error| {
 						tg::error!(!error, "failed to get the object's storage status")
@@ -31,7 +31,7 @@ impl Session {
 			}
 
 			if let Some(stored) = self
-				.try_get_object_stored_regions(id, &local.regions, arg.token.as_ref())
+				.try_get_object_stored_regions(id, &local.regions, &arg.tokens)
 				.await
 				.map_err(|error| {
 					tg::error!(
@@ -44,7 +44,7 @@ impl Session {
 		}
 
 		if let Some(stored) = self
-			.try_get_object_stored_remotes(id, &locations.remotes, arg.token.as_ref())
+			.try_get_object_stored_remotes(id, &locations.remotes, &arg.tokens)
 			.await
 			.map_err(|error| {
 				tg::error!(
@@ -102,11 +102,11 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_object_stored_region(id, region, token))
+			.map(|region| self.try_get_object_stored_region(id, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -128,7 +128,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		region: &str,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -137,8 +137,8 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::object::stored::Arg {
-			location: Some(location.into()),
-			token: token.cloned(),
+			location: Some(location.clone().into()),
+			tokens: tokens.for_location(&location),
 		};
 		client.try_get_object_stored(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the object's storage status"),
@@ -149,11 +149,11 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_object_stored_remote(id, remote, token))
+			.map(|remote| self.try_get_object_stored_remote(id, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -175,18 +175,22 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 		let arg = tg::object::stored::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		client.try_get_object_stored(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the object's storage status"),

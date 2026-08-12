@@ -76,7 +76,7 @@ impl Session {
 	}
 
 	fn process_token_grants_subtree(&self, process: &tg::Referent<tg::process::Id>) -> bool {
-		let Some(token) = &process.options.token else {
+		let Some(token) = process.options.tokens.local() else {
 			return false;
 		};
 		let resource = tg::grant::Resource::Id(process.node.clone().into());
@@ -125,9 +125,9 @@ impl Session {
 				let mut children = std::collections::BTreeSet::new();
 				module.children(&mut children);
 				children.into_iter().all(|id| {
-					let object = tg::Referent::with_node_and_token(
+					let object = tg::Referent::with_node_and_tokens(
 						id,
-						module.referent.options.token.clone(),
+						module.referent.options.tokens.clone(),
 					);
 					self.object_token_grants_subtree_for_process(&object)
 				})
@@ -180,7 +180,7 @@ impl Session {
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let Some(token) = object.options.token.as_ref() else {
+		let Some(token) = object.options.tokens.local() else {
 			return false;
 		};
 		let resource = tg::grant::Resource::Id(object.node.clone().into());

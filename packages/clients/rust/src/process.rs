@@ -76,7 +76,7 @@ pub struct Inner {
 	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	token: RwLock<Option<tg::grant::Token>>,
+	tokens: RwLock<tg::grant::Tokens>,
 	wait: Mutex<Option<Wait>>,
 }
 
@@ -87,7 +87,7 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub metadata: Option<Metadata>,
 	pub state: Option<State>,
-	pub token: Option<tg::grant::Token>,
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -153,7 +153,7 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let options = tg::process::Options {
-			token: referent.options.token,
+			tokens: referent.options.tokens,
 			..Default::default()
 		};
 
@@ -168,7 +168,7 @@ impl<O> Process<O> {
 			location,
 			metadata,
 			state,
-			token,
+			tokens,
 		} = options;
 		let location = Arc::new(RwLock::new(location));
 		let metadata = RwLock::new(metadata.map(Arc::new));
@@ -190,7 +190,7 @@ impl<O> Process<O> {
 			stdio_task: None,
 			stdout,
 			task: None,
-			token: RwLock::new(token),
+			tokens: RwLock::new(tokens),
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
@@ -221,8 +221,8 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn token(&self) -> Option<tg::grant::Token> {
-		self.token.read().unwrap().clone()
+	pub fn tokens(&self) -> tg::grant::Tokens {
+		self.tokens.read().unwrap().clone()
 	}
 
 	#[must_use]
@@ -236,10 +236,8 @@ impl<O> Process<O> {
 		}
 	}
 
-	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
-		if self.token().is_none() {
-			*self.token.write().unwrap() = token;
-		}
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+		self.tokens.write().unwrap().inherit(tokens);
 	}
 
 	#[must_use]
@@ -330,13 +328,13 @@ impl<O> Process<O> {
 			location: self.location(),
 			metadata: false,
 			stored: false,
-			token: self.token(),
+			tokens: self.tokens(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
-		if output.token.is_some() {
-			*self.token.write().unwrap() = output.token;
+		if !output.tokens.is_empty() {
+			*self.tokens.write().unwrap() = output.tokens;
 		}
 		if let Some(location) = output.location {
 			self.location.write().unwrap().replace(location.into());
@@ -344,8 +342,8 @@ impl<O> Process<O> {
 		let state = tg::process::State::try_from(output.data)?;
 		let location = self.location();
 		state.inherit_location(location.as_ref());
-		let token = self.token();
-		state.inherit_token(token.as_ref());
+		let tokens = self.tokens();
+		state.inherit_tokens(&tokens);
 		let state = Arc::new(state);
 		self.state.write().unwrap().replace(state.clone());
 		Ok(Some(state))
@@ -415,7 +413,7 @@ impl<O> Process<O> {
 		let arg = tg::process::signal::post::Arg {
 			location: self.location(),
 			signal,
-			token: self.token(),
+			tokens: self.tokens(),
 		};
 		let id = self.id().unwrap_right();
 		handle.signal_process(id, arg).await?;
@@ -447,14 +445,14 @@ impl<O> Process<O> {
 				.await
 				.map_err(|error| tg::error!(!error, "the task panicked"))??;
 			let wait: tg::process::Wait = output.try_into()?;
-			let token = self.token();
-			wait.inherit_token(token.as_ref());
+			let tokens = self.tokens();
+			wait.inherit_tokens(&tokens);
 			self.detach();
 			return Ok(wait);
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
-			let token = self.token();
-			wait.inherit_token(token.as_ref());
+			let tokens = self.tokens();
+			wait.inherit_tokens(&tokens);
 			self.detach();
 			return Ok(wait);
 		}
@@ -464,8 +462,8 @@ impl<O> Process<O> {
 		if arg.lease.is_none() {
 			arg.lease = self.lease().cloned();
 		}
-		if arg.token.is_none() {
-			arg.token = self.token();
+		if arg.tokens.is_empty() {
+			arg.tokens = self.tokens();
 		}
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -473,8 +471,8 @@ impl<O> Process<O> {
 			));
 		};
 		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
-		let token = self.token();
-		wait.inherit_token(token.as_ref());
+		let tokens = self.tokens();
+		wait.inherit_tokens(&tokens);
 		self.detach();
 
 		Ok(wait)
@@ -498,12 +496,12 @@ impl<O> Process<O> {
 		let arg = tg::process::wait::Arg {
 			lease: self.lease().cloned(),
 			location: self.location(),
-			token: self.token(),
+			tokens: self.tokens(),
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;
-		let token = self.token();
-		output.inherit_token(token.as_ref());
+		let tokens = self.tokens();
+		output.inherit_tokens(&tokens);
 		output
 			.try_into()
 			.map_err(|error| tg::error!(source = error, "failed to convert the process output"))

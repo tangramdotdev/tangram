@@ -18,7 +18,7 @@ impl Cli {
 		let id = object.node;
 		let arg = tg::object::touch::Arg {
 			location: args.locations.get(),
-			token: object.options.token,
+			tokens: object.options.tokens,
 		};
 		client
 			.touch_object(&id, arg)

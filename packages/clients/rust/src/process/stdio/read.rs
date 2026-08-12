@@ -36,8 +36,8 @@ pub struct Arg {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -137,8 +137,8 @@ impl<O> tg::Process<O> {
 		if arg.location.is_none() {
 			arg.location = self.location();
 		}
-		if arg.token.is_none() {
-			arg.token = self.token();
+		if arg.tokens.is_empty() {
+			arg.tokens = self.tokens();
 		}
 
 		if self.id().is_left() {

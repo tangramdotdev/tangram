@@ -17,7 +17,7 @@ impl Session {
 	) -> tg::Result<tg::object::put::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let output = match location {
+		let mut output = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.put_object_local(id, arg).await?
 			},
@@ -29,6 +29,7 @@ impl Session {
 				region,
 			}) => self.put_object_remote(id, arg, remote, region).await?,
 		};
+		self.update_tokens_for_location(&mut output.object.options.tokens, &location)?;
 
 		Ok(output)
 	}

@@ -16,7 +16,7 @@ assert ($aliceresult.exit == 0) "the build should succeed."
 snapshot --normalize-ids ($aliceresult.output? | to json) '
 	{
 	  "kind": "object",
-	  "value": "fil_010000000000000000000000000000000000000000000000000000?token=<token>"
+	  "value": "fil_010000000000000000000000000000000000000000000000000000?tokens[local]=<token>"
 	}
 '
 
@@ -39,6 +39,6 @@ let everesult2 = tg --token $eve.token wait $process | from json
 snapshot --normalize-ids ($everesult2.output? | to json) '
 	{
 	  "kind": "object",
-	  "value": "fil_010000000000000000000000000000000000000000000000000000?token=<token>"
+	  "value": "fil_010000000000000000000000000000000000000000000000000000?tokens[local]=<token>"
 	}
 '

@@ -122,7 +122,7 @@ pub(super) struct StdioTaskArg<H> {
 	pub stderr: Option<tg::process::Stdio>,
 	pub stdin: Option<tg::process::Stdio>,
 	pub stdout: Option<tg::process::Stdio>,
-	pub token: Option<tg::grant::Token>,
+	pub tokens: tg::grant::Tokens,
 	pub tty: bool,
 }
 
@@ -138,16 +138,16 @@ where
 		stderr,
 		stdin,
 		stdout,
-		token,
+		tokens,
 		tty,
 	} = arg;
 	let mut stdin_task = stdin.map(|stdin| {
 		let handle = handle.clone();
 		let id = id.clone();
 		let location = location.clone();
-		let token = token.clone();
+		let tokens = tokens.clone();
 		Task::spawn(
-			move |_| async move { stdin_task(&handle, id, location, stdin, raw, token).await },
+			move |_| async move { stdin_task(&handle, id, location, stdin, raw, tokens).await },
 		)
 	});
 
@@ -155,9 +155,9 @@ where
 		let handle = handle.clone();
 		let id = id.clone();
 		let location = location.clone();
-		let token = token.clone();
+		let tokens = tokens.clone();
 		let task =
-			Task::spawn(|_| async move { sigwinch_task(&handle, id, location, token).await });
+			Task::spawn(|_| async move { sigwinch_task(&handle, id, location, tokens).await });
 		Some(task)
 	} else {
 		None
@@ -167,7 +167,7 @@ where
 		let handle = handle.clone();
 		let id = id.clone();
 		let location = location.clone();
-		stdout_stderr_task(&handle, id, location, stdout, stderr, token).await
+		stdout_stderr_task(&handle, id, location, stdout, stderr, tokens).await
 	} else {
 		Ok(())
 	};
@@ -198,7 +198,7 @@ async fn stdin_task<H>(
 	location: Option<tg::Location>,
 	stdin: tg::process::Stdio,
 	raw: bool,
-	token: Option<tg::grant::Token>,
+	tokens: tg::grant::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -239,7 +239,7 @@ where
 	let arg = tg::process::stdio::write::Arg {
 		location: location.map(Into::into),
 		streams: vec![tg::process::stdio::Stream::Stdin],
-		token,
+		tokens,
 	};
 	let input = io::stdin()
 		.map_err(|error| tg::error!(!error, "failed to open stdin"))?
@@ -269,7 +269,7 @@ async fn stdout_stderr_task<H>(
 	location: Option<tg::Location>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
-	token: Option<tg::grant::Token>,
+	tokens: tg::grant::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -291,7 +291,7 @@ where
 	let arg = tg::process::stdio::read::Arg {
 		location: location.map(Into::into),
 		streams,
-		token,
+		tokens,
 		..Default::default()
 	};
 	let Some(stream) = handle.try_read_process_stdio_all(&id, arg).await? else {
@@ -340,7 +340,7 @@ async fn sigwinch_task<H>(
 	handle: &H,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
-	token: Option<tg::grant::Token>,
+	tokens: tg::grant::Tokens,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -354,7 +354,7 @@ where
 		let arg = tg::process::tty::size::put::Arg {
 			location: location.clone().map(Into::into),
 			size,
-			token: token.clone(),
+			tokens: tokens.clone(),
 		};
 		handle
 			.set_process_tty_size(&id, arg)

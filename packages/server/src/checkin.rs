@@ -246,7 +246,7 @@ impl Session {
 						.as_secs()
 						.to_i64()
 						.unwrap();
-				options.token = match session.create_token(
+				let token = match session.create_token(
 					tg::grant::Resource::Id(id.clone().into()),
 					vec![tg::grant::Permission::Object(
 						tg::grant::permission::object::Permission::Subtree,
@@ -259,6 +259,9 @@ impl Session {
 						return;
 					},
 				};
+				if let Some(token) = token {
+					options.tokens.insert_local(token);
+				}
 				let referent = tg::Referent { node: id, options };
 				let output = tg::checkin::Output { artifact: referent };
 				progress.output(output);
@@ -301,7 +304,9 @@ impl Session {
 
 		if path.components().count() == 1 {
 			let mut artifact = tg::Referent::with_node(id);
-			artifact.options.token = self.create_artifact_token(&artifact.node)?;
+			if let Some(token) = self.create_artifact_token(&artifact.node)? {
+				artifact.options.tokens.insert_local(token);
+			}
 			let output = tg::checkin::Output { artifact };
 			return Ok(output);
 		}
@@ -319,7 +324,9 @@ impl Session {
 
 		let id = artifact.id();
 		let mut referent = tg::Referent::with_node(id);
-		referent.options.token = self.create_artifact_token(&referent.node)?;
+		if let Some(token) = self.create_artifact_token(&referent.node)? {
+			referent.options.tokens.insert_local(token);
+		}
 		let output = tg::checkin::Output { artifact: referent };
 
 		Ok(output)

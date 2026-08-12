@@ -55,7 +55,7 @@ impl Session {
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + use<>>> {
 		// Create the reader.
 		let blob = tg::Blob::with_id(arg.blob.clone());
-		blob.state().set_token(arg.token.clone());
+		blob.state().set_tokens(arg.tokens.clone());
 		let reader = Reader::new(self, blob)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the reader"))?;
@@ -242,9 +242,9 @@ impl Reader {
 		let id = blob.id();
 		let permission =
 			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		let resource = tg::Referent::with_node_and_token(
+		let resource = tg::Referent::with_node_and_tokens(
 			tg::object::Id::from(id.clone()),
-			blob.state().token(),
+			blob.state().tokens(),
 		);
 		let authorized = session
 			.authorize(resource, permission)

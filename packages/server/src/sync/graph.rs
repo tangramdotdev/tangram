@@ -224,7 +224,7 @@ impl Graph {
 
 		// Add the root tokens.
 		for root in &arg.get {
-			let Some(token) = root.options.token.clone() else {
+			let Some(token) = root.options.tokens.local().cloned() else {
 				continue;
 			};
 			let tg::Selector::Id(id) = &root.node else {
@@ -233,7 +233,7 @@ impl Graph {
 			graph.update_root_token(id, token);
 		}
 		for root in &arg.put {
-			let Some(token) = root.options.token.clone() else {
+			let Some(token) = root.options.tokens.local().cloned() else {
 				continue;
 			};
 			graph.update_root_token(&root.node, token);

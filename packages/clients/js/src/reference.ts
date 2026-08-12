@@ -19,7 +19,7 @@ export namespace Reference {
 		path?: string | null;
 		source?: string | null;
 		tag?: tg.Tag | null;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export let toData = <T, U>(
@@ -58,8 +58,8 @@ export namespace Reference {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			options.tag = value.options.tag;
 		}
-		if (value.options?.token !== undefined && value.options.token !== null) {
-			options.token = value.options.token;
+		if (value.options?.tokens !== undefined && value.options.tokens !== null) {
+			options.tokens = value.options.tokens;
 		}
 		return {
 			node,
@@ -104,8 +104,8 @@ export namespace Reference {
 		if (data.options?.tag !== undefined && data.options.tag !== null) {
 			options.tag = data.options.tag;
 		}
-		if (data.options?.token !== undefined && data.options.token !== null) {
-			options.token = data.options.token;
+		if (data.options?.tokens !== undefined && data.options.tokens !== null) {
+			options.tokens = data.options.tokens;
 		}
 		return {
 			node,
@@ -151,8 +151,10 @@ export namespace Reference {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
-		if (value.options?.token !== undefined && value.options.token !== null) {
-			params.push(`token=${encodeURIComponent(value.options.token)}`);
+		for (let [location, token] of Object.entries(value.options?.tokens ?? {})) {
+			params.push(
+				`tokens[${encodeURIComponent(location)}]=${encodeURIComponent(token)}`,
+			);
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -209,12 +211,14 @@ export namespace Reference {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
-					case "token": {
-						options.token = decodeURIComponent(value);
-						break;
-					}
 					default: {
-						throw new Error("invalid key");
+						let match = key?.match(/^tokens\[(.*)\]$/);
+						if (match === null || match === undefined) {
+							throw new Error("invalid key");
+						}
+						options.tokens ??= {};
+						options.tokens[decodeURIComponent(match[1]!)] =
+							decodeURIComponent(value);
 					}
 				}
 			}
@@ -240,7 +244,7 @@ export namespace Reference {
 			if (typeof data === "string") {
 				let reference = tg.Reference.fromDataString(data, (node) => node);
 				let options = { ...reference.options };
-				delete options.token;
+				delete options.tokens;
 				return tg.Reference.toDataString(
 					{ ...reference, options },
 					(node) => node,
@@ -249,7 +253,7 @@ export namespace Reference {
 			let output = { ...data };
 			if (output.options !== undefined) {
 				output.options = { ...output.options };
-				delete output.options.token;
+				delete output.options.tokens;
 			}
 			return output;
 		};
@@ -263,7 +267,7 @@ export namespace Reference {
 			path?: string | null;
 			source?: string | null;
 			tag?: tg.Tag | null;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 	}
 }

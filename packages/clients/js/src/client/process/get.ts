@@ -6,7 +6,7 @@ export namespace Get {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
 		metadata?: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export type Output = {
@@ -14,7 +14,7 @@ export namespace Get {
 		id: tg.Process.Id;
 		location?: tg.Location | null;
 		metadata?: unknown;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 }
 
@@ -44,7 +44,7 @@ export async function tryGetProcess(
 					? null
 					: tg.Location.Arg.toDataString(arg.location),
 			metadata: arg?.metadata === true ? true.toString() : null,
-			token: arg?.token ?? null,
+			tokens: arg?.tokens ?? null,
 		},
 	});
 	let headers = {

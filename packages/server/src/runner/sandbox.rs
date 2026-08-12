@@ -362,7 +362,7 @@ impl Session {
 			network: arg.network,
 			owner: arg.owner,
 			status: tg::sandbox::Status::Started,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 			ttl: arg.ttl,
 			usage: None,
 		};

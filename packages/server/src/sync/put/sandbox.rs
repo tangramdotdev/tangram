@@ -58,7 +58,7 @@ impl Session {
 		if !data.status.is_destroyed() {
 			return Err(tg::error!(id = %node.id, "cannot sync a running sandbox"));
 		}
-		data.token = None;
+		data.tokens.clear();
 
 		// Get the processes.
 		let children = if node.descendants && state.arg.sandbox_processes {

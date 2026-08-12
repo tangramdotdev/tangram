@@ -16,27 +16,21 @@ impl Session {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_set_process_tty_size_local(id, arg.size, arg.token.as_ref())
+				self.try_set_process_tty_size_local(id, arg.size, arg.tokens.local())
 					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_set_process_tty_size_region(id, arg.size, region, arg.token.as_ref())
+				self.try_set_process_tty_size_region(id, arg.size, region, &arg.tokens)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => {
-				self.try_set_process_tty_size_remote(
-					id,
-					arg.size,
-					remote,
-					region,
-					arg.token.as_ref(),
-				)
-				.await?
+				self.try_set_process_tty_size_remote(id, arg.size, remote, region, &arg.tokens)
+					.await?
 			},
 		};
 
@@ -96,7 +90,7 @@ impl Session {
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
 		region: String,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
@@ -105,9 +99,9 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::tty::size::put::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			size,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to put the process tty"),
@@ -124,15 +118,19 @@ impl Session {
 		size: tg::process::tty::Size,
 		remote: String,
 		region: Option<String>,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.clone(),
+			region: region.clone(),
+		});
 		let arg = tg::process::tty::size::put::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			size,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to put the process tty"),

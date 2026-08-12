@@ -119,7 +119,7 @@ mod tests {
 			})),
 			owner: Some(tg::Principal::Root),
 			status: tg::sandbox::Status::Destroyed,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 			ttl: Some(std::time::Duration::new(60, 123)),
 			usage: Some(tg::sandbox::get::Usage {
 				cpu: 123,

@@ -33,7 +33,7 @@ export class Blob {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -44,7 +44,7 @@ export class Blob {
 	/** Get a blob with a referent. */
 	static withReferent(referent: tg.Referent<tg.Blob.Id>): tg.Blob {
 		let blob = tg.Blob.withId(referent.node);
-		blob.state.token = referent.options?.token ?? null;
+		blob.state.tokens = referent.options?.tokens ?? {};
 		return blob;
 	}
 
@@ -183,9 +183,7 @@ export class Blob {
 	async read(options?: tg.Blob.ReadOptions | null): Promise<Uint8Array> {
 		let id = await this.store();
 		let arg: tg.Read.Arg = { blob: id, ...options };
-		if (this.state.token !== null) {
-			arg.token = this.state.token;
-		}
+		arg.tokens = this.state.tokens;
 		return await tg.client.read(arg);
 	}
 
@@ -208,7 +206,7 @@ export namespace Blob {
 		id?: tg.Blob.Id;
 		object?: tg.Blob.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {

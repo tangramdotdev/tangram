@@ -21,7 +21,7 @@ impl Cli {
 		let id = object.node;
 		let arg = tg::object::stored::Arg {
 			location: args.locations.get(),
-			token: object.options.token,
+			tokens: object.options.tokens,
 		};
 		let output = client
 			.try_get_object_stored(&id, arg)
