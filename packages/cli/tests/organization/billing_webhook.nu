@@ -10,7 +10,7 @@ let server = spawn --config {
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $webhook_secret } },
 }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 tg --token $alice.token organization create acme
 tg --token $alice.token group create acme/team
 

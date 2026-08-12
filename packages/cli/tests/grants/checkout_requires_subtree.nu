@@ -3,8 +3,8 @@ use ../../test.nu *
 # Checking out an artifact to a path must require its subtree: a principal without an artifact's subtree must not be able to materialize it to disk. Otherwise checkout to a path is an exfiltration channel that bypasses the subtree check that cache enforces.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private file (artifact).
 let path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }

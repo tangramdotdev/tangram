@@ -6,7 +6,7 @@ let server = spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let initial = tg usage | from json
 assert ($initial.sandbox_cpu == 0)

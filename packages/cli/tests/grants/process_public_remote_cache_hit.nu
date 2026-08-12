@@ -3,8 +3,8 @@ use ../../test.nu *
 # Building --public in a multi-server setup is safe: it operates on the builder's own local process, not a remote one. Even when the remote holds another user's process for the same command, --public must succeed without attempting to grant on the remote's process.
 
 let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg --url $remote.url login --verbose alice | from json
-let bob = tg --url $remote.url login --verbose bob | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
 
 # Bob builds the command on the remote and grants Alice read on the process.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("bobs"); }' }

@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 
 # Bob owns a group and grants Alice only read on it, so Alice can resolve it but cannot write it.
 tg --token $bob.token group create secret

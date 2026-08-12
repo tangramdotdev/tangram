@@ -3,8 +3,8 @@ use ../../test.nu *
 # Touching an object must require read access: a principal that cannot read an object must not be able to touch it. An unreadable object should be masked as not found, otherwise touch is an existence oracle and lets any principal keep arbitrary objects alive against garbage collection.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private file (object).
 let path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }

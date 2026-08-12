@@ -8,8 +8,8 @@ let remote = spawn --cloud --name remote --config {
 	roles: [cleaner http indexer scheduler],
 }
 
-let alice = tg --url $remote.url login --verbose alice | from json
-let bob = tg --url $remote.url login --verbose bob | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
 tg --url $remote.url --token $alice.token organization create tangram
 tg --url $remote.url --token $alice.token group create tangram/engineering
 let created = tg --url $remote.url --token $alice.token runner create --owner tangram | from json

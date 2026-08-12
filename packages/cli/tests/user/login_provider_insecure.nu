@@ -4,5 +4,5 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let user = tg login --verbose alice | from json
+let user = tg login --verbose --name alice | from json
 assert equal $user.user.name alice

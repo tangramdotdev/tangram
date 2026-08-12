@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 let me = tg user whoami | from json
 assert ($me.id == $alice.user.id) "whoami should return the logged-in user"
 
@@ -25,7 +25,7 @@ let local = spawn --config {
 	remotes: { staging: { url: $remote.url } }
 }
 
-let bob = tg login -r=staging bob | from json
+let bob = tg login -r=staging --name bob | from json
 let staging = tg remote get staging | from json
 assert (($staging | get --optional token) != null) "login -r=staging should save the token"
 

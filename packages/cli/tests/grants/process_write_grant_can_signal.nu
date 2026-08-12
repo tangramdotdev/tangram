@@ -3,8 +3,8 @@ use ../../test.nu *
 # A process_write grant permits signaling a running non-cacheable process.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(30); return "done"; }' }
 let process = tg --token $alice.token run --network=true --detach $path | str trim

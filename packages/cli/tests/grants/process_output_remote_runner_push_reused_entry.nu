@@ -22,7 +22,7 @@ let runner = spawn --name runner --config {
 }
 
 # Create user credentials and spawn the local server.
-let alice = tg --url $remote.url login --verbose alice | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }

@@ -4,9 +4,9 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
-let carol = tg login --verbose carol | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
+let carol = tg login --verbose --name carol | from json
 
 tg --token $alice.token organization create acme
 tg --token $alice.token grant $eve.user.id write acme

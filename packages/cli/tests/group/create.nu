@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let group = tg --token $alice.token group create project | from json
 assert ($group.id | str starts-with "grp_") "create should return a group id"

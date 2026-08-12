@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let source = spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice_s = tg --url $source.url login --verbose alice | from json
+let alice_s = tg --url $source.url login --verbose --name alice | from json
 
 # Alice stores a private file on the source.
 let file = tg --url $source.url --token $alice_s.token put 'tg.file("topsecret")' | str trim
@@ -16,7 +16,7 @@ let shared = spawn --name shared --config {
 	remotes: { default: { url: $source.url, token: $alice_s.token } },
 }
 
-let eve_b = tg --url $shared.url login --verbose eve | from json
+let eve_b = tg --url $shared.url login --verbose --name eve | from json
 
 # Eve does not inherit the server-level remote.
 let eve_remotes = tg --url $shared.url --token $eve_b.token remote list | from json

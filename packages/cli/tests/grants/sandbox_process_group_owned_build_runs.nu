@@ -3,7 +3,7 @@ use ../../test.nu *
 # A build whose sandbox is owned by a group must run, not fail to read its command.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 tg --token $alice.token group create team
 
 let path = artifact { tangram.ts: 'export default () => tg.file("x")' }

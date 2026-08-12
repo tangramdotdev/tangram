@@ -18,8 +18,8 @@ let runner = spawn --name runner --config {
 	runner: { id: $created.runner.id, remote: 'default', token: $created.token.token },
 }
 
-let alice = tg --url $remote.url login --verbose alice | from json
-let eve = tg --url $remote.url login --verbose eve | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let eve = tg --url $remote.url login --verbose --name eve | from json
 let local = spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }

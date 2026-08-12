@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg --url $remote.url login --verbose alice | from json
-let eve = tg --url $remote.url login --verbose eve | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let eve = tg --url $remote.url login --verbose --name eve | from json
 
 # Alice runs a long-running process on the remote whose stdout holds a secret. While it runs the log stays live (data.log is null).
 let path = artifact { tangram.ts: 'export default async function () { console.log("alicesecret"); await tg.sleep(60); }' }

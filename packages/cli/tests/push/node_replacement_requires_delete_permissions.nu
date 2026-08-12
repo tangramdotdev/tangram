@@ -5,8 +5,8 @@ use ../../test.nu *
 let destination = spawn --cloud --name destination --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
-let alice = tg --url $destination.url login --verbose alice | from json
-let bob = tg --url $destination.url login --verbose bob | from json
+let alice = tg --url $destination.url login --verbose --name alice | from json
+let bob = tg --url $destination.url login --verbose --name bob | from json
 
 # Group write is insufficient because deleting a group requires group admin.
 let local_root = tg --url $destination.url --token $alice.token group create root-only | from json

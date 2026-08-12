@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 let created = tg --token $alice.token user token create | from json
 assert ($created.data.id | str starts-with "tok_") "a token should have a token ID"
 assert (($created.token | str length) > 0) "the token secret should be returned on creation"

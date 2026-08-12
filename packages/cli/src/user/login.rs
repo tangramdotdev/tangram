@@ -10,7 +10,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
-	#[arg(index = 1)]
+	#[arg(hide = true, long, short)]
 	pub name: Option<tg::Specifier>,
 
 	/// Print the token and user.

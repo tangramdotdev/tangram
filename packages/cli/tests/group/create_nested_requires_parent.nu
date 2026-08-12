@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let output = tg --token $alice.token group create org/team/squad | complete
 failure $output "creating a nested group should fail when its parent does not exist"

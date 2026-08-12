@@ -5,8 +5,8 @@ use ../../test.nu *
 let remote = spawn --cloud --name remote --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
-let alice = tg --url $remote.url login --verbose alice | from json
-let bob = tg --url $remote.url login --verbose bob | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
 let remote_parent = tg --url $remote.url --token $alice.token group create private | from json
 tg --url $remote.url index
 

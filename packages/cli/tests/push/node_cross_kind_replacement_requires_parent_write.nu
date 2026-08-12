@@ -5,8 +5,8 @@ use ../../test.nu *
 let destination = spawn --cloud --name destination --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
-let alice = tg --url $destination.url login --verbose alice | from json
-let bob = tg --url $destination.url login --verbose bob | from json
+let alice = tg --url $destination.url login --verbose --name alice | from json
+let bob = tg --url $destination.url login --verbose --name bob | from json
 
 tg --url $destination.url --token $alice.token group create parent | ignore
 let node = tg --url $destination.url --token $alice.token put 'tg.file("secret")' | str trim

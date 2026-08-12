@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 assert ($alice.user.id | str starts-with "usr_") "login should return a user id"
 assert ($alice.user.name == "alice") "the user name should match the login specifier"
 assert ($alice.user.emails | is-empty) "a user created without an email should have no emails"

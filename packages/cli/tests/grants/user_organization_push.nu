@@ -3,7 +3,7 @@ use ../../test.nu *
 # Users retain their IDs and emails, and organizations retain their IDs, when synced.
 
 let source = spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
-let source_user = tg --url $source.url login --verbose source-user --email source-user@example.com | from json
+let source_user = tg --url $source.url login --verbose --name source-user --email source-user@example.com | from json
 let source_organization = tg --url $source.url --token $source_user.token organization create source-organization | from json
 let destination = spawn --name destination --config {
 	remotes: { default: { url: $source.url, token: $source_user.token } },
