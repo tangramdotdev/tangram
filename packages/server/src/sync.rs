@@ -239,8 +239,8 @@ impl Session {
 				match future.boxed().await {
 					Ok(()) => Ok(()),
 					Err(error) => {
-						sender.send(Err(error)).await.ok();
-						Err(tg::error!("the get task failed"))
+						sender.send(Err(error.clone())).await.ok();
+						Err(error)
 					},
 				}
 			}
@@ -261,8 +261,8 @@ impl Session {
 				match result {
 					Ok(()) => Ok(()),
 					Err(error) => {
-						sender.send(Err(error)).await.ok();
-						Err(tg::error!("the put task failed"))
+						sender.send(Err(error.clone())).await.ok();
+						Err(error)
 					},
 				}
 			}
