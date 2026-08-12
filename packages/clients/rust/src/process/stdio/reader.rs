@@ -104,7 +104,7 @@ impl Reader {
 				.and_then(|process| process.upgrade())
 				.ok_or_else(|| tg::error!("the process is not available"))?;
 			let location = process.location.read().unwrap().clone();
-			let token = process.token.read().unwrap().clone();
+			let tokens = process.tokens.read().unwrap().clone();
 			let process = process
 				.id
 				.as_ref()
@@ -115,7 +115,7 @@ impl Reader {
 			let arg = tg::process::stdio::read::Arg {
 				location,
 				streams: vec![stream],
-				token,
+				tokens,
 				..Default::default()
 			};
 			let Some(input) = handle.try_read_process_stdio(&process, arg).await? else {

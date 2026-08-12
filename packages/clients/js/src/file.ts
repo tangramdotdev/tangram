@@ -34,7 +34,7 @@ export class File {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -45,7 +45,7 @@ export class File {
 	/** Get a file with a referent. */
 	static withReferent(referent: tg.Referent<tg.File.Id>): tg.File {
 		let file = tg.File.withId(referent.node);
-		file.state.token = referent.options?.token ?? null;
+		file.state.tokens = referent.options?.tokens ?? {};
 		return file;
 	}
 
@@ -229,7 +229,7 @@ export class File {
 				contents = object.contents;
 			}
 
-			tg.Object.inheritToken(contents, this.#state.token);
+			tg.Object.inheritTokens(contents, this.#state.tokens);
 
 			return contents;
 		})();
@@ -269,7 +269,7 @@ export class File {
 									object = dependency.node;
 								}
 								if (object !== null) {
-									tg.Object.inheritToken(object, this.#state.token);
+									tg.Object.inheritTokens(object, this.#state.tokens);
 								}
 								let value: tg.Referent<tg.Object | null> = {
 									node: object,
@@ -307,7 +307,7 @@ export class File {
 									}
 								}
 								if (object !== null) {
-									tg.Object.inheritToken(object, this.#state.token);
+									tg.Object.inheritTokens(object, this.#state.tokens);
 								}
 								let value: tg.Referent<tg.Object | null> = {
 									node: object,
@@ -409,7 +409,7 @@ export namespace File {
 		id?: tg.File.Id;
 		object?: tg.File.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {

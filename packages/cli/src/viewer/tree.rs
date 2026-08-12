@@ -1435,20 +1435,20 @@ impl Tree {
 					name,
 					parent,
 					specifier,
-					token,
+					tokens,
 				} => {
-					let referent_token = token.clone();
+					let referent_tokens = tokens.clone();
 					let group = tg::Group {
 						id,
 						location,
 						name,
 						parent,
 						specifier,
-						token,
+						tokens,
 					};
-					Some(tg::Referent::with_node_and_token(
+					Some(tg::Referent::with_node_and_tokens(
 						Item::Group(group),
-						referent_token,
+						referent_tokens,
 					))
 				},
 				tg::list::Entry::Tag {
@@ -1458,9 +1458,9 @@ impl Tree {
 					name,
 					parent,
 					specifier,
-					token,
+					tokens,
 				} => {
-					let referent_token = token.clone();
+					let referent_tokens = tokens.clone();
 					let target = match target {
 						tg::Either::Left(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
 						tg::Either::Right(id) => tg::tag::Target::Process(tg::Process::new(
@@ -1479,11 +1479,11 @@ impl Tree {
 						parent,
 						permissions: Vec::new(),
 						specifier,
-						token,
+						tokens,
 					};
-					Some(tg::Referent::with_node_and_token(
+					Some(tg::Referent::with_node_and_tokens(
 						Item::Tag(tag),
-						referent_token,
+						referent_tokens,
 					))
 				},
 				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
@@ -1533,15 +1533,15 @@ impl Tree {
 		client: &tg::Client,
 		counter: UpdateCounter,
 		tag: &tg::Tag,
-		token: Option<tg::grant::Token>,
+		mut tokens: tg::grant::Tokens,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		// Resolve the tag to acquire access to its target.
 		let location = tag.location.clone().map(Into::into);
-		let token = token.or_else(|| tag.token.clone());
+		tokens.inherit(&tag.tokens);
 		let options = tg::reference::Options {
 			location: location.clone(),
-			token,
+			tokens,
 			..tg::reference::Options::default()
 		};
 		let reference = tg::Reference::new(
@@ -1576,7 +1576,7 @@ impl Tree {
 					id,
 					tg::process::Options {
 						location,
-						token: options.token.clone(),
+						tokens: options.tokens.clone(),
 						..tg::process::Options::default()
 					},
 				);
@@ -1913,7 +1913,7 @@ impl Tree {
 					client,
 					counter.clone(),
 					tag,
-					referent.token().cloned(),
+					referent.options.tokens.clone(),
 					update_sender.clone(),
 				)
 				.await
@@ -2540,7 +2540,7 @@ impl Tree {
 			location: process.node.location(),
 			metadata: false,
 			stored: false,
-			token: process.node.token(),
+			tokens: process.node.tokens(),
 		};
 		if client
 			.try_get_process(process.node.id().unwrap_right(), arg)
@@ -2761,7 +2761,7 @@ impl Tree {
 									location: process.location(),
 									metadata: true,
 									stored: false,
-									token: process.token(),
+									tokens: process.tokens(),
 								};
 								client
 									.try_get_process(process.id().unwrap_right(), arg)

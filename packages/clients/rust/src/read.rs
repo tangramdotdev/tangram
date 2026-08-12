@@ -15,8 +15,8 @@ use {
 pub struct Arg {
 	pub blob: tg::blob::Id,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 
 	#[serde(default, flatten, skip_serializing_if = "is_default")]
 	pub options: Options,
@@ -160,7 +160,7 @@ impl Arg {
 	pub fn with_blob(blob: tg::blob::Id) -> Self {
 		Self {
 			blob,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 			options: tg::read::Options::default(),
 		}
 	}

@@ -1090,7 +1090,7 @@ impl Provider {
 		// Create the stream.
 		let arg = tg::read::Arg {
 			blob: file_handle.blob.clone(),
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 			options: tg::read::Options {
 				position: Some(std::io::SeekFrom::Start(position)),
 				length: Some(length),

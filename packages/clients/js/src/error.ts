@@ -91,7 +91,7 @@ export class Error {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -102,7 +102,7 @@ export class Error {
 	/** Get an error with a referent. */
 	static withReferent(referent: tg.Referent<tg.Error.Id>): tg.Error {
 		let error = tg.Error.withId(referent.node);
-		error.state.token = referent.options?.token ?? null;
+		error.state.tokens = referent.options?.tokens ?? {};
 		return error;
 	}
 
@@ -186,14 +186,12 @@ export class Error {
 		return tg.Error.Object.toData(object.value);
 	}
 
-	static toDataOrId(
-		value: tg.Error,
-	): tg.Error.Data | tg.Referent.Data<tg.Error.Id> {
+	static toDataOrId(value: tg.Error): tg.Error.Data | string {
 		if (value.state.stored) {
 			let id = value.state.id as tg.Error.Id;
-			let token = value.state.token;
-			let referent = tg.Referent.withNodeAndToken(id, token);
-			return tg.Referent.toData(referent, (id) => id);
+			let tokens = value.state.tokens;
+			let referent = tg.Referent.withNodeAndTokens(id, tokens);
+			return tg.Referent.toDataString(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
 	}
@@ -319,7 +317,7 @@ export namespace Error {
 		id?: tg.Error.Id;
 		object?: tg.Error.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {

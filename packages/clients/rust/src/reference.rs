@@ -85,8 +85,8 @@ pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 impl Reference {
@@ -110,8 +110,13 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_node_and_token(node: Node, token: Option<tg::grant::Token>) -> Self {
+		Self::with_node_and_tokens(node, tg::grant::Tokens::with_local(token))
+	}
+
+	#[must_use]
+	pub fn with_node_and_tokens(node: Node, tokens: tg::grant::Tokens) -> Self {
 		let options = Options {
-			token,
+			tokens,
 			..Default::default()
 		};
 		Self::with_node_and_options(node, options)
@@ -234,14 +239,14 @@ impl Reference {
 	#[must_use]
 	pub fn without_token(&self) -> Self {
 		let mut reference = self.clone();
-		reference.options.token.take();
+		reference.options.tokens.clear();
 
 		reference
 	}
 
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.options.token.take();
+		self.options.tokens.clear();
 
 		self
 	}
@@ -325,7 +330,7 @@ impl From<Options> for tg::referent::Options {
 			name: options.name,
 			path: options.path,
 			tag: options.tag,
-			token: options.token,
+			tokens: options.tokens,
 		}
 	}
 }

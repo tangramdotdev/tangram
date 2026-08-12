@@ -20,7 +20,7 @@ import { Directory, directory } from "./directory.ts";
 import { type Encoding, encoding, setEncoding } from "./encoding.ts";
 import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
-import type { Grant } from "./grant.ts";
+import { Grant } from "./grant.ts";
 import { Graph, graph } from "./graph.ts";
 import { type Host, host, setHost } from "./host.ts";
 import { Request, Response, Uri } from "./http.ts";
@@ -61,7 +61,6 @@ export type {
 	CompressionFormat,
 	Encoding,
 	Function,
-	Grant,
 	Host,
 	MaybeMutation,
 	MaybeMutationMap,
@@ -78,6 +77,8 @@ export type {
 	UnresolvedArgs,
 	ValueOrMaybeMutationMap,
 };
+
+export { Grant };
 
 export type { Checkin } from "./client/checkin.ts";
 export type { Checkout } from "./client/checkout.ts";

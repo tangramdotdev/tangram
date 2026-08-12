@@ -21,7 +21,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_post_process_signal_local(id, arg.signal, arg.token.as_ref())
+					.try_post_process_signal_local(id, arg.signal, arg.tokens.local())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to signal the process"))?
 			{
@@ -29,7 +29,7 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_post_process_signal_regions(id, arg.signal, &local.regions, arg.token.as_ref())
+				.try_post_process_signal_regions(id, arg.signal, &local.regions, &arg.tokens)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to signal the process in another region"),
@@ -39,7 +39,7 @@ impl Session {
 		}
 
 		if let Some(output) = self
-			.try_post_process_signal_remotes(id, arg.signal, &locations.remotes, arg.token.as_ref())
+			.try_post_process_signal_remotes(id, arg.signal, &locations.remotes, &arg.tokens)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to signal the process in a remote"))?
 		{
@@ -111,11 +111,11 @@ impl Session {
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
 		regions: &[String],
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_post_process_signal_region(id, signal, region, token))
+			.map(|region| self.try_post_process_signal_region(id, signal, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -141,7 +141,7 @@ impl Session {
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
 		region: &str,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, %id, "failed to get the region client"),
@@ -150,9 +150,9 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::process::signal::post::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			signal,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to signal the process"),
@@ -168,11 +168,11 @@ impl Session {
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
 		remotes: &[crate::location::Remote],
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_post_process_signal_remote(id, signal, remote, token))
+			.map(|remote| self.try_post_process_signal_remote(id, signal, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -198,7 +198,7 @@ impl Session {
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
 		remote: &crate::location::Remote,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -206,6 +206,10 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 		let arg = tg::process::signal::post::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -213,7 +217,7 @@ impl Session {
 				}),
 			])),
 			signal,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to signal the process"),

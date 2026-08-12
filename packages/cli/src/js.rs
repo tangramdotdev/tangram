@@ -168,7 +168,11 @@ impl Cli {
 				|error| tg::error!(!error, path = %output_path, "failed to write the output"),
 			)?;
 			if let Some(output) = &output {
-				let tgon = output.to_string();
+				let options = tg::value::print::Options {
+					tokens: true,
+					..Default::default()
+				};
+				let tgon = output.print(options);
 				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())
 					.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
 			}
@@ -183,12 +187,11 @@ impl Cli {
 					xattr::set(&output_path, "user.tangram.error", &json)
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				} else {
-					xattr::set(
-						&output_path,
-						"user.tangram.error",
-						error.id().to_string().as_bytes(),
-					)
-					.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
+					let referent =
+						tg::Referent::with_node_and_tokens(error.id(), error.state().tokens());
+					let string = referent.to_string();
+					xattr::set(&output_path, "user.tangram.error", string.as_bytes())
+						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				}
 			}
 		}

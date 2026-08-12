@@ -20,7 +20,7 @@ impl Session {
 
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let output = match location {
+		let mut output = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.post_object_batch_local(arg).await?
 			},
@@ -32,6 +32,9 @@ impl Session {
 				region,
 			}) => self.post_object_batch_remote(arg, remote, region).await?,
 		};
+		for object in &mut output.objects {
+			self.update_tokens_for_location(&mut object.options.tokens, &location)?;
+		}
 
 		Ok(output)
 	}
@@ -250,7 +253,7 @@ impl Session {
 			let Some(child) = children_map.get(child) else {
 				return Ok(false);
 			};
-			let Some(token) = child.options.token.as_ref() else {
+			let Some(token) = child.options.tokens.local() else {
 				return Ok(false);
 			};
 			let resource = tg::grant::Resource::Id(child.node.clone().into());

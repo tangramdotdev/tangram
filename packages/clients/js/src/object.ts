@@ -14,12 +14,12 @@ export namespace Object {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 			metadata?: boolean;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 
 		export type Output = {
 			data: tg.Object.Data;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 	}
 
@@ -97,13 +97,13 @@ export namespace Object {
 		#id: tg.Object.Id | null;
 		#object: tg.Object.Object | null;
 		#stored: boolean;
-		#token: tg.Grant.Token | null;
+		#tokens: tg.Grant.Tokens;
 
 		constructor(arg: tg.Object.State.ConstructorArg) {
 			this.#id = arg.id ?? null;
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
-			this.#token = arg.token ?? null;
+			this.#tokens = arg.tokens ?? {};
 		}
 
 		get id(): tg.Object.Id {
@@ -137,18 +137,16 @@ export namespace Object {
 			this.#stored = stored;
 		}
 
-		get token(): tg.Grant.Token | null {
-			return this.#token;
+		get tokens(): tg.Grant.Tokens {
+			return { ...this.#tokens };
 		}
 
-		set token(token: tg.Grant.Token | null) {
-			this.#token = token;
+		set tokens(tokens: tg.Grant.Tokens) {
+			this.#tokens = tokens;
 		}
 
-		inheritToken(token: tg.Grant.Token | null): void {
-			if (this.#token === null) {
-				this.#token = token;
-			}
+		inheritTokens(tokens: tg.Grant.Tokens): void {
+			tg.Grant.Tokens.inherit(this.#tokens, tokens);
 		}
 
 		get kind(): tg.Object.Kind {
@@ -160,10 +158,10 @@ export namespace Object {
 
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === null) {
-				let arg = this.#token !== null ? { token: this.#token } : {};
+				let arg = { tokens: this.#tokens };
 				let output = await tg.client.getObject(this.#id!, arg);
-				if (output.token !== undefined && output.token !== null) {
-					this.#token = output.token;
+				if (output.tokens !== undefined && output.tokens !== null) {
+					tg.Grant.Tokens.inherit(this.#tokens, output.tokens);
 				}
 				this.#object = tg.Object.Object.fromData(output.data);
 			}
@@ -182,7 +180,7 @@ export namespace Object {
 				let children = tg.Object.Object.children(this.#object!);
 
 				for (let child of children) {
-					tg.Object.inheritToken(child, this.#token);
+					tg.Object.inheritTokens(child, this.#tokens);
 				}
 
 				return children;
@@ -195,7 +193,7 @@ export namespace Object {
 			id?: tg.Object.Id | null;
 			object?: tg.Object.Object | null;
 			stored: boolean;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 	}
 
@@ -378,7 +376,7 @@ export namespace Object {
 		referent: tg.Referent<tg.Object.Id>,
 	): tg.Object => {
 		let object = withId(referent.node);
-		object.state.token = referent.options?.token ?? null;
+		object.state.tokens = referent.options?.tokens ?? {};
 		return object;
 	};
 
@@ -417,11 +415,11 @@ export namespace Object {
 		);
 	};
 
-	export let inheritToken = (
+	export let inheritTokens = (
 		object: tg.Object,
-		token: tg.Grant.Token | null,
+		tokens: tg.Grant.Tokens,
 	): void => {
-		object.state.inheritToken(token);
+		object.state.inheritTokens(tokens);
 	};
 
 	/** Expect that a value is a `tg.Object`. */

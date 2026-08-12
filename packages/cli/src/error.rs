@@ -157,7 +157,7 @@ impl Cli {
 			error_referent
 				.node()
 				.state()
-				.inherit_token(error_referent.options.token.clone());
+				.inherit_tokens(&error_referent.options.tokens);
 
 			// Attempt to get the object.
 			let error = if let Some(error) = error_referent

@@ -64,7 +64,7 @@ impl Session {
 					},
 					|object| Ok(tg::Object::with_id(object.clone())),
 				)?;
-				object.state().set_token(options.token.clone());
+				object.state().set_tokens(options.tokens.clone());
 				let file = object
 					.try_unwrap_file()
 					.ok()
@@ -104,7 +104,7 @@ impl Session {
 					tg::module::Kind::Command => "Command",
 					_ => unreachable!(),
 				};
-				let inherit_token = options.token.as_ref().map_or_else(String::new, |token| {
+				let inherit_token = options.tokens.local().map_or_else(String::new, |token| {
 					let token = serde_json::to_string(&token.to_string()).unwrap();
 					format!("tg.Object.inheritToken(object, {token});")
 				});

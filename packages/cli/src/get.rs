@@ -100,9 +100,9 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let object = tg::Reference::with_node_and_token(
+			let object = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(object.node.into()),
-				object.options.token,
+				object.options.tokens,
 			);
 			let args = crate::object::get::Args {
 				bytes: args.bytes,
@@ -121,9 +121,9 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_node_and_token(
+			let process = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(process.node.into()),
-				process.options.token,
+				process.options.tokens,
 			);
 			let args = crate::process::get::Args {
 				locations,
@@ -257,13 +257,13 @@ impl Cli {
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
 	) -> tg::Result<tg::get::Output> {
-		let token = reference.options().token.clone();
+		let tokens = reference.options().tokens.clone();
 		let direct_reference =
-			tg::Reference::with_node_and_token(reference.node().clone(), token.clone());
+			tg::Reference::with_node_and_tokens(reference.node().clone(), tokens.clone());
 		if reference == &direct_reference {
 			match reference.node() {
 				tg::reference::Node::Id(id)
-					if token.is_some()
+					if !tokens.is_empty()
 						|| !matches!(
 							id.kind(),
 							tg::id::Kind::Group
@@ -272,9 +272,9 @@ impl Cli {
 								| tg::id::Kind::User
 						) =>
 				{
-					let referent = tg::Referent::with_node_and_token(
+					let referent = tg::Referent::with_node_and_tokens(
 						tg::get::Node::Id(id.clone()),
-						token.clone(),
+						tokens.clone(),
 					);
 					let output = tg::get::Output {
 						location: None,
@@ -284,9 +284,9 @@ impl Cli {
 					return Ok(output);
 				},
 				tg::reference::Node::Pointer(pointer) => {
-					let referent = tg::Referent::with_node_and_token(
+					let referent = tg::Referent::with_node_and_tokens(
 						tg::get::Node::Pointer(pointer.clone()),
-						token,
+						tokens,
 					);
 					let output = tg::get::Output {
 						location: None,
@@ -346,13 +346,13 @@ impl Cli {
 		reference: &tg::Reference,
 		arg: tg::resolve::Arg,
 	) -> tg::Result<tg::Referent<tg::resolve::Node>> {
-		let token = reference.options().token.clone();
+		let tokens = reference.options().tokens.clone();
 		let direct_reference =
-			tg::Reference::with_node_and_token(reference.node().clone(), token.clone());
+			tg::Reference::with_node_and_tokens(reference.node().clone(), tokens.clone());
 		if reference == &direct_reference {
 			match reference.node() {
 				tg::reference::Node::Id(id)
-					if token.is_some()
+					if !tokens.is_empty()
 						|| !matches!(
 							id.kind(),
 							tg::id::Kind::Group
@@ -361,17 +361,17 @@ impl Cli {
 								| tg::id::Kind::User
 						) =>
 				{
-					let referent = tg::Referent::with_node_and_token(
+					let referent = tg::Referent::with_node_and_tokens(
 						tg::resolve::Node::Id(id.clone()),
-						token.clone(),
+						tokens.clone(),
 					);
 
 					return Ok(referent);
 				},
 				tg::reference::Node::Pointer(pointer) => {
-					let referent = tg::Referent::with_node_and_token(
+					let referent = tg::Referent::with_node_and_tokens(
 						tg::resolve::Node::Pointer(pointer.clone()),
-						token,
+						tokens,
 					);
 
 					return Ok(referent);

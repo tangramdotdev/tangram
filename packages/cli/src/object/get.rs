@@ -32,19 +32,19 @@ impl Cli {
 		let client = self.client().await?;
 		let object = self.resolve_object(&args.object).await?;
 		let id = object.node.clone();
-		let token = object.options.token.clone();
+		let tokens = object.options.tokens.clone();
 		if args.bytes {
 			let arg = tg::object::get::Arg {
 				location: args.locations.get(),
 				metadata: args.metadata,
 				stored: args.stored,
-				token: token.clone(),
+				tokens: tokens.clone(),
 			};
 			let tg::object::get::Output {
 				bytes,
 				metadata,
 				stored,
-				token: _,
+				tokens: _,
 			} = client
 				.try_get_object(&id, arg)
 				.await
@@ -76,7 +76,7 @@ impl Cli {
 			location: args.locations.get(),
 			metadata: args.metadata,
 			stored: args.stored,
-			token,
+			tokens,
 		};
 		if args.metadata || args.stored {
 			let output = client

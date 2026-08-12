@@ -68,7 +68,9 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the organization"),
 		)?;
 		self.invalidate_remote_cache(&remote.name).await;
-		output.organization.location = Some(tg::Location::Remote(remote));
+		let location = tg::Location::Remote(remote);
+		self.update_tokens_for_location(&mut output.organization.tokens, &location)?;
+		output.organization.location = Some(location);
 
 		Ok(output)
 	}
@@ -130,13 +132,13 @@ impl Session {
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;
 		}
-		let token = self.create_read_token(&id.clone().into())?;
+		let tokens = tg::grant::Tokens::with_local(self.create_read_token(&id.clone().into())?);
 		Ok(tg::Organization {
 			id,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name,
 			specifier: arg.specifier,
-			token,
+			tokens,
 		})
 	}
 

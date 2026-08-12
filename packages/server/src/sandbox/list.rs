@@ -130,7 +130,7 @@ impl Session {
 					network: data.network,
 					owner: Some(data.owner.unwrap_or(tg::Principal::Root)),
 					status: data.status,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 					ttl: data.ttl,
 				})
 			})
@@ -155,7 +155,9 @@ impl Session {
 			if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
 				continue;
 			}
-			item.token = self.create_read_token(&item.id.clone().into())?;
+			if let Some(token) = self.create_read_token(&item.id.clone().into())? {
+				item.tokens.insert_local(token);
+			}
 			authorized.push(item);
 		}
 		Ok(authorized)
@@ -187,12 +189,15 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::sandbox::list::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			owner: owner.cloned(),
 		};
-		let output = client.list_sandboxes(arg).await.map_err(
+		let mut output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
+		for item in &mut output.data {
+			self.update_tokens_for_location(&mut item.tokens, &location)?;
+		}
 		Ok(output)
 	}
 
@@ -226,9 +231,16 @@ impl Session {
 			])),
 			owner: owner.cloned(),
 		};
-		let output = client.list_sandboxes(arg).await.map_err(
+		let mut output = client.list_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		for item in &mut output.data {
+			self.update_tokens_for_location(&mut item.tokens, &location)?;
+		}
 		Ok(output)
 	}
 

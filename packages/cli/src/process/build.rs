@@ -28,7 +28,7 @@ impl Cli {
 				location,
 				metadata: false,
 				stored: false,
-				token: None,
+				tokens: tg::grant::Tokens::default(),
 			};
 			self.print_value(&output, options.print.clone(), arg)
 				.await?;

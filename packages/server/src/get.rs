@@ -42,7 +42,7 @@ impl Session {
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		if options.token.is_none()
+		if options.tokens.is_empty()
 			&& matches!(
 				id.kind(),
 				tg::id::Kind::Group
@@ -63,7 +63,7 @@ impl Session {
 
 			return Ok(stream.boxed());
 		}
-		if options.token.is_none() && id.kind() == tg::id::Kind::Sandbox {
+		if options.tokens.is_empty() && id.kind() == tg::id::Kind::Sandbox {
 			let id = tg::sandbox::Id::try_from(id.clone())?;
 			let sandbox = self
 				.try_get_sandbox(
@@ -77,9 +77,9 @@ impl Session {
 				.await?;
 			let output = sandbox.map(|sandbox| tg::get::Output {
 				location: sandbox.location,
-				referent: tg::Referent::with_node_and_token(
+				referent: tg::Referent::with_node_and_tokens(
 					tg::get::Node::Id(sandbox.id.into()),
-					sandbox.token,
+					sandbox.tokens,
 				),
 			});
 			let event = tg::progress::Event::Output(output);
@@ -162,9 +162,9 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_node_and_token(
+		let referent = tg::Referent::with_node_and_tokens(
 			tg::get::Node::Pointer(pointer.clone()),
-			options.token.clone(),
+			options.tokens.clone(),
 		);
 		let output = tg::get::Output {
 			location: options
@@ -244,8 +244,10 @@ impl Session {
 					.graph
 					.clone()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				let graph =
-					tg::Referent::with_node_and_token(graph, output.referent.options.token.clone());
+				let graph = tg::Referent::with_node_and_tokens(
+					graph,
+					output.referent.options.tokens.clone(),
+				);
 				let graph = tg::Graph::with_referent(graph);
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
 					graph: Some(graph),

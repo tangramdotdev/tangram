@@ -37,7 +37,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdioPromise: Promise<void> | null;
 	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
-	#token: tg.Grant.Token | null;
+	#tokens: tg.Grant.Tokens;
 	#wait: tg.Process.Wait | null;
 
 	static build<
@@ -280,7 +280,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
 		this.#stopper = arg.stopper ?? null;
-		this.#token = arg.token ?? null;
+		this.#tokens = arg.tokens ?? {};
 		this.#wait = arg.wait ?? null;
 		this.#owned =
 			this.#wait === null &&
@@ -316,19 +316,17 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		if (this.#token !== null) {
-			arg.token = this.#token;
-		}
+		arg.tokens = this.#tokens;
 		let output = await tg.client.getProcess(this.#id, arg);
-		if (output.token !== undefined && output.token !== null) {
-			this.#token = output.token;
+		if (output.tokens !== undefined && output.tokens !== null) {
+			tg.Grant.Tokens.inherit(this.#tokens, output.tokens);
 		}
 		this.#location =
 			output.location === undefined || output.location === null
 				? null
 				: tg.Location.Arg.fromLocation(output.location);
 		this.#state = tg.Process.State.fromData(output.data);
-		tg.Process.State.inheritToken(this.#state, this.#token);
+		tg.Process.State.inheritTokens(this.#state, this.#tokens);
 	}
 
 	/** Reload the process's state. */
@@ -354,18 +352,16 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#location ?? null;
 	}
 
-	get token(): tg.Grant.Token | null {
-		return this.#token ?? null;
+	get tokens(): tg.Grant.Tokens {
+		return { ...this.#tokens };
 	}
 
-	set token(token: tg.Grant.Token | null) {
-		this.#token = token;
+	set tokens(tokens: tg.Grant.Tokens) {
+		this.#tokens = tokens;
 	}
 
-	inheritToken(token: tg.Grant.Token | null): void {
-		if (this.#token === null) {
-			this.#token = token;
-		}
+	inheritTokens(tokens: tg.Grant.Tokens): void {
+		tg.Grant.Tokens.inherit(this.#tokens, tokens);
 	}
 
 	/** Get this process's command. */
@@ -374,7 +370,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.load();
 			let command = this.#state!.command;
 
-			tg.Object.inheritToken(command, this.#token);
+			tg.Object.inheritTokens(command, this.#tokens);
 
 			return command;
 		})();
@@ -540,9 +536,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
-		if (this.#token !== null) {
-			arg.token = this.#token;
-		}
+		arg.tokens = this.#tokens;
 		await tg.client.signalProcess(this.#id, arg);
 	}
 
@@ -552,13 +546,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.#stdioPromise;
 		}
 		if (this.#wait !== null) {
-			tg.Process.Wait.inheritToken(this.#wait, this.#token);
+			tg.Process.Wait.inheritTokens(this.#wait, this.#tokens);
 			return this.#wait;
 		}
 		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== null);
 			let wait = await this.#promise;
-			tg.Process.Wait.inheritToken(wait, this.#token);
+			tg.Process.Wait.inheritTokens(wait, this.#tokens);
 			this.#wait = wait;
 			this.detach();
 			return wait;
@@ -570,15 +564,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		if (this.#token !== null) {
-			arg.token = this.#token;
-		}
+		arg.tokens = this.#tokens;
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
 		let wait = await promise();
 		if (wait === null) {
 			throw new Error("failed to find the process");
 		}
-		tg.Process.Wait.inheritToken(wait, this.#token);
+		tg.Process.Wait.inheritTokens(wait, this.#tokens);
 		this.#wait = wait;
 		this.detach();
 		return wait;
@@ -590,9 +582,13 @@ export class Process<O extends tg.Value = tg.Value> {
 
 		if (wait.error !== null) {
 			let error = wait.error;
+			const options = {
+				...this.#options,
+				tokens: error.state.tokens,
+			};
 			const source = {
 				node: error,
-				options: this.#options,
+				options,
 			};
 			const values: { [key: string]: string } = {
 				id: String(this.id),
@@ -646,7 +642,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		let output = wait.output;
 
 		if (output !== undefined) {
-			tg.Value.inheritToken(output, this.#token);
+			tg.Value.inheritTokens(output, this.#tokens);
 		}
 
 		return output as O;
@@ -668,9 +664,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (location !== null) {
 			arg.location = location;
 		}
-		if (this.#token !== null) {
-			arg.token = this.#token;
-		}
+		arg.tokens = this.#tokens;
 		await tg.client.setProcessTtySize(this.#id, arg);
 	}
 }
@@ -706,7 +700,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
-				token?: tg.Grant.Token | null;
+				tokens?: tg.Grant.Tokens | null;
 			};
 		}
 	}
@@ -1074,7 +1068,7 @@ export namespace Process {
 		stdioPromise?: Promise<void> | null;
 		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 		wait?: tg.Process.Wait | null;
 	};
 
@@ -1218,10 +1212,10 @@ export namespace Process {
 			if (typeof process !== "string") {
 				throw new Error("expected a sandboxed process id");
 			}
-			let token = value.process.token;
+			let tokens = value.process.tokens;
 			let options = {
 				...value.options,
-				...(token === null ? {} : { token }),
+				tokens,
 			};
 			let referent = { node: process, options };
 			return {
@@ -1236,7 +1230,7 @@ export namespace Process {
 				(id) => id as tg.Process.Id,
 			);
 			let options = { ...referent.options };
-			delete options.token;
+			delete options.tokens;
 			return {
 				cached: data.cached ?? false,
 				options,
@@ -1251,9 +1245,9 @@ export namespace Process {
 					stdout: new tg.Process.Stdio.Reader({
 						stream: "stdout",
 					}),
-					...(referent.options?.token !== undefined &&
-					referent.options.token !== null
-						? { token: referent.options.token }
+					...(referent.options?.tokens !== undefined &&
+					referent.options.tokens !== null
+						? { tokens: referent.options.tokens }
 						: {}),
 				}),
 			};
@@ -1261,22 +1255,22 @@ export namespace Process {
 	}
 
 	export namespace State {
-		export let inheritToken = (
+		export let inheritTokens = (
 			state: State,
-			token: tg.Grant.Token | null,
+			tokens: tg.Grant.Tokens,
 		): void => {
-			tg.Object.inheritToken(state.command, token);
+			tg.Object.inheritTokens(state.command, tokens);
 			for (let child of state.children ?? []) {
-				child.process.inheritToken(token);
+				child.process.inheritTokens(tokens);
 			}
 			if (state.error !== null) {
-				tg.Object.inheritToken(state.error, token);
+				tg.Object.inheritTokens(state.error, tokens);
 			}
 			if (state.log !== null) {
-				tg.Object.inheritToken(state.log, token);
+				tg.Object.inheritTokens(state.log, tokens);
 			}
 			if (state.output !== undefined) {
-				tg.Value.inheritToken(state.output, token);
+				tg.Value.inheritTokens(state.output, tokens);
 			}
 		};
 
@@ -1313,8 +1307,8 @@ export namespace Process {
 				output.finished_at = value.finishedAt;
 			}
 			if (value.log !== null) {
-				let token = value.log.state.token;
-				let referent = tg.Referent.withNodeAndToken(value.log.id, token);
+				let tokens = value.log.state.tokens;
+				let referent = tg.Referent.withNodeAndTokens(value.log.id, tokens);
 				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
@@ -1354,17 +1348,13 @@ export namespace Process {
 				debug: data.debug ?? null,
 				error:
 					data.error !== undefined && data.error !== null
-						? typeof data.error === "string" || "node" in data.error
-							? (() => {
-									let referent =
-										typeof data.error === "string"
-											? tg.Referent.fromDataString(
-													data.error,
-													(id) => id as tg.Error.Id,
-												)
-											: tg.Referent.fromData(data.error, (id) => id);
-									return tg.Error.withReferent(referent);
-								})()
+						? typeof data.error === "string"
+							? tg.Error.withReferent(
+									tg.Referent.fromDataString(
+										data.error,
+										(id) => id as tg.Error.Id,
+									),
+								)
 							: tg.Error.fromData(data.error)
 						: null,
 				exit: data.exit ?? null,
@@ -1440,7 +1430,7 @@ export namespace Process {
 		command: tg.Command.Id;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
-		error?: tg.Error.Data | tg.Referent.Data<tg.Error.Id> | null;
+		error?: tg.Error.Data | string | null;
 		exit?: number | null;
 		expected_checksum?: tg.Checksum | null;
 		finished_at?: number | null;
@@ -1490,12 +1480,6 @@ export namespace Process {
 						tg.Referent.withoutToken(referent),
 						(id) => id,
 					);
-				} else if ("node" in data.error) {
-					let referent = tg.Referent.fromData(data.error, (id) => id);
-					output.error = tg.Referent.toData(
-						tg.Referent.withoutToken(referent),
-						(id) => id,
-					);
 				} else {
 					output.error = tg.Error.Data.withoutTokens(data.error);
 				}
@@ -1527,11 +1511,11 @@ export namespace Process {
 		export type Arg = {
 			lease?: string | null;
 			location?: tg.Location.Arg | null;
-			token?: tg.Grant.Token | null;
+			tokens?: tg.Grant.Tokens | null;
 		};
 
 		export type Data = {
-			error?: tg.Error.Data | tg.Error.Id | null;
+			error?: tg.Error.Data | string | null;
 			exit: number;
 			output?: tg.Value.Data;
 		};
@@ -1541,7 +1525,12 @@ export namespace Process {
 				error:
 					data.error !== undefined && data.error !== null
 						? typeof data.error === "string"
-							? tg.Error.withId(data.error)
+							? tg.Error.withReferent(
+									tg.Referent.fromDataString(
+										data.error,
+										(id) => id as tg.Error.Id,
+									),
+								)
 							: tg.Error.fromData(data.error)
 						: null,
 				exit: data.exit,
@@ -1552,15 +1541,15 @@ export namespace Process {
 			return output;
 		};
 
-		export let inheritToken = (
+		export let inheritTokens = (
 			wait: tg.Process.Wait,
-			token: tg.Grant.Token | null,
+			tokens: tg.Grant.Tokens,
 		): void => {
 			if (wait.error !== null) {
-				tg.Object.inheritToken(wait.error, token);
+				tg.Object.inheritTokens(wait.error, tokens);
 			}
 			if (wait.output !== undefined) {
-				tg.Value.inheritToken(wait.output, token);
+				tg.Value.inheritTokens(wait.output, tokens);
 			}
 		};
 
@@ -1569,7 +1558,7 @@ export namespace Process {
 				exit: value.exit,
 			};
 			if (value.error !== null) {
-				output.error = tg.Error.toData(value.error);
+				output.error = tg.Error.toDataOrId(value.error);
 			}
 			if (value.output !== undefined) {
 				output.output = tg.Value.toData(value.output);

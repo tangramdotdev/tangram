@@ -71,13 +71,13 @@ impl Node {
 
 impl tg::Referent<Node> {
 	pub fn into_graph_edge(self) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
-		let token = self.options.token.clone();
+		let tokens = self.options.tokens.clone();
 		let referent = self.try_map(Node::to_graph_edge)?;
 		match &referent.node {
-			tg::graph::Edge::Object(object) => object.inherit_token(token),
+			tg::graph::Edge::Object(object) => object.inherit_tokens(&tokens),
 			tg::graph::Edge::Pointer(pointer) => {
 				if let Some(graph) = &pointer.graph {
-					graph.state().inherit_token(token);
+					graph.state().inherit_tokens(&tokens);
 				}
 			},
 		}

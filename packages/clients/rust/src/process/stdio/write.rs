@@ -18,8 +18,8 @@ pub struct Arg {
 	#[serde_as(as = "CommaSeparatedString")]
 	pub streams: Vec<Stream>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -152,8 +152,8 @@ impl<O> tg::Process<O> {
 			self.ensure_location_with_handle(handle).await?;
 			arg.location = self.location();
 		}
-		if arg.token.is_none() {
-			arg.token = self.token();
+		if arg.tokens.is_empty() {
+			arg.tokens = self.tokens();
 		}
 		let id = self.id().unwrap_right();
 		handle.write_process_stdio_all(id, arg, input).await

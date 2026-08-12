@@ -34,17 +34,17 @@ impl Session {
 		let location = output
 			.location
 			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
-		let token = output.referent.options.token;
+		let tokens = output.referent.options.tokens;
 		match location {
-			tg::Location::Local(_) => self.try_get_tag_local(&id, token).await,
-			tg::Location::Remote(remote) => self.try_get_tag_remote(&id, arg, remote, token).await,
+			tg::Location::Local(_) => self.try_get_tag_local(&id, tokens).await,
+			tg::Location::Remote(remote) => self.try_get_tag_remote(&id, arg, remote, tokens).await,
 		}
 	}
 
 	async fn try_get_tag_local(
 		&self,
 		id: &tg::tag::Id,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let mut connection = self
 			.server
@@ -71,7 +71,10 @@ impl Session {
 			.pop()
 			.unwrap() || self
 			.authorize(
-				tg::grant::Resource::Id(id.clone()),
+				tg::Referent::with_node_and_tokens(
+					tg::grant::Resource::Id(id.clone()),
+					tokens.clone(),
+				),
 				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
 			)
 			.await?
@@ -87,7 +90,7 @@ impl Session {
 		Ok(Some(tg::tag::get::Output {
 			data,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			token,
+			tokens,
 		}))
 	}
 
@@ -96,10 +99,11 @@ impl Session {
 		id: &tg::tag::Id,
 		mut arg: tg::tag::get::Arg,
 		remote: tg::location::Remote,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let cached = arg.cached;
 		let ttl = arg.ttl;
+		let location = tg::Location::Remote(remote.clone());
 		arg.cached = false;
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
@@ -117,18 +121,17 @@ impl Session {
 			.await?
 		{
 			let mut output = response.output;
-			if let Some(tag) = &mut output {
-				tag.token = tag.token.take().or_else(|| token.clone());
-			}
 			let valid = output.as_ref().is_none_or(|tag| {
-				crate::remote::cache::token_valid(tag.token.as_ref(), &self.server.clock)
+				crate::remote::cache::token_valid(tag.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
 				if let Some(tag) = &mut output {
-					if !crate::remote::cache::token_valid(tag.token.as_ref(), &self.server.clock) {
-						tag.token = None;
+					if !crate::remote::cache::token_valid(tag.tokens.local(), &self.server.clock) {
+						tag.tokens.remove_local();
 					}
-					tag.location = Some(tg::Location::Remote(remote));
+					self.update_tokens_for_location(&mut tag.tokens, &location)?;
+					tag.tokens.inherit(&tokens);
+					tag.location = Some(location);
 				}
 
 				return Ok(output);
@@ -145,9 +148,6 @@ impl Session {
 			.try_get_tag(&tag, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote.name, "failed to get the tag"))?;
-		if let Some(tag) = &mut output {
-			tag.token = tag.token.take().or(token);
-		}
 		let response =
 			crate::remote::cache::Response::TagGet(crate::remote::cache::TagGetResponse {
 				output: output.clone(),
@@ -155,7 +155,9 @@ impl Session {
 		self.put_cached_remote_response(&remote.name, &request, &response)
 			.await?;
 		if let Some(tag) = &mut output {
-			tag.location = Some(tg::Location::Remote(remote));
+			self.update_tokens_for_location(&mut tag.tokens, &location)?;
+			tag.tokens.inherit(&tokens);
+			tag.location = Some(location);
 		}
 
 		Ok(output)

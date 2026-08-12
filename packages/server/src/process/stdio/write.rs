@@ -42,7 +42,7 @@ impl Session {
 					&arg.streams,
 					input,
 					self.context.stopper.clone(),
-					arg.token.as_ref(),
+					arg.tokens.local(),
 				)
 				.await?
 			},
@@ -378,9 +378,9 @@ impl Session {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::stdio::write::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			streams: arg.streams.clone(),
-			token: arg.token.clone(),
+			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)
@@ -400,10 +400,14 @@ impl Session {
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.clone(),
+			region: region.clone(),
+		});
 		let arg = tg::process::stdio::write::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			streams: arg.streams.clone(),
-			token: arg.token.clone(),
+			tokens: arg.tokens.for_location(&location),
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)

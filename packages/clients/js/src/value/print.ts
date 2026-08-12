@@ -706,7 +706,7 @@ export class Printer {
 	}
 
 	private objectId(state: tg.Object.State): string {
-		let referent = tg.Referent.withNodeAndToken(state.id, state.token);
+		let referent = tg.Referent.withNodeAndTokens(state.id, state.tokens);
 		let string = tg.Referent.toDataString(referent, (id) => id);
 		return this.id(string);
 	}

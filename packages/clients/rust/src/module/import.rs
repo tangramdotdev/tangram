@@ -73,7 +73,7 @@ impl Import {
 			path: path.or(reference.options().path.clone()),
 			source: source.or(reference.options().source.clone()),
 			tag: tag.or(reference.options().tag.clone()),
-			token: reference.options().token.clone(),
+			tokens: reference.options().tokens.clone(),
 		};
 		let reference = tg::Reference::with_node_and_options(reference.node().clone(), options);
 

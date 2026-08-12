@@ -206,9 +206,17 @@ fn object(input: &mut Input) -> ModalResult<tg::Object> {
 }
 
 fn object_id_with_token(input: &mut Input) -> ModalResult<tg::Object> {
-	take_while(1.., |c: char| {
-		!c.is_whitespace() && !matches!(c, ',' | ']' | '}' | ')')
-	})
+	repeat::<_, _, (), _, _>(
+		1..,
+		alt((
+			delimited('[', take_while(0.., |c| c != ']'), ']').void(),
+			take_while(1.., |c: char| {
+				!c.is_whitespace() && !matches!(c, ',' | '[' | ']' | '}' | ')')
+			})
+			.void(),
+		)),
+	)
+	.take()
 	.verify_map(|string: &str| {
 		let referent = string.parse::<tg::Referent<tg::object::Id>>().ok()?;
 		let options = &referent.options;
@@ -1470,7 +1478,7 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 		name,
 		path,
 		tag,
-		token: None,
+		tokens: tg::grant::Tokens::default(),
 	})
 }
 
@@ -1774,7 +1782,7 @@ fn whitespace(input: &mut Input) -> ModalResult<()> {
 
 #[cfg(test)]
 mod tests {
-	use indoc::indoc;
+	use {indoc::indoc, std::collections::BTreeMap};
 
 	// The id parser parses a generated sandbox id and preserves its kind.
 	#[test]
@@ -1813,7 +1821,53 @@ mod tests {
 		let object = value.try_unwrap_object().unwrap();
 
 		assert_eq!(object.id(), id);
-		assert_eq!(object.state().token(), Some(token));
+		assert_eq!(object.state().tokens().local(), Some(&token));
+	}
+
+	// The value parser preserves multiple per-location tokens in nested values.
+	#[test]
+	fn parse_object_ids_with_tokens() {
+		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
+		let body = crate::grant::Body {
+			expires_at: i64::MAX,
+			permissions: vec![crate::grant::Permission::Object(
+				crate::grant::permission::object::Permission::Subtree,
+			)],
+			resource: crate::grant::Resource::Id(id.clone().into()),
+		};
+		let local_key =
+			crate::grant::PrivateKey::generate("local", crate::grant::Algorithm::Ed25519).unwrap();
+		let local_token = crate::grant::Token::sign(body.clone(), &local_key).unwrap();
+		let remote_key =
+			crate::grant::PrivateKey::generate("remote", crate::grant::Algorithm::Ed25519).unwrap();
+		let remote_token = crate::grant::Token::sign(body, &remote_key).unwrap();
+		let local = crate::Location::Local(crate::location::Local::default());
+		let remote = crate::Location::Remote(crate::location::Remote {
+			name: "production".into(),
+			region: Some("east".into()),
+		});
+		let tokens = crate::grant::Tokens(BTreeMap::from([
+			(local, local_token),
+			(remote, remote_token),
+		]));
+		let referent = crate::Referent::with_node_and_tokens(id, tokens);
+		let object = crate::Object::with_referent(referent);
+		let value = crate::Value::Map(BTreeMap::from([
+			(
+				"array".into(),
+				crate::Value::Array(vec![crate::Value::Object(object.clone())]),
+			),
+			("object".into(), crate::Value::Object(object)),
+		]));
+		let options = crate::value::print::Options {
+			tokens: true,
+			..Default::default()
+		};
+		let tgon = value.print(options);
+
+		let parsed = super::parse(&tgon).unwrap();
+
+		assert_eq!(parsed.to_data(), value.to_data());
 	}
 
 	// The value parser parses a large, realistic tgon document with nested mutations, templates, and placeholders.

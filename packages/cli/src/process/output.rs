@@ -24,7 +24,7 @@ impl Cli {
 			id.clone(),
 			tg::process::Options {
 				location: locations,
-				token: process.options.token,
+				tokens: process.options.tokens,
 				..Default::default()
 			},
 		);

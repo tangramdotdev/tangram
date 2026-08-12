@@ -23,7 +23,7 @@ export class Directory {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -34,7 +34,7 @@ export class Directory {
 	/** Get a directory with a referent. */
 	static withReferent(referent: tg.Referent<tg.Directory.Id>): tg.Directory {
 		let directory = tg.Directory.withId(referent.node);
-		directory.state.token = referent.options?.token ?? null;
+		directory.state.tokens = referent.options?.tokens ?? {};
 		return directory;
 	}
 
@@ -323,14 +323,14 @@ export class Directory {
 				for (let [name, edge] of Object.entries(node.entries)) {
 					if (typeof edge === "number") {
 						let artifact = await graph.get(edge);
-						tg.Object.inheritToken(artifact, this.#state.token);
+						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else if ("index" in edge) {
 						let artifact = await (edge.graph ?? graph).get(edge.index);
-						tg.Object.inheritToken(artifact, this.#state.token);
+						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else {
-						tg.Object.inheritToken(edge, this.#state.token);
+						tg.Object.inheritTokens(edge, this.#state.tokens);
 						yield [name, edge];
 					}
 				}
@@ -354,10 +354,10 @@ export class Directory {
 						"missing graph",
 					);
 					let artifact = await edge.graph.get(edge.index);
-					tg.Object.inheritToken(artifact, this.#state.token);
+					tg.Object.inheritTokens(artifact, this.#state.tokens);
 					yield [name, artifact];
 				} else {
-					tg.Object.inheritToken(edge, this.#state.token);
+					tg.Object.inheritTokens(edge, this.#state.tokens);
 					yield [name, edge];
 				}
 			}
@@ -408,7 +408,7 @@ export namespace Directory {
 		id?: tg.Directory.Id;
 		object?: tg.Directory.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {

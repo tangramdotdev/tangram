@@ -10,12 +10,12 @@ let organization = tg --token $alice.token organization create acme | from json
 assert ($organization.id | str starts-with "org_") "create should return an organization id"
 assert ($organization.name == "acme") "the organization name should match the specifier"
 assert ($organization.specifier == "acme") "the organization specifier should match the input"
-assert (($organization | get --optional token) != null) "create should return a token"
+assert (($organization | get --optional tokens.local) != null) "create should return a token"
 
 # The creator can get the organization.
 let got = tg --token $alice.token organization get acme | from json
 assert ($got.id == $organization.id) "the created organization should be retrievable"
-assert (($got | get --optional token) != null) "get should return a token"
+assert (($got | get --optional tokens.local) != null) "get should return a token"
 
 # The creator has admin, so it can list the organization's grants.
 tg --token $alice.token grants list --resource acme

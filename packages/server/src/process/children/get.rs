@@ -66,7 +66,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let token = arg.token.clone();
+		let token = arg.tokens.local().cloned();
 		let check_future = async move {
 			self.try_get_process_local(id, false, false, token.as_ref())
 				.await
@@ -313,8 +313,10 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::process::children::get::Arg {
 			location: Some(location.into()),
+			tokens,
 			..arg
 		};
 		let Some(stream) = client
@@ -370,12 +372,18 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::process::children::get::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			tokens,
 			..arg
 		};
 		let Some(stream) = client

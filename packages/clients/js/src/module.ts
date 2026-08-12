@@ -117,11 +117,12 @@ export namespace Module {
 		) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
-		if (
-			value.referent.options?.token !== undefined &&
-			value.referent.options.token !== null
-		) {
-			params.push(`token=${encodeURIComponent(value.referent.options.token)}`);
+		for (let [location, token] of Object.entries(
+			value.referent.options?.tokens ?? {},
+		)) {
+			params.push(
+				`tokens[${encodeURIComponent(location)}]=${encodeURIComponent(token)}`,
+			);
 		}
 		params.push(`kind=${encodeURIComponent(value.kind)}`);
 		string += "?";
@@ -176,16 +177,18 @@ export namespace Module {
 						options.tag = decodeURIComponent(value);
 						break;
 					}
-					case "token": {
-						options.token = decodeURIComponent(value);
-						break;
-					}
 					case "kind": {
 						kind = decodeURIComponent(value) as Kind;
 						break;
 					}
 					default: {
-						throw new Error("invalid key");
+						let match = key?.match(/^tokens\[(.*)\]$/);
+						if (match === null || match === undefined) {
+							throw new Error("invalid key");
+						}
+						options.tokens ??= {};
+						options.tokens[decodeURIComponent(match[1]!)] =
+							decodeURIComponent(value);
 					}
 				}
 			}

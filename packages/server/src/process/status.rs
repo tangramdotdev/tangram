@@ -32,7 +32,7 @@ impl Session {
 			let stopper = self.context.stopper.clone();
 			if local.current {
 				let check_future = async {
-					self.try_get_process_local(id, false, false, arg.token.as_ref())
+					self.try_get_process_local(id, false, false, arg.tokens.local())
 						.await
 						.map(|output| output.is_some())
 				}
@@ -65,12 +65,7 @@ impl Session {
 			}
 
 			if let Some(status) = self
-				.try_get_process_status_stream_regions(
-					id,
-					&local.regions,
-					arg.timeout,
-					arg.token.as_ref(),
-				)
+				.try_get_process_status_stream_regions(id, &local.regions, arg.timeout, &arg.tokens)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process status from another region"),
@@ -80,12 +75,7 @@ impl Session {
 		}
 
 		if let Some(status) = self
-			.try_get_process_status_stream_remotes(
-				id,
-				&locations.remotes,
-				arg.timeout,
-				arg.token.as_ref(),
-			)
+			.try_get_process_status_stream_remotes(id, &locations.remotes, arg.timeout, &arg.tokens)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to get the process status from a remote"),
@@ -255,11 +245,11 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		timeout: Option<Duration>,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_status_stream_region(id, region, timeout, token))
+			.map(|region| self.try_get_process_status_stream_region(id, region, timeout, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -285,7 +275,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		timeout: Option<Duration>,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -294,9 +284,9 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::process::status::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			timeout,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)
@@ -315,11 +305,11 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		timeout: Option<Duration>,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_status_stream_remote(id, remote, timeout, token))
+			.map(|remote| self.try_get_process_status_stream_remote(id, remote, timeout, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -345,7 +335,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
-		token: Option<&tg::grant::Token>,
+		tokens: &tg::grant::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -353,6 +343,10 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 		let arg = tg::process::status::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -360,7 +354,7 @@ impl Session {
 				}),
 			])),
 			timeout,
-			token: token.cloned(),
+			tokens: tokens.for_location(&location),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)

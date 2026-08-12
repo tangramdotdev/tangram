@@ -25,9 +25,9 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_node_and_token(
+			let process = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(process.node.into()),
-				process.options.token,
+				process.options.tokens,
 			);
 			let args = crate::process::touch::Args { locations, process };
 			self.command_process_touch(args).await?;
@@ -36,9 +36,9 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => Err(tg::error!("expected an object or process id")),
 			})?;
-			let object = tg::Reference::with_node_and_token(
+			let object = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(object.node.into()),
-				object.options.token,
+				object.options.tokens,
 			);
 			let args = crate::object::touch::Args { locations, object };
 			self.command_object_touch(args).await?;

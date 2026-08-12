@@ -9,7 +9,7 @@ pub async fn format_blob(client: &tg::Client, blob: &tg::Blob) -> tg::Result<Str
 	}
 	let arg = tg::read::Arg {
 		blob: blob.id(),
-		token: blob.state().token(),
+		tokens: blob.state().tokens(),
 		options: tg::read::Options {
 			length: Some(BLOB_LENGTH_LIMIT),
 			..tg::read::Options::default()

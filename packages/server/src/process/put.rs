@@ -22,7 +22,7 @@ impl Session {
 	) -> tg::Result<tg::process::put::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let output = match location {
+		let mut output = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.put_process_local(id, arg, false).await?
 			},
@@ -34,6 +34,7 @@ impl Session {
 				region,
 			}) => self.put_process_remote(id, arg, remote, region).await?,
 		};
+		self.update_tokens_for_location(&mut output.tokens, &location)?;
 
 		Ok(output)
 	}
@@ -219,16 +220,18 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 		let permission = self.process_permission_for_data(&token_data);
-		let token = self.create_token(
-			tg::grant::Resource::Id(id.clone().into()),
-			permission
-				.iter()
-				.map(tg::grant::Permission::Process)
-				.collect(),
-			grant_expires_at,
-		)?;
+		let tokens = tg::grant::Tokens::with_local(
+			self.create_token(
+				tg::grant::Resource::Id(id.clone().into()),
+				permission
+					.iter()
+					.map(tg::grant::Permission::Process)
+					.collect(),
+				grant_expires_at,
+			)?,
+		);
 
-		Ok(tg::process::put::Output { token })
+		Ok(tg::process::put::Output { tokens })
 	}
 
 	async fn put_process_region(

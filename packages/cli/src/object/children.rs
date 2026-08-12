@@ -23,7 +23,7 @@ impl Cli {
 			location: args.locations.get(),
 			metadata: false,
 			stored: false,
-			token: object.options.token,
+			tokens: object.options.tokens,
 		};
 		let output = client
 			.try_get_object(&id, arg)

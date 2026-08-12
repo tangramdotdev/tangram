@@ -80,14 +80,14 @@ impl Session {
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
 		let output = self
-			.try_get_process_local(id, false, false, arg.token.as_ref())
+			.try_get_process_local(id, false, false, arg.tokens.local())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
-		self.authorize_process_stdio_read(id, &source, arg.token.as_ref())
+		self.authorize_process_stdio_read(id, &source, arg.tokens.local())
 			.await?;
 		let stream = match source {
 			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
@@ -430,8 +430,10 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::process::stdio::read::Arg {
 			location: Some(location.into()),
+			tokens,
 			..arg
 		};
 		let stream = client
@@ -488,12 +490,18 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::process::stdio::read::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			tokens,
 			..arg
 		};
 		let stream = client

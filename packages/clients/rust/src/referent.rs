@@ -62,9 +62,9 @@ pub struct Options {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 impl<T> Referent<T> {
@@ -81,8 +81,13 @@ impl<T> Referent<T> {
 
 	#[must_use]
 	pub fn with_node_and_token(node: T, token: Option<tg::grant::Token>) -> Self {
+		Self::with_node_and_tokens(node, tg::grant::Tokens::with_local(token))
+	}
+
+	#[must_use]
+	pub fn with_node_and_tokens(node: T, tokens: tg::grant::Tokens) -> Self {
 		let options = Options {
-			token,
+			tokens,
 			..Default::default()
 		};
 		Self::new(node, options)
@@ -117,7 +122,11 @@ impl<T> Referent<T> {
 	}
 
 	pub fn token(&self) -> Option<&tg::grant::Token> {
-		self.options.token.as_ref()
+		self.options.tokens.local()
+	}
+
+	pub fn tokens(&self) -> &tg::grant::Tokens {
+		&self.options.tokens
 	}
 
 	pub fn replace<U>(self, node: U) -> (tg::Referent<U>, T) {
@@ -154,7 +163,7 @@ impl<T> Referent<T> {
 		T: Clone,
 	{
 		let mut referent = self.clone();
-		referent.options.token.take();
+		referent.options.tokens.clear();
 
 		referent
 	}
@@ -204,14 +213,12 @@ impl Options {
 			name: None,
 			path: Some(path.into()),
 			tag: None,
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		}
 	}
 
 	pub fn inherit(&mut self, parent: &Options) {
-		if self.token.is_none() {
-			self.token = parent.token.clone();
-		}
+		self.tokens.inherit(&parent.tokens);
 		if self.id.is_none() && self.tag.is_none() {
 			self.id = parent.id.clone();
 			self.tag = parent.tag.clone();
@@ -250,5 +257,47 @@ where
 		let uri = Uri::parse(value).map_err(|error| tg::error!(!error, "invalid uri"))?;
 		let reference = Self::with_uri(&uri)?;
 		Ok(reference)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use {crate::prelude::*, std::collections::BTreeMap};
+
+	#[test]
+	fn tokens_roundtrip() {
+		let id: tg::file::Id = "fil_010000000000000000000000000000000000000000000000000000"
+			.parse()
+			.unwrap();
+		let token = tg::grant::Token {
+			body: tg::grant::token::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::grant::Permission::Object(
+					tg::grant::permission::object::Permission::Subtree,
+				)],
+				resource: tg::grant::Resource::Id(id.clone().into()),
+			},
+			metadata: tg::grant::token::Metadata {
+				algorithm: tg::grant::token::Algorithm::Ed25519,
+				key: "default".into(),
+			},
+			signature: Vec::new(),
+		};
+		let remote = tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: None,
+		});
+		let tokens = tg::grant::Tokens(BTreeMap::from([
+			(
+				tg::Location::Local(tg::location::Local::default()),
+				token.clone(),
+			),
+			(remote, token),
+		]));
+		let referent = tg::Referent::with_node_and_tokens(id, tokens);
+		let string = referent.to_string();
+		let parsed = string.parse().unwrap();
+
+		assert_eq!(referent, parsed);
 	}
 }

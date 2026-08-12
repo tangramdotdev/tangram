@@ -9,7 +9,7 @@ use {
 
 pub const METADATA_HEADER: &str = "x-tg-object-metadata";
 pub const STORED_HEADER: &str = "x-tg-object-stored";
-pub const TOKEN_HEADER: &str = "x-tg-object-token";
+pub const TOKENS_HEADER: &str = "x-tg-object-tokens";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -25,8 +25,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub stored: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -34,7 +34,7 @@ pub struct Output {
 	pub bytes: Bytes,
 	pub metadata: Option<tg::object::Metadata>,
 	pub stored: Option<tg::object::Stored>,
-	pub token: Option<tg::grant::Token>,
+	pub tokens: tg::grant::Tokens,
 }
 
 impl tg::Session {
@@ -84,10 +84,11 @@ impl tg::Session {
 			.header_json(STORED_HEADER)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the stored header"))?;
-		let token = response
-			.header_json(TOKEN_HEADER)
+		let tokens = response
+			.header_json(TOKENS_HEADER)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the token header"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the tokens header"))?
+			.unwrap_or_default();
 		let bytes = response
 			.bytes()
 			.await
@@ -96,7 +97,7 @@ impl tg::Session {
 			bytes,
 			metadata,
 			stored,
-			token,
+			tokens,
 		};
 		Ok(Some(output))
 	}

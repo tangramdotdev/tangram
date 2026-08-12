@@ -18,7 +18,7 @@ impl Cli {
 		let id = process.node;
 		let arg = tg::process::touch::Arg {
 			location: args.locations.get(),
-			token: process.options.token,
+			tokens: process.options.tokens,
 		};
 		client
 			.touch_process(&id, arg)

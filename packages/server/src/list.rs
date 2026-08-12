@@ -137,8 +137,8 @@ impl Session {
 					.is_some_and(|permissions| permissions.contains(permission))
 			};
 			if authorized {
-				let token = self.create_read_token(&id)?;
-				entry.set_token(token);
+				let tokens = tg::grant::Tokens::with_local(self.create_read_token(&id)?);
+				entry.set_tokens(tokens);
 				output.push(entry);
 			}
 		}
@@ -182,7 +182,7 @@ impl Session {
 					name: row.name,
 					parent: row.parent,
 					specifier: row.specifier,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 				};
 				(id, entry)
 			})
@@ -224,7 +224,7 @@ impl Session {
 					location: Some(tg::Location::Local(tg::location::Local::default())),
 					name: row.name,
 					specifier: row.specifier,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 				};
 				(id, entry)
 			})
@@ -275,7 +275,7 @@ impl Session {
 				name: row.name,
 				parent: row.parent,
 				specifier: row.specifier,
-				token: None,
+				tokens: tg::grant::Tokens::default(),
 			};
 			entries.push((id, entry));
 		}
@@ -316,7 +316,7 @@ impl Session {
 					location: Some(tg::Location::Local(tg::location::Local::default())),
 					name: row.name,
 					specifier: row.specifier,
-					token: None,
+					tokens: tg::grant::Tokens::default(),
 				};
 				(id, entry)
 			})

@@ -124,9 +124,11 @@ impl Session {
 				.map(|child| child.node.clone())
 				.collect::<Vec<_>>();
 			for child in output.children {
-				state
-					.queue
-					.enqueue(node.eager, child.node, child.options.token)?;
+				state.queue.enqueue(
+					node.eager,
+					child.node,
+					child.options.tokens.local().cloned(),
+				)?;
 			}
 			state
 				.graph

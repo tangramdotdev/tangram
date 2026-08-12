@@ -21,7 +21,7 @@ export class Graph {
 			...(arg.id !== undefined ? { id: arg.id } : {}),
 			...(object !== undefined ? { object } : {}),
 			stored: arg.stored,
-			...(arg.token !== undefined ? { token: arg.token } : {}),
+			...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
 		});
 	}
 
@@ -32,7 +32,7 @@ export class Graph {
 	/** Get a graph with a referent. */
 	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
 		let graph = tg.Graph.withId(referent.node);
-		graph.state.token = referent.options?.token ?? null;
+		graph.state.tokens = referent.options?.tokens ?? {};
 		return graph;
 	}
 
@@ -339,7 +339,7 @@ export class Graph {
 			}
 		}
 
-		tg.Object.inheritToken(artifact, this.#state.token);
+		tg.Object.inheritTokens(artifact, this.#state.tokens);
 
 		return artifact;
 	}
@@ -351,7 +351,7 @@ export namespace Graph {
 		id?: tg.Graph.Id;
 		object?: tg.Graph.Object;
 		stored: boolean;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 	};
 
 	export class Builder {
@@ -1310,7 +1310,7 @@ export namespace Graph {
 				let output = { ...data };
 				if (output.options !== undefined) {
 					output.options = { ...output.options };
-					delete output.options.token;
+					delete output.options.tokens;
 				}
 				return output;
 			};

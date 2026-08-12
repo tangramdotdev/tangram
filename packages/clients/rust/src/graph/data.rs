@@ -375,7 +375,7 @@ impl Dependency {
 
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.0.options.token.take();
+		self.0.options.tokens.clear();
 
 		self
 	}

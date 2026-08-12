@@ -23,7 +23,7 @@ impl Cli {
 			tg::process::Options {
 				lease: Some(args.lease),
 				location: args.location.get(),
-				token: process.options.token,
+				tokens: process.options.tokens,
 				..Default::default()
 			},
 		);

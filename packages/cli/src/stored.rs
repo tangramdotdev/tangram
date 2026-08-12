@@ -30,9 +30,9 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_node_and_token(
+			let process = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(process.node.into()),
-				process.options.token,
+				process.options.tokens,
 			);
 			let args = crate::process::stored::Args {
 				locations,
@@ -48,9 +48,9 @@ impl Cli {
 						.map(|object| object.id())
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
-			let object = tg::Reference::with_node_and_token(
+			let object = tg::Reference::with_node_and_tokens(
 				tg::reference::Node::Id(object.node.into()),
-				object.options.token,
+				object.options.tokens,
 			);
 			let args = crate::object::stored::Args {
 				locations,

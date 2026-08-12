@@ -255,6 +255,9 @@ where
 	T: IntoResource,
 {
 	fn into_authorization_resource(self) -> (tg::grant::Resource, Option<tg::grant::Token>) {
-		(self.node.into_resource(), self.options.token)
+		(
+			self.node.into_resource(),
+			self.options.tokens.local().cloned(),
+		)
 	}
 }

@@ -59,7 +59,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(future) = self
-					.try_wait_process_local(id, arg.token.clone())
+					.try_wait_process_local(id, arg.tokens.local().cloned())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
@@ -69,7 +69,7 @@ impl Session {
 			}
 
 			if let Some((future, region)) = self
-				.try_wait_process_regions(id, arg.lease.clone(), arg.token.clone(), &local.regions)
+				.try_wait_process_regions(id, arg.lease.clone(), arg.tokens.clone(), &local.regions)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
@@ -89,7 +89,12 @@ impl Session {
 		}
 
 		let Some((future, remote)) = self
-			.try_wait_process_remotes(id, arg.lease.clone(), arg.token.clone(), &locations.remotes)
+			.try_wait_process_remotes(
+				id,
+				arg.lease.clone(),
+				arg.tokens.clone(),
+				&locations.remotes,
+			)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to wait for the process on the remote"),
@@ -115,6 +120,7 @@ impl Session {
 		token: Option<tg::grant::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let mut permissions = tg::grant::permission::process::Set::NODE;
+		permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
 		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
 		let permissions = tg::grant::permission::Set::Process(permissions);
 		let resource = tg::Referent::with_node_and_token(id.clone(), token);
@@ -172,7 +178,7 @@ impl Session {
 				error: process
 					.data
 					.error
-					.map(|error| error.map_right(|error| error.node)),
+					.map(|error| error.map_right(|error| error)),
 				exit,
 				output: process.data.output,
 			};
@@ -184,6 +190,14 @@ impl Session {
 			{
 				session.add_tokens_to_value_data(output)?;
 			}
+			let permission = tg::grant::Permission::Process(
+				tg::grant::permission::process::Permission::NodeError,
+			);
+			if permissions.contains(permission)
+				&& let Some(tg::Either::Right(error)) = &mut output.error
+			{
+				session.add_token_to_object_referent(error)?;
+			}
 			Ok(Some(output))
 		};
 
@@ -194,7 +208,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 		regions: &[String],
 	) -> tg::Result<
 		Option<(
@@ -204,7 +218,7 @@ impl Session {
 	> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_wait_process_region(id, lease.clone(), token.clone(), region))
+			.map(|region| self.try_wait_process_region(id, lease.clone(), tokens.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -229,7 +243,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 		region: &str,
 	) -> tg::Result<
 		Option<(
@@ -243,10 +257,11 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
+		let tokens = tokens.for_location(&location);
 		let arg = tg::process::wait::Arg {
 			lease,
-			location: Some(location.into()),
-			token,
+			location: Some(location.clone().into()),
+			tokens,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to wait for the process"),
@@ -254,14 +269,15 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		Ok(Some((future.boxed(), region.to_owned())))
+		let future = self.update_wait_process_tokens_for_location(future.boxed(), location);
+		Ok(Some((future, region.to_owned())))
 	}
 
 	async fn try_wait_process_remotes(
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
@@ -271,7 +287,7 @@ impl Session {
 	> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_wait_process_remote(id, lease.clone(), token.clone(), remote))
+			.map(|remote| self.try_wait_process_remote(id, lease.clone(), tokens.clone(), remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -296,7 +312,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		token: Option<tg::grant::Token>,
+		tokens: tg::grant::Tokens,
 		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(
@@ -310,6 +326,11 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		let tokens = tokens.for_location(&location);
 		let arg = tg::process::wait::Arg {
 			lease,
 			location: Some(tg::location::Arg(vec![
@@ -317,7 +338,7 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
-			token,
+			tokens,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to wait for the process"),
@@ -325,7 +346,38 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		Ok(Some((future.boxed(), remote.clone())))
+		let future = self.update_wait_process_tokens_for_location(future.boxed(), location);
+		Ok(Some((future, remote.clone())))
+	}
+
+	fn update_wait_process_tokens_for_location(
+		&self,
+		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+		location: tg::Location,
+	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
+		let session = self.clone();
+		async move {
+			let mut output = future.await?;
+			if let Some(output) = &mut output {
+				session.update_wait_output_tokens_for_location(output, &location)?;
+			}
+			Ok(output)
+		}
+		.boxed()
+	}
+
+	pub(super) fn update_wait_output_tokens_for_location(
+		&self,
+		output: &mut tg::process::wait::Output,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		if let Some(tg::Either::Right(error)) = &mut output.error {
+			self.update_tokens_for_location(&mut error.options.tokens, location)?;
+		}
+		if let Some(value) = &mut output.output {
+			self.update_value_data_tokens_for_location(value, location)?;
+		}
+		Ok(())
 	}
 
 	fn attach_wait_process_guard(

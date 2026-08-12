@@ -88,7 +88,7 @@ export namespace Spawn {
 		lease?: string | null;
 		location?: tg.Location | null;
 		process: number | tg.Process.Id;
-		token?: tg.Grant.Token | null;
+		tokens?: tg.Grant.Tokens | null;
 		wait?: tg.Process.Wait.Data | null;
 	};
 

@@ -38,7 +38,7 @@ impl Object {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let object = Self::with_id(referent.node);
-		object.state().set_token(referent.options.token);
+		object.state().set_tokens(referent.options.tokens);
 
 		object
 	}
@@ -82,8 +82,8 @@ impl Object {
 		}
 	}
 
-	pub(crate) fn inherit_token(&self, token: Option<tg::grant::Token>) {
-		self.state().inherit_token(token);
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
+		self.state().inherit_tokens(tokens);
 	}
 
 	#[must_use]
@@ -264,9 +264,9 @@ impl Object {
 	{
 		let object = self.load_with_arg_with_handle(handle, arg).await?;
 		let children = object.children();
-		let token = self.state().token();
+		let tokens = self.state().tokens();
 		for child in &children {
-			child.inherit_token(token.clone());
+			child.inherit_tokens(&tokens);
 		}
 
 		Ok(children)

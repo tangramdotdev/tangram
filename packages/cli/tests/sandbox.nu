@@ -19,7 +19,7 @@ if $nu.os-info.name == 'linux' {
 }
 assert (($sandbox.mounts | first) == "/tmp:/sandbox,ro")
 assert (($sandbox.network? | is-empty))
-assert (($sandbox | get --optional token) != null) "sandbox list should return a token"
+assert (($sandbox | get --optional tokens.local) != null) "sandbox list should return a token"
 
 tg sandbox destroy $create
 

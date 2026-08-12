@@ -153,7 +153,7 @@ impl Error {
 		});
 		self.location = self.location.map(Location::without_tokens);
 		self.source = self.source.map(|mut source| {
-			source.options.token.take();
+			source.options.tokens.clear();
 			source.node = match source.node {
 				tg::Either::Left(error) => tg::Either::Left(Box::new((*error).without_tokens())),
 				tg::Either::Right(id) => tg::Either::Right(id),

@@ -58,7 +58,7 @@ impl Session {
 					tg::object::Kind::File => {
 						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
 						let artifact = tg::Artifact::with_edge(edge);
-						artifact.state().set_token(referent.options.token.clone());
+						artifact.state().set_tokens(referent.options.tokens.clone());
 						let file = artifact
 							.clone()
 							.try_unwrap_file()
@@ -119,7 +119,7 @@ impl Session {
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
 			tag: reference_options.tag.clone(),
-			token: reference_options.token.clone(),
+			tokens: reference_options.tokens.clone(),
 		};
 		let referent = tg::Referent {
 			node: source,
@@ -135,7 +135,7 @@ impl Session {
 	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
 		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.node.clone())?;
 		let artifact = tg::Artifact::with_edge(edge);
-		artifact.state().set_token(referrer.options.token.clone());
+		artifact.state().set_tokens(referrer.options.tokens.clone());
 		let file =
 			artifact.clone().try_unwrap_file().ok().ok_or_else(
 				|| tg::error!(referrer = %referrer.node, "the referrer must be a file"),
@@ -201,7 +201,7 @@ impl Session {
 						name: dependency.0.name().map(ToOwned::to_owned),
 						path: Some(path),
 						tag: dependency.0.tag().cloned(),
-						token: dependency.0.token().cloned(),
+						tokens: dependency.0.tokens().clone(),
 					};
 					tg::Referent {
 						node: edge,
@@ -419,7 +419,7 @@ impl Session {
 				.into()
 			},
 		};
-		object.state().set_token(options.token.clone());
+		object.state().set_tokens(options.tokens.clone());
 		let edge = match &object {
 			tg::Object::Blob(blob) => tg::graph::data::Edge::Object(blob.id().into()),
 			tg::Object::Directory(directory) => {
@@ -476,7 +476,7 @@ impl Session {
 						name: options.name.clone(),
 						path: Some(path),
 						tag: options.tag.clone(),
-						token: options.token.clone(),
+						tokens: options.tokens.clone(),
 					};
 					tg::Referent {
 						node: tg::module::data::Source::Edge(edge),

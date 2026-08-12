@@ -102,8 +102,8 @@ pub struct Output {
 
 	pub process: tg::Either<u32, tg::process::Id>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wait: Option<tg::process::wait::Output>,
@@ -151,8 +151,8 @@ where
 				command_arg_.replace(command);
 			},
 			tg::Either::Right(command) => {
-				if options.token.is_none() {
-					options.token = command.state().token();
+				if options.tokens.is_empty() {
+					options.tokens = command.state().tokens();
 				}
 				command_.replace(command);
 			},
@@ -364,7 +364,7 @@ impl<O: 'static> tg::Process<O> {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
-				token: None,
+				tokens: tg::grant::Tokens::default(),
 				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
@@ -469,7 +469,7 @@ impl<O: 'static> tg::Process<O> {
 							.store_with_handle(&handle)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-						arg.command.options.token = command.state().token();
+						arg.command.options.tokens = command.state().tokens();
 					}
 				},
 			}
@@ -494,7 +494,7 @@ impl<O: 'static> tg::Process<O> {
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
-			let token = output.token.clone();
+			let tokens = output.tokens.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				let arg = super::stdio::StdioTaskArg {
 					handle,
@@ -504,7 +504,7 @@ impl<O: 'static> tg::Process<O> {
 					stderr,
 					stdin,
 					stdout,
-					token,
+					tokens,
 					tty: local_tty,
 				};
 				super::stdio::stdio_task(arg).await
@@ -544,7 +544,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task,
 			stdout,
 			task: None,
-			token: RwLock::new(output.token),
+			tokens: RwLock::new(output.tokens),
 			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -610,8 +610,7 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts =
-			checkout_artifacts(handle, &command, arg.command.options.token.as_ref()).await?;
+		let artifacts = checkout_artifacts(handle, &command, &arg.command.options.tokens).await?;
 		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
 		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
@@ -726,7 +725,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task: None,
 			stdout,
 			task: Some(task),
-			token: RwLock::new(None),
+			tokens: RwLock::new(tg::grant::Tokens::default()),
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -786,14 +785,16 @@ impl<O: 'static> tg::Process<O> {
 						tg::Either::Right(id) => tg::Error::with_id(id),
 					}
 				} else {
-					let id = String::from_utf8(bytes)
+					let string = String::from_utf8(bytes)
 						.map_err(|error| tg::error!(!error, "failed to decode the error xattr"))?;
-					let id = id
+					let referent = string
 						.parse()
 						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
-					tg::Error::with_id(id)
+					tg::Error::with_referent(referent)
 				};
-				output.error = Some(error.to_data_or_id());
+				output.error = Some(error.to_data_or_id().map_right(|id| {
+					tg::Referent::with_node_and_tokens(id, error.state().tokens())
+				}));
 			}
 		}
 
@@ -880,7 +881,7 @@ impl tg::Session {
 async fn checkout_artifacts<H>(
 	handle: &H,
 	command: &tg::command::Data,
-	token: Option<&tg::grant::Token>,
+	tokens: &tg::grant::Tokens,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
@@ -893,7 +894,7 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
-		let referent = tg::Referent::with_node_and_token(artifact.clone(), token.cloned());
+		let referent = tg::Referent::with_node_and_tokens(artifact.clone(), tokens.clone());
 		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {

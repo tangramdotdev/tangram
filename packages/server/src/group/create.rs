@@ -81,7 +81,9 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the group"),
 		)?;
 		self.invalidate_remote_cache(&remote.name).await;
-		output.group.location = Some(tg::Location::Remote(remote));
+		let location = tg::Location::Remote(remote);
+		self.update_tokens_for_location(&mut output.group.tokens, &location)?;
+		output.group.location = Some(location);
 
 		Ok(output)
 	}
@@ -100,7 +102,9 @@ impl Session {
 				let mut group = Self::try_get_group_with_transaction(transaction, &id)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the group"))?;
-				group.token = self.create_read_token(&id.clone().into())?;
+				if let Some(token) = self.create_read_token(&id.clone().into())? {
+					group.tokens.insert_local(token);
+				}
 
 				return Ok(group);
 			}
@@ -115,7 +119,9 @@ impl Session {
 		let mut group = self
 			.insert_group_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
 			.await?;
-		group.token = self.create_read_token(&group.id.clone().into())?;
+		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
+			group.tokens.insert_local(token);
+		}
 
 		Ok(group)
 	}
@@ -207,7 +213,7 @@ impl Session {
 			name,
 			parent: parent.cloned(),
 			specifier: specifier.clone(),
-			token: None,
+			tokens: tg::grant::Tokens::default(),
 		};
 
 		Ok(group)

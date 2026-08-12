@@ -4,6 +4,8 @@ use {
 		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
 	},
+	serde::Deserialize as _,
+	serde_with::serde_as,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
@@ -17,8 +19,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::grant::Token>,
+	#[serde(default, skip_serializing_if = "tg::grant::Tokens::is_empty")]
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -26,10 +28,12 @@ pub enum Event {
 	Output(Output),
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	#[serde_as(as = "Option<Error>")]
+	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
 	pub exit: u8,
 
@@ -47,6 +51,8 @@ pub struct Wait {
 	pub exit: u8,
 	pub output: Option<tg::Value>,
 }
+
+struct Error;
 
 impl tg::Session {
 	pub async fn try_wait_process_future(
@@ -121,12 +127,12 @@ impl tg::Session {
 }
 
 impl Wait {
-	pub(crate) fn inherit_token(&self, token: Option<&tg::grant::Token>) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::grant::Tokens) {
 		if let Some(error) = &self.error {
-			error.state().inherit_token(token.cloned());
+			error.state().inherit_tokens(tokens);
 		}
 		if let Some(output) = &self.output {
-			output.inherit_token(token);
+			output.inherit_tokens(tokens);
 		}
 	}
 
@@ -158,7 +164,7 @@ impl Wait {
 					let object = tg::error::Object::try_from_data(data)?;
 					Ok::<_, tg::Error>(tg::Error::with_object(object))
 				},
-				tg::Either::Right(id) => Ok(tg::Error::with_id(id)),
+				tg::Either::Right(error) => Ok(tg::Error::with_referent(error)),
 			})
 			.transpose()?;
 		Ok(Self {
@@ -171,7 +177,11 @@ impl Wait {
 	#[must_use]
 	pub fn to_data(&self) -> Output {
 		Output {
-			error: self.error.as_ref().map(tg::Error::to_data_or_id),
+			error: self.error.as_ref().map(|error| {
+				error
+					.to_data_or_id()
+					.map_right(|id| tg::Referent::with_node_and_tokens(id, error.state().tokens()))
+			}),
 			exit: self.exit,
 			output: self.output.as_ref().map(tg::Value::to_data),
 		}
@@ -222,5 +232,42 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 			},
 			value => Err(tg::error!(?value, "invalid event")),
 		}
+	}
+}
+
+impl serde_with::SerializeAs<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>> for Error {
+	fn serialize_as<S>(
+		source: &tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match source {
+			tg::Either::Left(data) => serde::Serialize::serialize(data, serializer),
+			tg::Either::Right(referent) => serializer.collect_str(referent),
+		}
+	}
+}
+
+impl<'de> serde_with::DeserializeAs<'de, tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>
+	for Error
+{
+	fn deserialize_as<D>(
+		deserializer: D,
+	) -> Result<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let value = tg::Either::<tg::error::Data, String>::deserialize(deserializer)?;
+		let value = match value {
+			tg::Either::Left(data) => tg::Either::Left(data),
+			tg::Either::Right(value) => {
+				let referent = value.parse().map_err(serde::de::Error::custom)?;
+				tg::Either::Right(referent)
+			},
+		};
+
+		Ok(value)
 	}
 }

@@ -63,15 +63,18 @@ impl Session {
 				crate::remote::cache::Response::Match(response) => response.output.data,
 				_ => unreachable!(),
 			};
-			let valid = entries
-				.iter()
-				.all(|entry| crate::remote::cache::token_valid(entry.token(), &self.server.clock));
+			let valid = entries.iter().all(|entry| {
+				crate::remote::cache::token_valid(entry.tokens().local(), &self.server.clock)
+			});
 			if valid || cached {
 				for entry in &mut entries {
-					if !crate::remote::cache::token_valid(entry.token(), &self.server.clock) {
-						entry.set_token(None);
+					if !crate::remote::cache::token_valid(
+						entry.tokens().local(),
+						&self.server.clock,
+					) {
+						entry.set_tokens(tg::grant::Tokens::default());
 					}
-					set_entry_location(entry, &remote.name);
+					self.set_remote_entry_location(entry, &remote.name)?;
 				}
 
 				return Ok(entries);
@@ -114,12 +117,49 @@ impl Session {
 		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
-				set_entry_location(&mut entry, &remote.name);
-				entry
+				self.set_remote_entry_location(&mut entry, &remote.name)?;
+				Ok(entry)
 			})
-			.collect();
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(entries)
+	}
+
+	fn set_remote_entry_location(
+		&self,
+		entry: &mut tg::list::Entry,
+		remote: &str,
+	) -> tg::Result<()> {
+		let region = match entry.location() {
+			Some(tg::Location::Local(local)) => local.region.clone(),
+			_ => None,
+		};
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.to_owned(),
+			region,
+		});
+		let mut tokens = entry.tokens().clone();
+		self.update_tokens_for_location(&mut tokens, &location)?;
+		entry.set_tokens(tokens);
+		match entry {
+			tg::list::Entry::Group {
+				location: entry_location,
+				..
+			}
+			| tg::list::Entry::Organization {
+				location: entry_location,
+				..
+			}
+			| tg::list::Entry::Tag {
+				location: entry_location,
+				..
+			}
+			| tg::list::Entry::User {
+				location: entry_location,
+				..
+			} => *entry_location = Some(location),
+		}
+		Ok(())
 	}
 
 	async fn list_remote_task(&self, key: Key) -> tg::Result<Vec<tg::list::Entry>> {
@@ -168,35 +208,5 @@ impl Query {
 		*ttl = tg::remote::cache::Ttl::default();
 
 		self
-	}
-}
-
-fn set_entry_location(entry: &mut tg::list::Entry, remote: &str) {
-	let location = entry.location().cloned();
-	let region = match location {
-		Some(tg::Location::Local(local)) => local.region,
-		_ => None,
-	};
-	let location = Some(tg::Location::Remote(tg::location::Remote {
-		name: remote.to_owned(),
-		region,
-	}));
-	match entry {
-		tg::list::Entry::Group {
-			location: entry_location,
-			..
-		}
-		| tg::list::Entry::Organization {
-			location: entry_location,
-			..
-		}
-		| tg::list::Entry::Tag {
-			location: entry_location,
-			..
-		}
-		| tg::list::Entry::User {
-			location: entry_location,
-			..
-		} => *entry_location = location,
 	}
 }

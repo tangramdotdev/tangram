@@ -219,7 +219,7 @@ async fn get_node(
 				let id: tg::process::Id = id.try_into()?;
 				let arg = tg::process::get::Arg {
 					location: location.clone(),
-					token: options.token.clone(),
+					tokens: options.tokens.clone(),
 					..tg::process::get::Arg::default()
 				};
 				let output = client
@@ -231,7 +231,7 @@ async fn get_node(
 					id,
 					tg::process::Options {
 						location,
-						token: options.token.clone(),
+						tokens: options.tokens.clone(),
 						..tg::process::Options::default()
 					},
 				);
@@ -248,13 +248,14 @@ async fn get_node(
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
 				let location = output.location.clone().map(Into::into);
-				let token = options.token.clone().or_else(|| output.token.clone());
+				let mut tokens = options.tokens.clone();
+				tokens.inherit(&output.tokens);
 				let sandbox = tg::Sandbox::new(
 					id,
 					tg::sandbox::Options {
 						location,
 						state: Some(output),
-						token,
+						tokens,
 					},
 				);
 				crate::viewer::Item::Sandbox(sandbox)

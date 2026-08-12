@@ -97,7 +97,7 @@ impl Cli {
 				location,
 				metadata: false,
 				stored: false,
-				token: None,
+				tokens: tg::grant::Tokens::default(),
 			};
 			self.print_value(&output, print, arg).await?;
 		}
@@ -161,7 +161,7 @@ impl Cli {
 						.location()
 						.and_then(|location| location.to_location()),
 					process: process.node().id().cloned(),
-					token: process.node().token(),
+					tokens: process.node().tokens(),
 					wait: process.node().wait_output(),
 				};
 				let value = serde_json::to_value(output)
@@ -277,11 +277,7 @@ impl Cli {
 
 		// If verbose, return the wait output.
 		if options.verbose {
-			let output = tg::process::wait::Output {
-				error: wait.error.as_ref().map(tg::Error::to_data_or_id),
-				exit: wait.exit,
-				output: wait.output.as_ref().map(tg::Value::to_data),
-			};
+			let output = wait.to_data();
 			let value = serde_json::to_value(&output)
 				.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
 				.into();
@@ -295,6 +291,7 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
+			let tokens = error.state().tokens();
 			let error = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -306,9 +303,11 @@ impl Cli {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
+			let mut source = process.clone().map(|_| error);
+			source.options.tokens = tokens;
 			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| error)),
+				source: Some(source),
 				values: [("id".to_owned(), process.node().id().to_string())].into(),
 				..Default::default()
 			});
@@ -343,7 +342,7 @@ impl Cli {
 				None
 			};
 			let artifact =
-				tg::Referent::with_node_and_token(artifact.id(), artifact.state().token());
+				tg::Referent::with_node_and_tokens(artifact.id(), artifact.state().tokens());
 			let arg = tg::checkout::Arg {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),

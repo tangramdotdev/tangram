@@ -21,7 +21,7 @@ impl Cli {
 		let id = process.node;
 		let arg = tg::process::metadata::Arg {
 			location: args.locations.get(),
-			token: process.options.token,
+			tokens: process.options.tokens,
 		};
 		let output = client
 			.try_get_process_metadata(&id, arg)

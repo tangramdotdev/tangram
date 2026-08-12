@@ -19,7 +19,7 @@ pub struct Tag {
 	pub parent: Option<tg::Id>,
 	pub permissions: Vec<tg::grant::Permission>,
 	pub specifier: tg::Specifier,
-	pub token: Option<tg::grant::Token>,
+	pub tokens: tg::grant::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -54,7 +54,7 @@ impl From<tg::tag::get::Output> for Tag {
 		let tg::tag::get::Output {
 			data,
 			location,
-			token,
+			tokens,
 		} = value;
 		let tg::tag::Data {
 			id,
@@ -83,7 +83,7 @@ impl From<tg::tag::get::Output> for Tag {
 			parent,
 			permissions,
 			specifier,
-			token,
+			tokens,
 		}
 	}
 }

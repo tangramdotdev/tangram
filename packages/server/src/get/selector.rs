@@ -139,16 +139,21 @@ impl Session {
 						output.referent.token(),
 						&self.server.clock,
 					) {
-						output.referent.options.token = None;
+						output.referent.options.tokens.remove_local();
 					}
 					let region = match output.location.as_ref() {
 						Some(tg::Location::Local(local)) => local.region.clone(),
 						_ => None,
 					};
-					output.location = Some(tg::Location::Remote(tg::location::Remote {
+					let location = tg::Location::Remote(tg::location::Remote {
 						name: remote.name.clone(),
 						region,
-					}));
+					});
+					self.update_tokens_for_location(
+						&mut output.referent.options.tokens,
+						&location,
+					)?;
+					output.location = Some(location);
 				}
 				if let Some(output) = &output
 					&& !matches!(output.referent.node, tg::get::Node::Id(_))
@@ -189,10 +194,12 @@ impl Session {
 				Some(tg::Location::Local(local)) => local.region.clone(),
 				_ => None,
 			};
-			output.location = Some(tg::Location::Remote(tg::location::Remote {
+			let location = tg::Location::Remote(tg::location::Remote {
 				name: remote.name.clone(),
 				region,
-			}));
+			});
+			self.update_tokens_for_location(&mut output.referent.options.tokens, &location)?;
+			output.location = Some(location);
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))

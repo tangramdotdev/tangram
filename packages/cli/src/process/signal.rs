@@ -23,7 +23,7 @@ impl Cli {
 			id,
 			tg::process::Options {
 				location: args.location.get(),
-				token: process.options.token,
+				tokens: process.options.tokens,
 				..Default::default()
 			},
 		);

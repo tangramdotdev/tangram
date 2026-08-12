@@ -82,17 +82,19 @@ impl Session {
 
 		// Enqueue the nodes.
 		for node in &state.arg.get {
-			let token = node.options.token.clone();
+			let tokens = node.options.tokens.clone();
 			match &node.node {
 				tg::Selector::Id(id) => {
-					state.queue.enqueue(state.arg.eager, id.clone(), token)?;
+					state
+						.queue
+						.enqueue(state.arg.eager, id.clone(), tokens.local().cloned())?;
 				},
 				tg::Selector::Specifier(specifier) => {
 					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
 						eager: state.arg.eager,
 						selector: tg::Selector::Specifier(specifier.clone()),
-						token,
+						token: tokens.local().cloned(),
 					});
 					state
 						.sender
