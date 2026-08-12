@@ -582,9 +582,8 @@ impl Session {
 		let mut nodes = BTreeMap::<tg::Id, usize>::new();
 		for roots in roots.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
 			let p = transaction.p();
-			let cast = if p == "$" { "::text" } else { "" };
 			let values = (1..=roots.len())
-				.map(|index| format!("({p}{index}{cast})"))
+				.map(|index| format!("(cast({p}{index} as text))"))
 				.collect::<Vec<_>>()
 				.join(", ");
 			let recursion = if p == "$" {
