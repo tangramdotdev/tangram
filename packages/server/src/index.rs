@@ -9,6 +9,8 @@ use {
 	tangram_object_store::Store as _,
 };
 
+const INDEX_BATCH_PAYLOAD_MAX_SIZE: usize = 1_000_000;
+
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
@@ -713,17 +715,28 @@ impl Server {
 		}
 		if !self.config.advanced.single_process {
 			let config = &self.config.object.outbox;
-			for items in arg.items.chunks(config.batch_size) {
-				let arg = index::batch::Arg {
-					items: items.to_vec(),
+			let mut start = 0;
+			let mut chunk_size = config.batch_size;
+			while start < arg.items.len() {
+				let end = (start + chunk_size).min(arg.items.len());
+				let chunk = index::batch::Arg {
+					items: arg.items[start..end].to_vec(),
 				};
+				let payload = chunk.serialize()?;
+				if payload.len() > INDEX_BATCH_PAYLOAD_MAX_SIZE && chunk_size > 1 {
+					chunk_size /= 2;
+					continue;
+				}
 				let partition = rand::random_range(0..config.partition_total);
-				let payload = arg.serialize()?.into();
-				let arg = crate::object::outbox::EnqueueArg { partition, payload };
+				let arg = crate::object::outbox::EnqueueArg {
+					partition,
+					payload: payload.into(),
+				};
 				self.object_store
 					.enqueue_outbox(arg)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
+				start = end;
 			}
 
 			return Ok(());
