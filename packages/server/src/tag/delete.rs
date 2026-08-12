@@ -27,42 +27,7 @@ impl Session {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let session = self.clone();
-		let output = self
-			.server
-			.database
-			.run(|transaction| {
-				let arg = arg.clone();
-				let session = session.clone();
-				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let deleted = session
-						.delete_tags_with_transaction(transaction, &arg, &mut batch)
-						.await?;
-					batch.items.extend(
-						deleted
-							.iter()
-							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
-					);
-					let output = tg::tag::delete::Output { deleted };
-					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
-				}
-				.boxed()
-			})
-			.await?;
-		Ok(output)
-	}
-
-	async fn delete_tags_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		arg: &tg::tag::delete::Arg,
-		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Vec<tg::tag::Data>> {
+		// Validate the pattern.
 		if arg.pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
 		}
@@ -71,9 +36,24 @@ impl Session {
 				"cannot delete multiple tags without --recursive"
 			));
 		}
-		let tags = self
-			.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
-			.await?;
+
+		// List the tags. This must happen before the write transaction begins, because listing acquires its own database connection and would otherwise wait forever for a connection the write transaction holds.
+		let tags = {
+			let mut connection = self
+				.server
+				.database
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			self.list_tags_to_delete_with_transaction(&transaction, &arg.pattern, arg.recursive)
+				.await?
+		};
+
+		// Authorize the tags. This must also happen before the write transaction begins, because indexing acquires its own database connection.
 		for tag in &tags {
 			let authorized = self
 				.authorize(
@@ -91,8 +71,46 @@ impl Session {
 				return Err(tg::error!("unauthorized"));
 			}
 		}
+
+		// Delete the tags.
+		let session = self.clone();
+		let output = self
+			.server
+			.database
+			.run(|transaction| {
+				let session = session.clone();
+				let tags = tags.clone();
+				async move {
+					let mut batch = tangram_index::batch::Arg::default();
+					session
+						.delete_tags_with_transaction(transaction, &tags, &mut batch)
+						.await?;
+					batch.items.extend(
+						tags.iter()
+							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
+					);
+					let output = tg::tag::delete::Output { deleted: tags };
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(output)
+	}
+
+	async fn delete_tags_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		tags: &[tg::tag::Data],
+		batch: &mut tangram_index::batch::Arg,
+	) -> tg::Result<()> {
 		let p = transaction.p();
-		for tag in &tags {
+		for tag in tags {
 			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)
 				.await?;
 			for statement in [
@@ -105,7 +123,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			}
 		}
-		Ok(tags)
+		Ok(())
 	}
 
 	async fn list_tags_to_delete_with_transaction(
