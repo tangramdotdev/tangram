@@ -7,8 +7,8 @@ let server = spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 let organization = tg --token $alice.token organization create tangram | from json
 
 let alice_runner = tg --token $alice.token runner create --owner $alice.user.id | from json

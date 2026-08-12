@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 # Providing two owner selectors at once is a usage error.
 failure (tg --token $alice.token sandbox create --owner team --group team --no-network | complete) "--owner and --group must conflict"

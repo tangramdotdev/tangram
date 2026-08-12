@@ -193,8 +193,8 @@ read or a privilege escalation is denied, the denied actor is `eve`, and the
 intent comment frames the operation as one that must be rejected:
 
 ```nushell
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # A user without read permission cannot get another user's record.
 let output = tg --token $eve.token user get $alice.user.id | complete

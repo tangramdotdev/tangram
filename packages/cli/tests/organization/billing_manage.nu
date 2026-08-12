@@ -9,8 +9,8 @@ let server = spawn --config {
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: 'whsec_mock' } },
 }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 let organization = tg --token $alice.token organization create acme | from json
 
 let unauthorized = with-env { BROWSER: 'false' } {

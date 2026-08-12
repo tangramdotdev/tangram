@@ -10,7 +10,7 @@ let server = spawn --config {
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $webhook_secret } },
 }
 
-let alice = tg login --email alice@example.com --verbose alice | from json
+let alice = tg login --email alice@example.com --verbose --name alice | from json
 
 let unconfigured = tg --token $alice.token sandbox create --no-network | complete
 failure $unconfigured "a user without a Stripe customer should not create a sandbox"

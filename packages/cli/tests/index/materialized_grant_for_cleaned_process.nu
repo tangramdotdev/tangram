@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 let child = "pcs_00081061050r3gg28a1c60t3gf20"
 let parent = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"

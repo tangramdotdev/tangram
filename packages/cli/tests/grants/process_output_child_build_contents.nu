@@ -3,7 +3,7 @@ use ../../test.nu *
 # A process can return a file whose contents are a child build's output blob, and the builder can read the contents.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let path = artifact {
 	tangram.ts: '

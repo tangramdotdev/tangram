@@ -3,8 +3,8 @@ use ../../test.nu *
 # Tagging an object the tagger cannot read records no permissions, so the tag must not confer read access to that object.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private file.
 let alice_path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }

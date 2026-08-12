@@ -3,8 +3,8 @@ use ../../test.nu *
 # A principal who cannot read a private file must not be able to checksum it, since checksumming reads its bytes.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice stores a private file; Eve cannot read it.
 let secret = tg --token $alice.token put 'tg.file("checksumsecret")' | str trim

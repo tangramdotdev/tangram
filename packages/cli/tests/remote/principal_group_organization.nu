@@ -6,9 +6,9 @@ let team_remote = spawn --name team-remote
 let org_remote = spawn --name org-remote
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+let eve = tg login --verbose --name eve | from json
 
 tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id write team

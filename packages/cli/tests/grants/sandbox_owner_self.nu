@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let sandbox = tg --token $alice.token sandbox create --owner $alice.user.id --no-network | str trim
 let data = tg --token $alice.token sandbox get $sandbox | from json

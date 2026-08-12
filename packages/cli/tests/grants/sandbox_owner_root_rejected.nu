@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 # Alice cannot act as root, so she must not claim root as a sandbox owner.
 let create = tg --token $alice.token sandbox create --owner root --no-network | complete

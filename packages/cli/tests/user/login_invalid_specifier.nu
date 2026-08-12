@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let output = tg login "alice/bob" | complete
+let output = tg login --name "alice/bob" | complete
 failure $output "a multi-component user specifier should be rejected"
 snapshot --normalize $output.stderr '
 	error an error occurred

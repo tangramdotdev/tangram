@@ -4,6 +4,6 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: true } }
 
-let output = tg login alice | complete
+let output = tg login --name alice | complete
 failure $output "login should fail without a configured authentication provider"
 assert ($output.stderr | str contains "no authentication providers are configured") "the error should explain that no authentication providers are configured"

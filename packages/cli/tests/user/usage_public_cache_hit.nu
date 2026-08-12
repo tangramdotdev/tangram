@@ -6,8 +6,8 @@ let server = spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 let path = artifact { tangram.ts: 'export default function () { return tg.file("hello"); }' }
 
 # Alice creates a public cache entry.

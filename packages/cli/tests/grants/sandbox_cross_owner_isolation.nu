@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 let alice_sandbox = tg --token $alice.token sandbox create --no-network | str trim
 let eve_sandbox = tg --token $eve.token sandbox create --no-network | str trim

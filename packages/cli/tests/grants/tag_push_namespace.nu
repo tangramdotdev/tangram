@@ -3,8 +3,8 @@ use ../../test.nu *
 # Pushing a tag under a user requires write permission on that user.
 
 let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg --url $remote.url login --verbose alice | from json
-let bob = tg --url $remote.url login --verbose bob | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let bob = tg --url $remote.url login --verbose --name bob | from json
 
 let alice_local = spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },

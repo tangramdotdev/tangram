@@ -4,10 +4,10 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 tg --token $alice.token group create shared
 
-let output = tg login shared | complete
+let output = tg login --name shared | complete
 failure $output "logging in with a specifier claimed by a group should be rejected"
 snapshot --normalize $output.stderr '
 	error an error occurred

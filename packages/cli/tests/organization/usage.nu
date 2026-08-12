@@ -6,7 +6,7 @@ let server = spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 let organization = tg organization create acme | from json
 
 let by_id = tg organization usage $organization.id | from json

@@ -8,7 +8,7 @@ let remote = spawn --cloud --name remote --config {
 	roles: [cleaner http indexer runner scheduler],
 }
 
-let alice = tg --url $remote.url login --verbose alice | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
 
 # Alice builds a process on the remote whose stdout holds a secret. With log compaction disabled the log stays live (data.log is null).
 let path = artifact { tangram.ts: 'export default function () { console.log("alicesecret"); }' }

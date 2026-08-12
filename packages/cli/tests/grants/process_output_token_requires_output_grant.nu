@@ -3,8 +3,8 @@ use ../../test.nu *
 # A process's output entitlement token is minted only for a principal with the output permission; a process_node grant reveals the output object id but withholds the token that grants access to its content.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice builds a process whose output is a file.
 let path = artifact { tangram.ts: 'export default async function () { return tg.file("secret"); }' }

@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-tg login alice --email shared@example.com
+tg login --name alice --email shared@example.com
 
-let output = tg login bob --email shared@example.com | complete
+let output = tg login --name bob --email shared@example.com | complete
 failure $output "a second user should not be able to claim an email already in use"

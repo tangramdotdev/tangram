@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let dir = mktemp -d
 let server = spawn --directory $dir --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice stores a private artifact; Eve cannot read it.
 let secret = tg --token $alice.token put 'tg.file("topsecret-checkin")' | str trim

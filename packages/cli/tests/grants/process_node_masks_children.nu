@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private process that builds a child process.
 let path = artifact { tangram.ts: 'export default function () { return tg.build(child); } export function child() { return 42; }' }

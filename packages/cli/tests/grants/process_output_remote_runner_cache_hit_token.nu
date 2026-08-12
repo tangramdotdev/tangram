@@ -23,7 +23,7 @@ let runner_config = {
 }
 
 # Alice is an ordinary authenticated user driving her own server.
-let alice = tg --url $remote.url login --verbose alice | from json
+let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }

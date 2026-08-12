@@ -3,8 +3,8 @@ use ../../test.nu *
 # Granting process_node to a principal should not allow that prinicipal to singal the process.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Alice runs a long-running, non-cacheable process (signalling rejects cacheable processes).
 let path = artifact { tangram.ts: 'export default async function () { await tg.sleep(30); return "done"; }' }

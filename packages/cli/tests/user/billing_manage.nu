@@ -9,7 +9,7 @@ let server = spawn --config {
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: 'whsec_mock' } },
 }
 
-let alice = tg login --email alice@example.com --verbose alice | from json
+let alice = tg login --email alice@example.com --verbose --name alice | from json
 
 let first = with-env { BROWSER: 'false', TANGRAM_QUIET: false } {
 	tg --token $alice.token user billing manage | complete

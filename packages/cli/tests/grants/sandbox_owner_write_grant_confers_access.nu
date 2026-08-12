@@ -4,10 +4,10 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
-let carol = tg login --verbose carol | from json
-let dave = tg login --verbose dave | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+let carol = tg login --verbose --name carol | from json
+let dave = tg login --verbose --name dave | from json
 
 tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id write team

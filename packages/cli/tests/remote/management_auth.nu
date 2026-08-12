@@ -24,8 +24,8 @@ snapshot --normalize $output.stderr '
 
 '
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 
 let alice_remotes = tg --token $alice.token remote list | from json
 assert equal $alice_remotes []

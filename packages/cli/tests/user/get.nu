@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let by_id = tg --token $alice.token user get $alice.user.id | from json
 assert ($by_id.id == $alice.user.id) "getting a user by id should return that user"

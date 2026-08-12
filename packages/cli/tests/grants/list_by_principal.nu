@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let eve = tg login --verbose eve | from json
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 # Eve can list her own grants through inherent self-admin.
 let own = tg --token $eve.token grants list --principal $eve.user.id | from json

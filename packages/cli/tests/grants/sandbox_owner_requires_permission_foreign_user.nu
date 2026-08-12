@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 
 # Alice has no write on Bob, so she must not be able to assign Bob as the owner of a new sandbox.
 let create = tg --token $alice.token sandbox create --owner $bob.user.id --no-network | complete
