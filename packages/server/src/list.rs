@@ -41,21 +41,27 @@ impl Session {
 	}
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut entries = Vec::new();
-		entries.extend(Self::list_local_groups(&transaction).await?);
-		entries.extend(Self::list_local_organizations(&transaction).await?);
-		entries.extend(Self::list_local_tags(&transaction).await?);
-		entries.extend(Self::list_local_users(&transaction).await?);
+		// List the entries.
+		let entries = {
+			let mut connection = self
+				.server
+				.database
+				.connection()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			let mut entries = Vec::new();
+			entries.extend(Self::list_local_groups(&transaction).await?);
+			entries.extend(Self::list_local_organizations(&transaction).await?);
+			entries.extend(Self::list_local_tags(&transaction).await?);
+			entries.extend(Self::list_local_users(&transaction).await?);
+			entries
+		};
+
+		// Filter the visible entries.
 		let entries = self.filter_visible_entries(entries).await?;
 
 		Ok(entries)
