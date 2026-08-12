@@ -225,7 +225,7 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.clock.unix_timestamp()?;
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::HeartbeatExpiration),
 			message: Some("heartbeat expired".to_owned()),
@@ -308,10 +308,16 @@ impl Server {
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
 		data.status = tg::sandbox::Status::Destroyed;
+		let account = if self.config.usage.enabled {
+			indexed.account
+		} else {
+			None
+		};
 		self.index
 			.batch(tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutSandbox(
 					tangram_index::sandbox::put::Arg {
+						account,
 						created_at: indexed.created_at,
 						data: indexed.data,
 						id: id.clone(),

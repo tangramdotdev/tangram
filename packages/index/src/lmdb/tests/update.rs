@@ -33,9 +33,10 @@ async fn separates_update_queues() {
 		&index.subspace,
 		&mut transaction,
 		id,
-		super::super::update::Kind::Storage(super::super::update::StorageKind::Add(
-			crate::usage::Account::User(user),
-		)),
+		super::super::update::Kind::Storage(super::super::update::StorageKind::Add {
+			account: crate::usage::Account::User(user),
+			touched_at: 0,
+		}),
 		super::super::update::Source::Put,
 		None,
 	)
@@ -57,7 +58,7 @@ async fn separates_update_queues() {
 	}
 
 	let output = index
-		.update_batch(crate::update::Kind::Node, 100, 0, 1)
+		.update_batch(crate::update::Kind::Node, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);
@@ -84,7 +85,7 @@ async fn separates_update_queues() {
 	);
 
 	let output = index
-		.update_batch(crate::update::Kind::Grant, 100, 0, 1)
+		.update_batch(crate::update::Kind::Grant, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);
@@ -104,7 +105,7 @@ async fn separates_update_queues() {
 	);
 
 	let output = index
-		.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+		.update_batch(crate::update::Kind::Storage, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);

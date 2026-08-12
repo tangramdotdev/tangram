@@ -71,6 +71,23 @@ fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	(dir, index)
 }
 
+fn now() -> i64 {
+	i64::try_from(
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_secs(),
+	)
+	.unwrap()
+}
+
+async fn get_usage(index: &Index, account: &crate::usage::Account) -> crate::usage::Aggregate {
+	let now = jiff::Timestamp::new(now(), 0).unwrap();
+	let period = crate::usage::Period::containing(crate::usage::PeriodKind::Hour, now);
+
+	index.get_usage(account, period, now).await.unwrap()
+}
+
 #[tokio::test]
 async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	let (_dir, index) = new_index(4);
@@ -85,7 +102,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 			crate::batch::Item::PutObject(object_arg(b.clone(), [d.clone()], 3)),
 			crate::batch::Item::PutObject(object_arg(c.clone(), [d], 2)),
 			crate::batch::Item::PutObject(object_arg(a.clone(), [b, c], 1)),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account: account.clone(),
 				object: a,
 				touched_at: 1,
@@ -95,14 +112,14 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 4);
 	assert_eq!(usage.object_size, 10);
 	assert_eq!(usage.process_count, 0);
@@ -114,7 +131,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 				max_object_touched_at: i64::MAX,
 				max_process_touched_at: i64::MAX,
 				max_sandbox_touched_at: 1,
-				now: 2,
+				now: now(),
 				partition_end: 1,
 				partition_start: 0,
 			})
@@ -124,8 +141,8 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::usage::Usage::default());
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage, crate::usage::Aggregate::default());
 }
 
 #[tokio::test]
@@ -140,7 +157,7 @@ async fn account_storage_traverses_process_relationships() {
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
 			crate::batch::Item::PutProcess(process_arg(child.clone(), Vec::new(), command.clone())),
 			crate::batch::Item::PutProcess(process_arg(root.clone(), vec![child], command)),
-			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+			crate::batch::Item::PutAccountProcess(crate::usage::storage::put::ProcessArg {
 				account: account.clone(),
 				process: root,
 				touched_at: 1,
@@ -150,14 +167,14 @@ async fn account_storage_traverses_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 2);
@@ -189,7 +206,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 7)),
 			crate::batch::Item::PutProcess(partial_root),
-			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+			crate::batch::Item::PutAccountProcess(crate::usage::storage::put::ProcessArg {
 				account: account.clone(),
 				process: root.clone(),
 				touched_at: 1,
@@ -199,7 +216,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -220,14 +237,14 @@ async fn account_storage_traverses_new_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 2);
@@ -242,7 +259,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(parent.clone(), [child.clone()], 3)),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account: account.clone(),
 				object: parent,
 				touched_at: 1,
@@ -252,14 +269,14 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 3);
 
@@ -271,14 +288,14 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 8);
 }
@@ -312,7 +329,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Right(process.clone()),
 			}),
-			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+			crate::batch::Item::PutAccountProcess(crate::usage::storage::put::ProcessArg {
 				account: account.clone(),
 				process,
 				touched_at: 1,
@@ -322,7 +339,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -337,7 +354,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 				max_object_touched_at: i64::MAX,
 				max_process_touched_at: i64::MAX,
 				max_sandbox_touched_at: 1,
-				now: 2,
+				now: now(),
 				partition_end: 1,
 				partition_start: 0,
 			})
@@ -347,7 +364,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 7);
 	assert_eq!(usage.process_count, 1);
@@ -360,14 +377,14 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 2);
 	assert_eq!(usage.object_size, 12);
 	assert_eq!(usage.process_count, 1);
@@ -388,7 +405,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 				vec![child.clone()],
 				command.clone(),
 			)),
-			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+			crate::batch::Item::PutAccountProcess(crate::usage::storage::put::ProcessArg {
 				account: account.clone(),
 				process: parent,
 				touched_at: 1,
@@ -398,14 +415,14 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.process_count, 1);
 
@@ -421,14 +438,14 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 1)
+			.update_batch(crate::update::Kind::Storage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.process_count, 2);
 }
@@ -457,7 +474,7 @@ async fn account_storage_is_retained_by_a_tag() {
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
 			}),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account: account.clone(),
 				object,
 				touched_at: 1,
@@ -471,14 +488,14 @@ async fn account_storage_is_retained_by_a_tag() {
 			max_object_touched_at: i64::MAX,
 			max_process_touched_at: i64::MAX,
 			max_sandbox_touched_at: 1,
-			now: 2,
+			now: now(),
 			partition_end: 1,
 			partition_start: 0,
 		})
 		.await
 		.unwrap();
 	assert!(!output.done);
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 5);
 
@@ -495,7 +512,7 @@ async fn account_storage_is_retained_by_a_tag() {
 				max_object_touched_at: i64::MAX,
 				max_process_touched_at: i64::MAX,
 				max_sandbox_touched_at: 1,
-				now: 2,
+				now: now(),
 				partition_end: 1,
 				partition_start: 0,
 			})
@@ -505,8 +522,8 @@ async fn account_storage_is_retained_by_a_tag() {
 			break;
 		}
 	}
-	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::usage::Usage::default());
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage, crate::usage::Aggregate::default());
 }
 
 #[tokio::test]
@@ -531,8 +548,8 @@ async fn touching_does_not_create_a_storage_entry() {
 		)
 		.await
 		.unwrap();
-	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::usage::Usage::default());
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage, crate::usage::Aggregate::default());
 }
 
 #[tokio::test]
@@ -543,7 +560,7 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account: account.clone(),
 				object: object.clone(),
 				touched_at: 1,
@@ -568,13 +585,13 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 			max_object_touched_at: 5,
 			max_process_touched_at: 5,
 			max_sandbox_touched_at: 5,
-			now: 10,
+			now: now(),
 			partition_end: 1,
 			partition_start: 0,
 		})
 		.await
 		.unwrap();
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 5);
 }
@@ -589,7 +606,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(command.clone(), [], 5)),
 			crate::batch::Item::PutProcess(process_arg(process.clone(), Vec::new(), command)),
-			crate::batch::Item::PutAccountProcess(crate::storage::put::ProcessArg {
+			crate::batch::Item::PutAccountProcess(crate::usage::storage::put::ProcessArg {
 				account: account.clone(),
 				process: process.clone(),
 				touched_at: 1,
@@ -614,13 +631,13 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 			max_object_touched_at: 5,
 			max_process_touched_at: 5,
 			max_sandbox_touched_at: 5,
-			now: 10,
+			now: now(),
 			partition_end: 1,
 			partition_start: 0,
 		})
 		.await
 		.unwrap();
-	let usage = index.get_account_usage(&account).await.unwrap();
+	let usage = get_usage(&index, &account).await;
 	assert_eq!(usage.process_count, 1);
 }
 
@@ -632,7 +649,7 @@ async fn touching_with_an_account_honors_time_to_touch() {
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account: account.clone(),
 				object: object.clone(),
 				touched_at: 1,
@@ -656,14 +673,14 @@ async fn touching_with_an_account_honors_time_to_touch() {
 			max_object_touched_at: 5,
 			max_process_touched_at: 5,
 			max_sandbox_touched_at: 5,
-			now: 10,
+			now: now(),
 			partition_end: 1,
 			partition_start: 0,
 		})
 		.await
 		.unwrap();
-	let usage = index.get_account_usage(&account).await.unwrap();
-	assert_eq!(usage, crate::usage::Usage::default());
+	let usage = get_usage(&index, &account).await;
+	assert_eq!(usage, crate::usage::Aggregate::default());
 }
 
 #[test]

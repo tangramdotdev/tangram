@@ -930,6 +930,7 @@ export def --env spawn [
 	--config (-c): record
 	--directory (-d): string
 	--name (-n): string
+	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
 	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
@@ -1150,13 +1151,26 @@ export def --env spawn [
 	# Create a path for the server's captured output.
 	let log_path = ($config_path | path dirname | path join 'log')
 	touch $log_path
+	let clock_path = if $now == null {
+		null
+	} else {
+		let clock_path = $config_path | path dirname | path join 'clock'
+		$now | save -f $clock_path
+		$clock_path
+	}
 
 	# Spawn the server.
 	let server_job = job spawn -d server {
 		let server_job_id = job id
 		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
+		let environment = if $clock_path == null {
+			{}
+		} else {
+			{ TANGRAM_TEST_CLOCK: $clock_path }
+		}
 		do -i {
-			bash -c $"
+			with-env $environment {
+				bash -c $"
 				PARENT_PID=$PPID
 				SELF_PID=$$
 					\(
@@ -1167,9 +1181,10 @@ export def --env spawn [
 					\) &
 				exec 3>\"($ready_path)\"
 				exec tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
-			" e>| lines | each { |line|
-				$"($line)\n" | save --append $log_path
-				print -e $"($name | default 'server'): ($line)\r"
+				" e>| lines | each { |line|
+					$"($line)\n" | save --append $log_path
+					print -e $"($name | default 'server'): ($line)\r"
+				}
 			}
 		}
 		'' | save -f $exit_path
@@ -1253,7 +1268,29 @@ export def --env spawn [
 	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
 	let cache_directory = $directory_path | path join $cache_directory_name
 
-	{ cache_directory: $cache_directory, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
+	{ cache_directory: $cache_directory, clock: $clock_path, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
+}
+
+# Set a server's simulated wall clock.
+export def set_time [server: record, now: string] {
+	let clock_path = $server.clock?
+	if $clock_path == null {
+		error make { msg: 'the server does not have a test clock' }
+	}
+	let temporary_path = $clock_path + $'.((random chars) | str lowercase)'
+	$now | save -f $temporary_path
+	mv -f $temporary_path $clock_path
+}
+
+# Advance a server's simulated wall clock.
+export def advance_time [server: record, duration: duration] {
+	let clock_path = $server.clock?
+	if $clock_path == null {
+		error make { msg: 'the server does not have a test clock' }
+	}
+	let now = open --raw $clock_path | str trim | into datetime
+	let now = ($now + $duration) | format date '%Y-%m-%dT%H:%M:%SZ'
+	set_time $server $now
 }
 
 # Stop a server, so that its output is complete, and return the distinct errors

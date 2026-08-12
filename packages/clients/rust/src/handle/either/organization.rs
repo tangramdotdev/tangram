@@ -29,10 +29,15 @@ where
 	fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_organization_usage(organization).left_future(),
-			tg::Either::Right(s) => s.try_get_organization_usage(organization).right_future(),
+			tg::Either::Left(s) => s
+				.try_get_organization_usage(organization, arg)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_organization_usage(organization, arg)
+				.right_future(),
 		}
 	}
 

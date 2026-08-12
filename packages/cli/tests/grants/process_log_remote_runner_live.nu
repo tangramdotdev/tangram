@@ -8,7 +8,7 @@ let root_token = random chars
 let remote = spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	indexer: { log_compaction: { enabled: false } },
+	indexer: { log_compaction: false },
 	roles: [cleaner http indexer scheduler],
 }
 

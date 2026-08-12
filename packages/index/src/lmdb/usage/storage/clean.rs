@@ -38,7 +38,7 @@ impl Index {
 			.map(|entry| {
 				let (key, _) = entry
 					.map_err(|error| tg::error!(!error, "failed to read an object account"))?;
-				let Key::Storage(crate::lmdb::storage::Key::ObjectAccount { account, .. }) =
+				let Key::Usage(crate::lmdb::usage::Key::ObjectAccount { account, .. }) =
 					Self::unpack(subspace, key)?
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -78,7 +78,7 @@ impl Index {
 			.map(|entry| {
 				let (key, _) = entry
 					.map_err(|error| tg::error!(!error, "failed to read a process account"))?;
-				let Key::Storage(crate::lmdb::storage::Key::ProcessAccount { account, .. }) =
+				let Key::Usage(crate::lmdb::usage::Key::ProcessAccount { account, .. }) =
 					Self::unpack(subspace, key)?
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -99,12 +99,14 @@ impl Index {
 		Ok(())
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(in crate::lmdb) fn clean_account_object_entry(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
+		now: i64,
 		touched_at: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
@@ -113,15 +115,24 @@ impl Index {
 			object: object.clone(),
 			touched_at,
 		};
-		Self::clean_account_entry(db, subspace, transaction, &candidate, usage_partition_total)
+		Self::clean_account_entry(
+			db,
+			subspace,
+			transaction,
+			&candidate,
+			now,
+			usage_partition_total,
+		)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	pub(in crate::lmdb) fn clean_account_process_entry(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
+		now: i64,
 		touched_at: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
@@ -130,7 +141,14 @@ impl Index {
 			process: process.clone(),
 			touched_at,
 		};
-		Self::clean_account_entry(db, subspace, transaction, &candidate, usage_partition_total)
+		Self::clean_account_entry(
+			db,
+			subspace,
+			transaction,
+			&candidate,
+			now,
+			usage_partition_total,
+		)
 	}
 
 	fn clean_account_entry(
@@ -138,6 +156,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		candidate: &Candidate,
+		now: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let clean_key = match candidate {
@@ -164,13 +183,13 @@ impl Index {
 		let entry_key = match candidate {
 			Candidate::Object {
 				account, object, ..
-			} => Key::Storage(crate::lmdb::storage::Key::AccountObject {
+			} => Key::Usage(crate::lmdb::usage::Key::AccountObject {
 				account: account.clone(),
 				object: object.clone(),
 			}),
 			Candidate::Process {
 				account, process, ..
-			} => Key::Storage(crate::lmdb::storage::Key::AccountProcess {
+			} => Key::Usage(crate::lmdb::usage::Key::AccountProcess {
 				account: account.clone(),
 				process: process.clone(),
 			}),
@@ -184,7 +203,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to delete a storage clean key"))?;
 			return Ok(());
 		};
-		let mut entry = crate::storage::Entry::deserialize(value)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(value)?;
 		let touched_at = match candidate {
 			Candidate::Object { touched_at, .. } | Candidate::Process { touched_at, .. } => {
 				*touched_at
@@ -235,6 +254,7 @@ impl Index {
 				transaction,
 				account,
 				object,
+				now,
 				usage_partition_total,
 			)?,
 			Candidate::Process {
@@ -245,6 +265,7 @@ impl Index {
 				transaction,
 				account,
 				process,
+				now,
 				usage_partition_total,
 			)?,
 		}
@@ -264,7 +285,7 @@ impl Index {
 		let mut count = 0;
 		for parent in Self::get_object_parents_with_transaction(db, subspace, transaction, object)?
 		{
-			let key = Key::Storage(crate::lmdb::storage::Key::AccountObject {
+			let key = Key::Usage(crate::lmdb::usage::Key::AccountObject {
 				account: account.clone(),
 				object: parent,
 			});
@@ -279,7 +300,7 @@ impl Index {
 		for (process, _) in
 			Self::get_object_processes_with_transaction(db, subspace, transaction, object)?
 		{
-			let key = Key::Storage(crate::lmdb::storage::Key::AccountProcess {
+			let key = Key::Usage(crate::lmdb::usage::Key::AccountProcess {
 				account: account.clone(),
 				process,
 			});
@@ -307,7 +328,7 @@ impl Index {
 		for parent in
 			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?
 		{
-			let key = Key::Storage(crate::lmdb::storage::Key::AccountProcess {
+			let key = Key::Usage(crate::lmdb::usage::Key::AccountProcess {
 				account: account.clone(),
 				process: parent,
 			});
@@ -352,6 +373,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
+		now: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let children =
@@ -359,40 +381,47 @@ impl Index {
 		for child in children {
 			Self::schedule_account_object_for_cleaning(db, subspace, transaction, account, &child)?;
 		}
-		let key = Key::Storage(crate::lmdb::storage::Key::AccountObject {
+		let key = Key::Usage(crate::lmdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the account object"))?;
-		let key = Key::Storage(crate::lmdb::storage::Key::ObjectAccount {
+		let key = Key::Usage(crate::lmdb::usage::Key::ObjectAccount {
 			account: account.clone(),
 			object: object.clone(),
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the object account"))?;
-		Self::add_account_usage(
+		let usage_partition = rand::random_range(0..usage_partition_total);
+		Self::add_usage_delta(
 			db,
 			subspace,
 			transaction,
-			account,
-			crate::usage::Kind::ObjectCount,
-			-1,
-			usage_partition_total,
+			crate::usage::DeltaArg {
+				account,
+				at: now,
+				delta: -1,
+				kind: crate::usage::DeltaKind::ObjectCount,
+				partition: usage_partition,
+			},
 		)?;
 		let object_value =
 			Self::try_get_object_with_transaction(db, subspace, transaction, object)?
 				.ok_or_else(|| tg::error!(%object, "an object with a storage entry is missing"))?;
 		let size = i64::try_from(object_value.metadata.node.size)
 			.map_err(|_| tg::error!("the object size is too large"))?;
-		Self::add_account_usage(
+		Self::add_usage_delta(
 			db,
 			subspace,
 			transaction,
-			account,
-			crate::usage::Kind::ObjectSize,
-			-size,
-			usage_partition_total,
+			crate::usage::DeltaArg {
+				account,
+				at: now,
+				delta: -size,
+				kind: crate::usage::DeltaKind::ObjectSize,
+				partition: usage_partition,
+			},
 		)?;
 		let key = Key::Clean(crate::lmdb::clean::Key::Object {
 			id: object.clone(),
@@ -410,6 +439,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
+		now: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		let children =
@@ -434,26 +464,30 @@ impl Index {
 				&object,
 			)?;
 		}
-		let key = Key::Storage(crate::lmdb::storage::Key::AccountProcess {
+		let key = Key::Usage(crate::lmdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the account process"))?;
-		let key = Key::Storage(crate::lmdb::storage::Key::ProcessAccount {
+		let key = Key::Usage(crate::lmdb::usage::Key::ProcessAccount {
 			account: account.clone(),
 			process: process.clone(),
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the process account"))?;
-		Self::add_account_usage(
+		let usage_partition = rand::random_range(0..usage_partition_total);
+		Self::add_usage_delta(
 			db,
 			subspace,
 			transaction,
-			account,
-			crate::usage::Kind::ProcessCount,
-			-1,
-			usage_partition_total,
+			crate::usage::DeltaArg {
+				account,
+				at: now,
+				delta: -1,
+				kind: crate::usage::DeltaKind::ProcessCount,
+				partition: usage_partition,
+			},
 		)?;
 		let process_value =
 			Self::try_get_process_with_transaction(db, subspace, transaction, process)?
@@ -475,7 +509,7 @@ impl Index {
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
 	) -> tg::Result<()> {
-		let entry_key = Key::Storage(crate::lmdb::storage::Key::AccountObject {
+		let entry_key = Key::Usage(crate::lmdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
@@ -485,7 +519,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = crate::storage::Entry::deserialize(value)?;
+		let entry = crate::usage::storage::Entry::deserialize(value)?;
 		let key = Key::Clean(crate::lmdb::clean::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -506,7 +540,7 @@ impl Index {
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
-		let entry_key = Key::Storage(crate::lmdb::storage::Key::AccountProcess {
+		let entry_key = Key::Usage(crate::lmdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
@@ -516,7 +550,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = crate::storage::Entry::deserialize(value)?;
+		let entry = crate::usage::storage::Entry::deserialize(value)?;
 		let key = Key::Clean(crate::lmdb::clean::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),

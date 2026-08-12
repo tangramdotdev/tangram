@@ -1,6 +1,4 @@
 mod key;
-mod storage;
-
 pub(super) use key::{ItemKind, Key};
 
 use {
@@ -152,6 +150,7 @@ impl Index {
 						transaction,
 						account,
 						object,
+						now,
 						candidate.touched_at,
 						usage_partition_total,
 					)?;
@@ -164,6 +163,7 @@ impl Index {
 						transaction,
 						account,
 						process,
+						now,
 						candidate.touched_at,
 						usage_partition_total,
 					)?;

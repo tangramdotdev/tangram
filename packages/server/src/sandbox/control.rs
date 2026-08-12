@@ -175,9 +175,11 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let created_at = arg
-			.created_at
-			.unwrap_or_else(|| time::OffsetDateTime::now_utc().unix_timestamp());
+		let created_at = if let Some(created_at) = arg.created_at {
+			created_at
+		} else {
+			self.server.clock.unix_timestamp()?
+		};
 		let location = self.server.location(arg.location.as_ref())?;
 		let data = arg.data.map(|data| tg::sandbox::get::Output {
 			cpu: data.arg.cpu,
@@ -190,12 +192,15 @@ impl Session {
 			mounts: data.arg.mounts,
 			network: data.arg.network,
 			owner: data.arg.owner,
-			sandbox_cpu: None,
-			sandbox_memory: None,
 			status: tg::sandbox::Status::Started,
 			token: None,
 			ttl: data.arg.ttl,
+			usage: None,
 		});
+		let account = match data.as_ref().and_then(|data| data.owner.as_ref()) {
+			Some(owner) => self.usage_account(owner).await?,
+			None => None,
+		};
 		let runner = arg.runner;
 		let server_messages = self
 			.server
@@ -291,6 +296,7 @@ impl Session {
 			let index_arg = tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutSandbox(
 					tangram_index::sandbox::put::Arg {
+						account,
 						created_at,
 						data: Some(data),
 						id: id.clone(),

@@ -11,6 +11,8 @@ pub(super) enum Priority {
 pub(super) enum Request {
 	Batch(crate::batch::Arg),
 	Clean(Clean),
+	CleanUsage(crate::usage::clean::Arg),
+	CompactUsage(crate::usage::compact::Arg),
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
@@ -21,6 +23,11 @@ pub(super) enum Request {
 	DeleteTags(Vec<tg::tag::Id>),
 	DeleteUsers(Vec<tg::user::Id>),
 	EnqueueLogCompaction(tg::process::Id),
+	GetUsage {
+		account: crate::usage::Account,
+		now: jiff::Timestamp,
+		period: crate::usage::Period,
+	},
 	PutCacheEntries(Vec<crate::cache::put::Arg>),
 	PutGrants(Vec<crate::grant::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
@@ -83,6 +90,8 @@ pub(super) struct Update {
 
 pub(super) enum Item {
 	Clean,
+	CleanUsage,
+	CompactUsage,
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrant(crate::grant::delete::Arg),
 	DeleteGroup(tg::group::Id),
@@ -93,6 +102,7 @@ pub(super) enum Item {
 	DeleteTag(tg::tag::Id),
 	DeleteUser(tg::user::Id),
 	EnqueueLogCompaction(tg::process::Id),
+	GetUsage,
 	PutCacheEntry(crate::cache::put::Arg),
 	PutGrant(crate::grant::put::Arg),
 	PutGroup(crate::group::put::Arg),
@@ -119,6 +129,8 @@ pub(super) enum Kind {
 		partition_end: u64,
 		partition_start: u64,
 	},
+	CleanUsage(crate::usage::clean::Arg),
+	CompactUsage(crate::usage::compact::Arg),
 	CompleteLogCompaction,
 	DeleteGrants,
 	DeleteGroupMembers,
@@ -129,6 +141,11 @@ pub(super) enum Kind {
 	DeleteTags,
 	DeleteUsers,
 	EnqueueLogCompaction,
+	GetUsage {
+		account: crate::usage::Account,
+		now: jiff::Timestamp,
+		period: crate::usage::Period,
+	},
 	PutCacheEntries,
 	PutGrants,
 	PutGroupMembers,
@@ -179,7 +196,9 @@ impl Request {
 			| Self::PutProcesses(_)
 			| Self::PutSandboxes(_)
 			| Self::PutUsers(_) => Priority::Medium,
-			Self::Clean(_) | Self::Update(_) => Priority::Low,
+			Self::Clean(_) | Self::CleanUsage(_) | Self::CompactUsage(_) | Self::Update(_) => {
+				Priority::Low
+			},
 			Self::DeleteGrants(_)
 			| Self::DeleteGroupMembers(_)
 			| Self::DeleteGroups(_)
@@ -188,6 +207,7 @@ impl Request {
 			| Self::DeleteSandboxes(_)
 			| Self::DeleteTags(_)
 			| Self::DeleteUsers(_)
+			| Self::GetUsage { .. }
 			| Self::PutTags(_)
 			| Self::TouchCacheEntries(_)
 			| Self::TouchObjects(_)

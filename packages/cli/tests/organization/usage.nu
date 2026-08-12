@@ -2,7 +2,10 @@ use ../../test.nu *
 
 # Organization usage is available by id and specifier.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = spawn --config {
+	authentication: { users: { providers: { insecure: true } } },
+	usage: true,
+}
 let alice = tg login --verbose alice | from json
 let organization = tg organization create acme | from json
 

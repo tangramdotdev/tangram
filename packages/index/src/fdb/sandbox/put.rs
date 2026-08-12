@@ -10,6 +10,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::sandbox::put::Arg],
 		partition_total: u64,
+		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(arg.id.clone()));
@@ -24,6 +25,7 @@ impl Index {
 				.data
 				.clone()
 				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.data.clone()));
+			let account = arg.account.clone();
 			let runner = arg
 				.runner
 				.clone()
@@ -32,6 +34,7 @@ impl Index {
 				sandbox.touched_at.max(arg.touched_at)
 			});
 			let sandbox = crate::sandbox::Sandbox {
+				account,
 				created_at: existing
 					.as_ref()
 					.map_or(arg.created_at, |sandbox| sandbox.created_at),
@@ -44,6 +47,26 @@ impl Index {
 			};
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
+
+			let started = existing
+				.as_ref()
+				.and_then(|sandbox| sandbox.data.as_ref())
+				.is_some_and(|data| data.status.is_started());
+			if started
+				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
+				&& data.status.is_destroyed()
+			{
+				let cpu = data.usage.as_ref().map(|usage| usage.cpu);
+				let memory = data.usage.as_ref().map(|usage| usage.memory);
+				let arg = crate::usage::compute::put::Arg {
+					account,
+					at: touched_at,
+					cpu,
+					memory,
+					sandbox_count: 1,
+				};
+				Self::put_compute_usage(txn, subspace, arg, usage_partition_total)?;
+			}
 
 			let id_bytes = arg.id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);

@@ -19,7 +19,7 @@ impl Session {
 		};
 		let owner_id = owner.as_ref().and_then(tg::Principal::to_id);
 		self.authorize_runner_owner(owner_id.as_ref()).await?;
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let runner = tg::runner::Id::new();
 		let (token_id, token) = crate::token::create();
 		let token_hash = crate::token::hash(&token);

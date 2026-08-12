@@ -1026,7 +1026,7 @@ impl Session {
 		}
 
 		// Index the cache entry.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let arg = tangram_index::cache::put::Arg {
 			id: item.id,
 			touched_at,

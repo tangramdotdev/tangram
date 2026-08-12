@@ -729,7 +729,9 @@ impl Provider {
 		if let crate::Origin::Sandbox(index) = self.origin {
 			let permission =
 				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let Ok(now) = self.server.clock.unix_timestamp() else {
+				return false;
+			};
 			let authorized = self
 				.server
 				.runner

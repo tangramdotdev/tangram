@@ -19,8 +19,9 @@ impl tg::handle::Organization for tg::Session {
 	fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
-		self.try_get_organization_usage(organization)
+		self.try_get_organization_usage(organization, arg)
 	}
 
 	fn try_delete_organization(

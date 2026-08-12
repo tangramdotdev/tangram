@@ -191,6 +191,7 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+						usage_partition_total,
 					)?;
 				},
 				crate::batch::Item::PutTag(arg) => {

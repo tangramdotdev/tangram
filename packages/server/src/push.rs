@@ -617,7 +617,7 @@ impl Session {
 		&self,
 		arg: &tg::push::Arg,
 	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		arg.nodes
 			.iter()
 			.map(|node| {

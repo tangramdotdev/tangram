@@ -266,8 +266,7 @@ impl Session {
 							if data.status != tg::process::Status::Started {
 								return Err(tg::error!("not found"));
 							}
-							let timestamp =
-								time::OffsetDateTime::now_utc().unix_timestamp() - started_at;
+							let timestamp = self.server.clock.unix_timestamp()? - started_at;
 							let stream =
 								if matches!(chunk.stream, tg::process::stdio::Stream::Stdin) {
 									return Err(tg::error!("invalid stdio stream"));

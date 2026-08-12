@@ -54,6 +54,30 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn clean_usage(
+		&self,
+		arg: index::usage::clean::Arg,
+	) -> tg::Result<index::usage::clean::Output> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.clean_usage(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.clean_usage(arg).await,
+		}
+	}
+
+	async fn compact_usage(
+		&self,
+		arg: index::usage::compact::Arg,
+	) -> tg::Result<index::usage::compact::Output> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.compact_usage(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.compact_usage(arg).await,
+		}
+	}
+
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -129,15 +153,17 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_account_usage(
+	async fn get_usage(
 		&self,
 		account: &index::usage::Account,
-	) -> tg::Result<index::usage::Usage> {
+		period: index::usage::Period,
+		now: jiff::Timestamp,
+	) -> tg::Result<index::usage::Aggregate> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_account_usage(account).await,
+			Self::Fdb(index) => index.get_usage(account, period, now).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_account_usage(account).await,
+			Self::Lmdb(index) => index.get_usage(account, period, now).await,
 		}
 	}
 
@@ -581,11 +607,7 @@ impl index::Index for Index {
 					.await
 			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.log_compaction_batch(batch_size, partition_start, partition_end)
-					.await
-			},
+			Self::Lmdb(index) => index.log_compaction_batch(batch_size).await,
 		}
 	}
 
@@ -625,11 +647,7 @@ impl index::Index for Index {
 					.await
 			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.update_batch(kind, batch_size, partition_start, partition_end)
-					.await
-			},
+			Self::Lmdb(index) => index.update_batch(kind, batch_size).await,
 		}
 	}
 

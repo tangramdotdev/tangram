@@ -14,16 +14,13 @@ pub(crate) enum Request {
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
-	LogCompactionBatch {
+	FdbLogCompactionBatch {
 		batch_size: usize,
 		partition_end: u64,
 		partition_start: u64,
 	},
 	GetRequesterPrincipals {
 		principal: tg::Principal,
-	},
-	GetAccountUsage {
-		account: crate::usage::Account,
 	},
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
@@ -38,6 +35,9 @@ pub(crate) enum Request {
 	},
 	ListSandboxesForOwner {
 		owner: tg::Principal,
+	},
+	LmdbLogCompactionBatch {
+		batch_size: usize,
 	},
 	ProcessHasAncestor {
 		ancestor: tg::process::Id,
@@ -91,7 +91,6 @@ pub(crate) enum Response {
 	ContainsIds(Vec<bool>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterPrincipals(Vec<tg::grant::Principal>),
-	GetAccountUsage(crate::usage::Usage),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),

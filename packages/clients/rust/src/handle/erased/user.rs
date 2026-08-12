@@ -41,6 +41,7 @@ pub trait User: Send + Sync + 'static {
 	fn try_get_user_usage<'a>(
 		&'a self,
 		user: &'a tg::user::Selector,
+		arg: tg::usage::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::usage::Output>>>;
 
 	fn manage_user_billing(
@@ -109,8 +110,9 @@ where
 	fn try_get_user_usage<'a>(
 		&'a self,
 		user: &'a tg::user::Selector,
+		arg: tg::usage::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::usage::Output>>> {
-		self.try_get_user_usage(user).boxed()
+		self.try_get_user_usage(user, arg).boxed()
 	}
 
 	fn manage_user_billing(

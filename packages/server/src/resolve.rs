@@ -172,12 +172,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
 			let mut output = response.output;
-			let valid = output
-				.as_ref()
-				.is_none_or(|output| crate::remote::cache::token_valid(output.referent.token()));
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.referent.token(), &self.server.clock)
+			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(output.referent.token()) {
+					if !crate::remote::cache::token_valid(
+						output.referent.token(),
+						&self.server.clock,
+					) {
 						output.referent.options.token = None;
 					}
 					output.location = Some(tg::Location::Remote(remote));
@@ -280,8 +283,8 @@ impl Session {
 		} else {
 			return Err(tg::error!("invalid tag target"));
 		};
-		let expires_at = time::OffsetDateTime::now_utc().unix_timestamp()
-			+ time_to_live.as_secs().to_i64().unwrap();
+		let expires_at =
+			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
 		let resource = tg::grant::Resource::Id(target.clone());
 		let token = self.create_token(resource, data.permissions, expires_at)?;
 

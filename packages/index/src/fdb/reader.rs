@@ -130,7 +130,7 @@ impl Index {
 					Self::contains_ids_with_transaction(transaction, subspace, &ids).await?;
 				crate::read::Response::ContainsIds(output)
 			},
-			crate::read::Request::LogCompactionBatch {
+			crate::read::Request::FdbLogCompactionBatch {
 				batch_size,
 				partition_end,
 				partition_start,
@@ -145,17 +145,14 @@ impl Index {
 				.await?;
 				crate::read::Response::LogCompactionBatch(output)
 			},
+			crate::read::Request::LmdbLogCompactionBatch { .. } => {
+				return Err(tg::error!("unexpected LMDB read request"));
+			},
 			crate::read::Request::GetRequesterPrincipals { principal } => {
 				let output =
 					Self::requester_principals_with_transaction(transaction, subspace, &principal)
 						.await?;
 				crate::read::Response::GetRequesterPrincipals(output)
-			},
-			crate::read::Request::GetAccountUsage { account } => {
-				let output =
-					Self::get_account_usage_with_transaction(transaction, subspace, &account)
-						.await?;
-				crate::read::Response::GetAccountUsage(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output =

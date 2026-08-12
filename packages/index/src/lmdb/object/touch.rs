@@ -65,7 +65,7 @@ impl Index {
 					db,
 					subspace,
 					transaction,
-					&crate::storage::put::ObjectArg {
+					&crate::usage::storage::put::ObjectArg {
 						account: account.clone(),
 						object: id.clone(),
 						touched_at,

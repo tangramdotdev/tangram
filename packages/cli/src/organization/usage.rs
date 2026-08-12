@@ -8,6 +8,9 @@ pub struct Args {
 	pub organization: tg::organization::Selector,
 
 	#[command(flatten)]
+	pub period: crate::usage::PeriodArgs,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -15,7 +18,7 @@ impl Cli {
 	pub async fn command_organization_usage(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let usage = client
-			.try_get_organization_usage(&args.organization)
+			.try_get_organization_usage(&args.organization, args.period.into())
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the organization"))?;
 		self.print_serde(usage, args.print).await?;

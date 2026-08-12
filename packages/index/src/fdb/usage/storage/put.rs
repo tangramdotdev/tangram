@@ -10,11 +10,11 @@ impl Index {
 	pub(crate) async fn touch_account_object(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ObjectArg,
+		arg: &crate::usage::storage::put::ObjectArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Storage(crate::fdb::storage::Key::AccountObject {
+		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
@@ -26,7 +26,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let mut entry = crate::storage::Entry::deserialize(&value)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
@@ -40,11 +40,11 @@ impl Index {
 	pub(crate) async fn touch_account_process(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ProcessArg,
+		arg: &crate::usage::storage::put::ProcessArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
+		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
@@ -56,7 +56,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let mut entry = crate::storage::Entry::deserialize(&value)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
@@ -72,6 +72,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		partition_total: u64,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut accounts = BTreeSet::new();
 		let parents = Self::get_object_parents_with_transaction(txn, subspace, object).await?;
@@ -90,7 +91,10 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(object.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add(account)),
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+					account,
+					touched_at,
+				}),
 				crate::fdb::update::Source::Put,
 				partition_total,
 			);
@@ -104,6 +108,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		let mut accounts = BTreeSet::new();
 		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
@@ -116,7 +121,10 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add(account)),
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+					account,
+					touched_at,
+				}),
 				crate::fdb::update::Source::Put,
 				partition_total,
 			);
@@ -130,6 +138,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
+		touched_at: i64,
 	) -> tg::Result<()> {
 		let accounts = Self::get_process_accounts_with_transaction(txn, subspace, process).await?;
 		for account in accounts {
@@ -137,9 +146,10 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate(
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
 					account,
-				)),
+					touched_at,
+				}),
 				crate::fdb::update::Source::Put,
 				partition_total,
 			);
@@ -173,8 +183,7 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Storage(crate::fdb::storage::Key::ObjectAccount { account, .. }) = key
-				else {
+				let Key::Usage(crate::fdb::usage::Key::ObjectAccount { account, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
@@ -209,8 +218,7 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Storage(crate::fdb::storage::Key::ProcessAccount { account, .. }) = key
-				else {
+				let Key::Usage(crate::fdb::usage::Key::ProcessAccount { account, .. }) = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
@@ -223,13 +231,13 @@ impl Index {
 	pub(crate) async fn put_account_object(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ObjectArg,
+		arg: &crate::usage::storage::put::ObjectArg,
 		partition_total: u64,
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<bool> {
-		let entry_key = Key::Storage(crate::fdb::storage::Key::AccountObject {
+		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
@@ -239,7 +247,7 @@ impl Index {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the account object"))?
 		{
-			let mut entry = crate::storage::Entry::deserialize(&value)?;
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
@@ -258,47 +266,51 @@ impl Index {
 			}
 			return Ok(false);
 		};
-		let entry = crate::storage::Entry {
+		let entry = crate::usage::storage::Entry {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
 		let value = entry.serialize()?;
 		txn.set(&entry_key, &value);
 
-		let reverse_key = Key::Storage(crate::fdb::storage::Key::ObjectAccount {
+		let reverse_key = Key::Usage(crate::fdb::usage::Key::ObjectAccount {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
 		let reverse_key = Self::pack(subspace, &reverse_key);
 		txn.set(&reverse_key, &[]);
 		Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
+		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		Self::add_account_usage(
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			&arg.account,
-			crate::usage::Kind::ObjectCount,
+			arg.touched_at,
+			crate::usage::DeltaKind::ObjectCount,
 			1,
-			usage_partition_total,
+			usage_partition,
 		);
 		let size = i64::try_from(object.metadata.node.size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
-		Self::add_account_usage(
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			&arg.account,
-			crate::usage::Kind::ObjectSize,
+			arg.touched_at,
+			crate::usage::DeltaKind::ObjectSize,
 			size,
-			usage_partition_total,
+			usage_partition,
 		);
 
 		Self::enqueue_update_with_kind_at_version(
 			txn,
 			subspace,
 			&tg::Either::Left(arg.object.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate(
-				arg.account.clone(),
-			)),
+			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
+				account: arg.account.clone(),
+				touched_at: arg.touched_at,
+			}),
 			crate::fdb::update::Source::Put,
 			partition_total,
 			version,
@@ -310,13 +322,13 @@ impl Index {
 	pub(crate) async fn put_account_process(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ProcessArg,
+		arg: &crate::usage::storage::put::ProcessArg,
 		partition_total: u64,
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<bool> {
-		let entry_key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
+		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
@@ -326,7 +338,7 @@ impl Index {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the account process"))?
 		{
-			let mut entry = crate::storage::Entry::deserialize(&value)?;
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
@@ -345,37 +357,40 @@ impl Index {
 			}
 			return Ok(false);
 		}
-		let entry = crate::storage::Entry {
+		let entry = crate::usage::storage::Entry {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
 		let value = entry.serialize()?;
 		txn.set(&entry_key, &value);
 
-		let reverse_key = Key::Storage(crate::fdb::storage::Key::ProcessAccount {
+		let reverse_key = Key::Usage(crate::fdb::usage::Key::ProcessAccount {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
 		let reverse_key = Self::pack(subspace, &reverse_key);
 		txn.set(&reverse_key, &[]);
 		Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		Self::add_account_usage(
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			&arg.account,
-			crate::usage::Kind::ProcessCount,
+			arg.touched_at,
+			crate::usage::DeltaKind::ProcessCount,
 			1,
-			usage_partition_total,
+			usage_partition,
 		);
 
 		Self::enqueue_update_with_kind_at_version(
 			txn,
 			subspace,
 			&tg::Either::Right(arg.process.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate(
-				arg.account.clone(),
-			)),
+			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
+				account: arg.account.clone(),
+				touched_at: arg.touched_at,
+			}),
 			crate::fdb::update::Source::Put,
 			partition_total,
 			version,
@@ -384,28 +399,10 @@ impl Index {
 		Ok(true)
 	}
 
-	pub(crate) fn add_account_usage(
-		txn: &fdb::Transaction,
-		subspace: &fdbt::Subspace,
-		account: &crate::usage::Account,
-		kind: crate::usage::Kind,
-		delta: i64,
-		usage_partition_total: u64,
-	) {
-		let partition = rand::random_range(0..usage_partition_total);
-		let key = Key::Storage(crate::fdb::storage::Key::AccountUsage {
-			account: account.clone(),
-			kind,
-			partition,
-		});
-		let key = Self::pack(subspace, &key);
-		txn.atomic_op(&key, &delta.to_le_bytes(), fdb::options::MutationType::Add);
-	}
-
 	fn put_account_object_clean_key(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ObjectArg,
+		arg: &crate::usage::storage::put::ObjectArg,
 		partition_total: u64,
 	) {
 		let partition = Self::partition_for_id(arg.object.to_bytes().as_ref(), partition_total);
@@ -424,7 +421,7 @@ impl Index {
 	fn put_account_process_clean_key(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::storage::put::ProcessArg,
+		arg: &crate::usage::storage::put::ProcessArg,
 		partition_total: u64,
 	) {
 		let partition = Self::partition_for_id(arg.process.to_bytes().as_ref(), partition_total);

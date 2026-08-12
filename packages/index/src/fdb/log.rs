@@ -37,7 +37,7 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<Vec<crate::log::Entry>> {
-		let request = crate::read::Request::LogCompactionBatch {
+		let request = crate::read::Request::FdbLogCompactionBatch {
 			batch_size,
 			partition_end,
 			partition_start,
@@ -89,9 +89,8 @@ impl Index {
 				};
 				let version = crate::log::Version::new(*version.as_bytes());
 				output.push(crate::log::Entry {
-					partition,
+					position: crate::log::Position::Fdb { partition, version },
 					process,
-					version,
 				});
 			}
 		}
@@ -166,8 +165,15 @@ impl Index {
 		};
 		let (partition, version) = fdbt::unpack::<(u64, fdbt::Versionstamp)>(&value)
 			.map_err(|error| tg::error!(!error, "failed to unpack the log compaction identity"))?;
-		let entry_version = fdbt::Versionstamp::from(*entry.version.bytes());
-		if partition != entry.partition || version != entry_version {
+		let crate::log::Position::Fdb {
+			partition: entry_partition,
+			version: entry_version,
+		} = entry.position
+		else {
+			return Err(tg::error!("unexpected log compaction position"));
+		};
+		let entry_version = fdbt::Versionstamp::from(*entry_version.bytes());
+		if partition != entry_partition || version != entry_version {
 			return Ok(());
 		}
 
@@ -196,8 +202,7 @@ impl Index {
 			return Ok(());
 		}
 
-		let process_bytes = process.to_bytes();
-		let partition = Self::partition_for_id(process_bytes.as_ref(), partition_total);
+		let partition = rand::random_range(0..partition_total);
 		let version = fdbt::Versionstamp::incomplete(0);
 		let value = fdbt::pack_with_versionstamp(&(partition, version.clone()));
 		txn.atomic_op(

@@ -108,7 +108,7 @@ impl Session {
 		state: &State,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Store the objects.
 		let args = nodes
@@ -240,7 +240,7 @@ impl Session {
 			.collect::<tg::Result<_>>()?;
 
 		// Write the processes to the index.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let put_processes: Vec<_> = batch
 			.iter()
 			.map(|(id, data, metadata)| tangram_index::process::put::Arg {

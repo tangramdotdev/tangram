@@ -136,9 +136,15 @@ impl Index {
 				&tg::Either::Left(id.clone()),
 				partition_total,
 			);
-			Self::enqueue_account_object_from_parents(txn, subspace, id, partition_total)
-				.await
-				.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+			Self::enqueue_account_object_from_parents(
+				txn,
+				subspace,
+				id,
+				partition_total,
+				touched_at,
+			)
+			.await
+			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		}
 
 		Ok(())

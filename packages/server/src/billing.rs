@@ -45,6 +45,9 @@ impl Session {
 		transaction: &Transaction<'_>,
 		principal: &tg::Principal,
 	) -> tg::Result<Option<tg::usage::Account>> {
+		if !self.server.config.usage.enabled {
+			return Ok(None);
+		}
 		let mut principal = principal.clone();
 		loop {
 			match principal {
@@ -89,6 +92,9 @@ impl Session {
 		&self,
 		principal: &tg::Principal,
 	) -> tg::Result<Option<tg::usage::Account>> {
+		if !self.server.config.usage.enabled {
+			return Ok(None);
+		}
 		let mut principal = match principal {
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_) => {
 				let Some(principal) = self.try_resolve_remote_context_principal(principal).await?

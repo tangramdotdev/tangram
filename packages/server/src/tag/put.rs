@@ -42,7 +42,7 @@ impl Session {
 		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
 			.await?;
 		let permissions = self.recorded_tag_target_permissions(&arg.target).await?;
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let session = self.clone();
 		self.server
 			.database
@@ -77,7 +77,7 @@ impl Session {
 						let item = match target {
 							tg::Either::Left(object) => {
 								tangram_index::batch::Item::PutAccountObject(
-									tangram_index::storage::put::ObjectArg {
+									tangram_index::usage::storage::put::ObjectArg {
 										account,
 										object,
 										touched_at,
@@ -86,7 +86,7 @@ impl Session {
 							},
 							tg::Either::Right(process) => {
 								tangram_index::batch::Item::PutAccountProcess(
-									tangram_index::storage::put::ProcessArg {
+									tangram_index::usage::storage::put::ProcessArg {
 										account,
 										process,
 										touched_at,

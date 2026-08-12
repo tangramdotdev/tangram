@@ -170,6 +170,9 @@ impl Session {
 	}
 
 	fn verify_token(&self, token: &tg::grant::Token) -> bool {
+		let Ok(now) = self.server.clock.unix_timestamp() else {
+			return false;
+		};
 		let Some(public_key) = self
 			.server
 			.grant_tokens
@@ -178,7 +181,7 @@ impl Session {
 		else {
 			return false;
 		};
-		if token.verify(public_key).is_err() {
+		if token.verify_at(public_key, now).is_err() {
 			return false;
 		}
 		true

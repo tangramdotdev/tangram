@@ -911,7 +911,7 @@ impl Session {
 			.serialize()
 			.map_err(|error| tg::error!(!error, "failed to serialize the reference artifact"))?;
 		let id = tg::object::Id::new(data.kind(), &bytes);
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Store the object.
 		let store_arg = crate::object::store::PutArg {

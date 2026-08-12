@@ -108,11 +108,14 @@ impl Session {
 				organization.token = organization.token.take().or_else(|| token.clone());
 			}
 			let valid = output.as_ref().is_none_or(|organization| {
-				crate::remote::cache::token_valid(organization.token.as_ref())
+				crate::remote::cache::token_valid(organization.token.as_ref(), &self.server.clock)
 			});
 			if valid || cached {
 				if let Some(organization) = &mut output {
-					if !crate::remote::cache::token_valid(organization.token.as_ref()) {
+					if !crate::remote::cache::token_valid(
+						organization.token.as_ref(),
+						&self.server.clock,
+					) {
 						organization.token = None;
 					}
 					organization.location = Some(tg::Location::Remote(remote));

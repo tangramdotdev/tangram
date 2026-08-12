@@ -38,6 +38,7 @@ mod checkpoint;
 mod checksum;
 mod clean;
 mod cleaner;
+mod clock;
 mod compiler;
 mod context;
 mod control;
@@ -107,6 +108,7 @@ pub struct State {
 	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
+	clock: self::clock::Clock,
 	config: Config,
 	context: Context,
 	database: Database,
@@ -164,6 +166,9 @@ impl Owned {
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
+		// Validate the usage configuration.
+		config.usage.validate()?;
+
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
 			let id = uuid::Uuid::now_v7();
@@ -293,7 +298,7 @@ impl Server {
 			for (name, update) in [
 				("grant", &indexer.updates.grants),
 				("node", &indexer.updates.nodes),
-				("storage", &indexer.updates.storage),
+				("storage", &indexer.usage.storage),
 			] {
 				if update.batch_size == 0 {
 					return Err(tg::error!(
@@ -303,6 +308,23 @@ impl Server {
 				if update.concurrency == 0 {
 					return Err(tg::error!(
 						"the indexer {name} update concurrency must be greater than zero"
+					));
+				}
+			}
+			if indexer.usage.compaction.enabled {
+				if indexer.usage.compaction.batch_size == 0 {
+					return Err(tg::error!(
+						"the indexer usage compaction batch size must be greater than zero"
+					));
+				}
+				if indexer.usage.compaction.concurrency == 0 {
+					return Err(tg::error!(
+						"the indexer usage compaction concurrency must be greater than zero"
+					));
+				}
+				if indexer.usage.compaction.poll_interval.is_zero() {
+					return Err(tg::error!(
+						"the indexer usage compaction poll interval must be greater than zero"
 					));
 				}
 			}
@@ -522,6 +544,10 @@ impl Server {
 
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
+
+		// Create the clock.
+		let clock = self::clock::Clock::new();
+		clock.now()?;
 
 		// Create the index.
 		let index = match &config.index {
@@ -804,6 +830,7 @@ impl Server {
 			cache_tasks,
 			checkin_tasks,
 			checkpoints,
+			clock,
 			config,
 			context,
 			database,

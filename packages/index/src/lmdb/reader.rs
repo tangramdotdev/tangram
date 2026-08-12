@@ -137,18 +137,15 @@ impl Index {
 				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::ContainsIds(output)
 			},
-			crate::read::Request::LogCompactionBatch {
-				batch_size,
-				partition_end,
-				partition_start,
-			} => {
+			crate::read::Request::FdbLogCompactionBatch { .. } => {
+				return Err(tg::error!("unexpected FDB read request"));
+			},
+			crate::read::Request::LmdbLogCompactionBatch { batch_size } => {
 				let output = Self::log_compaction_batch_with_transaction(
 					db,
 					subspace,
 					transaction,
 					batch_size,
-					partition_start,
-					partition_end,
 				)?;
 				crate::read::Response::LogCompactionBatch(output)
 			},
@@ -160,11 +157,6 @@ impl Index {
 					&principal,
 				)?;
 				crate::read::Response::GetRequesterPrincipals(output)
-			},
-			crate::read::Request::GetAccountUsage { account } => {
-				let output =
-					Self::get_account_usage_with_transaction(db, subspace, transaction, &account)?;
-				crate::read::Response::GetAccountUsage(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(

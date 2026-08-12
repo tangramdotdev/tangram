@@ -38,10 +38,11 @@ impl Server {
 		let partition_length = partition_end - partition_start;
 		let concurrency = config.concurrency.to_u64().unwrap();
 		loop {
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let now = self.clock.unix_timestamp()?;
 			let object_time_to_live = self.config.object.time_to_live;
 			let process_time_to_live = self.config.process.time_to_live;
 			let sandbox_time_to_live = self.config.sandbox.time_to_live;
+			let usage = self.config.usage;
 			let n = config.batch_size;
 
 			let futures = (0..config.concurrency).map(|task_index| {
@@ -65,13 +66,28 @@ impl Server {
 
 			let clean_database_future = self.clean_stripe_webhooks(now);
 			let clean_index_future = future::try_join_all(futures);
-			match future::try_join(clean_database_future, clean_index_future).await {
-				Ok(((), outputs)) => {
+			let clean_usage_future = self.index.clean_usage(tangram_index::usage::clean::Arg {
+				batch_size: n,
+				day_time_to_live: usage.day_time_to_live,
+				delta_time_to_live: usage.delta_time_to_live,
+				hour_time_to_live: usage.hour_time_to_live,
+				month_time_to_live: usage.month_time_to_live,
+				now: jiff::Timestamp::new(now, 0).unwrap(),
+				week_time_to_live: usage.week_time_to_live,
+			});
+			match future::try_join3(
+				clean_database_future,
+				clean_index_future,
+				clean_usage_future,
+			)
+			.await
+			{
+				Ok(((), outputs, usage_output)) => {
 					for process in outputs.iter().flat_map(|output| &output.processes) {
 						crate::checkpoint!(self, "cleaner.process.delete", process = %process)
 							.await;
 					}
-					if outputs.iter().all(|output| output.done) {
+					if usage_output.done && outputs.iter().all(|output| output.done) {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
 				},

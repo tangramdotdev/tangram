@@ -28,6 +28,7 @@ impl Session {
 	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::User> {
 		// Finish the login.
 		let current = self.clone();
+		let now = self.server.clock.unix_timestamp()?;
 		let user = self
 			.server
 			.database
@@ -60,7 +61,6 @@ impl Session {
 					}
 					let (token_id, token) = crate::token::create();
 					let token_hash = crate::token::hash(&token);
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					let p = transaction.p();
 					let statement = formatdoc!(
 						r#"

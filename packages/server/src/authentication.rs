@@ -189,7 +189,7 @@ impl Server {
 	}
 
 	fn create_authentication_token(&self, principal: token::Principal) -> tg::Result<String> {
-		let issued_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let issued_at = self.clock.unix_timestamp()?;
 		let ttl = i64::try_from(self.config.authentication.tokens.ttl.as_secs())
 			.map_err(|_| tg::error!("invalid authentication token ttl"))?;
 		let expires_at = issued_at
@@ -208,7 +208,7 @@ impl Server {
 			.private_key
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing the authentication token private key"))?;
-		let issued_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let issued_at = self.clock.unix_timestamp()?;
 		let body = token::Body {
 			expires_at,
 			issued_at,
@@ -359,7 +359,8 @@ impl Server {
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
 		let token = value.parse::<token::Token>().ok()?;
-		token.validate().ok()?;
+		let now = self.clock.unix_timestamp().ok()?;
+		token.validate_at(now).ok()?;
 		let principal = token.body.principal.clone().into();
 		let matches = match &principal {
 			tg::Principal::Process(id) => self
@@ -390,7 +391,7 @@ impl Server {
 			.authentication_tokens
 			.public_keys
 			.get(&token.metadata.key)?;
-		token.verify(public_key).ok()?;
+		token.verify_at(public_key, now).ok()?;
 
 		Some(principal)
 	}

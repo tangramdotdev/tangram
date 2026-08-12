@@ -27,6 +27,7 @@ foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
+jiff = { workspace = true }
 num = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }

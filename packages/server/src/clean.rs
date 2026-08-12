@@ -103,7 +103,7 @@ impl Session {
 			tags: 0,
 		};
 		let batch_size = self.server.config.cleaner.batch_size;
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
 		let sandbox_time_to_live = Duration::from_secs(0);
@@ -175,6 +175,28 @@ impl Session {
 			progress.increment("processes", processes);
 			progress.increment("sandboxes", sandboxes);
 			if inner_output.done {
+				break;
+			}
+		}
+
+		// Clean the usage data.
+		let usage = self.server.config.usage;
+		let now = jiff::Timestamp::new(now, 0).unwrap();
+		loop {
+			let output = self
+				.server
+				.index
+				.clean_usage(tangram_index::usage::clean::Arg {
+					batch_size,
+					day_time_to_live: usage.day_time_to_live,
+					delta_time_to_live: usage.delta_time_to_live,
+					hour_time_to_live: usage.hour_time_to_live,
+					month_time_to_live: usage.month_time_to_live,
+					now,
+					week_time_to_live: usage.week_time_to_live,
+				})
+				.await?;
+			if output.done {
 				break;
 			}
 		}

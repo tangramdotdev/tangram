@@ -307,7 +307,7 @@ impl Session {
 			let account = session
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
-			let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+			let touched_at = self.server.clock.unix_timestamp()?;
 			let index_arg = tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(
 					tangram_index::process::put::Arg {
@@ -328,7 +328,7 @@ impl Session {
 				))
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(
-						tangram_index::storage::put::ProcessArg {
+						tangram_index::usage::storage::put::ProcessArg {
 							account,
 							process: id.clone(),
 							touched_at,
@@ -354,7 +354,7 @@ impl Session {
 			})?;
 
 		let grant = if assign {
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
+			let now = session.server.clock.unix_timestamp()?;
 			session.create_process_wait_token(&id, now)?
 		} else {
 			None

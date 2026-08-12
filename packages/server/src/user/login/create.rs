@@ -60,7 +60,7 @@ impl Session {
 		}
 
 		// Get the expiration time.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let ttl = authentication.ttl.as_secs();
 		let expires_at = now + i64::try_from(ttl).unwrap_or(i64::MAX);
 
@@ -150,7 +150,7 @@ impl Session {
 			.to_owned();
 
 		// Get the expiration time.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let ttl = authentication.ttl.as_secs();
 		let expires_at = now + i64::try_from(ttl).unwrap_or(i64::MAX);
 		let interval = i64::try_from(authentication.interval.as_secs()).unwrap_or(i64::MAX);

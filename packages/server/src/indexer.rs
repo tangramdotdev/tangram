@@ -138,6 +138,24 @@ impl Server {
 			}
 		});
 
+		// Spawn the usage compaction task.
+		let usage_compaction_task = Task::spawn({
+			let config = config.clone();
+			let indexer = indexer.clone();
+			move |_| async move {
+				if !config.usage.compaction.enabled {
+					return future::pending().await;
+				}
+				indexer
+					.usage_compaction_task(
+						&config.usage.compaction,
+						config.partition_start,
+						config.partition_end,
+					)
+					.await
+			}
+		});
+
 		// Spawn the grant update task.
 		let grant_update_task = Task::spawn({
 			let config = config.clone();
@@ -178,7 +196,7 @@ impl Server {
 				indexer
 					.update_task(
 						tangram_index::update::Kind::Storage,
-						&config.updates.storage,
+						&config.usage.storage,
 						config.partition_start,
 						config.partition_end,
 					)
@@ -211,6 +229,12 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the indexer log compaction task panicked"))?
 		};
+		let usage_compaction_future = async move {
+			usage_compaction_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the usage compaction task panicked"))?
+		};
 		let grant_update_future = async move {
 			grant_update_task
 				.wait()
@@ -240,7 +264,12 @@ impl Server {
 			Ok(())
 		};
 		let queue_future = async move {
-			future::try_join(log_compaction_future, update_future).await?;
+			future::try_join3(
+				log_compaction_future,
+				update_future,
+				usage_compaction_future,
+			)
+			.await?;
 
 			Ok(())
 		};
@@ -309,6 +338,57 @@ impl Session {
 }
 
 impl Indexer {
+	async fn usage_compaction_task(
+		&self,
+		config: &crate::config::IndexerUsageCompaction,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
+		let concurrency = config.concurrency.to_u64().unwrap();
+		let partition_length = partition_end - partition_start;
+		let futures = (0..config.concurrency).filter_map(|task_index| {
+			let task_index = task_index.to_u64().unwrap();
+			let partitions_per_task = partition_length / concurrency;
+			let extra = partition_length % concurrency;
+			let task_start =
+				partition_start + task_index * partitions_per_task + task_index.min(extra);
+			let task_count = partitions_per_task + u64::from(task_index < extra);
+			let task_end = task_start + task_count;
+			(task_count > 0).then(|| self.usage_compaction_task_inner(config, task_start, task_end))
+		});
+		future::try_join_all(futures).await?;
+
+		Ok(())
+	}
+
+	async fn usage_compaction_task_inner(
+		&self,
+		config: &crate::config::IndexerUsageCompaction,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
+		loop {
+			crate::checkpoint!(self.server, "indexer.usage.compaction.batch").await;
+			let now = self.server.clock.now()?;
+			let arg = tangram_index::usage::compact::Arg {
+				batch_size: config.batch_size,
+				now,
+				partition_end,
+				partition_start,
+			};
+			match self.server.index.compact_usage(arg).await {
+				Ok(output) if output.count == 0 => {
+					tokio::time::sleep(config.poll_interval).await;
+				},
+				Ok(_) => {},
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to compact usage");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				},
+			}
+		}
+	}
+
 	async fn database_outbox_task(
 		&self,
 		config: &crate::config::Indexer,

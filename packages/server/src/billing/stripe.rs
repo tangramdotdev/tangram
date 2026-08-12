@@ -163,7 +163,7 @@ impl Stripe {
 		Ok(default_payment_method)
 	}
 
-	fn verify_webhook_signature(&self, header: &str, payload: &[u8]) -> tg::Result<()> {
+	fn verify_webhook_signature(&self, header: &str, payload: &[u8], now: i64) -> tg::Result<()> {
 		// Parse the signature header.
 		let mut signatures = Vec::new();
 		let mut timestamp = None;
@@ -190,7 +190,6 @@ impl Stripe {
 		}
 
 		// Validate the timestamp.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		if now.abs_diff(timestamp) > WEBHOOK_TOLERANCE {
 			return Err(tg::error!("the Stripe signature has expired"));
 		}
@@ -262,7 +261,8 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
-		if let Err(error) = stripe.verify_webhook_signature(&signature, &body) {
+		let now = self.server.clock.unix_timestamp()?;
+		if let Err(error) = stripe.verify_webhook_signature(&signature, &body, now) {
 			tracing::warn!(%error, "failed to verify the Stripe webhook signature");
 			return Ok(http::Response::builder()
 				.bad_request()
@@ -332,7 +332,7 @@ impl Session {
 		};
 
 		// Store the projection and event.
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let event = event.id;
 		let server = self.server.clone();
 		let batch = self

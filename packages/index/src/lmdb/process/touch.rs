@@ -90,7 +90,7 @@ impl Index {
 				if process.is_none() {
 					continue;
 				}
-				let arg = crate::storage::put::ProcessArg {
+				let arg = crate::usage::storage::put::ProcessArg {
 					account: account.clone(),
 					process: id.clone(),
 					touched_at: *touched_at,

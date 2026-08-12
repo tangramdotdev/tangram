@@ -118,7 +118,7 @@ async fn process_and_log_compaction_share_transaction() {
 			.unwrap()[0]
 			.is_some()
 	);
-	let entries = index.log_compaction_batch(1, 0, 1).await.unwrap();
+	let entries = index.log_compaction_batch(1).await.unwrap();
 	assert_eq!(entries.len(), 1);
 	assert_eq!(entries[0].process, process);
 }

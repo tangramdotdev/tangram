@@ -162,8 +162,6 @@ impl Index {
 		&self,
 		kind: crate::update::Kind,
 		batch_size: usize,
-		_partition_start: u64,
-		_partition_end: u64,
 	) -> tg::Result<crate::update::Output> {
 		let request = Request::Update(crate::lmdb::Update { batch_size, kind });
 		let response = self.send_write_request(request).await?;
@@ -253,45 +251,39 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Add(account)) => {
-					let touched_at = i64::try_from(
-						std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.map_err(|error| tg::error!(!error, "the system time is invalid"))?
-							.as_secs(),
-					)
-					.map_err(|_| tg::error!("the system time is out of range"))?;
-					match &id {
-						tg::Either::Left(object) => Self::put_account_object(
-							db,
-							subspace,
-							transaction,
-							&crate::storage::put::ObjectArg {
-								account: account.clone(),
-								object: object.clone(),
-								touched_at,
-							},
-							usage_partition_total,
-							false,
-							Some(version),
-						)?,
-						tg::Either::Right(process) => Self::put_account_process(
-							db,
-							subspace,
-							transaction,
-							&crate::storage::put::ProcessArg {
-								account: account.clone(),
-								process: process.clone(),
-								touched_at,
-							},
-							usage_partition_total,
-							false,
-							Some(version),
-						)?,
-					}
+				Kind::Storage(StorageKind::Add {
+					account,
+					touched_at,
+				}) => match &id {
+					tg::Either::Left(object) => Self::put_account_object(
+						db,
+						subspace,
+						transaction,
+						&crate::usage::storage::put::ObjectArg {
+							account: account.clone(),
+							object: object.clone(),
+							touched_at: *touched_at,
+						},
+						usage_partition_total,
+						false,
+						Some(version),
+					)?,
+					tg::Either::Right(process) => Self::put_account_process(
+						db,
+						subspace,
+						transaction,
+						&crate::usage::storage::put::ProcessArg {
+							account: account.clone(),
+							process: process.clone(),
+							touched_at: *touched_at,
+						},
+						usage_partition_total,
+						false,
+						Some(version),
+					)?,
 				},
 				Kind::Storage(
-					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate(_),
+					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
 				) => return Err(tg::error!("unsupported LMDB storage update kind")),
 			};
 

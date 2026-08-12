@@ -61,7 +61,7 @@ impl Session {
 		self.sync_get_database_update_tag_target_permissions(graph, &nodes)
 			.await?;
 		let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Sort the nodes so that parents are written before their children.
 		nodes.sort_by_key(Self::sync_get_database_node_depth);
@@ -126,7 +126,7 @@ impl Session {
 						};
 						let item = if let Ok(object) = message.target.clone().try_into() {
 							tangram_index::batch::Item::PutAccountObject(
-								tangram_index::storage::put::ObjectArg {
+								tangram_index::usage::storage::put::ObjectArg {
 									account,
 									object,
 									touched_at,
@@ -134,7 +134,7 @@ impl Session {
 							)
 						} else if let Ok(process) = message.target.clone().try_into() {
 							tangram_index::batch::Item::PutAccountProcess(
-								tangram_index::storage::put::ProcessArg {
+								tangram_index::usage::storage::put::ProcessArg {
 									account,
 									process,
 									touched_at,

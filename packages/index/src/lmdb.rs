@@ -26,11 +26,11 @@ mod request;
 mod response;
 mod runner;
 mod sandbox;
-mod storage;
 mod tag;
 #[cfg(test)]
 mod tests;
 mod update;
+mod usage;
 mod user;
 mod visible;
 mod writer;
@@ -255,11 +255,13 @@ impl Drop for Index {
 }
 
 impl crate::Index for Index {
-	async fn get_account_usage(
+	async fn get_usage(
 		&self,
 		account: &crate::usage::Account,
-	) -> tg::Result<crate::usage::Usage> {
-		self.get_account_usage(account).await
+		period: crate::usage::Period,
+		now: jiff::Timestamp,
+	) -> tg::Result<crate::usage::Aggregate> {
+		self.get_usage(account, period, now).await
 	}
 
 	async fn authorize_batch(
@@ -272,6 +274,20 @@ impl crate::Index for Index {
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {
 		self.contains_ids(ids).await
+	}
+
+	async fn clean_usage(
+		&self,
+		arg: crate::usage::clean::Arg,
+	) -> tg::Result<crate::usage::clean::Output> {
+		self.clean_usage(arg).await
+	}
+
+	async fn compact_usage(
+		&self,
+		arg: crate::usage::compact::Arg,
+	) -> tg::Result<crate::usage::compact::Output> {
+		self.compact_usage(arg).await
 	}
 
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
@@ -540,11 +556,10 @@ impl crate::Index for Index {
 	async fn log_compaction_batch(
 		&self,
 		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
+		_partition_start: u64,
+		_partition_end: u64,
 	) -> tg::Result<Vec<crate::log::Entry>> {
-		self.log_compaction_batch(batch_size, partition_start, partition_end)
-			.await
+		Index::log_compaction_batch(self, batch_size).await
 	}
 
 	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
@@ -562,10 +577,10 @@ impl crate::Index for Index {
 		&self,
 		kind: crate::update::Kind,
 		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
+		_partition_start: u64,
+		_partition_end: u64,
 	) -> tg::Result<crate::update::Output> {
-		Index::update_batch(self, kind, batch_size, partition_start, partition_end).await
+		Index::update_batch(self, kind, batch_size).await
 	}
 
 	async fn clean(&self, arg: crate::clean::Arg) -> tg::Result<crate::clean::Output> {

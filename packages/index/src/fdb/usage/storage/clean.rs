@@ -62,6 +62,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
+		now: i64,
 		partition: u64,
 		touched_at: i64,
 		partition_total: u64,
@@ -77,6 +78,7 @@ impl Index {
 			txn,
 			subspace,
 			&candidate,
+			now,
 			partition_total,
 			usage_partition_total,
 		)
@@ -89,6 +91,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
+		now: i64,
 		partition: u64,
 		touched_at: i64,
 		partition_total: u64,
@@ -104,6 +107,7 @@ impl Index {
 			txn,
 			subspace,
 			&candidate,
+			now,
 			partition_total,
 			usage_partition_total,
 		)
@@ -114,6 +118,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		candidate: &Candidate,
+		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
@@ -124,7 +129,7 @@ impl Index {
 				partition,
 				touched_at,
 			} => (
-				Key::Storage(crate::fdb::storage::Key::AccountObject {
+				Key::Usage(crate::fdb::usage::Key::AccountObject {
 					account: account.clone(),
 					object: object.clone(),
 				}),
@@ -142,7 +147,7 @@ impl Index {
 				process,
 				touched_at,
 			} => (
-				Key::Storage(crate::fdb::storage::Key::AccountProcess {
+				Key::Usage(crate::fdb::usage::Key::AccountProcess {
 					account: account.clone(),
 					process: process.clone(),
 				}),
@@ -165,7 +170,7 @@ impl Index {
 			txn.clear(&clean_key);
 			return Ok(());
 		};
-		let mut entry = crate::storage::Entry::deserialize(&value)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		if entry.touched_at != touched_at {
 			txn.clear(&clean_key);
 			return Ok(());
@@ -198,6 +203,7 @@ impl Index {
 					subspace,
 					account,
 					object,
+					now,
 					partition_total,
 					usage_partition_total,
 				)
@@ -211,6 +217,7 @@ impl Index {
 					subspace,
 					account,
 					process,
+					now,
 					partition_total,
 					usage_partition_total,
 				)
@@ -236,13 +243,13 @@ impl Index {
 		let keys = parents
 			.into_iter()
 			.map(|object| {
-				Key::Storage(crate::fdb::storage::Key::AccountObject {
+				Key::Usage(crate::fdb::usage::Key::AccountObject {
 					account: account.clone(),
 					object,
 				})
 			})
 			.chain(processes.into_iter().map(|(process, _)| {
-				Key::Storage(crate::fdb::storage::Key::AccountProcess {
+				Key::Usage(crate::fdb::usage::Key::AccountProcess {
 					account: account.clone(),
 					process,
 				})
@@ -273,7 +280,7 @@ impl Index {
 		let keys = parents
 			.into_iter()
 			.map(|process| {
-				let key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
+				let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 					account: account.clone(),
 					process,
 				});
@@ -321,26 +328,29 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
+		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Storage(crate::fdb::storage::Key::AccountObject {
+		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		let key = Key::Storage(crate::fdb::storage::Key::ObjectAccount {
+		let key = Key::Usage(crate::fdb::usage::Key::ObjectAccount {
 			account: account.clone(),
 			object: object.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::add_account_usage(
+		let usage_partition = rand::random_range(0..usage_partition_total);
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			account,
-			crate::usage::Kind::ObjectCount,
+			now,
+			crate::usage::DeltaKind::ObjectCount,
 			-1,
-			usage_partition_total,
+			usage_partition,
 		);
 		Self::enqueue_update_with_kind(
 			txn,
@@ -357,13 +367,14 @@ impl Index {
 			.ok_or_else(|| tg::error!(%object, "an object with a storage entry is missing"))?;
 		let size = i64::try_from(value.metadata.node.size)
 			.map_err(|_| tg::error!("the object size is too large"))?;
-		Self::add_account_usage(
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			account,
-			crate::usage::Kind::ObjectSize,
+			now,
+			crate::usage::DeltaKind::ObjectSize,
 			-size,
-			usage_partition_total,
+			usage_partition,
 		);
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::Object {
@@ -382,26 +393,29 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
+		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
+		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		let key = Key::Storage(crate::fdb::storage::Key::ProcessAccount {
+		let key = Key::Usage(crate::fdb::usage::Key::ProcessAccount {
 			account: account.clone(),
 			process: process.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::add_account_usage(
+		let usage_partition = rand::random_range(0..usage_partition_total);
+		Self::add_usage_delta(
 			txn,
 			subspace,
 			account,
-			crate::usage::Kind::ProcessCount,
+			now,
+			crate::usage::DeltaKind::ProcessCount,
 			-1,
-			usage_partition_total,
+			usage_partition,
 		);
 		Self::enqueue_update_with_kind(
 			txn,
@@ -434,7 +448,7 @@ impl Index {
 		object: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let entry_key = Key::Storage(crate::fdb::storage::Key::AccountObject {
+		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
@@ -445,7 +459,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = crate::storage::Entry::deserialize(&value)?;
+		let entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountObject {
 			account: account.clone(),
@@ -465,7 +479,7 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let entry_key = Key::Storage(crate::fdb::storage::Key::AccountProcess {
+		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
@@ -476,7 +490,7 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = crate::storage::Entry::deserialize(&value)?;
+		let entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountProcess {
 			account: account.clone(),

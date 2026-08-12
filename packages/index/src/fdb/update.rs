@@ -227,11 +227,7 @@ impl Index {
 		);
 		txn.set(&key, value);
 
-		let id_bytes = match &id {
-			tg::Either::Left(id) => id.to_bytes(),
-			tg::Either::Right(id) => id.to_bytes(),
-		};
-		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+		let partition = rand::random_range(0..partition_total);
 		if let Some(version) = version {
 			let key = Self::pack(
 				subspace,
@@ -452,48 +448,42 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Add(account)) => {
-					let touched_at = i64::try_from(
-						std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.map_err(|error| tg::error!(!error, "the system time is invalid"))?
-							.as_secs(),
-					)
-					.map_err(|_| tg::error!("the system time is out of range"))?;
-					match &id {
-						tg::Either::Left(object) => {
-							Self::put_account_object(
-								txn,
-								subspace,
-								&crate::storage::put::ObjectArg {
-									account: account.clone(),
-									object: object.clone(),
-									touched_at,
-								},
-								partition_total,
-								usage_partition_total,
-								false,
-								Some(&version),
-							)
-							.await?
-						},
-						tg::Either::Right(process) => {
-							Self::put_account_process(
-								txn,
-								subspace,
-								&crate::storage::put::ProcessArg {
-									account: account.clone(),
-									process: process.clone(),
-									touched_at,
-								},
-								partition_total,
-								usage_partition_total,
-								false,
-								Some(&version),
-							)
-							.await?
-						},
-					}
+				Kind::Storage(StorageKind::Add {
+					account,
+					touched_at,
+				}) => match &id {
+					tg::Either::Left(object) => {
+						Self::put_account_object(
+							txn,
+							subspace,
+							&crate::usage::storage::put::ObjectArg {
+								account: account.clone(),
+								object: object.clone(),
+								touched_at: *touched_at,
+							},
+							partition_total,
+							usage_partition_total,
+							false,
+							Some(&version),
+						)
+						.await?
+					},
+					tg::Either::Right(process) => {
+						Self::put_account_process(
+							txn,
+							subspace,
+							&crate::usage::storage::put::ProcessArg {
+								account: account.clone(),
+								process: process.clone(),
+								touched_at: *touched_at,
+							},
+							partition_total,
+							usage_partition_total,
+							false,
+							Some(&version),
+						)
+						.await?
+					},
 				},
 				Kind::Storage(StorageKind::Clean(account)) => {
 					next_cursor = Self::propagate_storage_clean(
@@ -518,7 +508,10 @@ impl Index {
 					.await?;
 					false
 				},
-				Kind::Storage(StorageKind::Propagate(account)) => {
+				Kind::Storage(StorageKind::Propagate {
+					account,
+					touched_at,
+				}) => {
 					next_cursor = Self::propagate_storage_relationships(
 						txn,
 						subspace,
@@ -526,6 +519,7 @@ impl Index {
 						account,
 						cursor.as_ref(),
 						partition_total,
+						*touched_at,
 						&version,
 					)
 					.await?;
@@ -576,6 +570,7 @@ impl Index {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn propagate_storage_relationships(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
@@ -583,11 +578,15 @@ impl Index {
 		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
+		touched_at: i64,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<Option<StorageCursor>> {
 		let (relationships, cursor) =
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
-		let kind = Kind::Storage(StorageKind::Add(account.clone()));
+		let kind = Kind::Storage(StorageKind::Add {
+			account: account.clone(),
+			touched_at,
+		});
 		for relationship in relationships {
 			let id = match relationship {
 				StorageRelationship::Object(id) => tg::Either::Left(id),
@@ -731,8 +730,8 @@ impl Index {
 			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
 				KeyKind::ObjectAccount,
 				object.to_bytes(),
-				Some(crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ObjectAccount {
+				Some(crate::fdb::Key::Usage(
+					crate::fdb::usage::Key::ObjectAccount {
 						account: account.clone(),
 						object: object.clone(),
 					},
@@ -744,8 +743,8 @@ impl Index {
 			(tg::Either::Right(process), Some(StorageCursor::ProcessAccount(account))) => (
 				KeyKind::ProcessAccount,
 				process.to_bytes(),
-				Some(crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ProcessAccount {
+				Some(crate::fdb::Key::Usage(
+					crate::fdb::usage::Key::ProcessAccount {
 						account: account.clone(),
 						process: process.clone(),
 					},
@@ -776,9 +775,9 @@ impl Index {
 		let mut accounts = entries
 			.iter()
 			.map(|entry| match Self::unpack(subspace, entry.key())? {
-				crate::fdb::Key::Storage(
-					crate::fdb::storage::Key::ObjectAccount { account, .. }
-					| crate::fdb::storage::Key::ProcessAccount { account, .. },
+				crate::fdb::Key::Usage(
+					crate::fdb::usage::Key::ObjectAccount { account, .. }
+					| crate::fdb::usage::Key::ProcessAccount { account, .. },
 				) => Ok(account),
 				_ => Err(tg::error!("unexpected key type")),
 			})
@@ -2490,11 +2489,7 @@ impl Index {
 			txn.set(&key, &value);
 		}
 
-		let id_bytes = match &id {
-			tg::Either::Left(id) => id.to_bytes(),
-			tg::Either::Right(id) => id.to_bytes(),
-		};
-		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+		let partition = rand::random_range(0..partition_total);
 		let key = Self::pack(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {

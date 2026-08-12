@@ -23,10 +23,11 @@ impl tg::handle::Organization for Handle {
 	fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, _>>(
-				self.0.try_get_organization_usage(organization),
+				self.0.try_get_organization_usage(organization, arg),
 			)
 		}
 	}

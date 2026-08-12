@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let remote = spawn --cloud --name remote --config {
 	authentication: { users: { providers: { insecure: true } } },
-	indexer: { log_compaction: { enabled: false } },
+	indexer: { log_compaction: false },
 	roles: [cleaner http indexer runner scheduler],
 }
 

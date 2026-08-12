@@ -121,6 +121,9 @@ pub struct Config {
 	)]
 	pub tracing: Option<Tracing>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub usage: Option<BoolOr<Usage>>,
+
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub v8_thread_pool_size: Option<u32>,
@@ -138,7 +141,7 @@ pub struct Config {
 	pub write: Option<Write>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum BoolOr<T> {
 	Bool(bool),
@@ -604,6 +607,9 @@ pub struct FdbIndex {
 	pub read_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub usage_partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -630,6 +636,9 @@ pub struct LmdbIndex {
 	pub read_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub usage_partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_batch_size: Option<usize>,
 }
 
@@ -638,7 +647,7 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub log_compaction: Option<IndexerLogCompaction>,
+	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
@@ -662,6 +671,9 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub updates: Option<IndexerUpdates>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub usage: Option<IndexerUsage>,
 }
 
 #[serde_as]
@@ -674,8 +686,30 @@ pub struct IndexerLogCompaction {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub enabled: Option<bool>,
+	pub poll_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUsage {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub compaction: Option<BoolOr<IndexerUsageCompaction>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<IndexerUpdate>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUsageCompaction {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -690,9 +724,6 @@ pub struct IndexerUpdates {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub nodes: Option<IndexerUpdate>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage: Option<IndexerUpdate>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1537,6 +1568,31 @@ pub struct Watch {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct Usage {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub day_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub delta_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub hour_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub month_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub week_time_to_live: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Write {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub avg_leaf_size: Option<usize>,
@@ -1906,6 +1962,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(source) = source.sync {
 		target.sync = resolve_sync(&source);
+	}
+	if let Some(source) = source.usage {
+		target.usage = resolve_usage(source)?;
 	}
 	if let Some(version) = source.version {
 		target.version = Some(version);
@@ -2331,6 +2390,9 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.read_concurrency {
 		target.read_concurrency = value;
 	}
+	if let Some(value) = source.usage_partition_total {
+		target.usage_partition_total = value;
+	}
 	if let Some(value) = source.write_batch_size {
 		target.write_batch_size = value;
 	}
@@ -2373,6 +2435,9 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	if let Some(value) = source.read_concurrency {
 		target.read_concurrency = value;
+	}
+	if let Some(value) = source.usage_partition_total {
+		target.usage_partition_total = value;
 	}
 	if let Some(value) = source.write_batch_size {
 		target.write_batch_size = value;
@@ -2443,22 +2508,31 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.updates {
 		target.updates = resolve_indexer_updates(source);
 	}
+	if let Some(source) = source.usage {
+		target.usage = resolve_indexer_usage(source);
+	}
 	target
 }
 
-fn resolve_indexer_log_compaction(source: IndexerLogCompaction) -> server::IndexerLogCompaction {
+fn resolve_indexer_log_compaction(
+	source: BoolOr<IndexerLogCompaction>,
+) -> server::IndexerLogCompaction {
 	let mut target = server::IndexerLogCompaction::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
-	if let Some(value) = source.enabled {
-		target.enabled = value;
-	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
+		}
+		if let Some(value) = source.concurrency {
+			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
 	}
 	target
 }
@@ -2471,8 +2545,39 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	if let Some(source) = source.nodes {
 		target.nodes = resolve_indexer_update(source);
 	}
+	target
+}
+
+fn resolve_indexer_usage(source: IndexerUsage) -> server::IndexerUsage {
+	let mut target = server::IndexerUsage::default();
+	if let Some(source) = source.compaction {
+		target.compaction = resolve_indexer_usage_compaction(source);
+	}
 	if let Some(source) = source.storage {
 		target.storage = resolve_indexer_update(source);
+	}
+	target
+}
+
+fn resolve_indexer_usage_compaction(
+	source: BoolOr<IndexerUsageCompaction>,
+) -> server::IndexerUsageCompaction {
+	let mut target = server::IndexerUsageCompaction::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
+		}
+		if let Some(value) = source.concurrency {
+			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
 	}
 	target
 }
@@ -3219,6 +3324,35 @@ fn resolve_sync_put_store(source: SyncPutStore) -> server::SyncPutStore {
 	target
 }
 
+fn resolve_usage(source: BoolOr<Usage>) -> tg::Result<server::Usage> {
+	let mut target = server::Usage::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.day_time_to_live {
+			target.day_time_to_live = value;
+		}
+		if let Some(value) = source.delta_time_to_live {
+			target.delta_time_to_live = value;
+		}
+		if let Some(value) = source.hour_time_to_live {
+			target.hour_time_to_live = value;
+		}
+		if let Some(value) = source.month_time_to_live {
+			target.month_time_to_live = value;
+		}
+		if let Some(value) = source.week_time_to_live {
+			target.week_time_to_live = value;
+		}
+	}
+	target.validate()?;
+
+	Ok(target)
+}
+
 fn resolve_vfs(source: Vfs) -> server::Vfs {
 	let mut target = server::Vfs::default();
 	if let Some(value) = source.io {
@@ -3319,25 +3453,48 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn parses_bool_or_configs() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"log_compaction": false,
+				"usage": { "compaction": true },
+			},
+			"usage": true,
+		}))
+		.unwrap();
+		assert!(matches!(source.usage, Some(BoolOr::Bool(true))));
+		let indexer = source.indexer.unwrap();
+		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
+		let usage = indexer.usage.unwrap();
+		assert!(matches!(usage.compaction, Some(BoolOr::Bool(true))));
+	}
+
+	#[test]
 	fn resolves_indexer_log_compaction() {
 		let source = Indexer {
-			log_compaction: Some(IndexerLogCompaction {
+			log_compaction: Some(BoolOr::Value(IndexerLogCompaction {
 				batch_size: Some(11),
 				concurrency: Some(2),
-				enabled: Some(false),
 				poll_interval: Some(Duration::from_millis(250)),
-			}),
+			})),
 			..Indexer::default()
 		};
 		let target = resolve_indexer(&source);
 
 		assert_eq!(target.log_compaction.batch_size, 11);
 		assert_eq!(target.log_compaction.concurrency, 2);
-		assert!(!target.log_compaction.enabled);
+		assert!(target.log_compaction.enabled);
 		assert_eq!(
 			target.log_compaction.poll_interval,
 			Duration::from_millis(250)
 		);
+
+		let source = Indexer {
+			log_compaction: Some(BoolOr::Bool(false)),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+		assert!(!target.log_compaction.enabled);
 	}
 
 	#[test]
@@ -3352,10 +3509,13 @@ mod tests {
 					batch_size: Some(22),
 					concurrency: Some(3),
 				}),
+			}),
+			usage: Some(IndexerUsage {
 				storage: Some(IndexerUpdate {
 					batch_size: Some(33),
 					concurrency: Some(4),
 				}),
+				..IndexerUsage::default()
 			}),
 			..Indexer::default()
 		};
@@ -3365,8 +3525,57 @@ mod tests {
 		assert_eq!(target.updates.grants.concurrency, 2);
 		assert_eq!(target.updates.nodes.batch_size, 22);
 		assert_eq!(target.updates.nodes.concurrency, 3);
-		assert_eq!(target.updates.storage.batch_size, 33);
-		assert_eq!(target.updates.storage.concurrency, 4);
+		assert_eq!(target.usage.storage.batch_size, 33);
+		assert_eq!(target.usage.storage.concurrency, 4);
+	}
+
+	#[test]
+	fn resolves_indexer_usage_compaction() {
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				compaction: Some(BoolOr::Value(IndexerUsageCompaction {
+					batch_size: Some(11),
+					concurrency: Some(2),
+					poll_interval: Some(Duration::from_millis(250)),
+				})),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+
+		assert_eq!(target.usage.compaction.batch_size, 11);
+		assert_eq!(target.usage.compaction.concurrency, 2);
+		assert!(target.usage.compaction.enabled);
+		assert_eq!(
+			target.usage.compaction.poll_interval,
+			Duration::from_millis(250)
+		);
+
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				compaction: Some(BoolOr::Bool(false)),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+		assert!(!target.usage.compaction.enabled);
+	}
+
+	#[test]
+	fn resolves_usage_partition_totals() {
+		let fdb = resolve_fdb_index(FdbIndex {
+			usage_partition_total: Some(512),
+			..FdbIndex::default()
+		});
+		let lmdb = resolve_lmdb_index(LmdbIndex {
+			usage_partition_total: Some(2),
+			..LmdbIndex::default()
+		});
+
+		assert_eq!(fdb.usage_partition_total, 512);
+		assert_eq!(lmdb.usage_partition_total, 2);
 	}
 
 	#[test]
@@ -3395,5 +3604,52 @@ mod tests {
 				.to_string()
 				.contains("the NATS username and password must be provided together")
 		);
+	}
+
+	#[test]
+	fn resolves_usage_defaults() {
+		let target = resolve_usage(BoolOr::Bool(true)).unwrap();
+
+		assert_eq!(target.day_time_to_live, Duration::from_hours(45 * 24));
+		assert_eq!(target.delta_time_to_live, Duration::from_hours(2));
+		assert!(target.enabled);
+		assert_eq!(target.hour_time_to_live, Duration::from_hours(36));
+		assert_eq!(target.month_time_to_live, Duration::from_hours(365 * 24));
+		assert_eq!(target.week_time_to_live, Duration::from_hours(6 * 7 * 24));
+
+		let target = resolve_usage(BoolOr::Bool(false)).unwrap();
+		assert!(!target.enabled);
+	}
+
+	#[test]
+	fn rejects_usage_time_to_live_below_aggregation_minimums() {
+		let cases = [
+			(
+				Usage {
+					delta_time_to_live: Some(Duration::from_mins(59)),
+					..Usage::default()
+				},
+				"the usage delta time to live must be at least one hour",
+			),
+			(
+				Usage {
+					hour_time_to_live: Some(Duration::from_hours(23)),
+					..Usage::default()
+				},
+				"the usage hour time to live must be at least 24 hours",
+			),
+			(
+				Usage {
+					day_time_to_live: Some(Duration::from_hours(31 * 24 - 1)),
+					..Usage::default()
+				},
+				"the usage day time to live must be at least 31 days",
+			),
+		];
+
+		for (source, message) in cases {
+			let error = resolve_usage(BoolOr::Value(source)).unwrap_err();
+			assert!(error.to_string().contains(message));
+		}
 	}
 }

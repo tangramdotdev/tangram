@@ -65,10 +65,10 @@ impl Session {
 			};
 			let valid = entries
 				.iter()
-				.all(|entry| crate::remote::cache::token_valid(entry.token()));
+				.all(|entry| crate::remote::cache::token_valid(entry.token(), &self.server.clock));
 			if valid || cached {
 				for entry in &mut entries {
-					if !crate::remote::cache::token_valid(entry.token()) {
+					if !crate::remote::cache::token_valid(entry.token(), &self.server.clock) {
 						entry.set_token(None);
 					}
 					set_entry_location(entry, &remote.name);

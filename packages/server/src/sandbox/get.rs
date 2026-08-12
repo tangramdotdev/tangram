@@ -301,12 +301,13 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
 			let mut output = response.output;
-			let valid = output
-				.as_ref()
-				.is_none_or(|output| crate::remote::cache::token_valid(output.token.as_ref()));
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.token.as_ref(), &self.server.clock)
+			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(output.token.as_ref()) {
+					if !crate::remote::cache::token_valid(output.token.as_ref(), &self.server.clock)
+					{
 						output.token = None;
 					}
 					set_remote_location(output, remote);

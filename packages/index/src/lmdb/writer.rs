@@ -185,6 +185,18 @@ impl Index {
 						transaction: &mut transaction,
 					})
 					.map(Response::CleanOutput),
+					Request::CleanUsage(arg) => Self::clean_usage_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&arg,
+						usage_partition_total,
+					)
+					.map(Response::CleanUsageOutput),
+					Request::CompactUsage(arg) => {
+						Self::compact_usage_with_transaction(db, subspace, &mut transaction, &arg)
+							.map(Response::CompactUsageOutput)
+					},
 					Request::CompleteLogCompaction(entry) => {
 						Self::complete_log_compaction_with_transaction(
 							db,
@@ -253,6 +265,20 @@ impl Index {
 						)
 						.map(|()| Response::Unit)
 					},
+					Request::GetUsage {
+						account,
+						now,
+						period,
+					} => Self::get_usage_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&account,
+						period,
+						now,
+						usage_partition_total,
+					)
+					.map(Response::Usage),
 					Request::PutCacheEntries(args) => Self::put_cache_entries_with_transaction(
 						db,
 						subspace,
@@ -299,10 +325,14 @@ impl Index {
 						Self::put_processes_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
-					Request::PutSandboxes(args) => {
-						Self::put_sandboxes_with_transaction(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
-					},
+					Request::PutSandboxes(args) => Self::put_sandboxes_with_transaction(
+						db,
+						subspace,
+						&mut transaction,
+						&args,
+						usage_partition_total,
+					)
+					.map(|()| Response::Unit),
 					Request::PutTags(tags) => {
 						Self::put_tags_with_transaction(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
@@ -516,6 +546,12 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
+			Request::CleanUsage(_) => {
+				Response::CleanUsageOutput(crate::usage::clean::Output::default())
+			},
+			Request::CompactUsage(_) => {
+				Response::CompactUsageOutput(crate::usage::compact::Output::default())
+			},
 			Request::Batch(_)
 			| Request::CompleteLogCompaction(_)
 			| Request::DeleteGrants(_)
@@ -538,6 +574,7 @@ impl Index {
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
+			Request::GetUsage { .. } => Response::Usage(crate::usage::Aggregate::default()),
 			Request::TouchCacheEntries(_) => Response::CacheEntries(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
 			Request::TouchProcesses(_) => Response::Processes(Vec::new()),
@@ -566,6 +603,8 @@ impl Index {
 					},
 				)
 			},
+			Request::CleanUsage(arg) => (vec![Item::CleanUsage], Kind::CleanUsage(arg)),
+			Request::CompactUsage(arg) => (vec![Item::CompactUsage], Kind::CompactUsage(arg)),
 			Request::CompleteLogCompaction(entry) => (
 				vec![Item::CompleteLogCompaction(entry)],
 				Kind::CompleteLogCompaction,
@@ -608,6 +647,18 @@ impl Index {
 			Request::EnqueueLogCompaction(process) => (
 				vec![Item::EnqueueLogCompaction(process)],
 				Kind::EnqueueLogCompaction,
+			),
+			Request::GetUsage {
+				account,
+				now,
+				period,
+			} => (
+				vec![Item::GetUsage],
+				Kind::GetUsage {
+					account,
+					now,
+					period,
+				},
 			),
 			Request::PutCacheEntries(args) => {
 				let items = args.into_iter().map(Item::PutCacheEntry).collect();
@@ -722,6 +773,20 @@ impl Index {
 				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 			}),
+			Kind::CleanUsage(arg) => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::CleanUsage] = items else {
+					unreachable!();
+				};
+				Request::CleanUsage(arg.clone())
+			},
+			Kind::CompactUsage(arg) => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::CompactUsage] = items else {
+					unreachable!();
+				};
+				Request::CompactUsage(arg.clone())
+			},
 			Kind::CompleteLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
 				let [Item::CompleteLogCompaction(entry)] = items else {
@@ -815,6 +880,21 @@ impl Index {
 					unreachable!();
 				};
 				Request::EnqueueLogCompaction(process)
+			},
+			Kind::GetUsage {
+				account,
+				now,
+				period,
+			} => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::GetUsage] = items else {
+					unreachable!();
+				};
+				Request::GetUsage {
+					account: account.clone(),
+					now: *now,
+					period: *period,
+				}
 			},
 			Kind::PutCacheEntries => {
 				let args = items
@@ -1011,8 +1091,17 @@ impl Index {
 				existing.processes.extend(new.processes);
 				existing.done = new.done;
 			},
+			(Response::CleanUsageOutput(existing), Response::CleanUsageOutput(new)) => {
+				*existing = new;
+			},
+			(Response::CompactUsageOutput(existing), Response::CompactUsageOutput(new)) => {
+				existing.count += new.count;
+			},
 			(Response::UpdateOutput(existing), Response::UpdateOutput(new)) => {
 				existing.merge(new);
+			},
+			(Response::Usage(existing), Response::Usage(new)) => {
+				*existing = new;
 			},
 			_ => {},
 		}

@@ -37,8 +37,8 @@ pub struct ReservationGuard {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Usage {
-	pub(crate) sandbox_cpu: u64,
-	pub(crate) sandbox_memory: u64,
+	pub(crate) cpu: u64,
+	pub(crate) memory: u64,
 }
 
 struct State {
@@ -185,21 +185,18 @@ impl Reservations {
 impl Allocation {
 	pub fn usage(&self, duration: Duration) -> tg::Result<Usage> {
 		let milliseconds = duration.as_nanos().div_ceil(NANOSECONDS_PER_MILLISECOND);
-		let sandbox_cpu = u128::from(self.capacity.cpus)
+		let cpu = u128::from(self.capacity.cpus)
 			.checked_mul(milliseconds)
-			.ok_or_else(|| tg::error!("the sandbox CPU usage overflowed"))?;
-		let sandbox_cpu = u64::try_from(sandbox_cpu)
-			.map_err(|_| tg::error!("the sandbox CPU usage is out of range"))?;
-		let sandbox_memory = u128::from(self.capacity.memory)
+			.ok_or_else(|| tg::error!("the compute CPU usage overflowed"))?;
+		let cpu =
+			u64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is out of range"))?;
+		let memory = u128::from(self.capacity.memory)
 			.checked_mul(milliseconds)
-			.ok_or_else(|| tg::error!("the sandbox memory usage overflowed"))?
+			.ok_or_else(|| tg::error!("the compute memory usage overflowed"))?
 			.div_ceil(BYTES_PER_MEBIBYTE);
-		let sandbox_memory = u64::try_from(sandbox_memory)
-			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
-		let usage = Usage {
-			sandbox_cpu,
-			sandbox_memory,
-		};
+		let memory = u64::try_from(memory)
+			.map_err(|_| tg::error!("the compute memory usage is out of range"))?;
+		let usage = Usage { cpu, memory };
 
 		Ok(usage)
 	}

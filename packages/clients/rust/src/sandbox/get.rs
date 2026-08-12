@@ -68,16 +68,6 @@ pub struct Output {
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub owner: Option<tg::Principal>,
 
-	/// The allocated CPU time in CPU-milliseconds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
-	pub sandbox_cpu: Option<u64>,
-
-	/// The allocated memory time in mebibyte-milliseconds.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
-	pub sandbox_memory: Option<u64>,
-
 	#[tangram_serialize(id = 10)]
 	pub status: tg::sandbox::Status,
 
@@ -93,6 +83,26 @@ pub struct Output {
 		serialize_with = "serialize_duration"
 	)]
 	pub ttl: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
+	pub usage: Option<Usage>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Usage {
+	#[tangram_serialize(id = 0)]
+	pub cpu: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub memory: u64,
 }
 
 fn deserialize_duration(

@@ -173,6 +173,7 @@ fn put_resource_grant(
 
 fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::Id) {
 	let value = crate::sandbox::Sandbox {
+		account: None,
 		created_at: 0,
 		data: None,
 		reference_count: 0,

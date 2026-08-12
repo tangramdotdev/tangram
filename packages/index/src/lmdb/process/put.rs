@@ -265,8 +265,8 @@ impl Index {
 				crate::lmdb::update::Source::Put,
 				None,
 			)?;
-			Self::enqueue_account_process_from_parents(db, subspace, transaction, id)?;
-			Self::enqueue_account_process_relationships(db, subspace, transaction, id)?;
+			Self::enqueue_account_process_from_parents(db, subspace, transaction, id, touched_at)?;
+			Self::enqueue_account_process_relationships(db, subspace, transaction, id, touched_at)?;
 		}
 
 		Ok(())

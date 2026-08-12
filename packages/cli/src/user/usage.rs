@@ -5,6 +5,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub period: crate::usage::PeriodArgs,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -17,7 +20,7 @@ impl Cli {
 			.ok_or_else(|| tg::error!("not logged in"))?;
 		let selector = tg::user::Selector::Id(user.id);
 		let usage = client
-			.try_get_user_usage(&selector)
+			.try_get_user_usage(&selector, args.period.into())
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the user"))?;
 		self.print_serde(usage, args.print).await?;

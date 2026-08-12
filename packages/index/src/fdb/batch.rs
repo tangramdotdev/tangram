@@ -181,6 +181,7 @@ impl Index {
 						subspace,
 						std::slice::from_ref(arg),
 						partition_total,
+						usage_partition_total,
 					)
 					.await?;
 				},

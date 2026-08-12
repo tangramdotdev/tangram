@@ -63,6 +63,7 @@ im = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
+jiff = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
 notify = { workspace = true }

@@ -58,10 +58,10 @@ pub enum Item {
 	PutOrganizationMember(crate::organization::member::put::Arg),
 
 	#[tangram_serialize(id = 20)]
-	PutAccountObject(crate::storage::put::ObjectArg),
+	PutAccountObject(crate::usage::storage::put::ObjectArg),
 
 	#[tangram_serialize(id = 21)]
-	PutAccountProcess(crate::storage::put::ProcessArg),
+	PutAccountProcess(crate::usage::storage::put::ProcessArg),
 
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
@@ -118,11 +118,13 @@ mod tests {
 				ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
 			})),
 			owner: Some(tg::Principal::Root),
-			sandbox_cpu: Some(123),
-			sandbox_memory: Some(456),
 			status: tg::sandbox::Status::Destroyed,
 			token: None,
 			ttl: Some(std::time::Duration::new(60, 123)),
+			usage: Some(tg::sandbox::get::Usage {
+				cpu: 123,
+				memory: 456,
+			}),
 		};
 		let arg = Arg {
 			items: vec![
@@ -160,6 +162,7 @@ mod tests {
 					organization,
 				}),
 				Item::PutSandbox(crate::sandbox::put::Arg {
+					account: None,
 					created_at: 1,
 					data: Some(data),
 					id: sandbox,
@@ -186,9 +189,9 @@ mod tests {
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
 		assert_eq!(data.cpu, Some(2));
-		assert_eq!(data.sandbox_cpu, Some(123));
-		assert_eq!(data.sandbox_memory, Some(456));
 		assert_eq!(data.ttl, Some(std::time::Duration::new(60, 123)));
+		assert_eq!(data.usage.as_ref().unwrap().cpu, 123);
+		assert_eq!(data.usage.as_ref().unwrap().memory, 456);
 		assert_eq!(data.network.as_ref().unwrap().ports().len(), 1);
 	}
 }

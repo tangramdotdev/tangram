@@ -40,7 +40,7 @@ impl Session {
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
 		// Get the touch time.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Create the destination.
 		let destination = if self.server.config.advanced.single_directory {
@@ -525,7 +525,7 @@ impl Session {
 				)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountObject(
-						tangram_index::storage::put::ObjectArg {
+						tangram_index::usage::storage::put::ObjectArg {
 							account,
 							object: root_object,
 							touched_at,

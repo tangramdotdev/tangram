@@ -93,7 +93,7 @@ impl Index {
 				std::iter::zip(ids, &processes)
 					.filter(|(_, process)| process.is_some())
 					.map(|(id, _)| {
-						let arg = crate::storage::put::ProcessArg {
+						let arg = crate::usage::storage::put::ProcessArg {
 							account: account.clone(),
 							process: id.clone(),
 							touched_at: *touched_at,

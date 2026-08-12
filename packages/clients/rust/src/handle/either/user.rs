@@ -77,10 +77,11 @@ where
 	fn try_get_user_usage(
 		&self,
 		user: &tg::user::Selector,
+		arg: tg::usage::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::usage::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_user_usage(user).left_future(),
-			tg::Either::Right(s) => s.try_get_user_usage(user).right_future(),
+			tg::Either::Left(s) => s.try_get_user_usage(user, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_user_usage(user, arg).right_future(),
 		}
 	}
 

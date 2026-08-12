@@ -15,7 +15,7 @@ impl Session {
 		_arg: tg::runner::token::create::Arg,
 	) -> tg::Result<tg::runner::token::create::Output> {
 		self.get_authorized_runner(runner).await?;
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let (id, token) = crate::token::create();
 		let token_hash = crate::token::hash(&token);
 		let runner = runner.clone();

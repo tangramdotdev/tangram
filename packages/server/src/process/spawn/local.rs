@@ -323,7 +323,7 @@ impl Session {
 		}
 
 		let id = tg::process::Id::new();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let token = self.create_process_wait_token(&id, now)?;
 		let process_token = self
 			.server

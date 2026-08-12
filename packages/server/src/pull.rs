@@ -44,7 +44,7 @@ impl Session {
 	}
 
 	async fn pull_nodes_stored(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let object_ids = arg
 			.nodes
 			.iter()

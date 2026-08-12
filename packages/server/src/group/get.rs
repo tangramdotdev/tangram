@@ -102,12 +102,13 @@ impl Session {
 			if let Some(group) = &mut output {
 				group.token = group.token.take().or_else(|| token.clone());
 			}
-			let valid = output
-				.as_ref()
-				.is_none_or(|group| crate::remote::cache::token_valid(group.token.as_ref()));
+			let valid = output.as_ref().is_none_or(|group| {
+				crate::remote::cache::token_valid(group.token.as_ref(), &self.server.clock)
+			});
 			if valid || cached {
 				if let Some(group) = &mut output {
-					if !crate::remote::cache::token_valid(group.token.as_ref()) {
+					if !crate::remote::cache::token_valid(group.token.as_ref(), &self.server.clock)
+					{
 						group.token = None;
 					}
 					group.location = Some(tg::Location::Remote(remote));

@@ -130,12 +130,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
 		{
 			let mut output = response.output;
-			let valid = output
-				.as_ref()
-				.is_none_or(|output| crate::remote::cache::token_valid(output.referent.token()));
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.referent.token(), &self.server.clock)
+			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(output.referent.token()) {
+					if !crate::remote::cache::token_valid(
+						output.referent.token(),
+						&self.server.clock,
+					) {
 						output.referent.options.token = None;
 					}
 					let region = match output.location.as_ref() {

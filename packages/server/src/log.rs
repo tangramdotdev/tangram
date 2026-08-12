@@ -191,7 +191,7 @@ impl Session {
 						sandbox: Some(data.sandbox.clone()),
 						stored: indexed.stored,
 						time_to_touch: self.server.config.process.time_to_touch,
-						touched_at: time::OffsetDateTime::now_utc().unix_timestamp(),
+						touched_at: self.server.clock.unix_timestamp()?,
 					},
 				)],
 			})

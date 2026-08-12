@@ -17,7 +17,6 @@ pub mod organization;
 pub mod process;
 mod read;
 pub mod sandbox;
-pub mod storage;
 pub mod tag;
 pub mod update;
 pub mod usage;
@@ -61,6 +60,16 @@ pub trait Index {
 	}
 
 	fn contains_ids(&self, ids: &[tg::Id]) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
+
+	fn clean_usage(
+		&self,
+		arg: crate::usage::clean::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::clean::Output>> + Send;
+
+	fn compact_usage(
+		&self,
+		arg: crate::usage::compact::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::compact::Output>> + Send;
 
 	fn visible(
 		&self,
@@ -127,10 +136,12 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn get_account_usage(
+	fn get_usage(
 		&self,
 		account: &crate::usage::Account,
-	) -> impl Future<Output = tg::Result<crate::usage::Usage>> + Send;
+		period: crate::usage::Period,
+		now: jiff::Timestamp,
+	) -> impl Future<Output = tg::Result<crate::usage::Aggregate>> + Send;
 
 	fn touch_cache_entries(
 		&self,

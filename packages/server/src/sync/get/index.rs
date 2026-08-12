@@ -73,7 +73,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get stored and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
@@ -175,7 +175,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get stored and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,
@@ -328,7 +328,7 @@ impl Session {
 			let storage_roots = graph.remote_roots.iter().cloned().collect::<Vec<_>>();
 			(args.0, args.1, args.2, storage_roots)
 		};
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Index the objects, processes, and sandboxes.
 		let arg = tangram_index::batch::Arg {
@@ -355,7 +355,7 @@ impl Session {
 					storage_roots.iter().filter_map(move |id| match id.kind() {
 						tg::id::Kind::Process => {
 							Some(tangram_index::batch::Item::PutAccountProcess(
-								tangram_index::storage::put::ProcessArg {
+								tangram_index::usage::storage::put::ProcessArg {
 									account: account.clone(),
 									process: id.clone().try_into().unwrap(),
 									touched_at,
@@ -364,7 +364,7 @@ impl Session {
 						},
 						_ => tg::object::Id::try_from(id.clone()).ok().map(|object| {
 							tangram_index::batch::Item::PutAccountObject(
-								tangram_index::storage::put::ObjectArg {
+								tangram_index::usage::storage::put::ObjectArg {
 									account: account.clone(),
 									object,
 									touched_at,
@@ -409,10 +409,14 @@ impl Session {
 		}
 
 		// Create the sandbox and grant args.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let mut put_grant_args = Vec::new();
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
+			let account = match message.data.owner.as_ref() {
+				Some(owner) => self.usage_account(owner).await?,
+				None => None,
+			};
 			let existing = self
 				.try_get_sandbox_from_index(&message.id)
 				.await?
@@ -431,6 +435,7 @@ impl Session {
 				put_grant_args.push(arg);
 			}
 			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
+				account,
 				created_at: message.created_at,
 				data: Some(message.data),
 				id: message.id,
@@ -1046,7 +1051,7 @@ impl Session {
 			}
 		}
 
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Create the grant args.
 		let mut put_grant_args = Vec::new();

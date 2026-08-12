@@ -943,7 +943,7 @@ impl Session {
 		process_state.data.children.get_or_insert_default();
 		process_state.data.error = error;
 		process_state.data.exit = Some(exit);
-		process_state.data.finished_at = Some(time::OffsetDateTime::now_utc().unix_timestamp());
+		process_state.data.finished_at = Some(self.server.clock.unix_timestamp()?);
 		process_state.data.output = value;
 		process_state.data.status = tg::process::Status::Finished;
 		let child_leases = std::mem::take(&mut process_state.child_leases);
@@ -1003,7 +1003,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
 
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 		let expires_at = now + time_to_live;

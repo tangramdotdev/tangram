@@ -2,7 +2,9 @@ use {
 	crate::Session,
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::Index as _,
 };
 
@@ -10,7 +12,11 @@ impl Session {
 	pub(crate) async fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
+		if !self.server.config.usage.enabled {
+			return Err(tg::error!("usage tracking is disabled"));
+		}
 		let permission = tg::grant::Permission::Organization(
 			tg::grant::permission::organization::Permission::Admin,
 		);
@@ -41,15 +47,23 @@ impl Session {
 		let Some(id) = id else {
 			return Ok(None);
 		};
-		let usage = self
+		let now = self.server.clock.now()?;
+		let period = arg.period(now)?;
+		let aggregate = self
 			.server
 			.index
-			.get_account_usage(&tg::usage::Account::Organization(id))
+			.get_usage(&tg::usage::Account::Organization(id.clone()), period, now)
 			.await?;
 		let output = tg::usage::Output {
-			object_count: usage.object_count,
-			object_size: usage.object_size,
-			process_count: usage.process_count,
+			account: id.into(),
+			complete: period.end() <= now,
+			object_count: aggregate.object_count,
+			object_size: aggregate.object_size,
+			period: period.range(),
+			process_count: aggregate.process_count,
+			sandbox_count: aggregate.sandbox_count,
+			sandbox_cpu: aggregate.sandbox_cpu,
+			sandbox_memory: aggregate.sandbox_memory,
 		};
 
 		Ok(Some(output))
@@ -57,11 +71,16 @@ impl Session {
 
 	pub(crate) async fn try_get_organization_usage_request(
 		&self,
-		_request: http::Request<BoxBody>,
+		request: http::Request<BoxBody>,
 		organization: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
 		let organization = organization.replace(':', "/").parse()?;
-		let Some(output) = self.try_get_organization_usage(&organization).await? else {
+		let Some(output) = self.try_get_organization_usage(&organization, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

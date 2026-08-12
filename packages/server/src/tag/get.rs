@@ -120,12 +120,12 @@ impl Session {
 			if let Some(tag) = &mut output {
 				tag.token = tag.token.take().or_else(|| token.clone());
 			}
-			let valid = output
-				.as_ref()
-				.is_none_or(|tag| crate::remote::cache::token_valid(tag.token.as_ref()));
+			let valid = output.as_ref().is_none_or(|tag| {
+				crate::remote::cache::token_valid(tag.token.as_ref(), &self.server.clock)
+			});
 			if valid || cached {
 				if let Some(tag) = &mut output {
-					if !crate::remote::cache::token_valid(tag.token.as_ref()) {
+					if !crate::remote::cache::token_valid(tag.token.as_ref(), &self.server.clock) {
 						tag.token = None;
 					}
 					tag.location = Some(tg::Location::Remote(remote));

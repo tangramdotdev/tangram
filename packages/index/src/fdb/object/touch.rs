@@ -64,7 +64,7 @@ impl Index {
 				std::iter::zip(ids, &objects)
 					.filter(|(_, object)| object.is_some())
 					.map(|(id, _)| {
-						let arg = crate::storage::put::ObjectArg {
+						let arg = crate::usage::storage::put::ObjectArg {
 							account: account.clone(),
 							object: id.clone(),
 							touched_at,

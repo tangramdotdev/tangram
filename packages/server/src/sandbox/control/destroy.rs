@@ -15,8 +15,13 @@ impl Session {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));
 		}
 
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let account = match arg.data.owner.as_ref() {
+			Some(owner) => self.usage_account(owner).await?,
+			None => None,
+		};
+		let now = self.server.clock.unix_timestamp()?;
 		let put_sandbox = tangram_index::sandbox::put::Arg {
+			account,
 			created_at,
 			data: Some(arg.data),
 			id: id.clone(),

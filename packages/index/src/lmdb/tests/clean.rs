@@ -32,7 +32,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 1,
 			}),
-			crate::batch::Item::PutAccountObject(crate::storage::put::ObjectArg {
+			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {
 				account,
 				object,
 				touched_at: 1,

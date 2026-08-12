@@ -119,7 +119,7 @@ impl Session {
 		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
 			return Ok(None);
 		};
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 		let expires_at = created_at

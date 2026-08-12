@@ -176,6 +176,7 @@ impl Session {
 		let progress = crate::progress::Handle::new();
 
 		// Spawn the task.
+		let now = self.server.clock.unix_timestamp()?;
 		let path = arg.path.clone();
 		let task = Task::spawn({
 			let session = self.clone();
@@ -236,7 +237,6 @@ impl Session {
 
 				// Create and send the output.
 				let mut options = tg::referent::Options::with_path(path);
-				let now = time::OffsetDateTime::now_utc().unix_timestamp();
 				let expires_at = now
 					+ session
 						.server
@@ -326,7 +326,7 @@ impl Session {
 	}
 
 	fn create_artifact_token(&self, id: &tg::artifact::Id) -> tg::Result<Option<tg::grant::Token>> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let expires_at = now
 			+ self
 				.server
@@ -528,7 +528,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to get reference path edges"))?;
 
 		// Set the touch time.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Create the output collections.
 		let mut store_args = IndexMap::default();
@@ -633,7 +633,7 @@ impl Session {
 			index_arg
 				.items
 				.push(tangram_index::batch::Item::PutAccountObject(
-					tangram_index::storage::put::ObjectArg {
+					tangram_index::usage::storage::put::ObjectArg {
 						account,
 						object,
 						touched_at,

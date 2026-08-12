@@ -108,7 +108,7 @@ impl Session {
 			error_grants_subtree,
 			output_grants_subtree,
 		} = authorization;
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
 		arg.data = arg.data.without_tokens();
@@ -207,7 +207,7 @@ impl Session {
 					)
 					.chain(account.map(|account| {
 						tangram_index::batch::Item::PutAccountProcess(
-							tangram_index::storage::put::ProcessArg {
+							tangram_index::usage::storage::put::ProcessArg {
 								account,
 								process: id.clone(),
 								touched_at: now,

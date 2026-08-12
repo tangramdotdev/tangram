@@ -15,7 +15,7 @@ impl Session {
 	) -> tg::Result<tg::user::token::create::Output> {
 		let user = self.authenticated_user()?.clone();
 		let (id, token) = crate::token::create();
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let token_hash = crate::token::hash(&token);
 		self.server
 			.database

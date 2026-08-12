@@ -2,9 +2,10 @@ use ../../test.nu *
 
 # A tag is billed to an organization that is created in the same sync transaction.
 
-let destination = spawn --cloud --name destination
+let destination = spawn --cloud --name destination --config { usage: true }
 let source = spawn --name source --config {
 	remotes: { default: { url: $destination.url } },
+	usage: true,
 }
 let organization = tg --url $source.url organization create acme | from json
 let object = tg --url $source.url put 'tg.file("hello")' | str trim

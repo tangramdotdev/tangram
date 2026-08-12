@@ -135,7 +135,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the objects, then get stored and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
@@ -295,7 +295,7 @@ impl Session {
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
 		// Authorize and touch the processes, then get stored and metadata.
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,

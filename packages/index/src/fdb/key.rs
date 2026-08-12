@@ -17,9 +17,9 @@ pub enum Key {
 	Process(crate::fdb::process::Key),
 	Runner(crate::fdb::runner::Key),
 	Sandbox(crate::fdb::sandbox::Key),
-	Storage(crate::fdb::storage::Key),
 	Tag(crate::fdb::tag::Key),
 	Update(crate::fdb::update::Key),
+	Usage(crate::fdb::usage::Key),
 	User(crate::fdb::user::Key),
 }
 
@@ -70,7 +70,9 @@ pub enum Kind {
 	ObjectAccount = 52,
 	AccountProcess = 53,
 	ProcessAccount = 54,
-	AccountUsage = 55,
+	UsageAggregate = 55,
+	UsageDelta = 56,
+	UsageCompaction = 57,
 	GrantUpdate = 58,
 	GrantUpdateVersion = 59,
 	NodeUpdate = 60,
@@ -86,41 +88,66 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::Storage(crate::fdb::storage::Key::AccountObject { account, object }) => (
+			Key::Usage(crate::fdb::usage::Key::AccountObject { account, object }) => (
 				Kind::AccountObject.to_i32().unwrap(),
 				account.id().to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Storage(crate::fdb::storage::Key::ObjectAccount { account, object }) => (
+			Key::Usage(crate::fdb::usage::Key::ObjectAccount { account, object }) => (
 				Kind::ObjectAccount.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
 				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Storage(crate::fdb::storage::Key::AccountProcess { account, process }) => (
+			Key::Usage(crate::fdb::usage::Key::AccountProcess { account, process }) => (
 				Kind::AccountProcess.to_i32().unwrap(),
 				account.id().to_bytes().as_ref(),
 				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Storage(crate::fdb::storage::Key::ProcessAccount { account, process }) => (
+			Key::Usage(crate::fdb::usage::Key::ProcessAccount { account, process }) => (
 				Kind::ProcessAccount.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
 				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Storage(crate::fdb::storage::Key::AccountUsage {
+			Key::Usage(crate::fdb::usage::Key::Aggregate {
 				account,
+				partition,
+				period,
+			}) => (
+				Kind::UsageAggregate.to_i32().unwrap(),
+				partition,
+				i32::from(period.kind() as u8),
+				period.start().as_second(),
+				account.id().to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::Usage(crate::fdb::usage::Key::Compaction {
+				account,
+				hour,
+				partition,
+			}) => (
+				Kind::UsageCompaction.to_i32().unwrap(),
+				partition,
+				hour,
+				account.id().to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::Usage(crate::fdb::usage::Key::Delta {
+				account,
+				hour,
 				kind,
 				partition,
 			}) => (
-				Kind::AccountUsage.to_i32().unwrap(),
+				Kind::UsageDelta.to_i32().unwrap(),
+				partition,
+				hour,
 				account.id().to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
-				partition,
 			)
 				.pack(w, tuple_depth),
 
@@ -587,7 +614,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let object = tg::object::Id::from_slice(&object)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::AccountObject { account, object });
+				let key = Key::Usage(crate::fdb::usage::Key::AccountObject { account, object });
 				Ok((input, key))
 			},
 			Kind::ObjectAccount => {
@@ -599,7 +626,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::ObjectAccount { account, object });
+				let key = Key::Usage(crate::fdb::usage::Key::ObjectAccount { account, object });
 				Ok((input, key))
 			},
 
@@ -612,8 +639,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let process = tg::process::Id::from_slice(&process)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key =
-					Key::Storage(crate::fdb::storage::Key::AccountProcess { account, process });
+				let key = Key::Usage(crate::fdb::usage::Key::AccountProcess { account, process });
 				Ok((input, key))
 			},
 			Kind::ProcessAccount => {
@@ -625,24 +651,64 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let key =
-					Key::Storage(crate::fdb::storage::Key::ProcessAccount { account, process });
+				let key = Key::Usage(crate::fdb::usage::Key::ProcessAccount { account, process });
 				Ok((input, key))
 			},
 
-			Kind::AccountUsage => {
-				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, storage_kind): (_, i32) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::UsageAggregate => {
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, period_kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, start): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let account = tg::Id::from_slice(&account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let kind = crate::usage::Kind::from_i32(storage_kind)
-					.ok_or_else(|| fdbt::PackError::Message("invalid storage kind".into()))?;
-				let key = Key::Storage(crate::fdb::storage::Key::AccountUsage {
+				let kind = match period_kind {
+					0 => crate::usage::PeriodKind::Day,
+					1 => crate::usage::PeriodKind::Hour,
+					2 => crate::usage::PeriodKind::Month,
+					3 => crate::usage::PeriodKind::Week,
+					_ => return Err(fdbt::PackError::Message("invalid usage period kind".into())),
+				};
+				let period = crate::usage::Period::from_kind_and_start(kind, start)
+					.map_err(|_| fdbt::PackError::Message("invalid usage period".into()))?;
+				let key = Key::Usage(crate::fdb::usage::Key::Aggregate {
 					account,
+					partition,
+					period,
+				});
+				Ok((input, key))
+			},
+			Kind::UsageCompaction => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, hour): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+					account,
+					hour,
+					partition,
+				});
+				Ok((input, key))
+			},
+			Kind::UsageDelta => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, hour): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, delta_kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let kind = crate::usage::DeltaKind::from_i32(delta_kind)
+					.ok_or_else(|| fdbt::PackError::Message("invalid usage delta kind".into()))?;
+				let key = Key::Usage(crate::fdb::usage::Key::Delta {
+					account,
+					hour,
 					kind,
 					partition,
 				});
@@ -1451,9 +1517,13 @@ fn pack_update_kind<W: std::io::Write>(
 		crate::fdb::update::Kind::Grant(principal) => principal.to_string().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Node => ().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Storage(kind) => match kind {
-			crate::fdb::update::StorageKind::Add(account) => {
+			crate::fdb::update::StorageKind::Add {
+				account,
+				touched_at,
+			} => {
 				let mut offset = 0i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
 			},
 			crate::fdb::update::StorageKind::Clean(account) => {
@@ -1462,9 +1532,13 @@ fn pack_update_kind<W: std::io::Write>(
 				Ok(offset)
 			},
 			crate::fdb::update::StorageKind::CleanAll => 2i32.pack(w, tuple_depth),
-			crate::fdb::update::StorageKind::Propagate(account) => {
+			crate::fdb::update::StorageKind::Propagate {
+				account,
+				touched_at,
+			} => {
 				let mut offset = 3i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
 			},
 		},
@@ -1488,20 +1562,36 @@ fn unpack_update_kind(
 		crate::update::Kind::Storage => {
 			let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let (input, kind) = match kind {
-				0 | 1 | 3 => {
+				0 | 3 => {
 					let (input, account): (_, Vec<u8>) =
+						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+					let (input, touched_at): (_, i64) =
 						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 					let account = tg::Id::from_slice(&account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let account = crate::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let kind = match kind {
-						0 => crate::fdb::update::StorageKind::Add(account),
-						1 => crate::fdb::update::StorageKind::Clean(account),
-						3 => crate::fdb::update::StorageKind::Propagate(account),
+						0 => crate::fdb::update::StorageKind::Add {
+							account,
+							touched_at,
+						},
+						3 => crate::fdb::update::StorageKind::Propagate {
+							account,
+							touched_at,
+						},
 						_ => unreachable!(),
 					};
 					(input, kind)
+				},
+				1 => {
+					let (input, account): (_, Vec<u8>) =
+						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+					let account = tg::Id::from_slice(&account)
+						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+					let account = crate::usage::Account::try_from(account)
+						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+					(input, crate::fdb::update::StorageKind::Clean(account))
 				},
 				2 => (input, crate::fdb::update::StorageKind::CleanAll),
 				_ => {

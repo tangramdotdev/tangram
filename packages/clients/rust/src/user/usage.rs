@@ -8,9 +8,15 @@ impl tg::Session {
 	pub async fn try_get_user_usage(
 		&self,
 		user: &tg::user::Selector,
+		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
 		let path = format!("/users/{}/usage", user.to_string().replace('/', ":"));
-		let uri = Uri::builder().path(&path).build().unwrap();
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params_strict(&arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)

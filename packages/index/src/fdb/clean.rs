@@ -1,6 +1,4 @@
 mod key;
-mod storage;
-
 pub(super) use key::{ItemKind, Key};
 
 use {
@@ -225,6 +223,7 @@ impl Index {
 						subspace,
 						account,
 						object,
+						now,
 						candidate.partition,
 						candidate.touched_at,
 						partition_total,
@@ -239,6 +238,7 @@ impl Index {
 						subspace,
 						account,
 						process,
+						now,
 						candidate.partition,
 						candidate.touched_at,
 						partition_total,

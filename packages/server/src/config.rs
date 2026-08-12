@@ -59,6 +59,8 @@ pub struct Config {
 
 	pub sync: Sync,
 
+	pub usage: Usage,
+
 	pub version: Option<String>,
 
 	pub vfs: Option<Vfs>,
@@ -439,6 +441,8 @@ pub struct Indexer {
 	pub poll_interval: Duration,
 
 	pub updates: IndexerUpdates,
+
+	pub usage: IndexerUsage,
 }
 
 #[derive(Clone, Debug)]
@@ -453,12 +457,28 @@ pub struct IndexerLogCompaction {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct IndexerUsage {
+	pub compaction: IndexerUsageCompaction,
+
+	pub storage: IndexerUpdate,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerUsageCompaction {
+	pub batch_size: usize,
+
+	pub concurrency: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct IndexerUpdates {
 	pub grants: IndexerUpdate,
 
 	pub nodes: IndexerUpdate,
-
-	pub storage: IndexerUpdate,
 }
 
 #[derive(Clone, Debug)]
@@ -955,6 +975,21 @@ pub struct SyncPutStore {
 	pub process_concurrency: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct Usage {
+	pub day_time_to_live: Duration,
+
+	pub delta_time_to_live: Duration,
+
+	pub enabled: bool,
+
+	pub hour_time_to_live: Duration,
+
+	pub month_time_to_live: Duration,
+
+	pub week_time_to_live: Duration,
+}
+
 #[derive(Clone, Debug)]
 pub struct Vfs {
 	/// The macOS app group identifier.
@@ -1056,6 +1091,7 @@ impl Default for Config {
 			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
+			usage: Usage::default(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
@@ -1234,7 +1270,7 @@ impl Default for FdbIndex {
 			prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 64,
-			usage_partition_total: 1,
+			usage_partition_total: 256,
 			write_batch_size: 8_000,
 			write_concurrency: 256,
 		}
@@ -1266,11 +1302,23 @@ impl Default for Indexer {
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
 			updates: IndexerUpdates::default(),
+			usage: IndexerUsage::default(),
 		}
 	}
 }
 
 impl Default for IndexerLogCompaction {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			concurrency: 1,
+			enabled: true,
+			poll_interval: Duration::from_millis(100),
+		}
+	}
+}
+
+impl Default for IndexerUsageCompaction {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
@@ -1604,6 +1652,42 @@ impl Default for SyncPutStore {
 			process_batch_size: 16,
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
+		}
+	}
+}
+
+impl Usage {
+	pub fn validate(&self) -> tg::Result<()> {
+		// Retain each input kind for at least one complete parent period.
+		if self.delta_time_to_live < Duration::from_hours(1) {
+			return Err(tg::error!(
+				"the usage delta time to live must be at least one hour"
+			));
+		}
+		if self.hour_time_to_live < Duration::from_hours(24) {
+			return Err(tg::error!(
+				"the usage hour time to live must be at least 24 hours"
+			));
+		}
+		if self.day_time_to_live < Duration::from_hours(31 * 24) {
+			return Err(tg::error!(
+				"the usage day time to live must be at least 31 days"
+			));
+		}
+
+		Ok(())
+	}
+}
+
+impl Default for Usage {
+	fn default() -> Self {
+		Self {
+			day_time_to_live: Duration::from_hours(45 * 24),
+			delta_time_to_live: Duration::from_hours(2),
+			enabled: false,
+			hour_time_to_live: Duration::from_hours(36),
+			month_time_to_live: Duration::from_hours(365 * 24),
+			week_time_to_live: Duration::from_hours(6 * 7 * 24),
 		}
 	}
 }

@@ -159,10 +159,14 @@ export namespace Sandbox {
 			mounts?: Array<tg.Sandbox.Mount.Data>;
 			network?: tg.Sandbox.Network.Data | null;
 			owner?: string | null;
-			sandbox_cpu?: number | null;
-			sandbox_memory?: number | null;
 			status: tg.Sandbox.Status;
 			ttl?: number | null;
+			usage?: Usage | null;
+		};
+
+		export type Usage = {
+			cpu: number;
+			memory: number;
 		};
 	}
 

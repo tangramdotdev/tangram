@@ -50,11 +50,6 @@ impl Token {
 		Ok(token)
 	}
 
-	pub fn verify(&self, public_key: &tg::grant::PublicKey) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		self.verify_at(public_key, now)
-	}
-
 	pub fn verify_at(&self, public_key: &tg::grant::PublicKey, now: i64) -> tg::Result<()> {
 		if self.metadata.algorithm != public_key.algorithm {
 			return Err(tg::error!("invalid algorithm"));
@@ -83,8 +78,7 @@ impl Token {
 		value.starts_with(&format!("{DOMAIN}.{VERSION}."))
 	}
 
-	pub fn validate(&self) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+	pub fn validate_at(&self, now: i64) -> tg::Result<()> {
 		self.body.validate_at(now)
 	}
 

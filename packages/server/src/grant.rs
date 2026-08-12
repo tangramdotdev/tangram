@@ -145,7 +145,7 @@ impl Session {
 		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the principal"))?;
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}

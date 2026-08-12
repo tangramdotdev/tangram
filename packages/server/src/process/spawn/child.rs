@@ -92,7 +92,7 @@ impl Session {
 		sandbox: Option<&tg::sandbox::Id>,
 		parent_data: Option<tg::process::Data>,
 	) -> tg::Result<()> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let parent_arg = parent_data.map(|parent_data| {
 			let parent_data = parent_data.without_tokens();
 			tangram_index::process::put::Arg {
@@ -134,7 +134,7 @@ impl Session {
 		items.push(tangram_index::batch::Item::PutProcess(child_arg));
 		if let Some(account) = account {
 			items.push(tangram_index::batch::Item::PutAccountProcess(
-				tangram_index::storage::put::ProcessArg {
+				tangram_index::usage::storage::put::ProcessArg {
 					account,
 					process: child.clone(),
 					touched_at: now,

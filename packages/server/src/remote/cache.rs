@@ -4,7 +4,6 @@ use {
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	time::OffsetDateTime,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -156,7 +155,7 @@ impl Session {
 		let Some(entry) = self.try_get_remote_cache(remote, request).await? else {
 			return Ok(None);
 		};
-		let now = OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let age = u64::try_from((now - entry.timestamp).max(0))
 			.map(Duration::from_secs)
 			.map_err(|error| tg::error!(!error, "invalid remote cache age"))?;
@@ -177,7 +176,7 @@ impl Session {
 		request: &Request,
 		response: &Response,
 	) -> tg::Result<()> {
-		let timestamp = OffsetDateTime::now_utc().unix_timestamp();
+		let timestamp = self.server.clock.unix_timestamp()?;
 		self.put_remote_cache(remote, request, response, timestamp)
 			.await
 	}
@@ -313,8 +312,10 @@ impl Request {
 	}
 }
 
-pub(crate) fn token_valid(token: Option<&tg::grant::Token>) -> bool {
+pub(crate) fn token_valid(token: Option<&tg::grant::Token>, clock: &crate::clock::Clock) -> bool {
 	token.is_none_or(|token| {
-		token.body.expires_at > time::OffsetDateTime::now_utc().unix_timestamp()
+		clock
+			.unix_timestamp()
+			.is_ok_and(|now| token.body.expires_at > now)
 	})
 }

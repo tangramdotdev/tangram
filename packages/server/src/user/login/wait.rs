@@ -48,7 +48,7 @@ impl Session {
 					expires_at,
 					interval,
 				} => {
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
+					let now = self.server.clock.unix_timestamp()?;
 					if now > expires_at {
 						return Err(tg::error!("the login has expired"));
 					}
@@ -99,7 +99,7 @@ impl Session {
 		};
 
 		// Check the expiration time.
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		if now > row.expires_at {
 			return Err(tg::error!("the login has expired"));
 		}

@@ -21,9 +21,10 @@ impl tg::handle::Organization for Server {
 	async fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
 		self.session(&self.context)
-			.try_get_organization_usage(organization)
+			.try_get_organization_usage(organization, arg)
 			.await
 	}
 

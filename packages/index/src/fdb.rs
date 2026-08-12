@@ -26,9 +26,9 @@ mod request;
 mod response;
 mod runner;
 mod sandbox;
-mod storage;
 mod tag;
 mod update;
+mod usage;
 mod user;
 mod visible;
 mod writer;
@@ -235,11 +235,13 @@ impl Index {
 }
 
 impl crate::Index for Index {
-	async fn get_account_usage(
+	async fn get_usage(
 		&self,
 		account: &crate::usage::Account,
-	) -> tg::Result<crate::usage::Usage> {
-		self.get_account_usage(account).await
+		period: crate::usage::Period,
+		now: jiff::Timestamp,
+	) -> tg::Result<crate::usage::Aggregate> {
+		self.get_usage(account, period, now).await
 	}
 
 	async fn authorize_batch(
@@ -252,6 +254,20 @@ impl crate::Index for Index {
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {
 		self.contains_ids(ids).await
+	}
+
+	async fn clean_usage(
+		&self,
+		arg: crate::usage::clean::Arg,
+	) -> tg::Result<crate::usage::clean::Output> {
+		self.clean_usage(arg).await
+	}
+
+	async fn compact_usage(
+		&self,
+		arg: crate::usage::compact::Arg,
+	) -> tg::Result<crate::usage::compact::Output> {
+		self.compact_usage(arg).await
 	}
 
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {

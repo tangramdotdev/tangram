@@ -275,7 +275,7 @@ impl Session {
 			arg: arg.clone(),
 			expected_id: expected_id.clone(),
 		});
-		let created_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let created_at = self.server.clock.unix_timestamp()?;
 		let data = tg::sandbox::control::Data {
 			arg: arg.clone(),
 			creator: creator.clone(),
@@ -361,11 +361,10 @@ impl Session {
 			mounts: arg.mounts,
 			network: arg.network,
 			owner: arg.owner,
-			sandbox_cpu: None,
-			sandbox_memory: None,
 			status: tg::sandbox::Status::Started,
 			token: None,
 			ttl: arg.ttl,
+			usage: None,
 		};
 		let context = Context {
 			principal: tg::Principal::Sandbox(id.clone()),
@@ -1041,8 +1040,10 @@ impl Session {
 			.sandboxes
 			.get_mut_by_id(&id)
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-		state.data.sandbox_cpu = Some(usage.sandbox_cpu);
-		state.data.sandbox_memory = Some(usage.sandbox_memory);
+		state.data.usage = Some(tg::sandbox::get::Usage {
+			cpu: usage.cpu,
+			memory: usage.memory,
+		});
 		drop(state);
 
 		// Stop and await the serve task.

@@ -42,7 +42,7 @@ impl Session {
 
 		// Create the state.
 		let state = crate::user::login::create_token();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 
 		// Update the login.
 		self.server
@@ -206,6 +206,7 @@ impl Session {
 			code: String,
 			expires_at: i64,
 		}
+		let now = self.server.clock.unix_timestamp()?;
 		let (code, claimed) = self
 			.server
 			.database
@@ -225,7 +226,6 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
 						.ok_or_else(|| tg::error!("invalid login state"))?;
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					if now > row.expires_at {
 						return Err(tg::error!("the login has expired").into());
 					}
@@ -351,7 +351,7 @@ impl Session {
 					.join(",")
 			})
 			.unwrap_or_default();
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let expires_at = token
 			.expires_in()
 			.map(|duration| now + i64::try_from(duration.as_secs()).unwrap_or(i64::MAX));
@@ -424,6 +424,7 @@ impl Session {
 
 	async fn finish_login_with_error(&self, code: &str, error: String) -> tg::Result<()> {
 		// Fail the login.
+		let now = self.server.clock.unix_timestamp()?;
 		self.server
 			.database
 			.run(|transaction| {
@@ -438,7 +439,6 @@ impl Session {
 							where code = {p}3 and status = 'started';
 						"
 					);
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					transaction
 						.execute(statement.into(), db::params![error, now, code])
 						.await
@@ -453,13 +453,13 @@ impl Session {
 
 	async fn upsert_github_identity(&self, identity: GithubIdentity) -> tg::Result<()> {
 		// Upsert the GitHub identity.
+		let now = self.server.clock.unix_timestamp()?;
 		self.server
 			.database
 			.run(|transaction| {
 				let identity = identity.clone();
 				async move {
 					let p = transaction.p();
-					let now = time::OffsetDateTime::now_utc().unix_timestamp();
 					let statement = formatdoc!(
 						r#"
 							insert into github_identities (

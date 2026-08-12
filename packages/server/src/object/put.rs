@@ -38,7 +38,7 @@ impl Session {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let now = self.server.clock.unix_timestamp()?;
 		let grant_expires_at = now
 			+ self
 				.server
@@ -142,7 +142,7 @@ impl Session {
 				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountObject(
-						tangram_index::storage::put::ObjectArg {
+						tangram_index::usage::storage::put::ObjectArg {
 							account,
 							object: id.clone(),
 							touched_at: now,
