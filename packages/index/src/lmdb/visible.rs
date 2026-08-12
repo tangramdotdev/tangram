@@ -6,15 +6,15 @@ use {
 };
 
 impl Index {
-	pub async fn get_requester_principals(
+	pub async fn get_requester_subjects(
 		&self,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tg::grant::Principal>> {
-		let request = crate::read::Request::GetRequesterPrincipals {
+	) -> tg::Result<Vec<tg::authorization::Subject>> {
+		let request = crate::read::Request::GetRequesterSubjects {
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
-		let crate::read::Response::GetRequesterPrincipals(output) = response else {
+		let crate::read::Response::GetRequesterSubjects(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
@@ -51,18 +51,18 @@ impl Index {
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
-		let principals =
-			Self::requester_principals_with_transaction(db, subspace, transaction, principal)?;
+		let subjects =
+			Self::requester_subjects_with_transaction(db, subspace, transaction, principal)?;
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut visible = false;
-			for principal in &principals {
+			for subject in &subjects {
 				if Self::try_get_visibility_with_transaction(
 					db,
 					subspace,
 					transaction,
 					id,
-					principal,
+					subject,
 				)? {
 					visible = true;
 					break;
@@ -74,15 +74,15 @@ impl Index {
 		Ok(output)
 	}
 
-	pub(crate) fn requester_principals_with_transaction(
+	pub(crate) fn requester_subjects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tg::grant::Principal>> {
-		let mut principals = vec![tg::grant::Principal::Public];
+	) -> tg::Result<Vec<tg::authorization::Subject>> {
+		let mut subjects = vec![tg::authorization::Subject::Public];
 		if !matches!(principal, tg::Principal::Anonymous) {
-			principals.push(principal.try_to_grant_principal()?);
+			subjects.push(principal.try_to_subject()?);
 		}
 		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
@@ -103,7 +103,7 @@ impl Index {
 				for group in groups {
 					let id = tg::Id::from(group.clone());
 					if visited.insert(id.clone()) {
-						principals.push(tg::grant::Principal::Group(group));
+						subjects.push(tg::authorization::Subject::Group(group));
 						queue.push_back(id);
 					}
 				}
@@ -116,12 +116,12 @@ impl Index {
 				for organization in organizations {
 					let id = tg::Id::from(organization.clone());
 					if visited.insert(id.clone()) {
-						principals.push(tg::grant::Principal::Organization(organization));
+						subjects.push(tg::authorization::Subject::Organization(organization));
 						queue.push_back(id);
 					}
 				}
 			}
 		}
-		Ok(principals)
+		Ok(subjects)
 	}
 }

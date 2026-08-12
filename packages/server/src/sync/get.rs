@@ -225,15 +225,15 @@ impl Session {
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
 		let permission = Self::admin_permission_for_resource(id)?;
-		let permissions = tg::grant::permission::Set::from_permission(permission);
-		let principal = self.context.principal.try_to_grant_principal()?;
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
+		let subject = self.context.principal.try_to_subject()?;
 		let arg = tangram_index::grant::put::Arg {
 			created_at,
 			creator: Some(self.context.principal.clone()),
 			expires_at: Some(expires_at),
 			permissions,
-			principal,
 			resource: id.clone(),
+			subject,
 			time_to_touch: Some(self.server.config.sync.grant_time_to_touch),
 		};
 
@@ -248,7 +248,7 @@ impl Session {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
 		Vec<Option<tangram_index::object::Object>>,
-		Vec<Option<tg::grant::permission::Set>>,
+		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
 		let mut permissions = self.sync_get_authorize_objects(graph, ids).await?;
 		let mut touch_indices = Vec::new();
@@ -280,15 +280,15 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
 		let required = Self::sync_get_object_permissions();
 		self.sync_get_authorize(graph, ids.iter().cloned().map(tg::Id::from), required)
 			.await
 	}
 
-	fn sync_get_object_permissions() -> tg::grant::permission::Set {
-		tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
-			tg::grant::permission::object::Permission::Subtree,
+	fn sync_get_object_permissions() -> tg::authorization::permission::Set {
+		tg::authorization::permission::Set::from_permission(tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
 		))
 	}
 
@@ -301,7 +301,7 @@ impl Session {
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<(
 		Vec<Option<tangram_index::process::Process>>,
-		Vec<Option<tg::grant::permission::Set>>,
+		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
 		let mut permissions = self.sync_get_authorize_processes(graph, ids, arg).await?;
 		let mut touch_indices = Vec::new();
@@ -334,7 +334,7 @@ impl Session {
 		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
 		let Some(required) = Self::sync_get_process_permissions(arg) else {
 			return Ok(vec![None; ids.len()]);
 		};
@@ -343,40 +343,43 @@ impl Session {
 			.await
 	}
 
-	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> Option<tg::grant::permission::Set> {
-		let mut permissions =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+	fn sync_get_process_permissions(
+		arg: &tg::sync::Arg,
+	) -> Option<tg::authorization::permission::Set> {
+		let mut permissions = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::empty(),
+		);
 		let mut insert = |permission| {
-			permissions.insert(tg::grant::permission::Set::from_permission(
-				tg::grant::Permission::Process(permission),
+			permissions.insert(tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Process(permission),
 			));
 		};
 		if arg.process_children {
-			insert(tg::grant::permission::process::Permission::Subtree);
+			insert(tg::authorization::permission::process::Permission::Subtree);
 			if arg.process_commands {
-				insert(tg::grant::permission::process::Permission::SubtreeCommand);
+				insert(tg::authorization::permission::process::Permission::SubtreeCommand);
 			}
 			if arg.process_errors {
-				insert(tg::grant::permission::process::Permission::SubtreeError);
+				insert(tg::authorization::permission::process::Permission::SubtreeError);
 			}
 			if arg.process_logs {
-				insert(tg::grant::permission::process::Permission::SubtreeLog);
+				insert(tg::authorization::permission::process::Permission::SubtreeLog);
 			}
 			if arg.process_outputs {
-				insert(tg::grant::permission::process::Permission::SubtreeOutput);
+				insert(tg::authorization::permission::process::Permission::SubtreeOutput);
 			}
 		} else {
 			if arg.process_commands {
-				insert(tg::grant::permission::process::Permission::NodeCommand);
+				insert(tg::authorization::permission::process::Permission::NodeCommand);
 			}
 			if arg.process_errors {
-				insert(tg::grant::permission::process::Permission::NodeError);
+				insert(tg::authorization::permission::process::Permission::NodeError);
 			}
 			if arg.process_logs {
-				insert(tg::grant::permission::process::Permission::NodeLog);
+				insert(tg::authorization::permission::process::Permission::NodeLog);
 			}
 			if arg.process_outputs {
-				insert(tg::grant::permission::process::Permission::NodeOutput);
+				insert(tg::authorization::permission::process::Permission::NodeOutput);
 			}
 		}
 		(!permissions.is_empty()).then_some(permissions)
@@ -386,12 +389,12 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		ids: impl IntoIterator<Item = tg::Id>,
-		required: tg::grant::permission::Set,
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>> {
+		required: tg::authorization::permission::Set,
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
 		let ids = ids.into_iter().collect::<Vec<_>>();
 
 		// Collect the nodes whose permissions cannot be proven by the graph.
-		let mut args = Vec::<(tg::Referent<tg::Id>, tg::grant::permission::Set)>::new();
+		let mut args = Vec::<(tg::Referent<tg::Id>, tg::authorization::permission::Set)>::new();
 		let mut positions = Vec::new();
 		let mut outputs = vec![None; ids.len()];
 		{

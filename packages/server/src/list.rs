@@ -132,7 +132,7 @@ impl Session {
 				true
 			} else {
 				let permission = Self::read_permission_for_resource(&id)?;
-				self.authorize(tg::grant::Resource::Id(id.clone()), permission)
+				self.authorize(tg::Selector::Id(id.clone()), permission)
 					.await?
 					.is_some_and(|permissions| permissions.contains(permission))
 			};
@@ -392,8 +392,8 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 		users: arg.users,
 	};
 	let parent = arg.parent.as_ref().and_then(|parent| match parent {
-		tg::grant::Resource::Id(id) => Some(id.clone()),
-		tg::grant::Resource::Specifier(specifier) => entries
+		tg::Selector::Id(id) => Some(id.clone()),
+		tg::Selector::Specifier(specifier) => entries
 			.iter()
 			.find(|entry| entry.specifier() == specifier)
 			.map(tg::list::Entry::id),

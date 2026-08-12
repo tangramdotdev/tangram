@@ -595,19 +595,19 @@ impl Session {
 			vec![]
 		};
 
-		// Grant the principal subtree read access to the blob, since it produced the entire blob.
+		// Grant the subject subtree read access to the blob, since it produced the entire blob.
 		let put_grant_args = principal
 			.map(|principal| tangram_index::grant::put::Arg {
 				created_at: touched_at,
 				creator: Some(principal.clone()),
 				expires_at: Some(grant_expires_at),
-				permissions: tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				permissions: tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				)
 				.into(),
-				principal: principal
-					.try_to_grant_principal()
-					.expect("expected the principal to be valid as a grant principal"),
+				subject: principal
+					.try_to_subject()
+					.expect("expected the principal to be a valid authorization subject"),
 				resource: tg::object::Id::from(blob.id.clone()).into(),
 				time_to_touch: Some(grant_time_to_touch),
 			})

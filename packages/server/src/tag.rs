@@ -72,25 +72,25 @@ impl Session {
 	pub(crate) async fn recorded_tag_target_permissions(
 		&self,
 		target: &tg::tag::data::Target,
-	) -> tg::Result<Vec<tg::grant::Permission>> {
-		let (resource, aspects): (tg::Id, Vec<tg::grant::Permission>) = match target {
+	) -> tg::Result<Vec<tg::authorization::Permission>> {
+		let (resource, aspects): (tg::Id, Vec<tg::authorization::Permission>) = match target {
 			tg::tag::data::Target::Object(id) => (
 				id.clone().into(),
-				vec![tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Node,
+				vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Node,
 				)],
 			),
 			tg::tag::data::Target::Process(id) => (
 				id.clone().into(),
 				[
-					tg::grant::permission::process::Permission::Node,
-					tg::grant::permission::process::Permission::NodeCommand,
-					tg::grant::permission::process::Permission::NodeError,
-					tg::grant::permission::process::Permission::NodeLog,
-					tg::grant::permission::process::Permission::NodeOutput,
+					tg::authorization::permission::process::Permission::Node,
+					tg::authorization::permission::process::Permission::NodeCommand,
+					tg::authorization::permission::process::Permission::NodeError,
+					tg::authorization::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::NodeOutput,
 				]
 				.into_iter()
-				.map(tg::grant::Permission::Process)
+				.map(tg::authorization::Permission::Process)
 				.collect(),
 			),
 		};
@@ -98,14 +98,14 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Root) {
 			return Ok(aspects
 				.into_iter()
-				.map(tg::grant::Permission::subtree)
+				.map(tg::authorization::Permission::subtree)
 				.collect());
 		}
 		// For each aspect, record the strongest permission the principal has, trying the subtree variant before the node variant.
 		let mut permissions = Vec::new();
 		for aspect in aspects {
 			for permission in [aspect.subtree(), aspect] {
-				let resource = tg::grant::Resource::Id(resource.clone());
+				let resource = tg::Selector::Id(resource.clone());
 				if self
 					.authorize(resource, permission)
 					.await?

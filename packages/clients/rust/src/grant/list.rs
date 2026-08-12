@@ -10,10 +10,10 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub principal: Option<tg::principal::Selector>,
+	pub resource: Option<tg::Selector<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub resource: Option<tg::grant::Resource>,
+	pub subject: Option<tg::authorization::subject::Selector>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

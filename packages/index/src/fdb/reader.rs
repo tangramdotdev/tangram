@@ -148,11 +148,11 @@ impl Index {
 			crate::read::Request::LmdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected LMDB read request"));
 			},
-			crate::read::Request::GetRequesterPrincipals { principal } => {
+			crate::read::Request::GetRequesterSubjects { principal } => {
 				let output =
-					Self::requester_principals_with_transaction(transaction, subspace, &principal)
+					Self::requester_subjects_with_transaction(transaction, subspace, &principal)
 						.await?;
-				crate::read::Response::GetRequesterPrincipals(output)
+				crate::read::Response::GetRequesterSubjects(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output =

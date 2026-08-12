@@ -28,8 +28,9 @@ impl Session {
 
 	async fn sync_put_sandbox_node(&self, state: &State, node: Node) -> tg::Result<()> {
 		// Authorize the sandbox.
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Read,
+		);
 		let resource = tg::Referent::with_node_and_token(node.id.clone(), node.token.clone());
 		let authorized = self
 			.authorize(resource, permission)

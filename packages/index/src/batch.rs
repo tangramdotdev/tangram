@@ -131,10 +131,10 @@ mod tests {
 				Item::DeleteGrant(crate::grant::delete::Arg {
 					creator: Some(tg::Principal::Root),
 					expires_at: None,
-					permissions: tg::grant::permission::Set::Group(
-						tg::grant::permission::group::Set::READ,
+					permissions: tg::authorization::permission::Set::Group(
+						tg::authorization::permission::group::Set::READ,
 					),
-					principal: tg::grant::Principal::Root,
+					subject: tg::authorization::Subject::Root,
 					resource: group.clone().into(),
 				}),
 				Item::DeleteGroup(group.clone()),
@@ -146,10 +146,10 @@ mod tests {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
 					expires_at: None,
-					permissions: tg::grant::permission::Set::Group(
-						tg::grant::permission::group::Set::READ,
+					permissions: tg::authorization::permission::Set::Group(
+						tg::authorization::permission::group::Set::READ,
 					),
-					principal: tg::grant::Principal::Root,
+					subject: tg::authorization::Subject::Root,
 					resource: group.clone().into(),
 					time_to_touch: Some(std::time::Duration::new(30, 456)),
 				}),

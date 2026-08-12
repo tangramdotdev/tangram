@@ -16,7 +16,7 @@ pub enum Key {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
-	Grant(tg::grant::Principal),
+	Grant(tg::authorization::Subject),
 	Node,
 	Storage(StorageKind),
 }

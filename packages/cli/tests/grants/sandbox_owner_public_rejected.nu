@@ -10,6 +10,6 @@ let create = tg --token $alice.token sandbox create --owner public --no-network 
 failure $create "a sandbox must not be created with a public owner"
 snapshot --normalize $create.stderr '
 	error an error occurred
-	-> invalid sandbox owner
+	-> failed to resolve the sandbox owner
 
 '

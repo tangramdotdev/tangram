@@ -40,7 +40,7 @@ impl Index {
 						creator: arg.creator.as_ref(),
 						expires_at: arg.expires_at,
 						permission,
-						principal: &arg.principal,
+						subject: &arg.subject,
 						resource: &arg.resource,
 					},
 					source,
@@ -52,7 +52,7 @@ impl Index {
 						txn,
 						subspace,
 						&arg.resource,
-						&arg.principal,
+						&arg.subject,
 						permission,
 						partition_total,
 					);
@@ -72,13 +72,13 @@ impl Index {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
-			principal: entry.principal.clone(),
+			subject: entry.subject.clone(),
 			creator: entry.creator.cloned(),
 			permission: entry.permission,
 		}))
 		.chain(std::iter::once(Key::Grant(
-			crate::fdb::grant::Key::PrincipalGrant {
-				principal: entry.principal.clone(),
+			crate::fdb::grant::Key::SubjectGrant {
+				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
@@ -120,7 +120,7 @@ impl Index {
 		for id in Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await? {
 			let key = Key::Grant(crate::fdb::grant::Key::Visibility {
 				resource: id,
-				principal: entry.principal.clone(),
+				subject: entry.subject.clone(),
 				grant_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,

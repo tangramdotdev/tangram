@@ -19,7 +19,7 @@ pub(crate) enum Request {
 		partition_end: u64,
 		partition_start: u64,
 	},
-	GetRequesterPrincipals {
+	GetRequesterSubjects {
 		principal: tg::Principal,
 	},
 	GetRunnerSandboxes {
@@ -90,7 +90,7 @@ pub(crate) enum Response {
 	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
 	ContainsIds(Vec<bool>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
-	GetRequesterPrincipals(Vec<tg::grant::Principal>),
+	GetRequesterSubjects(Vec<tg::authorization::Subject>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),

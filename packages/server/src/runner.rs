@@ -119,13 +119,21 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let owner = Self::resolve_principal_with_transaction(&transaction, owner)
+		let owner = match owner {
+			tg::principal::Selector::Principal(principal) => {
+				tg::authorization::subject::Selector::Subject(principal.try_to_subject()?)
+			},
+			tg::principal::Selector::Specifier(specifier) => {
+				tg::authorization::subject::Selector::Specifier(specifier.clone())
+			},
+		};
+		let owner = Self::resolve_subject_with_transaction(&transaction, &owner)
 			.await?
 			.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
 		let owner = match owner {
-			tg::grant::Principal::Group(id) => tg::Principal::Group(id),
-			tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
-			tg::grant::Principal::User(id) => tg::Principal::User(id),
+			tg::authorization::Subject::Group(id) => tg::Principal::Group(id),
+			tg::authorization::Subject::Organization(id) => tg::Principal::Organization(id),
+			tg::authorization::Subject::User(id) => tg::Principal::User(id),
 			_ => return Err(tg::error!("invalid runner owner")),
 		};
 

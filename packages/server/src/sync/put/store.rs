@@ -131,10 +131,11 @@ impl Session {
 			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
-				let required =
-					tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
-					));
+				let required = tg::authorization::permission::Set::from_permission(
+					tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					),
+				);
 				let permissions = state
 					.graph
 					.lock()
@@ -240,10 +241,10 @@ impl Session {
 
 			// Compact the log if needed before sending the process data.
 			if node.descendants && state.arg.process_logs && output.data.log.is_none() {
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::NodeLog,
+				let permission = tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::NodeLog,
 				);
-				let required = tg::grant::permission::Set::from_permission(permission);
+				let required = tg::authorization::permission::Set::from_permission(permission);
 				let permissions = state
 					.graph
 					.lock()
@@ -289,8 +290,9 @@ impl Session {
 			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
-				let required =
-					tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+				let required = tg::authorization::permission::Set::Process(
+					tg::authorization::permission::process::Set::all(),
+				);
 				let permissions = state
 					.graph
 					.lock()

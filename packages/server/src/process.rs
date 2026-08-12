@@ -46,25 +46,25 @@ impl Session {
 	pub(crate) fn process_permission_for_data(
 		&self,
 		data: &tg::process::Data,
-	) -> tg::grant::permission::process::Set {
-		let mut permissions = tg::grant::permission::process::Set::NODE;
+	) -> tg::authorization::permission::process::Set {
+		let mut permissions = tg::authorization::permission::process::Set::NODE;
 		if self.process_children_grant_subtree(data.children.as_deref().unwrap_or_default()) {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		}
 		if self
 			.process_output_grants_subtree(data.output.as_ref())
 			.unwrap_or(true)
 		{
-			permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
 		}
 		if self.process_error_grants_subtree(data.error.as_ref()) {
-			permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
 		}
 		if self.process_log_grants_subtree(data.log.as_ref()) {
-			permissions.insert(tg::grant::permission::process::Set::NODE_LOG);
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
 		}
 		permissions
 	}
@@ -79,9 +79,10 @@ impl Session {
 		let Some(token) = process.options.tokens.local() else {
 			return false;
 		};
-		let resource = tg::grant::Resource::Id(process.node.clone().into());
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
+		let resource = tg::Selector::Id(process.node.clone().into());
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Subtree,
+		);
 		self.authorize_token(&resource, permission.into(), token)
 	}
 
@@ -183,9 +184,10 @@ impl Session {
 		let Some(token) = object.options.tokens.local() else {
 			return false;
 		};
-		let resource = tg::grant::Resource::Id(object.node.clone().into());
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let resource = tg::Selector::Id(object.node.clone().into());
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		self.authorize_token(&resource, permission.into(), token)
 	}
 }

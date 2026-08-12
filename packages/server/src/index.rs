@@ -271,15 +271,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_requester_principals(
+	async fn get_requester_subjects(
 		&self,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tg::grant::Principal>> {
+	) -> tg::Result<Vec<tg::authorization::Subject>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_requester_principals(principal).await,
+			Self::Fdb(index) => index.get_requester_subjects(principal).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_requester_principals(principal).await,
+			Self::Lmdb(index) => index.get_requester_subjects(principal).await,
 		}
 	}
 

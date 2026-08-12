@@ -415,23 +415,23 @@ impl Index {
 			let mut next_cursor = None;
 
 			let changed = match &kind {
-				Kind::Grant(principal) => match &id {
+				Kind::Grant(subject) => match &id {
 					tg::Either::Left(id) => {
-						Self::update_object_grants_for_principal(
+						Self::update_object_grants_for_subject(
 							txn,
 							subspace,
 							id,
-							principal,
+							subject,
 							partition_total,
 						)
 						.await?
 					},
 					tg::Either::Right(id) => {
-						Self::update_process_grants_for_principal(
+						Self::update_process_grants_for_subject(
 							txn,
 							subspace,
 							id,
-							principal,
+							subject,
 							partition_total,
 						)
 						.await?
@@ -1182,32 +1182,35 @@ impl Index {
 		Ok(changed)
 	}
 
-	async fn update_object_grants_for_principal(
+	async fn update_object_grants_for_subject(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 		partition_total: u64,
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
-		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
-			txn, subspace, &resource, principal,
+		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+			txn, subspace, &resource, subject,
 		)
 		.await?;
 		let child_entries = future::try_join_all(children.iter().map(|child| {
 			let resource = tg::Id::from(child.clone());
 			async move {
-				Self::get_resource_grant_entries_for_principal_with_transaction(
-					txn, subspace, &resource, principal,
+				Self::get_resource_grant_entries_for_subject_with_transaction(
+					txn, subspace, &resource, subject,
 				)
 				.await
 			}
 		}))
 		.await?;
-		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
-		let subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		let mut expected = BTreeSet::new();
 		for entry in entries.iter().filter(|entry| entry.permission == node) {
 			let Some(entry_expires_at) = entry.effective_expires_at() else {
@@ -1216,15 +1219,14 @@ impl Index {
 			let expires_at = child_entries
 				.iter()
 				.try_fold(entry_expires_at, |output, entries| {
-					Self::grant_entries_cover_expires_at(entries, &entry.principal, subtree)
+					Self::grant_entries_cover_expires_at(entries, &entry.subject, subtree)
 						.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
-				if Self::has_non_materialized_cover(&entries, &entry.principal, subtree, expires_at)
-				{
+				if Self::has_non_materialized_cover(&entries, &entry.subject, subtree, expires_at) {
 					continue;
 				}
-				expected.insert((entry.principal.clone(), subtree, expires_at));
+				expected.insert((entry.subject.clone(), subtree, expires_at));
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
@@ -1245,8 +1247,12 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		entries: &[crate::fdb::grant::GrantEntry],
-		expected: &BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
-		managed: &BTreeSet<tg::grant::Permission>,
+		expected: &BTreeSet<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			Option<i64>,
+		)>,
+		managed: &BTreeSet<tg::authorization::Permission>,
 		partition_total: u64,
 	) -> tg::Result<bool> {
 		let mut changed = false;
@@ -1256,10 +1262,10 @@ impl Index {
 			.filter_map(|entry| {
 				entry
 					.materialized
-					.map(|expires_at| (entry.principal.clone(), entry.permission, expires_at))
+					.map(|expires_at| (entry.subject.clone(), entry.permission, expires_at))
 			})
 			.collect::<BTreeSet<_>>();
-		for (principal, permission, expires_at) in current.difference(expected) {
+		for (subject, permission, expires_at) in current.difference(expected) {
 			if Self::delete_grant_index_entry(
 				txn,
 				subspace,
@@ -1267,7 +1273,7 @@ impl Index {
 					creator: None,
 					expires_at: *expires_at,
 					permission: *permission,
-					principal,
+					subject,
 					resource,
 				},
 				crate::fdb::grant::GrantSource::Materialized,
@@ -1278,7 +1284,7 @@ impl Index {
 				changed = true;
 			}
 		}
-		for (principal, permission, expires_at) in expected.difference(&current) {
+		for (subject, permission, expires_at) in expected.difference(&current) {
 			if Self::put_grant_index_entry(
 				txn,
 				subspace,
@@ -1286,7 +1292,7 @@ impl Index {
 					creator: None,
 					expires_at: *expires_at,
 					permission: *permission,
-					principal,
+					subject,
 					resource,
 				},
 				crate::fdb::grant::GrantSource::Materialized,
@@ -1307,29 +1313,38 @@ impl Index {
 		input: &ProcessGrantInputs<'_>,
 		partition_total: u64,
 	) -> tg::Result<bool> {
-		let object_subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-		let node_command =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeCommand);
-		let node_error =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeError);
-		let node_log =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeLog);
-		let node_output =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::NodeOutput);
-		let subtree =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
-		let subtree_command = tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeCommand,
+		let object_subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
 		);
-		let subtree_error = tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeError,
+		let node = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
 		);
-		let subtree_log =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::SubtreeLog);
-		let subtree_output = tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeOutput,
+		let node_command = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeCommand,
+		);
+		let node_error = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeError,
+		);
+		let node_log = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeLog,
+		);
+		let node_output = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeOutput,
+		);
+		let subtree = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Subtree,
+		);
+		let subtree_command = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeCommand,
+		);
+		let subtree_error = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeError,
+		);
+		let subtree_log = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeLog,
+		);
+		let subtree_output = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeOutput,
 		);
 
 		let mut expected = BTreeSet::new();
@@ -1405,19 +1420,19 @@ impl Index {
 						.child_entries
 						.iter()
 						.try_fold(entry_expires_at, |output, entries| {
-							Self::grant_entries_cover_expires_at(entries, &entry.principal, target)
+							Self::grant_entries_cover_expires_at(entries, &entry.subject, target)
 								.map(|cover| Self::min_expires_at(output, cover.expires_at))
 						});
 				if let Some(expires_at) = expires_at {
 					if Self::has_non_materialized_cover(
 						input.entries,
-						&entry.principal,
+						&entry.subject,
 						target,
 						expires_at,
 					) {
 						continue;
 					}
-					expected.insert((entry.principal.clone(), target, expires_at));
+					expected.insert((entry.subject.clone(), target, expires_at));
 				}
 			}
 		}
@@ -1445,11 +1460,11 @@ impl Index {
 		.await
 	}
 
-	async fn update_process_grants_for_principal(
+	async fn update_process_grants_for_subject(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 		partition_total: u64,
 	) -> tg::Result<bool> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
@@ -1463,16 +1478,16 @@ impl Index {
 		};
 		let process = crate::process::Process::deserialize(&bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
-			txn, subspace, &resource, principal,
+		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+			txn, subspace, &resource, subject,
 		)
 		.await?;
 		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
 		let child_entries = future::try_join_all(children.iter().map(|child| {
 			let resource = tg::Id::from(child.clone());
 			async move {
-				Self::get_resource_grant_entries_for_principal_with_transaction(
-					txn, subspace, &resource, principal,
+				Self::get_resource_grant_entries_for_subject_with_transaction(
+					txn, subspace, &resource, subject,
 				)
 				.await
 			}
@@ -1485,8 +1500,8 @@ impl Index {
 		let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
-			let entries = Self::get_resource_grant_entries_for_principal_with_transaction(
-				txn, subspace, &resource, principal,
+			let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
 			)
 			.await?;
 			match kind {
@@ -1526,12 +1541,16 @@ impl Index {
 	}
 
 	fn insert_object_aspect_grants<'a>(
-		expected: &mut BTreeSet<(tg::grant::Principal, tg::grant::Permission, Option<i64>)>,
+		expected: &mut BTreeSet<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			Option<i64>,
+		)>,
 		target_entries: &[crate::fdb::grant::GrantEntry],
 		sources: impl IntoIterator<Item = &'a crate::fdb::grant::GrantEntry>,
 		required: &[&[crate::fdb::grant::GrantEntry]],
-		source_permission: tg::grant::Permission,
-		target_permission: tg::grant::Permission,
+		source_permission: tg::authorization::Permission,
+		target_permission: tg::authorization::Permission,
 	) {
 		for entry in sources
 			.into_iter()
@@ -1543,35 +1562,31 @@ impl Index {
 			let expires_at = required
 				.iter()
 				.try_fold(entry_expires_at, |output, entries| {
-					Self::grant_entries_cover_expires_at(
-						entries,
-						&entry.principal,
-						source_permission,
-					)
-					.map(|cover| Self::min_expires_at(output, cover.expires_at))
+					Self::grant_entries_cover_expires_at(entries, &entry.subject, source_permission)
+						.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
 				if Self::has_non_materialized_cover(
 					target_entries,
-					&entry.principal,
+					&entry.subject,
 					target_permission,
 					expires_at,
 				) {
 					continue;
 				}
-				expected.insert((entry.principal.clone(), target_permission, expires_at));
+				expected.insert((entry.subject.clone(), target_permission, expires_at));
 			}
 		}
 	}
 
 	fn has_non_materialized_cover(
 		entries: &[crate::fdb::grant::GrantEntry],
-		principal: &tg::grant::Principal,
-		permission: tg::grant::Permission,
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
 		expires_at: Option<i64>,
 	) -> bool {
 		entries.iter().any(|entry| {
-			entry.principal == *principal
+			entry.subject == *subject
 				&& entry.permission == permission
 				&& entry.has_non_materialized_cover(expires_at)
 		})
@@ -1579,12 +1594,12 @@ impl Index {
 
 	fn grant_entries_cover_expires_at(
 		entries: &[crate::fdb::grant::GrantEntry],
-		principal: &tg::grant::Principal,
-		permission: tg::grant::Permission,
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
 	) -> Option<GrantCover> {
 		entries
 			.iter()
-			.filter(|entry| entry.principal == *principal && entry.permission == permission)
+			.filter(|entry| entry.subject == *subject && entry.permission == permission)
 			.filter_map(|entry| {
 				entry
 					.effective_expires_at()

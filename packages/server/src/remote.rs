@@ -19,7 +19,7 @@ pub mod put;
 impl Session {
 	async fn authorize_remote_principal(
 		&self,
-		principal: Option<&tg::grant::Principal>,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<()> {
 		let Some(principal) = principal else {
 			if matches!(self.context.principal, tg::Principal::Root) {
@@ -28,9 +28,9 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		};
 		let id: tg::Id = match principal {
-			tg::grant::Principal::Group(id) => id.clone().into(),
-			tg::grant::Principal::Organization(id) => id.clone().into(),
-			tg::grant::Principal::User(id) => id.clone().into(),
+			tg::Principal::Group(id) => id.clone().into(),
+			tg::Principal::Organization(id) => id.clone().into(),
+			tg::Principal::User(id) => id.clone().into(),
 			_ => return Err(tg::error!("invalid remote principal")),
 		};
 		let permission = Self::write_permission_for_resource(&id)?;
@@ -57,7 +57,7 @@ impl Session {
 	async fn resolve_remote_arg_principal(
 		&self,
 		principal: Option<tg::principal::Selector>,
-	) -> tg::Result<Option<tg::grant::Principal>> {
+	) -> tg::Result<Option<tg::Principal>> {
 		if let Some(principal) = principal {
 			let Some(principal) = self.resolve_remote_principal_selector(&principal).await? else {
 				return Err(tg::error!("failed to resolve the remote principal"));
@@ -74,13 +74,13 @@ impl Session {
 		};
 		let principal = match principal {
 			tg::Principal::Anonymous => return Err(tg::error!("unauthorized")),
-			tg::Principal::Group(id) => Some(tg::grant::Principal::Group(id)),
-			tg::Principal::Organization(id) => Some(tg::grant::Principal::Organization(id)),
+			tg::Principal::Group(id) => Some(tg::Principal::Group(id)),
+			tg::Principal::Organization(id) => Some(tg::Principal::Organization(id)),
 			tg::Principal::Process(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Root => None,
 			tg::Principal::Runner(_) => return Err(tg::error!("unauthorized")),
 			tg::Principal::Sandbox(_) => return Err(tg::error!("unauthorized")),
-			tg::Principal::User(id) => Some(tg::grant::Principal::User(id)),
+			tg::Principal::User(id) => Some(tg::Principal::User(id)),
 		};
 		Ok(principal)
 	}
@@ -88,7 +88,7 @@ impl Session {
 	async fn resolve_remote_principal_selector(
 		&self,
 		principal: &tg::principal::Selector,
-	) -> tg::Result<Option<Option<tg::grant::Principal>>> {
+	) -> tg::Result<Option<Option<tg::Principal>>> {
 		let mut connection = self
 			.server
 			.database
@@ -101,38 +101,38 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		match principal {
 			tg::principal::Selector::Principal(principal) => match principal {
-				tg::grant::Principal::Group(id) => {
+				tg::Principal::Group(id) => {
 					let id = id.clone();
 					let specifier = Self::try_get_specifier_for_id_with_transaction(
 						&transaction,
 						&id.clone().into(),
 					)
 					.await?;
-					Ok(specifier.map(|_| Some(tg::grant::Principal::Group(id))))
+					Ok(specifier.map(|_| Some(tg::Principal::Group(id))))
 				},
-				tg::grant::Principal::Organization(id) => {
+				tg::Principal::Organization(id) => {
 					let id = id.clone();
 					let specifier = Self::try_get_specifier_for_id_with_transaction(
 						&transaction,
 						&id.clone().into(),
 					)
 					.await?;
-					Ok(specifier.map(|_| Some(tg::grant::Principal::Organization(id))))
+					Ok(specifier.map(|_| Some(tg::Principal::Organization(id))))
 				},
-				tg::grant::Principal::Root => Ok(Some(None)),
-				tg::grant::Principal::User(id) => {
+				tg::Principal::Root => Ok(Some(None)),
+				tg::Principal::User(id) => {
 					let id = id.clone();
 					let specifier = Self::try_get_specifier_for_id_with_transaction(
 						&transaction,
 						&id.clone().into(),
 					)
 					.await?;
-					Ok(specifier.map(|_| Some(tg::grant::Principal::User(id))))
+					Ok(specifier.map(|_| Some(tg::Principal::User(id))))
 				},
-				tg::grant::Principal::Process(_)
-				| tg::grant::Principal::Public
-				| tg::grant::Principal::Runner(_)
-				| tg::grant::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
+				tg::Principal::Process(_)
+				| tg::Principal::Anonymous
+				| tg::Principal::Runner(_)
+				| tg::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
 			},
 			tg::principal::Selector::Specifier(specifier) => {
 				let Some(id) =
@@ -142,11 +142,9 @@ impl Session {
 					return Ok(None);
 				};
 				let principal = match id.kind() {
-					tg::id::Kind::Group => Some(tg::grant::Principal::Group(id.try_into()?)),
-					tg::id::Kind::Organization => {
-						Some(tg::grant::Principal::Organization(id.try_into()?))
-					},
-					tg::id::Kind::User => Some(tg::grant::Principal::User(id.try_into()?)),
+					tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
+					tg::id::Kind::Organization => Some(tg::Principal::Organization(id.try_into()?)),
+					tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
 					_ => return Err(tg::error!("invalid remote principal")),
 				};
 				Ok(Some(principal))

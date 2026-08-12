@@ -5,31 +5,31 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 2)]
-	pub permissions: tg::Either<tg::grant::permission::Set, String>,
-
-	#[arg(index = 1)]
-	pub principal: tg::principal::Selector,
+	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 3)]
-	pub resource: tg::Referent<tg::grant::Resource>,
+	pub resource: tg::Referent<tg::Selector<tg::Id>>,
+
+	#[arg(index = 1)]
+	pub subject: tg::authorization::subject::Selector,
 }
 
 impl Cli {
 	pub async fn command_grants_create(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::grant::create::Arg {
-			principal: args.principal.clone(),
 			permissions: args.permissions.clone(),
 			resource: args.resource.clone(),
+			subject: args.subject.clone(),
 		};
 		let grant = client
 			.create_grant(arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, principal = %args.principal, resource = %args.resource, "failed to create the grant"),
+				|error| tg::error!(!error, resource = %args.resource, subject = %args.subject, "failed to create the grant"),
 			)?;
 		self.print_serde(grant, args.print).await?;
 		Ok(())

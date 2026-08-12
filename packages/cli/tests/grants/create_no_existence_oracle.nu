@@ -16,8 +16,8 @@ failure $existing "an adversary should not be able to grant on a resource she ca
 snapshot --normalize $existing.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = secret
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to find the resource
@@ -29,8 +29,8 @@ failure $missing "granting on a nonexistent resource should fail"
 snapshot --normalize $missing.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = does-not-exist
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to find the resource

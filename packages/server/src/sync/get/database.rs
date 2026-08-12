@@ -216,8 +216,8 @@ impl Session {
 				}
 			} else {
 				let permission = Self::write_permission_for_resource(&id)?;
-				let permissions = tg::grant::permission::Set::from_permission(permission);
-				let resource = tg::grant::Resource::Specifier(specifier.clone());
+				let permissions = tg::authorization::permission::Set::from_permission(permission);
+				let resource = tg::Selector::Specifier(specifier.clone());
 				let allow_missing = by_specifier.is_none();
 				authorization.insert(resource, (allow_missing, permissions));
 			}
@@ -239,8 +239,8 @@ impl Session {
 			for (specifier, id) in std::iter::zip(parent_write_specifiers, output.ids) {
 				let id = id.ok_or_else(|| tg::error!(%specifier, "failed to find the parent"))?;
 				let permission = Self::write_permission_for_resource(&id)?;
-				let permissions = tg::grant::permission::Set::from_permission(permission);
-				let resource = tg::grant::Resource::Specifier(specifier);
+				let permissions = tg::authorization::permission::Set::from_permission(permission);
+				let resource = tg::Selector::Specifier(specifier);
 				authorization.insert(resource, (false, permissions));
 			}
 		}
@@ -249,8 +249,8 @@ impl Session {
 		let roots = Self::sync_get_database_minimize_replacement_roots(replacement_roots);
 		for root in roots {
 			let permission = Self::delete_permission_for_resource(&root)?;
-			let permissions = tg::grant::permission::Set::from_permission(permission);
-			let resource = tg::grant::Resource::Id(root);
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+			let resource = tg::Selector::Id(root);
 			authorization.insert(resource, (false, permissions));
 		}
 
@@ -333,8 +333,10 @@ impl Session {
 			}
 		}
 
-		let object_permissions = tg::grant::permission::Set::from_permission(
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node),
+		let object_permissions = tg::authorization::permission::Set::from_permission(
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
 		);
 		self.sync_get_authorize(
 			graph,
@@ -343,17 +345,18 @@ impl Session {
 		)
 		.await?;
 
-		let mut process_permissions =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+		let mut process_permissions = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::empty(),
+		);
 		for permission in [
-			tg::grant::permission::process::Permission::Node,
-			tg::grant::permission::process::Permission::NodeCommand,
-			tg::grant::permission::process::Permission::NodeError,
-			tg::grant::permission::process::Permission::NodeLog,
-			tg::grant::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::Node,
+			tg::authorization::permission::process::Permission::NodeCommand,
+			tg::authorization::permission::process::Permission::NodeError,
+			tg::authorization::permission::process::Permission::NodeLog,
+			tg::authorization::permission::process::Permission::NodeOutput,
 		] {
-			process_permissions.insert(tg::grant::permission::Set::from_permission(
-				tg::grant::Permission::Process(permission),
+			process_permissions.insert(tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Process(permission),
 			));
 		}
 		self.sync_get_authorize(
@@ -370,47 +373,48 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		nodes: &[tg::sync::PutNodeMessage],
-	) -> tg::Result<BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>> {
+	) -> tg::Result<BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>> {
 		let mut outputs = BTreeMap::new();
 		let mut graph = graph.lock().unwrap();
 		for node in nodes {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
-			let (aspects, permissions) =
-				if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
-					let aspects = vec![tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Node,
-					)];
-					let required = tg::grant::permission::Set::from_permission(aspects[0]);
-					let authorization = graph.get_object_local_authorization(&id, required);
-					(aspects, authorization.permissions)
-				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
-					let aspects = [
-						tg::grant::permission::process::Permission::Node,
-						tg::grant::permission::process::Permission::NodeCommand,
-						tg::grant::permission::process::Permission::NodeError,
-						tg::grant::permission::process::Permission::NodeLog,
-						tg::grant::permission::process::Permission::NodeOutput,
-					]
-					.into_iter()
-					.map(tg::grant::Permission::Process)
-					.collect::<Vec<_>>();
-					let mut required = tg::grant::permission::Set::Process(
-						tg::grant::permission::process::Set::empty(),
-					);
-					for aspect in &aspects {
-						required.insert(tg::grant::permission::Set::from_permission(*aspect));
-					}
-					let authorization = graph.get_process_local_authorization(&id, required);
-					(aspects, authorization.permissions)
-				} else {
-					return Err(tg::error!("invalid tag target"));
-				};
+			let (aspects, permissions) = if let Ok(id) =
+				tg::object::Id::try_from(message.target.clone())
+			{
+				let aspects = vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Node,
+				)];
+				let required = tg::authorization::permission::Set::from_permission(aspects[0]);
+				let authorization = graph.get_object_local_authorization(&id, required);
+				(aspects, authorization.permissions)
+			} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
+				let aspects = [
+					tg::authorization::permission::process::Permission::Node,
+					tg::authorization::permission::process::Permission::NodeCommand,
+					tg::authorization::permission::process::Permission::NodeError,
+					tg::authorization::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::NodeOutput,
+				]
+				.into_iter()
+				.map(tg::authorization::Permission::Process)
+				.collect::<Vec<_>>();
+				let mut required = tg::authorization::permission::Set::Process(
+					tg::authorization::permission::process::Set::empty(),
+				);
+				for aspect in &aspects {
+					required.insert(tg::authorization::permission::Set::from_permission(*aspect));
+				}
+				let authorization = graph.get_process_local_authorization(&id, required);
+				(aspects, authorization.permissions)
+			} else {
+				return Err(tg::error!("invalid tag target"));
+			};
 			let permissions = if matches!(self.context.principal, tg::Principal::Root) {
 				aspects
 					.into_iter()
-					.map(tg::grant::Permission::subtree)
+					.map(tg::authorization::Permission::subtree)
 					.collect()
 			} else {
 				aspects
@@ -880,7 +884,7 @@ impl Session {
 		node: &tg::sync::PutNodeMessage,
 		namespace: &mut Namespace,
 		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
-		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::grant::Permission>>,
+		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<bool> {
 		match node {

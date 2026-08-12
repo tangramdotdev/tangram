@@ -16,7 +16,7 @@ use crate::prelude::*;
 	tangram_serialize::Serialize,
 )]
 #[tangram_serialize(display, from_str)]
-pub enum Principal {
+pub enum Subject {
 	#[display("{_0}")]
 	Group(tg::group::Id),
 
@@ -42,7 +42,28 @@ pub enum Principal {
 	User(tg::user::Id),
 }
 
-impl std::str::FromStr for Principal {
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	derive_more::Display,
+	derive_more::IsVariant,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+pub enum Selector {
+	#[display("{_0}")]
+	Specifier(tg::Specifier),
+
+	#[display("{_0}")]
+	Subject(Subject),
+}
+
+impl std::str::FromStr for Subject {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
@@ -70,11 +91,11 @@ impl std::str::FromStr for Principal {
 		if let Ok(id) = s.parse::<tg::user::Id>() {
 			return Ok(Self::User(id));
 		}
-		Err(tg::error!("invalid grant principal"))
+		Err(tg::error!("invalid authorization subject"))
 	}
 }
 
-impl Principal {
+impl Subject {
 	pub fn try_to_principal(&self) -> tg::Result<tg::Principal> {
 		match self {
 			Self::Group(id) => Ok(tg::Principal::Group(id.clone())),
@@ -86,5 +107,33 @@ impl Principal {
 			Self::Sandbox(id) => Ok(tg::Principal::Sandbox(id.clone())),
 			Self::User(id) => Ok(tg::Principal::User(id.clone())),
 		}
+	}
+}
+
+impl std::str::FromStr for Selector {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+		if let Ok(subject) = s.parse() {
+			Ok(Self::Subject(subject))
+		} else {
+			Ok(Self::Specifier(s.parse()?))
+		}
+	}
+}
+
+impl From<tg::Principal> for Selector {
+	fn from(value: tg::Principal) -> Self {
+		Self::Subject(
+			value
+				.try_to_subject()
+				.expect("expected the principal to be a valid authorization subject"),
+		)
+	}
+}
+
+impl From<Subject> for Selector {
+	fn from(value: Subject) -> Self {
+		Self::Subject(value)
 	}
 }

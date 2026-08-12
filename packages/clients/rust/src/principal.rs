@@ -57,7 +57,7 @@ pub enum Principal {
 )]
 pub enum Selector {
 	#[display("{_0}")]
-	Principal(tg::grant::Principal),
+	Principal(Principal),
 
 	#[display("{_0}")]
 	Specifier(tg::Specifier),
@@ -110,29 +110,29 @@ impl Principal {
 	}
 
 	#[must_use]
-	pub fn to_grant_requester(&self) -> tg::grant::Principal {
+	pub fn to_subject(&self) -> tg::authorization::Subject {
 		match self {
-			Self::Anonymous => tg::grant::Principal::Public,
-			Self::Group(id) => tg::grant::Principal::Group(id.clone()),
-			Self::Organization(id) => tg::grant::Principal::Organization(id.clone()),
-			Self::Process(id) => tg::grant::Principal::Process(id.clone()),
-			Self::Root => tg::grant::Principal::Root,
-			Self::Runner(id) => tg::grant::Principal::Runner(id.clone()),
-			Self::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
-			Self::User(id) => tg::grant::Principal::User(id.clone()),
+			Self::Anonymous => tg::authorization::Subject::Public,
+			Self::Group(id) => tg::authorization::Subject::Group(id.clone()),
+			Self::Organization(id) => tg::authorization::Subject::Organization(id.clone()),
+			Self::Process(id) => tg::authorization::Subject::Process(id.clone()),
+			Self::Root => tg::authorization::Subject::Root,
+			Self::Runner(id) => tg::authorization::Subject::Runner(id.clone()),
+			Self::Sandbox(id) => tg::authorization::Subject::Sandbox(id.clone()),
+			Self::User(id) => tg::authorization::Subject::User(id.clone()),
 		}
 	}
 
-	pub fn try_to_grant_principal(&self) -> tg::Result<tg::grant::Principal> {
+	pub fn try_to_subject(&self) -> tg::Result<tg::authorization::Subject> {
 		match self {
-			Self::Anonymous => Err(tg::error!("invalid grant principal")),
-			Self::Group(id) => Ok(tg::grant::Principal::Group(id.clone())),
-			Self::Organization(id) => Ok(tg::grant::Principal::Organization(id.clone())),
-			Self::Process(id) => Ok(tg::grant::Principal::Process(id.clone())),
-			Self::Root => Ok(tg::grant::Principal::Root),
-			Self::Runner(id) => Ok(tg::grant::Principal::Runner(id.clone())),
-			Self::Sandbox(id) => Ok(tg::grant::Principal::Sandbox(id.clone())),
-			Self::User(id) => Ok(tg::grant::Principal::User(id.clone())),
+			Self::Anonymous => Err(tg::error!("invalid authorization subject")),
+			Self::Group(id) => Ok(tg::authorization::Subject::Group(id.clone())),
+			Self::Organization(id) => Ok(tg::authorization::Subject::Organization(id.clone())),
+			Self::Process(id) => Ok(tg::authorization::Subject::Process(id.clone())),
+			Self::Root => Ok(tg::authorization::Subject::Root),
+			Self::Runner(id) => Ok(tg::authorization::Subject::Runner(id.clone())),
+			Self::Sandbox(id) => Ok(tg::authorization::Subject::Sandbox(id.clone())),
+			Self::User(id) => Ok(tg::authorization::Subject::User(id.clone())),
 		}
 	}
 }
@@ -151,16 +151,6 @@ impl std::str::FromStr for Selector {
 
 impl From<tg::Principal> for Selector {
 	fn from(value: tg::Principal) -> Self {
-		Self::Principal(
-			value
-				.try_to_grant_principal()
-				.expect("expected the principal to be valid as a grant principal"),
-		)
-	}
-}
-
-impl From<tg::grant::Principal> for Selector {
-	fn from(value: tg::grant::Principal) -> Self {
 		Self::Principal(value)
 	}
 }

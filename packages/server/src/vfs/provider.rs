@@ -727,8 +727,9 @@ impl Provider {
 
 		// Check the sandbox's locally tracked subtree token.
 		if let crate::Origin::Sandbox(index) = self.origin {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let Ok(now) = self.server.clock.unix_timestamp() else {
 				return false;
 			};
@@ -746,8 +747,9 @@ impl Provider {
 		}
 
 		// Fall back to deep index authorization.
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		let context = Context {
 			billing: false,
 			id: None,
@@ -758,7 +760,7 @@ impl Provider {
 		};
 		let session = Session::new(self.server.clone(), context);
 		session
-			.authorize(tg::grant::Resource::Id(id), permission)
+			.authorize(tg::Selector::Id(id), permission)
 			.await
 			.ok()
 			.flatten()

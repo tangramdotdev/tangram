@@ -34,8 +34,8 @@ impl Session {
 		organization: &tg::organization::Selector,
 	) -> tg::Result<tg::organization::billing::manage::Output> {
 		// Authorize the organization.
-		let permission = tg::grant::Permission::Organization(
-			tg::grant::permission::organization::Permission::Admin,
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Admin,
 		);
 		match self.authorize(organization.clone(), permission).await? {
 			None => return Err(tg::error!("failed to find the organization")),

@@ -65,23 +65,23 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let grant_principal = match &self.context.principal {
-			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
-			principal => Some(principal.try_to_grant_principal()?),
+			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant = grant_principal.map(|grant_principal| {
+		let put_grant = grant_subject.map(|grant_subject| {
 			let index = graph.paths.get(root).unwrap();
 			let resource = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
 			tangram_index::grant::put::Arg {
 				created_at: touched_at,
 				creator: Some(self.context.principal.clone()),
 				expires_at: Some(grant_expires_at),
-				permissions: tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				permissions: tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				)
 				.into(),
-				principal: grant_principal,
+				subject: grant_subject,
 				resource: resource.into(),
 				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			}

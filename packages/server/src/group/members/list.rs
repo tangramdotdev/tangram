@@ -28,8 +28,9 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 	) -> tg::Result<tg::group::members::list::Output> {
-		let permission =
-			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read);
+		let permission = tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Read,
+		);
 		let authorized = self.authorize(group.clone(), permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Err(tg::error!("failed to find the group"));

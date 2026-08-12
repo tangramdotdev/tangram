@@ -17,8 +17,8 @@ impl Session {
 		if !self.server.config.usage.enabled {
 			return Err(tg::error!("usage tracking is disabled"));
 		}
-		let permission = tg::grant::Permission::Organization(
-			tg::grant::permission::organization::Permission::Admin,
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Admin,
 		);
 		match self.authorize(organization.clone(), permission).await? {
 			None => return Ok(None),

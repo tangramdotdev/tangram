@@ -250,14 +250,14 @@ impl Session {
 		candidate_indices: &[usize],
 		public: bool,
 	) -> tg::Result<Vec<bool>> {
-		let mut permissions = tg::grant::permission::process::Set::NODE;
-		permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
-		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
-		let permissions = tg::grant::permission::Set::Process(permissions);
+		let mut permissions = tg::authorization::permission::process::Set::NODE;
+		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		let permissions = tg::authorization::permission::Set::Process(permissions);
 		let args = candidate_indices
 			.iter()
 			.map(|index| {
-				let resource = tg::grant::Resource::Id(candidates[*index].0.clone().into());
+				let resource = tg::Selector::<tg::Id>::Id(candidates[*index].0.clone().into());
 				(resource, permissions)
 			})
 			.collect::<Vec<_>>();

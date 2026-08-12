@@ -381,14 +381,16 @@ impl Session {
 				.to_i64()
 				.unwrap();
 		self.create_token(
-			tg::grant::Resource::Id(id.clone().into()),
+			id.clone().into(),
 			vec![
-				tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node),
-				tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::NodeError,
+				tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Node,
 				),
-				tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::NodeOutput,
+				tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::NodeError,
+				),
+				tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::NodeOutput,
 				),
 			],
 			expires_at,

@@ -150,14 +150,15 @@ impl Session {
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let args = artifacts
 				.iter()
 				.map(|artifact| {
 					(
 						artifact.clone(),
-						tg::grant::permission::Set::from_permission(permission),
+						tg::authorization::permission::Set::from_permission(permission),
 					)
 				})
 				.collect::<Vec<_>>();
@@ -202,14 +203,15 @@ impl Session {
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let args = artifacts
 				.iter()
 				.map(|artifact| {
 					(
 						artifact.clone(),
-						tg::grant::permission::Set::from_permission(permission),
+						tg::authorization::permission::Set::from_permission(permission),
 					)
 				})
 				.collect::<Vec<_>>();
@@ -274,14 +276,15 @@ impl Session {
 			.iter()
 			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let args = artifacts
 				.iter()
 				.map(|artifact| {
 					(
 						artifact.clone(),
-						tg::grant::permission::Set::from_permission(permission),
+						tg::authorization::permission::Set::from_permission(permission),
 					)
 				})
 				.collect::<Vec<_>>();

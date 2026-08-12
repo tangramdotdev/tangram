@@ -7,10 +7,10 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub principal: tg::principal::Selector,
-	pub permissions: tg::Either<tg::grant::permission::Set, String>,
+	pub permissions: tg::Either<tg::authorization::permission::Set, String>,
 	#[serde_as(as = "DisplayFromStr")]
-	pub resource: tg::Referent<tg::grant::Resource>,
+	pub resource: tg::Referent<tg::Selector<tg::Id>>,
+	pub subject: tg::authorization::subject::Selector,
 }
 
 impl tg::Session {

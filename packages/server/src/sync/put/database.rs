@@ -36,7 +36,7 @@ impl Session {
 	async fn sync_put_database_node(&self, state: &State, node: Node) -> tg::Result<()> {
 		// Authorize the node.
 		let permission = Self::sync_put_database_read_permission(&node.id)?;
-		let resource = tg::grant::Resource::Id(node.id.clone());
+		let resource = tg::Selector::Id(node.id.clone());
 		let resource = tg::Referent::with_node_and_token(resource, node.token.clone());
 		let authorized = self
 			.authorize(resource, permission)
@@ -305,20 +305,20 @@ impl Session {
 		state.queue.close_if_end();
 	}
 
-	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::grant::Permission> {
+	fn sync_put_database_read_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
 		let permission = match id.kind() {
-			tg::id::Kind::Group => {
-				tg::grant::Permission::Group(tg::grant::permission::group::Permission::Read)
-			},
-			tg::id::Kind::Organization => tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Read,
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
 			),
-			tg::id::Kind::Tag => {
-				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
-			},
-			tg::id::Kind::User => {
-				tg::grant::Permission::User(tg::grant::permission::user::Permission::Read)
-			},
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
 			_ => return Err(tg::error!(%id, "invalid database node kind")),
 		};
 

@@ -98,8 +98,9 @@ impl Session {
 		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 	) -> tg::Result<Option<bool>> {
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Write,
+		);
 		let authorize_future = self.authorize(id.clone(), permission);
 		let get_future = self.try_get_sandbox_from_index(id);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;

@@ -27,14 +27,16 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
-		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let permission = tg::authorization::Permission::Tag(
+			tg::authorization::permission::tag::Permission::Write,
+		);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
 		let authorizations = arg
 			.tags
 			.iter()
 			.map(|item| {
 				(
-					tg::grant::Resource::Specifier(item.specifier.clone()),
+					tg::Selector::<tg::Id>::Specifier(item.specifier.clone()),
 					permissions,
 				)
 			})

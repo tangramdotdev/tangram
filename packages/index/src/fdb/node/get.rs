@@ -121,13 +121,13 @@ impl Index {
 	pub(crate) async fn try_resolve_resource_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		resource: &tg::grant::Resource,
+		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<Option<(tg::Id, bool)>> {
 		match resource {
-			tg::grant::Resource::Id(id) => Self::try_resolve_id_with_transaction(txn, subspace, id)
+			tg::Selector::Id(id) => Self::try_resolve_id_with_transaction(txn, subspace, id)
 				.await
 				.map(|id| id.map(|id| (id, true))),
-			tg::grant::Resource::Specifier(specifier) => {
+			tg::Selector::Specifier(specifier) => {
 				// Resolve the deepest existing prefix of the specifier.
 				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
 				prefixes.reverse();

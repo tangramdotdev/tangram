@@ -119,13 +119,14 @@ impl Session {
 		id: &tg::process::Id,
 		token: Option<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let mut permissions = tg::grant::permission::process::Set::NODE;
-		permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
-		permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
-		let permissions = tg::grant::permission::Set::Process(permissions);
+		let mut permissions = tg::authorization::permission::process::Set::NODE;
+		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		let permissions = tg::authorization::permission::Set::Process(permissions);
 		let resource = tg::Referent::with_node_and_token(id.clone(), token);
-		let permission =
-			tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(id, None, None)
 			.await?;
@@ -182,16 +183,16 @@ impl Session {
 				exit,
 				output: process.data.output,
 			};
-			let permission = tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::NodeOutput,
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::NodeOutput,
 			);
 			if permissions.contains(permission)
 				&& let Some(output) = &mut output.output
 			{
 				session.add_tokens_to_value_data(output)?;
 			}
-			let permission = tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::NodeError,
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::NodeError,
 			);
 			if permissions.contains(permission)
 				&& let Some(tg::Either::Right(error)) = &mut output.error

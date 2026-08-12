@@ -171,8 +171,9 @@ impl Session {
 		&self,
 		command: &tg::Referent<tg::command::Id>,
 	) -> tg::Result<()> {
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		let command = command.clone().map(tg::object::Id::from);
 		if !self
 			.authorize(command, permission)

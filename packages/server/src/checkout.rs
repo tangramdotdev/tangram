@@ -219,12 +219,13 @@ impl Session {
 			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let authorized = self
 				.authorize(
 					artifact.clone(),
-					tg::grant::permission::Set::from_permission(permission),
+					tg::authorization::permission::Set::from_permission(permission),
 				)
 				.await?;
 			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -257,12 +258,13 @@ impl Session {
 			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let authorized = self
 				.authorize(
 					artifact.clone(),
-					tg::grant::permission::Set::from_permission(permission),
+					tg::authorization::permission::Set::from_permission(permission),
 				)
 				.await?;
 			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -311,12 +313,13 @@ impl Session {
 			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
-			let permission =
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
 			let authorized = self
 				.authorize(
 					artifact.clone(),
-					tg::grant::permission::Set::from_permission(permission),
+					tg::authorization::permission::Set::from_permission(permission),
 				)
 				.await?;
 			if authorized.is_some_and(|permissions| permissions.contains(permission)) {

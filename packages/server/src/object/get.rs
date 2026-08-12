@@ -97,15 +97,17 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let mut permissions = tg::grant::permission::object::Set::empty();
-		permissions.insert(tg::grant::permission::object::Set::NODE);
-		permissions.insert(tg::grant::permission::object::Set::SUBTREE);
-		let permissions = tg::grant::permission::Set::Object(permissions);
+		let mut permissions = tg::authorization::permission::object::Set::empty();
+		permissions.insert(tg::authorization::permission::object::Set::NODE);
+		permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+		let permissions = tg::authorization::permission::Set::Object(permissions);
 		let Some(permissions) = self.authorize(resource, permissions).await? else {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		};
-		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
 		if !permissions.contains(node) {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
@@ -119,7 +121,7 @@ impl Session {
 		let expires_at = created_at
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
-		let resource = tg::grant::Resource::Id(id.clone().into());
+		let resource = tg::Id::from(id.clone());
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{
@@ -193,8 +195,9 @@ impl Session {
 				if output.is_none() {
 					return Ok::<_, tg::Error>(None);
 				}
-				let permission =
-					tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+				let permission = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Node,
+				);
 				if !self
 					.authorize(object.clone(), permission)
 					.await?

@@ -72,63 +72,63 @@ pub enum Set {
 }
 
 impl Permission {
-	pub fn parse_for_kind(kind: tg::grant::resource::Kind, s: &str) -> tg::Result<Self> {
+	pub fn parse_for_kind(kind: tg::authorization::ResourceKind, s: &str) -> tg::Result<Self> {
 		match kind {
-			tg::grant::resource::Kind::Group => {
+			tg::authorization::ResourceKind::Group => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Group(permission))
 			},
-			tg::grant::resource::Kind::Object => {
+			tg::authorization::ResourceKind::Object => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Object(permission))
 			},
-			tg::grant::resource::Kind::Organization => {
+			tg::authorization::ResourceKind::Organization => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Organization(permission))
 			},
-			tg::grant::resource::Kind::Process => {
+			tg::authorization::ResourceKind::Process => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Process(permission))
 			},
-			tg::grant::resource::Kind::Sandbox => {
+			tg::authorization::ResourceKind::Sandbox => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Sandbox(permission))
 			},
-			tg::grant::resource::Kind::Tag => {
+			tg::authorization::ResourceKind::Tag => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Tag(permission))
 			},
-			tg::grant::resource::Kind::User => {
+			tg::authorization::ResourceKind::User => {
 				let permission = s
 					.parse()
-					.map_err(|_| tg::error!("invalid grant permission"))?;
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::User(permission))
 			},
 		}
 	}
 
 	#[must_use]
-	pub fn kind(self) -> tg::grant::resource::Kind {
+	pub fn kind(self) -> tg::authorization::ResourceKind {
 		match self {
-			Self::Group(_) => tg::grant::resource::Kind::Group,
-			Self::Object(_) => tg::grant::resource::Kind::Object,
-			Self::Organization(_) => tg::grant::resource::Kind::Organization,
-			Self::Process(_) => tg::grant::resource::Kind::Process,
-			Self::Sandbox(_) => tg::grant::resource::Kind::Sandbox,
-			Self::Tag(_) => tg::grant::resource::Kind::Tag,
-			Self::User(_) => tg::grant::resource::Kind::User,
+			Self::Group(_) => tg::authorization::ResourceKind::Group,
+			Self::Object(_) => tg::authorization::ResourceKind::Object,
+			Self::Organization(_) => tg::authorization::ResourceKind::Organization,
+			Self::Process(_) => tg::authorization::ResourceKind::Process,
+			Self::Sandbox(_) => tg::authorization::ResourceKind::Sandbox,
+			Self::Tag(_) => tg::authorization::ResourceKind::Tag,
+			Self::User(_) => tg::authorization::ResourceKind::User,
 		}
 	}
 
@@ -191,11 +191,11 @@ impl Permission {
 }
 
 impl Set {
-	pub fn parse_for_kind(kind: tg::grant::resource::Kind, s: &str) -> tg::Result<Self> {
+	pub fn parse_for_kind(kind: tg::authorization::ResourceKind, s: &str) -> tg::Result<Self> {
 		let mut permissions: Option<Self> = None;
 		for part in s.split(',') {
 			if part.is_empty() {
-				return Err(tg::error!("invalid grant permissions"));
+				return Err(tg::error!("invalid authorization permissions"));
 			}
 			let permission = part
 				.parse::<Permission>()
@@ -203,11 +203,11 @@ impl Set {
 			let next = Self::from_permission(permission);
 			match &mut permissions {
 				Some(permissions) if permissions.kind() == next.kind() => permissions.insert(next),
-				Some(_) => return Err(tg::error!("invalid grant permissions")),
+				Some(_) => return Err(tg::error!("invalid authorization permissions")),
 				None => permissions = Some(next),
 			}
 		}
-		permissions.ok_or_else(|| tg::error!("invalid grant permissions"))
+		permissions.ok_or_else(|| tg::error!("invalid authorization permissions"))
 	}
 
 	#[must_use]
@@ -247,15 +247,15 @@ impl Set {
 	}
 
 	#[must_use]
-	pub fn kind(self) -> tg::grant::resource::Kind {
+	pub fn kind(self) -> tg::authorization::ResourceKind {
 		match self {
-			Self::Group(_) => tg::grant::resource::Kind::Group,
-			Self::Object(_) => tg::grant::resource::Kind::Object,
-			Self::Organization(_) => tg::grant::resource::Kind::Organization,
-			Self::Process(_) => tg::grant::resource::Kind::Process,
-			Self::Sandbox(_) => tg::grant::resource::Kind::Sandbox,
-			Self::Tag(_) => tg::grant::resource::Kind::Tag,
-			Self::User(_) => tg::grant::resource::Kind::User,
+			Self::Group(_) => tg::authorization::ResourceKind::Group,
+			Self::Object(_) => tg::authorization::ResourceKind::Object,
+			Self::Organization(_) => tg::authorization::ResourceKind::Organization,
+			Self::Process(_) => tg::authorization::ResourceKind::Process,
+			Self::Sandbox(_) => tg::authorization::ResourceKind::Sandbox,
+			Self::Tag(_) => tg::authorization::ResourceKind::Tag,
+			Self::User(_) => tg::authorization::ResourceKind::User,
 		}
 	}
 
@@ -265,17 +265,17 @@ impl Set {
 	}
 
 	#[must_use]
-	pub fn empty_for_kind(kind: tg::grant::resource::Kind) -> Self {
+	pub fn empty_for_kind(kind: tg::authorization::ResourceKind) -> Self {
 		match kind {
-			tg::grant::resource::Kind::Group => Self::Group(group::Set::empty()),
-			tg::grant::resource::Kind::Object => Self::Object(object::Set::empty()),
-			tg::grant::resource::Kind::Organization => {
+			tg::authorization::ResourceKind::Group => Self::Group(group::Set::empty()),
+			tg::authorization::ResourceKind::Object => Self::Object(object::Set::empty()),
+			tg::authorization::ResourceKind::Organization => {
 				Self::Organization(organization::Set::empty())
 			},
-			tg::grant::resource::Kind::Process => Self::Process(process::Set::empty()),
-			tg::grant::resource::Kind::Sandbox => Self::Sandbox(sandbox::Set::empty()),
-			tg::grant::resource::Kind::Tag => Self::Tag(tag::Set::empty()),
-			tg::grant::resource::Kind::User => Self::User(user::Set::empty()),
+			tg::authorization::ResourceKind::Process => Self::Process(process::Set::empty()),
+			tg::authorization::ResourceKind::Sandbox => Self::Sandbox(sandbox::Set::empty()),
+			tg::authorization::ResourceKind::Tag => Self::Tag(tag::Set::empty()),
+			tg::authorization::ResourceKind::User => Self::User(user::Set::empty()),
 		}
 	}
 
@@ -521,17 +521,17 @@ impl std::str::FromStr for Set {
 		let mut permissions: Option<Self> = None;
 		for part in s.split(',') {
 			if part.is_empty() {
-				return Err(tg::error!("invalid grant permissions"));
+				return Err(tg::error!("invalid authorization permissions"));
 			}
 			let permission = part.parse::<Permission>()?;
 			let next = Self::from_permission(permission);
 			match &mut permissions {
 				Some(permissions) if permissions.same_kind(next) => permissions.insert(next),
-				Some(_) => return Err(tg::error!("invalid grant permissions")),
+				Some(_) => return Err(tg::error!("invalid authorization permissions")),
 				None => permissions = Some(next),
 			}
 		}
-		permissions.ok_or_else(|| tg::error!("invalid grant permissions"))
+		permissions.ok_or_else(|| tg::error!("invalid authorization permissions"))
 	}
 }
 
@@ -542,46 +542,46 @@ impl std::str::FromStr for Permission {
 		if let Some(s) = s.strip_prefix("group_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Group(permission));
 		}
 		if let Some(s) = s.strip_prefix("object_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Object(permission));
 		}
 		if let Some(s) = s.strip_prefix("organization_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Organization(permission));
 		}
 		if let Some(s) = s.strip_prefix("process_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Process(permission));
 		}
 		if let Some(s) = s.strip_prefix("sandbox_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Sandbox(permission));
 		}
 		if let Some(s) = s.strip_prefix("tag_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Tag(permission));
 		}
 		if let Some(s) = s.strip_prefix("user_") {
 			let permission = s
 				.parse()
-				.map_err(|_| tg::error!("invalid grant permission"))?;
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::User(permission));
 		}
-		Err(tg::error!("invalid grant permission"))
+		Err(tg::error!("invalid authorization permission"))
 	}
 }
 
@@ -761,7 +761,8 @@ mod tests {
 	#[test]
 	fn parse_for_kind() {
 		assert_eq!(
-			super::Set::parse_for_kind(tg::grant::resource::Kind::Group, "read,write").unwrap(),
+			super::Set::parse_for_kind(tg::authorization::ResourceKind::Group, "read,write")
+				.unwrap(),
 			super::Set::Group({
 				let mut set = super::group::Set::empty();
 				set.insert(super::group::Set::READ);
@@ -770,6 +771,8 @@ mod tests {
 			})
 		);
 
-		assert!(super::Set::parse_for_kind(tg::grant::resource::Kind::Sandbox, "admin").is_err());
+		assert!(
+			super::Set::parse_for_kind(tg::authorization::ResourceKind::Sandbox, "admin").is_err()
+		);
 	}
 }

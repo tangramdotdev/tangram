@@ -748,56 +748,58 @@ impl Session {
 		Ok(())
 	}
 
-	fn sync_put_object_node_permissions() -> tg::grant::permission::Set {
-		tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
-			tg::grant::permission::object::Permission::Node,
+	fn sync_put_object_node_permissions() -> tg::authorization::permission::Set {
+		tg::authorization::permission::Set::from_permission(tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
 		))
 	}
 
-	fn sync_put_object_permissions() -> tg::grant::permission::Set {
+	fn sync_put_object_permissions() -> tg::authorization::permission::Set {
 		let mut permissions = Self::sync_put_object_node_permissions();
-		permissions.insert(tg::grant::permission::Set::from_permission(
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree),
+		permissions.insert(tg::authorization::permission::Set::from_permission(
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			),
 		));
 		permissions
 	}
 
-	fn sync_put_process_node_permissions() -> tg::grant::permission::Set {
-		tg::grant::permission::Set::from_permission(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::Node,
+	fn sync_put_process_node_permissions() -> tg::authorization::permission::Set {
+		tg::authorization::permission::Set::from_permission(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
 		))
 	}
 
-	fn sync_put_process_permissions(arg: &tg::sync::Arg) -> tg::grant::permission::Set {
+	fn sync_put_process_permissions(arg: &tg::sync::Arg) -> tg::authorization::permission::Set {
 		let mut permissions = Self::sync_put_process_node_permissions();
 		let mut insert = |permission| {
-			permissions.insert(tg::grant::permission::Set::from_permission(
-				tg::grant::Permission::Process(permission),
+			permissions.insert(tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Process(permission),
 			));
 		};
 		if arg.process_children {
-			insert(tg::grant::permission::process::Permission::Subtree);
+			insert(tg::authorization::permission::process::Permission::Subtree);
 		}
 		for (enabled, node, subtree) in [
 			(
 				arg.process_commands,
-				tg::grant::permission::process::Permission::NodeCommand,
-				tg::grant::permission::process::Permission::SubtreeCommand,
+				tg::authorization::permission::process::Permission::NodeCommand,
+				tg::authorization::permission::process::Permission::SubtreeCommand,
 			),
 			(
 				arg.process_errors,
-				tg::grant::permission::process::Permission::NodeError,
-				tg::grant::permission::process::Permission::SubtreeError,
+				tg::authorization::permission::process::Permission::NodeError,
+				tg::authorization::permission::process::Permission::SubtreeError,
 			),
 			(
 				arg.process_logs,
-				tg::grant::permission::process::Permission::NodeLog,
-				tg::grant::permission::process::Permission::SubtreeLog,
+				tg::authorization::permission::process::Permission::NodeLog,
+				tg::authorization::permission::process::Permission::SubtreeLog,
 			),
 			(
 				arg.process_outputs,
-				tg::grant::permission::process::Permission::NodeOutput,
-				tg::grant::permission::process::Permission::SubtreeOutput,
+				tg::authorization::permission::process::Permission::NodeOutput,
+				tg::authorization::permission::process::Permission::SubtreeOutput,
 			),
 		] {
 			if enabled {

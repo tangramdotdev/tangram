@@ -1007,17 +1007,18 @@ impl Session {
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 		let expires_at = now + time_to_live;
-		let principal = tg::grant::Principal::Process(id.clone());
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let subject = tg::authorization::Subject::Process(id.clone());
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
 		let put_grant = tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(tg::Principal::Process(id.clone())),
 			expires_at: Some(expires_at),
 			permissions,
-			principal,
 			resource: command.id().into(),
+			subject,
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		};
 
@@ -1401,13 +1402,13 @@ impl Session {
 
 		// Track each artifact's verified subtree token for the per-sandbox VFS.
 		if self.server.vfs.lock().unwrap().is_some() {
-			let permissions = tg::grant::permission::Set::from(tg::grant::Permission::Object(
-				tg::grant::permission::object::Permission::Subtree,
-			));
+			let permissions =
+				tg::authorization::permission::Set::from(tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				));
 			let tokens = artifacts.iter().filter_map(|artifact| {
 				let token = artifact.options.tokens.local()?.clone();
-				let resource =
-					tg::grant::Resource::Id(tg::object::Id::from(artifact.node.clone()).into());
+				let resource = tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
 				self.authorize_token(&resource, permissions, &token)
 					.then(|| (artifact.node.clone(), token))
 			});

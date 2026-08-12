@@ -47,8 +47,8 @@ impl Session {
 		id: &tg::organization::Id,
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
-		let permission = tg::grant::Permission::Organization(
-			tg::grant::permission::organization::Permission::Read,
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Read,
 		);
 		let authorized = self
 			.authorize(

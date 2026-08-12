@@ -47,7 +47,9 @@ impl Session {
 		id: &tg::user::Id,
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::user::get::Output>> {
-		let permission = tg::grant::Permission::User(tg::grant::permission::user::Permission::Read);
+		let permission = tg::authorization::Permission::User(
+			tg::authorization::permission::user::Permission::Read,
+		);
 		let authorized = self
 			.authorize(
 				tg::Referent::with_node_and_tokens(

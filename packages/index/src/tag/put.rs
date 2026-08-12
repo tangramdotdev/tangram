@@ -11,7 +11,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 3)]
 	pub parent: Option<tg::Id>,
 	#[tangram_serialize(id = 4)]
-	pub permissions: Vec<tg::grant::Permission>,
+	pub permissions: Vec<tg::authorization::Permission>,
 	#[tangram_serialize(id = 5)]
 	pub specifier: tg::Specifier,
 	#[tangram_serialize(id = 1)]

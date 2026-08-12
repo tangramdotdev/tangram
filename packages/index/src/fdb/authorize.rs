@@ -13,7 +13,10 @@ const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
 #[derive(Default)]
 struct Cache {
 	resource_parents: HashMap<tg::Id, Option<tg::Id>>,
-	target_tags: HashMap<(tg::Id, tg::grant::Permission), Vec<(tg::Id, tg::grant::Permission)>>,
+	target_tags: HashMap<
+		(tg::Id, tg::authorization::Permission),
+		Vec<(tg::Id, tg::authorization::Permission)>,
+	>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
@@ -21,15 +24,16 @@ struct Cache {
 	process_objects: HashMap<tg::process::Id, Vec<(tg::object::Id, crate::process::object::Kind)>>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
-	resource_grants: HashMap<tg::Id, Vec<(tg::grant::Principal, tg::grant::Permission)>>,
+	resource_grants:
+		HashMap<tg::Id, Vec<(tg::authorization::Subject, tg::authorization::Permission)>>,
 	sandbox_owners: HashMap<tg::sandbox::Id, Option<tg::Principal>>,
 }
 
 struct Requester<'a> {
 	principal: &'a tg::Principal,
-	principal_: tg::grant::Principal,
+	subject: tg::authorization::Subject,
 	id: Option<tg::Id>,
-	principals: HashSet<tg::grant::Principal>,
+	subjects: HashSet<tg::authorization::Subject>,
 	membership_cache: std::sync::Mutex<RequesterMembershipCache>,
 }
 
@@ -37,11 +41,11 @@ struct Requester<'a> {
 struct RequesterMembershipCache {
 	group_members: HashMap<tg::group::Id, std::sync::Arc<[tg::Id]>>,
 	organization_members: HashMap<tg::organization::Id, std::sync::Arc<[tg::Id]>>,
-	principal_contains_requester: HashMap<tg::grant::Principal, bool>,
+	subject_contains_requester: HashMap<tg::authorization::Subject, bool>,
 }
 
 struct AuthorizationNode {
-	key: (tg::Id, tg::grant::Permission),
+	key: (tg::Id, tg::authorization::Permission),
 	dependents: Vec<usize>,
 	authorized: bool,
 }
@@ -49,7 +53,7 @@ struct AuthorizationNode {
 struct AuthorizationNodeEvaluation {
 	node_id: usize,
 	directly_authorized: bool,
-	dependencies: Vec<(tg::Id, tg::grant::Permission)>,
+	dependencies: Vec<(tg::Id, tg::authorization::Permission)>,
 	cache: Cache,
 }
 
@@ -85,7 +89,7 @@ impl Cache {
 	fn clone_for_direct_authorization(
 		&self,
 		resource: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 	) -> Self {
 		let mut cache = Self::default();
 		if let Some(grants) = self.resource_grants.get(resource) {
@@ -93,7 +97,7 @@ impl Cache {
 				.resource_grants
 				.insert(resource.clone(), grants.clone());
 		}
-		if matches!(permission, tg::grant::Permission::Sandbox(_))
+		if matches!(permission, tg::authorization::Permission::Sandbox(_))
 			&& let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
 			&& let Some(owner) = self.sandbox_owners.get(&sandbox)
 		{
@@ -105,7 +109,7 @@ impl Cache {
 	fn clone_for_authorization_dependencies(
 		&self,
 		resource: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 	) -> Self {
 		let mut cache = Self::default();
 		if let Some(grants) = self.resource_grants.get(resource) {
@@ -124,7 +128,7 @@ impl Cache {
 				.insert((resource.clone(), permission), tags.clone());
 		}
 		match permission {
-			tg::grant::Permission::Object(_) => {
+			tg::authorization::Permission::Object(_) => {
 				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
 					if let Some(parents) = self.object_parents.get(&object) {
 						cache.object_parents.insert(object.clone(), parents.clone());
@@ -134,7 +138,7 @@ impl Cache {
 					}
 				}
 			},
-			tg::grant::Permission::Process(_) => {
+			tg::authorization::Permission::Process(_) => {
 				if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
 					if let Some(parents) = self.process_parents.get(&process) {
 						cache
@@ -146,7 +150,7 @@ impl Cache {
 					}
 				}
 			},
-			tg::grant::Permission::Sandbox(_) => {
+			tg::authorization::Permission::Sandbox(_) => {
 				if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
 					&& let Some(owner) = self.sandbox_owners.get(&sandbox)
 				{
@@ -181,7 +185,7 @@ impl Cache {
 
 impl<'a> Requester<'a> {
 	fn new(principal: &'a tg::Principal) -> Self {
-		let principal_ = principal.to_grant_requester();
+		let subject = principal.to_subject();
 		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
 			tg::Principal::Organization(id) => Some(tg::Id::from(id.clone())),
@@ -192,9 +196,9 @@ impl<'a> Requester<'a> {
 		};
 		Self {
 			principal,
-			principal_: principal_.clone(),
+			subject: subject.clone(),
 			id,
-			principals: HashSet::from([tg::grant::Principal::Public, principal_]),
+			subjects: HashSet::from([tg::authorization::Subject::Public, subject]),
 			membership_cache: std::sync::Mutex::default(),
 		}
 	}
@@ -261,7 +265,7 @@ impl Index {
 		}
 		let mut requester = Requester::new(principal);
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
-			Self::load_requester_principals_with_transaction(
+			Self::load_requester_subjects_with_transaction(
 				txn,
 				subspace,
 				config.concurrency,
@@ -291,34 +295,10 @@ impl Index {
 				crate::authorize::permissions_for_specifier_prefix(resource, arg.permissions)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let token_requests = std::iter::zip(args, std::iter::zip(&resources, &permissions))
-			.enumerate()
-			.filter_map(|(index, (arg, (resource, permissions)))| {
-				let (resource, _) = resource.as_ref()?;
-				let permissions = (*permissions)?;
-				if crate::authorize::validate(resource, permissions).is_err()
-					|| matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
-				{
-					return None;
-				}
-				arg.token.clone().map(|body| (index, body))
-			})
+		let token_resources = args
+			.iter()
+			.map(|arg| arg.token.as_ref().map(|body| body.resource.clone()))
 			.collect::<Vec<_>>();
-		let resolved_tokens = stream::iter(token_requests)
-			.map(|(index, body)| async move {
-				let resource =
-					Self::try_resolve_resource_with_transaction(txn, subspace, &body.resource)
-						.await?
-						.map(|(resource, _)| resource);
-				Ok::<_, tg::Error>((index, resource))
-			})
-			.buffered(config.concurrency)
-			.try_collect::<Vec<_>>()
-			.await?;
-		let mut token_resources = vec![None; args.len()];
-		for (index, resource) in resolved_tokens {
-			token_resources[index] = resource;
-		}
 		let mut cache = Cache::default();
 		let mut authorization = HashMap::new();
 		let mut outputs = Vec::with_capacity(args.len());
@@ -377,7 +357,7 @@ impl Index {
 		Ok(outputs)
 	}
 
-	async fn load_requester_principals_with_transaction(
+	async fn load_requester_subjects_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		concurrency: usize,
@@ -410,14 +390,14 @@ impl Index {
 			for (groups, organizations) in relations {
 				for group in groups {
 					requester
-						.principals
-						.insert(tg::grant::Principal::Group(group.clone()));
+						.subjects
+						.insert(tg::authorization::Subject::Group(group.clone()));
 					next.push(group.into());
 				}
 				for organization in organizations {
 					requester
-						.principals
-						.insert(tg::grant::Principal::Organization(organization));
+						.subjects
+						.insert(tg::authorization::Subject::Organization(organization));
 				}
 			}
 			frontier = next;
@@ -428,10 +408,10 @@ impl Index {
 	async fn authorize_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		permissions: tg::grant::permission::Set,
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		permissions: tg::authorization::permission::Set,
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> tg::Result<tg::grant::permission::Set> {
+	) -> tg::Result<tg::authorization::permission::Set> {
 		let roots = permissions
 			.iter()
 			.map(|permission| (resource.clone(), permission))
@@ -447,12 +427,14 @@ impl Index {
 		for permission in permissions.iter() {
 			let key = (resource.clone(), permission);
 			if authorization.get(&key).copied().unwrap_or(false) {
-				authorized.insert(tg::grant::permission::Set::from_permission(permission));
+				authorized.insert(tg::authorization::permission::Set::from_permission(
+					permission,
+				));
 				continue;
 			}
 			let permission_authorized = match permission {
-				tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				) => Self::authorize_with_object_subtree_search_with_transaction(
 					context,
 					resource,
@@ -461,11 +443,11 @@ impl Index {
 				)
 				.await?
 				.unwrap_or(false),
-				tg::grant::Permission::Process(
-					permission @ (tg::grant::permission::process::Permission::NodeCommand
-					| tg::grant::permission::process::Permission::NodeError
-					| tg::grant::permission::process::Permission::NodeLog
-					| tg::grant::permission::process::Permission::NodeOutput),
+				tg::authorization::Permission::Process(
+					permission @ (tg::authorization::permission::process::Permission::NodeCommand
+					| tg::authorization::permission::process::Permission::NodeError
+					| tg::authorization::permission::process::Permission::NodeLog
+					| tg::authorization::permission::process::Permission::NodeOutput),
 				) => {
 					Self::authorize_process_node_with_transaction(
 						context,
@@ -476,12 +458,12 @@ impl Index {
 					)
 					.await?
 				},
-				tg::grant::Permission::Process(
-					permission @ (tg::grant::permission::process::Permission::Subtree
-					| tg::grant::permission::process::Permission::SubtreeCommand
-					| tg::grant::permission::process::Permission::SubtreeError
-					| tg::grant::permission::process::Permission::SubtreeLog
-					| tg::grant::permission::process::Permission::SubtreeOutput),
+				tg::authorization::Permission::Process(
+					permission @ (tg::authorization::permission::process::Permission::Subtree
+					| tg::authorization::permission::process::Permission::SubtreeCommand
+					| tg::authorization::permission::process::Permission::SubtreeError
+					| tg::authorization::permission::process::Permission::SubtreeLog
+					| tg::authorization::permission::process::Permission::SubtreeOutput),
 				) => Self::authorize_with_process_subtree_search_with_transaction(
 					context,
 					resource,
@@ -494,7 +476,9 @@ impl Index {
 				_ => false,
 			};
 			if permission_authorized {
-				authorized.insert(tg::grant::permission::Set::from_permission(permission));
+				authorized.insert(tg::authorization::permission::Set::from_permission(
+					permission,
+				));
 			}
 		}
 		Ok(authorized)
@@ -502,8 +486,8 @@ impl Index {
 
 	async fn authorize_permissions_ordinary_with_transaction(
 		context: AuthorizationContext<'_>,
-		roots: &[(tg::Id, tg::grant::Permission)],
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		roots: &[(tg::Id, tg::authorization::Permission)],
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<()> {
 		let mut nodes = Vec::new();
@@ -639,7 +623,7 @@ impl Index {
 	}
 
 	fn propagate_authorization(
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		nodes: &mut [AuthorizationNode],
 		node_id: usize,
 	) {
@@ -658,16 +642,16 @@ impl Index {
 	async fn is_directly_authorized_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 		cache: &mut Cache,
 	) -> tg::Result<bool> {
-		if let (tg::Principal::Process(process), tg::grant::Permission::Process(_)) =
+		if let (tg::Principal::Process(process), tg::authorization::Permission::Process(_)) =
 			(context.requester.principal, permission)
 			&& tg::Id::from(process.clone()) == *resource
 		{
 			return Ok(true);
 		}
-		if let (tg::Principal::User(user), tg::grant::Permission::User(_)) =
+		if let (tg::Principal::User(user), tg::authorization::Permission::User(_)) =
 			(context.requester.principal, permission)
 			&& tg::Id::from(user.clone()) == *resource
 		{
@@ -675,9 +659,9 @@ impl Index {
 		}
 		if let (
 			tg::Principal::Sandbox(sandbox),
-			tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Read
-				| tg::grant::permission::sandbox::Permission::Write,
+			tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Read
+				| tg::authorization::permission::sandbox::Permission::Write,
 			),
 		) = (context.requester.principal, permission)
 			&& tg::Id::from(sandbox.clone()) == *resource
@@ -686,9 +670,9 @@ impl Index {
 		}
 		if matches!(
 			permission,
-			tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Read
-					| tg::grant::permission::sandbox::Permission::Write
+			tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Read
+					| tg::authorization::permission::sandbox::Permission::Write
 			)
 		) && resource.kind() == tg::id::Kind::Sandbox
 		{
@@ -701,8 +685,8 @@ impl Index {
 			)
 			.await?
 			{
-				let owner = owner.try_to_grant_principal()?;
-				if Self::principal_contains_requester_with_transaction(
+				let owner = owner.try_to_subject()?;
+				if Self::subject_contains_requester_with_transaction(
 					context.txn,
 					context.subspace,
 					&owner,
@@ -722,12 +706,12 @@ impl Index {
 			cache,
 		)
 		.await?;
-		for (granted_principal, granted_permission) in grants {
+		for (granted_subject, granted_permission) in grants {
 			if granted_permission.implies(permission)
-				&& Self::principal_contains_requester_with_transaction(
+				&& Self::subject_contains_requester_with_transaction(
 					context.txn,
 					context.subspace,
-					&granted_principal,
+					&granted_subject,
 					context.requester,
 				)
 				.await?
@@ -741,7 +725,7 @@ impl Index {
 	fn is_authorized_by_token(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 	) -> bool {
 		context.token.is_some_and(|(body, token_resource)| {
 			token_resource == resource && body.grants(permission)
@@ -751,12 +735,15 @@ impl Index {
 	async fn authorize_with_object_subtree_search_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<Option<bool>> {
-		let subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
 		let mut budget = SubtreeSearchBudget {
 			max_depth: context.config.object_subtree.max_depth,
 			remaining: context.config.object_subtree.max_objects,
@@ -862,29 +849,29 @@ impl Index {
 	async fn authorize_with_process_subtree_search_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		permission: tg::grant::permission::process::Permission,
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		permission: tg::authorization::permission::process::Permission,
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<Option<bool>> {
 		let node_permission = match permission {
-			tg::grant::permission::process::Permission::Subtree => {
-				tg::grant::permission::process::Permission::Node
+			tg::authorization::permission::process::Permission::Subtree => {
+				tg::authorization::permission::process::Permission::Node
 			},
-			tg::grant::permission::process::Permission::SubtreeCommand => {
-				tg::grant::permission::process::Permission::NodeCommand
+			tg::authorization::permission::process::Permission::SubtreeCommand => {
+				tg::authorization::permission::process::Permission::NodeCommand
 			},
-			tg::grant::permission::process::Permission::SubtreeError => {
-				tg::grant::permission::process::Permission::NodeError
+			tg::authorization::permission::process::Permission::SubtreeError => {
+				tg::authorization::permission::process::Permission::NodeError
 			},
-			tg::grant::permission::process::Permission::SubtreeLog => {
-				tg::grant::permission::process::Permission::NodeLog
+			tg::authorization::permission::process::Permission::SubtreeLog => {
+				tg::authorization::permission::process::Permission::NodeLog
 			},
-			tg::grant::permission::process::Permission::SubtreeOutput => {
-				tg::grant::permission::process::Permission::NodeOutput
+			tg::authorization::permission::process::Permission::SubtreeOutput => {
+				tg::authorization::permission::process::Permission::NodeOutput
 			},
 			_ => unreachable!(),
 		};
-		let subtree = tg::grant::Permission::Process(permission);
+		let subtree = tg::authorization::Permission::Process(permission);
 		let mut budget = SubtreeSearchBudget {
 			max_depth: context.config.process_subtree.max_depth,
 			remaining: context.config.process_subtree.max_processes,
@@ -920,7 +907,7 @@ impl Index {
 				break;
 			}
 
-			let node = tg::grant::Permission::Process(node_permission);
+			let node = tg::authorization::Permission::Process(node_permission);
 			let node_roots = uncovered
 				.iter()
 				.map(|process| (tg::Id::from(process.clone()), node))
@@ -1003,11 +990,11 @@ impl Index {
 	async fn authorize_process_node_with_transaction(
 		context: AuthorizationContext<'_>,
 		resource: &tg::Id,
-		permission: tg::grant::permission::process::Permission,
-		authorization: &mut HashMap<(tg::Id, tg::grant::Permission), bool>,
+		permission: tg::authorization::permission::process::Permission,
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<bool> {
-		let process_permission = tg::grant::Permission::Process(permission);
+		let process_permission = tg::authorization::Permission::Process(permission);
 		let root = (resource.clone(), process_permission);
 		Self::authorize_permissions_ordinary_with_transaction(
 			context,
@@ -1020,16 +1007,16 @@ impl Index {
 			return Ok(true);
 		}
 		let kind = match permission {
-			tg::grant::permission::process::Permission::NodeCommand => {
+			tg::authorization::permission::process::Permission::NodeCommand => {
 				crate::process::object::Kind::Command
 			},
-			tg::grant::permission::process::Permission::NodeError => {
+			tg::authorization::permission::process::Permission::NodeError => {
 				crate::process::object::Kind::Error
 			},
-			tg::grant::permission::process::Permission::NodeLog => {
+			tg::authorization::permission::process::Permission::NodeLog => {
 				crate::process::object::Kind::Log
 			},
-			tg::grant::permission::process::Permission::NodeOutput => {
+			tg::authorization::permission::process::Permission::NodeOutput => {
 				crate::process::object::Kind::Output
 			},
 			_ => return Ok(false),
@@ -1057,8 +1044,9 @@ impl Index {
 		if objects.is_empty() {
 			return Ok(false);
 		}
-		let subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		let roots = objects
 			.iter()
 			.map(|object| (tg::Id::from(object.clone()), subtree))
@@ -1096,33 +1084,33 @@ impl Index {
 		subspace: &Subspace,
 		concurrency: usize,
 		resource: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 		cache: &mut Cache,
-	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
+	) -> tg::Result<Vec<(tg::Id, tg::authorization::Permission)>> {
 		let mut dependencies = Vec::new();
 
-		// Add the process principal grant relationships.
+		// Add the process subject grant relationships.
 		let grants =
 			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache)
 				.await?;
-		for (principal, granted_permission) in grants {
+		for (subject, granted_permission) in grants {
 			if !granted_permission.implies(permission) {
 				continue;
 			}
-			let tg::grant::Principal::Process(process) = principal else {
+			let tg::authorization::Subject::Process(process) = subject else {
 				continue;
 			};
 			let permission = if permission.is_read() {
-				tg::grant::permission::process::Permission::Read
+				tg::authorization::permission::process::Permission::Read
 			} else {
-				tg::grant::permission::process::Permission::Write
+				tg::authorization::permission::process::Permission::Write
 			};
-			let permission = tg::grant::Permission::Process(permission);
+			let permission = tg::authorization::Permission::Process(permission);
 			dependencies.push((process.into(), permission));
 		}
 
 		match permission {
-			tg::grant::Permission::Object(_) => {
+			tg::authorization::Permission::Object(_) => {
 				let object = tg::object::Id::try_from(resource.clone())?;
 				let cached_parents = cache.object_parents.get(&object).cloned();
 				let cached_processes = cache.object_processes.get(&object).cloned();
@@ -1166,31 +1154,34 @@ impl Index {
 				cache.object_processes.insert(object, processes.clone());
 				cache.target_tags.insert(tag_key, tags.clone());
 				for parent in object_parents {
-					let permission = tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
+					let permission = tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
 					);
 					dependencies.push((parent.into(), permission));
 				}
 				for (process, kind) in processes {
 					let permission = match kind {
 						crate::process::object::Kind::Command => {
-							tg::grant::permission::process::Permission::NodeCommand
+							tg::authorization::permission::process::Permission::NodeCommand
 						},
 						crate::process::object::Kind::Error => {
-							tg::grant::permission::process::Permission::NodeError
+							tg::authorization::permission::process::Permission::NodeError
 						},
 						crate::process::object::Kind::Log => {
-							tg::grant::permission::process::Permission::NodeLog
+							tg::authorization::permission::process::Permission::NodeLog
 						},
 						crate::process::object::Kind::Output => {
-							tg::grant::permission::process::Permission::NodeOutput
+							tg::authorization::permission::process::Permission::NodeOutput
 						},
 					};
-					dependencies.push((process.into(), tg::grant::Permission::Process(permission)));
+					dependencies.push((
+						process.into(),
+						tg::authorization::Permission::Process(permission),
+					));
 				}
 				dependencies.extend(tags);
 			},
-			tg::grant::Permission::Process(process_permission) => {
+			tg::authorization::Permission::Process(process_permission) => {
 				let process = tg::process::Id::try_from(resource.clone())?;
 				let cached_sandbox = cache.process_sandboxes.get(&process).cloned();
 				let cached_parents = cache.process_parents.get(&process).cloned();
@@ -1241,33 +1232,33 @@ impl Index {
 				cache.target_tags.insert(tag_key, tags.clone());
 				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
-						tg::grant::permission::process::Permission::Write => {
-							tg::grant::permission::sandbox::Permission::Write
+						tg::authorization::permission::process::Permission::Write => {
+							tg::authorization::permission::sandbox::Permission::Write
 						},
-						_ => tg::grant::permission::sandbox::Permission::Read,
+						_ => tg::authorization::permission::sandbox::Permission::Read,
 					};
 					dependencies.push((
 						sandbox.into(),
-						tg::grant::Permission::Sandbox(sandbox_permission),
+						tg::authorization::Permission::Sandbox(sandbox_permission),
 					));
 				}
 				for parent in process_parents {
 					let permission =
-						tg::grant::Permission::Process(process_permission.to_subtree());
+						tg::authorization::Permission::Process(process_permission.to_subtree());
 					dependencies.push((parent.into(), permission));
 				}
 				dependencies.extend(tags);
 			},
-			tg::grant::Permission::Group(_)
-			| tg::grant::Permission::Organization(_)
-			| tg::grant::Permission::Sandbox(_)
-			| tg::grant::Permission::Tag(_)
-			| tg::grant::Permission::User(_) => {
+			tg::authorization::Permission::Group(_)
+			| tg::authorization::Permission::Organization(_)
+			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Tag(_)
+			| tg::authorization::Permission::User(_) => {
 				if matches!(
 					permission,
-					tg::grant::Permission::Sandbox(
-						tg::grant::permission::sandbox::Permission::Read
-							| tg::grant::permission::sandbox::Permission::Write
+					tg::authorization::Permission::Sandbox(
+						tg::authorization::permission::sandbox::Permission::Read
+							| tg::authorization::permission::sandbox::Permission::Write
 					)
 				) && resource.kind() == tg::id::Kind::Sandbox
 				{
@@ -1307,19 +1298,19 @@ impl Index {
 		Ok(dependencies)
 	}
 
-	async fn principal_contains_requester_with_transaction(
+	async fn subject_contains_requester_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 		requester: &Requester<'_>,
 	) -> tg::Result<bool> {
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
-			return Ok(requester.principals.contains(principal));
+			return Ok(requester.subjects.contains(subject));
 		}
-		if principal == &tg::grant::Principal::Public {
+		if subject == &tg::authorization::Subject::Public {
 			return Ok(true);
 		}
-		if requester.principal_ == *principal {
+		if requester.subject == *subject {
 			return Ok(true);
 		}
 		if requester.id.is_none() {
@@ -1327,17 +1318,17 @@ impl Index {
 		}
 		let contains = {
 			let cache = requester.membership_cache();
-			cache.principal_contains_requester.get(principal).copied()
+			cache.subject_contains_requester.get(subject).copied()
 		};
 		if let Some(contains) = contains {
 			return Ok(contains);
 		}
-		let contains = match principal {
-			tg::grant::Principal::Group(group) => {
+		let contains = match subject {
+			tg::authorization::Subject::Group(group) => {
 				Self::group_contains_requester_with_transaction(txn, subspace, group, requester)
 					.await?
 			},
-			tg::grant::Principal::Organization(organization) => {
+			tg::authorization::Subject::Organization(organization) => {
 				Self::organization_contains_requester_with_transaction(
 					txn,
 					subspace,
@@ -1350,8 +1341,8 @@ impl Index {
 		};
 		requester
 			.membership_cache()
-			.principal_contains_requester
-			.insert(principal.clone(), contains);
+			.subject_contains_requester
+			.insert(subject.clone(), contains);
 		Ok(contains)
 	}
 
@@ -1361,10 +1352,10 @@ impl Index {
 		group: &tg::group::Id,
 		requester: &Requester<'_>,
 	) -> tg::Result<bool> {
-		let principal = tg::grant::Principal::Group(group.clone());
+		let subject = tg::authorization::Subject::Group(group.clone());
 		let contains = {
 			let cache = requester.membership_cache();
-			cache.principal_contains_requester.get(&principal).copied()
+			cache.subject_contains_requester.get(&subject).copied()
 		};
 		if let Some(contains) = contains {
 			return Ok(contains);
@@ -1376,17 +1367,17 @@ impl Index {
 			if !visited.insert(group.clone()) {
 				continue;
 			}
-			let principal = tg::grant::Principal::Group(group.clone());
+			let subject = tg::authorization::Subject::Group(group.clone());
 			let contains = {
 				let cache = requester.membership_cache();
-				cache.principal_contains_requester.get(&principal).copied()
+				cache.subject_contains_requester.get(&subject).copied()
 			};
 			if let Some(contains) = contains {
 				if contains {
 					requester
 						.membership_cache()
-						.principal_contains_requester
-						.insert(tg::grant::Principal::Group(root), true);
+						.subject_contains_requester
+						.insert(tg::authorization::Subject::Group(root), true);
 					return Ok(true);
 				}
 				continue;
@@ -1415,8 +1406,8 @@ impl Index {
 				if requester.id.as_ref() == Some(&member) {
 					requester
 						.membership_cache()
-						.principal_contains_requester
-						.insert(tg::grant::Principal::Group(root), true);
+						.subject_contains_requester
+						.insert(tg::authorization::Subject::Group(root), true);
 					return Ok(true);
 				}
 				if member.kind() == tg::id::Kind::Group {
@@ -1427,8 +1418,8 @@ impl Index {
 		let mut cache = requester.membership_cache();
 		for group in visited {
 			cache
-				.principal_contains_requester
-				.insert(tg::grant::Principal::Group(group), false);
+				.subject_contains_requester
+				.insert(tg::authorization::Subject::Group(group), false);
 		}
 		Ok(false)
 	}
@@ -1439,10 +1430,10 @@ impl Index {
 		organization: &tg::organization::Id,
 		requester: &Requester<'_>,
 	) -> tg::Result<bool> {
-		let principal = tg::grant::Principal::Organization(organization.clone());
+		let subject = tg::authorization::Subject::Organization(organization.clone());
 		let contains = {
 			let cache = requester.membership_cache();
-			cache.principal_contains_requester.get(&principal).copied()
+			cache.subject_contains_requester.get(&subject).copied()
 		};
 		if let Some(contains) = contains {
 			return Ok(contains);
@@ -1471,9 +1462,9 @@ impl Index {
 			if requester.id.as_ref() == Some(&member) {
 				requester
 					.membership_cache()
-					.principal_contains_requester
+					.subject_contains_requester
 					.insert(
-						tg::grant::Principal::Organization(organization.clone()),
+						tg::authorization::Subject::Organization(organization.clone()),
 						true,
 					);
 				return Ok(true);
@@ -1485,9 +1476,9 @@ impl Index {
 				{
 					requester
 						.membership_cache()
-						.principal_contains_requester
+						.subject_contains_requester
 						.insert(
-							tg::grant::Principal::Organization(organization.clone()),
+							tg::authorization::Subject::Organization(organization.clone()),
 							true,
 						);
 					return Ok(true);
@@ -1496,9 +1487,9 @@ impl Index {
 		}
 		requester
 			.membership_cache()
-			.principal_contains_requester
+			.subject_contains_requester
 			.insert(
-				tg::grant::Principal::Organization(organization.clone()),
+				tg::authorization::Subject::Organization(organization.clone()),
 				false,
 			);
 		Ok(false)
@@ -1509,7 +1500,7 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		cache: &mut Cache,
-	) -> tg::Result<Vec<(tg::grant::Principal, tg::grant::Permission)>> {
+	) -> tg::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
 		if let Some(grants) = cache.resource_grants.get(resource) {
 			return Ok(grants.clone());
 		}
@@ -1553,9 +1544,9 @@ impl Index {
 		subspace: &Subspace,
 		concurrency: usize,
 		node: &tg::Id,
-		permission: tg::grant::Permission,
+		permission: tg::authorization::Permission,
 		cache: &mut Cache,
-	) -> tg::Result<Vec<(tg::Id, tg::grant::Permission)>> {
+	) -> tg::Result<Vec<(tg::Id, tg::authorization::Permission)>> {
 		let key = (node.clone(), permission);
 		if let Some(tags) = cache.target_tags.get(&key) {
 			return Ok(tags.clone());
@@ -1583,7 +1574,9 @@ impl Index {
 			{
 				parents.push((
 					tag.into(),
-					tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
+					tg::authorization::Permission::Tag(
+						tg::authorization::permission::tag::Permission::Read,
+					),
 				));
 			}
 		}

@@ -17,8 +17,8 @@ failure $output "a user without admin should not be able to grant"
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = team
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> unauthorized

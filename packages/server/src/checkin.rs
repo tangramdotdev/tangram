@@ -247,9 +247,9 @@ impl Session {
 						.to_i64()
 						.unwrap();
 				let token = match session.create_token(
-					tg::grant::Resource::Id(id.clone().into()),
-					vec![tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
+					id.clone().into(),
+					vec![tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
 					)],
 					expires_at,
 				) {
@@ -291,9 +291,10 @@ impl Session {
 			.parse::<tg::artifact::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
 
-		let resource = tg::grant::Resource::Id(id.clone().into());
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let resource = tg::Selector::<tg::Id>::Id(id.clone().into());
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		if !self
 			.authorize(resource, permission)
 			.await?
@@ -347,9 +348,9 @@ impl Session {
 				.to_i64()
 				.unwrap();
 		self.create_token(
-			tg::grant::Resource::Id(id.clone().into()),
-			vec![tg::grant::Permission::Object(
-				tg::grant::permission::object::Permission::Subtree,
+			id.clone().into(),
+			vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
 			)],
 			expires_at,
 		)

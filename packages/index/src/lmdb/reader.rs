@@ -149,14 +149,14 @@ impl Index {
 				)?;
 				crate::read::Response::LogCompactionBatch(output)
 			},
-			crate::read::Request::GetRequesterPrincipals { principal } => {
-				let output = Self::requester_principals_with_transaction(
+			crate::read::Request::GetRequesterSubjects { principal } => {
+				let output = Self::requester_subjects_with_transaction(
 					db,
 					subspace,
 					transaction,
 					&principal,
 				)?;
-				crate::read::Response::GetRequesterPrincipals(output)
+				crate::read::Response::GetRequesterSubjects(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let output = Self::get_runner_sandboxes_with_transaction(

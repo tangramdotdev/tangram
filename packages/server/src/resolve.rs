@@ -295,8 +295,7 @@ impl Session {
 		};
 		let expires_at =
 			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
-		let resource = tg::grant::Resource::Id(target.clone());
-		let token = self.create_token(resource, data.permissions, expires_at)?;
+		let token = self.create_token(target.clone(), data.permissions, expires_at)?;
 
 		Ok(token)
 	}

@@ -38,8 +38,8 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 	) -> tg::Result<Option<()>> {
-		let permission = tg::grant::Permission::Organization(
-			tg::grant::permission::organization::Permission::Admin,
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Admin,
 		);
 		match self.authorize(organization.clone(), permission).await? {
 			None => return Ok(None),
@@ -149,19 +149,19 @@ impl Session {
 					organization: organization_id.clone().try_into()?,
 				},
 			));
-		let principal = match member {
-			tg::organization::Member::Group(id) => tg::grant::Principal::Group(id.clone()),
-			tg::organization::Member::User(id) => tg::grant::Principal::User(id.clone()),
+		let subject = match member {
+			tg::organization::Member::Group(id) => tg::authorization::Subject::Group(id.clone()),
+			tg::organization::Member::User(id) => tg::authorization::Subject::User(id.clone()),
 		};
 		let arg = tg::grant::delete::Arg {
-			principal: principal.into(),
 			permissions: tg::Either::Left(
-				tg::grant::Permission::Organization(
-					tg::grant::permission::organization::Permission::Write,
+				tg::authorization::Permission::Organization(
+					tg::authorization::permission::organization::Permission::Write,
 				)
 				.into(),
 			),
-			resource: tg::Referent::with_node(tg::grant::Resource::Id(organization_id)),
+			resource: tg::Referent::with_node(tg::Selector::Id(organization_id)),
+			subject: subject.into(),
 		};
 		self.delete_grant_with_transaction(transaction, arg, batch)
 			.await?;

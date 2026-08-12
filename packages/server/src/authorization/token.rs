@@ -15,11 +15,7 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		self.create_token(
-			tg::grant::Resource::Id(id.clone()),
-			vec![permission],
-			expires_at,
-		)
+		self.create_token(id.clone(), vec![permission], expires_at)
 	}
 
 	pub(crate) fn add_tokens_to_value_data(&self, data: &mut tg::value::Data) -> tg::Result<()> {
@@ -53,9 +49,9 @@ impl Session {
 				.to_i64()
 				.unwrap();
 		let token = self.create_token(
-			tg::grant::Resource::Id(referent.node.clone().into()),
-			vec![tg::grant::Permission::Object(
-				tg::grant::permission::object::Permission::Subtree,
+			referent.node.clone().into(),
+			vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
 			)],
 			expires_at,
 		)?;
@@ -141,9 +137,9 @@ impl Session {
 			},
 			tg::value::Data::Object(object) => {
 				let token = self.create_token(
-					tg::grant::Resource::Id(object.node.clone().into()),
-					vec![tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
+					object.node.clone().into(),
+					vec![tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
 					)],
 					expires_at,
 				)?;
@@ -159,9 +155,9 @@ impl Session {
 				module.children(&mut children);
 				if let Some(id) = children.into_iter().next() {
 					let token = self.create_token(
-						tg::grant::Resource::Id(id.into()),
-						vec![tg::grant::Permission::Object(
-							tg::grant::permission::object::Permission::Subtree,
+						id.into(),
+						vec![tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
 						)],
 						expires_at,
 					)?;
@@ -247,9 +243,9 @@ impl Session {
 		for component in &mut data.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
 				let token = self.create_token(
-					tg::grant::Resource::Id(tg::object::Id::from(artifact.node.clone()).into()),
-					vec![tg::grant::Permission::Object(
-						tg::grant::permission::object::Permission::Subtree,
+					tg::object::Id::from(artifact.node.clone()).into(),
+					vec![tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
 					)],
 					expires_at,
 				)?;

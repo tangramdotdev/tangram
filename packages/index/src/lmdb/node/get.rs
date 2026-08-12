@@ -129,14 +129,14 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		resource: &tg::grant::Resource,
+		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<Option<(tg::Id, bool)>> {
 		match resource {
-			tg::grant::Resource::Id(id) => {
+			tg::Selector::Id(id) => {
 				Self::try_resolve_id_with_transaction(db, subspace, transaction, id)
 					.map(|id| id.map(|id| (id, true)))
 			},
-			tg::grant::Resource::Specifier(specifier) => {
+			tg::Selector::Specifier(specifier) => {
 				// Resolve the deepest existing prefix of the specifier.
 				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
 				prefixes.reverse();

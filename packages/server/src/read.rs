@@ -240,8 +240,9 @@ impl Session {
 impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
 		let resource = tg::Referent::with_node_and_tokens(
 			tg::object::Id::from(id.clone()),
 			blob.state().tokens(),

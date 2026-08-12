@@ -77,9 +77,9 @@ impl Session {
 			)
 			.await?
 		{
-			tg::grant::permission::object::Permission::Subtree
+			tg::authorization::permission::object::Permission::Subtree
 		} else {
-			tg::grant::permission::object::Permission::Node
+			tg::authorization::permission::object::Permission::Node
 		};
 
 		let (node_solvable, node_solved) = match data {
@@ -123,17 +123,17 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at: now,
 		};
-		let grant_principal = match &self.context.principal {
-			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
-			principal => Some(principal.try_to_grant_principal()?),
+			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant = grant_principal.map(|grant_principal| tangram_index::grant::put::Arg {
+		let put_grant = grant_subject.map(|grant_subject| tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(self.context.principal.clone()),
 			expires_at: Some(grant_expires_at),
-			permissions: tg::grant::Permission::Object(permission).into(),
-			principal: grant_principal,
+			permissions: tg::authorization::Permission::Object(permission).into(),
+			subject: grant_subject,
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 		});
@@ -158,8 +158,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
 
 		let token = self.create_token(
-			tg::grant::Resource::Id(id.clone().into()),
-			vec![tg::grant::Permission::Object(permission)],
+			id.clone().into(),
+			vec![tg::authorization::Permission::Object(permission)],
 			grant_expires_at,
 		)?;
 		let object = tg::Referent::with_node_and_token(id.clone(), token);

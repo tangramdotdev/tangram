@@ -76,8 +76,9 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::Stored>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let subtree =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		if self
 			.authorize(resource.clone(), subtree)
 			.await?
@@ -86,7 +87,9 @@ impl Session {
 			return Ok(Some(stored));
 		}
 
-		let node = tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
 		if self
 			.authorize(resource, node)
 			.await?

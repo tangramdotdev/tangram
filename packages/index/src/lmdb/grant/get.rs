@@ -11,7 +11,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<(tg::grant::Principal, tg::grant::Permission)>> {
+	) -> tg::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
 			Kind::ResourceGrant.to_i32().unwrap(),
@@ -27,30 +27,30 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-				principal,
+				subject,
 				permission,
 				..
 			}) = key
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			grants.push((principal, permission));
+			grants.push((subject, permission));
 		}
 		Ok(grants)
 	}
 
-	pub(crate) fn get_resource_grant_entries_for_principal_with_transaction(
+	pub(crate) fn get_resource_grant_entries_for_subject_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 	) -> tg::Result<Vec<crate::lmdb::grant::GrantEntry>> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
 			Kind::ResourceGrant.to_i32().unwrap(),
 			resource_bytes.as_ref(),
-			principal.to_string(),
+			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, prefix);
 		let mut grants = Vec::new();
@@ -62,7 +62,7 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-				principal,
+				subject,
 				permission,
 				..
 			}) = key
@@ -74,7 +74,7 @@ impl Index {
 				explicit: value.explicit,
 				materialized: value.materialized,
 				permission,
-				principal,
+				subject,
 				temporary: value.temporary,
 			});
 		}
@@ -86,13 +86,13 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 	) -> tg::Result<bool> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
 			Kind::Visibility.to_i32().unwrap(),
 			resource_bytes.as_ref(),
-			principal.to_string(),
+			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, prefix);
 		let mut iter = db

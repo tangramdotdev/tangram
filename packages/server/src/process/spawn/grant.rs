@@ -28,33 +28,35 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				Self::list_resource_grants_with_transaction(&transaction, &resource).await?
 			};
-		let mut covered = tg::grant::permission::process::Set::empty();
+		let mut covered = tg::authorization::permission::process::Set::empty();
 		for grant in existing {
-			if grant.principal == tg::grant::Principal::Public
-				&& let tg::grant::permission::Set::Process(set) = grant.permissions
+			if grant.subject == tg::authorization::Subject::Public
+				&& let tg::authorization::permission::Set::Process(set) = grant.permissions
 			{
 				covered.insert(set);
 			}
 		}
 
-		let mut missing = tg::grant::permission::process::Set::empty();
+		let mut missing = tg::authorization::permission::process::Set::empty();
 		for permission in [
-			tg::grant::permission::process::Permission::Subtree,
-			tg::grant::permission::process::Permission::SubtreeCommand,
-			tg::grant::permission::process::Permission::SubtreeError,
-			tg::grant::permission::process::Permission::SubtreeLog,
-			tg::grant::permission::process::Permission::SubtreeOutput,
+			tg::authorization::permission::process::Permission::Subtree,
+			tg::authorization::permission::process::Permission::SubtreeCommand,
+			tg::authorization::permission::process::Permission::SubtreeError,
+			tg::authorization::permission::process::Permission::SubtreeLog,
+			tg::authorization::permission::process::Permission::SubtreeOutput,
 		] {
-			let set = tg::grant::permission::process::Set::from_permission(permission);
+			let set = tg::authorization::permission::process::Set::from_permission(permission);
 			if !covered.contains(set) {
 				missing.insert(set);
 			}
 		}
 		if !missing.is_empty() {
 			self.create_grant(tg::grant::create::Arg {
-				principal: tg::principal::Selector::Principal(tg::grant::Principal::Public),
-				permissions: tg::Either::Left(tg::grant::permission::Set::Process(missing)),
-				resource: tg::Referent::with_node(tg::grant::Resource::Id(resource)),
+				subject: tg::authorization::subject::Selector::Subject(
+					tg::authorization::Subject::Public,
+				),
+				permissions: tg::Either::Left(tg::authorization::permission::Set::Process(missing)),
+				resource: tg::Referent::with_node(tg::Selector::Id(resource)),
 			})
 			.await?;
 		}

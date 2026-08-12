@@ -36,8 +36,8 @@ failure $escalation "a node grantee should not grant the subtree."
 snapshot --normalize-ids $escalation.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = fil_010000000000000000000000000000000000000000000000000000
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to find the resource

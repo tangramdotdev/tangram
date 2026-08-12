@@ -15,8 +15,8 @@ failure $output "creating a grant that already exists should fail"
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = team
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> database error

@@ -15,7 +15,7 @@ impl Session {
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
 		let authorization_resource = tg::Referent::with_node_and_tokens(
-			tg::grant::Resource::Id(resource.clone()),
+			tg::Selector::Id(resource.clone()),
 			arg.resource.options.tokens.clone(),
 		);
 		match &resource {
@@ -85,14 +85,14 @@ impl Session {
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
 		let authorization_resource = tg::Referent::with_node_and_tokens(
-			tg::grant::Resource::Id(resource.clone()),
+			tg::Selector::Id(resource.clone()),
 			arg.resource.options.tokens.clone(),
 		);
 		match &resource {
 			id if tg::object::Id::try_from(id.clone()).is_ok()
 				|| id.kind() == tg::id::Kind::Process =>
 			{
-				// A grant on an object or process may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another principal's grant.
+				// A grant on an object or process may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another subject's grant.
 			},
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
@@ -140,9 +140,9 @@ impl Session {
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
 		tangram_index::authorize::validate(&resource, permissions)?;
-		let principal = Self::resolve_principal_with_transaction(transaction, &arg.principal)
+		let subject = Self::resolve_subject_with_transaction(transaction, &arg.subject)
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the principal"))?;
+			.ok_or_else(|| tg::error!("failed to find the subject"))?;
 		let created_at = self.server.clock.unix_timestamp()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
@@ -156,13 +156,13 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::permission::Set,
+			permissions: tg::authorization::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
 				select created_at, creator, permissions
 				from grants
-				where resource = {p}1 and principal = {p}2 and creator = {p}3;
+				where resource = {p}1 and subject = {p}2 and creator = {p}3;
 			"
 		);
 		let row = transaction
@@ -170,7 +170,7 @@ impl Session {
 				statement.into(),
 				db::params![
 					resource.to_string(),
-					principal.to_string(),
+					subject.to_string(),
 					creator_string.clone()
 				],
 			)
@@ -185,7 +185,7 @@ impl Session {
 						created_at: row.created_at,
 						creator: Some(row.creator),
 						permissions: updated_permissions,
-						principal,
+						subject,
 						resource,
 					},
 					false,
@@ -195,7 +195,7 @@ impl Session {
 				"
 					update grants
 					set permissions = {p}3
-					where resource = {p}1 and principal = {p}2 and creator = {p}4;
+					where resource = {p}1 and subject = {p}2 and creator = {p}4;
 				"
 			);
 			transaction
@@ -203,7 +203,7 @@ impl Session {
 					statement.into(),
 					db::params![
 						resource.to_string(),
-						principal.to_string(),
+						subject.to_string(),
 						updated_permissions.to_string(),
 						creator_string.clone()
 					],
@@ -214,7 +214,7 @@ impl Session {
 		} else {
 			let statement = formatdoc!(
 				"
-					insert into grants (resource, principal, permissions, created_at, creator)
+					insert into grants (resource, subject, permissions, created_at, creator)
 					values ({p}1, {p}2, {p}3, {p}4, {p}5);
 				"
 			);
@@ -223,7 +223,7 @@ impl Session {
 					statement.into(),
 					db::params![
 						resource.to_string(),
-						principal.to_string(),
+						subject.to_string(),
 						permissions.to_string(),
 						created_at,
 						creator_string
@@ -239,7 +239,7 @@ impl Session {
 				creator: output_creator.clone(),
 				expires_at: None,
 				permissions,
-				principal: principal.clone(),
+				subject: subject.clone(),
 				resource: resource.clone(),
 				time_to_touch: None,
 			},
@@ -249,7 +249,7 @@ impl Session {
 				created_at,
 				creator: output_creator,
 				permissions,
-				principal,
+				subject,
 				resource,
 			},
 			changed,
@@ -269,8 +269,8 @@ impl Session {
 		};
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
 		tangram_index::authorize::validate(&resource, permissions)?;
-		let Some(principal) =
-			Self::resolve_principal_with_transaction(transaction, &arg.principal).await?
+		let Some(subject) =
+			Self::resolve_subject_with_transaction(transaction, &arg.subject).await?
 		else {
 			return Ok(None);
 		};
@@ -283,13 +283,13 @@ impl Session {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::permission::Set,
+			permissions: tg::authorization::permission::Set,
 		}
 		let statement = formatdoc!(
 			"
 				select permissions
 				from grants
-				where resource = {p}1 and principal = {p}2 and creator = {p}3;
+				where resource = {p}1 and subject = {p}2 and creator = {p}3;
 			"
 		);
 		let Some(row) = transaction
@@ -297,7 +297,7 @@ impl Session {
 				statement.into(),
 				db::params![
 					resource.to_string(),
-					principal.to_string(),
+					subject.to_string(),
 					creator_string.clone()
 				],
 			)
@@ -315,7 +315,7 @@ impl Session {
 			let statement = formatdoc!(
 				"
 					delete from grants
-					where resource = {p}1 and principal = {p}2 and creator = {p}3;
+					where resource = {p}1 and subject = {p}2 and creator = {p}3;
 				"
 			);
 			transaction
@@ -323,7 +323,7 @@ impl Session {
 					statement.into(),
 					db::params![
 						resource.to_string(),
-						principal.to_string(),
+						subject.to_string(),
 						creator_string.clone()
 					],
 				)
@@ -334,7 +334,7 @@ impl Session {
 				"
 					update grants
 					set permissions = {p}3
-					where resource = {p}1 and principal = {p}2 and creator = {p}4;
+					where resource = {p}1 and subject = {p}2 and creator = {p}4;
 				"
 			);
 			transaction
@@ -342,7 +342,7 @@ impl Session {
 					statement.into(),
 					db::params![
 						resource.to_string(),
-						principal.to_string(),
+						subject.to_string(),
 						remaining.to_string(),
 						creator_string.clone()
 					],
@@ -362,7 +362,7 @@ impl Session {
 					creator: Some(creator),
 					expires_at: None,
 					permissions: deleted,
-					principal,
+					subject,
 					resource,
 				},
 			));
@@ -372,7 +372,7 @@ impl Session {
 
 	pub(crate) async fn resolve_resource(
 		&self,
-		resource: &tg::grant::Resource,
+		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<tg::Id> {
 		let mut connection = self
 			.server
@@ -391,10 +391,10 @@ impl Session {
 
 	async fn resolve_resource_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		resource: &tg::grant::Resource,
+		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<Option<tg::Id>> {
 		match resource {
-			tg::grant::Resource::Id(id) => {
+			tg::Selector::Id(id) => {
 				// Objects, processes, and sandboxes do not have specifiers, so their IDs resolve directly.
 				if id.kind() == tg::id::Kind::Process
 					|| id.kind() == tg::id::Kind::Sandbox
@@ -408,7 +408,7 @@ impl Session {
 
 				Ok(id)
 			},
-			tg::grant::Resource::Specifier(specifier) => {
+			tg::Selector::Specifier(specifier) => {
 				Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await
 			},
 		}
@@ -416,39 +416,39 @@ impl Session {
 
 	fn normalize_grant_permissions(
 		resource: &tg::Id,
-		permissions: tg::Either<tg::grant::permission::Set, String>,
-	) -> tg::Result<tg::grant::permission::Set> {
+		permissions: tg::Either<tg::authorization::permission::Set, String>,
+	) -> tg::Result<tg::authorization::permission::Set> {
 		match permissions {
 			tg::Either::Left(permissions) => Ok(permissions),
 			tg::Either::Right(permissions) => {
-				let kind = tg::grant::resource::Kind::from_id_kind(resource.kind())
+				let kind = tg::authorization::ResourceKind::from_id_kind(resource.kind())
 					.ok_or_else(|| tg::error!("invalid resource"))?;
-				tg::grant::permission::Set::parse_for_kind(kind, &permissions)
+				tg::authorization::permission::Set::parse_for_kind(kind, &permissions)
 			},
 		}
 	}
 
 	pub(crate) fn read_permission_for_resource(
 		resource: &tg::Id,
-	) -> tg::Result<tg::grant::Permission> {
+	) -> tg::Result<tg::authorization::Permission> {
 		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Read,
+			tg::id::Kind::Group => Ok(tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
 			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Read,
+			tg::id::Kind::Organization => Ok(tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
 			)),
-			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Read,
+			tg::id::Kind::Process => Ok(tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Read,
 			)),
-			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Read,
+			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Read,
 			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Read,
+			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
 			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Read,
+			tg::id::Kind::User => Ok(tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
 			)),
 			_ => Err(tg::error!("invalid resource")),
 		}
@@ -456,22 +456,22 @@ impl Session {
 
 	pub(crate) fn admin_permission_for_resource(
 		resource: &tg::Id,
-	) -> tg::Result<tg::grant::Permission> {
+	) -> tg::Result<tg::authorization::Permission> {
 		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Admin,
+			tg::id::Kind::Group => Ok(tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Admin,
 			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Admin,
+			tg::id::Kind::Organization => Ok(tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Admin,
 			)),
-			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Write,
+			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Write,
 			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Admin,
+			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Admin,
 			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Admin,
+			tg::id::Kind::User => Ok(tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Admin,
 			)),
 			_ => Err(tg::error!("invalid resource")),
 		}
@@ -479,19 +479,19 @@ impl Session {
 
 	pub(crate) fn delete_permission_for_resource(
 		resource: &tg::Id,
-	) -> tg::Result<tg::grant::Permission> {
+	) -> tg::Result<tg::authorization::Permission> {
 		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Admin,
+			tg::id::Kind::Group => Ok(tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Admin,
 			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Admin,
+			tg::id::Kind::Organization => Ok(tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Admin,
 			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Write,
+			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Write,
 			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Admin,
+			tg::id::Kind::User => Ok(tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Admin,
 			)),
 			_ => Err(tg::error!("invalid resource")),
 		}
@@ -499,25 +499,25 @@ impl Session {
 
 	pub(crate) fn write_permission_for_resource(
 		resource: &tg::Id,
-	) -> tg::Result<tg::grant::Permission> {
+	) -> tg::Result<tg::authorization::Permission> {
 		match resource.kind() {
-			tg::id::Kind::Group => Ok(tg::grant::Permission::Group(
-				tg::grant::permission::group::Permission::Write,
+			tg::id::Kind::Group => Ok(tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Write,
 			)),
-			tg::id::Kind::Organization => Ok(tg::grant::Permission::Organization(
-				tg::grant::permission::organization::Permission::Write,
+			tg::id::Kind::Organization => Ok(tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Write,
 			)),
-			tg::id::Kind::Process => Ok(tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Write,
+			tg::id::Kind::Process => Ok(tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Write,
 			)),
-			tg::id::Kind::Sandbox => Ok(tg::grant::Permission::Sandbox(
-				tg::grant::permission::sandbox::Permission::Write,
+			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Write,
 			)),
-			tg::id::Kind::Tag => Ok(tg::grant::Permission::Tag(
-				tg::grant::permission::tag::Permission::Write,
+			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Write,
 			)),
-			tg::id::Kind::User => Ok(tg::grant::Permission::User(
-				tg::grant::permission::user::Permission::Write,
+			tg::id::Kind::User => Ok(tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Write,
 			)),
 			_ => Err(tg::error!("invalid resource")),
 		}
@@ -554,9 +554,9 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::permission::Set,
+			permissions: tg::authorization::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
-			principal: tg::grant::Principal,
+			subject: tg::authorization::Subject,
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
 		}
@@ -572,9 +572,9 @@ impl Session {
 			.collect::<Vec<_>>();
 		let statement = formatdoc!(
 			"
-				select creator, resource, permissions, principal
+				select creator, resource, permissions, subject
 				from grants
-				where resource in ({placeholders}) or principal in ({placeholders});
+				where resource in ({placeholders}) or subject in ({placeholders});
 			"
 		);
 		let rows = transaction
@@ -587,7 +587,7 @@ impl Session {
 					creator: Some(row.creator),
 					expires_at: None,
 					permissions: row.permissions,
-					principal: row.principal,
+					subject: row.subject,
 					resource: row.resource,
 				},
 			));
@@ -595,7 +595,7 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				delete from grants
-				where resource in ({placeholders}) or principal in ({placeholders});
+				where resource in ({placeholders}) or subject in ({placeholders});
 			"
 		);
 		transaction
@@ -623,21 +623,21 @@ impl Session {
 		&self,
 		arg: tg::grant::list::Arg,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
-		match (arg.resource, arg.principal) {
+		match (arg.resource, arg.subject) {
 			(Some(resource), None) => self.list_resource_grants_local(resource).await,
-			(None, Some(principal)) => self.list_principal_grants_local(principal).await,
+			(None, Some(subject)) => self.list_subject_grants_local(subject).await,
 			_ => Err(tg::error!(
-				"expected exactly one of a resource or a principal"
+				"expected exactly one of a resource or a subject"
 			)),
 		}
 	}
 
 	async fn list_resource_grants_local(
 		&self,
-		resource: tg::grant::Resource,
+		resource: tg::Selector<tg::Id>,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Listing the grants on an object or a process requires the root principal.
-		if let tg::grant::Resource::Id(id) = &resource
+		if let tg::Selector::Id(id) = &resource
 			&& (id.kind() == tg::id::Kind::Process || tg::object::Id::try_from(id.clone()).is_ok())
 		{
 			if !matches!(self.context.principal, tg::Principal::Root) {
@@ -688,9 +688,9 @@ impl Session {
 		Ok(Some(tg::grant::list::Output { data }))
 	}
 
-	async fn list_principal_grants_local(
+	async fn list_subject_grants_local(
 		&self,
-		principal: tg::principal::Selector,
+		subject: tg::authorization::subject::Selector,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		let mut connection = self
 			.server
@@ -702,25 +702,24 @@ impl Session {
 			.transaction()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(principal) =
-			Self::resolve_principal_with_transaction(&transaction, &principal).await?
+		let Some(subject) = Self::resolve_subject_with_transaction(&transaction, &subject).await?
 		else {
 			return Ok(None);
 		};
-		match &principal {
+		match &subject {
 			// Listing the grants held by a user, group, or organization requires admin permission on it, and it is not found without read permission.
-			tg::grant::Principal::Group(_)
-			| tg::grant::Principal::Organization(_)
-			| tg::grant::Principal::User(_) => {
-				let id: tg::Id = match &principal {
-					tg::grant::Principal::Group(id) => id.clone().into(),
-					tg::grant::Principal::Organization(id) => id.clone().into(),
-					tg::grant::Principal::User(id) => id.clone().into(),
+			tg::authorization::Subject::Group(_)
+			| tg::authorization::Subject::Organization(_)
+			| tg::authorization::Subject::User(_) => {
+				let id: tg::Id = match &subject {
+					tg::authorization::Subject::Group(id) => id.clone().into(),
+					tg::authorization::Subject::Organization(id) => id.clone().into(),
+					tg::authorization::Subject::User(id) => id.clone().into(),
 					_ => unreachable!(),
 				};
 				let read = Self::read_permission_for_resource(&id)?;
 				if !self
-					.authorize(tg::grant::Resource::Id(id.clone()), read)
+					.authorize(tg::Selector::Id(id.clone()), read)
 					.await?
 					.is_some_and(|permissions| permissions.contains(read))
 				{
@@ -728,25 +727,25 @@ impl Session {
 				}
 				let admin = Self::admin_permission_for_resource(&id)?;
 				if !self
-					.authorize(tg::grant::Resource::Id(id), admin)
+					.authorize(tg::Selector::Id(id), admin)
 					.await?
 					.is_some_and(|permissions| permissions.contains(admin))
 				{
 					return Err(tg::error!("unauthorized"));
 				}
 			},
-			// Listing the grants held by any other principal requires the root principal.
-			tg::grant::Principal::Process(_)
-			| tg::grant::Principal::Public
-			| tg::grant::Principal::Root
-			| tg::grant::Principal::Runner(_)
-			| tg::grant::Principal::Sandbox(_) => {
+			// Listing the grants held by any other subject requires the root principal.
+			tg::authorization::Subject::Process(_)
+			| tg::authorization::Subject::Public
+			| tg::authorization::Subject::Root
+			| tg::authorization::Subject::Runner(_)
+			| tg::authorization::Subject::Sandbox(_) => {
 				if !matches!(self.context.principal, tg::Principal::Root) {
 					return Err(tg::error!("unauthorized"));
 				}
 			},
 		}
-		let data = Self::list_principal_grants_with_transaction(&transaction, &principal).await?;
+		let data = Self::list_subject_grants_with_transaction(&transaction, &subject).await?;
 		Ok(Some(tg::grant::list::Output { data }))
 	}
 
@@ -817,17 +816,17 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::permission::Set,
+			permissions: tg::authorization::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
-			principal: tg::grant::Principal,
+			subject: tg::authorization::Subject,
 		}
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select created_at, creator, permissions, principal
+				select created_at, creator, permissions, subject
 				from grants
 				where resource = {p}1
-				order by principal, creator, permissions;
+				order by subject, creator, permissions;
 			"
 		);
 		let rows = transaction
@@ -840,15 +839,15 @@ impl Session {
 				created_at: row.created_at,
 				creator: Some(row.creator),
 				permissions: row.permissions,
-				principal: row.principal,
+				subject: row.subject,
 				resource: resource.clone(),
 			})
 			.collect())
 	}
 
-	async fn list_principal_grants_with_transaction(
+	async fn list_subject_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 	) -> tg::Result<Vec<tg::Grant>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -856,7 +855,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			creator: tg::Principal,
 			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::grant::permission::Set,
+			permissions: tg::authorization::permission::Set,
 			#[tangram_database(as = "db::value::FromStr")]
 			resource: tg::Id,
 		}
@@ -865,12 +864,12 @@ impl Session {
 			"
 				select created_at, creator, permissions, resource
 				from grants
-				where principal = {p}1
+				where subject = {p}1
 				order by resource, creator, permissions;
 			"
 		);
 		let rows = transaction
-			.query_all_into::<Row>(statement.into(), db::params![principal.to_string()])
+			.query_all_into::<Row>(statement.into(), db::params![subject.to_string()])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		Ok(rows
@@ -879,19 +878,19 @@ impl Session {
 				created_at: row.created_at,
 				creator: Some(row.creator),
 				permissions: row.permissions,
-				principal: principal.clone(),
+				subject: subject.clone(),
 				resource: row.resource,
 			})
 			.collect())
 	}
 
-	pub(crate) async fn resolve_principal_with_transaction(
+	pub(crate) async fn resolve_subject_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		principal: &tg::principal::Selector,
-	) -> tg::Result<Option<tg::grant::Principal>> {
-		let principal = match principal {
-			tg::principal::Selector::Principal(principal) => match principal {
-				tg::grant::Principal::Group(id) => {
+		subject: &tg::authorization::subject::Selector,
+	) -> tg::Result<Option<tg::authorization::Subject>> {
+		let subject = match subject {
+			tg::authorization::subject::Selector::Subject(subject) => match subject {
+				tg::authorization::Subject::Group(id) => {
 					let id = id.clone();
 					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
@@ -902,9 +901,9 @@ impl Session {
 					{
 						return Ok(None);
 					}
-					tg::grant::Principal::Group(id)
+					tg::authorization::Subject::Group(id)
 				},
-				tg::grant::Principal::Organization(id) => {
+				tg::authorization::Subject::Organization(id) => {
 					let id = id.clone();
 					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
@@ -915,14 +914,20 @@ impl Session {
 					{
 						return Ok(None);
 					}
-					tg::grant::Principal::Organization(id)
+					tg::authorization::Subject::Organization(id)
 				},
-				tg::grant::Principal::Process(id) => tg::grant::Principal::Process(id.clone()),
-				tg::grant::Principal::Public => tg::grant::Principal::Public,
-				tg::grant::Principal::Root => tg::grant::Principal::Root,
-				tg::grant::Principal::Runner(id) => tg::grant::Principal::Runner(id.clone()),
-				tg::grant::Principal::Sandbox(id) => tg::grant::Principal::Sandbox(id.clone()),
-				tg::grant::Principal::User(id) => {
+				tg::authorization::Subject::Process(id) => {
+					tg::authorization::Subject::Process(id.clone())
+				},
+				tg::authorization::Subject::Public => tg::authorization::Subject::Public,
+				tg::authorization::Subject::Root => tg::authorization::Subject::Root,
+				tg::authorization::Subject::Runner(id) => {
+					tg::authorization::Subject::Runner(id.clone())
+				},
+				tg::authorization::Subject::Sandbox(id) => {
+					tg::authorization::Subject::Sandbox(id.clone())
+				},
+				tg::authorization::Subject::User(id) => {
 					let id = id.clone();
 					if Self::try_get_specifier_for_id_with_transaction(
 						transaction,
@@ -933,26 +938,26 @@ impl Session {
 					{
 						return Ok(None);
 					}
-					tg::grant::Principal::User(id)
+					tg::authorization::Subject::User(id)
 				},
 			},
-			tg::principal::Selector::Specifier(specifier) => {
+			tg::authorization::subject::Selector::Specifier(specifier) => {
 				let Some(id) =
 					Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await?
 				else {
 					return Ok(None);
 				};
 				match id.kind() {
-					tg::id::Kind::Group => tg::grant::Principal::Group(id.try_into()?),
+					tg::id::Kind::Group => tg::authorization::Subject::Group(id.try_into()?),
 					tg::id::Kind::Organization => {
-						tg::grant::Principal::Organization(id.try_into()?)
+						tg::authorization::Subject::Organization(id.try_into()?)
 					},
-					tg::id::Kind::User => tg::grant::Principal::User(id.try_into()?),
+					tg::id::Kind::User => tg::authorization::Subject::User(id.try_into()?),
 					_ => return Ok(None),
 				}
 			},
 		};
-		Ok(Some(principal))
+		Ok(Some(subject))
 	}
 
 	pub(crate) async fn create_grant_request(

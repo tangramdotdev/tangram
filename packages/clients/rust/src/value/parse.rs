@@ -1805,10 +1805,10 @@ mod tests {
 		.unwrap();
 		let body = crate::authorization::Body {
 			expires_at: 20,
-			permissions: vec![crate::grant::Permission::Object(
-				crate::grant::permission::object::Permission::Subtree,
+			permissions: vec![crate::authorization::Permission::Object(
+				crate::authorization::permission::object::Permission::Subtree,
 			)],
-			resource: crate::grant::Resource::Id(id.clone().into()),
+			resource: id.clone().into(),
 		};
 		let token = crate::authorization::Token::sign(body, &private_key).unwrap();
 		let tgon =
@@ -1832,10 +1832,10 @@ mod tests {
 		let id = crate::object::Id::new(crate::object::Kind::File, &bytes::Bytes::new());
 		let body = crate::authorization::Body {
 			expires_at: i64::MAX,
-			permissions: vec![crate::grant::Permission::Object(
-				crate::grant::permission::object::Permission::Subtree,
+			permissions: vec![crate::authorization::Permission::Object(
+				crate::authorization::permission::object::Permission::Subtree,
 			)],
-			resource: crate::grant::Resource::Id(id.clone().into()),
+			resource: id.clone().into(),
 		};
 		let local_key = crate::authorization::PrivateKey::generate(
 			"local",

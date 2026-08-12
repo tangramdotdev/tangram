@@ -42,7 +42,7 @@ impl Index {
 						creator: arg.creator.as_ref(),
 						expires_at: arg.expires_at,
 						permission,
-						principal: &arg.principal,
+						subject: &arg.subject,
 						resource: &arg.resource,
 					},
 					source,
@@ -53,7 +53,7 @@ impl Index {
 						subspace,
 						transaction,
 						&arg.resource,
-						&arg.principal,
+						&arg.subject,
 						permission,
 					)?;
 				}
@@ -72,13 +72,13 @@ impl Index {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
-			principal: entry.principal.clone(),
+			subject: entry.subject.clone(),
 			creator: entry.creator.cloned(),
 			permission: entry.permission,
 		}))
 		.chain(std::iter::once(Key::Grant(
-			crate::lmdb::grant::Key::PrincipalGrant {
-				principal: entry.principal.clone(),
+			crate::lmdb::grant::Key::SubjectGrant {
+				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
@@ -122,7 +122,7 @@ impl Index {
 		for id in ids {
 			let key = Key::Grant(crate::lmdb::grant::Key::Visibility {
 				resource: id,
-				principal: entry.principal.clone(),
+				subject: entry.subject.clone(),
 				grant_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,

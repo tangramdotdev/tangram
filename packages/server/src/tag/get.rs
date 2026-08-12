@@ -71,16 +71,15 @@ impl Session {
 			.pop()
 			.unwrap() || self
 			.authorize(
-				tg::Referent::with_node_and_tokens(
-					tg::grant::Resource::Id(id.clone()),
-					tokens.clone(),
+				tg::Referent::with_node_and_tokens(tg::Selector::Id(id.clone()), tokens.clone()),
+				tg::authorization::Permission::Tag(
+					tg::authorization::permission::tag::Permission::Read,
 				),
-				tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
 			)
 			.await?
 			.is_some_and(|permissions| {
-				permissions.contains(tg::grant::Permission::Tag(
-					tg::grant::permission::tag::Permission::Read,
+				permissions.contains(tg::authorization::Permission::Tag(
+					tg::authorization::permission::tag::Permission::Read,
 				))
 			});
 		if !visible {

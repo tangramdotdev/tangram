@@ -247,7 +247,7 @@ impl Index {
 			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
 				expires_at,
 				resource,
-				principal,
+				subject,
 				creator,
 				permission,
 				source,
@@ -263,7 +263,7 @@ impl Index {
 					creator,
 					expires_at: Some(expires_at),
 					permissions: permission.into(),
-					principal,
+					subject,
 					resource,
 				},
 				source,
@@ -280,7 +280,7 @@ impl Index {
 						creator: arg.creator.as_ref(),
 						expires_at: arg.expires_at,
 						permission,
-						principal: &arg.principal,
+						subject: &arg.subject,
 						resource: &arg.resource,
 					},
 					source,
@@ -290,7 +290,7 @@ impl Index {
 					subspace,
 					transaction,
 					&arg.resource,
-					&arg.principal,
+					&arg.subject,
 					permission,
 				)?;
 			}
@@ -907,7 +907,7 @@ impl Index {
 			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 				creator,
 				permission,
-				principal,
+				subject,
 				..
 			}) = key
 			else {
@@ -919,11 +919,11 @@ impl Index {
 			else {
 				continue;
 			};
-			entries.push((creator, expires_at, permission, principal));
+			entries.push((creator, expires_at, permission, subject));
 		}
 
 		// Delete the materialized grants.
-		for (creator, expires_at, permission, principal) in entries {
+		for (creator, expires_at, permission, subject) in entries {
 			Self::delete_grant_index_entry(
 				db,
 				subspace,
@@ -932,7 +932,7 @@ impl Index {
 					creator: creator.as_ref(),
 					expires_at,
 					permission,
-					principal: &principal,
+					subject: &subject,
 					resource,
 				},
 				crate::lmdb::grant::GrantSource::Materialized,

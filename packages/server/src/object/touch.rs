@@ -55,8 +55,9 @@ impl Session {
 		id: &tg::object::Id,
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<()>> {
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Node);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		if !self
 			.authorize(resource, permission)

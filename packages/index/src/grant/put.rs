@@ -9,9 +9,9 @@ pub struct Arg {
 	#[tangram_serialize(id = 2)]
 	pub expires_at: Option<i64>,
 	#[tangram_serialize(id = 3)]
-	pub permissions: tg::grant::permission::Set,
+	pub permissions: tg::authorization::permission::Set,
 	#[tangram_serialize(id = 4)]
-	pub principal: tg::grant::Principal,
+	pub subject: tg::authorization::Subject,
 	#[tangram_serialize(id = 5)]
 	pub resource: tg::Id,
 	#[tangram_serialize(id = 6)]

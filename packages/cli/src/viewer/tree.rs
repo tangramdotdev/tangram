@@ -1412,7 +1412,7 @@ impl Tree {
 			length: None,
 			location,
 			organizations: false,
-			parent: Some(tg::grant::Resource::Id(parent.clone())),
+			parent: Some(tg::Selector::Id(parent.clone())),
 			recursive: false,
 			reverse: false,
 			tags: true,

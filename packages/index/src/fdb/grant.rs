@@ -48,8 +48,8 @@ pub(crate) struct GrantValue {
 pub(crate) struct GrantEntry {
 	pub explicit: bool,
 	pub materialized: Option<Option<i64>>,
-	pub permission: tangram_client::grant::Permission,
-	pub principal: tangram_client::grant::Principal,
+	pub permission: tangram_client::authorization::Permission,
+	pub subject: tangram_client::authorization::Subject,
 	pub temporary: Option<i64>,
 }
 
@@ -57,8 +57,8 @@ pub(crate) struct GrantEntry {
 pub(crate) struct GrantIndexEntry<'a> {
 	pub creator: Option<&'a tangram_client::Principal>,
 	pub expires_at: Option<i64>,
-	pub permission: tangram_client::grant::Permission,
-	pub principal: &'a tangram_client::grant::Principal,
+	pub permission: tangram_client::authorization::Permission,
+	pub subject: &'a tangram_client::authorization::Subject,
 	pub resource: &'a tangram_client::Id,
 }
 

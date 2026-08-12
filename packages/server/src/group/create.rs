@@ -30,11 +30,12 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let permission =
-			tg::grant::Permission::Group(tg::grant::permission::group::Permission::Write);
+		let permission = tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Write,
+		);
 		let authorized = self
 			.authorize(
-				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				tg::Selector::<tg::Id>::Specifier(arg.specifier.clone()),
 				permission,
 			)
 			.await?;
@@ -195,14 +196,16 @@ impl Session {
 			self.context.principal,
 			tg::Principal::Anonymous | tg::Principal::Root
 		) {
-			let principal = &self.context.principal;
+			let subject = self.context.principal.try_to_subject()?;
 			let arg = tg::grant::create::Arg {
-				principal: principal.try_to_grant_principal()?.into(),
 				permissions: tg::Either::Left(
-					tg::grant::Permission::Group(tg::grant::permission::group::Permission::Admin)
-						.into(),
+					tg::authorization::Permission::Group(
+						tg::authorization::permission::group::Permission::Admin,
+					)
+					.into(),
 				),
-				resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
+				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
+				subject: subject.into(),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;

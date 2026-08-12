@@ -70,17 +70,17 @@ impl Session {
 					|error| tg::error!(!error, %creator, "failed to list the sandboxes for the creator"),
 				)?;
 			let mut sandboxes = creator_sandboxes.into_iter().collect::<BTreeMap<_, _>>();
-			let principals = self
+			let subjects = self
 				.server
 				.index
-				.get_requester_principals(creator)
+				.get_requester_subjects(creator)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %creator, "failed to get the requester principals"),
+					|error| tg::error!(!error, %creator, "failed to get the requester subjects"),
 				)?;
-			for owner in principals
+			for owner in subjects
 				.into_iter()
-				.filter_map(|principal| principal.try_to_principal().ok())
+				.filter_map(|subject| subject.try_to_principal().ok())
 			{
 				let owner_sandboxes = self
 					.server
@@ -135,13 +135,14 @@ impl Session {
 				})
 			})
 			.collect::<Vec<_>>();
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Read,
+		);
 		let authorizations = data
 			.iter()
 			.map(|item| {
 				(
-					tg::grant::Resource::Id(tg::Id::from(item.id.clone())),
+					tg::Selector::Id(tg::Id::from(item.id.clone())),
 					permission.into(),
 				)
 			})

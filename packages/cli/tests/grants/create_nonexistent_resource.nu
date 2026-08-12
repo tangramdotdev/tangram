@@ -12,8 +12,8 @@ failure $output "granting on a nonexistent resource should fail"
 snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = ghostgroup
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to find the resource

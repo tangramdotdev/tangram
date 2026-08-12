@@ -120,14 +120,14 @@ impl Session {
 		) {
 			let principal = &self.context.principal;
 			let arg = tg::grant::create::Arg {
-				principal: principal.try_to_grant_principal()?.into(),
+				subject: principal.try_to_subject()?.into(),
 				permissions: tg::Either::Left(
-					tg::grant::Permission::Organization(
-						tg::grant::permission::organization::Permission::Admin,
+					tg::authorization::Permission::Organization(
+						tg::authorization::permission::organization::Permission::Admin,
 					)
 					.into(),
 				),
-				resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
+				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 			};
 			self.create_grant_with_transaction(transaction, arg, batch)
 				.await?;

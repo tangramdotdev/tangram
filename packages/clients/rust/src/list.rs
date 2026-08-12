@@ -24,7 +24,7 @@ pub struct Arg {
 	pub organizations: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::grant::Resource>,
+	pub parent: Option<tg::Selector<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,

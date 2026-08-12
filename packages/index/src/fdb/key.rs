@@ -52,7 +52,7 @@ pub enum Kind {
 	OrganizationMember = 25,
 	MemberOrganization = 26,
 	ResourceGrant = 27,
-	PrincipalGrant = 28,
+	SubjectGrant = 28,
 	Node = 29,
 	Visibility = 30,
 	GrantExpiresAt = 31,
@@ -411,26 +411,26 @@ impl fdbt::TuplePack for Key {
 
 			Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 				resource,
-				principal,
+				subject,
 				creator,
 				permission,
 			}) => (
 				Kind::ResourceGrant.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
-				principal.to_string(),
+				subject.to_string(),
 				permission.to_string(),
 				creator.as_ref().map(ToString::to_string),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
-				principal,
+			Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+				subject,
 				resource,
 				creator,
 				permission,
 			}) => (
-				Kind::PrincipalGrant.to_i32().unwrap(),
-				principal.to_string(),
+				Kind::SubjectGrant.to_i32().unwrap(),
+				subject.to_string(),
 				resource.to_bytes().as_ref(),
 				permission.to_string(),
 				creator.as_ref().map(ToString::to_string),
@@ -443,14 +443,14 @@ impl fdbt::TuplePack for Key {
 
 			Key::Grant(crate::fdb::grant::Key::Visibility {
 				resource,
-				principal,
+				subject,
 				grant_resource,
 				creator,
 				permission,
 			}) => (
 				Kind::Visibility.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
-				principal.to_string(),
+				subject.to_string(),
 				grant_resource.to_bytes().as_ref(),
 				permission.to_string(),
 				creator.as_ref().map(ToString::to_string),
@@ -461,7 +461,7 @@ impl fdbt::TuplePack for Key {
 				partition,
 				expires_at,
 				resource,
-				principal,
+				subject,
 				creator,
 				permission,
 				source,
@@ -470,7 +470,7 @@ impl fdbt::TuplePack for Key {
 				partition,
 				expires_at,
 				resource.to_bytes().as_ref(),
-				principal.to_string(),
+				subject.to_string(),
 				permission.to_string(),
 				creator.as_ref().map(ToString::to_string),
 				source.to_i32(),
@@ -1212,17 +1212,16 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ResourceGrant => {
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, principal): (_, String) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, creator): (_, Option<String>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let principal = principal
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let subject = subject.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization subject".into())
+				})?;
 				let creator = creator
 					.map(|creator| {
 						creator
@@ -1230,30 +1229,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
 					})
 					.transpose()?;
-				let permission = permission
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let permission = permission.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization permission".into())
+				})?;
 				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					resource,
-					principal,
+					subject,
 					creator,
 					permission,
 				});
 				Ok((input, key))
 			},
 
-			Kind::PrincipalGrant => {
-				let (input, principal): (_, String) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			Kind::SubjectGrant => {
+				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, creator): (_, Option<String>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let principal = principal
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let subject = subject.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization subject".into())
+				})?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
@@ -1263,11 +1261,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
 					})
 					.transpose()?;
-				let permission = permission
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
-				let key = Key::Grant(crate::fdb::grant::Key::PrincipalGrant {
-					principal,
+				let permission = permission.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization permission".into())
+				})?;
+				let key = Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+					subject,
 					resource,
 					creator,
 					permission,
@@ -1287,8 +1285,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::Visibility => {
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, principal): (_, String) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, grant_resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
@@ -1297,9 +1294,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let principal = principal
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let subject = subject.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization subject".into())
+				})?;
 				let grant_resource = tg::Id::from_slice(&grant_resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
@@ -1309,12 +1306,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
 					})
 					.transpose()?;
-				let permission = permission
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let permission = permission.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization permission".into())
+				})?;
 				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
 					resource,
-					principal,
+					subject,
 					grant_resource,
 					creator,
 					permission,
@@ -1327,8 +1324,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, expires_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, principal): (_, String) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, creator): (_, Option<String>) =
@@ -1336,9 +1332,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, source): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let principal = principal
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
+				let subject = subject.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization subject".into())
+				})?;
 				let creator = creator
 					.map(|creator| {
 						creator
@@ -1346,16 +1342,16 @@ impl fdbt::TupleUnpack<'_> for Key {
 							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
 					})
 					.transpose()?;
-				let permission = permission
-					.parse()
-					.map_err(|_| fdbt::PackError::Message("invalid grant permission".into()))?;
+				let permission = permission.parse().map_err(|_| {
+					fdbt::PackError::Message("invalid authorization permission".into())
+				})?;
 				let source = crate::fdb::grant::GrantSource::from_i32(source)
 					.ok_or_else(|| fdbt::PackError::Message("invalid grant source".into()))?;
 				let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
 					partition,
 					expires_at,
 					resource,
-					principal,
+					subject,
 					creator,
 					permission,
 					source,
@@ -1553,7 +1549,7 @@ fn pack_update_kind<W: std::io::Write>(
 	kind: &crate::fdb::update::Kind,
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
-		crate::fdb::update::Kind::Grant(principal) => principal.to_string().pack(w, tuple_depth),
+		crate::fdb::update::Kind::Grant(subject) => subject.to_string().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Node => ().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Storage(kind) => match kind {
 			crate::fdb::update::StorageKind::Add {
@@ -1591,11 +1587,11 @@ fn unpack_update_kind(
 ) -> Result<(&[u8], crate::fdb::update::Kind), fdbt::PackError> {
 	match kind {
 		crate::update::Kind::Grant => {
-			let (input, principal): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-			let principal = principal
+			let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+			let subject = subject
 				.parse()
-				.map_err(|_| fdbt::PackError::Message("invalid grant principal".into()))?;
-			Ok((input, crate::fdb::update::Kind::Grant(principal)))
+				.map_err(|_| fdbt::PackError::Message("invalid authorization subject".into()))?;
+			Ok((input, crate::fdb::update::Kind::Grant(subject)))
 		},
 		crate::update::Kind::Node => Ok((input, crate::fdb::update::Kind::Node)),
 		crate::update::Kind::Storage => {

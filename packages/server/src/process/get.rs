@@ -93,15 +93,18 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let permissions =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+		let permissions = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::all(),
+		);
 		let authorize_future = async { self.authorize(resource, permissions).await }.boxed();
 		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(permissions) = permissions else {
 			return Ok(None);
 		};
-		let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+		let node = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
 		if !permissions.contains(node) {
 			return Ok(None);
 		}
@@ -115,7 +118,7 @@ impl Session {
 		let expires_at = created_at
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
-		let resource = tg::grant::Resource::Id(id.clone().into());
+		let resource = tg::Id::from(id.clone());
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{

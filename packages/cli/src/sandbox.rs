@@ -253,18 +253,18 @@ impl Cli {
 		}
 	}
 
-	fn resolve_owner_principal(principal: tg::grant::Principal) -> tg::Result<tg::Principal> {
+	fn resolve_owner_principal(principal: tg::Principal) -> tg::Result<tg::Principal> {
 		let principal = match principal {
-			tg::grant::Principal::Group(id) => tg::Principal::Group(id),
-			tg::grant::Principal::Organization(id) => tg::Principal::Organization(id),
-			tg::grant::Principal::Process(id) => tg::Principal::Process(id),
-			tg::grant::Principal::Public => {
+			tg::Principal::Group(id) => tg::Principal::Group(id),
+			tg::Principal::Organization(id) => tg::Principal::Organization(id),
+			tg::Principal::Process(id) => tg::Principal::Process(id),
+			tg::Principal::Anonymous => {
 				return Err(tg::error!("invalid sandbox owner"));
 			},
-			tg::grant::Principal::Root => tg::Principal::Root,
-			tg::grant::Principal::Runner(id) => tg::Principal::Runner(id),
-			tg::grant::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
-			tg::grant::Principal::User(id) => tg::Principal::User(id),
+			tg::Principal::Root => tg::Principal::Root,
+			tg::Principal::Runner(id) => tg::Principal::Runner(id),
+			tg::Principal::Sandbox(id) => tg::Principal::Sandbox(id),
+			tg::Principal::User(id) => tg::Principal::User(id),
 		};
 		Ok(principal)
 	}

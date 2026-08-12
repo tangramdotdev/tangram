@@ -622,11 +622,10 @@ impl Session {
 			.iter()
 			.map(|node| {
 				let id = node.node.clone();
-				let resource = tg::grant::Resource::Id(id.clone());
 				let (permissions, expires_at) = if id.kind().is_object() {
 					(
-						vec![tg::grant::Permission::Object(
-							tg::grant::permission::object::Permission::Subtree,
+						vec![tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
 						)],
 						now + self
 							.server
@@ -638,27 +637,27 @@ impl Session {
 							.unwrap(),
 					)
 				} else if id.kind() == tg::id::Kind::Process {
-					let mut permissions = vec![tg::grant::Permission::Process(
-						tg::grant::permission::process::Permission::Subtree,
+					let mut permissions = vec![tg::authorization::Permission::Process(
+						tg::authorization::permission::process::Permission::Subtree,
 					)];
 					if arg.process_commands {
-						permissions.push(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::SubtreeCommand,
+						permissions.push(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::SubtreeCommand,
 						));
 					}
 					if arg.process_errors {
-						permissions.push(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::SubtreeError,
+						permissions.push(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::SubtreeError,
 						));
 					}
 					if arg.process_logs {
-						permissions.push(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::SubtreeLog,
+						permissions.push(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::SubtreeLog,
 						));
 					}
 					if arg.process_outputs {
-						permissions.push(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::SubtreeOutput,
+						permissions.push(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::SubtreeOutput,
 						));
 					}
 					let expires_at = now
@@ -684,7 +683,7 @@ impl Session {
 				} else {
 					return Ok(tg::Referent::with_node(id));
 				};
-				let token = self.create_token(resource, permissions, expires_at)?;
+				let token = self.create_token(id.clone(), permissions, expires_at)?;
 				let node = tg::Referent::with_node_and_token(id, token);
 				Ok(node)
 			})

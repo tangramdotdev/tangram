@@ -15,7 +15,7 @@ pub struct Args {
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub parent: Option<tg::grant::Resource>,
+	pub parent: Option<tg::Selector<tg::Id>>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,

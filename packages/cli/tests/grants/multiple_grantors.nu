@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Separate grantors can grant overlapping permissions to the same principal on the same resource.
+# Separate grantors can grant overlapping permissions to the same subject on the same resource.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -15,8 +15,8 @@ tg --token $alice.token grant $bob.user.id read team
 tg --token $carol.token grant $bob.user.id write team
 
 let grants = tg --token $alice.token grants list --resource team | from json
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_read" }) "Alice's grant should be listed"
-assert ($grants | any {|g| $g.principal == $bob.user.id and $g.permissions == "group_write" }) "Carol's grant should be listed"
+assert ($grants | any {|g| $g.subject == $bob.user.id and $g.permissions == "group_read" }) "Alice's grant should be listed"
+assert ($grants | any {|g| $g.subject == $bob.user.id and $g.permissions == "group_write" }) "Carol's grant should be listed"
 
 tg --token $bob.token group get team
 tg --token $alice.token revoke $bob.user.id read team

@@ -396,11 +396,11 @@ impl crate::Index for Index {
 		self.try_get_cached_processes(command).await
 	}
 
-	async fn get_requester_principals(
+	async fn get_requester_subjects(
 		&self,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tg::grant::Principal>> {
-		self.get_requester_principals(principal).await
+	) -> tg::Result<Vec<tg::authorization::Subject>> {
+		self.get_requester_subjects(principal).await
 	}
 
 	async fn list_sandboxes_for_creator(

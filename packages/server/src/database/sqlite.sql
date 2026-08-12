@@ -140,16 +140,16 @@ create index organization_members_member_index on organization_members (member);
 
 create table grants (
 	resource text not null,
-	principal text not null,
+	subject text not null,
 	permissions text not null,
 	created_at integer not null,
 	creator text not null,
-	unique (resource, principal, creator)
+	unique (resource, subject, creator)
 );
 
 create index grants_resource_index on grants (resource);
 
-create index grants_principal_index on grants (principal);
+create index grants_subject_index on grants (subject);
 
 create table tags (
 	id text primary key,

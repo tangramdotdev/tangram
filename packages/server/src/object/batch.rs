@@ -55,10 +55,10 @@ impl Session {
 				.unwrap();
 
 		// Store the objects.
-		let grant_principal = match &self.context.principal {
-			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
-			principal => Some(principal.try_to_grant_principal()?),
+			principal => Some(principal.try_to_subject()?),
 		};
 		let put_args: Vec<_> = arg
 			.objects
@@ -147,18 +147,18 @@ impl Session {
 
 		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
-			if let Some(grant_principal) = &grant_principal {
+			if let Some(grant_subject) = &grant_subject {
 				let permission = if subtree_objects.contains(&object.id) {
-					tg::grant::permission::object::Permission::Subtree
+					tg::authorization::permission::object::Permission::Subtree
 				} else {
-					tg::grant::permission::object::Permission::Node
+					tg::authorization::permission::object::Permission::Node
 				};
 				put_grant_args.push(tangram_index::grant::put::Arg {
 					created_at: now,
 					creator: Some(self.context.principal.clone()),
 					expires_at: Some(grant_expires_at),
-					permissions: tg::grant::Permission::Object(permission).into(),
-					principal: grant_principal.clone(),
+					permissions: tg::authorization::Permission::Object(permission).into(),
+					subject: grant_subject.clone(),
 					resource: object.id.clone().into(),
 					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 				});
@@ -205,13 +205,13 @@ impl Session {
 			.into_iter()
 			.map(|object| {
 				let permission = if subtree_objects.contains(&object.id) {
-					tg::grant::permission::object::Permission::Subtree
+					tg::authorization::permission::object::Permission::Subtree
 				} else {
-					tg::grant::permission::object::Permission::Node
+					tg::authorization::permission::object::Permission::Node
 				};
 				let token = self.create_token(
-					tg::grant::Resource::Id(object.id.clone().into()),
-					vec![tg::grant::Permission::Object(permission)],
+					object.id.clone().into(),
+					vec![tg::authorization::Permission::Object(permission)],
 					grant_expires_at,
 				)?;
 				let object = tg::Referent::with_node_and_token(object.id, token);
@@ -240,8 +240,9 @@ impl Session {
 			}
 		}
 
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		let mut authorization_args = Vec::new();
 		for child in actual_children {
 			if batch_objects.contains(child) {
@@ -256,7 +257,7 @@ impl Session {
 			let Some(token) = child.options.tokens.local() else {
 				return Ok(false);
 			};
-			let resource = tg::grant::Resource::Id(child.node.clone().into());
+			let resource = tg::Selector::Id(child.node.clone().into());
 			if !self.authorize_token(&resource, permission.into(), token) {
 				authorization_args.push((child.clone(), permission.into()));
 			}

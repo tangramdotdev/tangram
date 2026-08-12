@@ -51,7 +51,7 @@ impl Session {
 	async fn try_get_remote_for_principal(
 		&self,
 		name: &str,
-		principal: Option<&tg::grant::Principal>,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
 		let connection = self
 			.server

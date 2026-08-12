@@ -124,8 +124,8 @@ impl Session {
 				Ok(())
 			},
 			(false, _) => {
-				let permission = tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Write,
+				let permission = tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Write,
 				);
 				let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 				let authorized = self.authorize(resource, permission).await?;

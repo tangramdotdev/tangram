@@ -75,7 +75,7 @@ impl Session {
 		};
 		let permission = Self::read_permission_for_resource(&id)?;
 		let authorized = self
-			.authorize(tg::grant::Resource::Id(id.clone()), permission)
+			.authorize(tg::Selector::Id(id.clone()), permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
 		if !authorized {

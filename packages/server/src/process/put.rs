@@ -75,15 +75,16 @@ impl Session {
 		if let Some(output) = &data.output {
 			output.children_with_tokens(&mut objects);
 		}
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
-		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
 		let authorizations = self
 			.authorize_batch(objects.into_iter().map(|object| (object, permissions)))
 			.await?;
 		let (error_authorizations, output_authorizations) =
 			authorizations.split_at(error_object_count);
-		let grants_subtree = |authorizations: &[Option<tg::grant::permission::Set>]| {
+		let grants_subtree = |authorizations: &[Option<tg::authorization::permission::Set>]| {
 			authorizations.iter().all(|authorization| {
 				authorization.is_some_and(|permissions| permissions.contains(permission))
 			})
@@ -177,20 +178,20 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let grant_principal = match &self.context.principal {
-			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
-			principal => Some(principal.try_to_grant_principal()?),
+			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant = grant_principal.map(|grant_principal| tangram_index::grant::put::Arg {
+		let put_grant = grant_subject.map(|grant_subject| tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(self.context.principal.clone()),
 			expires_at: Some(grant_expires_at),
-			permissions: tg::grant::Permission::Process(
-				tg::grant::permission::process::Permission::Node,
+			permissions: tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
 			)
 			.into(),
-			principal: grant_principal,
+			subject: grant_subject,
 			resource: id.clone().into(),
 			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 		});
@@ -222,10 +223,10 @@ impl Session {
 		let permission = self.process_permission_for_data(&token_data);
 		let tokens = tg::authorization::Tokens::with_local(
 			self.create_token(
-				tg::grant::Resource::Id(id.clone().into()),
+				id.clone().into(),
 				permission
 					.iter()
-					.map(tg::grant::Permission::Process)
+					.map(tg::authorization::Permission::Process)
 					.collect(),
 				grant_expires_at,
 			)?,

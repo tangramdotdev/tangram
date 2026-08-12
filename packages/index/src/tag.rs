@@ -16,7 +16,7 @@ pub struct Tag {
 	pub parent: Option<tg::Id>,
 
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Vec::is_empty")]
-	pub permissions: Vec<tg::grant::Permission>,
+	pub permissions: Vec<tg::authorization::Permission>,
 
 	#[tangram_serialize(id = 3)]
 	pub specifier: tg::Specifier,

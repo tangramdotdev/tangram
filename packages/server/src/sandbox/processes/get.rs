@@ -68,8 +68,9 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::processes::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::processes::get::Event>>>> {
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Read,
+		);
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
 		let check_future = async move {
 			let authorized = self.authorize(resource, permission).await?;

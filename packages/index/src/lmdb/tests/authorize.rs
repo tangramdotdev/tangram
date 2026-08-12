@@ -24,21 +24,21 @@ fn put_value(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key, value: &[u8]) 
 }
 
 fn object_permission(
-	permission: tg::grant::permission::object::Permission,
-) -> tg::grant::Permission {
-	tg::grant::Permission::Object(permission)
+	permission: tg::authorization::permission::object::Permission,
+) -> tg::authorization::Permission {
+	tg::authorization::Permission::Object(permission)
 }
 
 fn object_permissions(
-	permissions: impl IntoIterator<Item = tg::grant::permission::object::Permission>,
-) -> tg::grant::permission::Set {
-	let mut set = tg::grant::permission::object::Set::empty();
+	permissions: impl IntoIterator<Item = tg::authorization::permission::object::Permission>,
+) -> tg::authorization::permission::Set {
+	let mut set = tg::authorization::permission::object::Set::empty();
 	for permission in permissions {
-		set.insert(tg::grant::permission::object::Set::from_permission(
+		set.insert(tg::authorization::permission::object::Set::from_permission(
 			permission,
 		));
 	}
-	tg::grant::permission::Set::Object(set)
+	tg::authorization::permission::Set::Object(set)
 }
 
 fn put_object(index: &Index, txn: &mut lmdb::RwTxn<'_>, object: &tg::object::Id) {
@@ -74,13 +74,13 @@ fn put_grant(
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: &tg::object::Id,
 	user: &tg::user::Id,
-	permission: tg::grant::permission::object::Permission,
+	permission: tg::authorization::permission::object::Permission,
 ) {
 	put_resource_grant(
 		index,
 		txn,
 		resource.clone().into(),
-		tg::grant::Principal::User(user.clone()),
+		tg::authorization::Subject::User(user.clone()),
 		object_permission(permission),
 	);
 }
@@ -156,8 +156,8 @@ fn put_resource_grant(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: tg::Id,
-	principal: tg::grant::Principal,
-	permission: tg::grant::Permission,
+	subject: tg::authorization::Subject,
+	permission: tg::authorization::Permission,
 ) {
 	put(
 		index,
@@ -165,8 +165,8 @@ fn put_resource_grant(
 		&Key::Grant(GrantKey::ResourceGrant {
 			creator: None,
 			permission,
-			principal,
 			resource,
+			subject,
 		}),
 	);
 }
@@ -223,13 +223,13 @@ async fn authorize(
 async fn is_authorized(
 	index: &Index,
 	resource: tg::Id,
-	permission: tg::grant::Permission,
+	permission: tg::authorization::Permission,
 	principal: &tg::Principal,
 ) -> bool {
-	let permissions = tg::grant::permission::Set::from(permission);
+	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
 		permissions,
-		resource: tg::grant::Resource::Id(resource),
+		resource: tg::Selector::Id(resource),
 		token: None,
 	};
 	let output = index.authorize_batch(&[arg], principal).await.unwrap();
@@ -239,10 +239,10 @@ async fn is_authorized(
 }
 
 async fn authorize_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id) -> f64 {
-	let node = object_permissions([tg::grant::permission::object::Permission::Node]);
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
 		permissions: node,
-		resource: tg::grant::Resource::Id(resource.clone().into()),
+		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
 	let start = Instant::now();
@@ -261,10 +261,10 @@ async fn authorize_secs(index: &Index, resource: &tg::object::Id, user: &tg::use
 }
 
 async fn deny_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id) -> f64 {
-	let node = object_permissions([tg::grant::permission::object::Permission::Node]);
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
 		permissions: node,
-		resource: tg::grant::Resource::Id(resource.clone().into()),
+		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
 	let start = Instant::now();
@@ -311,27 +311,28 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		&index,
 		&mut txn,
 		alice.into(),
-		tg::grant::Principal::User(writer.clone()),
-		tg::grant::Permission::User(tg::grant::permission::user::Permission::Write),
+		tg::authorization::Subject::User(writer.clone()),
+		tg::authorization::Permission::User(tg::authorization::permission::user::Permission::Write),
 	);
 	txn.commit().unwrap();
 
-	let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
-	let permissions = tg::grant::permission::Set::from_permission(permission);
+	let permission =
+		tg::authorization::Permission::Tag(tg::authorization::permission::tag::Permission::Write);
+	let permissions = tg::authorization::permission::Set::from_permission(permission);
 	let args = [
 		crate::authorize::Arg {
 			permissions,
-			resource: tg::grant::Resource::Specifier("alice/new".parse().unwrap()),
+			resource: tg::Selector::Specifier("alice/new".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
 			permissions,
-			resource: tg::grant::Resource::Specifier("alice/taken".parse().unwrap()),
+			resource: tg::Selector::Specifier("alice/taken".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
 			permissions,
-			resource: tg::grant::Resource::Specifier("unclaimed/new".parse().unwrap()),
+			resource: tg::Selector::Specifier("unclaimed/new".parse().unwrap()),
 			token: None,
 		},
 	];
@@ -372,18 +373,25 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	let sandbox_writer = tg::user::Id::new();
 	let subtree_reader = tg::user::Id::new();
 	let target = tg::sandbox::Id::new();
-	let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
-	let process_read =
-		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Read);
-	let process_write =
-		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Write);
-	let sandbox_read =
-		tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
-	let sandbox_write =
-		tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
-	let process_subtree =
-		tg::grant::Permission::Process(tg::grant::permission::process::Permission::Subtree);
-	let subtree = object_permission(tg::grant::permission::object::Permission::Subtree);
+	let node = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	let process_read = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Read,
+	);
+	let process_write = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Write,
+	);
+	let sandbox_read = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Read,
+	);
+	let sandbox_write = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Write,
+	);
+	let process_subtree = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Subtree,
+	);
+	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
 	put_sandbox(&index, &mut txn, &sandbox);
@@ -393,31 +401,31 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 		&index,
 		&mut txn,
 		object.clone().into(),
-		tg::grant::Principal::Process(process.clone()),
+		tg::authorization::Subject::Process(process.clone()),
 		subtree,
 	);
 	put_resource_grant(
 		&index,
 		&mut txn,
 		target.clone().into(),
-		tg::grant::Principal::Process(process.clone()),
+		tg::authorization::Subject::Process(process.clone()),
 		sandbox_write,
 	);
 	put_resource_grant(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::grant::Principal::User(sandbox_reader.clone()),
+		tg::authorization::Subject::User(sandbox_reader.clone()),
 		sandbox_read,
 	);
 	put_resource_grant(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::grant::Principal::User(sandbox_writer.clone()),
+		tg::authorization::Subject::User(sandbox_writer.clone()),
 		sandbox_write,
 	);
-	for (principal, permission) in [
+	for (user, permission) in [
 		(node_reader.clone(), node),
 		(process_reader.clone(), process_read),
 		(process_writer.clone(), process_write),
@@ -427,7 +435,7 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 			&index,
 			&mut txn,
 			process.clone().into(),
-			tg::grant::Principal::User(principal),
+			tg::authorization::Subject::User(user),
 			permission,
 		);
 	}
@@ -462,8 +470,12 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 	let reader = tg::user::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 	let writer = tg::user::Id::new();
-	let read = tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
-	let write = tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Write);
+	let read = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Read,
+	);
+	let write = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Write,
+	);
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_process(&index, &mut txn, &process, &sandbox);
@@ -471,32 +483,32 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::grant::Principal::User(reader.clone()),
+		tg::authorization::Subject::User(reader.clone()),
 		read,
 	);
 	put_resource_grant(
 		&index,
 		&mut txn,
 		sandbox.into(),
-		tg::grant::Principal::User(writer.clone()),
+		tg::authorization::Subject::User(writer.clone()),
 		write,
 	);
 	txn.commit().unwrap();
 
 	for permission in [
-		tg::grant::permission::process::Permission::Node,
-		tg::grant::permission::process::Permission::NodeCommand,
-		tg::grant::permission::process::Permission::NodeError,
-		tg::grant::permission::process::Permission::NodeLog,
-		tg::grant::permission::process::Permission::NodeOutput,
-		tg::grant::permission::process::Permission::Read,
-		tg::grant::permission::process::Permission::Subtree,
-		tg::grant::permission::process::Permission::SubtreeCommand,
-		tg::grant::permission::process::Permission::SubtreeError,
-		tg::grant::permission::process::Permission::SubtreeLog,
-		tg::grant::permission::process::Permission::SubtreeOutput,
+		tg::authorization::permission::process::Permission::Node,
+		tg::authorization::permission::process::Permission::NodeCommand,
+		tg::authorization::permission::process::Permission::NodeError,
+		tg::authorization::permission::process::Permission::NodeLog,
+		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::Read,
+		tg::authorization::permission::process::Permission::Subtree,
+		tg::authorization::permission::process::Permission::SubtreeCommand,
+		tg::authorization::permission::process::Permission::SubtreeError,
+		tg::authorization::permission::process::Permission::SubtreeLog,
+		tg::authorization::permission::process::Permission::SubtreeOutput,
 	] {
-		let permission = tg::grant::Permission::Process(permission);
+		let permission = tg::authorization::Permission::Process(permission);
 		assert!(
 			is_authorized(
 				&index,
@@ -507,7 +519,9 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 			.await
 		);
 	}
-	let write = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Write);
+	let write = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Write,
+	);
 	assert!(
 		!is_authorized(
 			&index,
@@ -532,13 +546,15 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	put_process(&index, &mut txn, &child, &sandbox);
 	put_process(&index, &mut txn, &parent, &sandbox);
 	put_process_child(&index, &mut txn, &parent, &child);
-	let node = tg::grant::Permission::Process(tg::grant::permission::process::Permission::Node);
+	let node = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
 	for process in [&child, &parent] {
 		put_resource_grant(
 			&index,
 			&mut txn,
 			process.clone().into(),
-			tg::grant::Principal::User(user.clone()),
+			tg::authorization::Subject::User(user.clone()),
 			node,
 		);
 		for (n, kind) in [
@@ -555,24 +571,24 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 				&mut txn,
 				&object,
 				&user,
-				tg::grant::permission::object::Permission::Subtree,
+				tg::authorization::permission::object::Permission::Subtree,
 			);
 		}
 	}
 	txn.commit().unwrap();
 
 	for permission in [
-		tg::grant::permission::process::Permission::NodeCommand,
-		tg::grant::permission::process::Permission::NodeError,
-		tg::grant::permission::process::Permission::NodeLog,
-		tg::grant::permission::process::Permission::NodeOutput,
-		tg::grant::permission::process::Permission::Subtree,
-		tg::grant::permission::process::Permission::SubtreeCommand,
-		tg::grant::permission::process::Permission::SubtreeError,
-		tg::grant::permission::process::Permission::SubtreeLog,
-		tg::grant::permission::process::Permission::SubtreeOutput,
+		tg::authorization::permission::process::Permission::NodeCommand,
+		tg::authorization::permission::process::Permission::NodeError,
+		tg::authorization::permission::process::Permission::NodeLog,
+		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::Subtree,
+		tg::authorization::permission::process::Permission::SubtreeCommand,
+		tg::authorization::permission::process::Permission::SubtreeError,
+		tg::authorization::permission::process::Permission::SubtreeLog,
+		tg::authorization::permission::process::Permission::SubtreeOutput,
 	] {
-		let permission = tg::grant::Permission::Process(permission);
+		let permission = tg::authorization::Permission::Process(permission);
 		assert!(
 			is_authorized(
 				&index,
@@ -610,7 +626,7 @@ async fn authorize_deep_chain_scales_linearly() {
 		&mut txn,
 		&nodes[0],
 		&user,
-		tg::grant::permission::object::Permission::Subtree,
+		tg::authorization::permission::object::Permission::Subtree,
 	);
 	txn.commit().unwrap();
 
@@ -679,22 +695,22 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 	put_child(&index, &mut txn, &parent, &child);
 	txn.commit().unwrap();
 
-	let node = object_permissions([tg::grant::permission::object::Permission::Node]);
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = vec![
 		crate::authorize::Arg {
 			permissions: node,
-			resource: tg::grant::Resource::Id(child.clone().into()),
+			resource: tg::Selector::Id(child.clone().into()),
 			token: Some(tg::authorization::Body {
 				expires_at: i64::MAX,
 				permissions: vec![object_permission(
-					tg::grant::permission::object::Permission::Subtree,
+					tg::authorization::permission::object::Permission::Subtree,
 				)],
-				resource: tg::grant::Resource::Id(parent.into()),
+				resource: parent.into(),
 			}),
 		},
 		crate::authorize::Arg {
 			permissions: node,
-			resource: tg::grant::Resource::Id(child.into()),
+			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
 	];
@@ -722,23 +738,23 @@ async fn authorize_keeps_ordinary_and_derived_subtree_results_separate() {
 			&mut txn,
 			object,
 			&user,
-			tg::grant::permission::object::Permission::Node,
+			tg::authorization::permission::object::Permission::Node,
 		);
 	}
 	put_child(&index, &mut txn, &root, &child);
 	put_child(&index, &mut txn, &child, &leaf);
 	txn.commit().unwrap();
 
-	let subtree = object_permissions([tg::grant::permission::object::Permission::Subtree]);
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = vec![
 		crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(root.into()),
+			resource: tg::Selector::Id(root.into()),
 			token: None,
 		},
 		crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(child.into()),
+			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
 	];
@@ -767,14 +783,14 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 		&mut txn,
 		&root,
 		&user,
-		tg::grant::permission::object::Permission::Node,
+		tg::authorization::permission::object::Permission::Node,
 	);
 	put_grant(
 		&index,
 		&mut txn,
 		&covered,
 		&user,
-		tg::grant::permission::object::Permission::Subtree,
+		tg::authorization::permission::object::Permission::Subtree,
 	);
 	for i in 0..CHILDREN {
 		let child = object_id(i + 2);
@@ -783,12 +799,12 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 	}
 	txn.commit().unwrap();
 
-	let subtree = object_permissions([tg::grant::permission::object::Permission::Subtree]);
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(root.into()),
+			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
 		&user,
@@ -814,7 +830,7 @@ async fn authorize_visits_shared_descendants_once() {
 		&mut txn,
 		&root,
 		&user,
-		tg::grant::permission::object::Permission::Node,
+		tg::authorization::permission::object::Permission::Node,
 	);
 	for layer in &layers {
 		for object in layer {
@@ -824,7 +840,7 @@ async fn authorize_visits_shared_descendants_once() {
 				&mut txn,
 				object,
 				&user,
-				tg::grant::permission::object::Permission::Node,
+				tg::authorization::permission::object::Permission::Node,
 			);
 		}
 	}
@@ -840,12 +856,12 @@ async fn authorize_visits_shared_descendants_once() {
 	}
 	txn.commit().unwrap();
 
-	let subtree = object_permissions([tg::grant::permission::object::Permission::Subtree]);
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(root.into()),
+			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
 		&user,
@@ -869,7 +885,7 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 			&mut txn,
 			object,
 			&user,
-			tg::grant::permission::object::Permission::Node,
+			tg::authorization::permission::object::Permission::Node,
 		);
 	}
 	for pair in objects.windows(2) {
@@ -878,12 +894,12 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	put_child(&index, &mut txn, objects.last().unwrap(), &objects[0]);
 	txn.commit().unwrap();
 
-	let subtree = object_permissions([tg::grant::permission::object::Permission::Subtree]);
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(objects[0].clone().into()),
+			resource: tg::Selector::Id(objects[0].clone().into()),
 			token: None,
 		}],
 		&user,
@@ -906,21 +922,21 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 			&mut txn,
 			object,
 			&user,
-			tg::grant::permission::object::Permission::Node,
+			tg::authorization::permission::object::Permission::Node,
 		);
 	}
 	put_child(&index, &mut txn, &root, &child);
 	txn.commit().unwrap();
 
 	let permissions = object_permissions([
-		tg::grant::permission::object::Permission::Node,
-		tg::grant::permission::object::Permission::Subtree,
+		tg::authorization::permission::object::Permission::Node,
+		tg::authorization::permission::object::Permission::Subtree,
 	]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions,
-			resource: tg::grant::Resource::Id(root.into()),
+			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
 		&user,
@@ -954,16 +970,16 @@ async fn authorize_ordinary_cycle_with_an_authorized_escape() {
 		&mut txn,
 		&granted,
 		&user,
-		tg::grant::permission::object::Permission::Subtree,
+		tg::authorization::permission::object::Permission::Subtree,
 	);
 	txn.commit().unwrap();
 
-	let node = object_permissions([tg::grant::permission::object::Permission::Node]);
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: node,
-			resource: tg::grant::Resource::Id(first.into()),
+			resource: tg::Selector::Id(first.into()),
 			token: None,
 		}],
 		&user,
@@ -1001,7 +1017,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 				name: "child".into(),
 				parent: Some(parent_tag.clone().into()),
 				permissions: vec![object_permission(
-					tg::grant::permission::object::Permission::Node,
+					tg::authorization::permission::object::Permission::Node,
 				)],
 				specifier: "parent/child".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
@@ -1013,20 +1029,22 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&index,
 		&mut txn,
 		&Key::Grant(GrantKey::ResourceGrant {
-			resource: parent_tag.into(),
-			principal: tg::grant::Principal::User(user.clone()),
 			creator: None,
-			permission: tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read),
+			permission: tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			resource: parent_tag.into(),
+			subject: tg::authorization::Subject::User(user.clone()),
 		}),
 	);
 	txn.commit().unwrap();
 
-	let subtree = object_permissions([tg::grant::permission::object::Permission::Subtree]);
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: subtree,
-			resource: tg::grant::Resource::Id(object.into()),
+			resource: tg::Selector::Id(object.into()),
 			token: None,
 		}],
 		&user,
@@ -1036,7 +1054,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 }
 
 #[tokio::test]
-async fn authorize_uses_cached_principal_membership() {
+async fn authorize_uses_cached_subject_membership() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let inner = tg::group::Id::new();
@@ -1097,20 +1115,20 @@ async fn authorize_uses_cached_principal_membership() {
 		&index,
 		&mut txn,
 		&Key::Grant(GrantKey::ResourceGrant {
-			resource: object.clone().into(),
-			principal: tg::grant::Principal::Organization(organization),
 			creator: None,
-			permission: object_permission(tg::grant::permission::object::Permission::Node),
+			permission: object_permission(tg::authorization::permission::object::Permission::Node),
+			resource: object.clone().into(),
+			subject: tg::authorization::Subject::Organization(organization),
 		}),
 	);
 	txn.commit().unwrap();
 
-	let node = object_permissions([tg::grant::permission::object::Permission::Node]);
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
 			permissions: node,
-			resource: tg::grant::Resource::Id(object.into()),
+			resource: tg::Selector::Id(object.into()),
 			token: None,
 		}],
 		&user,

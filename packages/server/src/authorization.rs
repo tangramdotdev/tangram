@@ -8,8 +8,8 @@ mod token;
 impl Session {
 	pub(crate) fn create_token(
 		&self,
-		resource: tg::grant::Resource,
-		permissions: Vec<tg::grant::Permission>,
+		resource: tg::Id,
+		permissions: Vec<tg::authorization::Permission>,
 		expires_at: i64,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		let Some(private_key) = self.server.authorization_tokens.private_key.as_ref() else {
@@ -27,8 +27,8 @@ impl Session {
 	pub(crate) async fn authorize(
 		&self,
 		resource: impl IntoAuthorizationResource,
-		permissions: impl Into<tg::grant::permission::Set>,
-	) -> tg::Result<Option<tg::grant::permission::Set>> {
+		permissions: impl Into<tg::authorization::permission::Set>,
+	) -> tg::Result<Option<tg::authorization::permission::Set>> {
 		let mut outputs = self
 			.authorize_batch([(resource, permissions.into())])
 			.await?;
@@ -38,10 +38,10 @@ impl Session {
 	pub(crate) async fn authorize_batch<R, I>(
 		&self,
 		args: I,
-	) -> tg::Result<Vec<Option<tg::grant::permission::Set>>>
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
 	where
 		R: IntoAuthorizationResource,
-		I: IntoIterator<Item = (R, tg::grant::permission::Set)>,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
@@ -68,8 +68,8 @@ impl Session {
 
 			// Authorize a sandbox for its own processes.
 			if let (
-				tg::grant::Resource::Id(id),
-				tg::grant::permission::Set::Process(_),
+				tg::Selector::Id(id),
+				tg::authorization::permission::Set::Process(_),
 				tg::Principal::Sandbox(sandbox),
 			) = (&resource, permissions, &self.context.principal)
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
@@ -142,7 +142,7 @@ impl Session {
 		let authorized = match owner.to_id() {
 			Some(id) => {
 				let permission = Self::write_permission_for_resource(&id)?;
-				self.authorize(tg::grant::Resource::Id(id), permission)
+				self.authorize(tg::Selector::Id(id), permission)
 					.await?
 					.is_some_and(|permissions| permissions.contains(permission))
 			},
@@ -156,11 +156,11 @@ impl Session {
 
 	pub(crate) fn authorize_token(
 		&self,
-		resource: &tg::grant::Resource,
-		permissions: tg::grant::permission::Set,
+		resource: &tg::Selector<tg::Id>,
+		permissions: tg::authorization::permission::Set,
 		token: &tg::authorization::Token,
 	) -> bool {
-		if token.body.resource != *resource {
+		if !matches!(resource, tg::Selector::Id(id) if token.body.resource == *id) {
 			return false;
 		}
 		if !self.verify_token(token) {
@@ -191,47 +191,42 @@ impl Session {
 }
 
 pub(crate) trait IntoResource {
-	fn into_resource(self) -> tg::grant::Resource;
+	fn into_resource(self) -> tg::Selector<tg::Id>;
 }
 
 pub(crate) trait IntoAuthorizationResource {
-	fn into_authorization_resource(self)
-	-> (tg::grant::Resource, Option<tg::authorization::Token>);
-}
-
-impl IntoResource for tg::grant::Resource {
-	fn into_resource(self) -> tg::grant::Resource {
-		self
-	}
+	fn into_authorization_resource(
+		self,
+	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>);
 }
 
 impl IntoResource for tg::Id {
-	fn into_resource(self) -> tg::grant::Resource {
-		tg::grant::Resource::Id(self)
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		tg::Selector::Id(self)
 	}
 }
 
 impl IntoResource for tg::object::Id {
-	fn into_resource(self) -> tg::grant::Resource {
-		tg::grant::Resource::Id(self.into())
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		tg::Selector::Id(self.into())
 	}
 }
 
 impl IntoResource for tg::process::Id {
-	fn into_resource(self) -> tg::grant::Resource {
-		tg::grant::Resource::Id(self.into())
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		tg::Selector::Id(self.into())
 	}
 }
 
 impl IntoResource for tg::sandbox::Id {
-	fn into_resource(self) -> tg::grant::Resource {
-		tg::grant::Resource::Id(self.into())
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		tg::Selector::Id(self.into())
 	}
 }
 
 impl IntoResource for tg::artifact::Id {
-	fn into_resource(self) -> tg::grant::Resource {
-		tg::grant::Resource::Id(tg::object::Id::from(self).into())
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		tg::Selector::Id(tg::object::Id::from(self).into())
 	}
 }
 
@@ -239,8 +234,11 @@ impl<I> IntoResource for tg::Selector<I>
 where
 	I: Into<tg::Id>,
 {
-	fn into_resource(self) -> tg::grant::Resource {
-		self.into()
+	fn into_resource(self) -> tg::Selector<tg::Id> {
+		match self {
+			tg::Selector::Id(id) => tg::Selector::Id(id.into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier),
+		}
 	}
 }
 
@@ -250,7 +248,7 @@ where
 {
 	fn into_authorization_resource(
 		self,
-	) -> (tg::grant::Resource, Option<tg::authorization::Token>) {
+	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>) {
 		(self.into_resource(), None)
 	}
 }
@@ -261,7 +259,7 @@ where
 {
 	fn into_authorization_resource(
 		self,
-	) -> (tg::grant::Resource, Option<tg::authorization::Token>) {
+	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>) {
 		(
 			self.node.into_resource(),
 			self.options.tokens.local().cloned(),

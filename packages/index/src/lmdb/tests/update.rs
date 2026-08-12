@@ -13,7 +13,7 @@ async fn separates_update_queues() {
 		&index.subspace,
 		&mut transaction,
 		id.clone(),
-		super::super::update::Kind::Grant(tg::grant::Principal::User(user.clone())),
+		super::super::update::Kind::Grant(tg::authorization::Subject::User(user.clone())),
 		super::super::update::Source::Put,
 		None,
 	)

@@ -42,7 +42,7 @@ impl Index {
 						creator: arg.creator.as_ref(),
 						expires_at: arg.expires_at,
 						permission,
-						principal: &arg.principal,
+						subject: &arg.subject,
 						resource: &arg.resource,
 					},
 					source,
@@ -54,7 +54,7 @@ impl Index {
 						subspace,
 						transaction,
 						&arg.resource,
-						&arg.principal,
+						&arg.subject,
 						permission,
 					)?;
 				}
@@ -74,13 +74,13 @@ impl Index {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
-			principal: entry.principal.clone(),
+			subject: entry.subject.clone(),
 			creator: entry.creator.cloned(),
 			permission: entry.permission,
 		}))
 		.chain(std::iter::once(Key::Grant(
-			crate::lmdb::grant::Key::PrincipalGrant {
-				principal: entry.principal.clone(),
+			crate::lmdb::grant::Key::SubjectGrant {
+				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
@@ -118,7 +118,7 @@ impl Index {
 		for id in ids {
 			let key = Key::Grant(crate::lmdb::grant::Key::Visibility {
 				resource: id,
-				principal: entry.principal.clone(),
+				subject: entry.subject.clone(),
 				grant_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
@@ -150,7 +150,7 @@ impl Index {
 			let key = Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
 				expires_at,
 				resource: entry.resource.clone(),
-				principal: entry.principal.clone(),
+				subject: entry.subject.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
@@ -163,7 +163,7 @@ impl Index {
 			let key = Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
 				expires_at,
 				resource: entry.resource.clone(),
-				principal: entry.principal.clone(),
+				subject: entry.subject.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
 				source,
@@ -180,41 +180,41 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		resource: &tg::Id,
-		principal: &tg::grant::Principal,
-		permission: tg::grant::Permission,
+		subject: &tg::authorization::Subject,
+		permission: tg::authorization::Permission,
 	) -> tg::Result<()> {
 		match permission {
-			tg::grant::Permission::Object(_) => {
+			tg::authorization::Permission::Object(_) => {
 				if let Ok(id) = tg::object::Id::try_from(resource.clone()) {
 					Self::enqueue_update_with_kind(
 						db,
 						subspace,
 						transaction,
 						tg::Either::Left(id),
-						crate::lmdb::update::Kind::Grant(principal.clone()),
+						crate::lmdb::update::Kind::Grant(subject.clone()),
 						crate::lmdb::update::Source::Put,
 						None,
 					)?;
 				}
 			},
-			tg::grant::Permission::Process(_) => {
+			tg::authorization::Permission::Process(_) => {
 				if let Ok(id) = tg::process::Id::try_from(resource.clone()) {
 					Self::enqueue_update_with_kind(
 						db,
 						subspace,
 						transaction,
 						tg::Either::Right(id),
-						crate::lmdb::update::Kind::Grant(principal.clone()),
+						crate::lmdb::update::Kind::Grant(subject.clone()),
 						crate::lmdb::update::Source::Put,
 						None,
 					)?;
 				}
 			},
-			tg::grant::Permission::Group(_)
-			| tg::grant::Permission::Organization(_)
-			| tg::grant::Permission::Sandbox(_)
-			| tg::grant::Permission::Tag(_)
-			| tg::grant::Permission::User(_) => {},
+			tg::authorization::Permission::Group(_)
+			| tg::authorization::Permission::Organization(_)
+			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Tag(_)
+			| tg::authorization::Permission::User(_) => {},
 		}
 		Ok(())
 	}

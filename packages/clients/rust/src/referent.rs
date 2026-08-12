@@ -276,10 +276,10 @@ mod tests {
 		let token = tg::authorization::Token {
 			body: tg::authorization::token::Body {
 				expires_at: i64::MAX,
-				permissions: vec![tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				)],
-				resource: tg::grant::Resource::Id(id.clone().into()),
+				resource: id.clone().into(),
 			},
 			metadata: tg::authorization::token::Metadata {
 				algorithm: tg::authorization::token::Algorithm::Ed25519,

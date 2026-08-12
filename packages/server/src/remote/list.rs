@@ -45,7 +45,7 @@ impl Session {
 
 	async fn list_remotes_for_principal(
 		&self,
-		principal: Option<&tg::grant::Principal>,
+		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::remote::list::Output> {
 		let connection = self
 			.server

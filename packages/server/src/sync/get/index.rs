@@ -422,8 +422,8 @@ impl Session {
 				.await?
 				.is_some();
 			if existing {
-				let permission = tg::grant::Permission::Sandbox(
-					tg::grant::permission::sandbox::Permission::Write,
+				let permission = tg::authorization::Permission::Sandbox(
+					tg::authorization::permission::sandbox::Permission::Write,
 				);
 				let authorized = self.authorize(message.id.clone(), permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -1055,12 +1055,12 @@ impl Session {
 
 		// Create the grant args.
 		let mut put_grant_args = Vec::new();
-		let grant_principal = match &self.context.principal {
+		let grant_subject = match &self.context.principal {
 			tg::Principal::Root => None,
-			tg::Principal::Anonymous => Some(tg::grant::Principal::Public),
-			principal => Some(principal.try_to_grant_principal()?),
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
+			principal => Some(principal.try_to_subject()?),
 		};
-		if let Some(grant_principal) = grant_principal {
+		if let Some(grant_subject) = grant_subject {
 			let object_expires_at = touched_at
 				+ self
 					.server
@@ -1081,7 +1081,7 @@ impl Session {
 					.unwrap();
 			let mut object_covered = vec![false; graph.nodes.len()];
 			let mut process_covered =
-				vec![tg::grant::permission::process::Set::empty(); graph.nodes.len()];
+				vec![tg::authorization::permission::process::Set::empty(); graph.nodes.len()];
 			for index in indices.iter().rev().copied() {
 				let (id, node) = graph.nodes.get_index(index).unwrap();
 				match node {
@@ -1098,19 +1098,21 @@ impl Session {
 						let mut subtree = false;
 						if node.marked && !object_covered[index] {
 							let permission = if visible {
-								tg::grant::permission::object::Permission::Subtree
+								tg::authorization::permission::object::Permission::Subtree
 							} else {
-								tg::grant::permission::object::Permission::Node
+								tg::authorization::permission::object::Permission::Node
 							};
 							subtree = visible;
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
 								expires_at: Some(object_expires_at),
-								permissions: tg::grant::permission::Set::Object(
-									tg::grant::permission::object::Set::from_permission(permission),
+								permissions: tg::authorization::permission::Set::Object(
+									tg::authorization::permission::object::Set::from_permission(
+										permission,
+									),
 								),
-								principal: grant_principal.clone(),
+								subject: grant_subject.clone(),
 								resource: tg::object::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 							});
@@ -1127,7 +1129,7 @@ impl Session {
 						let mut permissions = if node.marked {
 							Self::sync_get_index_process_grant_permissions(&visible)
 						} else {
-							tg::grant::permission::process::Set::empty()
+							tg::authorization::permission::process::Set::empty()
 						};
 						Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
 							&mut permissions,
@@ -1138,8 +1140,10 @@ impl Session {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
 								expires_at: Some(process_expires_at),
-								permissions: tg::grant::permission::Set::Process(permissions),
-								principal: grant_principal.clone(),
+								permissions: tg::authorization::permission::Set::Process(
+									permissions,
+								),
+								subject: grant_subject.clone(),
 								resource: tg::process::Id::try_from(id.clone())?.into(),
 								time_to_touch: Some(self.server.config.process.grant_time_to_touch),
 							});
@@ -1292,80 +1296,81 @@ impl Session {
 
 	fn sync_get_index_process_grant_permissions(
 		visible: &tangram_index::process::Stored,
-	) -> tg::grant::permission::process::Set {
-		let mut permissions = tg::grant::permission::process::Set::empty();
+	) -> tg::authorization::permission::process::Set {
+		let mut permissions = tg::authorization::permission::process::Set::empty();
 		if visible.subtree {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		} else {
-			permissions.insert(tg::grant::permission::process::Set::NODE);
+			permissions.insert(tg::authorization::permission::process::Set::NODE);
 		}
 		if visible.subtree_command {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
 		} else if visible.node_command {
-			permissions.insert(tg::grant::permission::process::Set::NODE_COMMAND);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND);
 		}
 		if visible.subtree_error {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
 		} else if visible.node_error {
-			permissions.insert(tg::grant::permission::process::Set::NODE_ERROR);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
 		}
 		if visible.subtree_log {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
 		} else if visible.node_log {
-			permissions.insert(tg::grant::permission::process::Set::NODE_LOG);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
 		}
 		if visible.subtree_output {
-			permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
 		} else if visible.node_output {
-			permissions.insert(tg::grant::permission::process::Set::NODE_OUTPUT);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
 		}
 		permissions
 	}
 
 	fn sync_get_index_remove_process_permissions_covered_by_ancestors(
-		permissions: &mut tg::grant::permission::process::Set,
-		covered: tg::grant::permission::process::Set,
+		permissions: &mut tg::authorization::permission::process::Set,
+		covered: tg::authorization::permission::process::Set,
 	) {
-		if covered.contains(tg::grant::permission::process::Set::SUBTREE) {
-			permissions.remove(tg::grant::permission::process::Set::NODE);
-			permissions.remove(tg::grant::permission::process::Set::SUBTREE);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE);
 		}
-		if covered.contains(tg::grant::permission::process::Set::SUBTREE_COMMAND) {
-			permissions.remove(tg::grant::permission::process::Set::NODE_COMMAND);
-			permissions.remove(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_COMMAND);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
 		}
-		if covered.contains(tg::grant::permission::process::Set::SUBTREE_ERROR) {
-			permissions.remove(tg::grant::permission::process::Set::NODE_ERROR);
-			permissions.remove(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_ERROR);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_ERROR);
 		}
-		if covered.contains(tg::grant::permission::process::Set::SUBTREE_LOG) {
-			permissions.remove(tg::grant::permission::process::Set::NODE_LOG);
-			permissions.remove(tg::grant::permission::process::Set::SUBTREE_LOG);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_LOG) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_LOG);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_LOG);
 		}
-		if covered.contains(tg::grant::permission::process::Set::SUBTREE_OUTPUT) {
-			permissions.remove(tg::grant::permission::process::Set::NODE_OUTPUT);
-			permissions.remove(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_OUTPUT);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
 		}
 	}
 
 	fn sync_get_index_process_subtree_permissions(
-		permissions: tg::grant::permission::process::Set,
-	) -> tg::grant::permission::process::Set {
-		let mut subtree_permissions = tg::grant::permission::process::Set::empty();
-		if permissions.contains(tg::grant::permission::process::Set::SUBTREE) {
-			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE);
+		permissions: tg::authorization::permission::process::Set,
+	) -> tg::authorization::permission::process::Set {
+		let mut subtree_permissions = tg::authorization::permission::process::Set::empty();
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE) {
+			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		}
-		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_COMMAND) {
-			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_COMMAND);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND) {
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
 		}
-		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_ERROR) {
-			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_ERROR);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR) {
+			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
 		}
-		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_LOG) {
-			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_LOG);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_LOG) {
+			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
 		}
-		if permissions.contains(tg::grant::permission::process::Set::SUBTREE_OUTPUT) {
-			subtree_permissions.insert(tg::grant::permission::process::Set::SUBTREE_OUTPUT);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT) {
+			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
 		}
 		subtree_permissions
 	}

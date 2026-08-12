@@ -11,7 +11,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<(tg::grant::Principal, tg::grant::Permission)>> {
+	) -> tg::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
 		let bytes = resource.to_bytes();
 		let key = (Kind::ResourceGrant.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -31,31 +31,31 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					principal,
+					subject,
 					permission,
 					..
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((principal, permission))
+				Ok((subject, permission))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(grants)
 	}
 
-	pub(crate) async fn get_resource_grant_entries_for_principal_with_transaction(
+	pub(crate) async fn get_resource_grant_entries_for_subject_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 	) -> tg::Result<Vec<crate::fdb::grant::GrantEntry>> {
 		let bytes = resource.to_bytes();
 		let key = (
 			Kind::ResourceGrant.to_i32().unwrap(),
 			bytes.as_ref(),
-			principal.to_string(),
+			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);
@@ -74,7 +74,7 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					principal,
+					subject,
 					permission,
 					..
 				}) = key
@@ -86,7 +86,7 @@ impl Index {
 					explicit: value.explicit,
 					materialized: value.materialized,
 					permission,
-					principal,
+					subject,
 					temporary: value.temporary,
 				})
 			})
@@ -97,13 +97,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-		principal: &tg::grant::Principal,
+		subject: &tg::authorization::Subject,
 	) -> tg::Result<bool> {
 		let bytes = resource.to_bytes();
 		let key = (
 			Kind::Visibility.to_i32().unwrap(),
 			bytes.as_ref(),
-			principal.to_string(),
+			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);

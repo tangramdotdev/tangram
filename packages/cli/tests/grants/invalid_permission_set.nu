@@ -15,11 +15,11 @@ failure $mixed "mixing permission kinds in a set should be rejected"
 snapshot --normalize $mixed.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = team
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> invalid grant permissions
+	-> invalid authorization permissions
 
 '
 
@@ -29,10 +29,10 @@ failure $unknown "an unknown permission should be rejected"
 snapshot --normalize $unknown.stderr '
 	error an error occurred
 	-> failed to create the grant
-	   principal = usr_0000000000000000000000000000
 	   resource = team
+	   subject = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> invalid grant permission
+	-> invalid authorization permission
 
 '

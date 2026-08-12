@@ -58,8 +58,9 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let permission =
-			tg::grant::Permission::Sandbox(tg::grant::permission::sandbox::Permission::Read);
+		let permission = tg::authorization::Permission::Sandbox(
+			tg::authorization::permission::sandbox::Permission::Read,
+		);
 		let authorize_future = async {
 			let authorized = self.authorize(id.clone(), permission).await?;
 			Ok::<_, tg::Error>(

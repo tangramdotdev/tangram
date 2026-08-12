@@ -333,7 +333,7 @@ impl Index {
 				let crate::fdb::Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
 					expires_at,
 					resource,
-					principal,
+					subject,
 					creator,
 					permission,
 					source,
@@ -347,7 +347,7 @@ impl Index {
 						creator,
 						expires_at: Some(expires_at),
 						permissions: permission.into(),
-						principal,
+						subject,
 						resource,
 					},
 					source,
@@ -364,7 +364,7 @@ impl Index {
 						creator: arg.creator.as_ref(),
 						expires_at: arg.expires_at,
 						permission,
-						principal: &arg.principal,
+						subject: &arg.subject,
 						resource: &arg.resource,
 					},
 					source,
@@ -375,7 +375,7 @@ impl Index {
 					txn,
 					subspace,
 					&arg.resource,
-					&arg.principal,
+					&arg.subject,
 					permission,
 					partition_total,
 				);
@@ -1148,7 +1148,7 @@ impl Index {
 				let crate::fdb::Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					creator,
 					permission,
-					principal,
+					subject,
 					..
 				}) = key
 				else {
@@ -1157,7 +1157,7 @@ impl Index {
 				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
 				let entry = value
 					.source_expires_at(crate::fdb::grant::GrantSource::Materialized)
-					.map(|expires_at| (creator, expires_at, permission, principal));
+					.map(|expires_at| (creator, expires_at, permission, subject));
 				Ok(entry)
 			})
 			.collect::<tg::Result<Vec<_>>>()?
@@ -1166,7 +1166,7 @@ impl Index {
 			.collect::<Vec<_>>();
 
 		// Delete the materialized grants.
-		for (creator, expires_at, permission, principal) in entries {
+		for (creator, expires_at, permission, subject) in entries {
 			Self::delete_grant_index_entry(
 				txn,
 				subspace,
@@ -1174,7 +1174,7 @@ impl Index {
 					creator: creator.as_ref(),
 					expires_at,
 					permission,
-					principal: &principal,
+					subject: &subject,
 					resource,
 				},
 				crate::fdb::grant::GrantSource::Materialized,

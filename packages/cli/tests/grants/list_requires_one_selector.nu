@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Listing grants requires exactly one of a resource or a principal.
+# Listing grants requires exactly one of a resource or a subject.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -13,6 +13,6 @@ snapshot --normalize $output.stderr '
 	-> failed to list the grants
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> expected exactly one of a resource or a principal
+	-> expected exactly one of a resource or a subject
 
 '

@@ -35,8 +35,8 @@ pub trait Index {
 
 	fn authorize(
 		&self,
-		resource: tg::grant::Resource,
-		permissions: tg::grant::permission::Set,
+		resource: tg::Selector<tg::Id>,
+		permissions: tg::authorization::permission::Set,
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Option<crate::authorize::Output>>> + Send
 	where
@@ -226,10 +226,10 @@ pub trait Index {
 		command: &tg::object::Id,
 	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
 
-	fn get_requester_principals(
+	fn get_requester_subjects(
 		&self,
 		principal: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Vec<tg::grant::Principal>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<tg::authorization::Subject>>> + Send;
 
 	fn list_sandboxes_for_creator(
 		&self,

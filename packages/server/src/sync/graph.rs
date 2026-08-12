@@ -39,7 +39,7 @@ pub enum Parent {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct PermissionState {
 	index: usize,
-	permission: tg::grant::Permission,
+	permission: tg::authorization::Permission,
 }
 
 #[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -76,7 +76,7 @@ pub struct DatabaseNode {
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
 	local_end: bool,
-	pub local_permissions: Option<tg::grant::permission::Set>,
+	pub local_permissions: Option<tg::authorization::permission::Set>,
 	pub local_stored: Option<tangram_index::object::Stored>,
 	pub local_visible: Option<tangram_index::object::Stored>,
 	pub marked: bool,
@@ -99,7 +99,7 @@ pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
 	pub data: Option<tg::process::Data>,
 	local_end: bool,
-	pub local_permissions: Option<tg::grant::permission::Set>,
+	pub local_permissions: Option<tg::authorization::permission::Set>,
 	pub local_stored: Option<tangram_index::process::Stored>,
 	pub local_visible: Option<tangram_index::process::Stored>,
 	pub marked: bool,
@@ -150,7 +150,7 @@ pub struct Requested {
 }
 
 pub struct Authorization {
-	pub permissions: tg::grant::permission::Set,
+	pub permissions: tg::authorization::permission::Set,
 	pub token: Option<tg::authorization::Token>,
 }
 
@@ -159,7 +159,7 @@ pub struct UpdateObjectLocalArg<'a> {
 	pub id: &'a tg::object::Id,
 	pub marked: Option<bool>,
 	pub metadata: Option<tg::object::Metadata>,
-	pub permissions: Option<tg::grant::permission::Set>,
+	pub permissions: Option<tg::authorization::permission::Set>,
 	pub requested: Option<Requested>,
 	pub stored: Option<tangram_index::object::Stored>,
 }
@@ -169,7 +169,7 @@ pub struct UpdateProcessLocalArg<'a> {
 	pub id: &'a tg::process::Id,
 	pub marked: Option<bool>,
 	pub metadata: Option<tg::process::Metadata>,
-	pub permissions: Option<tg::grant::permission::Set>,
+	pub permissions: Option<tg::authorization::permission::Set>,
 	pub requested: Option<Requested>,
 	pub stored: Option<tangram_index::process::Stored>,
 }
@@ -1381,11 +1381,12 @@ impl Graph {
 	pub fn get_object_local_authorization(
 		&mut self,
 		id: &tg::object::Id,
-		required: tg::grant::permission::Set,
+		required: tg::authorization::permission::Set,
 	) -> Authorization {
 		let Some(index) = self.nodes.get_index_of(&tg::Id::from(id.clone())) else {
-			let permissions =
-				tg::grant::permission::Set::Object(tg::grant::permission::object::Set::empty());
+			let permissions = tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::empty(),
+			);
 			return Authorization {
 				permissions,
 				token: None,
@@ -1397,11 +1398,12 @@ impl Graph {
 	pub fn get_process_local_authorization(
 		&mut self,
 		id: &tg::process::Id,
-		required: tg::grant::permission::Set,
+		required: tg::authorization::permission::Set,
 	) -> Authorization {
 		let Some(index) = self.nodes.get_index_of(&tg::Id::from(id.clone())) else {
-			let permissions =
-				tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+			let permissions = tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::empty(),
+			);
 			return Authorization {
 				permissions,
 				token: None,
@@ -1429,7 +1431,7 @@ impl Graph {
 	pub fn update_object_local_permissions(
 		&mut self,
 		id: &tg::object::Id,
-		permissions: tg::grant::permission::Set,
+		permissions: tg::authorization::permission::Set,
 	) {
 		let permissions = Self::normalize_permissions(permissions);
 		let update = UpdateObjectLocalArg {
@@ -1447,7 +1449,7 @@ impl Graph {
 	pub fn update_process_local_permissions(
 		&mut self,
 		id: &tg::process::Id,
-		permissions: tg::grant::permission::Set,
+		permissions: tg::authorization::permission::Set,
 	) {
 		let permissions = Self::normalize_permissions(permissions);
 		let update = UpdateProcessLocalArg {
@@ -1507,7 +1509,7 @@ impl Graph {
 	fn get_local_authorization(
 		&mut self,
 		index: usize,
-		required: tg::grant::permission::Set,
+		required: tg::authorization::permission::Set,
 	) -> Authorization {
 		let permissions = self
 			.nodes
@@ -1604,9 +1606,9 @@ impl Graph {
 		}
 	}
 
-	fn update_local_permission(&mut self, index: usize, permission: tg::grant::Permission) {
+	fn update_local_permission(&mut self, index: usize, permission: tg::authorization::Permission) {
 		let id = self.nodes.get_index(index).unwrap().0.clone();
-		let permissions = tg::grant::permission::Set::from_permission(permission);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
 		match id.kind() {
 			tg::id::Kind::Process => {
 				self.update_process_local_permissions(&id.try_into().unwrap(), permissions);
@@ -1620,29 +1622,31 @@ impl Graph {
 
 	fn parent_required_permission(
 		parent: Parent,
-		permission: tg::grant::Permission,
-	) -> Option<tg::grant::Permission> {
+		permission: tg::authorization::Permission,
+	) -> Option<tg::authorization::Permission> {
 		match parent {
 			Parent::Node(_) => None,
 			Parent::Object(_) => match permission {
-				tg::grant::Permission::Object(_) => Some(tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
-				)),
-				_ => None,
-			},
-			Parent::Process(_) => match permission {
-				tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Write,
-				) => None,
-				tg::grant::Permission::Process(permission) => {
-					Some(tg::grant::Permission::Process(permission.to_subtree()))
+				tg::authorization::Permission::Object(_) => {
+					Some(tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					))
 				},
 				_ => None,
 			},
+			Parent::Process(_) => match permission {
+				tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Write,
+				) => None,
+				tg::authorization::Permission::Process(permission) => Some(
+					tg::authorization::Permission::Process(permission.to_subtree()),
+				),
+				_ => None,
+			},
 			Parent::ProcessObject { kind, .. } => match permission {
-				tg::grant::Permission::Object(_) => Some(tg::grant::Permission::Process(
-					Self::process_object_permission(kind),
-				)),
+				tg::authorization::Permission::Object(_) => Some(
+					tg::authorization::Permission::Process(Self::process_object_permission(kind)),
+				),
 				_ => None,
 			},
 		}
@@ -1650,67 +1654,69 @@ impl Graph {
 
 	fn derive_child_permission(
 		parent: Parent,
-		permission: tg::grant::Permission,
-	) -> tg::grant::Permission {
+		permission: tg::authorization::Permission,
+	) -> tg::authorization::Permission {
 		match parent {
 			Parent::Node(_) => unreachable!(),
 			Parent::Object(_) => match permission {
-				tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				) => permission,
 				_ => unreachable!(),
 			},
 			Parent::Process(_) => match permission {
-				tg::grant::Permission::Process(
-					tg::grant::permission::process::Permission::Read
-					| tg::grant::permission::process::Permission::Subtree
-					| tg::grant::permission::process::Permission::SubtreeCommand
-					| tg::grant::permission::process::Permission::SubtreeError
-					| tg::grant::permission::process::Permission::SubtreeLog
-					| tg::grant::permission::process::Permission::SubtreeOutput,
+				tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Read
+					| tg::authorization::permission::process::Permission::Subtree
+					| tg::authorization::permission::process::Permission::SubtreeCommand
+					| tg::authorization::permission::process::Permission::SubtreeError
+					| tg::authorization::permission::process::Permission::SubtreeLog
+					| tg::authorization::permission::process::Permission::SubtreeOutput,
 				) => permission,
 				_ => unreachable!(),
 			},
-			Parent::ProcessObject { .. } => {
-				tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree)
-			},
+			Parent::ProcessObject { .. } => tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			),
 		}
 	}
 
 	fn normalize_permissions(
-		mut permissions: tg::grant::permission::Set,
-	) -> tg::grant::permission::Set {
+		mut permissions: tg::authorization::permission::Set,
+	) -> tg::authorization::permission::Set {
 		let implied = permissions
 			.iter()
 			.filter_map(|permission| match permission {
-				tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
-				) => Some(tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Node,
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				) => Some(tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Node,
 				)),
-				tg::grant::Permission::Process(permission) => match permission {
-					tg::grant::permission::process::Permission::Subtree
-					| tg::grant::permission::process::Permission::Write => Some(tg::grant::Permission::Process(
-						tg::grant::permission::process::Permission::Node,
-					)),
-					tg::grant::permission::process::Permission::SubtreeCommand => {
-						Some(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::NodeCommand,
+				tg::authorization::Permission::Process(permission) => match permission {
+					tg::authorization::permission::process::Permission::Subtree
+					| tg::authorization::permission::process::Permission::Write => {
+						Some(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::Node,
 						))
 					},
-					tg::grant::permission::process::Permission::SubtreeError => {
-						Some(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::NodeError,
+					tg::authorization::permission::process::Permission::SubtreeCommand => {
+						Some(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::NodeCommand,
 						))
 					},
-					tg::grant::permission::process::Permission::SubtreeLog => {
-						Some(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::SubtreeError => {
+						Some(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::NodeError,
 						))
 					},
-					tg::grant::permission::process::Permission::SubtreeOutput => {
-						Some(tg::grant::Permission::Process(
-							tg::grant::permission::process::Permission::NodeOutput,
+					tg::authorization::permission::process::Permission::SubtreeLog => {
+						Some(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::NodeLog,
+						))
+					},
+					tg::authorization::permission::process::Permission::SubtreeOutput => {
+						Some(tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::NodeOutput,
 						))
 					},
 					_ => None,
@@ -1719,7 +1725,9 @@ impl Graph {
 			})
 			.collect::<Vec<_>>();
 		for permission in implied {
-			permissions.insert(tg::grant::permission::Set::from_permission(permission));
+			permissions.insert(tg::authorization::permission::Set::from_permission(
+				permission,
+			));
 		}
 		permissions
 	}
@@ -1753,19 +1761,19 @@ impl Graph {
 
 	fn process_object_permission(
 		kind: crate::sync::queue::ObjectKind,
-	) -> tg::grant::permission::process::Permission {
+	) -> tg::authorization::permission::process::Permission {
 		match kind {
 			crate::sync::queue::ObjectKind::Command => {
-				tg::grant::permission::process::Permission::NodeCommand
+				tg::authorization::permission::process::Permission::NodeCommand
 			},
 			crate::sync::queue::ObjectKind::Error => {
-				tg::grant::permission::process::Permission::NodeError
+				tg::authorization::permission::process::Permission::NodeError
 			},
 			crate::sync::queue::ObjectKind::Log => {
-				tg::grant::permission::process::Permission::NodeLog
+				tg::authorization::permission::process::Permission::NodeLog
 			},
 			crate::sync::queue::ObjectKind::Output => {
-				tg::grant::permission::process::Permission::NodeOutput
+				tg::authorization::permission::process::Permission::NodeOutput
 			},
 		}
 	}
@@ -1904,19 +1912,19 @@ impl Graph {
 
 	fn compute_object_visible(
 		stored: Option<&tangram_index::object::Stored>,
-		permissions: Option<tg::grant::permission::Set>,
+		permissions: Option<tg::authorization::permission::Set>,
 	) -> bool {
 		stored.is_some_and(|stored| stored.subtree)
 			&& permissions.is_some_and(|permissions| {
-				permissions.contains(tg::grant::Permission::Object(
-					tg::grant::permission::object::Permission::Subtree,
+				permissions.contains(tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
 				))
 			})
 	}
 
 	fn compute_process_visible_from_permissions(
 		stored: Option<&tangram_index::process::Stored>,
-		permissions: Option<tg::grant::permission::Set>,
+		permissions: Option<tg::authorization::permission::Set>,
 	) -> tangram_index::process::Stored {
 		let Some(stored) = stored else {
 			return tangram_index::process::Stored::default();
@@ -1925,106 +1933,109 @@ impl Graph {
 			node_command: stored.node_command
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::NodeCommand,
+					tg::authorization::permission::process::Permission::NodeCommand,
 				),
 			node_error: stored.node_error
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::NodeError,
+					tg::authorization::permission::process::Permission::NodeError,
 				),
 			node_log: stored.node_log
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::NodeLog,
 				),
 			node_output: stored.node_output
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::NodeOutput,
+					tg::authorization::permission::process::Permission::NodeOutput,
 				),
 			subtree: stored.subtree
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::Subtree,
+					tg::authorization::permission::process::Permission::Subtree,
 				),
 			subtree_command: stored.subtree_command
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::SubtreeCommand,
+					tg::authorization::permission::process::Permission::SubtreeCommand,
 				),
 			subtree_error: stored.subtree_error
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::SubtreeError,
+					tg::authorization::permission::process::Permission::SubtreeError,
 				),
 			subtree_log: stored.subtree_log
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::SubtreeLog,
+					tg::authorization::permission::process::Permission::SubtreeLog,
 				),
 			subtree_output: stored.subtree_output
 				&& Self::contains_process_permission(
 					permissions,
-					tg::grant::permission::process::Permission::SubtreeOutput,
+					tg::authorization::permission::process::Permission::SubtreeOutput,
 				),
 		}
 	}
 
 	fn contains_process_permission(
-		permissions: Option<tg::grant::permission::Set>,
-		permission: tg::grant::permission::process::Permission,
+		permissions: Option<tg::authorization::permission::Set>,
+		permission: tg::authorization::permission::process::Permission,
 	) -> bool {
 		permissions.is_some_and(|permissions| {
-			permissions.contains(tg::grant::Permission::Process(permission))
+			permissions.contains(tg::authorization::Permission::Process(permission))
 		})
 	}
 
 	pub fn object_permissions_for_stored(
 		stored: &tangram_index::object::Stored,
-	) -> Option<tg::grant::permission::Set> {
+	) -> Option<tg::authorization::permission::Set> {
 		stored.subtree.then(|| {
-			tg::grant::permission::Set::from_permission(tg::grant::Permission::Object(
-				tg::grant::permission::object::Permission::Subtree,
-			))
+			tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				),
+			)
 		})
 	}
 
 	pub fn process_permissions_for_stored(
 		stored: &tangram_index::process::Stored,
-	) -> Option<tg::grant::permission::Set> {
-		let mut permissions =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::empty());
+	) -> Option<tg::authorization::permission::Set> {
+		let mut permissions = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::empty(),
+		);
 		let mut insert = |permission| {
-			permissions.insert(tg::grant::permission::Set::from_permission(
-				tg::grant::Permission::Process(permission),
+			permissions.insert(tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Process(permission),
 			));
 		};
 		if stored.node_command {
-			insert(tg::grant::permission::process::Permission::NodeCommand);
+			insert(tg::authorization::permission::process::Permission::NodeCommand);
 		}
 		if stored.node_error {
-			insert(tg::grant::permission::process::Permission::NodeError);
+			insert(tg::authorization::permission::process::Permission::NodeError);
 		}
 		if stored.node_log {
-			insert(tg::grant::permission::process::Permission::NodeLog);
+			insert(tg::authorization::permission::process::Permission::NodeLog);
 		}
 		if stored.node_output {
-			insert(tg::grant::permission::process::Permission::NodeOutput);
+			insert(tg::authorization::permission::process::Permission::NodeOutput);
 		}
 		if stored.subtree {
-			insert(tg::grant::permission::process::Permission::Subtree);
+			insert(tg::authorization::permission::process::Permission::Subtree);
 		}
 		if stored.subtree_command {
-			insert(tg::grant::permission::process::Permission::SubtreeCommand);
+			insert(tg::authorization::permission::process::Permission::SubtreeCommand);
 		}
 		if stored.subtree_error {
-			insert(tg::grant::permission::process::Permission::SubtreeError);
+			insert(tg::authorization::permission::process::Permission::SubtreeError);
 		}
 		if stored.subtree_log {
-			insert(tg::grant::permission::process::Permission::SubtreeLog);
+			insert(tg::authorization::permission::process::Permission::SubtreeLog);
 		}
 		if stored.subtree_output {
-			insert(tg::grant::permission::process::Permission::SubtreeOutput);
+			insert(tg::authorization::permission::process::Permission::SubtreeOutput);
 		}
 		(!permissions.is_empty()).then_some(permissions)
 	}
@@ -2383,8 +2394,8 @@ impl Graph {
 	}
 
 	fn merge_local_permissions(
-		existing: &mut Option<tg::grant::permission::Set>,
-		permissions: tg::grant::permission::Set,
+		existing: &mut Option<tg::authorization::permission::Set>,
+		permissions: tg::authorization::permission::Set,
 	) {
 		if permissions.is_empty() {
 			return;
@@ -2789,7 +2800,7 @@ impl Node {
 		}
 	}
 
-	fn local_permissions(&self) -> Option<tg::grant::permission::Set> {
+	fn local_permissions(&self) -> Option<tg::authorization::permission::Set> {
 		match self {
 			Self::Group(_)
 			| Self::Organization(_)

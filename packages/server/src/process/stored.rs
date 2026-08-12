@@ -76,8 +76,9 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::process::Stored>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let requested =
-			tg::grant::permission::Set::Process(tg::grant::permission::process::Set::all());
+		let requested = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::all(),
+		);
 		let Some(permissions) = self.authorize(resource, requested).await? else {
 			return Ok(None);
 		};
@@ -89,71 +90,71 @@ impl Session {
 
 	pub(crate) fn mask_process_stored_with_permissions(
 		stored: &tg::process::Stored,
-		permissions: tg::grant::permission::Set,
+		permissions: tg::authorization::permission::Set,
 	) -> Option<tg::process::Stored> {
 		let mut output = tg::process::Stored::default();
 		let mut authorized = false;
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::Node,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
 		)) {
 			authorized = true;
 		}
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::Subtree,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Subtree,
 		)) {
 			output.subtree = stored.subtree;
 			authorized = true;
 		}
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeCommand,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeCommand,
 		)) {
 			output.node_command = stored.node_command;
 			output.subtree_command = stored.subtree_command;
 			authorized = true;
-		} else if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::NodeCommand,
+		} else if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeCommand,
 		)) {
 			output.node_command = stored.node_command;
 			authorized = true;
 		}
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeError,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeError,
 		)) {
 			output.node_error = stored.node_error;
 			output.subtree_error = stored.subtree_error;
 			authorized = true;
-		} else if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::NodeError,
+		} else if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeError,
 		)) {
 			output.node_error = stored.node_error;
 			authorized = true;
 		}
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeLog,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeLog,
 		)) {
 			output.node_log = stored.node_log;
 			output.subtree_log = stored.subtree_log;
 			authorized = true;
-		} else if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::NodeLog,
+		} else if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeLog,
 		)) {
 			output.node_log = stored.node_log;
 			authorized = true;
 		}
 
-		if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::SubtreeOutput,
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeOutput,
 		)) {
 			output.node_output = stored.node_output;
 			output.subtree_output = stored.subtree_output;
 			authorized = true;
-		} else if permissions.contains(tg::grant::Permission::Process(
-			tg::grant::permission::process::Permission::NodeOutput,
+		} else if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::NodeOutput,
 		)) {
 			output.node_output = stored.node_output;
 			authorized = true;

@@ -165,9 +165,7 @@ impl Provider {
 		// Index the artifact tokens.
 		let mut tokens = BTreeMap::<_, Vec<_>>::new();
 		for token in &config.tokens {
-			let tg::grant::Resource::Id(id) = &token.body.resource else {
-				continue;
-			};
+			let id = &token.body.resource;
 			let Ok(artifact) = tg::artifact::Id::try_from(id.clone()) else {
 				continue;
 			};
@@ -500,8 +498,9 @@ impl Inner {
 			return true;
 		}
 
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 
 		// Check the locally held subtree tokens and deny access on a miss.
 		let now = SystemTime::now()
@@ -1932,13 +1931,14 @@ mod tests {
 	}
 
 	fn token(artifact: &tg::artifact::Id) -> tg::authorization::Token {
-		let permission =
-			tg::grant::Permission::Object(tg::grant::permission::object::Permission::Subtree);
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
 		tg::authorization::Token {
 			body: tg::authorization::Body {
 				expires_at: i64::MAX,
 				permissions: vec![permission],
-				resource: tg::grant::Resource::Id(tg::object::Id::from(artifact.clone()).into()),
+				resource: tg::object::Id::from(artifact.clone()).into(),
 			},
 			metadata: tg::authorization::Metadata {
 				algorithm: tg::authorization::Algorithm::Ed25519,

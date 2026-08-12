@@ -29,10 +29,12 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let permission = tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Write);
+		let permission = tg::authorization::Permission::Tag(
+			tg::authorization::permission::tag::Permission::Write,
+		);
 		let authorized = self
 			.authorize(
-				tg::grant::Resource::Specifier(arg.specifier.clone()),
+				tg::Selector::<tg::Id>::Specifier(arg.specifier.clone()),
 				permission,
 			)
 			.await?;
@@ -112,7 +114,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
-		permissions: Vec<tg::grant::Permission>,
+		permissions: Vec<tg::authorization::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<tg::tag::Data> {
 		let parent = if arg.ancestors.create {
@@ -196,24 +198,28 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			if arg.public {
 				let arg = tg::grant::create::Arg {
-					principal: tg::grant::Principal::Public.into(),
+					subject: tg::authorization::Subject::Public.into(),
 					permissions: tg::Either::Left(
-						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Read)
-							.into(),
+						tg::authorization::Permission::Tag(
+							tg::authorization::permission::tag::Permission::Read,
+						)
+						.into(),
 					),
-					resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
+					resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
 			}
-			if let Some(principal) = self.write_user_grant_principal() {
+			if let Some(subject) = self.write_user_grant_subject() {
 				let arg = tg::grant::create::Arg {
-					principal: principal.into(),
+					subject: subject.into(),
 					permissions: tg::Either::Left(
-						tg::grant::Permission::Tag(tg::grant::permission::tag::Permission::Admin)
-							.into(),
+						tg::authorization::Permission::Tag(
+							tg::authorization::permission::tag::Permission::Admin,
+						)
+						.into(),
 					),
-					resource: tg::Referent::with_node(tg::grant::Resource::Id(id.clone().into())),
+					resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 				};
 				self.create_grant_with_transaction(transaction, arg, batch)
 					.await?;
@@ -261,9 +267,9 @@ impl Session {
 		Ok(response)
 	}
 
-	pub(crate) fn write_user_grant_principal(&self) -> Option<tg::grant::Principal> {
+	pub(crate) fn write_user_grant_subject(&self) -> Option<tg::authorization::Subject> {
 		match &self.context.principal {
-			tg::Principal::User(user) => Some(tg::grant::Principal::User(user.clone())),
+			tg::Principal::User(user) => Some(tg::authorization::Subject::User(user.clone())),
 			_ => None,
 		}
 	}
