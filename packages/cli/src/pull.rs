@@ -113,32 +113,8 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, "failed to pull"))?;
 		let output = self.render_progress_stream(stream).await?;
 
-		let groups = output.skipped.groups;
-		let objects = output.skipped.objects;
-		let organizations = output.skipped.organizations;
-		let processes = output.skipped.processes;
-		let sandboxes = output.skipped.sandboxes;
-		let tags = output.skipped.tags;
-		let users = output.skipped.users;
-		let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
-			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!(
-			"skipped {users} users, {organizations} organizations, {groups} groups, {tags} tags, {sandboxes} sandboxes, {processes} processes, {objects} objects, {bytes:#.1}"
-		);
-		self.print_info_message(&message);
-		let groups = output.transferred.groups;
-		let objects = output.transferred.objects;
-		let organizations = output.transferred.organizations;
-		let processes = output.transferred.processes;
-		let sandboxes = output.transferred.sandboxes;
-		let tags = output.transferred.tags;
-		let users = output.transferred.users;
-		let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
-			.get_appropriate_unit(byte_unit::UnitType::Decimal);
-		let message = format!(
-			"transferred {users} users, {organizations} organizations, {groups} groups, {tags} tags, {sandboxes} sandboxes, {processes} processes, {objects} objects, {bytes:#.1}"
-		);
-		self.print_info_message(&message);
+		self.print_push_or_pull_amounts("skipped", &output.skipped);
+		self.print_push_or_pull_amounts("transferred", &output.transferred);
 
 		Ok(())
 	}
