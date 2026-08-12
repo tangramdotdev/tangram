@@ -209,22 +209,20 @@ impl Session {
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(256);
 		let (put_output_sender, put_output_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
-		let output_future = {
-			let sender = sender.clone();
-			async move {
-				let mut stream = stream::select(
-					ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
-					ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
-				)
-				.take_while_inclusive(|result| future::ready(result.is_ok()));
-				while let Some(result) = stream.next().await {
-					sender
-						.send(result)
-						.await
-						.map_err(|_| tg::error!("failed to send the message"))?;
-				}
-				Ok::<_, tg::Error>(())
+		let output_future = async move {
+			let mut stream = stream::select(
+				ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
+				ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
+			)
+			.chain(stream::once(future::ok(tg::sync::Message::End)))
+			.take_while_inclusive(|result| future::ready(result.is_ok()));
+			while let Some(result) = stream.next().await {
+				sender
+					.send(result)
+					.await
+					.map_err(|_| tg::error!("failed to send the message"))?;
 			}
+			Ok::<_, tg::Error>(())
 		};
 
 		// Create the get future.
@@ -233,11 +231,18 @@ impl Session {
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
+			let sender = get_output_sender.clone();
 			async move {
 				let future = session
 					.sync_get(arg, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"));
-				future.boxed().await
+				match future.boxed().await {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						sender.send(Err(error)).await.ok();
+						Err(tg::error!("the get task failed"))
+					},
+				}
 			}
 		};
 
@@ -247,11 +252,19 @@ impl Session {
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
+			let sender = put_output_sender.clone();
 			async move {
-				session
+				let result = session
 					.sync_put(arg, graph, stream, put_output_sender)
 					.instrument(tracing::debug_span!("put"))
-					.await
+					.await;
+				match result {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						sender.send(Err(error)).await.ok();
+						Err(tg::error!("the put task failed"))
+					},
+				}
 			}
 		};
 
@@ -266,11 +279,6 @@ impl Session {
 			put_future,
 		);
 		future.boxed().await?;
-
-		sender
-			.send(Ok(tg::sync::Message::End))
-			.await
-			.map_err(|_| tg::error!("failed to send the end message"))?;
 
 		Ok(())
 	}
