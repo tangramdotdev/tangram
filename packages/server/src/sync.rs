@@ -231,11 +231,18 @@ impl Session {
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
+			let sender = get_output_sender.clone();
 			async move {
 				let future = session
 					.sync_get(arg, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"));
-				future.boxed().await
+				match future.boxed().await {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						sender.send(Err(error.clone())).await.ok();
+						Err(error)
+					},
+				}
 			}
 		};
 
@@ -245,11 +252,19 @@ impl Session {
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
+			let sender = put_output_sender.clone();
 			async move {
-				session
+				let result = session
 					.sync_put(arg, graph, stream, put_output_sender)
 					.instrument(tracing::debug_span!("put"))
-					.await
+					.await;
+				match result {
+					Ok(()) => Ok(()),
+					Err(error) => {
+						sender.send(Err(error.clone())).await.ok();
+						Err(error)
+					},
+				}
 			}
 		};
 

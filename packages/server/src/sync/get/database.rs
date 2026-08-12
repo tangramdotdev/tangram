@@ -583,7 +583,7 @@ impl Session {
 		for roots in roots.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
 			let p = transaction.p();
 			let values = (1..=roots.len())
-				.map(|index| format!("({p}{index})"))
+				.map(|index| format!("(cast({p}{index} as text))"))
 				.collect::<Vec<_>>()
 				.join(", ");
 			let recursion = if p == "$" {
