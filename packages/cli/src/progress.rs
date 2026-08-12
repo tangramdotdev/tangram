@@ -122,6 +122,10 @@ impl Cli {
 			tg::progress::Event::Indicators(indicators) => {
 				state.indicators = indicators
 					.into_iter()
+					.filter(|indicator| {
+						indicator.current.is_none_or(|current| current > 0)
+							|| indicator.total.is_some_and(|total| total > 0)
+					})
 					.map(|i| (i.name.clone(), i))
 					.collect();
 				false
