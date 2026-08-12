@@ -713,13 +713,18 @@ impl Server {
 		}
 		if !self.config.advanced.single_process {
 			let config = &self.config.object.outbox;
-			let partition = rand::random_range(0..config.partition_total);
-			let payload = arg.serialize()?.into();
-			let arg = crate::object::outbox::EnqueueArg { partition, payload };
-			self.object_store
-				.enqueue_outbox(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
+			for items in arg.items.chunks(config.batch_size) {
+				let arg = index::batch::Arg {
+					items: items.to_vec(),
+				};
+				let partition = rand::random_range(0..config.partition_total);
+				let payload = arg.serialize()?.into();
+				let arg = crate::object::outbox::EnqueueArg { partition, payload };
+				self.object_store
+					.enqueue_outbox(arg)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
+			}
 
 			return Ok(());
 		}
