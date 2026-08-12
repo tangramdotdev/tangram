@@ -8,6 +8,8 @@ pub struct Arg {
 	pub hour_time_to_live: Duration,
 	pub month_time_to_live: Duration,
 	pub now: jiff::Timestamp,
+	pub partition_end: u64,
+	pub partition_start: u64,
 	pub week_time_to_live: Duration,
 }
 

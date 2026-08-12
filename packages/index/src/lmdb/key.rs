@@ -79,6 +79,8 @@ pub enum Kind {
 	NodeUpdateVersion = 61,
 	StorageUpdate = 62,
 	StorageUpdateVersion = 63,
+	UsageStarted = 64,
+	UsageUnavailable = 65,
 }
 
 impl fdbt::TuplePack for Key {
@@ -148,6 +150,20 @@ impl fdbt::TuplePack for Key {
 				hour,
 				account.id().to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
+			)
+				.pack(w, tuple_depth),
+			Key::Usage(crate::lmdb::usage::Key::Started) => {
+				Kind::UsageStarted.to_i32().unwrap().pack(w, tuple_depth)
+			},
+			Key::Usage(crate::lmdb::usage::Key::Unavailable {
+				account,
+				kind,
+				partition,
+			}) => (
+				Kind::UsageUnavailable.to_i32().unwrap(),
+				partition,
+				i32::from(*kind as u8),
+				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -628,10 +644,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let kind = match period_kind {
-					0 => crate::usage::PeriodKind::Day,
-					1 => crate::usage::PeriodKind::Hour,
-					2 => crate::usage::PeriodKind::Month,
-					3 => crate::usage::PeriodKind::Week,
+					0 => crate::usage::PeriodKind::Hour,
+					1 => crate::usage::PeriodKind::Day,
+					2 => crate::usage::PeriodKind::Week,
+					3 => crate::usage::PeriodKind::Month,
 					_ => return Err(fdbt::PackError::Message("invalid usage period kind".into())),
 				};
 				let period = crate::usage::Period::from_kind_and_start(kind, start)
@@ -672,6 +688,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let key = Key::Usage(crate::lmdb::usage::Key::Delta {
 					account,
 					hour,
+					kind,
+					partition,
+				});
+				Ok((input, key))
+			},
+			Kind::UsageStarted => Ok((input, Key::Usage(crate::lmdb::usage::Key::Started))),
+			Kind::UsageUnavailable => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, period_kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let kind = match period_kind {
+					0 => crate::usage::PeriodKind::Hour,
+					1 => crate::usage::PeriodKind::Day,
+					2 => crate::usage::PeriodKind::Week,
+					3 => crate::usage::PeriodKind::Month,
+					_ => return Err(fdbt::PackError::Message("invalid usage period kind".into())),
+				};
+				let key = Key::Usage(crate::lmdb::usage::Key::Unavailable {
+					account,
 					kind,
 					partition,
 				});

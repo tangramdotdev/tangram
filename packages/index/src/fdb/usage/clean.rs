@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 };
 
@@ -25,27 +26,28 @@ impl Index {
 		arg: &crate::usage::clean::Arg,
 		partition_total: u64,
 	) -> tg::Result<crate::usage::clean::Output> {
+		if arg.partition_start > arg.partition_end || arg.partition_end > partition_total {
+			return Err(tg::error!("the usage cleaning partition range is invalid"));
+		}
 		let mut keys = Vec::new();
 		let mut pending = false;
-		Self::find_usage_delta_candidates(
-			txn,
-			subspace,
-			arg,
-			partition_total,
-			&mut keys,
-			&mut pending,
-		)
-		.await?;
+		let mut unavailable = BTreeMap::new();
+		Self::find_usage_delta_candidates(txn, subspace, arg, &mut keys, &mut pending).await?;
 		if keys.len() < arg.batch_size {
 			Self::find_usage_aggregate_candidates(
 				txn,
 				subspace,
 				arg,
-				partition_total,
 				&mut keys,
 				&mut pending,
+				&mut unavailable,
 			)
 			.await?;
+		}
+		for ((account, kind, partition), through) in unavailable {
+			Self::mark_usage_unavailable_with_transaction(
+				txn, subspace, &account, kind, partition, through,
+			);
 		}
 		for key in &keys {
 			txn.clear(key);
@@ -62,7 +64,6 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
-		partition_total: u64,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
 	) -> tg::Result<()> {
@@ -70,7 +71,7 @@ impl Index {
 			.now
 			.checked_sub(arg.delta_time_to_live)
 			.unwrap_or(jiff::Timestamp::MIN);
-		for partition in 0..partition_total {
+		for partition in arg.partition_start..arg.partition_end {
 			let start = Self::pack(subspace, &(Kind::UsageDelta.to_i32().unwrap(), partition));
 			let end = Self::pack(
 				subspace,
@@ -132,11 +133,11 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
-		partition_total: u64,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
+		unavailable: &mut BTreeMap<(crate::usage::Account, crate::usage::PeriodKind, u64), i64>,
 	) -> tg::Result<()> {
-		for partition in 0..partition_total {
+		for partition in arg.partition_start..arg.partition_end {
 			for kind in [
 				crate::usage::PeriodKind::Hour,
 				crate::usage::PeriodKind::Day,
@@ -144,10 +145,10 @@ impl Index {
 				crate::usage::PeriodKind::Month,
 			] {
 				let time_to_live = match kind {
-					crate::usage::PeriodKind::Day => arg.day_time_to_live,
 					crate::usage::PeriodKind::Hour => arg.hour_time_to_live,
-					crate::usage::PeriodKind::Month => arg.month_time_to_live,
+					crate::usage::PeriodKind::Day => arg.day_time_to_live,
 					crate::usage::PeriodKind::Week => arg.week_time_to_live,
+					crate::usage::PeriodKind::Month => arg.month_time_to_live,
 				};
 				let cutoff = arg
 					.now
@@ -228,8 +229,8 @@ impl Index {
 							let mut dependency = false;
 							let mut eligible = false;
 							for kind in [
-								crate::usage::PeriodKind::Month,
 								crate::usage::PeriodKind::Week,
+								crate::usage::PeriodKind::Month,
 							] {
 								let parent = crate::usage::Period::containing(kind, period.start());
 								let closing_hour = crate::usage::closing_hour(parent)?;
@@ -253,6 +254,11 @@ impl Index {
 					if dependency {
 						*pending |= eligible;
 					} else {
+						let through = period.end().as_second();
+						unavailable
+							.entry((account, period.kind(), partition))
+							.and_modify(|value| *value = (*value).max(through))
+							.or_insert(through);
 						keys.push(entry.key().to_vec());
 					}
 				}

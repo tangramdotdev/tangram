@@ -286,8 +286,8 @@ impl Index {
 		)?;
 
 		for kind in [
-			crate::usage::PeriodKind::Month,
 			crate::usage::PeriodKind::Week,
+			crate::usage::PeriodKind::Month,
 		] {
 			let parent = crate::usage::Period::containing(kind, period.start());
 			let closing_hour = crate::usage::closing_hour(parent)?;

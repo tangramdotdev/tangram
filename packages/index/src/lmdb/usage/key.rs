@@ -34,4 +34,10 @@ pub enum Key {
 		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
+	Started,
+	Unavailable {
+		account: crate::usage::Account,
+		kind: crate::usage::PeriodKind,
+		partition: u64,
+	},
 }

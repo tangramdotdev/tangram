@@ -43,6 +43,9 @@ impl Server {
 			let process_time_to_live = self.config.process.time_to_live;
 			let sandbox_time_to_live = self.config.sandbox.time_to_live;
 			let usage = self.config.usage;
+			let usage_partition_total = self.index.usage_partition_total();
+			let usage_partition_end = partition_end.min(usage_partition_total);
+			let usage_partition_start = partition_start.min(usage_partition_total);
 			let n = config.batch_size;
 
 			let futures = (0..config.concurrency).map(|task_index| {
@@ -73,6 +76,8 @@ impl Server {
 				hour_time_to_live: usage.hour_time_to_live,
 				month_time_to_live: usage.month_time_to_live,
 				now: jiff::Timestamp::new(now, 0).unwrap(),
+				partition_end: usage_partition_end,
+				partition_start: usage_partition_start,
 				week_time_to_live: usage.week_time_to_live,
 			});
 			match future::try_join3(

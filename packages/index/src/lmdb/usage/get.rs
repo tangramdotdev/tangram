@@ -33,6 +33,24 @@ impl Index {
 		now: jiff::Timestamp,
 		partition_total: u64,
 	) -> tg::Result<crate::usage::Aggregate> {
+		let started = Self::try_get_usage_started_with_transaction(db, subspace, transaction)?
+			.ok_or_else(|| tg::error!("usage tracking has not started"))?;
+		if period.start().as_second() < started && period.end() <= now {
+			return Err(tg::error!("usage is unavailable for the requested period"));
+		}
+		for partition in 0..partition_total {
+			let cutoff = Self::try_get_usage_unavailable_with_transaction(
+				db,
+				subspace,
+				transaction,
+				account,
+				period.kind(),
+				partition,
+			)?;
+			if cutoff.is_some_and(|cutoff| period.end().as_second() <= cutoff) {
+				return Err(tg::error!("usage is unavailable for the requested period"));
+			}
+		}
 		if period.start() > now {
 			return Ok(crate::usage::Aggregate::default());
 		}

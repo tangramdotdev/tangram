@@ -61,6 +61,20 @@ pub(crate) struct DeltaArg<'a> {
 	pub partition: u64,
 }
 
+pub(crate) fn deserialize_timestamp(bytes: &[u8]) -> tg::Result<i64> {
+	let bytes = bytes
+		.try_into()
+		.map_err(|_| tg::error!("invalid usage timestamp"))?;
+	let value = u64::from_le_bytes(bytes) ^ (1 << 63);
+	let timestamp = value.cast_signed();
+
+	Ok(timestamp)
+}
+
+pub(crate) fn serialize_timestamp(timestamp: i64) -> [u8; 8] {
+	(timestamp.cast_unsigned() ^ (1 << 63)).to_le_bytes()
+}
+
 impl PartitionAggregate {
 	pub fn checked_add(&mut self, other: Self) -> tg::Result<()> {
 		self.object_count = self
@@ -192,5 +206,17 @@ mod tests {
 		assert_eq!(bytes.len(), 96);
 		let actual = deserialize_aggregate(&bytes).unwrap();
 		assert_eq!(actual, expected);
+	}
+
+	#[test]
+	fn timestamp_serialization_preserves_order() {
+		let timestamps = [i64::MIN, -1, 0, 1, i64::MAX];
+		let values = timestamps.map(serialize_timestamp);
+		for (left, right) in values.iter().zip(values.iter().skip(1)) {
+			assert!(u64::from_le_bytes(*left) < u64::from_le_bytes(*right));
+		}
+		for (timestamp, value) in std::iter::zip(timestamps, values) {
+			assert_eq!(deserialize_timestamp(&value).unwrap(), timestamp);
+		}
 	}
 }

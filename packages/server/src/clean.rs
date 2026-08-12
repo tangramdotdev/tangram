@@ -181,6 +181,7 @@ impl Session {
 
 		// Clean the usage data.
 		let usage = self.server.config.usage;
+		let usage_partition_total = self.server.index.usage_partition_total();
 		let now = jiff::Timestamp::new(now, 0).unwrap();
 		loop {
 			let output = self
@@ -193,6 +194,8 @@ impl Session {
 					hour_time_to_live: usage.hour_time_to_live,
 					month_time_to_live: usage.month_time_to_live,
 					now,
+					partition_end: usage_partition_total,
+					partition_start: 0,
 					week_time_to_live: usage.week_time_to_live,
 				})
 				.await?;

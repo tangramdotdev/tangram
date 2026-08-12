@@ -19,10 +19,10 @@ assert equal $current_month.period.start '2026-01-01T00:00:00Z'
 assert equal $current_month.period.end '2026-02-01T00:00:00Z'
 assert not $current_month.complete
 
-# A period ending exactly at now is complete; current and future periods are not.
-let previous_hour = usage $alice.token --hour 2025-12-31T23:00:00Z
-assert $previous_hour.complete
-assert equal $previous_hour.period.end '2026-01-01T00:00:00Z'
+# A completed period before usage tracking started is unavailable.
+let previous_hour = tg --token $alice.token usage --hour 2025-12-31T23:00:00Z | complete
+failure $previous_hour "usage before tracking started should be unavailable"
+assert ($previous_hour.stderr | str contains "usage is unavailable for the requested period")
 
 let current_hour = usage $alice.token --hour 2026-01-01T00:00:00Z
 assert not $current_hour.complete
@@ -39,13 +39,13 @@ assert equal $future_hour.process_count 0
 assert equal $future_hour.sandbox_count 0
 
 # Calendar periods handle leap days and ISO weeks that cross calendar years.
-let leap_day = usage $alice.token --day 2024-02-29
-assert equal $leap_day.period.start '2024-02-29T00:00:00Z'
-assert equal $leap_day.period.end '2024-03-01T00:00:00Z'
+let leap_day = usage $alice.token --day 2028-02-29
+assert equal $leap_day.period.start '2028-02-29T00:00:00Z'
+assert equal $leap_day.period.end '2028-03-01T00:00:00Z'
 
-let iso_week = usage $alice.token --week 2020-W53
-assert equal $iso_week.period.start '2020-12-28T00:00:00Z'
-assert equal $iso_week.period.end '2021-01-04T00:00:00Z'
+let iso_week = usage $alice.token --week 2026-W01
+assert equal $iso_week.period.start '2025-12-29T00:00:00Z'
+assert equal $iso_week.period.end '2026-01-05T00:00:00Z'
 
 # Invalid, conflicting, and overflowing selectors fail without crashing the server.
 failure (tg --token $alice.token usage --hour 2026-01-01T00:30:00Z | complete) "an unaligned hour should fail"

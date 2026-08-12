@@ -71,10 +71,10 @@ pub enum Period {
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]
 pub enum PeriodKind {
-	Day,
-	Hour,
-	Month,
-	Week,
+	Hour = 0,
+	Day = 1,
+	Week = 2,
+	Month = 3,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -288,12 +288,11 @@ impl Period {
 	pub fn containing(kind: PeriodKind, timestamp: jiff::Timestamp) -> Self {
 		let datetime = jiff::tz::Offset::UTC.to_datetime(timestamp);
 		match kind {
-			PeriodKind::Day => Self::Day(datetime.date()),
 			PeriodKind::Hour => {
 				let start = timestamp.as_second().div_euclid(60 * 60) * 60 * 60;
 				Self::Hour(jiff::Timestamp::new(start, 0).unwrap())
 			},
-			PeriodKind::Month => Self::Month(datetime.date().first_of_month()),
+			PeriodKind::Day => Self::Day(datetime.date()),
 			PeriodKind::Week => {
 				let week = datetime.date().iso_week_date();
 				let week =
@@ -301,6 +300,7 @@ impl Period {
 						.unwrap();
 				Self::Week(week)
 			},
+			PeriodKind::Month => Self::Month(datetime.date().first_of_month()),
 		}
 	}
 

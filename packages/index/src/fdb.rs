@@ -39,8 +39,11 @@ pub(super) use {
 };
 
 pub struct Index {
+	database: Arc<fdb::Database>,
 	partition_total: u64,
 	reader_sender: crate::read::Sender,
+	subspace: fdbt::Subspace,
+	usage_partition_total: u64,
 	writer_sender_high: writer::RequestSender,
 	writer_sender_low: writer::RequestSender,
 	writer_sender_medium: writer::RequestSender,
@@ -143,8 +146,11 @@ impl Index {
 		});
 
 		let index = Self {
+			database,
 			partition_total,
 			reader_sender,
+			subspace,
+			usage_partition_total,
 			writer_sender_high,
 			writer_sender_low,
 			writer_sender_medium,
@@ -232,6 +238,11 @@ impl Index {
 	pub async fn sync(&self) -> tg::Result<()> {
 		Ok(())
 	}
+
+	#[must_use]
+	pub fn usage_partition_total(&self) -> u64 {
+		self.usage_partition_total
+	}
 }
 
 impl crate::Index for Index {
@@ -242,6 +253,10 @@ impl crate::Index for Index {
 		now: jiff::Timestamp,
 	) -> tg::Result<crate::usage::Aggregate> {
 		self.get_usage(account, period, now).await
+	}
+
+	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
+		self.start_usage(at).await
 	}
 
 	async fn authorize_batch(
@@ -261,6 +276,10 @@ impl crate::Index for Index {
 		arg: crate::usage::clean::Arg,
 	) -> tg::Result<crate::usage::clean::Output> {
 		self.clean_usage(arg).await
+	}
+
+	fn usage_partition_total(&self) -> u64 {
+		self.usage_partition_total()
 	}
 
 	async fn compact_usage(

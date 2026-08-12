@@ -1,7 +1,7 @@
 use {
 	crate::fdb::{Index, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{FutureExt as _, future::BoxFuture},
+	futures::{FutureExt as _, future::BoxFuture, future::try_join_all},
 	tangram_client::prelude::*,
 };
 
@@ -33,6 +33,29 @@ impl Index {
 		now: jiff::Timestamp,
 		partition_total: u64,
 	) -> tg::Result<crate::usage::Aggregate> {
+		let started = Self::try_get_usage_started_with_transaction(txn, subspace)
+			.await?
+			.ok_or_else(|| tg::error!("usage tracking has not started"))?;
+		if period.start().as_second() < started && period.end() <= now {
+			return Err(tg::error!("usage is unavailable for the requested period"));
+		}
+		let cutoffs = try_join_all((0..partition_total).map(|partition| {
+			Self::try_get_usage_unavailable_with_transaction(
+				txn,
+				subspace,
+				account,
+				period.kind(),
+				partition,
+			)
+		}))
+		.await?;
+		if cutoffs
+			.into_iter()
+			.flatten()
+			.any(|cutoff| period.end().as_second() <= cutoff)
+		{
+			return Err(tg::error!("usage is unavailable for the requested period"));
+		}
 		if period.start() > now {
 			return Ok(crate::usage::Aggregate::default());
 		}

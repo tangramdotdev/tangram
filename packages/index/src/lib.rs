@@ -143,6 +143,8 @@ pub trait Index {
 		now: jiff::Timestamp,
 	) -> impl Future<Output = tg::Result<crate::usage::Aggregate>> + Send;
 
+	fn start_usage(&self, at: jiff::Timestamp) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
@@ -476,4 +478,6 @@ pub trait Index {
 	fn sync(&self) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn partition_total(&self) -> u64;
+
+	fn usage_partition_total(&self) -> u64;
 }

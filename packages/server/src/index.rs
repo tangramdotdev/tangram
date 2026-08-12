@@ -167,6 +167,15 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.start_usage(at).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.start_usage(at).await,
+		}
+	}
+
 	async fn touch_cache_entries(
 		&self,
 		ids: &[tg::artifact::Id],
@@ -684,6 +693,15 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.partition_total(),
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.partition_total(),
+		}
+	}
+
+	fn usage_partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.usage_partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.usage_partition_total(),
 		}
 	}
 }

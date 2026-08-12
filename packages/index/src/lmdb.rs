@@ -63,6 +63,7 @@ pub struct Index {
 	reader_sender: Option<crate::read::Sender>,
 	#[cfg_attr(not(test), allow(dead_code))]
 	subspace: fdbt::Subspace,
+	usage_partition_total: u64,
 	writer_handle: Option<std::thread::JoinHandle<()>>,
 	writer_sender_high: Option<writer::RequestSender>,
 	writer_sender_low: Option<writer::RequestSender>,
@@ -169,6 +170,7 @@ impl Index {
 			reader_handles,
 			reader_sender: Some(reader_sender),
 			subspace,
+			usage_partition_total: config.usage_partition_total,
 			writer_handle: Some(writer_handle),
 			writer_sender_high: Some(writer_sender_high),
 			writer_sender_low: Some(writer_sender_low),
@@ -237,6 +239,11 @@ impl Index {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 		Ok(())
 	}
+
+	#[must_use]
+	pub fn usage_partition_total(&self) -> u64 {
+		self.usage_partition_total
+	}
 }
 
 impl Drop for Index {
@@ -264,6 +271,10 @@ impl crate::Index for Index {
 		self.get_usage(account, period, now).await
 	}
 
+	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
+		self.start_usage(at).await
+	}
+
 	async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
@@ -281,6 +292,10 @@ impl crate::Index for Index {
 		arg: crate::usage::clean::Arg,
 	) -> tg::Result<crate::usage::clean::Output> {
 		self.clean_usage(arg).await
+	}
+
+	fn usage_partition_total(&self) -> u64 {
+		self.usage_partition_total()
 	}
 
 	async fn compact_usage(

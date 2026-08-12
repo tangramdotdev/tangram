@@ -64,19 +64,33 @@ fn hour(start: i64) -> crate::usage::Period {
 fn usage_keys_round_trip() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
-	let period = hour(0);
 	let mut keys = vec![
-		crate::lmdb::usage::Key::Aggregate {
-			account: account.clone(),
-			partition: 3,
-			period,
-		},
 		crate::lmdb::usage::Key::Compaction {
 			account: account.clone(),
 			hour: 60 * 60,
 			partition: 4,
 		},
+		crate::lmdb::usage::Key::Started,
 	];
+	for (kind, start, value) in [
+		(crate::usage::PeriodKind::Hour, 0, 0),
+		(crate::usage::PeriodKind::Day, 0, 1),
+		(crate::usage::PeriodKind::Week, -3 * 24 * 60 * 60, 2),
+		(crate::usage::PeriodKind::Month, 0, 3),
+	] {
+		assert_eq!(kind as u8, value);
+		let period = crate::usage::Period::from_kind_and_start(kind, start).unwrap();
+		keys.push(crate::lmdb::usage::Key::Aggregate {
+			account: account.clone(),
+			partition: 3,
+			period,
+		});
+		keys.push(crate::lmdb::usage::Key::Unavailable {
+			account: account.clone(),
+			kind,
+			partition: 5,
+		});
+	}
 	for (kind, value) in [
 		(crate::usage::DeltaKind::ObjectCount, 0),
 		(crate::usage::DeltaKind::ObjectSize, 1),
@@ -102,6 +116,145 @@ fn usage_keys_round_trip() {
 		};
 		assert_eq!(actual, expected);
 	}
+}
+
+#[tokio::test]
+async fn usage_start_time_is_initialized_once() {
+	let (_dir, index) = new_index();
+	let key = Index::pack(
+		&index.subspace,
+		&crate::lmdb::Key::Usage(crate::lmdb::usage::Key::Started),
+	);
+	let mut transaction = index.env.write_txn().unwrap();
+	index.db.delete(&mut transaction, &key).unwrap();
+	transaction.commit().unwrap();
+
+	let first = jiff::Timestamp::new(60 * 60, 0).unwrap();
+	let second = jiff::Timestamp::new(2 * 60 * 60, 0).unwrap();
+	index.start_usage(first).await.unwrap();
+	index.start_usage(second).await.unwrap();
+
+	let account = crate::usage::Account::User(tg::user::Id::new());
+	let error = index
+		.get_usage(&account, hour(0), second)
+		.await
+		.unwrap_err();
+	assert!(error.to_string().contains("usage is unavailable"));
+	let usage = index
+		.get_usage(&account, hour(60 * 60), second)
+		.await
+		.unwrap();
+	assert_eq!(usage, crate::usage::Aggregate::default());
+}
+
+#[tokio::test]
+async fn usage_unavailability_is_scoped_by_account_and_partition() {
+	let (_dir, index) = new_index_with_usage_partition_total(2);
+	let account = crate::usage::Account::User(tg::user::Id::new());
+	let other = crate::usage::Account::User(tg::user::Id::new());
+	let period = hour(0);
+	let mut transaction = index.env.write_txn().unwrap();
+	Index::put_usage_aggregate_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		&account,
+		0,
+		period,
+		crate::usage::PartitionAggregate {
+			object_count: 3,
+			..Default::default()
+		},
+	)
+	.unwrap();
+	Index::put_usage_aggregate_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		&account,
+		1,
+		period,
+		crate::usage::PartitionAggregate {
+			object_count: 7,
+			..Default::default()
+		},
+	)
+	.unwrap();
+	transaction.commit().unwrap();
+
+	let retained = std::time::Duration::from_hours(365 * 24);
+	let now = jiff::Timestamp::new(2 * 60 * 60, 0).unwrap();
+	index
+		.clean_usage(crate::usage::clean::Arg {
+			batch_size: 1_000,
+			day_time_to_live: retained,
+			delta_time_to_live: retained,
+			hour_time_to_live: std::time::Duration::ZERO,
+			month_time_to_live: retained,
+			now,
+			partition_end: 1,
+			partition_start: 0,
+			week_time_to_live: retained,
+		})
+		.await
+		.unwrap();
+
+	let error = index.get_usage(&account, period, now).await.unwrap_err();
+	assert!(error.to_string().contains("usage is unavailable"));
+	let usage = index.get_usage(&other, period, now).await.unwrap();
+	assert_eq!(usage, crate::usage::Aggregate::default());
+	let mut transaction = index.env.write_txn().unwrap();
+	let cutoff = Index::try_get_usage_unavailable_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&account,
+		crate::usage::PeriodKind::Hour,
+		0,
+	)
+	.unwrap();
+	assert_eq!(cutoff, Some(60 * 60));
+	let cutoff = Index::try_get_usage_unavailable_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&account,
+		crate::usage::PeriodKind::Hour,
+		1,
+	)
+	.unwrap();
+	assert_eq!(cutoff, None);
+	Index::mark_usage_unavailable_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		&account,
+		crate::usage::PeriodKind::Hour,
+		0,
+		0,
+	)
+	.unwrap();
+	let cutoff = Index::try_get_usage_unavailable_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&account,
+		crate::usage::PeriodKind::Hour,
+		0,
+	)
+	.unwrap();
+	assert_eq!(cutoff, Some(60 * 60));
+	let aggregate = Index::try_get_usage_aggregate_with_transaction(
+		&index.db,
+		&index.subspace,
+		&transaction,
+		&account,
+		1,
+		period,
+	)
+	.unwrap()
+	.unwrap();
+	assert_eq!(aggregate.object_count, 7);
 }
 
 fn sandbox_data(
@@ -303,6 +456,8 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 		hour_time_to_live: retained,
 		month_time_to_live: retained,
 		now,
+		partition_end: 1,
+		partition_start: 0,
 		week_time_to_live: retained,
 	};
 	index.clean_usage(arg.clone()).await.unwrap();
@@ -321,8 +476,8 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 	compact(&index, now).await;
 	let arg = crate::usage::clean::Arg { now, ..arg };
 	index.clean_usage(arg).await.unwrap();
-	let actual = index.get_usage(&account, period, now).await.unwrap();
-	assert_eq!(actual, crate::usage::Aggregate::default());
+	let error = index.get_usage(&account, period, now).await.unwrap_err();
+	assert!(error.to_string().contains("usage is unavailable"));
 	let day = crate::usage::Period::day("1970-01-01").unwrap();
 	let actual = index.get_usage(&account, day, now).await.unwrap();
 	assert_eq!(actual.object_count, 24);
@@ -349,6 +504,8 @@ async fn clean_usage_preserves_a_zero_storage_checkpoint() {
 		hour_time_to_live: retained,
 		month_time_to_live: retained,
 		now,
+		partition_end: 1,
+		partition_start: 0,
 		week_time_to_live: retained,
 	};
 	index.clean_usage(arg).await.unwrap();
