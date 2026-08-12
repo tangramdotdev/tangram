@@ -30,10 +30,19 @@ impl Session {
 			(None, None)
 		};
 		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
-		let spawn_future = self
-			.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender)
-			.boxed();
-		let (cache, wait, output) = match future::select(spawn_future, pin!(cache_future)).await {
+		let create_delay = self.server.config.process.spawn.create_delay;
+		let spawn_future =
+			self.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender);
+		let spawn_future = if create_delay.is_zero() {
+			spawn_future.left_future()
+		} else {
+			tokio::time::sleep(create_delay)
+				.then(|()| spawn_future)
+				.right_future()
+		};
+		let (cache, wait, output) = match future::select(pin!(spawn_future), pin!(cache_future))
+			.await
+		{
 			future::Either::Left((result, cache_future)) => {
 				let output = result?;
 				let local_id = output.as_ref().map(|output| output.id.clone());

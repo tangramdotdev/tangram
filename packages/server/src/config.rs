@@ -631,6 +631,8 @@ pub struct Process {
 
 #[derive(Clone, Debug, Default)]
 pub struct Spawn {
+	pub create_delay: Duration,
+
 	pub host: Option<String>,
 }
 

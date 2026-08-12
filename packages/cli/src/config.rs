@@ -956,9 +956,14 @@ pub struct Process {
 	pub time_to_touch: Option<Duration>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Spawn {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub create_delay: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub host: Option<String>,
 }
@@ -2824,7 +2829,12 @@ fn resolve_process(source: Process) -> server::Process {
 }
 
 fn resolve_spawn(source: Spawn) -> server::Spawn {
-	server::Spawn { host: source.host }
+	let mut target = server::Spawn::default();
+	if let Some(value) = source.create_delay {
+		target.create_delay = value;
+	}
+	target.host = source.host;
+	target
 }
 
 fn resolve_region(source: Region) -> tg::Result<server::Region> {
@@ -3467,6 +3477,18 @@ mod tests {
 		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
 		let usage = indexer.usage.unwrap();
 		assert!(matches!(usage.compaction, Some(BoolOr::Bool(true))));
+	}
+
+	#[test]
+	fn parses_and_resolves_spawn_create_delay() {
+		let source: Spawn = serde_json::from_value(serde_json::json!({
+			"create_delay": 0.25,
+		}))
+		.unwrap();
+		let target = resolve_spawn(source);
+
+		assert_eq!(target.create_delay, Duration::from_millis(250));
+		assert_eq!(server::Spawn::default().create_delay, Duration::ZERO);
 	}
 
 	#[test]
