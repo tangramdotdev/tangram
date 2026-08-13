@@ -27,42 +27,7 @@ impl Session {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let session = self.clone();
-		let output = self
-			.server
-			.database
-			.run(|transaction| {
-				let arg = arg.clone();
-				let session = session.clone();
-				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let deleted = session
-						.delete_tags_with_transaction(transaction, &arg, &mut batch)
-						.await?;
-					batch.items.extend(
-						deleted
-							.iter()
-							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
-					);
-					let output = tg::tag::delete::Output { deleted };
-					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
-				}
-				.boxed()
-			})
-			.await?;
-		Ok(output)
-	}
-
-	async fn delete_tags_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		arg: &tg::tag::delete::Arg,
-		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Vec<tg::tag::Data>> {
+		// Validate the pattern.
 		if arg.pattern.is_empty() {
 			return Err(tg::error!("cannot delete an empty pattern"));
 		}
@@ -71,9 +36,13 @@ impl Session {
 				"cannot delete multiple tags without --recursive"
 			));
 		}
+
+		// List the tags before acquiring the write transaction.
 		let tags = self
-			.list_tags_to_delete_with_transaction(transaction, &arg.pattern, arg.recursive)
+			.list_tags_to_delete(&arg.pattern, arg.recursive)
 			.await?;
+
+		// Authorize the tags.
 		for tag in &tags {
 			let authorized = self
 				.authorize(
@@ -91,8 +60,114 @@ impl Session {
 				return Err(tg::error!("unauthorized"));
 			}
 		}
+
+		// Delete the tags.
+		let session = self.clone();
+		let output = self
+			.server
+			.database
+			.run(|transaction| {
+				let session = session.clone();
+				let tags = tags.clone();
+				async move {
+					let mut batch = tangram_index::batch::Arg::default();
+					session
+						.delete_tags_with_transaction(transaction, &tags, &mut batch)
+						.await?;
+					batch.items.extend(
+						tags.iter()
+							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
+					);
+					let output = tg::tag::delete::Output { deleted: tags };
+					session
+						.server
+						.enqueue_database_outbox_with_transaction(transaction, &batch)
+						.await?;
+					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(output)
+	}
+
+	async fn list_tags_to_delete(
+		&self,
+		pattern: &tg::specifier::Pattern,
+		recursive: bool,
+	) -> tg::Result<Vec<tg::tag::Data>> {
+		// List the matching specifiers without holding a database connection.
+		let specifiers = if !recursive && !pattern.contains_operators() {
+			vec![pattern.clone().try_into()?]
+		} else {
+			let entries = self
+				.list_local_entries()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
+			entries
+				.into_iter()
+				.filter_map(|entry| {
+					let tg::list::Entry::Tag { specifier, .. } = entry else {
+						return None;
+					};
+					let matches = if recursive {
+						specifier
+							.prefixes()
+							.any(|prefix| pattern.matches_specifier(&prefix))
+					} else {
+						pattern.matches_specifier(&specifier)
+					};
+					matches.then_some(specifier)
+				})
+				.collect()
+		};
+
+		// Get the tags in a single transaction.
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let mut tags = Vec::new();
+		for specifier in specifiers {
+			let Some(id) =
+				Self::try_get_id_for_specifier_with_transaction(&transaction, &specifier).await?
+			else {
+				continue;
+			};
+			let Ok(id) = id.try_into() else {
+				continue;
+			};
+			let Some(tag) = Self::try_get_tag_data_with_transaction(&transaction, &id).await?
+			else {
+				continue;
+			};
+			tags.push(tag);
+		}
+		tags.sort_by(|a, b| {
+			let a_depth = a.specifier.components().count();
+			let b_depth = b.specifier.components().count();
+			b_depth
+				.cmp(&a_depth)
+				.then_with(|| a.specifier.cmp(&b.specifier))
+		});
+		Ok(tags)
+	}
+
+	async fn delete_tags_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		tags: &[tg::tag::Data],
+		batch: &mut tangram_index::batch::Arg,
+	) -> tg::Result<()> {
 		let p = transaction.p();
-		for tag in &tags {
+		for tag in tags {
 			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)
 				.await?;
 			for statement in [
@@ -105,66 +180,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 			}
 		}
-		Ok(tags)
-	}
-
-	async fn list_tags_to_delete_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		pattern: &tg::specifier::Pattern,
-		recursive: bool,
-	) -> tg::Result<Vec<tg::tag::Data>> {
-		if !recursive && !pattern.contains_operators() {
-			let specifier = pattern.clone().try_into()?;
-			let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
-			else {
-				return Ok(Vec::new());
-			};
-			let Ok(id) = id.try_into() else {
-				return Ok(Vec::new());
-			};
-			return Ok(vec![
-				Self::get_tag_data_with_transaction(transaction, &id).await?,
-			]);
-		}
-		let entries = self
-			.list_local_entries()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
-		let mut tags = Vec::new();
-		for entry in entries {
-			let tg::list::Entry::Tag { specifier, .. } = entry else {
-				continue;
-			};
-			let matches = if recursive {
-				specifier
-					.prefixes()
-					.any(|prefix| pattern.matches_specifier(&prefix))
-			} else {
-				pattern.matches_specifier(&specifier)
-			};
-			if !matches {
-				continue;
-			}
-			let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
-			else {
-				continue;
-			};
-			let Ok(id) = id.try_into() else {
-				continue;
-			};
-			tags.push(Self::get_tag_data_with_transaction(transaction, &id).await?);
-		}
-		tags.sort_by(|a, b| {
-			let a_depth = a.specifier.components().count();
-			let b_depth = b.specifier.components().count();
-			b_depth
-				.cmp(&a_depth)
-				.then_with(|| a.specifier.cmp(&b.specifier))
-		});
-		Ok(tags)
+		Ok(())
 	}
 
 	async fn delete_tags_remote(

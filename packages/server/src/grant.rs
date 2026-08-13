@@ -692,20 +692,24 @@ impl Session {
 		&self,
 		subject: tg::authorization::subject::Selector,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(subject) = Self::resolve_subject_with_transaction(&transaction, &subject).await?
-		else {
+		// Resolve the subject.
+		let subject =
+			{
+				let mut connection =
+					self.server.database.connection().await.map_err(|error| {
+						tg::error!(!error, "failed to get a database connection")
+					})?;
+				let transaction = connection
+					.transaction()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+				Self::resolve_subject_with_transaction(&transaction, &subject).await?
+			};
+		let Some(subject) = subject else {
 			return Ok(None);
 		};
+
+		// Authorize the subject.
 		match &subject {
 			// Listing the grants held by a user, group, or organization requires admin permission on it, and it is not found without read permission.
 			tg::authorization::Subject::Group(_)
@@ -745,7 +749,20 @@ impl Session {
 				}
 			},
 		}
+
+		// List the grants.
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let data = Self::list_subject_grants_with_transaction(&transaction, &subject).await?;
+
 		Ok(Some(tg::grant::list::Output { data }))
 	}
 

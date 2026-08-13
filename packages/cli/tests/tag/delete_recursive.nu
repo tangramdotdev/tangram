@@ -2,7 +2,15 @@ use ../../test.nu *
 
 # tg tag delete --recursive removes all tags in a nested hierarchy, deleting children before their parents, and leaves no matching tags behind.
 
-let server = spawn
+let server = spawn --config {
+	database: {
+		kind: 'sqlite',
+		path: 'database',
+		pool: {
+			max: 1,
+		},
+	},
+}
 
 # Create and tag an artifact.
 let path = artifact 'test'
