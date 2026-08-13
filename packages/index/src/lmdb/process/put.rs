@@ -1,6 +1,7 @@
 use {
-	crate::lmdb::{Db, Index, Key},
+	crate::lmdb::{Db, Index, Key, Kind},
 	foundationdb_tuple as fdbt, heed as lmdb,
+	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -11,6 +12,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &crate::process::put::Arg,
 	) -> tg::Result<()> {
+		arg.validate()?;
 		let id = &arg.id;
 		let key = Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -45,7 +47,6 @@ impl Index {
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output);
 		let parent_changed = arg.parent.is_some();
-
 		let mut set = arg.set();
 		if merge && let Some(ref existing) = existing {
 			set.merge(&existing.set);
@@ -61,10 +62,13 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 
-		let data = arg
+		let mut data = arg
 			.data
 			.clone()
 			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
+		if let Some(data) = &mut data {
+			data.children = None;
+		}
 
 		let sandbox = arg.sandbox.clone().or_else(|| {
 			existing
@@ -143,41 +147,114 @@ impl Index {
 		}
 
 		if children_changed && let Some(children) = &arg.children {
-			for child in children {
-				let key = Key::Process(crate::lmdb::process::Key::ProcessChild {
-					process: id.clone(),
-					child: child.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
-					.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
+			let id_bytes = id.to_bytes();
+			let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+			let prefix = Self::pack(subspace, prefix);
+			let entries = db
+				.prefix_iter(transaction, &prefix)
+				.map_err(|error| tg::error!(!error, "failed to get process children"))?
+				.map(|entry| {
+					let (key, _) = entry.map_err(|error| {
+						tg::error!(!error, "failed to read a process child entry")
+					})?;
+					let unpacked = Self::unpack(subspace, key)?;
+					let Key::Process(crate::lmdb::process::Key::ProcessChild { child, .. }) =
+						unpacked
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
 
+					Ok((key.to_vec(), child))
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+			for (key, child) in entries {
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete a process child"))?;
 				let key = Key::Process(crate::lmdb::process::Key::ChildProcess {
-					child: child.clone(),
+					child,
 					parent: id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete a child process"))?;
+			}
+			for (position, child) in children.iter().enumerate() {
+				let child = child.clone().without_tokens();
+				let position = i64::try_from(position)
+					.map_err(|_| tg::error!("the process has too many children"))?;
+				let key = Key::Process(crate::lmdb::process::Key::ProcessChild {
+					child: child.process.node.clone(),
+					position,
+					process: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let value = tangram_serialize::to_vec(&child)
+					.map_err(|error| tg::error!(!error, "failed to serialize the process child"))?;
+				db.put(transaction, &key, &value)
+					.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
+
+				let key = Key::Process(crate::lmdb::process::Key::ChildProcess {
+					child: child.process.node,
+					parent: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &position.to_be_bytes())
 					.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
 			}
 		}
 
 		if parent_changed && let Some(parent) = &arg.parent {
-			let key = Key::Process(crate::lmdb::process::Key::ProcessChild {
-				process: parent.clone(),
-				child: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
-
 			let key = Key::Process(crate::lmdb::process::Key::ChildProcess {
 				child: id.clone(),
 				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
+			let exists = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the child process"))?
+				.is_some();
+			if !exists {
+				let parent_bytes = parent.to_bytes();
+				let prefix = &(Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
+				let prefix = Self::pack(subspace, prefix);
+				let position = db
+					.rev_prefix_iter(transaction, &prefix)
+					.map_err(|error| tg::error!(!error, "failed to get process children"))?
+					.next()
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to read a process child entry"))?
+					.map(|(key, _)| {
+						let key = Self::unpack(subspace, key)?;
+						let Key::Process(crate::lmdb::process::Key::ProcessChild {
+							position, ..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						position
+							.checked_add(1)
+							.ok_or_else(|| tg::error!("the process has too many children"))
+					})
+					.transpose()?
+					.unwrap_or(0);
+				let child = tg::process::data::Child {
+					cached: arg.cached,
+					process: tg::Referent::new(id.clone(), arg.options.clone()),
+				}
+				.without_tokens();
+				let process_child_key = Key::Process(crate::lmdb::process::Key::ProcessChild {
+					child: id.clone(),
+					position,
+					process: parent.clone(),
+				});
+				let process_child_key = Self::pack(subspace, &process_child_key);
+				let value = tangram_serialize::to_vec(&child)
+					.map_err(|error| tg::error!(!error, "failed to serialize the process child"))?;
+				db.put(transaction, &process_child_key, &value)
+					.map_err(|error| tg::error!(!error, "failed to put the process child"))?;
+				db.put(transaction, &key, &position.to_be_bytes())
+					.map_err(|error| tg::error!(!error, "failed to put the child process"))?;
+			}
 		}
 
 		let key = Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {

@@ -231,11 +231,12 @@ impl Session {
 					cycle.get_or_insert_with(|| source.clone());
 					continue;
 				}
-				let data = process.data.as_ref().unwrap();
+				let mut data = process.data.as_ref().unwrap().clone();
+				self.set_process_children_from_index(source, process.set.children, &mut data)
+					.await?;
 				let host = data.host.clone();
 				let output =
-					Box::pin(self.create_mismatched_checksum_process(arg, &host, data.clone()))
-						.await?;
+					Box::pin(self.create_mismatched_checksum_process(arg, &host, data)).await?;
 
 				return Ok(Some(output));
 			}

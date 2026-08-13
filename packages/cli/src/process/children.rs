@@ -1,8 +1,10 @@
 use {
 	crate::Cli,
 	futures::{StreamExt as _, TryStreamExt as _},
+	serde_with::serde_as,
 	std::time::Duration,
 	tangram_client::prelude::*,
+	tangram_util::serde::SeekFromNumberOrString,
 };
 
 /// Get a process's children.
@@ -15,8 +17,8 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
-	#[arg(long)]
-	pub position: Option<u64>,
+	#[arg(long, value_parser = parse_seek_from)]
+	pub position: Option<std::io::SeekFrom>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -42,6 +44,13 @@ pub struct Timeout {
 		overrides_with = "children.timeout.timeout"
 	)]
 	pub no_timeout: bool,
+}
+
+#[serde_as]
+#[derive(serde::Deserialize)]
+struct PositionArg {
+	#[serde_as(as = "SeekFromNumberOrString")]
+	position: std::io::SeekFrom,
 }
 
 impl Timeout {
@@ -72,7 +81,7 @@ impl Cli {
 		let arg = tg::process::children::get::Arg {
 			length: args.length,
 			location: locations,
-			position: args.position.map(std::io::SeekFrom::Start),
+			position: args.position,
 			size: args.size,
 			timeout: args.timeout.get(),
 			tokens: tg::authorization::Tokens::default(),
@@ -85,4 +94,11 @@ impl Cli {
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}
+}
+
+fn parse_seek_from(value: &str) -> Result<std::io::SeekFrom, String> {
+	let value = serde_json::json!({ "position": value });
+	let position = serde_json::from_value::<PositionArg>(value)
+		.map_err(|error| format!("failed to parse the position: {error}"))?;
+	Ok(position.position)
 }

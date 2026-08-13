@@ -116,14 +116,7 @@ impl Session {
 		arg.data = arg.data.without_tokens();
 
 		// Create the index arguments.
-		let children = arg
-			.data
-			.children
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected the children to be set"))?
-			.iter()
-			.map(|child| child.process.node.clone())
-			.collect();
+		let children = arg.data.children.clone();
 		let error = if error_grants_subtree {
 			arg.data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => {
@@ -155,13 +148,15 @@ impl Session {
 		let log = (!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
 		let put_process_arg = tangram_index::process::put::Arg {
-			children: Some(children),
+			cached: false,
+			children,
 			command: arg.data.command.clone().into(),
 			data: Some(arg.data.clone()),
 			error: Some(error),
 			id: id.clone(),
 			log,
 			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
 			output: Some(output),
 			parent: None,
 			sandbox: Some(arg.data.sandbox.clone()),
@@ -262,6 +257,15 @@ impl Session {
 		if data.status != tg::process::Status::Finished {
 			return Err(tg::error!("expected a finished process"));
 		}
+		if let Some(children) = &data.children {
+			let mut ids = BTreeSet::new();
+			for child in children {
+				if !ids.insert(&child.process.node) {
+					return Err(tg::error!("the process children must be unique"));
+				}
+			}
+		}
+
 		Ok(())
 	}
 

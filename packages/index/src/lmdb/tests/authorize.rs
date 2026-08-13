@@ -121,6 +121,7 @@ fn put_process_child(
 		txn,
 		&Key::Process(ProcessKey::ProcessChild {
 			child: child.clone(),
+			position: 0,
 			process: process.clone(),
 		}),
 	);

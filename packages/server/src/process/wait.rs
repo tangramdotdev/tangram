@@ -401,9 +401,10 @@ impl Session {
 						.runner
 						.state()
 						.try_update_process(&parent, |process| {
-							process
-								.child_leases
-								.retain(|child_lease| child_lease.process != child);
+							if let Some(child) = process.children.get_mut(&child) {
+								child.lease = None;
+								child.location = None;
+							}
 						});
 				}
 				output

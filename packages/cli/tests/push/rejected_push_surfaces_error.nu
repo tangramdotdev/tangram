@@ -9,7 +9,7 @@ let local = spawn --name local --config {
 	authentication: { users: { providers: { insecure: true } } },
 	remotes: { default: { url: $remote.url } },
 }
-tg --url $local.url login --verbose alice | from json
+tg --url $local.url login --verbose --name alice | from json
 
 let id = tg --url $local.url put 'tg.file("hello")' | str trim
 tg --url $local.url tag put alice/example $id

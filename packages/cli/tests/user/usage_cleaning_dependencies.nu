@@ -23,7 +23,7 @@ let server = spawn --now '2026-01-01T00:00:00Z' --config {
 		week_time_to_live: 604800,
 	},
 }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 let object = tg --token $alice.token put 'tg.file("keep")' | str trim
 tg --token $alice.token tag keep $object
 tg --token $alice.token index

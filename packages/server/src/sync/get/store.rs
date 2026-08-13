@@ -244,6 +244,7 @@ impl Session {
 		let put_processes: Vec<_> = batch
 			.iter()
 			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
+				cached: false,
 				children: None,
 				command: data.command.clone().into(),
 				data: Some(data.clone()),
@@ -251,6 +252,7 @@ impl Session {
 				id: id.clone(),
 				log: None,
 				metadata: metadata.clone().unwrap_or_default(),
+				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
 				sandbox: Some(data.sandbox.clone()),

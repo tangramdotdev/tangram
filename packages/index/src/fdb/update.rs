@@ -6,7 +6,7 @@ use {
 	super::{Index, Kind as KeyKind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
-	futures::future,
+	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -49,7 +49,7 @@ pub(super) enum StorageCursor {
 	ObjectAccount(crate::usage::Account),
 
 	#[tangram_serialize(id = 1)]
-	ProcessChild(tg::process::Id),
+	ProcessChild(i64),
 
 	#[tangram_serialize(id = 2)]
 	ProcessObject(Option<ProcessObjectCursor>),
@@ -863,17 +863,16 @@ impl Index {
 		let process_object_cursor = match cursor {
 			None | Some(StorageCursor::ProcessChild(_)) => {
 				let after = match cursor {
-					Some(StorageCursor::ProcessChild(process)) => Some(process),
+					Some(StorageCursor::ProcessChild(position)) => Some(*position),
 					_ => None,
 				};
-				let (children, more) =
+				let (children, child_cursor, more) =
 					Self::get_storage_process_children_page(txn, subspace, process, after).await?;
-				let cursor = children.last().cloned();
 				relationships.extend(children.into_iter().map(StorageRelationship::Process));
 				if more {
 					return Ok((
 						relationships,
-						Some(StorageCursor::ProcessChild(cursor.unwrap())),
+						Some(StorageCursor::ProcessChild(child_cursor.unwrap())),
 					));
 				}
 				if relationships.len() == STORAGE_RELATION_BATCH_SIZE {
@@ -915,8 +914,8 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
-		after: Option<&tg::process::Id>,
-	) -> tg::Result<(Vec<tg::process::Id>, bool)> {
+		after: Option<i64>,
+	) -> tg::Result<(Vec<tg::process::Id>, Option<i64>, bool)> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -931,34 +930,44 @@ impl Index {
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
 		if let Some(after) = after {
-			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
-				child: after.clone(),
-				process: process.clone(),
-			});
-			let mut begin = Self::pack(subspace, &key);
-			begin.push(0);
+			let position = after
+				.checked_add(1)
+				.ok_or_else(|| tg::error!("the process has too many children"))?;
+			let begin = Self::pack(
+				subspace,
+				&(
+					KeyKind::ProcessChild.to_i32().unwrap(),
+					process_bytes.as_ref(),
+					position,
+				),
+			);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
 		let entries = txn
-			.get_range(&range, 1, false)
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
 			.await
 			.map_err(|error| tg::error!(!error, %process, "failed to get process children"))?;
 		let mut children = entries
 			.iter()
 			.map(|entry| {
 				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
-					child, ..
+					child,
+					position,
+					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok(child)
+				Ok((child, position))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let more = children.len() > STORAGE_RELATION_BATCH_SIZE;
 		children.truncate(STORAGE_RELATION_BATCH_SIZE);
+		let cursor = children.last().map(|(_, position)| *position);
+		let children = children.into_iter().map(|(child, _)| child).collect();
 
-		Ok((children, more))
+		Ok((children, cursor, more))
 	}
 
 	async fn get_storage_process_objects_page(

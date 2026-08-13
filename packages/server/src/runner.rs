@@ -617,7 +617,7 @@ impl State {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
-		Some(process.data.clone())
+		Some(process.data())
 	}
 
 	#[must_use]
@@ -630,12 +630,18 @@ impl State {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
 		let process = sandbox.processes.get(id)?;
-		let children = process.data.children.as_deref().unwrap_or_default();
-		let children_length = u64::try_from(children.len()).unwrap();
+		let children_length = u64::try_from(process.children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
 		let end = usize::try_from(position.saturating_add(length).min(children_length)).unwrap();
+		let children = process
+			.children
+			.get_range(start..end)
+			.unwrap()
+			.values()
+			.map(|child| child.data.clone())
+			.collect();
 		Some(tg::process::control::GetChildrenClientResponseOutput {
-			children: children[start..end].to_vec(),
+			children,
 			length: children_length,
 			status: process.data.status,
 		})

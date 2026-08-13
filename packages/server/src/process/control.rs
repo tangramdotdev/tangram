@@ -143,6 +143,8 @@ impl Session {
 		let session = self.server.session(&context);
 		let data = arg.data;
 		let lease = arg.lease;
+		let mut options = arg.options;
+		options.tokens.clear();
 		let parent = arg.parent;
 		let (sender, receiver) = tokio::sync::mpsc::channel(512);
 		let mut control =
@@ -311,6 +313,7 @@ impl Session {
 			let index_arg = tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(
 					tangram_index::process::put::Arg {
+						cached: false,
 						children: None,
 						command: data.command.clone().into(),
 						data: Some(data.clone()),
@@ -318,6 +321,7 @@ impl Session {
 						id: id.clone(),
 						log: None,
 						metadata: tg::process::Metadata::default(),
+						options,
 						output: None,
 						parent,
 						sandbox: Some(data.sandbox.clone()),
@@ -499,9 +503,8 @@ impl Session {
 			.boxed();
 
 		// Get the request stream.
-		let Some((output, stream)) = self
-			.try_get_process_control_stream_with_context(arg, stream)
-			.await?
+		let Some((output, stream)) =
+			Box::pin(self.try_get_process_control_stream_with_context(arg, stream)).await?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

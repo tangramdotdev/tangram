@@ -11,6 +11,7 @@ let path = artifact {
 		export function c() { return "c"; }
 		export default async function () {
 			await tg.build(a).named("a");
+			await tg.build(a).named("duplicate");
 			await tg.build(b).named("b");
 			await tg.build(c).named("c");
 			return "done";
@@ -23,6 +24,9 @@ tg wait $build.process
 let all = tg process children $build.process | from json
 assert equal ($all | child_names) [a b c] "the children should be in spawn order"
 
+let chunked = tg process children --size 1 $build.process | from json
+assert equal ($chunked | child_names) [a b c] "chunking should preserve spawn order"
+
 let first = tg process children --length 1 $build.process | from json
 assert equal ($first | child_names) [a] "the length flag should limit the list"
 
@@ -31,6 +35,9 @@ assert equal ($rest | child_names) [b c] "the position flag should skip the begi
 
 let middle = tg process children --position 1 --length 1 $build.process | from json
 assert equal ($middle | child_names) [b] "the position and length flags should combine"
+
+let tail = tg process children --position=end.-2 --size 1 $build.process | from json
+assert equal ($tail | child_names) [b c] "end-relative positions should work across chunks"
 
 def child_names [] {
 	each { |child|

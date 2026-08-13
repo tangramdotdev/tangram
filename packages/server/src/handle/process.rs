@@ -72,9 +72,11 @@ impl tg::handle::Process for Server {
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {
-		self.session(&self.context)
-			.try_get_process_control_stream_with_context(arg, stream)
-			.await
+		Box::pin(
+			self.session(&self.context)
+				.try_get_process_control_stream_with_context(arg, stream),
+		)
+		.await
 	}
 
 	async fn try_signal_process(

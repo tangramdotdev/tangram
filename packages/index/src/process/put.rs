@@ -1,9 +1,12 @@
-use {super::Stored, tangram_client::prelude::*};
+use {super::Stored, std::collections::BTreeSet, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
+	#[tangram_serialize(id = 13)]
+	pub cached: bool,
+
 	#[tangram_serialize(id = 0)]
-	pub children: Option<Vec<tg::process::Id>>,
+	pub children: Option<Vec<tg::process::data::Child>>,
 
 	#[tangram_serialize(id = 1)]
 	pub command: tg::object::Id,
@@ -33,6 +36,9 @@ pub struct Arg {
 	#[tangram_serialize(id = 6)]
 	pub metadata: tg::process::Metadata,
 
+	#[tangram_serialize(id = 14)]
+	pub options: tg::referent::Options,
+
 	#[tangram_serialize(
 		default,
 		id = 7,
@@ -58,6 +64,20 @@ pub struct Arg {
 }
 
 impl Arg {
+	pub fn validate(&self) -> tg::Result<()> {
+		let Some(children) = &self.children else {
+			return Ok(());
+		};
+		let mut ids = BTreeSet::new();
+		for child in children {
+			if !ids.insert(&child.process.node) {
+				return Err(tg::error!("the process children must be unique"));
+			}
+		}
+
+		Ok(())
+	}
+
 	#[must_use]
 	pub fn complete(&self) -> bool {
 		self.set().complete()

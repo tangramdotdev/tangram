@@ -2,6 +2,7 @@ use {
 	crate::{Server, Session},
 	dashmap::DashMap,
 	futures::future::BoxFuture,
+	indexmap::IndexMap,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
@@ -25,8 +26,14 @@ pub mod wait;
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connected>>;
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
 
+pub struct Child {
+	pub data: tg::process::data::Child,
+	pub lease: Option<String>,
+	pub location: Option<tg::location::Arg>,
+}
+
 pub struct State {
-	pub child_leases: Vec<ChildLease>,
+	pub children: IndexMap<tg::process::Id, Child, tg::id::BuildHasher>,
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
@@ -36,10 +43,19 @@ pub struct State {
 	pub stopper: tangram_futures::task::Stopper,
 }
 
-pub struct ChildLease {
-	pub lease: String,
-	pub location: Option<tg::location::Arg>,
-	pub process: tg::process::Id,
+impl State {
+	#[must_use]
+	pub fn data(&self) -> tg::process::Data {
+		let mut data = self.data.clone();
+		data.children = Some(
+			self.children
+				.values()
+				.map(|child| child.data.clone())
+				.collect(),
+		);
+
+		data
+	}
 }
 
 impl Session {

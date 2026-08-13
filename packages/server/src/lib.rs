@@ -129,6 +129,7 @@ pub struct State {
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
+	remote_process_put_tasks: tangram_futures::task::Set<()>,
 	remote_list_tasks: self::list::remote::Tasks,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_container_root: PathBuf,
@@ -697,6 +698,9 @@ impl Server {
 		// Create the remote object put tasks.
 		let remote_object_put_tasks = tangram_futures::task::Set::default();
 
+		// Create the remote process put tasks.
+		let remote_process_put_tasks = tangram_futures::task::Set::default();
+
 		// Create the remote clients.
 		let remote_clients = DashMap::default();
 
@@ -851,6 +855,7 @@ impl Server {
 			path,
 			regions,
 			remote_object_put_tasks,
+			remote_process_put_tasks,
 			remote_list_tasks,
 			remote_clients,
 			sandbox_container_root,
@@ -1280,6 +1285,11 @@ impl Server {
 				server.remote_object_put_tasks.wait().await;
 				tracing::trace!("remote object put tasks");
 
+				// Abort the remote process put tasks.
+				server.remote_process_put_tasks.abort_all();
+				server.remote_process_put_tasks.wait().await;
+				tracing::trace!("remote process put tasks");
+
 				// Abort the remote list tasks.
 				server.remote_list_tasks.abort_all();
 				let results = server.remote_list_tasks.wait().await;
@@ -1555,6 +1565,7 @@ impl Drop for Owned {
 		self.sandbox_tasks.abort_all();
 		self.object_get_tasks.abort_all();
 		self.remote_object_put_tasks.abort_all();
+		self.remote_process_put_tasks.abort_all();
 		self.remote_list_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();

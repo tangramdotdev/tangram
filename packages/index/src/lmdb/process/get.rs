@@ -7,6 +7,25 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_process_children(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
+		let request = crate::read::Request::TryGetProcessChildren {
+			id: id.clone(),
+			length,
+			position,
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcessChildren(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,
@@ -181,6 +200,109 @@ impl Index {
 			children.push(child);
 		}
 		Ok(children)
+	}
+
+	pub(crate) fn try_get_process_children_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
+		let Some(_) = Self::try_get_process_with_transaction(db, subspace, transaction, id)? else {
+			return Ok(None);
+		};
+		if length == 0 {
+			return Ok(Some(Vec::new()));
+		}
+		let length = length
+			.to_usize()
+			.ok_or_else(|| tg::error!("the process child length is too large"))?;
+		let id_bytes = id.to_bytes();
+		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
+		let position = match position {
+			std::io::SeekFrom::Start(position) => position
+				.to_i64()
+				.ok_or_else(|| tg::error!("the process child position is too large"))?,
+			std::io::SeekFrom::End(position) => {
+				if position >= 0 {
+					return Ok(Some(Vec::new()));
+				}
+				let entry = db
+					.rev_prefix_iter(transaction, &prefix)
+					.map_err(|error| tg::error!(!error, "failed to get process children"))?
+					.next()
+					.transpose()
+					.map_err(|error| tg::error!(!error, "failed to read a process child entry"))?
+					.ok_or_else(|| tg::error!("invalid process child position"))?;
+				let key = Self::unpack(subspace, entry.0)?;
+				let Key::Process(crate::lmdb::process::Key::ProcessChild {
+					position: last_position,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				last_position
+					.checked_add(1)
+					.and_then(|children_length| children_length.checked_add(position))
+					.filter(|position| *position >= 0)
+					.ok_or_else(|| tg::error!("invalid process child position"))?
+			},
+			std::io::SeekFrom::Current(_) => {
+				return Err(tg::error!(
+					"a current process child position is not supported"
+				));
+			},
+		};
+		let start = Self::pack(
+			subspace,
+			&(
+				Kind::ProcessChild.to_i32().unwrap(),
+				id_bytes.as_ref(),
+				position,
+			),
+		);
+		let range = (
+			std::ops::Bound::Included(start.as_slice()),
+			std::ops::Bound::Unbounded,
+		);
+		let entries = db
+			.range(transaction, &range)
+			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
+		let mut children = Vec::with_capacity(length);
+		for entry in entries.take(length) {
+			let (key, value) = entry
+				.map_err(|error| tg::error!(!error, "failed to read a process child entry"))?;
+			if !key.starts_with(&prefix) {
+				break;
+			}
+			let key = Self::unpack(subspace, key)?;
+			let Key::Process(crate::lmdb::process::Key::ProcessChild {
+				child: child_id,
+				position: child_position,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let expected_position = position
+				.checked_add(children.len().to_i64().unwrap())
+				.ok_or_else(|| tg::error!("invalid process child position"))?;
+			if child_position != expected_position {
+				return Err(tg::error!("the process child position is invalid"));
+			}
+			let child: tg::process::data::Child = tangram_serialize::from_slice(value)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the process child"))?;
+			if child.process.node != child_id {
+				return Err(tg::error!("the process child value does not match its key"));
+			}
+			children.push(child);
+		}
+
+		Ok(Some(children))
 	}
 
 	pub(crate) fn get_process_parents_with_transaction(

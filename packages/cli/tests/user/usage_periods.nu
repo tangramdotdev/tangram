@@ -10,7 +10,7 @@ let server = spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 # The default is the current UTC month, including at its exact start boundary.
 let current_month = usage $alice.token

@@ -35,6 +35,6 @@ tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $fil
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
 success $output "Bob should rely on the granted file subtree."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
-	info skipped 0 users, 0 organizations, 0 groups, 0 tags, 0 sandboxes, 0 processes, 2 objects, 50 B
-	info transferred 0 users, 0 organizations, 0 groups, 0 tags, 0 sandboxes, 0 processes, 1 objects, 61 B
+	info skipped 2 objects, 50 B
+	info transferred 1 objects, 61 B
 '

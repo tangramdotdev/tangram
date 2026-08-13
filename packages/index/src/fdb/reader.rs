@@ -145,6 +145,21 @@ impl Index {
 				.await?;
 				crate::read::Response::LogCompactionBatch(output)
 			},
+			crate::read::Request::TryGetProcessChildren {
+				id,
+				length,
+				position,
+			} => {
+				let output = Self::try_get_process_children_page_with_transaction(
+					transaction,
+					subspace,
+					&id,
+					position,
+					length,
+				)
+				.await?;
+				crate::read::Response::TryGetProcessChildren(output)
+			},
 			crate::read::Request::LmdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected LMDB read request"));
 			},

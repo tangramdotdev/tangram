@@ -455,8 +455,13 @@ pub trait Ext: tg::Handle {
 					}
 
 					// Update the position argument.
-					let position = chunk.position + chunk.data.len().to_u64().unwrap();
-					state.arg.position = Some(SeekFrom::Start(position));
+					let length = chunk.data.len().to_u64().unwrap();
+					state.arg.position = Some(match state.arg.position {
+						Some(SeekFrom::End(position) | SeekFrom::Current(position)) => {
+							SeekFrom::End(position + length.to_i64().unwrap())
+						},
+						None | Some(SeekFrom::Start(_)) => SeekFrom::Start(chunk.position + length),
+					});
 				}
 			});
 			Ok(Some(stream))

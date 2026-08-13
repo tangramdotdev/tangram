@@ -24,9 +24,9 @@ let server = spawn --now '2025-12-29T00:00:00Z' --config {
 	},
 }
 set_time $server '2026-01-01T00:00:00Z'
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
-let charlie = tg login --verbose charlie | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
+let charlie = tg login --verbose --name charlie | from json
 
 # Alice owns one retained object and one transient object. Bob owns one transient object.
 let kept = tg --token $alice.token put 'tg.file("keep")' | str trim

@@ -389,6 +389,15 @@ impl crate::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_process_children(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
+		self.try_get_process_children(id, position, length).await
+	}
+
 	async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,

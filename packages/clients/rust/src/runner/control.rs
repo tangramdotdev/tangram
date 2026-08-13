@@ -5,6 +5,7 @@ use {
 	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -105,6 +106,9 @@ pub struct Process {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::process::Id>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub options: tg::referent::Options,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,

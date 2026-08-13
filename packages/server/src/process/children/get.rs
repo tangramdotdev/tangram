@@ -11,9 +11,15 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::Index as _,
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
+
+struct LocalChildren {
+	children: Vec<tg::process::data::Child>,
+	status: tg::process::Status,
+}
 
 impl Session {
 	pub async fn try_get_process_children_stream(
@@ -68,9 +74,8 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let token = arg.tokens.local().cloned();
 		let check_future = async move {
-			self.try_get_process_local(id, false, false, token.as_ref())
+			self.process_children_readable_local(id, token.as_ref())
 				.await
-				.map(|output| output.is_some())
 		}
 		.boxed();
 		let create_future = self.create_process_children_stream_local(id, arg).boxed();
@@ -161,26 +166,22 @@ impl Session {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::children::get::Event>>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
-		// Get the position.
-		let position = match arg.position {
-			Some(std::io::SeekFrom::Start(seek)) => seek,
-			Some(std::io::SeekFrom::End(seek) | std::io::SeekFrom::Current(seek)) => self
-				.get_process_children_local(id, 0, 0)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the current position"))?
-				.length
-				.to_i64()
-				.unwrap()
-				.checked_add(seek)
-				.ok_or_else(|| tg::error!("invalid position"))?
-				.to_u64()
-				.ok_or_else(|| tg::error!("invalid position"))?,
-			None => 0,
+		// Resolve the position.
+		let position = match arg.position.unwrap_or(std::io::SeekFrom::Start(0)) {
+			std::io::SeekFrom::Current(position) => std::io::SeekFrom::End(position),
+			position => position,
 		};
+		let mut position = self
+			.resolve_process_children_position_local(id, position)
+			.await?;
 
 		// Create the state.
-		let size = arg.size.unwrap_or(10);
-		let mut position = position;
+		let size = arg.size.unwrap_or(256);
+		let mut output_position = match position {
+			std::io::SeekFrom::Start(position) => position,
+			std::io::SeekFrom::End(_) => 0,
+			std::io::SeekFrom::Current(_) => unreachable!(),
+		};
 		let mut read = 0;
 
 		// Send the events.
@@ -201,13 +202,27 @@ impl Session {
 					break output.status;
 				}
 				let chunk = tg::process::children::get::Chunk {
-					position,
+					position: output_position,
 					data: output.children,
 				};
 
 				// Update the state.
-				position += chunk.data.len().to_u64().unwrap();
-				read += chunk.data.len().to_u64().unwrap();
+				let length = chunk.data.len().to_u64().unwrap();
+				position = match position {
+					std::io::SeekFrom::Start(position) => std::io::SeekFrom::Start(
+						position
+							.checked_add(length)
+							.ok_or_else(|| tg::error!("invalid position"))?,
+					),
+					std::io::SeekFrom::End(position) => std::io::SeekFrom::End(
+						position
+							.checked_add(length.to_i64().unwrap())
+							.ok_or_else(|| tg::error!("invalid position"))?,
+					),
+					std::io::SeekFrom::Current(_) => unreachable!(),
+				};
+				output_position += length;
+				read += length;
 
 				// Send the data.
 				let result = sender
@@ -246,30 +261,128 @@ impl Session {
 		Ok(())
 	}
 
+	async fn resolve_process_children_position_local(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+	) -> tg::Result<std::io::SeekFrom> {
+		let std::io::SeekFrom::End(seek) = position else {
+			return Ok(position);
+		};
+		if let Some(output) = self
+			.server
+			.runner
+			.state()
+			.try_get_process_children(id, 0, 0)
+		{
+			let position = output
+				.length
+				.to_i64()
+				.unwrap()
+				.checked_add(seek)
+				.and_then(|position| position.to_u64())
+				.ok_or_else(|| tg::error!("invalid position"))?;
+
+			return Ok(std::io::SeekFrom::Start(position));
+		}
+		let process = self
+			.try_get_process_from_index(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		if !process.set.children {
+			return Err(tg::error!(%id, "the process children are incomplete"));
+		}
+		if process
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_finished())
+		{
+			return Ok(position);
+		}
+
+		Err(tg::error!(%id, "failed to read the process children"))
+	}
+
 	async fn get_process_children_local(
 		&self,
 		id: &tg::process::Id,
-		position: u64,
+		position: std::io::SeekFrom,
 		length: u64,
-	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
-		let output = self
-			.try_get_process_local_inner(id, false)
+	) -> tg::Result<LocalChildren> {
+		if let std::io::SeekFrom::Start(position) = position
+			&& let Some(output) = self
+				.server
+				.runner
+				.state()
+				.try_get_process_children(id, position, length)
+		{
+			let output = LocalChildren {
+				children: output
+					.children
+					.into_iter()
+					.map(tg::process::data::Child::without_tokens)
+					.collect(),
+				status: output.status,
+			};
+
+			return Ok(output);
+		}
+		let process = self
+			.try_get_process_from_index(id)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let status = output.data.status;
-		let children = output.data.children.unwrap_or_default();
-		let children_length = children.len().to_u64().unwrap();
-		let output = tg::process::control::GetChildrenClientResponseOutput {
+		if !process.set.children {
+			return Err(tg::error!(%id, "the process children are incomplete"));
+		}
+		let status = process
+			.data
+			.ok_or_else(|| tg::error!(%id, "missing the process data"))?
+			.status;
+		let children = self
+			.server
+			.index
+			.try_get_process_children(id, position, length)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		let output = LocalChildren {
 			children: children
 				.into_iter()
-				.skip(position.to_usize().unwrap())
-				.take(length.to_usize().unwrap())
 				.map(tg::process::data::Child::without_tokens)
 				.collect(),
-			length: children_length,
 			status,
 		};
 		Ok(output)
+	}
+
+	async fn process_children_readable_local(
+		&self,
+		id: &tg::process::Id,
+		token: Option<&tg::authorization::Token>,
+	) -> tg::Result<bool> {
+		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
+		let permissions = self.authorize(resource, permissions).await?;
+		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+			return Ok(false);
+		}
+		if self
+			.server
+			.runner
+			.state()
+			.try_get_process_children(id, 0, 0)
+			.is_some()
+		{
+			return Ok(true);
+		}
+		let Some(process) = self.try_get_process_from_index(id).await? else {
+			return Ok(false);
+		};
+		let readable = process.set.children;
+
+		Ok(readable)
 	}
 
 	async fn try_get_process_children_regions(

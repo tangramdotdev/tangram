@@ -286,9 +286,14 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Process(crate::fdb::process::Key::ProcessChild { process, child }) => (
+			Key::Process(crate::fdb::process::Key::ProcessChild {
+				child,
+				position,
+				process,
+			}) => (
 				Kind::ProcessChild.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
+				position,
 				child.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -971,6 +976,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ProcessChild => {
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, position): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, child_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let process = tg::process::Id::from_slice(&process_bytes)
@@ -979,7 +985,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				Ok((
 					input,
-					Key::Process(crate::fdb::process::Key::ProcessChild { process, child }),
+					Key::Process(crate::fdb::process::Key::ProcessChild {
+						child,
+						position,
+						process,
+					}),
 				))
 			},
 

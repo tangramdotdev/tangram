@@ -6,8 +6,8 @@ let server = spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }
-let alice = tg login --verbose alice | from json
-let bob = tg login --verbose bob | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 let organization = tg --token $alice.token organization create acme | from json
 
 failure (tg --token $bob.token usage $alice.user.id | complete) "another user's usage must be private"

@@ -149,6 +149,37 @@ impl Session {
 		Ok(output)
 	}
 
+	pub(crate) async fn set_process_children_from_index(
+		&self,
+		id: &tg::process::Id,
+		children_set: bool,
+		data: &mut tg::process::Data,
+	) -> tg::Result<()> {
+		if !children_set || data.children.is_some() {
+			return Ok(());
+		}
+		let mut children = Vec::new();
+		let mut position = 0;
+		let length = 256;
+		loop {
+			let output = self
+				.server
+				.index
+				.try_get_process_children(id, std::io::SeekFrom::Start(position), length)
+				.await?
+				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+			let output_length = u64::try_from(output.len()).unwrap();
+			children.extend(output);
+			if output_length < length {
+				break;
+			}
+			position += output_length;
+		}
+		data.children = Some(children);
+
+		Ok(())
+	}
+
 	pub(crate) async fn try_get_process_local_inner(
 		&self,
 		id: &tg::process::Id,
@@ -431,32 +462,76 @@ impl Session {
 
 		// Spawn a task to put the process if it is finished.
 		if output.data.status.is_finished() && !Self::process_log_needs_compaction(&output.data) {
-			tokio::spawn({
-				let session = self.clone();
-				let id = id.clone();
-				let mut data = output.data.clone();
-				async move {
-					let arg = tg::process::children::get::Arg::default();
-					let children = session
-						.try_get_process_children(&id, arg)
-						.await?
-						.ok_or_else(|| tg::error!("expected the process to exist"))?
-						.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
-						.try_flatten()
-						.try_collect()
-						.await?;
-					data.children = Some(children);
-					let arg = tg::process::put::Arg {
-						data,
-						location: None,
-					};
-					session.put_process(&id, arg).await?;
-					Ok::<_, tg::Error>(())
-				}
-			});
+			self.spawn_remote_process_put_task(
+				id,
+				&output.data,
+				output.location.as_ref(),
+				&output.tokens,
+			);
 		}
 
 		Ok(Some(output))
+	}
+
+	fn spawn_remote_process_put_task(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		location: Option<&tg::Location>,
+		tokens: &tg::authorization::Tokens,
+	) {
+		let mut session = self.clone();
+		session.context.stopper = None;
+		self.server
+			.remote_process_put_tasks
+			.spawn(|_| {
+				let data = data.clone();
+				let id = id.clone();
+				let location = location.cloned().map(Into::into);
+				let tokens = tokens.clone();
+				async move {
+					if let Err(error) =
+						Box::pin(session.cache_process_remote_task(&id, data, location, tokens))
+							.await
+					{
+						tracing::error!(error = %error.trace(), %id, "failed to cache the process");
+					}
+				}
+			})
+			.detach();
+	}
+
+	async fn cache_process_remote_task(
+		&self,
+		id: &tg::process::Id,
+		mut data: tg::process::Data,
+		location: Option<tg::location::Arg>,
+		tokens: tg::authorization::Tokens,
+	) -> tg::Result<()> {
+		let children = if let Some(children) = data.children.take() {
+			children
+		} else {
+			let arg = tg::process::children::get::Arg {
+				location,
+				tokens,
+				..Default::default()
+			};
+			self.try_get_process_children(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("expected the process to exist"))?
+				.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
+				.try_flatten()
+				.try_collect()
+				.await?
+		};
+		data.children = Some(children);
+		let arg = tg::process::put::Arg {
+			data,
+			location: None,
+		};
+		self.put_process(id, arg).await?;
+
+		Ok(())
 	}
 
 	async fn try_get_process_remote(
@@ -531,13 +606,28 @@ impl Session {
 			.unwrap_or_default();
 
 		// Get the process.
-		let Some(output) = self.try_get_process(&id, arg).await? else {
+		let Some(mut output) = self.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
+		if output.data.status.is_finished() && output.data.children.is_none() {
+			let arg = tg::process::children::get::Arg {
+				location: output.location.clone().map(Into::into),
+				tokens: output.tokens.clone(),
+				..Default::default()
+			};
+			if let Some(stream) = self.try_get_process_children(&id, arg).await? {
+				let children = stream
+					.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
+					.try_flatten()
+					.try_collect()
+					.await?;
+				output.data.children = Some(children);
+			}
+		}
 
 		// Create the response.
 		let (content_type, body) = match accept

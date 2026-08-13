@@ -259,6 +259,20 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_process_children(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_children(id, position, length).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_process_children(id, position, length).await,
+		}
+	}
+
 	async fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,

@@ -45,7 +45,7 @@ pub struct Process {
 	tangram_serialize::Serialize,
 )]
 pub struct Set {
-	/// Whether this node's children are set.
+	/// Whether the complete children list for this node is set.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub children: bool,

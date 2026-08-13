@@ -140,6 +140,21 @@ impl Index {
 			crate::read::Request::FdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected FDB read request"));
 			},
+			crate::read::Request::TryGetProcessChildren {
+				id,
+				length,
+				position,
+			} => {
+				let output = Self::try_get_process_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id,
+					position,
+					length,
+				)?;
+				crate::read::Response::TryGetProcessChildren(output)
+			},
 			crate::read::Request::LmdbLogCompactionBatch { batch_size } => {
 				let output = Self::log_compaction_batch_with_transaction(
 					db,

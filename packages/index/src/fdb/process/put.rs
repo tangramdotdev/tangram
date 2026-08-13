@@ -1,6 +1,8 @@
 use {
-	crate::fdb::{Index, Key},
+	crate::fdb::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::TryStreamExt as _,
+	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -11,6 +13,8 @@ impl Index {
 		arg: &crate::process::put::Arg,
 		partition_total: u64,
 	) -> Result<(), fdb::FdbBindingError> {
+		arg.validate()
+			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 		let id = &arg.id;
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -45,7 +49,6 @@ impl Index {
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output);
 		let parent_changed = arg.parent.is_some();
-
 		let mut set = arg.set();
 		if merge && let Some(ref existing) = existing {
 			set.merge(&existing.set);
@@ -61,10 +64,13 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 
-		let data = arg
+		let mut data = arg
 			.data
 			.clone()
 			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
+		if let Some(data) = &mut data {
+			data.children = None;
+		}
 
 		let sandbox = arg.sandbox.clone().or_else(|| {
 			existing
@@ -146,45 +152,128 @@ impl Index {
 		}
 
 		if children_changed && let Some(children) = &arg.children {
-			for child in children {
-				txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-					.unwrap();
-				let key = Key::Process(crate::fdb::process::Key::ProcessChild {
-					process: id.clone(),
-					child: child.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
-
-				txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-					.unwrap();
+			let id_bytes = id.to_bytes();
+			let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = fdbt::Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&range_subspace)
+			};
+			let entries = txn
+				.get_ranges_keyvalues(range, false)
+				.try_collect::<Vec<_>>()
+				.await?;
+			for entry in &entries {
+				let key = Self::unpack(subspace, entry.key()).map_err(|error| {
+					fdb::FdbBindingError::CustomError(
+						tg::error!(!error, "failed to unpack a process child key").into(),
+					)
+				})?;
+				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
+					return Err(fdb::FdbBindingError::CustomError(
+						tg::error!("unexpected key type").into(),
+					));
+				};
 				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
-					child: child.clone(),
+					child,
 					parent: id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
-				txn.set(&key, &[]);
+				txn.clear(&key);
+			}
+			let (begin, end) = range_subspace.range();
+			txn.clear_range(&begin, &end);
+			for (position, child) in children.iter().enumerate() {
+				let child = child.clone().without_tokens();
+				let position = i64::try_from(position).map_err(|_| {
+					fdb::FdbBindingError::CustomError(
+						tg::error!("the process has too many children").into(),
+					)
+				})?;
+				let key = Key::Process(crate::fdb::process::Key::ProcessChild {
+					child: child.process.node.clone(),
+					position,
+					process: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let value = tangram_serialize::to_vec(&child).map_err(|error| {
+					fdb::FdbBindingError::CustomError(
+						tg::error!(!error, "failed to serialize the process child").into(),
+					)
+				})?;
+				txn.set(&key, &value);
+
+				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
+					child: child.process.node,
+					parent: id.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				txn.set(&key, &position.to_be_bytes());
 			}
 		}
 
 		if parent_changed && let Some(parent) = &arg.parent {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
-			let key = Key::Process(crate::fdb::process::Key::ProcessChild {
-				process: parent.clone(),
-				child: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Process(crate::fdb::process::Key::ChildProcess {
 				child: id.clone(),
 				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let exists = txn.get(&key, false).await?.is_some();
+			if !exists {
+				let parent_bytes = parent.to_bytes();
+				let prefix = (Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
+				let prefix = Self::pack(subspace, &prefix);
+				let range = fdb::RangeOption {
+					limit: Some(1),
+					mode: fdb::options::StreamingMode::WantAll,
+					reverse: true,
+					..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
+				};
+				let entries = txn.get_range(&range, 1, false).await?;
+				let position = entries
+					.first()
+					.map(|entry| {
+						let key = Self::unpack(subspace, entry.key()).map_err(|error| {
+							fdb::FdbBindingError::CustomError(
+								tg::error!(!error, "failed to unpack a process child key").into(),
+							)
+						})?;
+						let Key::Process(crate::fdb::process::Key::ProcessChild {
+							position, ..
+						}) = key
+						else {
+							return Err(fdb::FdbBindingError::CustomError(
+								tg::error!("unexpected key type").into(),
+							));
+						};
+						position.checked_add(1).ok_or_else(|| {
+							fdb::FdbBindingError::CustomError(
+								tg::error!("the process has too many children").into(),
+							)
+						})
+					})
+					.transpose()?
+					.unwrap_or(0);
+				let child = tg::process::data::Child {
+					cached: arg.cached,
+					process: tg::Referent::new(id.clone(), arg.options.clone()),
+				}
+				.without_tokens();
+				let process_child_key = Key::Process(crate::fdb::process::Key::ProcessChild {
+					child: id.clone(),
+					position,
+					process: parent.clone(),
+				});
+				let process_child_key = Self::pack(subspace, &process_child_key);
+				let value = tangram_serialize::to_vec(&child).map_err(|error| {
+					fdb::FdbBindingError::CustomError(
+						tg::error!(!error, "failed to serialize the process child").into(),
+					)
+				})?;
+				txn.set(&process_child_key, &value);
+				txn.set(&key, &position.to_be_bytes());
+			}
 		}
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

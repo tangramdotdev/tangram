@@ -60,7 +60,7 @@ impl Session {
 		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_put_store_process_batch(&state, nodes).await }
+			async move { Box::pin(session.sync_put_store_process_batch(&state, nodes)).await }
 		});
 
 		// Join the objects and processes futures.
@@ -270,6 +270,27 @@ impl Session {
 					)?
 					.data;
 			}
+
+			// Validate the process before waiting for all of its children.
+			Self::validate_process_data(&output.data)?;
+
+			// Load the complete children list for the wire representation.
+			let arg = tg::process::children::get::Arg {
+				location: output.location.clone().map(Into::into),
+				tokens: tg::authorization::Tokens::with_local(node.token.clone()),
+				..Default::default()
+			};
+			let children = self
+				.try_get_process_children(&node.id, arg)
+				.await?
+				.ok_or_else(
+					|| tg::error!(process = %node.id, "failed to get the process children"),
+				)?
+				.map_ok(|chunk| futures::stream::iter(chunk.data).map(Ok::<_, tg::Error>))
+				.try_flatten()
+				.try_collect()
+				.await?;
+			output.data.children = Some(children);
 			Self::validate_process_data(&output.data)?;
 
 			// Update the graph.

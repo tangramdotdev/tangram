@@ -176,7 +176,7 @@ impl Session {
 
 		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let (outputs, permissions) = self
+		let (mut outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,
 				&ids,
@@ -186,6 +186,18 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
+		if state.arg.process_children {
+			for (id, process) in std::iter::zip(&ids, &mut outputs) {
+				let Some(process) = process else {
+					continue;
+				};
+				let children_set = process.set.children;
+				if let Some(data) = &mut process.data {
+					self.set_process_children_from_index(id, children_set, data)
+						.await?;
+				}
+			}
+		}
 
 		for ((node, output), permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
@@ -1220,14 +1232,10 @@ impl Session {
 					let id = tg::process::Id::try_from(id.clone())?;
 					if node.marked {
 						let children = node
-							.children
+							.data
 							.as_ref()
-							.unwrap()
-							.iter()
-							.map(|index| {
-								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
-							})
-							.collect::<tg::Result<Vec<_>>>()?;
+							.and_then(|data| data.children.clone())
+							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
 						let stored = node.local_stored.clone().unwrap();
 						let metadata = node.metadata.clone().unwrap();
 						let objects = node
@@ -1265,6 +1273,7 @@ impl Session {
 						let command =
 							command.ok_or_else(|| tg::error!("expected the command to be set"))?;
 						let arg = tangram_index::process::put::Arg {
+							cached: false,
 							children: Some(children),
 							command,
 							data: node.data.clone().map(tg::process::Data::without_tokens),
@@ -1272,6 +1281,7 @@ impl Session {
 							id,
 							log: Some(log),
 							metadata,
+							options: tg::referent::Options::default(),
 							output: Some((!output.is_empty()).then_some(output)),
 							parent: None,
 							sandbox: None,

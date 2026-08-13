@@ -12,7 +12,7 @@ let server = spawn --now '2025-12-29T00:00:00Z' --config {
 	usage: true,
 }
 set_time $server '2026-01-01T00:00:00Z'
-let alice = tg login --verbose alice | from json
+let alice = tg login --verbose --name alice | from json
 
 let first = tg --token $alice.token put 'tg.file("first")' | str trim
 tg --token $alice.token tag first $first

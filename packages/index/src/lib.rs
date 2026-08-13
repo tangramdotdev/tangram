@@ -221,6 +221,13 @@ pub trait Index {
 		ids: &[tg::process::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn try_get_process_children(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::data::Child>>>> + Send;
+
 	fn try_get_cached_processes(
 		&self,
 		command: &tg::object::Id,

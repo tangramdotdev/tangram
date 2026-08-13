@@ -928,7 +928,11 @@ impl Graph {
 			}
 
 			if let Some(data) = data {
-				node.data = Some(data.clone());
+				let mut data = data.clone();
+				if data.children.is_none() {
+					data.children = node.data.as_ref().and_then(|data| data.children.clone());
+				}
+				node.data = Some(data);
 			}
 
 			if let Some(stored) = stored {

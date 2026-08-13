@@ -4,8 +4,9 @@ use tangram_client::prelude::*;
 pub enum Key {
 	Process(tg::process::Id),
 	ProcessChild {
-		process: tg::process::Id,
 		child: tg::process::Id,
+		position: i64,
+		process: tg::process::Id,
 	},
 	ChildProcess {
 		child: tg::process::Id,

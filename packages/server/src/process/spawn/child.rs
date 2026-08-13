@@ -18,9 +18,15 @@ impl Session {
 		let command = arg.command.clone();
 		let parent = arg.parent.clone();
 		let sandbox = arg.sandbox.cloned();
+		let mut options = arg.options.clone();
+		options.tokens = arg.tokens.clone();
+		let data = tg::process::data::Child {
+			cached: arg.cached,
+			process: tg::Referent::new(child.clone(), options),
+		};
 		let Some(parent_sandbox) = self.server.runner.state().try_get_process_sandbox(&parent)
 		else {
-			self.index_process_child(&parent, &child, &command, sandbox.as_ref(), None)
+			self.index_process_child(&parent, &data, &command, sandbox.as_ref(), None)
 				.await?;
 			return Ok(());
 		};
@@ -38,25 +44,25 @@ impl Session {
 		if parent_process.data.status.is_finished() {
 			return Err(tg::error!("the parent process was finished"));
 		}
-		let mut options = arg.options.clone();
-		options.tokens = arg.tokens.clone();
-		parent_process
-			.data
-			.children
-			.get_or_insert_default()
-			.push(tg::process::data::Child {
-				cached: arg.cached,
-				process: tg::Referent::new(child.clone(), options),
-			});
-		if let Some(lease) = arg.lease {
-			parent_process
-				.child_leases
-				.push(crate::process::ChildLease {
-					lease: lease.to_owned(),
-					location: arg.location.cloned().map(Into::into),
-					process: child.clone(),
-				});
+		if parent_process.children.contains_key(&child) {
+			let lease = arg.lease.map(ToOwned::to_owned);
+			let location = arg.location.cloned().map(Into::into);
+			drop(parent_sandbox);
+			if let Some(lease) = lease {
+				let arg = tg::process::cancel::Arg { lease, location };
+				self.cancel_process(&child, arg).await.map_err(
+					|error| tg::error!(!error, %child, "failed to release a duplicate child lease"),
+				)?;
+			}
+
+			return Ok(());
 		}
+		let child_state = crate::process::Child {
+			data: data.clone(),
+			lease: arg.lease.map(ToOwned::to_owned),
+			location: arg.location.cloned().map(Into::into),
+		};
+		parent_process.children.insert(child.clone(), child_state);
 		let parent_data = parent_process.data.clone();
 		let control = parent_process.control.clone();
 		drop(parent_sandbox);
@@ -74,7 +80,7 @@ impl Session {
 		// Index the child.
 		self.index_process_child(
 			&parent,
-			&child,
+			&data,
 			&command,
 			sandbox.as_ref(),
 			Some(parent_data),
@@ -87,15 +93,17 @@ impl Session {
 	async fn index_process_child(
 		&self,
 		parent: &tg::process::Id,
-		child: &tg::process::Id,
+		child: &tg::process::data::Child,
 		command: &tg::command::Id,
 		sandbox: Option<&tg::sandbox::Id>,
 		parent_data: Option<tg::process::Data>,
 	) -> tg::Result<()> {
 		let now = self.server.clock.unix_timestamp()?;
+		let child_id = &child.process.node;
 		let parent_arg = parent_data.map(|parent_data| {
 			let parent_data = parent_data.without_tokens();
 			tangram_index::process::put::Arg {
+				cached: false,
 				children: None,
 				command: parent_data.command.clone().into(),
 				data: Some(parent_data.clone()),
@@ -103,6 +111,7 @@ impl Session {
 				id: parent.clone(),
 				log: None,
 				metadata: tg::process::Metadata::default(),
+				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
 				sandbox: Some(parent_data.sandbox),
@@ -112,13 +121,15 @@ impl Session {
 			}
 		});
 		let child_arg = tangram_index::process::put::Arg {
+			cached: child.cached,
 			children: None,
 			command: command.clone().into(),
 			data: None,
 			error: None,
-			id: child.clone(),
+			id: child_id.clone(),
 			log: None,
 			metadata: tg::process::Metadata::default(),
+			options: child.process.options.clone(),
 			output: None,
 			parent: Some(parent.clone()),
 			sandbox: sandbox.cloned(),
@@ -136,7 +147,7 @@ impl Session {
 			items.push(tangram_index::batch::Item::PutAccountProcess(
 				tangram_index::usage::storage::put::ProcessArg {
 					account,
-					process: child.clone(),
+					process: child_id.clone(),
 					touched_at: now,
 				},
 			));

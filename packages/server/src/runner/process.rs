@@ -174,6 +174,7 @@ impl Session {
 		let tg::runner::control::Process {
 			data,
 			id: expected_id,
+			options,
 			parent,
 			token: inner_token,
 		} = process;
@@ -436,6 +437,7 @@ impl Session {
 			id: expected_id.clone(),
 			lease: lease.clone(),
 			location: Some(location.clone().into()),
+			options,
 			parent,
 		};
 		let connection =
@@ -501,12 +503,25 @@ impl Session {
 
 			return Err(tg::error!(%sandbox_id, "failed to find the sandbox"));
 		};
+		let mut data = state.to_data();
+		let mut children = indexmap::IndexMap::default();
+		for child in data.children.take().unwrap_or_default() {
+			let id = child.process.node.clone();
+			let child = crate::process::Child {
+				data: child,
+				lease: None,
+				location: None,
+			};
+			if children.insert(id, child).is_some() {
+				return Err(tg::error!("the process children must be unique"));
+			}
+		}
 		sandbox_state.processes.insert(
 			id.clone(),
 			crate::process::State {
-				child_leases: Vec::new(),
+				children,
 				control: control_sender.clone(),
-				data: state.to_data(),
+				data,
 				finish: None,
 				inner_token: inner_token.clone(),
 				leases: BTreeSet::from([lease.clone()]),
@@ -940,36 +955,42 @@ impl Session {
 			}
 		}
 		process_state.data.actual_checksum = output.checksum;
-		process_state.data.children.get_or_insert_default();
 		process_state.data.error = error;
 		process_state.data.exit = Some(exit);
 		process_state.data.finished_at = Some(self.server.clock.unix_timestamp()?);
 		process_state.data.output = value;
 		process_state.data.status = tg::process::Status::Finished;
-		let child_leases = std::mem::take(&mut process_state.child_leases);
-		let data = process_state.data.clone();
+		let child_leases = process_state
+			.children
+			.iter_mut()
+			.filter_map(|(id, child)| {
+				let lease = child.lease.take()?;
+				let location = child.location.take();
+				Some((id.clone(), lease, location))
+			})
+			.collect::<Vec<_>>();
+		let data = process_state.data();
 		drop(sandbox);
 
 		child_leases
 			.into_iter()
-			.map(|child_lease| {
+			.map(|(child, lease, location)| {
 				let parent = id.clone();
 				let session = session.clone();
 				async move {
-					let id = child_lease.process;
 					crate::checkpoint!(
 						session.server,
 						"runner.process.child_lease.release",
-						child = %id,
+						child = %child,
 						parent = %parent,
 					)
 					.await;
 					let arg = tg::process::cancel::Arg {
-						lease: child_lease.lease,
-						location: child_lease.location,
+						lease,
+						location,
 					};
-					if let Err(error) = session.cancel_process(&id, arg).await {
-						tracing::error!(error = %error.trace(), process = %id, "failed to release a child process lease");
+					if let Err(error) = session.cancel_process(&child, arg).await {
+						tracing::error!(error = %error.trace(), process = %child, "failed to release a child process lease");
 					}
 				}
 			})

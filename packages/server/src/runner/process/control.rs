@@ -81,7 +81,7 @@ impl Session {
 					Some(lease)
 				};
 				tg::process::control::AcquireLeaseClientResponseOutput {
-					data: process.data.clone(),
+					data: process.data(),
 					lease,
 				}
 			})

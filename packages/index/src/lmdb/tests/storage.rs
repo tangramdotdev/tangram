@@ -35,7 +35,15 @@ fn process_arg(
 	children: Vec<tg::process::Id>,
 	command: tg::object::Id,
 ) -> crate::process::put::Arg {
+	let children = children
+		.into_iter()
+		.map(|child| tg::process::data::Child {
+			cached: false,
+			process: tg::Referent::with_node(child),
+		})
+		.collect();
 	crate::process::put::Arg {
+		cached: false,
 		children: Some(children),
 		command,
 		data: None,
@@ -43,6 +51,7 @@ fn process_arg(
 		id,
 		log: Some(None),
 		metadata: tg::process::Metadata::default(),
+		options: tg::referent::Options::default(),
 		output: Some(None),
 		parent: None,
 		sandbox: None,
@@ -196,6 +205,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	let root = tg::process::Id::new();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	let partial_root = crate::process::put::Arg {
+		cached: false,
 		children: None,
 		command: command.clone(),
 		data: None,
@@ -203,6 +213,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		id: root.clone(),
 		log: None,
 		metadata: tg::process::Metadata::default(),
+		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
 		sandbox: None,

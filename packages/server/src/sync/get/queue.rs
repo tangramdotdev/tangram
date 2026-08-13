@@ -56,7 +56,7 @@ impl Session {
 		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_queue_process_batch(&state, nodes).await }
+			async move { Box::pin(session.sync_get_queue_process_batch(&state, nodes)).await }
 		});
 
 		// Create the sandboxes future.
@@ -356,11 +356,19 @@ impl Session {
 					let stored = &process.stored;
 					let metadata = &process.metadata;
 					// Get the process.
-					let data = self
+					let mut data = self
 						.get_process_local(&node.id, false)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the process"))?
 						.data;
+					if state.arg.process_children {
+						self.set_process_children_from_index(
+							&node.id,
+							process.set.children,
+							&mut data,
+						)
+						.await?;
+					}
 
 					// Update the graph with stored and metadata and data.
 					let arg = UpdateProcessLocalArg {

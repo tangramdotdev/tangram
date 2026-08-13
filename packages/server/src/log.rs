@@ -179,6 +179,7 @@ impl Session {
 			.batch(tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutProcess(
 					tangram_index::process::put::Arg {
+						cached: false,
 						children: None,
 						command: data.command.clone().into(),
 						data: Some(data.clone()),
@@ -186,6 +187,7 @@ impl Session {
 						id: process.clone(),
 						log: Some(Some(blob.clone().into())),
 						metadata: indexed.metadata,
+						options: tg::referent::Options::default(),
 						output: None,
 						parent: None,
 						sandbox: Some(data.sandbox.clone()),
