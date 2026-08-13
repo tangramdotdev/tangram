@@ -1,62 +1,73 @@
 use {
 	super::Store,
-	crate::outbox::{DeleteArg, DequeueArg, EnqueueArg, Id, Item, TryGetIdArg},
+	crate::outbox::{
+		Batch, BatchId, DeleteArg, DequeueArg, Fragment, FragmentIndex, TryGetBatchArg,
+	},
 	tangram_client::prelude::*,
 };
 
 impl Store {
-	pub fn delete_outbox(&self, arg: DeleteArg) {
+	pub fn delete_outbox_fragments(&self, arg: DeleteArg) {
 		let mut state = self.state();
-		for key in arg.keys {
-			state.outbox.remove(&(key.partition, key.id.value()));
+		for fragment in arg.fragments {
+			state.outbox.remove(&(
+				fragment.partition,
+				fragment.batch.value(),
+				fragment.index.value(),
+			));
 		}
 	}
 
-	pub fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
+	pub fn dequeue_outbox_fragments(&self, arg: DequeueArg) -> tg::Result<Vec<Fragment>> {
 		let state = self.state();
-		let items = state
+		let fragments = state
 			.outbox
 			.iter()
-			.filter(|((partition, _), _)| {
+			.filter(|((partition, _, _), _)| {
 				(arg.partition_start..arg.partition_end).contains(partition)
 			})
 			.take(arg.batch_size)
-			.map(|((partition, id), payload)| Item {
-				id: Id::new(*id),
+			.map(|((partition, batch, index), payload)| Fragment {
+				batch: BatchId::new(*batch),
+				index: FragmentIndex::new(*index),
 				partition: *partition,
 				payload: payload.clone(),
 			})
 			.collect();
 
-		Ok(items)
+		Ok(fragments)
 	}
 
-	pub fn enqueue_outbox(&self, arg: EnqueueArg) -> tg::Result<()> {
+	pub fn enqueue_outbox_batch(&self, batch: Batch) -> tg::Result<()> {
 		let mut state = self.state();
-		state.outbox_id = state
-			.outbox_id
-			.checked_add(1)
-			.ok_or_else(|| tg::error!("the outbox id overflowed"))?;
-		let id = state.outbox_id;
-		state.outbox.insert((arg.partition, id), arg.payload);
+		for (index, payload) in batch.fragments.into_iter().enumerate() {
+			let index = u64::try_from(index)
+				.map_err(|_| tg::error!("the outbox fragment index exceeded a u64"))?;
+			state
+				.outbox
+				.insert((batch.partition, batch.id.value(), index), payload);
+		}
 
 		Ok(())
 	}
 
-	pub fn try_get_outbox_id_at_or_before(&self, arg: TryGetIdArg) -> tg::Result<Option<Id>> {
+	pub fn try_get_outbox_batch_at_or_before(
+		&self,
+		arg: TryGetBatchArg,
+	) -> tg::Result<Option<BatchId>> {
 		let state = self.state();
-		let id = state
+		let batch = state
 			.outbox
 			.keys()
-			.filter(|(partition, id)| {
+			.filter(|(partition, batch, _)| {
 				(arg.partition_start..arg.partition_end).contains(partition)
-					&& arg.id.is_none_or(|target| *id <= target.value())
+					&& arg.batch.is_none_or(|target| *batch <= target.value())
 			})
-			.map(|(_, id)| *id)
+			.map(|(_, batch, _)| *batch)
 			.max()
-			.map(Id::new);
+			.map(BatchId::new);
 
-		Ok(id)
+		Ok(batch)
 	}
 }
 
@@ -64,85 +75,71 @@ impl Store {
 mod tests {
 	use {
 		super::*,
-		crate::outbox::{Key, TryGetIdArg},
+		crate::outbox::{FragmentKey, TryGetBatchArg},
 		bytes::Bytes,
 	};
 
 	#[test]
 	fn operations() {
 		let store = Store::new();
+		let first = BatchId::new(1_u128.to_be_bytes());
+		let second = BatchId::new(2_u128.to_be_bytes());
 		store
-			.enqueue_outbox(EnqueueArg {
+			.enqueue_outbox_batch(Batch {
+				fragments: vec![Bytes::from_static(b"a"), Bytes::from_static(b"b")],
+				id: first,
 				partition: 0,
-				payload: Bytes::from_static(b"a"),
 			})
 			.unwrap();
 		store
-			.enqueue_outbox(EnqueueArg {
+			.enqueue_outbox_batch(Batch {
+				fragments: vec![Bytes::from_static(b"c")],
+				id: second,
 				partition: 1,
-				payload: Bytes::from_static(b"b"),
-			})
-			.unwrap();
-		store
-			.enqueue_outbox(EnqueueArg {
-				partition: 0,
-				payload: Bytes::from_static(b"c"),
 			})
 			.unwrap();
 
-		let items = store
-			.dequeue_outbox(DequeueArg {
+		let fragments = store
+			.dequeue_outbox_fragments(DequeueArg {
 				batch_size: 1,
 				partition_end: 1,
 				partition_start: 0,
 			})
 			.unwrap();
-		assert_eq!(items.len(), 1);
-		assert_eq!(items[0].payload, Bytes::from_static(b"a"));
+		assert_eq!(fragments.len(), 1);
+		assert_eq!(fragments[0].index, FragmentIndex::new(0));
+		assert_eq!(fragments[0].payload, Bytes::from_static(b"a"));
 
 		let target = store
-			.try_get_outbox_id_at_or_before(TryGetIdArg {
-				id: None,
+			.try_get_outbox_batch_at_or_before(TryGetBatchArg {
+				batch: None,
 				partition_end: 2,
 				partition_start: 0,
 			})
 			.unwrap()
 			.unwrap();
-		store
-			.enqueue_outbox(EnqueueArg {
-				partition: 1,
-				payload: Bytes::from_static(b"d"),
-			})
-			.unwrap();
-		let newest = store
-			.try_get_outbox_id_at_or_before(TryGetIdArg {
-				id: None,
-				partition_end: 2,
-				partition_start: 0,
-			})
-			.unwrap()
-			.unwrap();
-		assert_ne!(newest, target);
-		let items = store
-			.dequeue_outbox(DequeueArg {
+		assert_eq!(target, second);
+		let fragments = store
+			.dequeue_outbox_fragments(DequeueArg {
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,
 			})
 			.unwrap();
-		let keys = items
+		let fragments = fragments
 			.into_iter()
-			.filter(|item| item.id.value() <= target.value())
-			.map(|item| Key {
-				id: item.id,
-				partition: item.partition,
+			.filter(|fragment| fragment.batch <= first)
+			.map(|fragment| FragmentKey {
+				batch: fragment.batch,
+				index: fragment.index,
+				partition: fragment.partition,
 			})
 			.collect();
-		store.delete_outbox(DeleteArg { keys });
+		store.delete_outbox_fragments(DeleteArg { fragments });
 		assert!(
 			store
-				.try_get_outbox_id_at_or_before(TryGetIdArg {
-					id: Some(target),
+				.try_get_outbox_batch_at_or_before(TryGetBatchArg {
+					batch: Some(first),
 					partition_end: 2,
 					partition_start: 0,
 				})
@@ -151,13 +148,13 @@ mod tests {
 		);
 		assert_eq!(
 			store
-				.try_get_outbox_id_at_or_before(TryGetIdArg {
-					id: None,
+				.try_get_outbox_batch_at_or_before(TryGetBatchArg {
+					batch: None,
 					partition_end: 2,
 					partition_start: 0,
 				})
 				.unwrap(),
-			Some(newest)
+			Some(second)
 		);
 	}
 }

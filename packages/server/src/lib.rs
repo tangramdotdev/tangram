@@ -379,6 +379,11 @@ impl Server {
 				"the object outbox batch size must be greater than zero"
 			));
 		}
+		if outbox.fragment_size == 0 {
+			return Err(tg::error!(
+				"the object outbox fragment size must be greater than zero"
+			));
+		}
 		if outbox.partition_total == 0 {
 			return Err(tg::error!(
 				"the object outbox partition total must be greater than zero"

@@ -1,24 +1,36 @@
 use bytes::Bytes;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct Id(u128);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BatchId([u8; 16]);
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct FragmentIndex(u64);
 
 #[derive(Clone, Debug)]
-pub struct Item {
-	pub id: Id,
+pub struct Batch {
+	pub fragments: Vec<Bytes>,
+	pub id: BatchId,
+	pub partition: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct Fragment {
+	pub batch: BatchId,
+	pub index: FragmentIndex,
 	pub partition: u64,
 	pub payload: Bytes,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Key {
-	pub id: Id,
+pub struct FragmentKey {
+	pub batch: BatchId,
+	pub index: FragmentIndex,
 	pub partition: u64,
 }
 
 #[derive(Clone, Debug)]
 pub struct DeleteArg {
-	pub keys: Vec<Key>,
+	pub fragments: Vec<FragmentKey>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -28,27 +40,33 @@ pub struct DequeueArg {
 	pub partition_start: u64,
 }
 
-#[derive(Clone, Debug)]
-pub struct EnqueueArg {
-	pub partition: u64,
-	pub payload: Bytes,
-}
-
 #[derive(Clone, Copy, Debug)]
-pub struct TryGetIdArg {
-	pub id: Option<Id>,
+pub struct TryGetBatchArg {
+	pub batch: Option<BatchId>,
 	pub partition_end: u64,
 	pub partition_start: u64,
 }
 
-impl Id {
+impl BatchId {
 	#[must_use]
-	pub fn new(value: u128) -> Self {
+	pub fn new(value: [u8; 16]) -> Self {
 		Self(value)
 	}
 
 	#[must_use]
-	pub fn value(self) -> u128 {
+	pub fn value(self) -> [u8; 16] {
+		self.0
+	}
+}
+
+impl FragmentIndex {
+	#[must_use]
+	pub fn new(value: u64) -> Self {
+		Self(value)
+	}
+
+	#[must_use]
+	pub fn value(self) -> u64 {
 		self.0
 	}
 }

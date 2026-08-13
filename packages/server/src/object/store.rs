@@ -275,48 +275,53 @@ impl object_store::Store for Store {
 		}
 	}
 
-	async fn delete_outbox(&self, arg: outbox::DeleteArg) -> tg::Result<()> {
+	async fn delete_outbox_fragments(&self, arg: outbox::DeleteArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_outbox(arg).await,
-			Self::Memory(memory) => object_store::Store::delete_outbox(memory, arg).await,
+			Self::Lmdb(lmdb) => lmdb.delete_outbox_fragments(arg).await,
+			Self::Memory(memory) => object_store::Store::delete_outbox_fragments(memory, arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_outbox(arg).await,
+			Self::Scylla(scylla) => scylla.delete_outbox_fragments(arg).await,
 		}
 	}
 
-	async fn dequeue_outbox(&self, arg: outbox::DequeueArg) -> tg::Result<Vec<outbox::Item>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.dequeue_outbox(arg).await,
-			Self::Memory(memory) => object_store::Store::dequeue_outbox(memory, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.dequeue_outbox(arg).await,
-		}
-	}
-
-	async fn enqueue_outbox(&self, arg: outbox::EnqueueArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.enqueue_outbox(arg).await,
-			Self::Memory(memory) => object_store::Store::enqueue_outbox(memory, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.enqueue_outbox(arg).await,
-		}
-	}
-
-	async fn try_get_outbox_id_at_or_before(
+	async fn dequeue_outbox_fragments(
 		&self,
-		arg: outbox::TryGetIdArg,
-	) -> tg::Result<Option<outbox::Id>> {
+		arg: outbox::DequeueArg,
+	) -> tg::Result<Vec<outbox::Fragment>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_outbox_id_at_or_before(arg).await,
+			Self::Lmdb(lmdb) => lmdb.dequeue_outbox_fragments(arg).await,
 			Self::Memory(memory) => {
-				object_store::Store::try_get_outbox_id_at_or_before(memory, arg).await
+				object_store::Store::dequeue_outbox_fragments(memory, arg).await
 			},
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_outbox_id_at_or_before(arg).await,
+			Self::Scylla(scylla) => scylla.dequeue_outbox_fragments(arg).await,
+		}
+	}
+
+	async fn enqueue_outbox_batch(&self, arg: outbox::Batch) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.enqueue_outbox_batch(arg).await,
+			Self::Memory(memory) => object_store::Store::enqueue_outbox_batch(memory, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.enqueue_outbox_batch(arg).await,
+		}
+	}
+
+	async fn try_get_outbox_batch_at_or_before(
+		&self,
+		arg: outbox::TryGetBatchArg,
+	) -> tg::Result<Option<outbox::BatchId>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_outbox_batch_at_or_before(arg).await,
+			Self::Memory(memory) => {
+				object_store::Store::try_get_outbox_batch_at_or_before(memory, arg).await
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_outbox_batch_at_or_before(arg).await,
 		}
 	}
 

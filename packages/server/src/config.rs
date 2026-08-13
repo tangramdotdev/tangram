@@ -554,6 +554,8 @@ pub struct Object {
 pub struct ObjectOutbox {
 	pub batch_size: usize,
 
+	pub fragment_size: usize,
+
 	pub partition_total: u64,
 }
 
@@ -1395,6 +1397,7 @@ impl Default for ObjectOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
+			fragment_size: 1024,
 			partition_total: 256,
 		}
 	}

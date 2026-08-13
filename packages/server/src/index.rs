@@ -727,11 +727,25 @@ impl Server {
 		}
 		if !self.config.advanced.single_process {
 			let config = &self.config.object.outbox;
+			let fragments = arg
+				.items
+				.chunks(config.fragment_size)
+				.map(|items| {
+					let arg = index::batch::Arg {
+						items: items.to_vec(),
+					};
+					arg.serialize().map(Into::into)
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+			let batch_id = crate::object::outbox::BatchId::new(uuid::Uuid::now_v7().into_bytes());
 			let partition = rand::random_range(0..config.partition_total);
-			let payload = arg.serialize()?.into();
-			let arg = crate::object::outbox::EnqueueArg { partition, payload };
+			let arg = crate::object::outbox::Batch {
+				fragments,
+				id: batch_id,
+				partition,
+			};
 			self.object_store
-				.enqueue_outbox(arg)
+				.enqueue_outbox_batch(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
 

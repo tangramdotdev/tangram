@@ -23,8 +23,7 @@ pub struct Store {
 #[derive(Default)]
 struct State {
 	objects: Objects,
-	outbox: BTreeMap<(u64, u128), bytes::Bytes>,
-	outbox_id: u128,
+	outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 }
 
 type Objects = HashMap<tg::object::Id, Object<'static>, tg::id::BuildHasher>;
@@ -78,27 +77,27 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_outbox(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
-		self.delete_outbox(arg);
+	async fn delete_outbox_fragments(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
+		self.delete_outbox_fragments(arg);
 		Ok(())
 	}
 
-	async fn dequeue_outbox(
+	async fn dequeue_outbox_fragments(
 		&self,
 		arg: crate::outbox::DequeueArg,
-	) -> tg::Result<Vec<crate::outbox::Item>> {
-		self.dequeue_outbox(arg)
+	) -> tg::Result<Vec<crate::outbox::Fragment>> {
+		self.dequeue_outbox_fragments(arg)
 	}
 
-	async fn enqueue_outbox(&self, arg: crate::outbox::EnqueueArg) -> tg::Result<()> {
-		self.enqueue_outbox(arg)
+	async fn enqueue_outbox_batch(&self, arg: crate::outbox::Batch) -> tg::Result<()> {
+		self.enqueue_outbox_batch(arg)
 	}
 
-	async fn try_get_outbox_id_at_or_before(
+	async fn try_get_outbox_batch_at_or_before(
 		&self,
-		arg: crate::outbox::TryGetIdArg,
-	) -> tg::Result<Option<crate::outbox::Id>> {
-		self.try_get_outbox_id_at_or_before(arg)
+		arg: crate::outbox::TryGetBatchArg,
+	) -> tg::Result<Option<crate::outbox::BatchId>> {
+		self.try_get_outbox_batch_at_or_before(arg)
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
