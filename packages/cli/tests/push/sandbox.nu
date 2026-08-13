@@ -15,8 +15,11 @@ let path = artifact {
 }
 let process = tg build --detach $path | str trim
 tg wait $process
-tg index
 let sandbox = tg get $process | from json | get sandbox
+wait_until {
+	(tg sandbox get $sandbox | from json | get status) == "destroyed"
+} "the sandbox should be destroyed"
+tg index
 
 tg push $sandbox
 let remote_sandbox = tg --url $remote.url sandbox get $sandbox | from json

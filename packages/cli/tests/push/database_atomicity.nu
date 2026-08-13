@@ -12,8 +12,11 @@ let finished_module = artifact {
 }
 let finished_process = tg build --detach $finished_module | str trim
 tg wait $finished_process
-tg index
 let sandbox = tg get $finished_process | from json | get sandbox
+wait_until {
+	(tg sandbox get $sandbox | from json | get status) == "destroyed"
+} "the sandbox should be destroyed"
+tg index
 
 # Start a process that remains running long enough for its sync to fail.
 let module = artifact {
