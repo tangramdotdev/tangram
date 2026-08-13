@@ -59,9 +59,11 @@ impl Cli {
 				.with_filter(filter)
 		});
 		let telemetry_logs_layer = telemetry.map(|telemetry| {
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
 			opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
 				&telemetry.logger_provider,
 			)
+			.with_filter(filter)
 		});
 
 		tracing_subscriber::registry()

@@ -277,6 +277,12 @@ impl Session {
 
 		// Get the runner control stream.
 		let (output, control) = self.run_get_runner_control_stream(id, &location).await?;
+		tracing::info!(
+			runner = %id,
+			scheduler = %output.scheduler,
+			%location,
+			"connected to the scheduler"
+		);
 		self.server
 			.runner
 			.state

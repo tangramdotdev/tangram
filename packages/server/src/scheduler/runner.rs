@@ -99,6 +99,14 @@ impl State {
 			reserved: tg::runner::Capacity::default(),
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
+		tracing::info!(
+			runner = %request.runner,
+			host = %request.host,
+			connection_index,
+			runners = self.runners.entries.len(),
+			queued = self.queue.len(),
+			"registered the runner with the scheduler"
+		);
 		self.queue.wake();
 
 		let scheduler = scheduler.clone();

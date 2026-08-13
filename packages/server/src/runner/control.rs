@@ -104,6 +104,12 @@ impl Session {
 				"the scheduler returned an invalid ID"
 			));
 		}
+		tracing::info!(
+			runner = %id,
+			%scheduler,
+			connection_index,
+			"added the runner to the scheduler"
+		);
 		let output = tg::runner::control::Output {
 			scheduler: scheduler.clone(),
 		};

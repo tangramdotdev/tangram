@@ -452,7 +452,13 @@ impl State {
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready = true;
+		if !std::mem::replace(&mut runner.ready, true) {
+			tracing::info!(
+				runner = %notification.runner,
+				connection_index = notification.connection_index,
+				"the runner became ready"
+			);
+		}
 		self.queue.wake();
 
 		true
