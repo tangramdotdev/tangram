@@ -90,6 +90,12 @@ impl Value {
 		}
 	}
 
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		for object in self.objects() {
+			object.inherit_location(location);
+		}
+	}
+
 	pub async fn store(&self) -> tg::Result<()> {
 		let handle = tg::handle()?;
 		self.store_with_handle(handle).await
@@ -196,8 +202,14 @@ impl Value {
 			),
 			Self::Object(object) => {
 				let id = object.id();
+				let location = object.state().location();
 				let tokens = object.state().tokens();
-				Data::Object(tg::Referent::with_node_and_tokens(id, tokens))
+				let options = tg::referent::Options {
+					location,
+					tokens,
+					..tg::referent::Options::default()
+				};
+				Data::Object(tg::Referent::new(id, options))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -218,6 +230,7 @@ impl Value {
 			if state.id() != object.node {
 				return Err(tg::error!("invalid object batch output"));
 			}
+			state.set_location(object.options.location);
 			state.set_tokens(object.options.tokens);
 		}
 		Ok(())
@@ -225,8 +238,8 @@ impl Value {
 
 	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
 		let id = object.id();
-		let tokens = object.state().tokens();
-		tg::Referent::with_node_and_tokens(id, tokens)
+		let options = object.state().referent_options();
+		tg::Referent::new(id, options)
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {

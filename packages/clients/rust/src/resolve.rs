@@ -24,9 +24,6 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::Location>,
-
 	pub referent: tg::Referent<tg::resolve::Node>,
 }
 

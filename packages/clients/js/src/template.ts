@@ -112,8 +112,8 @@ export class Template {
 					};
 				} else {
 					let id = component.id;
-					let tokens = component.state.tokens;
-					let referent = tg.Referent.withNodeAndTokens(id, tokens);
+					let options = component.state.referentOptions;
+					let referent = { node: id, options };
 					return {
 						kind: "artifact",
 						value: tg.Referent.toDataString(referent, (id) => id),
@@ -280,7 +280,7 @@ export namespace Template {
 					return {
 						...component,
 						value: tg.Referent.toDataString(
-							tg.Referent.withoutToken(referent),
+							tg.Referent.withoutRuntime(referent),
 							(id) => id,
 						),
 					};

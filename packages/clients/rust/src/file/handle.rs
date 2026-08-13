@@ -24,6 +24,7 @@ impl File {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let file = Self::with_id(referent.node);
+		file.state().set_location(referent.options.location);
 		file.state().set_tokens(referent.options.tokens);
 
 		file
@@ -234,6 +235,9 @@ impl File {
 			Object::Node(object) => object.contents.clone(),
 		};
 
+		contents
+			.state()
+			.inherit_location(self.state.location().as_ref());
 		contents.state().inherit_tokens(&self.state.tokens());
 
 		Ok(contents)
@@ -254,6 +258,7 @@ impl File {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
+		let location = self.state.location();
 		let tokens = self.state.tokens();
 		let dependencies = match object.as_ref() {
 			Object::Pointer(pointer) => {
@@ -293,6 +298,10 @@ impl File {
 									));
 								},
 							};
+							object.inherit_location(
+								dependency.0.options.location.as_ref().or(location.as_ref()),
+							);
+							object.inherit_tokens(&dependency.0.options.tokens);
 							object.inherit_tokens(&tokens);
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
@@ -332,6 +341,10 @@ impl File {
 									));
 								},
 							};
+							object.inherit_location(
+								dependency.0.options.location.as_ref().or(location.as_ref()),
+							);
+							object.inherit_tokens(&dependency.0.options.tokens);
 							object.inherit_tokens(&tokens);
 							Some(tg::file::Dependency(
 								dependency.0.clone().map(|_| Some(object)),
@@ -393,10 +406,28 @@ impl File {
 		let node = match dependency.0.node {
 			Some(tg::graph::Edge::Pointer(pointer)) => {
 				let object: tg::Object = tg::Artifact::with_pointer(pointer).into();
+				object.inherit_location(
+					dependency
+						.0
+						.options
+						.location
+						.as_ref()
+						.or(self.state.location().as_ref()),
+				);
+				object.inherit_tokens(&dependency.0.options.tokens);
 				object.inherit_tokens(&self.state.tokens());
 				Some(object)
 			},
 			Some(tg::graph::Edge::Object(object)) => {
+				object.inherit_location(
+					dependency
+						.0
+						.options
+						.location
+						.as_ref()
+						.or(self.state.location().as_ref()),
+				);
+				object.inherit_tokens(&dependency.0.options.tokens);
 				object.inherit_tokens(&self.state.tokens());
 				Some(object)
 			},

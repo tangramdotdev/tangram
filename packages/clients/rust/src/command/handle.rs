@@ -28,6 +28,7 @@ impl Command {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let command = Self::with_id(referent.node);
+		command.state().set_location(referent.options.location);
 		command.state().set_tokens(referent.options.tokens);
 
 		command

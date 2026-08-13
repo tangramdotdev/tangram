@@ -22,6 +22,7 @@ impl Directory {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let directory = Self::with_id(referent.node);
+		directory.state().set_location(referent.options.location);
 		directory.state().set_tokens(referent.options.tokens);
 
 		directory
@@ -228,6 +229,7 @@ impl Directory {
 		H: tg::Handle,
 	{
 		let object = self.object_with_handle(handle).await?;
+		let location = self.state.location();
 		let tokens = self.state.tokens();
 		let entries = match object.as_ref() {
 			Object::Pointer(object) => {
@@ -246,6 +248,7 @@ impl Directory {
 					handle,
 					directory,
 					Some(graph.clone()),
+					location.clone(),
 					tokens.clone(),
 				))
 				.await?
@@ -255,6 +258,7 @@ impl Directory {
 					handle,
 					node,
 					None,
+					location,
 					tokens.clone(),
 				))
 				.await?
@@ -267,6 +271,7 @@ impl Directory {
 		handle: &H,
 		directory: &tg::graph::Directory,
 		graph: Option<tg::Graph>,
+		location: Option<tg::Location>,
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<BTreeMap<String, tg::Artifact>>
 	where
@@ -292,6 +297,7 @@ impl Directory {
 						},
 						tg::graph::Edge::Object(object) => object.clone(),
 					};
+					artifact.inherit_location(location.as_ref());
 					artifact.inherit_tokens(&tokens);
 					Ok::<_, tg::Error>((name.clone(), artifact))
 				})
@@ -302,6 +308,7 @@ impl Directory {
 					let child_dir =
 						Self::resolve_directory_edge(handle, &child.directory, graph.clone())
 							.await?;
+					child_dir.state().inherit_location(location.as_ref());
 					child_dir.state().inherit_tokens(&tokens);
 					let child_entries = child_dir.entries_with_handle(handle).await?;
 					entries.extend(child_entries);
@@ -367,6 +374,7 @@ impl Directory {
 			return Ok(None);
 		};
 		let artifact = tg::Artifact::with_edge(edge);
+		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 		Ok(Some(artifact))
 	}
@@ -496,6 +504,7 @@ impl Directory {
 	{
 		let edge = self.get_edge_with_handle(handle, path).await?;
 		let artifact = tg::Artifact::with_edge(edge);
+		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 		Ok(artifact)
 	}
@@ -516,6 +525,7 @@ impl Directory {
 		let edge = self.try_get_edge_with_handle(handle, path).await?;
 		let artifact = edge.map(tg::Artifact::with_edge);
 		if let Some(artifact) = &artifact {
+			artifact.inherit_location(self.state.location().as_ref());
 			artifact.inherit_tokens(&self.state.tokens());
 		}
 		Ok(artifact)

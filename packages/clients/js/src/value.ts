@@ -188,6 +188,15 @@ export namespace Value {
 		}
 	};
 
+	export let inheritLocation = (
+		value: tg.Value,
+		location: tg.Location | null,
+	): void => {
+		for (let object of tg.Value.objects(value)) {
+			tg.Object.inheritLocation(object, location);
+		}
+	};
+
 	export let inheritTokens = (
 		value: tg.Value,
 		tokens: tg.Authorization.Tokens,
@@ -258,14 +267,15 @@ export namespace Value {
 			if (state.id !== node.node) {
 				throw new Error("invalid object batch output");
 			}
+			state.location = node.options?.location ?? null;
 			state.tokens = node.options?.tokens ?? {};
 		}
 	};
 
 	let objectReferent = (object: tg.Object): tg.Referent<tg.Object.Id> => {
 		let id = object.state.id;
-		let tokens = object.state.tokens;
-		return tg.Referent.withNodeAndTokens(id, tokens);
+		let options = object.state.referentOptions;
+		return { node: id, options };
 	};
 
 	export type Data =
@@ -334,7 +344,7 @@ export namespace Value {
 					return {
 						...data,
 						value: tg.Referent.toDataString(
-							tg.Referent.withoutToken(referent),
+							tg.Referent.withoutRuntime(referent),
 							(id) => id,
 						),
 					};

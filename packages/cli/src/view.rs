@@ -180,9 +180,9 @@ async fn get_node(
 	client: &tg::Client,
 	output: tg::get::Output,
 ) -> tg::Result<tg::Referent<crate::viewer::Item>> {
-	let tg::get::Output { location, referent } = output;
+	let tg::get::Output { referent } = output;
 	let tg::Referent { node, options } = referent;
-	let location = location.map(Into::into);
+	let location = options.location.clone().map(Into::into);
 	let node = match node {
 		tg::get::Node::Id(id) if id.kind().is_object() => {
 			let object = id.try_into()?;

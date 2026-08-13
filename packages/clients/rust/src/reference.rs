@@ -327,8 +327,25 @@ impl From<Options> for tg::referent::Options {
 		Self {
 			artifact: options.artifact,
 			id: options.id,
+			location: None,
 			name: options.name,
 			path: options.path,
+			tag: options.tag,
+			tokens: options.tokens,
+		}
+	}
+}
+
+impl From<tg::referent::Options> for Options {
+	fn from(options: tg::referent::Options) -> Self {
+		Self {
+			artifact: options.artifact,
+			get: None,
+			id: options.id,
+			location: options.location.map(Into::into),
+			name: options.name,
+			path: options.path,
+			source: None,
 			tag: options.tag,
 			tokens: options.tokens,
 		}

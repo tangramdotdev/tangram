@@ -113,7 +113,7 @@ impl Cli {
 			.try_unwrap_object()
 			.map_err(|_| tg::error!("expected an object"))?;
 		let artifact = tg::Artifact::try_from(object)?;
-		let artifact = tg::Referent::with_node_and_tokens(artifact.id(), artifact.state().tokens());
+		let artifact = tg::Referent::new(artifact.id(), artifact.state().referent_options());
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();

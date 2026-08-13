@@ -1420,6 +1420,7 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Options> {
 	let mut artifact = None;
 	let mut id = None;
+	let mut location = None;
 	let mut name = None;
 	let mut path = None;
 	let mut tag = None;
@@ -1443,6 +1444,16 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 					value
 						.parse()
 						.map_err(|error| tg::error!(!error, "failed to parse id"))?,
+				);
+			},
+			"location" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for location"))?;
+				location = Some(
+					value
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse location"))?,
 				);
 			},
 			"name" => {
@@ -1475,6 +1486,7 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 	Ok(tg::referent::Options {
 		artifact,
 		id,
+		location,
 		name,
 		path,
 		tag,

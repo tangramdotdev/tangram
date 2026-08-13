@@ -16,9 +16,7 @@ let process = tg process spawn --sandbox $path | str trim
 tg wait $process
 
 let sandbox = tg process get $process | from json | get sandbox
-wait_until {
-	(tg sandbox get $sandbox | from json | get status) == "destroyed"
-} "the sandbox should be destroyed"
+tg wait $sandbox
 
 # A tagged process keeps its sandbox alive.
 tg tag process $process

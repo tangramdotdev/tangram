@@ -102,6 +102,7 @@ export class Error {
 	/** Get an error with a referent. */
 	static withReferent(referent: tg.Referent<tg.Error.Id>): tg.Error {
 		let error = tg.Error.withId(referent.node);
+		error.state.location = referent.options?.location ?? null;
 		error.state.tokens = referent.options?.tokens ?? {};
 		return error;
 	}
@@ -189,8 +190,8 @@ export class Error {
 	static toDataOrId(value: tg.Error): tg.Error.Data | string {
 		if (value.state.stored) {
 			let id = value.state.id as tg.Error.Id;
-			let tokens = value.state.tokens;
-			let referent = tg.Referent.withNodeAndTokens(id, tokens);
+			let options = value.state.referentOptions;
+			let referent = { node: id, options };
 			return tg.Referent.toDataString(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
@@ -597,12 +598,12 @@ export namespace Error {
 						(node) => node as tg.Error.Id,
 					);
 					output.source = tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
+						tg.Referent.withoutRuntime(referent),
 						(node) => node,
 					);
 				} else {
 					let source = tg.Referent.fromData(data.source, (node) => node);
-					source = tg.Referent.withoutToken(source);
+					source = tg.Referent.withoutRuntime(source);
 					if (typeof data.source.node !== "string") {
 						source.node = tg.Error.Data.withoutTokens(data.source.node);
 					}

@@ -202,6 +202,7 @@ export class Command<
 	/** Get a command with a referent. */
 	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
 		let command = tg.Command.withId(referent.node);
+		command.state.location = referent.options?.location ?? null;
 		command.state.tokens = referent.options?.tokens ?? {};
 		return command;
 	}

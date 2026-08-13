@@ -37,7 +37,7 @@ pub(super) fn to_exception<'s>(
 			let with_referent = error_constructor.get(scope, with_referent.into()).unwrap();
 			let with_referent = v8::Local::<v8::Function>::try_from(with_referent).unwrap();
 
-			let referent = tg::Referent::with_node_and_tokens(id, error.state().tokens());
+			let referent = tg::Referent::new(id, error.state().referent_options());
 			let referent = Serde(referent).serialize(scope).unwrap();
 			let undefined = v8::undefined(scope);
 			let exception = with_referent.call(scope, undefined.into(), &[referent])?;
@@ -123,7 +123,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|value| value.to_object(scope))
 	{
 		let error = from_exception(state, scope, source.into())?;
-		let tokens = error.state().tokens();
+		let options = error.state().referent_options();
 		let node = error
 			.to_data_or_id()
 			.map_left(|data| {
@@ -135,7 +135,7 @@ pub(super) fn from_exception<'s>(
 				}))
 			})
 			.map_right(|id| Box::new(tg::Error::with_id(id)));
-		let referent = tg::Referent::with_node_and_tokens(node, tokens);
+		let referent = tg::Referent::new(node, options);
 		Some(referent)
 	} else {
 		None

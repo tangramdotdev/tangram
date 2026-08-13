@@ -11,6 +11,7 @@ pub mod seatbelt;
 pub mod serve;
 #[cfg(target_os = "linux")]
 pub mod vm;
+pub mod wait;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -28,16 +29,17 @@ pub enum Command {
 	Create(self::create::Args),
 	Destroy(self::destroy::Args),
 	Get(self::get::Args),
-	#[command(hide = true)]
-	Serve(self::serve::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
 	#[cfg(target_os = "macos")]
 	#[command(hide = true)]
 	Seatbelt(self::seatbelt::Args),
+	#[command(hide = true)]
+	Serve(self::serve::Args),
 	#[cfg(target_os = "linux")]
 	#[command(hide = true)]
 	Vm(self::vm::Args),
+	Wait(self::wait::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -422,19 +424,22 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-			Command::Serve(args) => {
-				self.command_sandbox_serve(args).await?;
+			Command::List(args) => {
+				self.command_sandbox_list(args).await?;
 			},
 			#[cfg(target_os = "macos")]
 			Command::Seatbelt(args) => {
 				self.command_sandbox_seatbelt(args).await?;
 			},
+			Command::Serve(args) => {
+				self.command_sandbox_serve(args).await?;
+			},
 			#[cfg(target_os = "linux")]
 			Command::Vm(args) => {
 				self.command_sandbox_vm(args).await?;
 			},
-			Command::List(args) => {
-				self.command_sandbox_list(args).await?;
+			Command::Wait(args) => {
+				self.command_sandbox_wait(args).await?;
 			},
 		}
 		Ok(())

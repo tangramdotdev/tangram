@@ -30,12 +30,14 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let object = self.resolve_object(&args.object).await?;
+		let (object, locations) = self
+			.resolve_object_with_locations(&args.object, args.locations)
+			.await?;
 		let id = object.node.clone();
 		let tokens = object.options.tokens.clone();
 		if args.bytes {
 			let arg = tg::object::get::Arg {
-				location: args.locations.get(),
+				location: locations.get(),
 				metadata: args.metadata,
 				stored: args.stored,
 				tokens: tokens.clone(),
@@ -73,7 +75,7 @@ impl Cli {
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
-			location: args.locations.get(),
+			location: locations.get(),
 			metadata: args.metadata,
 			stored: args.stored,
 			tokens,

@@ -24,9 +24,6 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::Location>,
-
 	pub referent: tg::Referent<tg::get::Node>,
 }
 
@@ -71,12 +68,17 @@ impl Node {
 
 impl tg::Referent<Node> {
 	pub fn into_graph_edge(self) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
+		let location = self.options.location.clone();
 		let tokens = self.options.tokens.clone();
 		let referent = self.try_map(Node::to_graph_edge)?;
 		match &referent.node {
-			tg::graph::Edge::Object(object) => object.inherit_tokens(&tokens),
+			tg::graph::Edge::Object(object) => {
+				object.inherit_location(location.as_ref());
+				object.inherit_tokens(&tokens);
+			},
 			tg::graph::Edge::Pointer(pointer) => {
 				if let Some(graph) = &pointer.graph {
+					graph.state().inherit_location(location.as_ref());
 					graph.state().inherit_tokens(&tokens);
 				}
 			},

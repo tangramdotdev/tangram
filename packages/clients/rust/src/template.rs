@@ -158,7 +158,7 @@ impl Data {
 	pub fn without_tokens(mut self) -> Self {
 		for component in &mut self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				artifact.options.tokens.clear();
+				artifact.options.clear_runtime();
 			}
 		}
 
@@ -239,8 +239,8 @@ impl Component {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => {
 				let id = artifact.id();
-				let tokens = artifact.state().tokens();
-				let artifact = tg::Referent::with_node_and_tokens(id, tokens);
+				let options = artifact.state().referent_options();
+				let artifact = tg::Referent::new(id, options);
 				tg::template::data::Component::Artifact(artifact)
 			},
 			Self::Placeholder(placeholder) => {

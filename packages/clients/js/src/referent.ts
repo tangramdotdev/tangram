@@ -9,7 +9,7 @@ export namespace Referent {
 	export type Options = {
 		artifact?: tg.Artifact.Id | null;
 		id?: tg.Object.Id | null;
-		location?: tg.Location.Arg | null;
+		location?: tg.Location | null;
 		name?: string | null;
 		path?: string | null;
 		tag?: tg.Tag | null;
@@ -53,7 +53,7 @@ export namespace Referent {
 			value.options?.location !== undefined &&
 			value.options.location !== null
 		) {
-			options.location = tg.Location.Arg.toDataString(value.options.location);
+			options.location = tg.Location.toDataString(value.options.location);
 		}
 		if (value.options?.name !== undefined && value.options.name !== null) {
 			options.name = value.options.name;
@@ -93,7 +93,7 @@ export namespace Referent {
 			data.options?.location !== undefined &&
 			data.options.location !== null
 		) {
-			options.location = tg.Location.Arg.fromDataString(data.options.location);
+			options.location = tg.Location.fromDataString(data.options.location);
 		}
 		if (data.options?.name !== undefined && data.options.name !== null) {
 			options.name = data.options.name;
@@ -133,7 +133,7 @@ export namespace Referent {
 			value.options?.location !== undefined &&
 			value.options.location !== null
 		) {
-			let location = tg.Location.Arg.toDataString(value.options.location);
+			let location = tg.Location.toDataString(value.options.location);
 			params.push(`location=${encodeURIComponent(location)}`);
 		}
 		if (value.options?.name !== undefined && value.options.name !== null) {
@@ -180,7 +180,7 @@ export namespace Referent {
 						break;
 					}
 					case "location": {
-						options.location = tg.Location.Arg.fromDataString(
+						options.location = tg.Location.fromDataString(
 							decodeURIComponent(value),
 						);
 						break;
@@ -223,6 +223,14 @@ export namespace Referent {
 		if (value.options !== undefined) {
 			referent.options = { ...value.options };
 			delete referent.options.tokens;
+		}
+		return referent;
+	};
+
+	export let withoutRuntime = <T>(value: tg.Referent<T>): tg.Referent<T> => {
+		let referent = withoutToken(value);
+		if (referent.options !== undefined) {
+			delete referent.options.location;
 		}
 		return referent;
 	};

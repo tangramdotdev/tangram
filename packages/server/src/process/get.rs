@@ -427,6 +427,7 @@ impl Session {
 			return Ok(None);
 		};
 		self.update_tokens_for_location(&mut output.tokens, &location)?;
+		self.update_process_data_referents_for_location(&mut output.data, &location)?;
 		output.location = Some(location);
 		Ok(Some(output))
 	}
@@ -579,6 +580,7 @@ impl Session {
 			region,
 		});
 		self.update_tokens_for_location(&mut output.tokens, &location)?;
+		self.update_process_data_referents_for_location(&mut output.data, &location)?;
 		output.location = Some(location);
 		Ok(Some(output))
 	}

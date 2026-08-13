@@ -32,11 +32,22 @@ pub struct Child {
 }
 
 impl State {
-	pub(crate) fn inherit_location(&self, location: Option<&tg::location::Arg>) {
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
 		if let Some(children) = &self.children {
 			for child in children {
-				child.process.inherit_location(location.cloned());
+				child
+					.process
+					.inherit_location(location.cloned().map(Into::into));
 			}
+		}
+		if let Some(error) = &self.error {
+			error.state().inherit_location(location);
+		}
+		if let Some(log) = &self.log {
+			log.state().inherit_location(location);
+		}
+		if let Some(output) = &self.output {
+			output.inherit_location(location);
 		}
 	}
 
@@ -72,7 +83,7 @@ impl State {
 		let error = self.error.as_ref().map(|error| {
 			error
 				.to_data_or_id()
-				.map_right(|id| tg::Referent::with_node_and_tokens(id, error.state().tokens()))
+				.map_right(|id| tg::Referent::new(id, error.state().referent_options()))
 		});
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
@@ -81,7 +92,7 @@ impl State {
 		let log = self
 			.log
 			.as_ref()
-			.map(|log| tg::Referent::with_node_and_tokens(log.id(), log.state().tokens()));
+			.map(|log| tg::Referent::new(log.id(), log.state().referent_options()));
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
@@ -185,6 +196,12 @@ impl Child {
 	#[must_use]
 	pub fn to_data(&self) -> tg::process::data::Child {
 		let mut options = self.options.clone();
+		if options.location.is_none() {
+			options.location = self
+				.process
+				.location()
+				.and_then(|location| location.to_location());
+		}
 		options.tokens = self.process.tokens();
 		tg::process::data::Child {
 			cached: self.process.cached().unwrap_or(false),
@@ -195,12 +212,14 @@ impl Child {
 	pub fn try_from_data(value: tg::process::data::Child) -> tg::Result<Self> {
 		let process = value.process.node;
 		let options = value.process.options;
+		let location = options.location.clone().map(Into::into);
 		let tokens = options.tokens.clone();
 		Ok(Self {
 			process: tg::Process::new(
 				process,
 				tg::process::Options {
 					cached: Some(value.cached),
+					location,
 					tokens,
 					..Default::default()
 				},

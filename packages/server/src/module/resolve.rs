@@ -116,6 +116,7 @@ impl Session {
 		let options = tg::referent::Options {
 			artifact: reference_options.artifact.clone(),
 			id: reference_options.id.clone(),
+			location: None,
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
 			tag: reference_options.tag.clone(),
@@ -198,6 +199,7 @@ impl Session {
 					let options = tg::referent::Options {
 						artifact: dependency.0.artifact().cloned(),
 						id: dependency.0.id().cloned(),
+						location: dependency.0.location().cloned(),
 						name: dependency.0.name().map(ToOwned::to_owned),
 						path: Some(path),
 						tag: dependency.0.tag().cloned(),
@@ -473,6 +475,7 @@ impl Session {
 					let options = tg::referent::Options {
 						artifact: options.artifact.clone(),
 						id: options.id.clone(),
+						location: options.location.clone(),
 						name: options.name.clone(),
 						path: Some(path),
 						tag: options.tag.clone(),

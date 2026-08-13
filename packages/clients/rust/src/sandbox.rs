@@ -1,5 +1,6 @@
 use {
 	crate::prelude::*,
+	futures::TryStreamExt as _,
 	std::sync::{
 		Arc, RwLock,
 		atomic::{AtomicBool, Ordering},
@@ -59,6 +60,7 @@ impl Sandbox {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let options = tg::sandbox::Options {
+			location: referent.options.location.map(Into::into),
 			tokens: referent.options.tokens,
 			..tg::sandbox::Options::default()
 		};
@@ -125,6 +127,36 @@ impl Sandbox {
 	#[must_use]
 	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.tokens.read().unwrap().clone()
+	}
+
+	pub async fn wait(&self, arg: tg::sandbox::status::Arg) -> tg::Result<tg::sandbox::Status> {
+		let handle = tg::handle()?;
+		self.wait_with_handle(handle, arg).await
+	}
+
+	pub async fn wait_with_handle<H>(
+		&self,
+		handle: &H,
+		mut arg: tg::sandbox::status::Arg,
+	) -> tg::Result<tg::sandbox::Status>
+	where
+		H: tg::Handle,
+	{
+		use tg::handle::Ext as _;
+
+		if arg.location.is_none() {
+			arg.location = self.location();
+		}
+		let stream = handle.get_sandbox_status(self.id(), arg).await?;
+		let stream = std::pin::pin!(stream);
+		let status = stream
+			.try_filter(|status| futures::future::ready(status.is_destroyed()))
+			.try_next()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status stream ended before it was destroyed"))?;
+		self.detach();
+
+		Ok(status)
 	}
 
 	pub async fn destroy(&self) -> tg::Result<()> {

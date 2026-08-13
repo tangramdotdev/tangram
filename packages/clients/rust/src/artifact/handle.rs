@@ -47,6 +47,7 @@ impl Artifact {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let artifact = Self::with_id(referent.node);
+		artifact.state().set_location(referent.options.location);
 		artifact.state().set_tokens(referent.options.tokens);
 
 		artifact
@@ -98,6 +99,10 @@ impl Artifact {
 
 	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		self.state().inherit_tokens(tokens);
+	}
+
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		self.state().inherit_location(location);
 	}
 
 	pub async fn object(&self) -> tg::Result<Object> {
@@ -189,9 +194,11 @@ impl Artifact {
 	{
 		let object = self.load_with_handle(handle).await?;
 		let children = object.children();
+		let location = self.state().location();
 		let tokens = self.state().tokens();
 
 		for child in &children {
+			child.inherit_location(location.as_ref());
 			child.inherit_tokens(&tokens);
 		}
 

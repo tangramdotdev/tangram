@@ -341,8 +341,7 @@ impl Cli {
 			} else {
 				None
 			};
-			let artifact =
-				tg::Referent::with_node_and_tokens(artifact.id(), artifact.state().tokens());
+			let artifact = tg::Referent::new(artifact.id(), artifact.state().referent_options());
 			let arg = tg::checkout::Arg {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),

@@ -32,6 +32,7 @@ export class Graph {
 	/** Get a graph with a referent. */
 	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
 		let graph = tg.Graph.withId(referent.node);
+		graph.state.location = referent.options?.location ?? null;
 		graph.state.tokens = referent.options?.tokens ?? {};
 		return graph;
 	}
@@ -339,6 +340,7 @@ export class Graph {
 			}
 		}
 
+		tg.Object.inheritLocation(artifact, this.#state.location);
 		tg.Object.inheritTokens(artifact, this.#state.tokens);
 
 		return artifact;
@@ -727,7 +729,7 @@ export namespace Graph {
 				value.options?.location !== undefined &&
 				value.options.location !== null
 			) {
-				let location = tg.Location.Arg.toDataString(value.options.location);
+				let location = tg.Location.toDataString(value.options.location);
 				params.push(`location=${encodeURIComponent(location)}`);
 			}
 			if (value.options?.name !== undefined && value.options.name !== null) {
@@ -769,7 +771,7 @@ export namespace Graph {
 							break;
 						}
 						case "location": {
-							options.location = tg.Location.Arg.fromDataString(
+							options.location = tg.Location.fromDataString(
 								decodeURIComponent(value),
 							);
 							break;
@@ -1305,11 +1307,14 @@ export namespace Graph {
 				data: tg.Graph.Dependency.Data,
 			): tg.Graph.Dependency.Data => {
 				if (typeof data === "string") {
-					return data;
+					let dependency = tg.Graph.Dependency.fromDataString(data);
+					dependency = tg.Referent.withoutRuntime(dependency);
+					return tg.Graph.Dependency.toDataString(dependency);
 				}
 				let output = { ...data };
 				if (output.options !== undefined) {
 					output.options = { ...output.options };
+					delete output.options.location;
 					delete output.options.tokens;
 				}
 				return output;

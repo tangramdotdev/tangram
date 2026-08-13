@@ -39,6 +39,10 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the process children"))?
 			{
+				let location = tg::Location::Local(tg::location::Local::default());
+				let stream =
+					self.update_process_children_stream_referents_for_location(stream, location);
+
 				return Ok(Some(stream));
 			}
 
@@ -428,7 +432,7 @@ impl Session {
 		});
 		let tokens = arg.tokens.for_location(&location);
 		let arg = tg::process::children::get::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
 			tokens,
 			..arg
 		};
@@ -441,7 +445,9 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stream.boxed()))
+		let stream =
+			self.update_process_children_stream_referents_for_location(stream.boxed(), location);
+		Ok(Some(stream))
 	}
 
 	async fn try_get_process_children_remotes(
@@ -508,7 +514,32 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		Ok(Some(stream.boxed()))
+		let stream =
+			self.update_process_children_stream_referents_for_location(stream.boxed(), location);
+		Ok(Some(stream))
+	}
+
+	fn update_process_children_stream_referents_for_location(
+		&self,
+		stream: BoxStream<'static, tg::Result<tg::process::children::get::Event>>,
+		location: tg::Location,
+	) -> BoxStream<'static, tg::Result<tg::process::children::get::Event>> {
+		let session = self.clone();
+		stream
+			.map(move |event| {
+				let mut event = event?;
+				if let tg::process::children::get::Event::Chunk(chunk) = &mut event {
+					for child in &mut chunk.data {
+						session.update_referent_options_for_location(
+							&mut child.process.options,
+							&location,
+						)?;
+					}
+				}
+
+				Ok(event)
+			})
+			.boxed()
 	}
 
 	pub(crate) async fn try_get_process_children_stream_request(

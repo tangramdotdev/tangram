@@ -17,12 +17,14 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let process = self.resolve_process(&args.process).await?;
+		let (process, locations) = self
+			.resolve_process_with_locations(&args.process, args.location)
+			.await?;
 		let process = tg::Process::<tg::Value>::new(
 			process.node,
 			tg::process::Options {
 				lease: Some(args.lease),
-				location: args.location.get(),
+				location: locations.get(),
 				tokens: process.options.tokens,
 				..Default::default()
 			},

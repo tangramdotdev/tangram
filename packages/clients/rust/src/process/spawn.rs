@@ -151,6 +151,9 @@ where
 				command_arg_.replace(command);
 			},
 			tg::Either::Right(command) => {
+				if options.location.is_none() {
+					options.location = command.state().location();
+				}
 				if options.tokens.is_empty() {
 					options.tokens = command.state().tokens();
 				}
@@ -469,6 +472,7 @@ impl<O: 'static> tg::Process<O> {
 							.store_with_handle(&handle)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+						arg.command.options.location = command.state().location();
 						arg.command.options.tokens = command.state().tokens();
 					}
 				},
@@ -792,9 +796,11 @@ impl<O: 'static> tg::Process<O> {
 						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 					tg::Error::with_referent(referent)
 				};
-				output.error = Some(error.to_data_or_id().map_right(|id| {
-					tg::Referent::with_node_and_tokens(id, error.state().tokens())
-				}));
+				output.error = Some(
+					error
+						.to_data_or_id()
+						.map_right(|id| tg::Referent::new(id, error.state().referent_options())),
+				);
 			}
 		}
 

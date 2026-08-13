@@ -33,7 +33,7 @@ impl Session {
 			}) => self.post_object_batch_remote(arg, remote, region).await?,
 		};
 		for object in &mut output.objects {
-			self.update_tokens_for_location(&mut object.options.tokens, &location)?;
+			self.update_referent_options_for_location(&mut object.options, &location)?;
 		}
 
 		Ok(output)

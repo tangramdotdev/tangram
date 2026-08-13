@@ -127,6 +127,15 @@ impl tg::Session {
 }
 
 impl Wait {
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		if let Some(error) = &self.error {
+			error.state().inherit_location(location);
+		}
+		if let Some(output) = &self.output {
+			output.inherit_location(location);
+		}
+	}
+
 	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		if let Some(error) = &self.error {
 			error.state().inherit_tokens(tokens);
@@ -180,7 +189,7 @@ impl Wait {
 			error: self.error.as_ref().map(|error| {
 				error
 					.to_data_or_id()
-					.map_right(|id| tg::Referent::with_node_and_tokens(id, error.state().tokens()))
+					.map_right(|id| tg::Referent::new(id, error.state().referent_options()))
 			}),
 			exit: self.exit,
 			output: self.output.as_ref().map(tg::Value::to_data),

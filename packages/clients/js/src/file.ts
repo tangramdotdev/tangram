@@ -45,6 +45,7 @@ export class File {
 	/** Get a file with a referent. */
 	static withReferent(referent: tg.Referent<tg.File.Id>): tg.File {
 		let file = tg.File.withId(referent.node);
+		file.state.location = referent.options?.location ?? null;
 		file.state.tokens = referent.options?.tokens ?? {};
 		return file;
 	}
@@ -229,6 +230,7 @@ export class File {
 				contents = object.contents;
 			}
 
+			tg.Object.inheritLocation(contents, this.#state.location);
 			tg.Object.inheritTokens(contents, this.#state.tokens);
 
 			return contents;
@@ -269,6 +271,14 @@ export class File {
 									object = dependency.node;
 								}
 								if (object !== null) {
+									tg.Object.inheritLocation(
+										object,
+										dependency.options?.location ?? this.#state.location,
+									);
+									tg.Object.inheritTokens(
+										object,
+										dependency.options?.tokens ?? {},
+									);
 									tg.Object.inheritTokens(object, this.#state.tokens);
 								}
 								let value: tg.Referent<tg.Object | null> = {
@@ -307,6 +317,14 @@ export class File {
 									}
 								}
 								if (object !== null) {
+									tg.Object.inheritLocation(
+										object,
+										dependency.options?.location ?? this.#state.location,
+									);
+									tg.Object.inheritTokens(
+										object,
+										dependency.options?.tokens ?? {},
+									);
 									tg.Object.inheritTokens(object, this.#state.tokens);
 								}
 								let value: tg.Referent<tg.Object | null> = {

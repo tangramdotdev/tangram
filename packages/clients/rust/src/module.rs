@@ -91,10 +91,15 @@ pub enum Source {
 impl Module {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Handle> {
-		match &self.referent.node {
+		let children = match &self.referent.node {
 			Source::Edge(edge) => edge.children(),
 			Source::Path(_) => vec![],
+		};
+		for child in &children {
+			child.inherit_location(self.referent.options.location.as_ref());
+			child.inherit_tokens(&self.referent.options.tokens);
 		}
+		children
 	}
 
 	#[must_use]

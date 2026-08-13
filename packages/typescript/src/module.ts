@@ -22,6 +22,7 @@ type Id = string;
 type Options = {
 	artifact?: string | null;
 	id?: string | null;
+	location?: string | null;
 	name?: string | null;
 	path?: string | null;
 	tag?: string | null;
@@ -46,6 +47,14 @@ export namespace Module {
 			value.referent.options.id !== null
 		) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
+		}
+		if (
+			value.referent.options?.location !== undefined &&
+			value.referent.options.location !== null
+		) {
+			params.push(
+				`location=${encodeURIComponent(value.referent.options.location)}`,
+			);
 		}
 		if (
 			value.referent.options?.name !== undefined &&
@@ -95,6 +104,10 @@ export namespace Module {
 					}
 					case "id": {
 						options.id = decodeURIComponent(value);
+						break;
+					}
+					case "location": {
+						options.location = decodeURIComponent(value);
 						break;
 					}
 					case "name": {

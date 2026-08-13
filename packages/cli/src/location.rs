@@ -32,6 +32,30 @@ pub struct Args {
 }
 
 impl Args {
+	pub(crate) fn with_location(location: tg::location::Arg) -> Self {
+		Self {
+			local: None,
+			location: Some(location),
+			remotes: None,
+		}
+	}
+
+	pub(crate) fn with_fallback_location(self, location: Option<&tg::Location>) -> Self {
+		if self.get().is_some() {
+			return self;
+		}
+		location.map_or(self, |location| {
+			Self::with_location(location.clone().into())
+		})
+	}
+
+	pub(crate) fn with_fallback_location_arg(self, location: Option<tg::location::Arg>) -> Self {
+		if self.get().is_some() {
+			return self;
+		}
+		location.map_or(self, Self::with_location)
+	}
+
 	pub fn get(&self) -> Option<tg::location::Arg> {
 		if let Some(location) = &self.location {
 			return Some(location.clone());

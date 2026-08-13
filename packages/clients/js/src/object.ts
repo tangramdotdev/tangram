@@ -95,12 +95,14 @@ export namespace Object {
 
 	export class State {
 		#id: tg.Object.Id | null;
+		#location: tg.Location | null;
 		#object: tg.Object.Object | null;
 		#stored: boolean;
 		#tokens: tg.Authorization.Tokens;
 
 		constructor(arg: tg.Object.State.ConstructorArg) {
 			this.#id = arg.id ?? null;
+			this.#location = arg.location ?? null;
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
 			this.#tokens = arg.tokens ?? {};
@@ -121,12 +123,33 @@ export namespace Object {
 			this.#id = id;
 		}
 
+		get location(): tg.Location | null {
+			return this.#location === null ? null : { ...this.#location };
+		}
+
+		set location(location: tg.Location | null) {
+			this.#location = location;
+		}
+
+		inheritLocation(location: tg.Location | null): void {
+			if (this.#location === null) {
+				this.#location = location;
+			}
+		}
+
 		get object(): tg.Object.Object | null {
 			return this.#object;
 		}
 
 		set object(object: tg.Object.Object | null) {
 			this.#object = object;
+		}
+
+		get referentOptions(): tg.Referent.Options {
+			return {
+				location: this.location,
+				tokens: this.tokens,
+			};
 		}
 
 		get stored(): boolean {
@@ -158,7 +181,13 @@ export namespace Object {
 
 		async load(): Promise<tg.Object.Object> {
 			if (this.#object === null) {
-				let arg = { tokens: this.#tokens };
+				let arg: tg.Object.Get.Arg = {
+					location:
+						this.#location === null
+							? null
+							: tg.Location.Arg.fromLocation(this.#location),
+					tokens: this.#tokens,
+				};
 				let output = await tg.client.getObject(this.#id!, arg);
 				if (output.tokens !== undefined && output.tokens !== null) {
 					tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
@@ -180,6 +209,7 @@ export namespace Object {
 				let children = tg.Object.Object.children(this.#object!);
 
 				for (let child of children) {
+					child.state.inheritLocation(this.#location);
 					tg.Object.inheritTokens(child, this.#tokens);
 				}
 
@@ -191,6 +221,7 @@ export namespace Object {
 	export namespace State {
 		export type ConstructorArg = {
 			id?: tg.Object.Id | null;
+			location?: tg.Location | null;
 			object?: tg.Object.Object | null;
 			stored: boolean;
 			tokens?: tg.Authorization.Tokens | null;
@@ -376,6 +407,7 @@ export namespace Object {
 		referent: tg.Referent<tg.Object.Id>,
 	): tg.Object => {
 		let object = withId(referent.node);
+		object.state.location = referent.options?.location ?? null;
 		object.state.tokens = referent.options?.tokens ?? {};
 		return object;
 	};
@@ -420,6 +452,13 @@ export namespace Object {
 		tokens: tg.Authorization.Tokens,
 	): void => {
 		object.state.inheritTokens(tokens);
+	};
+
+	export let inheritLocation = (
+		object: tg.Object,
+		location: tg.Location | null,
+	): void => {
+		object.state.inheritLocation(location);
 	};
 
 	/** Expect that a value is a `tg.Object`. */

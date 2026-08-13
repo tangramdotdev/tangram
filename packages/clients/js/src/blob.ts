@@ -44,6 +44,7 @@ export class Blob {
 	/** Get a blob with a referent. */
 	static withReferent(referent: tg.Referent<tg.Blob.Id>): tg.Blob {
 		let blob = tg.Blob.withId(referent.node);
+		blob.state.location = referent.options?.location ?? null;
 		blob.state.tokens = referent.options?.tokens ?? {};
 		return blob;
 	}

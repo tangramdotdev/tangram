@@ -297,6 +297,12 @@ impl Dependency {
 			let id = format!("id={id}");
 			query.push(id);
 		}
+		if let Some(location) = &self.0.options.location {
+			let location = location.to_string();
+			let location = tangram_uri::encode_query_value(&location);
+			let location = format!("location={location}");
+			query.push(location);
+		}
 		if let Some(name) = &self.0.options.name {
 			let name = tangram_uri::encode_query_value(name);
 			let name = format!("name={name}");
@@ -352,6 +358,13 @@ impl Dependency {
 									.map_err(|_| tg::error!("failed to parse the id"))?,
 							);
 						},
+						"location" => {
+							options.location.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the location"))?,
+							);
+						},
 						"name" => {
 							options.name.replace(value.into_owned());
 						},
@@ -375,7 +388,7 @@ impl Dependency {
 
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.0.options.tokens.clear();
+		self.0.options.clear_runtime();
 
 		self
 	}

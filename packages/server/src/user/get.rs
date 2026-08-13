@@ -26,15 +26,18 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		let location = output
+			.referent
+			.options
+			.location
+			.clone()
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let tg::get::Node::Id(id) = output.referent.node else {
 			unreachable!();
 		};
 		let Ok(id) = tg::user::Id::try_from(id) else {
 			return Ok(None);
 		};
-		let location = output
-			.location
-			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let tokens = output.referent.options.tokens;
 		match location {
 			tg::Location::Local(_) => self.try_get_user_local(&id, tokens).await,

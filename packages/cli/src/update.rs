@@ -392,6 +392,7 @@ pub(crate) fn format_referrer<T>(referrer: &tg::Referent<T>) -> String {
 	let tg::referent::Options {
 		artifact,
 		id,
+		location: _,
 		name,
 		path,
 		tag,

@@ -16,11 +16,21 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_metadata(&mut self, args: Args) -> tg::Result<()> {
-		let locations = args.locations;
+		let reference_location = args.reference.options().location.clone();
+		let mut options = args.reference.options().clone();
+		if let Some(location) = args.locations.get() {
+			options.location = Some(location);
+		}
+		let reference =
+			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
 		let print = args.print;
 
 		// Get the reference.
-		let referent = self.resolve(&args.reference).await?;
+		let referent = self.resolve(&reference).await?;
+		let locations = args
+			.locations
+			.with_fallback_location(referent.options.location.as_ref())
+			.with_fallback_location_arg(reference_location);
 		let is_process = matches!(
 			referent.node(),
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process
@@ -30,9 +40,10 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let process = tg::Reference::with_node_and_tokens(
+			let options = process.options.into();
+			let process = tg::Reference::with_node_and_options(
 				tg::reference::Node::Id(process.node.into()),
-				process.options.tokens,
+				options,
 			);
 			let args = crate::process::metadata::Args {
 				locations,
@@ -48,9 +59,10 @@ impl Cli {
 						.map(|object| object.id())
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
-			let object = tg::Reference::with_node_and_tokens(
+			let options = object.options.into();
+			let object = tg::Reference::with_node_and_options(
 				tg::reference::Node::Id(object.node.into()),
-				object.options.tokens,
+				options,
 			);
 			let args = crate::object::metadata::Args {
 				locations,

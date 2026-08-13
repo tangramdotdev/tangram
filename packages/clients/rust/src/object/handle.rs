@@ -38,6 +38,7 @@ impl Object {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let object = Self::with_id(referent.node);
+		object.state().set_location(referent.options.location);
 		object.state().set_tokens(referent.options.tokens);
 
 		object
@@ -84,6 +85,10 @@ impl Object {
 
 	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		self.state().inherit_tokens(tokens);
+	}
+
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		self.state().inherit_location(location);
 	}
 
 	#[must_use]
@@ -265,7 +270,9 @@ impl Object {
 		let object = self.load_with_arg_with_handle(handle, arg).await?;
 		let children = object.children();
 		let tokens = self.state().tokens();
+		let location = self.state().location();
 		for child in &children {
+			child.inherit_location(location.as_ref());
 			child.inherit_tokens(&tokens);
 		}
 

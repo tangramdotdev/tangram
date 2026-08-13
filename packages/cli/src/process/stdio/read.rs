@@ -63,14 +63,16 @@ struct PositionArg {
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let locations = args.locations.get();
-		let process = self.resolve_process(&args.process).await?;
+		let (process, locations) = self
+			.resolve_process_with_locations(&args.process, args.locations)
+			.await?;
+		let location = locations.get();
 		let id = process.node;
 		let tokens = process.options.tokens;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),
 			tg::process::Options {
-				location: locations.clone(),
+				location: location.clone(),
 				tokens: tokens.clone(),
 				..Default::default()
 			},
@@ -85,7 +87,7 @@ impl Cli {
 		};
 		let arg = tg::process::stdio::read::Arg {
 			length: args.length,
-			location: locations,
+			location,
 			position: args.position,
 			size: args.size,
 			streams,

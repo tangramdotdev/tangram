@@ -270,7 +270,7 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let future = self.update_wait_process_tokens_for_location(future.boxed(), location);
+		let future = self.update_wait_process_referents_for_location(future.boxed(), location);
 		Ok(Some((future, region.to_owned())))
 	}
 
@@ -347,11 +347,11 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let future = self.update_wait_process_tokens_for_location(future.boxed(), location);
+		let future = self.update_wait_process_referents_for_location(future.boxed(), location);
 		Ok(Some((future, remote.clone())))
 	}
 
-	fn update_wait_process_tokens_for_location(
+	fn update_wait_process_referents_for_location(
 		&self,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 		location: tg::Location,
@@ -360,23 +360,30 @@ impl Session {
 		async move {
 			let mut output = future.await?;
 			if let Some(output) = &mut output {
-				session.update_wait_output_tokens_for_location(output, &location)?;
+				session.update_wait_output_referents_for_location(output, &location)?;
 			}
 			Ok(output)
 		}
 		.boxed()
 	}
 
-	pub(super) fn update_wait_output_tokens_for_location(
+	pub(super) fn update_wait_output_referents_for_location(
 		&self,
 		output: &mut tg::process::wait::Output,
 		location: &tg::Location,
 	) -> tg::Result<()> {
-		if let Some(tg::Either::Right(error)) = &mut output.error {
-			self.update_tokens_for_location(&mut error.options.tokens, location)?;
+		if let Some(error) = &mut output.error {
+			match error {
+				tg::Either::Left(error) => {
+					self.update_error_data_referents_for_location(error, location)?;
+				},
+				tg::Either::Right(error) => {
+					self.update_referent_options_for_location(&mut error.options, location)?;
+				},
+			}
 		}
 		if let Some(value) = &mut output.output {
-			self.update_value_data_tokens_for_location(value, location)?;
+			self.update_value_data_referents_for_location(value, location)?;
 		}
 		Ok(())
 	}

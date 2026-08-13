@@ -39,7 +39,11 @@ failure (tg process children --local $process | complete) "incomplete local chil
 
 # The default location order should fall through to the remote.
 let children = tg process children $process | from json
-assert equal $children $remote_children "the children should be read from the remote"
+let remote_child = $remote_children | first | get process
+let child = $children | first | get process
+assert equal ($child | split row '?' | first) ($remote_child | split row '?' | first) "the child process should be read from the remote"
+assert ($remote_child | str contains '?location=local') "the remote should describe its child as local"
+assert ($child | str contains '?location=remote') "the local server should describe the remote child as remote"
 
 # Complete the pull and read the authoritative local children list.
 tg checkpoint continue sync.get.store.process $watch 0

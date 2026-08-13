@@ -82,10 +82,13 @@ impl Session {
 			return Ok(None);
 		}
 		let token = self.create_read_token(&id)?;
-		let output = tg::get::Output {
+		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			referent: tg::Referent::with_node_and_token(tg::get::Node::Id(id), token),
+			tokens: tg::authorization::Tokens::with_local(token),
+			..tg::referent::Options::default()
 		};
+		let referent = tg::Referent::new(tg::get::Node::Id(id), options);
+		let output = tg::get::Output { referent };
 
 		Ok(Some(output))
 	}
@@ -141,7 +144,7 @@ impl Session {
 					) {
 						output.referent.options.tokens.remove_local();
 					}
-					let region = match output.location.as_ref() {
+					let region = match output.referent.options.location.as_ref() {
 						Some(tg::Location::Local(local)) => local.region.clone(),
 						_ => None,
 					};
@@ -149,11 +152,10 @@ impl Session {
 						name: remote.name.clone(),
 						region,
 					});
-					self.update_tokens_for_location(
-						&mut output.referent.options.tokens,
+					self.update_referent_options_for_location(
+						&mut output.referent.options,
 						&location,
 					)?;
-					output.location = Some(location);
 				}
 				if let Some(output) = &output
 					&& !matches!(output.referent.node, tg::get::Node::Id(_))
@@ -190,7 +192,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		if let Some(output) = &mut output {
-			let region = match output.location.as_ref() {
+			let region = match output.referent.options.location.as_ref() {
 				Some(tg::Location::Local(local)) => local.region.clone(),
 				_ => None,
 			};
@@ -198,8 +200,7 @@ impl Session {
 				name: remote.name.clone(),
 				region,
 			});
-			self.update_tokens_for_location(&mut output.referent.options.tokens, &location)?;
-			output.location = Some(location);
+			self.update_referent_options_for_location(&mut output.referent.options, &location)?;
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))

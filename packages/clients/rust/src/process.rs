@@ -153,6 +153,7 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let options = tg::process::Options {
+			location: referent.options.location.map(Into::into),
 			tokens: referent.options.tokens,
 			..Default::default()
 		};
@@ -317,6 +318,10 @@ impl<O> Process<O> {
 		H: tg::Handle,
 	{
 		if let Some(state) = self.state.read().unwrap().clone() {
+			let location = self.location().and_then(|location| location.to_location());
+			state.inherit_location(location.as_ref());
+			let tokens = self.tokens();
+			state.inherit_tokens(&tokens);
 			return Ok(Some(state));
 		}
 		let Some(id) = self.id().right() else {
@@ -336,11 +341,14 @@ impl<O> Process<O> {
 		if !output.tokens.is_empty() {
 			*self.tokens.write().unwrap() = output.tokens;
 		}
-		if let Some(location) = output.location {
-			self.location.write().unwrap().replace(location.into());
+		let location = output.location;
+		if let Some(location) = &location {
+			self.location
+				.write()
+				.unwrap()
+				.replace(location.clone().into());
 		}
 		let state = tg::process::State::try_from(output.data)?;
-		let location = self.location();
 		state.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		state.inherit_tokens(&tokens);
@@ -445,12 +453,16 @@ impl<O> Process<O> {
 				.await
 				.map_err(|error| tg::error!(!error, "the task panicked"))??;
 			let wait: tg::process::Wait = output.try_into()?;
+			let location = self.location().and_then(|location| location.to_location());
+			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
 			self.detach();
 			return Ok(wait);
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
+			let location = self.location().and_then(|location| location.to_location());
+			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
 			self.detach();
@@ -470,7 +482,12 @@ impl<O> Process<O> {
 				"waiting for an unsandboxed process is not supported"
 			));
 		};
+		let location = arg
+			.location
+			.as_ref()
+			.and_then(tg::location::Arg::to_location);
 		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
+		wait.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		wait.inherit_tokens(&tokens);
 		self.detach();
