@@ -51,46 +51,8 @@ impl Session {
 				let code = code.clone();
 				let state = state.clone();
 				async move {
-					#[derive(db::row::Deserialize)]
-					struct Row {
-						expires_at: i64,
-						provider: String,
-						status: String,
-					}
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							select expires_at, provider, status
-							from logins
-							where code = {p}1;
-						"
-					);
-					let row = transaction
-						.query_optional_into::<Row>(statement.into(), db::params![code.clone()])
+					Self::oauth_github_authorize_with_transaction(transaction, &code, &state, now)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-						.ok_or_else(|| tg::error!("invalid login code"))?;
-					if row.provider != "github" {
-						return Err(tg::error!("invalid login provider").into());
-					}
-					if row.status != "started" {
-						return Err(tg::error!("the login has not started").into());
-					}
-					if now > row.expires_at {
-						return Err(tg::error!("the login has expired").into());
-					}
-					let statement = formatdoc!(
-						"
-							update logins
-							set state = {p}1, updated_at = {p}2
-							where code = {p}3 and status = 'started';
-						"
-					);
-					transaction
-						.execute(statement.into(), db::params![state, now, code])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
@@ -109,6 +71,56 @@ impl Session {
 			.boxed_body();
 
 		Ok(response)
+	}
+
+	async fn oauth_github_authorize_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+		state: &str,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			expires_at: i64,
+			provider: String,
+			status: String,
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select expires_at, provider, status
+				from logins
+				where code = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![code])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement")
+			.ok_or_else(|| tg::error!("invalid login code"))?;
+		if row.provider != "github" {
+			return Err(tg::error!("invalid login provider"));
+		}
+		if row.status != "started" {
+			return Err(tg::error!("the login has not started"));
+		}
+		if now > row.expires_at {
+			return Err(tg::error!("the login has expired"));
+		}
+		let statement = formatdoc!(
+			"
+				update logins
+				set state = {p}1, updated_at = {p}2
+				where code = {p}3 and status = 'started';
+			"
+		);
+		let result = transaction
+			.execute(statement.into(), db::params![state, now, code])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn oauth_github_callback_request(
@@ -200,12 +212,6 @@ impl Session {
 
 	async fn claim_github_login_state(&self, state: &str) -> tg::Result<(String, bool)> {
 		// Claim the login state.
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			claimed_at: Option<i64>,
-			code: String,
-			expires_at: i64,
-		}
 		let now = self.server.clock.unix_timestamp()?;
 		let (code, claimed) = self
 			.server
@@ -213,37 +219,7 @@ impl Session {
 			.run(|transaction| {
 				let state = state.to_owned();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							select claimed_at, expires_at, code
-							from logins
-							where provider = 'github' and state = {p}1;
-						"
-					);
-					let row = transaction
-						.query_optional_into::<Row>(statement.into(), db::params![state.clone()])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-						.ok_or_else(|| tg::error!("invalid login state"))?;
-					if now > row.expires_at {
-						return Err(tg::error!("the login has expired").into());
-					}
-					if row.claimed_at.is_some() {
-						return Ok(ControlFlow::Break((row.code, false)));
-					}
-					let statement = formatdoc!(
-						"
-							update logins
-							set claimed_at = {p}1, updated_at = {p}1
-							where state = {p}2 and provider = 'github' and claimed_at is null;
-						"
-					);
-					let n = transaction
-						.execute(statement.into(), db::params![now, state])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break((row.code, n == 1)))
+					Self::claim_github_login_state_with_transaction(transaction, &state, now).await
 				}
 				.boxed()
 			})
@@ -251,8 +227,71 @@ impl Session {
 		Ok((code, claimed))
 	}
 
+	async fn claim_github_login_state_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		state: &str,
+		now: i64,
+	) -> tg::Result<ControlFlow<(String, bool), crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			claimed_at: Option<i64>,
+			code: String,
+			expires_at: i64,
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select claimed_at, expires_at, code
+				from logins
+				where provider = 'github' and state = {p}1;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![state])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement")
+			.ok_or_else(|| tg::error!("invalid login state"))?;
+		if now > row.expires_at {
+			return Err(tg::error!("the login has expired"));
+		}
+		if row.claimed_at.is_some() {
+			return Ok(ControlFlow::Break((row.code, false)));
+		}
+		let statement = formatdoc!(
+			"
+				update logins
+				set claimed_at = {p}1, updated_at = {p}1
+				where state = {p}2 and provider = 'github' and claimed_at is null;
+			"
+		);
+		let result = transaction
+			.execute(statement.into(), db::params![now, state])
+			.await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break((row.code, n == 1)))
+	}
+
 	async fn login_succeeded(&self, code: &str) -> tg::Result<bool> {
 		// Get the login.
+		let succeeded = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let code = code.to_owned();
+				async move { Self::login_succeeded_with_transaction(transaction, &code).await }
+					.boxed()
+			})
+			.await?;
+
+		Ok(succeeded)
+	}
+
+	async fn login_succeeded_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			error: Option<String>,
@@ -260,37 +299,27 @@ impl Session {
 			token: Option<String>,
 			user: Option<String>,
 		}
-		let row = self
-			.server
-			.database
-			.run(|transaction| {
-				let code = code.to_owned();
-				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-							select error, status, token, "user"
-							from logins
-							where code = {p}1;
-						"#
-					);
-					let row = transaction
-						.query_optional_into::<Row>(statement.into(), db::params![code])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(row))
-				}
-				.boxed()
-			})
-			.await?;
 
-		// Check the login.
-		Ok(row.is_some_and(|row| {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				select error, status, token, "user"
+				from logins
+				where code = {p}1;
+			"#
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![code])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		let succeeded = row.is_some_and(|row| {
 			row.status == "finished"
 				&& row.error.is_none()
 				&& row.token.is_some()
 				&& row.user.is_some()
-		}))
+		});
+
+		Ok(ControlFlow::Break(succeeded))
 	}
 
 	async fn complete_github_login_with_code(
@@ -431,24 +460,35 @@ impl Session {
 				let error = error.clone();
 				let code = code.to_owned();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							update logins
-							set status = 'finished', error = {p}1, updated_at = {p}2
-							where code = {p}3 and status = 'started';
-						"
-					);
-					transaction
-						.execute(statement.into(), db::params![error, now, code])
+					Self::finish_login_with_error_with_transaction(transaction, &code, &error, now)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(())
+	}
+
+	async fn finish_login_with_error_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+		error: &str,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				update logins
+				set status = 'finished', error = {p}1, updated_at = {p}2
+				where code = {p}3 and status = 'started';
+			"
+		);
+		let result = transaction
+			.execute(statement.into(), db::params![error, now, code])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn upsert_github_identity(&self, identity: GithubIdentity) -> tg::Result<()> {
@@ -459,59 +499,68 @@ impl Session {
 			.run(|transaction| {
 				let identity = identity.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-							insert into github_identities (
-								"user", github_user_id, login, name, email, avatar_url, html_url,
-								access_token, refresh_token, token_type, scope, expires_at,
-								refresh_token_expires_at, updated_at
-							)
-							values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9, {p}10, {p}11, {p}12, {p}13, {p}14)
-							on conflict ("user") do update set
-								github_user_id = excluded.github_user_id,
-								login = excluded.login,
-								name = excluded.name,
-								email = excluded.email,
-								avatar_url = excluded.avatar_url,
-								html_url = excluded.html_url,
-								access_token = excluded.access_token,
-								refresh_token = excluded.refresh_token,
-								token_type = excluded.token_type,
-								scope = excluded.scope,
-								expires_at = excluded.expires_at,
-								refresh_token_expires_at = excluded.refresh_token_expires_at,
-								updated_at = excluded.updated_at;
-						"#
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![
-								identity.user.to_string(),
-								identity.github_user_id,
-								identity.login,
-								identity.name,
-								identity.email,
-								identity.avatar_url,
-								identity.html_url,
-								identity.access_token,
-								identity.refresh_token,
-								identity.token_type,
-								identity.scope,
-								identity.expires_at,
-								identity.refresh_token_expires_at,
-								now,
-							],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Self::upsert_github_identity_with_transaction(transaction, &identity, now).await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(())
+	}
+
+	async fn upsert_github_identity_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		identity: &GithubIdentity,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				insert into github_identities (
+					"user", github_user_id, login, name, email, avatar_url, html_url,
+					access_token, refresh_token, token_type, scope, expires_at,
+					refresh_token_expires_at, updated_at
+				)
+				values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6, {p}7, {p}8, {p}9, {p}10, {p}11, {p}12, {p}13, {p}14)
+				on conflict ("user") do update set
+					github_user_id = excluded.github_user_id,
+					login = excluded.login,
+					name = excluded.name,
+					email = excluded.email,
+					avatar_url = excluded.avatar_url,
+					html_url = excluded.html_url,
+					access_token = excluded.access_token,
+					refresh_token = excluded.refresh_token,
+					token_type = excluded.token_type,
+					scope = excluded.scope,
+					expires_at = excluded.expires_at,
+					refresh_token_expires_at = excluded.refresh_token_expires_at,
+					updated_at = excluded.updated_at;
+			"#
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![
+					identity.user.to_string(),
+					identity.github_user_id.clone(),
+					identity.login.clone(),
+					identity.name.clone(),
+					identity.email.clone(),
+					identity.avatar_url.clone(),
+					identity.html_url.clone(),
+					identity.access_token.clone(),
+					identity.refresh_token.clone(),
+					identity.token_type.clone(),
+					identity.scope.clone(),
+					identity.expires_at,
+					identity.refresh_token_expires_at,
+					now,
+				],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 }
 

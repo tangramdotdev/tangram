@@ -1,12 +1,14 @@
 use {
 	crate::{Session, sync::put::State},
+	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::sync::Arc,
+	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
 };
 
+#[derive(Clone)]
 pub struct Node {
 	pub descendants: bool,
 	pub eager: bool,
@@ -146,24 +148,60 @@ impl Session {
 		state: &State,
 		node: &Node,
 	) -> tg::Result<Option<Output>> {
-		let mut connection = self
-			.server
+		let children_enabled = match node.id.kind() {
+			tg::id::Kind::Group => state.arg.group_children,
+			tg::id::Kind::Organization => state.arg.organization_children,
+			tg::id::Kind::Tag => state.arg.tag_targets,
+			tg::id::Kind::User => state.arg.user_children,
+			_ => false,
+		};
+		let node = node.clone();
+		let session = self.clone();
+		self.server
 			.database
-			.connection()
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let node = node.clone();
+				let session = session.clone();
+				async move {
+					session
+						.sync_put_database_read_with_transaction(
+							transaction,
+							&node,
+							children_enabled,
+						)
+						.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(&transaction, &node.id).await?
-		else {
-			return Ok(None);
+	}
+
+	async fn sync_put_database_read_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		node: &Node,
+		children_enabled: bool,
+	) -> tg::Result<ControlFlow<Option<Output>, crate::database::Error>> {
+		let specifier =
+			match Self::try_get_specifier_for_id_with_transaction(transaction, &node.id).await? {
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let children = if node.descendants {
-			self.sync_put_database_read_children(state, &transaction, &node.id)
+			match self
+				.sync_put_database_read_children_with_transaction(
+					transaction,
+					&node.id,
+					children_enabled,
+				)
 				.await?
+			{
+				ControlFlow::Break(children) => children,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		} else {
 			Vec::new()
 		};
@@ -171,9 +209,12 @@ impl Session {
 			Some(match node.id.kind() {
 				tg::id::Kind::Group => {
 					let id = node.id.clone().try_into()?;
-					let group = Self::try_get_group_with_transaction(&transaction, &id)
-						.await?
-						.ok_or_else(|| tg::error!("failed to find the group"))?;
+					let group = match Self::try_get_group_with_transaction(transaction, &id).await?
+					{
+						ControlFlow::Break(group) => group,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+					.ok_or_else(|| tg::error!("failed to find the group"))?;
 					tg::sync::PutNodeMessage::Group(tg::sync::PutNodeGroupMessage {
 						id,
 						name: group.name,
@@ -183,10 +224,16 @@ impl Session {
 				},
 				tg::id::Kind::Organization => {
 					let id = node.id.clone().try_into()?;
-					let organization =
-						Self::try_get_organization_with_transaction(&transaction, &id)
-							.await?
-							.ok_or_else(|| tg::error!("failed to find the organization"))?;
+					let organization = match Self::try_get_organization_with_transaction(
+						transaction,
+						&id,
+					)
+					.await?
+					{
+						ControlFlow::Break(organization) => organization,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+					.ok_or_else(|| tg::error!("failed to find the organization"))?;
 					tg::sync::PutNodeMessage::Organization(tg::sync::PutNodeOrganizationMessage {
 						id,
 						name: organization.name,
@@ -195,7 +242,10 @@ impl Session {
 				},
 				tg::id::Kind::Tag => {
 					let id = node.id.clone().try_into()?;
-					let data = Self::get_tag_data_with_transaction(&transaction, &id).await?;
+					let data = match Self::get_tag_data_with_transaction(transaction, &id).await? {
+						ControlFlow::Break(data) => data,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
 					let id = data.id;
 					let target = match data.target {
 						tg::tag::data::Target::Object(id) => id.into(),
@@ -211,9 +261,11 @@ impl Session {
 				},
 				tg::id::Kind::User => {
 					let id = node.id.clone().try_into()?;
-					let user = Self::try_get_user_with_transaction(&transaction, &id)
-						.await?
-						.ok_or_else(|| tg::error!("failed to find the user"))?;
+					let user = match Self::try_get_user_with_transaction(transaction, &id).await? {
+						ControlFlow::Break(user) => user,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+					.ok_or_else(|| tg::error!("failed to find the user"))?;
 					tg::sync::PutNodeMessage::User(tg::sync::PutNodeUserMessage {
 						emails: user.emails,
 						id,
@@ -228,40 +280,39 @@ impl Session {
 		};
 		let output = Output { children, message };
 
-		Ok(Some(output))
+		Ok(ControlFlow::Break(Some(output)))
 	}
 
-	async fn sync_put_database_read_children(
+	async fn sync_put_database_read_children_with_transaction(
 		&self,
-		state: &State,
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::Id,
-	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
-		let enabled = match id.kind() {
-			tg::id::Kind::Group => state.arg.group_children,
-			tg::id::Kind::Organization => state.arg.organization_children,
-			tg::id::Kind::Tag => state.arg.tag_targets,
-			tg::id::Kind::User => state.arg.user_children,
-			_ => false,
-		};
+		enabled: bool,
+	) -> tg::Result<ControlFlow<Vec<tg::Referent<tg::Id>>, crate::database::Error>> {
 		if !enabled {
-			return Ok(Vec::new());
+			return Ok(ControlFlow::Break(Vec::new()));
 		}
 		if id.kind() == tg::id::Kind::Tag {
 			let tag = id.clone().try_into()?;
-			let target = Self::get_tag_data_with_transaction(transaction, &tag)
-				.await?
-				.target;
+			let data = match Self::get_tag_data_with_transaction(transaction, &tag).await? {
+				ControlFlow::Break(data) => data,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let target = data.target;
 			let id = match target {
 				tg::tag::data::Target::Object(id) => id.into(),
 				tg::tag::data::Target::Process(id) => id.into(),
 			};
-			let token = self
+			let token = match self
 				.create_tag_target_token_with_transaction(transaction, &tag, &id)
-				.await?;
+				.await?
+			{
+				ControlFlow::Break(token) => token,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 			let node = tg::Referent::with_node_and_token(id, token);
 
-			return Ok(vec![node]);
+			return Ok(ControlFlow::Break(vec![node]));
 		}
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -277,16 +328,16 @@ impl Session {
 				order by id;
 			"
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let children = rows
 			.into_iter()
 			.map(|row| tg::Referent::with_node(row.id))
 			.collect();
 
-		Ok(children)
+		Ok(ControlFlow::Break(children))
 	}
 
 	async fn sync_put_database_missing(&self, state: &State, id: &tg::Id) {

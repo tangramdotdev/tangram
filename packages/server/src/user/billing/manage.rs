@@ -45,78 +45,8 @@ impl Session {
 				let stripe = stripe.clone();
 				let user = user.clone();
 				async move {
-					#[derive(db::row::Deserialize)]
-					struct Row {
-						name: String,
-						stripe_customer_id: Option<String>,
-					}
-
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							select users.name, users.stripe_customer_id
-							from users
-							where users.id = {p}1;
-						"
-					);
-					let row = transaction
-						.query_one_into::<Row>(statement.into(), db::params![user.to_string()])
+					Self::manage_user_billing_local_with_transaction(transaction, &user, &stripe)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to get the user"))?;
-					let stripe_customer_id = if let Some(stripe_customer_id) =
-						row.stripe_customer_id
-					{
-						stripe_customer_id
-					} else {
-						#[derive(db::row::Deserialize)]
-						struct EmailRow {
-							email: String,
-						}
-
-						let statement = formatdoc!(
-							"
-									select email
-									from user_emails
-									where \"user\" = {p}1
-									order by email
-									limit 1;
-								"
-						);
-						let email = transaction
-							.query_optional_into::<EmailRow>(
-								statement.into(),
-								db::params![user.to_string()],
-							)
-							.await
-							.map_err(|error| tg::error!(!error, "failed to get the user email"))?
-							.map(|row| row.email);
-						let metadata =
-							BTreeMap::from([("tangram_user_id".to_owned(), user.to_string())]);
-						let stripe_customer_id = stripe
-							.create_customer(CreateCustomerArg {
-								email,
-								idempotency_key: format!("tangram-user-{user}"),
-								metadata,
-								name: row.name,
-							})
-							.await?;
-
-						let statement =
-							format!("update users set stripe_customer_id = {p}1 where id = {p}2;");
-						transaction
-							.execute(
-								statement.into(),
-								db::params![stripe_customer_id.clone(), user.to_string()],
-							)
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to manage the Stripe customer ID")
-							})?;
-
-						stripe_customer_id
-					};
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(stripe_customer_id))
 				}
 				.boxed()
 			})
@@ -129,6 +59,76 @@ impl Session {
 		let output = tg::user::billing::manage::Output { url };
 
 		Ok(output)
+	}
+
+	async fn manage_user_billing_local_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		user: &tg::user::Id,
+		stripe: &crate::billing::Stripe,
+	) -> tg::Result<ControlFlow<String, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			name: String,
+			stripe_customer_id: Option<String>,
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select users.name, users.stripe_customer_id
+				from users
+				where users.id = {p}1;
+			"
+		);
+		let result = transaction
+			.query_one_into::<Row>(statement.into(), db::params![user.to_string()])
+			.await;
+		let row = crate::database::retry!(result, "failed to get the user");
+		let stripe_customer_id = if let Some(stripe_customer_id) = row.stripe_customer_id {
+			stripe_customer_id
+		} else {
+			#[derive(db::row::Deserialize)]
+			struct EmailRow {
+				email: String,
+			}
+
+			let statement = formatdoc!(
+				"
+					select email
+					from user_emails
+					where \"user\" = {p}1
+					order by email
+					limit 1;
+				"
+			);
+			let result = transaction
+				.query_optional_into::<EmailRow>(statement.into(), db::params![user.to_string()])
+				.await;
+			let email = crate::database::retry!(result, "failed to get the user email")
+				.map(|row| row.email);
+			let metadata = BTreeMap::from([("tangram_user_id".to_owned(), user.to_string())]);
+			let stripe_customer_id = stripe
+				.create_customer(CreateCustomerArg {
+					email,
+					idempotency_key: format!("tangram-user-{user}"),
+					metadata,
+					name: row.name,
+				})
+				.await?;
+
+			let statement = format!("update users set stripe_customer_id = {p}1 where id = {p}2;");
+			let result = transaction
+				.execute(
+					statement.into(),
+					db::params![stripe_customer_id.clone(), user.to_string()],
+				)
+				.await;
+			crate::database::retry!(result, "failed to manage the Stripe customer ID");
+
+			stripe_customer_id
+		};
+
+		Ok(ControlFlow::Break(stripe_customer_id))
 	}
 
 	async fn manage_user_billing_remote(

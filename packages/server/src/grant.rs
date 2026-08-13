@@ -58,27 +58,47 @@ impl Session {
 			.server
 			.database
 			.run(|transaction| {
-				let mut arg = arg.clone();
+				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					arg.permissions = tg::Either::Left(permissions);
-					let mut batch = tangram_index::batch::Arg::default();
-					let (grant, inserted) = session
-						.create_grant_with_transaction(transaction, arg, &mut batch)
-						.await?;
-					if !inserted {
-						return Err(tg::error!("the grant already exists").into());
-					}
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(grant))
+						.create_grant_local_with_transaction(transaction, arg, permissions)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(grant)
+	}
+
+	async fn create_grant_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		mut arg: tg::grant::create::Arg,
+		permissions: tg::authorization::permission::Set,
+	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
+		arg.permissions = tg::Either::Left(permissions);
+		let mut batch = tangram_index::batch::Arg::default();
+		let (grant, inserted) = match self
+			.create_grant_with_transaction(transaction, arg, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if !inserted {
+			return Err(tg::error!("the grant already exists"));
+		}
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(grant))
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
@@ -109,19 +129,12 @@ impl Session {
 			.server
 			.database
 			.run(|transaction| {
-				let mut arg = arg.clone();
+				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					arg.permissions = tg::Either::Left(permissions);
-					let mut batch = tangram_index::batch::Arg::default();
-					let output = session
-						.delete_grant_with_transaction(transaction, arg, &mut batch)
-						.await?;
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.delete_grant_local_with_transaction(transaction, arg, permissions)
+						.await
 				}
 				.boxed()
 			})
@@ -129,19 +142,52 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn delete_grant_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		mut arg: tg::grant::delete::Arg,
+		permissions: tg::authorization::permission::Set,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		arg.permissions = tg::Either::Left(permissions);
+		let mut batch = tangram_index::batch::Arg::default();
+		let output = match self
+			.delete_grant_with_transaction(transaction, arg, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(output))
+	}
+
 	pub(crate) async fn create_grant_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::grant::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<(tg::Grant, bool)> {
-		let resource = Self::resolve_resource_with_transaction(transaction, &arg.resource.node)
-			.await?
+	) -> tg::Result<ControlFlow<(tg::Grant, bool), crate::database::Error>> {
+		let resource =
+			match Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await? {
+				ControlFlow::Break(resource) => resource,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
 		tangram_index::authorize::validate(&resource, permissions)?;
-		let subject = Self::resolve_subject_with_transaction(transaction, &arg.subject)
-			.await?
+		let subject =
+			match Self::resolve_subject_with_transaction(transaction, &arg.subject).await? {
+				ControlFlow::Break(subject) => subject,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			.ok_or_else(|| tg::error!("failed to find the subject"))?;
 		let created_at = self.server.clock.unix_timestamp()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
@@ -165,7 +211,7 @@ impl Session {
 				where resource = {p}1 and subject = {p}2 and creator = {p}3;
 			"
 		);
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(
 				statement.into(),
 				db::params![
@@ -174,13 +220,13 @@ impl Session {
 					creator_string.clone()
 				],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let (created_at, output_creator, permissions, changed) = if let Some(row) = row {
 			let mut updated_permissions = row.permissions;
 			updated_permissions.insert(permissions);
 			if updated_permissions == row.permissions {
-				return Ok((
+				return Ok(ControlFlow::Break((
 					tg::Grant {
 						created_at: row.created_at,
 						creator: Some(row.creator),
@@ -189,7 +235,7 @@ impl Session {
 						resource,
 					},
 					false,
-				));
+				)));
 			}
 			let statement = formatdoc!(
 				"
@@ -198,7 +244,7 @@ impl Session {
 					where resource = {p}1 and subject = {p}2 and creator = {p}4;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -208,8 +254,8 @@ impl Session {
 						creator_string.clone()
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 			(row.created_at, Some(row.creator), updated_permissions, true)
 		} else {
 			let statement = formatdoc!(
@@ -218,7 +264,7 @@ impl Session {
 					values ({p}1, {p}2, {p}3, {p}4, {p}5);
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -229,8 +275,8 @@ impl Session {
 						creator_string
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 			(created_at, Some(creator.clone()), permissions, true)
 		};
 		batch.items.push(tangram_index::batch::Item::PutGrant(
@@ -244,7 +290,7 @@ impl Session {
 				time_to_touch: None,
 			},
 		));
-		Ok((
+		Ok(ControlFlow::Break((
 			tg::Grant {
 				created_at,
 				creator: output_creator,
@@ -253,7 +299,7 @@ impl Session {
 				resource,
 			},
 			changed,
-		))
+		)))
 	}
 
 	pub(crate) async fn delete_grant_with_transaction(
@@ -261,18 +307,24 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::grant::delete::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Option<()>> {
-		let Some(resource) =
-			Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await?
-		else {
-			return Ok(None);
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		let resource =
+			match Self::resolve_resource_with_transaction(transaction, &arg.resource.node).await? {
+				ControlFlow::Break(resource) => resource,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(resource) = resource else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
 		tangram_index::authorize::validate(&resource, permissions)?;
-		let Some(subject) =
-			Self::resolve_subject_with_transaction(transaction, &arg.subject).await?
-		else {
-			return Ok(None);
+		let subject =
+			match Self::resolve_subject_with_transaction(transaction, &arg.subject).await? {
+				ControlFlow::Break(subject) => subject,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(subject) = subject else {
+			return Ok(ControlFlow::Break(None));
 		};
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
@@ -292,7 +344,7 @@ impl Session {
 				where resource = {p}1 and subject = {p}2 and creator = {p}3;
 			"
 		);
-		let Some(row) = transaction
+		let result = transaction
 			.query_optional_into::<Row>(
 				statement.into(),
 				db::params![
@@ -301,15 +353,15 @@ impl Session {
 					creator_string.clone()
 				],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let mut remaining = row.permissions;
 		remaining.remove(permissions);
 		if remaining == row.permissions {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 		if remaining.is_empty() {
 			let statement = formatdoc!(
@@ -318,7 +370,7 @@ impl Session {
 					where resource = {p}1 and subject = {p}2 and creator = {p}3;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -327,8 +379,8 @@ impl Session {
 						creator_string.clone()
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 		} else {
 			let statement = formatdoc!(
 				"
@@ -337,7 +389,7 @@ impl Session {
 					where resource = {p}1 and subject = {p}2 and creator = {p}4;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -347,8 +399,8 @@ impl Session {
 						creator_string.clone()
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
 		let mut deleted = row.permissions.empty_like();
 		for permission in row.permissions.iter() {
@@ -367,32 +419,32 @@ impl Session {
 				},
 			));
 		}
-		Ok(Some(()))
+		Ok(ControlFlow::Break(Some(())))
 	}
 
 	pub(crate) async fn resolve_resource(
 		&self,
 		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<tg::Id> {
-		let mut connection = self
+		let resource = resource.clone();
+		let resource = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		Self::resolve_resource_with_transaction(&transaction, resource)
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let resource = resource.clone();
+				async move { Self::resolve_resource_with_transaction(transaction, &resource).await }
+					.boxed()
+			})
 			.await?
-			.ok_or_else(|| tg::error!("failed to find the resource"))
+			.ok_or_else(|| tg::error!("failed to find the resource"))?;
+
+		Ok(resource)
 	}
 
 	async fn resolve_resource_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Selector<tg::Id>,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<ControlFlow<Option<tg::Id>, crate::database::Error>> {
 		match resource {
 			tg::Selector::Id(id) => {
 				// Objects, processes, and sandboxes do not have specifiers, so their IDs resolve directly.
@@ -400,13 +452,16 @@ impl Session {
 					|| id.kind() == tg::id::Kind::Sandbox
 					|| tg::object::Id::try_from(id.clone()).is_ok()
 				{
-					return Ok(Some(id.clone()));
+					return Ok(ControlFlow::Break(Some(id.clone())));
 				}
 				let specifier =
-					Self::try_get_specifier_for_id_with_transaction(transaction, id).await?;
+					match Self::try_get_specifier_for_id_with_transaction(transaction, id).await? {
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
 				let id = specifier.map(|_| id.clone());
 
-				Ok(id)
+				Ok(ControlFlow::Break(id))
 			},
 			tg::Selector::Specifier(specifier) => {
 				Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await
@@ -528,15 +583,16 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::Id,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
-		self.delete_node_grants_batch_with_transaction(
-			transaction,
-			std::slice::from_ref(id),
-			batch,
-		)
-		.await?;
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		match self
+			.delete_node_grants_batch_with_transaction(transaction, std::slice::from_ref(id), batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn delete_node_grants_batch_with_transaction(
@@ -544,9 +600,9 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		ids: &[tg::Id],
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		if ids.is_empty() {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 
 		#[derive(db::row::Deserialize)]
@@ -577,10 +633,10 @@ impl Session {
 				where resource in ({placeholders}) or subject in ({placeholders});
 			"
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(statement.into(), params.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		for row in rows {
 			batch.items.push(tangram_index::batch::Item::DeleteGrant(
 				tangram_index::grant::delete::Arg {
@@ -598,11 +654,10 @@ impl Session {
 				where resource in ({placeholders}) or subject in ({placeholders});
 			"
 		);
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(())
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn list_grants(
@@ -643,17 +698,7 @@ impl Session {
 			if !matches!(self.context.principal, tg::Principal::Root) {
 				return Err(tg::error!("unauthorized"));
 			}
-			let mut connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let data = Self::list_resource_grants_with_transaction(&transaction, id).await?;
+			let data = self.list_resource_grants(id).await?;
 			return Ok(Some(tg::grant::list::Output { data }));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
@@ -674,18 +719,22 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let data = Self::list_resource_grants_with_transaction(&transaction, &id).await?;
+		let data = self.list_resource_grants(&id).await?;
 		Ok(Some(tg::grant::list::Output { data }))
+	}
+
+	async fn list_resource_grants(&self, resource: &tg::Id) -> tg::Result<Vec<tg::Grant>> {
+		let resource = resource.clone();
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let resource = resource.clone();
+				async move {
+					Self::list_resource_grants_with_transaction(transaction, &resource).await
+				}
+				.boxed()
+			})
+			.await
 	}
 
 	async fn list_subject_grants_local(
@@ -693,18 +742,7 @@ impl Session {
 		subject: tg::authorization::subject::Selector,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Resolve the subject.
-		let subject =
-			{
-				let mut connection =
-					self.server.database.connection().await.map_err(|error| {
-						tg::error!(!error, "failed to get a database connection")
-					})?;
-				let transaction = connection
-					.transaction()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::resolve_subject_with_transaction(&transaction, &subject).await?
-			};
+		let subject = self.try_resolve_subject(&subject).await?;
 		let Some(subject) = subject else {
 			return Ok(None);
 		};
@@ -751,19 +789,41 @@ impl Session {
 		}
 
 		// List the grants.
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let data = Self::list_subject_grants_with_transaction(&transaction, &subject).await?;
+		let data = self.list_subject_grants(&subject).await?;
 
 		Ok(Some(tg::grant::list::Output { data }))
+	}
+
+	async fn try_resolve_subject(
+		&self,
+		subject: &tg::authorization::subject::Selector,
+	) -> tg::Result<Option<tg::authorization::Subject>> {
+		let subject = subject.clone();
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let subject = subject.clone();
+				async move { Self::resolve_subject_with_transaction(transaction, &subject).await }
+					.boxed()
+			})
+			.await
+	}
+
+	async fn list_subject_grants(
+		&self,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<Vec<tg::Grant>> {
+		let subject = subject.clone();
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let subject = subject.clone();
+				async move {
+					Self::list_subject_grants_with_transaction(transaction, &subject).await
+				}
+				.boxed()
+			})
+			.await
 	}
 
 	async fn list_grants_remote(
@@ -826,7 +886,7 @@ impl Session {
 	pub(crate) async fn list_resource_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<tg::Grant>> {
+	) -> tg::Result<ControlFlow<Vec<tg::Grant>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
@@ -846,11 +906,11 @@ impl Session {
 				order by subject, creator, permissions;
 			"
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(statement.into(), db::params![resource.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(rows
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let grants = rows
 			.into_iter()
 			.map(|row| tg::Grant {
 				created_at: row.created_at,
@@ -859,13 +919,15 @@ impl Session {
 				subject: row.subject,
 				resource: resource.clone(),
 			})
-			.collect())
+			.collect();
+
+		Ok(ControlFlow::Break(grants))
 	}
 
 	async fn list_subject_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<Vec<tg::Grant>> {
+	) -> tg::Result<ControlFlow<Vec<tg::Grant>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			created_at: i64,
@@ -885,11 +947,11 @@ impl Session {
 				order by resource, creator, permissions;
 			"
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(statement.into(), db::params![subject.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		Ok(rows
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let grants = rows
 			.into_iter()
 			.map(|row| tg::Grant {
 				created_at: row.created_at,
@@ -898,38 +960,46 @@ impl Session {
 				subject: subject.clone(),
 				resource: row.resource,
 			})
-			.collect())
+			.collect();
+
+		Ok(ControlFlow::Break(grants))
 	}
 
 	pub(crate) async fn resolve_subject_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		subject: &tg::authorization::subject::Selector,
-	) -> tg::Result<Option<tg::authorization::Subject>> {
+	) -> tg::Result<ControlFlow<Option<tg::authorization::Subject>, crate::database::Error>> {
 		let subject = match subject {
 			tg::authorization::subject::Selector::Subject(subject) => match subject {
 				tg::authorization::Subject::Group(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_for_id_with_transaction(
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
 					.await?
-					.is_none()
 					{
-						return Ok(None);
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					if specifier.is_none() {
+						return Ok(ControlFlow::Break(None));
 					}
 					tg::authorization::Subject::Group(id)
 				},
 				tg::authorization::Subject::Organization(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_for_id_with_transaction(
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
 					.await?
-					.is_none()
 					{
-						return Ok(None);
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					if specifier.is_none() {
+						return Ok(ControlFlow::Break(None));
 					}
 					tg::authorization::Subject::Organization(id)
 				},
@@ -946,23 +1016,31 @@ impl Session {
 				},
 				tg::authorization::Subject::User(id) => {
 					let id = id.clone();
-					if Self::try_get_specifier_for_id_with_transaction(
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
 						transaction,
 						&id.clone().into(),
 					)
 					.await?
-					.is_none()
 					{
-						return Ok(None);
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					if specifier.is_none() {
+						return Ok(ControlFlow::Break(None));
 					}
 					tg::authorization::Subject::User(id)
 				},
 			},
 			tg::authorization::subject::Selector::Specifier(specifier) => {
-				let Some(id) =
-					Self::try_get_id_for_specifier_with_transaction(transaction, specifier).await?
-				else {
-					return Ok(None);
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				let Some(id) = id else {
+					return Ok(ControlFlow::Break(None));
 				};
 				match id.kind() {
 					tg::id::Kind::Group => tg::authorization::Subject::Group(id.try_into()?),
@@ -970,11 +1048,12 @@ impl Session {
 						tg::authorization::Subject::Organization(id.try_into()?)
 					},
 					tg::id::Kind::User => tg::authorization::Subject::User(id.try_into()?),
-					_ => return Ok(None),
+					_ => return Ok(ControlFlow::Break(None)),
 				}
 			},
 		};
-		Ok(Some(subject))
+
+		Ok(ControlFlow::Break(Some(subject)))
 	}
 
 	pub(crate) async fn create_grant_request(

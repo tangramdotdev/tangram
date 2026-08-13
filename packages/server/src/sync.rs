@@ -254,10 +254,12 @@ impl Session {
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
 			let sender = put_output_sender.clone();
 			async move {
-				let result = session
-					.sync_put(arg, graph, stream, put_output_sender)
-					.instrument(tracing::debug_span!("put"))
-					.await;
+				let result = Box::pin(
+					session
+						.sync_put(arg, graph, stream, put_output_sender)
+						.instrument(tracing::debug_span!("put")),
+				)
+				.await;
 				match result {
 					Ok(()) => Ok(()),
 					Err(error) => {

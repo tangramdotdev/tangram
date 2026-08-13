@@ -1,6 +1,6 @@
 use {
 	crate::Server,
-	futures::{Stream, stream::BoxStream},
+	futures::{FutureExt as _, Stream, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
@@ -72,11 +72,10 @@ impl tg::handle::Process for Server {
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {
-		Box::pin(
-			self.session(&self.context)
-				.try_get_process_control_stream_with_context(arg, stream),
-		)
-		.await
+		self.session(&self.context)
+			.try_get_process_control_stream_with_context(arg, stream)
+			.boxed()
+			.await
 	}
 
 	async fn try_signal_process(

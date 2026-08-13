@@ -25,31 +25,37 @@ impl Session {
 			.run(|transaction| {
 				let token = token.clone();
 				let user = user.clone();
-				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-							delete from user_tokens
-							where
-								token = {p}1
-								and "user" = {p}2;
-						"#
-					);
-					let n = transaction
-						.execute(statement.into(), db::params![token, user])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					if n != 1 {
-						return Err(tg::error!("invalid session").into());
-					}
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
-				}
-				.boxed()
+				async move { Self::logout_with_transaction(transaction, &token, &user).await }
+					.boxed()
 			})
 			.await?;
 
 		Ok(())
+	}
+
+	async fn logout_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		token: &str,
+		user: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				delete from user_tokens
+				where
+					token = {p}1
+					and "user" = {p}2;
+			"#
+		);
+		let result = transaction
+			.execute(statement.into(), db::params![token, user])
+			.await;
+		let n = crate::database::retry!(result, "failed to execute the statement");
+		if n != 1 {
+			return Err(tg::error!("invalid session"));
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn logout_request(

@@ -76,86 +76,121 @@ impl Session {
 				let session = session.clone();
 				let tag_permissions = tag_permissions.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let mut tag_accounts = BTreeMap::new();
-					let mut namespace =
-						Self::sync_get_database_namespace_with_transaction(transaction, &nodes)
-							.await?;
 					session
-						.sync_get_database_replace_nodes_with_transaction(
+						.sync_get_database_with_transaction(
 							transaction,
 							&nodes,
-							&mut namespace,
 							&replacement_ids,
-							&mut batch,
+							&tag_permissions,
+							touched_at,
 						)
-						.await?;
-					for node in &nodes {
-						if let tg::sync::PutNodeMessage::Tag(message) = node {
-							let account = session
-								.usage_account_for_specifier_with_transaction(
-									transaction,
-									&message.specifier,
-								)
-								.await?;
-							tag_accounts.insert(message.id.clone(), account);
-						}
-						let created = session
-							.sync_get_database_node_with_transaction(
-								transaction,
-								node,
-								&mut namespace,
-								&tag_accounts,
-								&tag_permissions,
-								&mut batch,
-							)
-							.await?;
-						if created
-							&& let Some(arg) = session.sync_get_create_temporary_grant(
-								&Self::sync_get_database_node_id(node)?,
-							)? {
-							batch.items.push(tangram_index::batch::Item::PutGrant(arg));
-						}
-					}
-					for node in &nodes {
-						let tg::sync::PutNodeMessage::Tag(message) = node else {
-							continue;
-						};
-						let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
-							continue;
-						};
-						let item = if let Ok(object) = message.target.clone().try_into() {
-							tangram_index::batch::Item::PutAccountObject(
-								tangram_index::usage::storage::put::ObjectArg {
-									account,
-									object,
-									touched_at,
-								},
-							)
-						} else if let Ok(process) = message.target.clone().try_into() {
-							tangram_index::batch::Item::PutAccountProcess(
-								tangram_index::usage::storage::put::ProcessArg {
-									account,
-									process,
-									touched_at,
-								},
-							)
-						} else {
-							return Err(tg::error!("invalid tag target").into());
-						};
-						batch.items.push(item);
-					}
-					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 
 		Ok(())
+	}
+
+	async fn sync_get_database_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
+		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let mut tag_accounts = BTreeMap::new();
+		let mut namespace =
+			match Self::sync_get_database_namespace_with_transaction(transaction, nodes).await? {
+				ControlFlow::Break(namespace) => namespace,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		match self
+			.sync_get_database_replace_nodes_with_transaction(
+				transaction,
+				nodes,
+				&mut namespace,
+				replacement_ids,
+				&mut batch,
+			)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		for node in nodes {
+			if let tg::sync::PutNodeMessage::Tag(message) = node {
+				let account = match self
+					.usage_account_for_specifier_with_transaction(transaction, &message.specifier)
+					.await?
+				{
+					ControlFlow::Break(account) => account,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				tag_accounts.insert(message.id.clone(), account);
+			}
+			let created = match self
+				.sync_get_database_node_with_transaction(
+					transaction,
+					node,
+					&mut namespace,
+					&tag_accounts,
+					tag_permissions,
+					&mut batch,
+				)
+				.await?
+			{
+				ControlFlow::Break(created) => created,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			if created
+				&& let Some(arg) =
+					self.sync_get_create_temporary_grant(&Self::sync_get_database_node_id(node)?)?
+			{
+				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
+			}
+		}
+		for node in nodes {
+			let tg::sync::PutNodeMessage::Tag(message) = node else {
+				continue;
+			};
+			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
+				continue;
+			};
+			let item = if let Ok(object) = message.target.clone().try_into() {
+				tangram_index::batch::Item::PutAccountObject(
+					tangram_index::usage::storage::put::ObjectArg {
+						account,
+						object,
+						touched_at,
+					},
+				)
+			} else if let Ok(process) = message.target.clone().try_into() {
+				tangram_index::batch::Item::PutAccountProcess(
+					tangram_index::usage::storage::put::ProcessArg {
+						account,
+						process,
+						touched_at,
+					},
+				)
+			} else {
+				return Err(tg::error!("invalid tag target"));
+			};
+			batch.items.push(item);
+		}
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn sync_get_database_authorize(
@@ -435,7 +470,7 @@ impl Session {
 	async fn sync_get_database_namespace_with_transaction(
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
-	) -> tg::Result<Namespace> {
+	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
 		// Collect the relevant IDs and specifiers.
 		let mut ids = BTreeSet::new();
 		let mut specifiers = BTreeSet::new();
@@ -452,23 +487,31 @@ impl Session {
 		// Load the namespace in batches.
 		let mut namespace = Namespace::default();
 		let ids = ids.into_iter().collect::<Vec<_>>();
-		Self::sync_get_database_load_namespace_column_with_transaction(
+		match Self::sync_get_database_load_namespace_column_with_transaction(
 			transaction,
 			&mut namespace,
 			"id",
 			&ids,
 		)
-		.await?;
+		.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let specifiers = specifiers.into_iter().collect::<Vec<_>>();
-		Self::sync_get_database_load_namespace_column_with_transaction(
+		match Self::sync_get_database_load_namespace_column_with_transaction(
 			transaction,
 			&mut namespace,
 			"specifier",
 			&specifiers,
 		)
-		.await?;
+		.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
-		Ok(namespace)
+		Ok(ControlFlow::Break(namespace))
 	}
 
 	async fn sync_get_database_load_namespace_column_with_transaction(
@@ -476,7 +519,7 @@ impl Session {
 		namespace: &mut Namespace,
 		column: &str,
 		values: &[String],
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -499,16 +542,16 @@ impl Session {
 				"
 			);
 			let params = values.iter().cloned().map(db::Value::from).collect();
-			let rows = transaction
+			let result = transaction
 				.query_all_into::<Row>(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			let rows = crate::database::retry!(result, "failed to execute the statement");
 			for row in rows {
 				namespace.insert(row.id, row.specifier);
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn sync_get_database_replace_nodes_with_transaction(
@@ -518,7 +561,7 @@ impl Session {
 		namespace: &mut Namespace,
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		// Find the current conflicts.
 		let mut roots = BTreeMap::new();
 		for node in nodes {
@@ -539,15 +582,25 @@ impl Session {
 		// Traverse and delete the current conflicting subtrees.
 		let roots = Self::sync_get_database_minimize_replacement_roots(roots);
 		let nodes =
-			Self::sync_get_database_collect_subtrees_with_transaction(transaction, roots).await?;
+			match Self::sync_get_database_collect_subtrees_with_transaction(transaction, roots)
+				.await?
+			{
+				ControlFlow::Break(nodes) => nodes,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		let ids = Self::sync_get_database_sort_deletions(nodes);
 		for ids in ids.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
-			self.sync_get_database_delete_nodes_with_transaction(transaction, ids, batch)
-				.await?;
+			match self
+				.sync_get_database_delete_nodes_with_transaction(transaction, ids, batch)
+				.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
 		namespace.remove_ids(&ids);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn sync_get_database_replacement_roots(
@@ -570,9 +623,9 @@ impl Session {
 	async fn sync_get_database_collect_subtrees_with_transaction(
 		transaction: &Transaction<'_>,
 		roots: BTreeSet<tg::Id>,
-	) -> tg::Result<BTreeMap<tg::Id, usize>> {
+	) -> tg::Result<ControlFlow<BTreeMap<tg::Id, usize>, crate::database::Error>> {
 		if roots.is_empty() {
-			return Ok(BTreeMap::new());
+			return Ok(ControlFlow::Break(BTreeMap::new()));
 		}
 
 		#[derive(db::row::Deserialize)]
@@ -628,18 +681,18 @@ impl Session {
 				.map(ToString::to_string)
 				.map(db::Value::from)
 				.collect();
-			let rows = transaction
+			let result = transaction
 				.query_into::<Row>(statement.into(), params)
-				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to collect the replacement subtrees")
-				})?;
+				.await;
+			let rows =
+				crate::database::retry!(result, "failed to collect the replacement subtrees");
 			let mut rows = std::pin::pin!(rows);
-			while let Some(row) = rows
-				.try_next()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read a replacement subtree"))?
-			{
+			loop {
+				let result = rows.try_next().await;
+				let row = crate::database::retry!(result, "failed to read a replacement subtree");
+				let Some(row) = row else {
+					break;
+				};
 				let depth = usize::try_from(row.depth)
 					.map_err(|error| tg::error!(!error, "invalid replacement subtree depth"))?;
 				nodes
@@ -649,7 +702,7 @@ impl Session {
 			}
 		}
 
-		Ok(nodes)
+		Ok(ControlFlow::Break(nodes))
 	}
 
 	fn sync_get_database_sort_deletions(nodes: BTreeMap<tg::Id, usize>) -> Vec<tg::Id> {
@@ -666,9 +719,9 @@ impl Session {
 		transaction: &Transaction<'_>,
 		ids: &[tg::Id],
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		if ids.is_empty() {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 
 		#[derive(db::row::Deserialize)]
@@ -720,10 +773,10 @@ impl Session {
 				where "group" in ({placeholders}) or member in ({placeholders});
 			"#
 		);
-		let group_members = transaction
+		let result = transaction
 			.query_all_into::<GroupMemberRow>(statement.into(), params.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let group_members = crate::database::retry!(result, "failed to execute the statement");
 		for row in group_members {
 			batch
 				.items
@@ -741,10 +794,11 @@ impl Session {
 				where organization in ({placeholders}) or member in ({placeholders});
 			"
 		);
-		let organization_members = transaction
+		let result = transaction
 			.query_all_into::<OrganizationMemberRow>(statement.into(), params.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let organization_members =
+			crate::database::retry!(result, "failed to execute the statement");
 		for row in organization_members {
 			batch
 				.items
@@ -766,13 +820,16 @@ impl Session {
 			),
 			format!("update runners set owner = null where owner in ({placeholders});"),
 		] {
-			transaction
-				.execute(statement.into(), params.clone())
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params.clone()).await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		self.delete_node_grants_batch_with_transaction(transaction, ids, batch)
-			.await?;
+		match self
+			.delete_node_grants_batch_with_transaction(transaction, ids, batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
 		// Delete user relationships.
 		if !users.is_empty() {
@@ -782,13 +839,17 @@ impl Session {
 				(r#""user""#, "user_identities"),
 				(r#""user""#, "user_tokens"),
 			] {
-				Self::sync_get_database_delete_ids_from_table_with_transaction(
+				match Self::sync_get_database_delete_ids_from_table_with_transaction(
 					transaction,
 					table,
 					column,
 					&users,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(()) => (),
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 			let p = transaction.p();
 			let placeholders = (1..=users.len())
@@ -802,10 +863,8 @@ impl Session {
 				.map(ToString::to_string)
 				.map(db::Value::from)
 				.collect();
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
 
 		// Delete the nodes from the database and index.
@@ -831,23 +890,31 @@ impl Session {
 			(tags.as_slice(), "tags"),
 			(users.as_slice(), "users"),
 		] {
-			Self::sync_get_database_delete_ids_from_table_with_transaction(
+			match Self::sync_get_database_delete_ids_from_table_with_transaction(
 				transaction,
 				table,
 				"id",
 				ids,
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
-		Self::sync_get_database_delete_ids_from_table_with_transaction(
+		match Self::sync_get_database_delete_ids_from_table_with_transaction(
 			transaction,
 			"specifiers",
 			"id",
 			ids,
 		)
-		.await?;
+		.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn sync_get_database_delete_ids_from_table_with_transaction(
@@ -855,9 +922,9 @@ impl Session {
 		table: &str,
 		column: &str,
 		ids: &[tg::Id],
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		if ids.is_empty() {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 		let p = transaction.p();
 		let placeholders = (1..=ids.len())
@@ -870,12 +937,10 @@ impl Session {
 			.map(ToString::to_string)
 			.map(db::Value::from)
 			.collect();
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+		let result = transaction.execute(statement.into(), params).await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn sync_get_database_node_with_transaction(
@@ -886,10 +951,10 @@ impl Session {
 		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
 		match node {
 			tg::sync::PutNodeMessage::Group(message) => {
-				let created = Self::sync_get_database_validate_node_with_transaction(
+				let created = match Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -897,7 +962,11 @@ impl Session {
 					message.parent.as_ref(),
 					&message.specifier,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(created) => created,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
@@ -907,7 +976,7 @@ impl Session {
 						set name = excluded.name, parent = excluded.parent;
 					"
 				);
-				transaction
+				let result = transaction
 					.execute(
 						statement.into(),
 						db::params![
@@ -916,8 +985,8 @@ impl Session {
 							message.parent.as_ref().map(ToString::to_string)
 						],
 					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 				batch.items.push(tangram_index::batch::Item::PutGroup(
 					tangram_index::group::put::Arg {
 						id: message.id.clone(),
@@ -926,13 +995,13 @@ impl Session {
 					},
 				));
 
-				Ok(created)
+				Ok(ControlFlow::Break(created))
 			},
 			tg::sync::PutNodeMessage::Object(_)
 			| tg::sync::PutNodeMessage::Process(_)
 			| tg::sync::PutNodeMessage::Sandbox(_) => Err(tg::error!("invalid sync node kind")),
 			tg::sync::PutNodeMessage::Organization(message) => {
-				let created = Self::sync_get_database_validate_node_with_transaction(
+				let created = match Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -940,7 +1009,11 @@ impl Session {
 					None,
 					&message.specifier,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(created) => created,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
@@ -950,13 +1023,13 @@ impl Session {
 						set name = excluded.name;
 					"
 				);
-				transaction
+				let result = transaction
 					.execute(
 						statement.into(),
 						db::params![message.id.to_string(), message.name.clone()],
 					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 				batch
 					.items
 					.push(tangram_index::batch::Item::PutOrganization(
@@ -967,10 +1040,10 @@ impl Session {
 						},
 					));
 
-				Ok(created)
+				Ok(ControlFlow::Break(created))
 			},
 			tg::sync::PutNodeMessage::Tag(message) => {
-				let created = Self::sync_get_database_validate_node_with_transaction(
+				let created = match Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -978,7 +1051,11 @@ impl Session {
 					message.parent.as_ref(),
 					&message.specifier,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(created) => created,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				let target = if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
 					tg::Either::Left(id)
 				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
@@ -1002,7 +1079,7 @@ impl Session {
 							permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end;
 					"
 				);
-				transaction
+				let result = transaction
 					.execute(
 						statement.into(),
 						db::params![
@@ -1013,8 +1090,8 @@ impl Session {
 							permissions
 						],
 					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 				#[derive(db::row::Deserialize)]
 				struct Row {
 					permissions: String,
@@ -1026,10 +1103,10 @@ impl Session {
 						where id = {p}1;
 					"
 				);
-				let row = transaction
+				let result = transaction
 					.query_one_into::<Row>(statement.into(), db::params![message.id.to_string()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				let row = crate::database::retry!(result, "failed to execute the statement");
 				let permissions = serde_json::from_str(&row.permissions)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 				batch.items.push(tangram_index::batch::Item::PutTag(
@@ -1044,10 +1121,10 @@ impl Session {
 					},
 				));
 
-				Ok(created)
+				Ok(ControlFlow::Break(created))
 			},
 			tg::sync::PutNodeMessage::User(message) => {
-				let created = Self::sync_get_database_validate_node_with_transaction(
+				let created = match Self::sync_get_database_validate_node_with_transaction(
 					transaction,
 					namespace,
 					&message.id.clone().into(),
@@ -1055,7 +1132,11 @@ impl Session {
 					None,
 					&message.specifier,
 				)
-				.await?;
+				.await?
+				{
+					ControlFlow::Break(created) => created,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				let p = transaction.p();
 				let statement = formatdoc!(
 					"
@@ -1065,18 +1146,18 @@ impl Session {
 						set name = excluded.name;
 					"
 				);
-				transaction
+				let result = transaction
 					.execute(
 						statement.into(),
 						db::params![message.id.to_string(), message.name.clone()],
 					)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 				let statement = format!(r#"delete from user_emails where "user" = {p}1;"#);
-				transaction
+				let result = transaction
 					.execute(statement.into(), db::params![message.id.to_string()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 				for email in &message.emails {
 					let statement = formatdoc!(
 						r#"
@@ -1084,13 +1165,13 @@ impl Session {
 							values ({p}1, {p}2);
 						"#
 					);
-					transaction
+					let result = transaction
 						.execute(
 							statement.into(),
 							db::params![message.id.to_string(), email.clone()],
 						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+						.await;
+					crate::database::retry!(result, "failed to execute the statement");
 				}
 				batch.items.push(tangram_index::batch::Item::PutUser(
 					tangram_index::user::put::Arg {
@@ -1100,7 +1181,7 @@ impl Session {
 					},
 				));
 
-				Ok(created)
+				Ok(ControlFlow::Break(created))
 			},
 		}
 	}
@@ -1112,7 +1193,7 @@ impl Session {
 		name: &str,
 		parent: Option<&tg::Id>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
 		// Validate the ID and specifier.
 		let by_id = namespace.ids.get(id);
 		let by_specifier = namespace.specifiers.get(specifier);
@@ -1149,11 +1230,14 @@ impl Session {
 
 		// Create the specifier.
 		if created {
-			Self::insert_specifier_with_transaction(transaction, id, specifier).await?;
+			match Self::insert_specifier_with_transaction(transaction, id, specifier).await? {
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			namespace.insert(id.clone(), specifier.clone());
 		}
 
-		Ok(created)
+		Ok(ControlFlow::Break(created))
 	}
 
 	fn sync_get_database_node_depth(node: &tg::sync::PutNodeMessage) -> usize {

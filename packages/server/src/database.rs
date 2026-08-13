@@ -10,10 +10,8 @@ mod retry;
 pub(crate) use retry::retry;
 
 pub(crate) mod outbox;
-
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
-
 #[cfg(feature = "turso")]
 pub mod turso;
 
@@ -172,13 +170,27 @@ impl Database {
 			match self {
 				#[cfg(feature = "postgres")]
 				Self::Postgres(database) => {
-					let mut connection =
+					let result =
 						db::Database::connection_with_options(database, connection_options.clone())
 							.await
-							.map_err(Error::Postgres)?;
-					let inner = db::Connection::transaction(&mut connection)
+							.map_err(Error::Postgres);
+					let mut connection = match result {
+						Ok(connection) => connection,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
+					let result = db::Connection::transaction(&mut connection)
 						.await
-						.map_err(Error::Postgres)?;
+						.map_err(Error::Postgres);
+					let inner = match result {
+						Ok(transaction) => transaction,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
 					let transaction = Transaction::Postgres(inner);
 					let value = match f(&transaction).await {
 						Ok(ControlFlow::Break(value)) => value,
@@ -196,13 +208,27 @@ impl Database {
 				},
 				#[cfg(feature = "sqlite")]
 				Self::Sqlite(database) => {
-					let mut connection =
+					let result =
 						db::Database::connection_with_options(database, connection_options.clone())
 							.await
-							.map_err(Error::Sqlite)?;
-					let inner = db::Connection::transaction(&mut connection)
+							.map_err(Error::Sqlite);
+					let mut connection = match result {
+						Ok(connection) => connection,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
+					let result = db::Connection::transaction(&mut connection)
 						.await
-						.map_err(Error::Sqlite)?;
+						.map_err(Error::Sqlite);
+					let inner = match result {
+						Ok(transaction) => transaction,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
 					let transaction = Transaction::Sqlite(inner);
 					let value = match f(&transaction).await {
 						Ok(ControlFlow::Break(value)) => value,
@@ -220,13 +246,27 @@ impl Database {
 				},
 				#[cfg(feature = "turso")]
 				Self::Turso(database) => {
-					let mut connection =
+					let result =
 						db::Database::connection_with_options(database, connection_options)
 							.await
-							.map_err(Error::Turso)?;
-					let inner = db::Connection::transaction(&mut connection)
+							.map_err(Error::Turso);
+					let mut connection = match result {
+						Ok(connection) => connection,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
+					let result = db::Connection::transaction(&mut connection)
 						.await
-						.map_err(Error::Turso)?;
+						.map_err(Error::Turso);
+					let inner = match result {
+						Ok(transaction) => transaction,
+						Err(error) if error.is_retry() => {
+							return Ok(ControlFlow::Continue(error));
+						},
+						Err(error) => return Err(error),
+					};
 					let transaction = Transaction::Turso(inner);
 					let value = match f(&transaction).await {
 						Ok(ControlFlow::Break(value)) => value,

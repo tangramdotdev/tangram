@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
@@ -45,13 +47,37 @@ impl Session {
 				_ => return Err(tg::error!("unauthorized")),
 			}
 		};
-		let connection = self
+		let rows = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let owner = owner.clone();
+				async move {
+					Self::list_runners_with_transaction(transaction, owner.as_ref()).await
+				}
+				.boxed()
+			})
+			.await?;
+		let data = rows
+			.into_iter()
+			.map(|row| {
+				let owner = row.owner.map(Self::runner_owner_from_id).transpose()?;
+				Ok(tg::runner::Data {
+					created_at: row.created_at,
+					id: row.id,
+					owner,
+				})
+			})
+			.collect::<tg::Result<_>>()?;
+
+		Ok(tg::runner::list::Output { data })
+	}
+
+	async fn list_runners_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		owner: Option<&Option<tg::Id>>,
+	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
+		let p = transaction.p();
 		let (statement, params) = match owner {
 			None => (
 				"select created_at, id, owner from runners order by id;".into(),
@@ -74,23 +100,10 @@ impl Session {
 				db::params![owner.to_string()],
 			),
 		};
-		let rows = connection
-			.query_all_into::<Row>(statement, params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let data = rows
-			.into_iter()
-			.map(|row| {
-				let owner = row.owner.map(Self::runner_owner_from_id).transpose()?;
-				Ok(tg::runner::Data {
-					created_at: row.created_at,
-					id: row.id,
-					owner,
-				})
-			})
-			.collect::<tg::Result<_>>()?;
+		let result = transaction.query_all_into::<Row>(statement, params).await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(tg::runner::list::Output { data })
+		Ok(ControlFlow::Break(rows))
 	}
 
 	pub(crate) async fn list_runners_request(

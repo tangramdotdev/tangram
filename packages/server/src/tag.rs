@@ -7,6 +7,7 @@ pub mod put;
 use {
 	crate::{Session, database::Transaction},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client as tg,
 	tangram_database::{self as db, prelude::*},
 };
@@ -15,18 +16,20 @@ impl Session {
 	pub(crate) async fn get_tag_data_with_transaction(
 		transaction: &Transaction<'_>,
 		id: &tg::tag::Id,
-	) -> tg::Result<tg::tag::Data> {
-		let data = Self::try_get_tag_data_with_transaction(transaction, id)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the tag"))?;
+	) -> tg::Result<ControlFlow<tg::tag::Data, crate::database::Error>> {
+		let data = match Self::try_get_tag_data_with_transaction(transaction, id).await? {
+			ControlFlow::Break(data) => data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to find the tag"))?;
 
-		Ok(data)
+		Ok(ControlFlow::Break(data))
 	}
 
 	pub(crate) async fn try_get_tag_data_with_transaction(
 		transaction: &Transaction<'_>,
 		id: &tg::tag::Id,
-	) -> tg::Result<Option<tg::tag::Data>> {
+	) -> tg::Result<ControlFlow<Option<tg::tag::Data>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -36,11 +39,15 @@ impl Session {
 			target: String,
 		}
 
-		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
+		let specifier =
+			match Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
 				.await?
-		else {
-			return Ok(None);
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -50,12 +57,12 @@ impl Session {
 				where id = {p}1;
 			"
 		);
-		let Some(row) = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let target = Self::parse_tag_target(&row.target)?;
 		let permissions = serde_json::from_str(&row.permissions)
@@ -69,7 +76,7 @@ impl Session {
 			target,
 		};
 
-		Ok(Some(data))
+		Ok(ControlFlow::Break(Some(data)))
 	}
 
 	pub(crate) fn parse_tag_target(target: &str) -> tg::Result<tg::tag::data::Target> {

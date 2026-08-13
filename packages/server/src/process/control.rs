@@ -503,8 +503,10 @@ impl Session {
 			.boxed();
 
 		// Get the request stream.
-		let Some((output, stream)) =
-			Box::pin(self.try_get_process_control_stream_with_context(arg, stream)).await?
+		let Some((output, stream)) = self
+			.try_get_process_control_stream_with_context(arg, stream)
+			.boxed()
+			.await?
 		else {
 			return Ok(http::Response::builder()
 				.not_found()

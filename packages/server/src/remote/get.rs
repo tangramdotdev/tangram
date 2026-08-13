@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -53,13 +55,39 @@ impl Session {
 		name: &str,
 		principal: Option<&tg::Principal>,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		let connection = self
+		let name = name.to_owned();
+		let principal = principal.map(ToString::to_string);
+		let row = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let name = name.clone();
+				let principal = principal.clone();
+				async move {
+					Self::try_get_remote_for_principal_with_transaction(
+						transaction,
+						&name,
+						principal.as_deref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+		let output = row.map(|row| tg::remote::get::Output {
+			name: row.name,
+			token: row.token,
+			url: row.url,
+		});
+		Ok(output)
+	}
+
+	async fn try_get_remote_for_principal_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		name: &str,
+		principal: Option<&str>,
+	) -> tg::Result<ControlFlow<Option<Row>, crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
 				select name, token, url
@@ -70,18 +98,12 @@ impl Session {
 				);
 			",
 		);
-		let principal = principal.map(ToString::to_string);
-		let params = db::params![name, principal];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![name, principal])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(row))
 	}
 
 	async fn try_get_remote_runner(
@@ -98,13 +120,34 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let connection = self
+		let name = name.to_owned();
+		let remote = remote.to_owned();
+		let row = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let name = name.clone();
+				let remote = remote.clone();
+				async move {
+					Self::try_get_remote_runner_with_transaction(transaction, &name, &remote).await
+				}
+				.boxed()
+			})
+			.await?;
+		let output = row.map(|row| tg::remote::get::Output {
+			name: row.name,
+			token: row.token,
+			url: row.url,
+		});
+		Ok(output)
+	}
+
+	async fn try_get_remote_runner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		name: &str,
+		remote: &str,
+	) -> tg::Result<ControlFlow<Option<Row>, crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
 				select name, token, url
@@ -112,17 +155,12 @@ impl Session {
 				where name = {p}1 and name = {p}2 and principal is null;
 			",
 		);
-		let params = db::params![name, remote];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			url: row.url,
-		});
-		Ok(output)
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![name, remote])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(row))
 	}
 
 	pub(crate) async fn try_get_remote_request(

@@ -1,6 +1,7 @@
 use {
 	crate::{Session, database::Transaction},
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -10,7 +11,7 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::Id,
 		specifier: &tg::Specifier,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
@@ -21,21 +22,21 @@ impl Session {
 				values ({p}1, {p}2);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(
 				statement.into(),
 				db::params![id.to_string(), specifier.to_string()],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn try_get_specifier_for_id_with_transaction(
 		transaction: &Transaction<'_>,
 		id: &tg::Id,
-	) -> tg::Result<Option<tg::Specifier>> {
+	) -> tg::Result<ControlFlow<Option<tg::Specifier>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -50,19 +51,19 @@ impl Session {
 				where id = {p}1;
 			"
 		);
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let specifier = row.map(|row| row.specifier);
 
-		Ok(specifier)
+		Ok(ControlFlow::Break(specifier))
 	}
 
 	pub(crate) async fn try_get_id_for_specifier_with_transaction(
 		transaction: &Transaction<'_>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<ControlFlow<Option<tg::Id>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -77,12 +78,12 @@ impl Session {
 				where specifier = {p}1;
 			"
 		);
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![specifier.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let id = row.map(|row| row.id);
 
-		Ok(id)
+		Ok(ControlFlow::Break(id))
 	}
 }

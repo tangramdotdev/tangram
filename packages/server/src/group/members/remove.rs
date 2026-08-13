@@ -52,25 +52,40 @@ impl Session {
 				let member = member.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let output = session
-						.remove_group_member_with_transaction(
-							transaction,
-							&group,
-							&member,
-							&mut batch,
-						)
-						.await?;
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.remove_group_member_local_with_transaction(transaction, &group, &member)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(output)
+	}
+
+	async fn remove_group_member_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let output = match self
+			.remove_group_member_with_transaction(transaction, group, member, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn remove_group_member_remote(
@@ -101,23 +116,29 @@ impl Session {
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
 		let id = match group {
 			tg::Selector::Id(id) => Some(id.clone()),
 			tg::Selector::Specifier(specifier) => {
-				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
-					.await?
-					.and_then(|id| id.try_into().ok())
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				id.and_then(|id| id.try_into().ok())
 			},
 		};
 		let Some(id) = id else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		if Self::try_get_group_with_transaction(transaction, &id)
-			.await?
-			.is_none()
-		{
-			return Ok(None);
+		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if group.is_none() {
+			return Ok(ControlFlow::Break(None));
 		}
 		let group_id: tg::Id = id.into();
 		let member_id: tg::Id = member.clone().into();
@@ -128,15 +149,15 @@ impl Session {
 				where "group" = {p}1 and member = {p}2;
 			"#
 		);
-		let deleted = transaction
+		let result = transaction
 			.execute(
 				statement.into(),
 				db::params![group_id.to_string(), member_id.to_string()],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let deleted = crate::database::retry!(result, "failed to execute the statement");
 		if deleted == 0 {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		}
 		batch
 			.items
@@ -160,9 +181,15 @@ impl Session {
 			resource: tg::Referent::with_node(tg::Selector::Id(group_id)),
 			subject: subject.into(),
 		};
-		self.delete_grant_with_transaction(transaction, arg, batch)
-			.await?;
-		Ok(Some(()))
+		match self
+			.delete_grant_with_transaction(transaction, arg, batch)
+			.await?
+		{
+			ControlFlow::Break(_) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(Some(())))
 	}
 
 	pub(crate) async fn remove_group_member_request(

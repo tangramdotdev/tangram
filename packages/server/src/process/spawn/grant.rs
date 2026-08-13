@@ -1,4 +1,7 @@
-use {crate::Session, tangram_client::prelude::*, tangram_database::prelude::*};
+use {
+	crate::Session, futures::FutureExt as _, std::ops::ControlFlow, tangram_client::prelude::*,
+	tangram_database as db,
+};
 
 impl Session {
 	pub(super) async fn spawn_process_create_public_grant_if_requested(
@@ -16,18 +19,17 @@ impl Session {
 
 	async fn spawn_process_create_public_grant(&self, id: &tg::process::Id) -> tg::Result<()> {
 		let resource = tg::Id::from(id.clone());
-		let existing =
-			{
-				let mut connection =
-					self.server.database.connection().await.map_err(|error| {
-						tg::error!(!error, "failed to get a database connection")
-					})?;
-				let transaction = connection
-					.transaction()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::list_resource_grants_with_transaction(&transaction, &resource).await?
-			};
+		let existing = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let resource = resource.clone();
+				async move {
+					Self::list_spawn_process_grants_with_transaction(transaction, &resource).await
+				}
+				.boxed()
+			})
+			.await?;
 		let mut covered = tg::authorization::permission::process::Set::empty();
 		for grant in existing {
 			if grant.subject == tg::authorization::Subject::Public
@@ -61,5 +63,12 @@ impl Session {
 			.await?;
 		}
 		Ok(())
+	}
+
+	async fn list_spawn_process_grants_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<ControlFlow<Vec<tg::Grant>, crate::database::Error>> {
+		Self::list_resource_grants_with_transaction(transaction, resource).await
 	}
 }

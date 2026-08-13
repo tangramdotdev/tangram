@@ -109,6 +109,17 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Keep spawned task bodies small.
 - Preserve ordering only when an operation requires it.
 
+### Database Transactions
+
+- In `tangram_server`, run every database transaction through a database `.run` retry loop; use `crate::database::Database::run` or `run_with_options` in application code and the backend database's `run` method during initialization or migration. Do not acquire a connection or begin a transaction directly.
+- In application code, use `run` for transactions that write and `run_with_options(db::ConnectionOptions::default(), ...)` for read-only transactions.
+- Keep retry closures thin: clone captured values inside the closure immediately before `async move`, then delegate the transaction body to a named helper directly beneath the calling function.
+- Suffix application transaction helpers with `_with_transaction` and return `tg::Result<ControlFlow<T, crate::database::Error>>`; backend-specific helpers use the corresponding backend error type.
+- Inside transaction helpers, bind every fallible database operation to a result and pass it through `crate::database::retry!` before inspecting or returning its value. This includes errors produced while reading rows from a stream.
+- When calling another transaction helper, explicitly match its `ControlFlow`: unwrap `Break`, and immediately return `Continue`. Never discard the returned `ControlFlow` with `.await?;`.
+- Return `ControlFlow::Break` only when the transaction attempt is complete. A retryable database error must remain a `crate::database::Error` in `ControlFlow::Continue` so the complete transaction can be retried.
+- Do not add error conversions that turn `crate::database::Error` into `tg::Error`; they can bypass retry handling.
+
 ### APIs
 
 - Mark pure constructors, accessors, and builders with `#[must_use]`.

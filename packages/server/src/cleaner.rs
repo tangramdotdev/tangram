@@ -1,8 +1,8 @@
 use {
 	crate::{Server, temp::Temp},
-	futures::future,
+	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
@@ -105,21 +105,32 @@ impl Server {
 	}
 
 	async fn clean_stripe_webhooks(&self, now: i64) -> tg::Result<()> {
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let ttl = STRIPE_WEBHOOK_TIME_TO_LIVE.as_secs().to_i64().unwrap();
 		let max_created_at = now.saturating_sub(ttl);
-		let p = connection.p();
-		let statement = format!("delete from stripe_webhooks where created_at < {p}1;");
-		connection
-			.execute(statement.into(), db::params![max_created_at])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to clean the Stripe webhook events"))?;
+		self.database
+			.run(|transaction| {
+				async move {
+					Self::clean_stripe_webhooks_with_transaction(transaction, max_created_at).await
+				}
+				.boxed()
+			})
+			.await?;
 
 		Ok(())
+	}
+
+	async fn clean_stripe_webhooks_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		max_created_at: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = format!("delete from stripe_webhooks where created_at < {p}1;");
+		let result = transaction
+			.execute(statement.into(), db::params![max_created_at])
+			.await;
+		crate::database::retry!(result, "failed to clean the Stripe webhook events");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn cleaner_task_inner(

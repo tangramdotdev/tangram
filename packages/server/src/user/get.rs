@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -62,17 +64,16 @@ impl Session {
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
-		let mut connection = self
+		let id = id.clone();
+		let user = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(mut user) = Self::try_get_user_with_transaction(&transaction, id).await? else {
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let id = id.clone();
+				async move { Self::try_get_user_with_transaction(transaction, &id).await }.boxed()
+			})
+			.await?;
+		let Some(mut user) = user else {
 			return Ok(None);
 		};
 		user.tokens = tokens;
@@ -83,7 +84,7 @@ impl Session {
 	pub(crate) async fn try_get_user_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::user::Id,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<ControlFlow<Option<tg::User>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct EmailRow {
 			email: String,
@@ -94,11 +95,15 @@ impl Session {
 			name: String,
 		}
 
-		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
+		let specifier =
+			match Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
 				.await?
-		else {
-			return Ok(None);
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -108,12 +113,12 @@ impl Session {
 				where id = {p}1;
 			"
 		);
-		let Some(user) = transaction
+		let result = transaction
 			.query_optional_into::<UserRow>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-		else {
-			return Ok(None);
+			.await;
+		let user = crate::database::retry!(result, "failed to execute the statement");
+		let Some(user) = user else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let statement = formatdoc!(
 			r#"
@@ -123,10 +128,10 @@ impl Session {
 				order by email;
 			"#
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<EmailRow>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let user = tg::User {
 			emails: rows.into_iter().map(|row| row.email).collect(),
 			id: id.clone(),
@@ -136,7 +141,7 @@ impl Session {
 			tokens: tg::authorization::Tokens::default(),
 		};
 
-		Ok(Some(user))
+		Ok(ControlFlow::Break(Some(user)))
 	}
 
 	async fn try_get_user_remote(

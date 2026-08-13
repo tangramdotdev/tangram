@@ -1,6 +1,8 @@
 use {
 	crate::{Origin, Server, Session},
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -26,6 +28,22 @@ pub(crate) struct Process {
 pub(crate) struct Sandbox {
 	pub location: tg::Location,
 	pub token: Option<String>,
+}
+
+#[derive(db::row::Deserialize)]
+struct UserEmailRow {
+	email: String,
+}
+
+#[derive(db::row::Deserialize)]
+struct UserRow {
+	#[tangram_database(as = "db::value::FromStr")]
+	id: tg::user::Id,
+	name: String,
+	#[tangram_database(as = "db::value::FromStr")]
+	specifier: tg::Specifier,
+	stripe_customer_id: Option<String>,
+	stripe_default_payment_method_id: Option<String>,
 }
 
 impl Session {
@@ -339,22 +357,33 @@ impl Server {
 	}
 
 	async fn authenticate_runner(&self, token: &str) -> tg::Result<Option<tg::runner::Id>> {
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
 		let token = crate::token::hash(token);
-		let p = connection.p();
-		let statement = format!("select runner from runner_tokens where token = {p}1;");
-		let runner = connection
-			.query_optional_value_into::<String>(statement.into(), db::params![token])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		let runner = self
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let token = token.clone();
+				async move { Self::authenticate_runner_with_transaction(transaction, &token).await }
+					.boxed()
+			})
+			.await?
 			.map(|runner| runner.parse())
 			.transpose()?;
 
 		Ok(runner)
+	}
+
+	async fn authenticate_runner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		token: &str,
+	) -> tg::Result<ControlFlow<Option<String>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = format!("select runner from runner_tokens where token = {p}1;");
+		let result = transaction
+			.query_optional_value_into::<String>(statement.into(), db::params![token])
+			.await;
+		let runner = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(runner))
 	}
 
 	fn authenticate_token(&self, value: &str) -> Option<tg::Principal> {
@@ -400,60 +429,18 @@ impl Server {
 		&self,
 		token: &str,
 	) -> tg::Result<Option<(bool, tg::user::User)>> {
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-
-		#[derive(db::row::Deserialize)]
-		struct UserRow {
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::user::Id,
-			name: String,
-			#[tangram_database(as = "db::value::FromStr")]
-			specifier: tg::Specifier,
-			stripe_customer_id: Option<String>,
-			stripe_default_payment_method_id: Option<String>,
-		}
 		let token = crate::token::hash(token);
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select users.id, users.name, specifiers.specifier, users.stripe_customer_id,
-					users.stripe_default_payment_method_id
-				from users
-				join specifiers on specifiers.id = users.id
-				join user_tokens on user_tokens."user" = users.id
-				where user_tokens.token = {p}1;
-			"#
-		);
-		let params = db::params![token];
-		let user = connection
-			.query_optional_into::<UserRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-		let Some(user) = user else {
+		let row = self
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let token = token.clone();
+				async move { Self::authenticate_user_with_transaction(transaction, &token).await }
+					.boxed()
+			})
+			.await?;
+		let Some((user, rows)) = row else {
 			return Ok(None);
 		};
-
-		#[derive(db::row::Deserialize)]
-		struct EmailRow {
-			email: String,
-		}
-		let statement = formatdoc!(
-			r#"
-				select email
-				from user_emails
-				where user_emails."user" = {p}1
-				order by email;
-			"#
-		);
-		let params = db::params![user.id.to_string()];
-		let rows = connection
-			.query_all_into::<EmailRow>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
 		let emails = rows.into_iter().map(|row| row.email).collect();
 		let billing =
 			user.stripe_customer_id.is_some() && user.stripe_default_payment_method_id.is_some();
@@ -467,5 +454,42 @@ impl Server {
 		};
 
 		Ok(Some((billing, user)))
+	}
+
+	async fn authenticate_user_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		token: &str,
+	) -> tg::Result<ControlFlow<Option<(UserRow, Vec<UserEmailRow>)>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				select users.id, users.name, specifiers.specifier, users.stripe_customer_id,
+					users.stripe_default_payment_method_id
+				from users
+				join specifiers on specifiers.id = users.id
+				join user_tokens on user_tokens."user" = users.id
+				where user_tokens.token = {p}1;
+			"#
+		);
+		let result = transaction
+			.query_optional_into::<UserRow>(statement.into(), db::params![token])
+			.await;
+		let Some(user) = crate::database::retry!(result, "failed to execute the statement") else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let statement = formatdoc!(
+			r#"
+				select email
+				from user_emails
+				where user_emails."user" = {p}1
+				order by email;
+			"#
+		);
+		let result = transaction
+			.query_all_into::<UserEmailRow>(statement.into(), db::params![user.id.to_string()])
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(Some((user, rows))))
 	}
 }

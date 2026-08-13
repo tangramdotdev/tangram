@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
@@ -35,29 +37,40 @@ impl Session {
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Err(tg::error!("failed to find the group"));
 		}
-		let mut connection = self
-			.server
+		let group = group.clone();
+		self.server
 			.database
-			.connection()
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let group = group.clone();
+				async move { Self::list_group_members_local_with_transaction(transaction, &group).await }
+					.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+	}
+
+	async fn list_group_members_local_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		group: &tg::group::Selector,
+	) -> tg::Result<ControlFlow<tg::group::members::list::Output, crate::database::Error>> {
 		let id = match group {
 			tg::Selector::Id(id) => Some(id.clone()),
 			tg::Selector::Specifier(specifier) => {
-				Self::try_get_id_for_specifier_with_transaction(&transaction, specifier)
-					.await?
-					.and_then(|id| id.try_into().ok())
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				id.and_then(|id| id.try_into().ok())
 			},
 		}
 		.ok_or_else(|| tg::error!("failed to find the group"))?;
-		if Self::try_get_group_with_transaction(&transaction, &id)
-			.await?
-			.is_none()
-		{
+		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if group.is_none() {
 			return Err(tg::error!("failed to find the group"));
 		}
 		#[derive(db::row::Deserialize)]
@@ -74,15 +87,18 @@ impl Session {
 				order by member;
 			"#
 		);
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let data = rows
 			.into_iter()
 			.map(|row| row.member.try_into())
 			.collect::<tg::Result<_>>()?;
-		Ok(tg::group::members::list::Output { data })
+
+		Ok(ControlFlow::Break(tg::group::members::list::Output {
+			data,
+		}))
 	}
 
 	async fn list_group_members_remote(

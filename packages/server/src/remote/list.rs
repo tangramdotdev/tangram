@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::{formatdoc, indoc},
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -47,27 +49,22 @@ impl Session {
 		&self,
 		principal: Option<&tg::Principal>,
 	) -> tg::Result<tg::remote::list::Output> {
-		let connection = self
+		let principal = principal.map(ToString::to_string);
+		let rows = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = indoc!(
-			r"
-				select name, url
-				from remotes
-				where (principal is null and cast({p}1 as text) is null) or principal = {p}1
-				order by name;
-			",
-		);
-		let statement = statement.replace("{p}", p);
-		let principal = principal.map(ToString::to_string);
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), db::params![principal])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let principal = principal.clone();
+				async move {
+					Self::list_remotes_for_principal_with_transaction(
+						transaction,
+						principal.as_deref(),
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
 		let data = rows
 			.into_iter()
 			.map(|row| tg::remote::get::Output {
@@ -78,6 +75,28 @@ impl Session {
 			.collect();
 		let output = tg::remote::list::Output { data };
 		Ok(output)
+	}
+
+	async fn list_remotes_for_principal_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		principal: Option<&str>,
+	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = indoc!(
+			r"
+				select name, url
+				from remotes
+				where (principal is null and cast({p}1 as text) is null) or principal = {p}1
+				order by name;
+			",
+		);
+		let statement = statement.replace("{p}", p);
+		let result = transaction
+			.query_all_into::<Row>(statement.into(), db::params![principal])
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(rows))
 	}
 
 	async fn list_remotes_runner(&self) -> tg::Result<tg::remote::list::Output> {
@@ -91,26 +110,16 @@ impl Session {
 		else {
 			return Ok(tg::remote::list::Output { data: Vec::new() });
 		};
-		let connection = self
+		let remote = remote.to_owned();
+		let rows = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r"
-				select name, url
-				from remotes
-				where name = {p}1 and principal is null
-				order by name;
-			",
-		);
-		let params = db::params![remote];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let remote = remote.clone();
+				async move { Self::list_remotes_runner_with_transaction(transaction, &remote).await }
+					.boxed()
+			})
+			.await?;
 		let data = rows
 			.into_iter()
 			.map(|row| tg::remote::get::Output {
@@ -121,6 +130,27 @@ impl Session {
 			.collect();
 		let output = tg::remote::list::Output { data };
 		Ok(output)
+	}
+
+	async fn list_remotes_runner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		remote: &str,
+	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r"
+				select name, url
+				from remotes
+				where name = {p}1 and principal is null
+				order by name;
+			",
+		);
+		let result = transaction
+			.query_all_into::<Row>(statement.into(), db::params![remote])
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(rows))
 	}
 
 	pub(crate) async fn list_remotes_request(

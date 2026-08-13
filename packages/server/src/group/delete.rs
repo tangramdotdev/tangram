@@ -43,20 +43,39 @@ impl Session {
 				let group = group.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let output = session
-						.delete_group_with_transaction(transaction, &group, &mut batch)
-						.await?;
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.try_delete_group_local_with_transaction(transaction, &group)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(output)
+	}
+
+	async fn try_delete_group_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		group: &tg::group::Selector,
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let output = match self
+			.delete_group_with_transaction(transaction, group, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn try_delete_group_remote(
@@ -82,23 +101,29 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		group: &tg::group::Selector,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
 		let id = match group {
 			tg::Selector::Id(id) => Some(id.clone()),
 			tg::Selector::Specifier(specifier) => {
-				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
-					.await?
-					.and_then(|id| id.try_into().ok())
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				id.and_then(|id| id.try_into().ok())
 			},
 		};
 		let Some(id) = id else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		if Self::try_get_group_with_transaction(transaction, &id)
-			.await?
-			.is_none()
-		{
-			return Ok(None);
+		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if group.is_none() {
+			return Ok(ControlFlow::Break(None));
 		}
 		let id: tg::Id = id.into();
 		let p = transaction.p();
@@ -114,10 +139,10 @@ impl Session {
 				limit 1;
 			"
 		);
-		let child = transaction
+		let result = transaction
 			.query_optional(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let child = crate::database::retry!(result, "failed to execute the statement");
 		if child.is_some() {
 			return Err(tg::error!("cannot delete a group with children"));
 		}
@@ -135,10 +160,10 @@ impl Session {
 				where "group" = {p}1 or member = {p}1;
 			"#
 		);
-		let group_members = transaction
+		let result = transaction
 			.query_all_into::<GroupMemberRow>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let group_members = crate::database::retry!(result, "failed to execute the statement");
 		for row in group_members {
 			batch
 				.items
@@ -163,10 +188,11 @@ impl Session {
 				where member = {p}1;
 			"
 		);
-		let organization_members = transaction
+		let result = transaction
 			.query_all_into::<OrganizationMemberRow>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let organization_members =
+			crate::database::retry!(result, "failed to execute the statement");
 		for row in organization_members {
 			batch
 				.items
@@ -177,8 +203,13 @@ impl Session {
 					},
 				));
 		}
-		self.delete_node_grants_with_transaction(transaction, &id, batch)
-			.await?;
+		match self
+			.delete_node_grants_with_transaction(transaction, &id, batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		batch.items.push(tangram_index::batch::Item::DeleteGroup(
 			id.clone().try_into()?,
 		));
@@ -188,12 +219,13 @@ impl Session {
 			format!("delete from groups where id = {p}1;"),
 			format!("delete from specifiers where id = {p}1;"),
 		] {
-			transaction
+			let result = transaction
 				.execute(statement.into(), db::params![id.to_string()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
-		Ok(Some(()))
+
+		Ok(ControlFlow::Break(Some(())))
 	}
 
 	pub(crate) async fn try_delete_group_request(

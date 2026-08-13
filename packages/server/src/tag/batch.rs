@@ -60,76 +60,99 @@ impl Session {
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					for (item, permissions) in std::iter::zip(arg.tags, permissions) {
-						let arg = tg::tag::put::Arg {
-							ancestors: tg::node::Ancestors {
-								create: arg.parents,
-								pull: tg::node::AncestorsPull::Never,
-							},
-							target: item.target,
-							location: None,
-							public: false,
-							specifier: item.specifier,
-						};
-						let data = session
-							.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
-							.await?;
-						let account = session
-							.usage_account_for_specifier_with_transaction(
-								transaction,
-								&data.specifier,
-							)
-							.await?;
-						let target = match data.target {
-							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
-							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
-						};
-						batch.items.push(tangram_index::batch::Item::PutTag(
-							tangram_index::tag::put::Arg {
-								account: account.clone(),
-								id: data.id,
-								name: data.name,
-								parent: data.parent,
-								permissions: data.permissions,
-								specifier: data.specifier,
-								target: target.clone(),
-							},
-						));
-						if let Some(account) = account {
-							let item = match target {
-								tg::Either::Left(object) => {
-									tangram_index::batch::Item::PutAccountObject(
-										tangram_index::usage::storage::put::ObjectArg {
-											account,
-											object,
-											touched_at,
-										},
-									)
-								},
-								tg::Either::Right(process) => {
-									tangram_index::batch::Item::PutAccountProcess(
-										tangram_index::usage::storage::put::ProcessArg {
-											account,
-											process,
-											touched_at,
-										},
-									)
-								},
-							};
-							batch.items.push(item);
-						}
-					}
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+						.post_tag_batch_local_with_transaction(
+							transaction,
+							arg,
+							permissions,
+							touched_at,
+						)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(())
+	}
+
+	async fn post_tag_batch_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: tg::tag::batch::Arg,
+		permissions: Vec<Vec<tg::authorization::Permission>>,
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		for (item, permissions) in std::iter::zip(arg.tags, permissions) {
+			let arg = tg::tag::put::Arg {
+				ancestors: tg::node::Ancestors {
+					create: arg.parents,
+					pull: tg::node::AncestorsPull::Never,
+				},
+				location: None,
+				public: false,
+				specifier: item.specifier,
+				target: item.target,
+			};
+			let data = match self
+				.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
+				.await?
+			{
+				ControlFlow::Break(data) => data,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let account = match self
+				.usage_account_for_specifier_with_transaction(transaction, &data.specifier)
+				.await?
+			{
+				ControlFlow::Break(account) => account,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let target = match data.target {
+				tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+				tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+			};
+			batch.items.push(tangram_index::batch::Item::PutTag(
+				tangram_index::tag::put::Arg {
+					account: account.clone(),
+					id: data.id,
+					name: data.name,
+					parent: data.parent,
+					permissions: data.permissions,
+					specifier: data.specifier,
+					target: target.clone(),
+				},
+			));
+			if let Some(account) = account {
+				let item = match target {
+					tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
+						tangram_index::usage::storage::put::ObjectArg {
+							account,
+							object,
+							touched_at,
+						},
+					),
+					tg::Either::Right(process) => tangram_index::batch::Item::PutAccountProcess(
+						tangram_index::usage::storage::put::ProcessArg {
+							account,
+							process,
+							touched_at,
+						},
+					),
+				};
+				batch.items.push(item);
+			}
+		}
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn post_tag_batch_remote(

@@ -53,25 +53,44 @@ impl Session {
 				let member = member.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
 					session
-						.add_organization_member_with_transaction(
+						.add_organization_member_local_with_transaction(
 							transaction,
 							&organization,
 							&member,
-							&mut batch,
 						)
-						.await?;
-					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(())
+	}
+
+	async fn add_organization_member_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		organization: &tg::organization::Selector,
+		member: &tg::organization::Member,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		match self
+			.add_organization_member_with_transaction(transaction, organization, member, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn add_organization_member_remote(
@@ -101,28 +120,37 @@ impl Session {
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let id = match organization {
 			tg::Selector::Id(id) => Some(id.clone()),
 			tg::Selector::Specifier(specifier) => {
-				Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
-					.await?
-					.and_then(|id| id.try_into().ok())
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				id.and_then(|id| id.try_into().ok())
 			},
 		}
 		.ok_or_else(|| tg::error!("failed to find the organization"))?;
-		if Self::try_get_organization_with_transaction(transaction, &id)
-			.await?
-			.is_none()
-		{
+		let organization =
+			match Self::try_get_organization_with_transaction(transaction, &id).await? {
+				ControlFlow::Break(organization) => organization,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		if organization.is_none() {
 			return Err(tg::error!("failed to find the organization"));
 		}
 		let organization_id: tg::Id = id.into();
 		let member_id: tg::Id = member.clone().into();
-		if Self::try_get_specifier_for_id_with_transaction(transaction, &member_id)
-			.await?
-			.is_none()
-		{
+		let specifier =
+			match Self::try_get_specifier_for_id_with_transaction(transaction, &member_id).await? {
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		if specifier.is_none() {
 			return Err(tg::error!("failed to find the member"));
 		}
 		let p = transaction.p();
@@ -133,13 +161,13 @@ impl Session {
 				on conflict (organization, member) do nothing;
 			"
 		);
-		let inserted = transaction
+		let result = transaction
 			.execute(
 				statement.into(),
 				db::params![organization_id.to_string(), member_id.to_string()],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let inserted = crate::database::retry!(result, "failed to execute the statement");
 		if inserted == 0 {
 			return Err(tg::error!("the member is already in the organization"));
 		}
@@ -165,9 +193,15 @@ impl Session {
 			resource: tg::Referent::with_node(tg::Selector::Id(organization_id)),
 			subject: subject.into(),
 		};
-		self.create_grant_with_transaction(transaction, arg, batch)
-			.await?;
-		Ok(())
+		match self
+			.create_grant_with_transaction(transaction, arg, batch)
+			.await?
+		{
+			ControlFlow::Break(_) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn add_organization_member_request(

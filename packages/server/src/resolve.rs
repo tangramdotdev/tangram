@@ -1,10 +1,10 @@
 use {
 	crate::Session,
-	futures::{Stream, StreamExt as _, future, stream, stream::BoxStream},
+	futures::{FutureExt as _, Stream, StreamExt as _, future, stream, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::pin::pin,
+	std::{ops::ControlFlow, pin::pin},
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database as db,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -256,17 +256,22 @@ impl Session {
 		target: &tg::Id,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		// Get the tag.
-		let mut connection = self
-			.server
+		let id = id.clone();
+		let target = target.clone();
+		let session = self.clone();
+		self.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		self.create_tag_target_token_with_transaction(&transaction, id, target)
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let id = id.clone();
+				let session = session.clone();
+				let target = target.clone();
+				async move {
+					session
+						.create_tag_target_token_with_transaction(transaction, &id, &target)
+						.await
+				}
+				.boxed()
+			})
 			.await
 	}
 
@@ -275,8 +280,11 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::tag::Id,
 		target: &tg::Id,
-	) -> tg::Result<Option<tg::authorization::Token>> {
-		let data = Self::get_tag_data_with_transaction(transaction, id).await?;
+	) -> tg::Result<ControlFlow<Option<tg::authorization::Token>, crate::database::Error>> {
+		let data = match Self::get_tag_data_with_transaction(transaction, id).await? {
+			ControlFlow::Break(data) => data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let actual: tg::Id = match data.target {
 			tg::tag::data::Target::Object(id) => id.into(),
 			tg::tag::data::Target::Process(id) => id.into(),
@@ -297,7 +305,7 @@ impl Session {
 			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
 		let token = self.create_token(target.clone(), data.permissions, expires_at)?;
 
-		Ok(token)
+		Ok(ControlFlow::Break(token))
 	}
 
 	pub(super) async fn match_tags_for_resolve(

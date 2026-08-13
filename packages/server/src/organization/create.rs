@@ -38,21 +38,40 @@ impl Session {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let organization = session
-						.create_organization_with_transaction(transaction, arg, &mut batch)
-						.await?;
-					let output = tg::organization::create::Output { organization };
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.create_organization_local_with_transaction(transaction, arg)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(output)
+	}
+
+	async fn create_organization_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: tg::organization::create::Arg,
+	) -> tg::Result<ControlFlow<tg::organization::create::Output, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let organization = match self
+			.create_organization_with_transaction(transaction, arg, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(organization) => organization,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		let output = tg::organization::create::Output { organization };
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn create_organization_remote(
@@ -80,19 +99,30 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::organization::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::Organization> {
+	) -> tg::Result<ControlFlow<tg::Organization, crate::database::Error>> {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
 		}
-		if Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
+		let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
 			.await?
-			.is_some()
 		{
+			ControlFlow::Break(id) => id,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if id.is_some() {
 			return Err(tg::error!("specifier is already in use"));
 		}
 		let id = tg::organization::Id::new();
-		Self::insert_specifier_with_transaction(transaction, &id.clone().into(), &arg.specifier)
-			.await?;
+		match Self::insert_specifier_with_transaction(
+			transaction,
+			&id.clone().into(),
+			&arg.specifier,
+		)
+		.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let name = arg.specifier.name().to_owned();
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -101,10 +131,10 @@ impl Session {
 				values ({p}1, {p}2);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(statement.into(), db::params![id.to_string(), name.clone()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
 		batch
 			.items
 			.push(tangram_index::batch::Item::PutOrganization(
@@ -129,18 +159,25 @@ impl Session {
 				),
 				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 			};
-			self.create_grant_with_transaction(transaction, arg, batch)
-				.await?;
+			match self
+				.create_grant_with_transaction(transaction, arg, batch)
+				.await?
+			{
+				ControlFlow::Break(_) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
 		let tokens =
 			tg::authorization::Tokens::with_local(self.create_read_token(&id.clone().into())?);
-		Ok(tg::Organization {
+		let organization = tg::Organization {
 			id,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name,
 			specifier: arg.specifier,
 			tokens,
-		})
+		};
+
+		Ok(ControlFlow::Break(organization))
 	}
 
 	pub(crate) async fn create_organization_request(

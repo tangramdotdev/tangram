@@ -490,9 +490,10 @@ impl Session {
 				let location = location.cloned().map(Into::into);
 				let tokens = tokens.clone();
 				async move {
-					if let Err(error) =
-						Box::pin(session.cache_process_remote_task(&id, data, location, tokens))
-							.await
+					if let Err(error) = session
+						.cache_process_remote_task(&id, data, location, tokens)
+						.boxed()
+						.await
 					{
 						tracing::error!(error = %error.trace(), %id, "failed to cache the process");
 					}

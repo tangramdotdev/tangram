@@ -25,28 +25,36 @@ impl Session {
 				let runner = runner.clone();
 				let token = token.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							delete from runner_tokens
-							where id = {p}1 and runner = {p}2;
-						"
-					);
-					let count = transaction
-						.execute(
-							statement.into(),
-							db::params![token.to_string(), runner.to_string()],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(count == 1))
+					Self::delete_runner_token_with_transaction(transaction, &runner, &token).await
 				}
 				.boxed()
 			})
 			.await?;
 
 		Ok(deleted.then_some(()))
+	}
+
+	async fn delete_runner_token_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		runner: &tg::runner::Id,
+		token: &tg::token::Id,
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				delete from runner_tokens
+				where id = {p}1 and runner = {p}2;
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![token.to_string(), runner.to_string()],
+			)
+			.await;
+		let count = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(count == 1))
 	}
 
 	pub(crate) async fn try_delete_runner_token_request(

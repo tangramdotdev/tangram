@@ -52,21 +52,40 @@ impl Session {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let group = session
-						.create_group_with_transaction(transaction, arg, &mut batch)
-						.await?;
-					let output = tg::group::create::Output { group };
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.create_group_local_with_transaction(transaction, arg)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(output)
+	}
+
+	async fn create_group_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: tg::group::create::Arg,
+	) -> tg::Result<ControlFlow<tg::group::create::Output, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let group = match self
+			.create_group_with_transaction(transaction, arg, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		let output = tg::group::create::Output { group };
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn create_group_remote(
@@ -94,37 +113,58 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::Group> {
-		if let Some(id) =
-			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?
+	) -> tg::Result<ControlFlow<tg::Group, crate::database::Error>> {
+		let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
+			.await?
 		{
+			ControlFlow::Break(id) => id,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if let Some(id) = id {
 			if arg.ancestors.create && id.kind() == tg::id::Kind::Group {
 				let id = id.try_into()?;
-				let mut group = Self::try_get_group_with_transaction(transaction, &id)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the group"))?;
+				let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+					ControlFlow::Break(group) => group,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let mut group = group.ok_or_else(|| tg::error!("failed to find the group"))?;
 				if let Some(token) = self.create_read_token(&id.clone().into())? {
 					group.tokens.insert_local(token);
 				}
 
-				return Ok(group);
+				return Ok(ControlFlow::Break(group));
 			}
 			return Err(tg::error!("specifier is already in use"));
 		}
 		let parent = if arg.ancestors.create {
-			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
+			match self
+				.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
 				.await?
+			{
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		} else {
-			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
+			match Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
+			{
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		};
-		let mut group = self
+		let group = match self
 			.insert_group_with_transaction(transaction, &arg.specifier, parent.as_ref(), batch)
-			.await?;
+			.await?
+		{
+			ControlFlow::Break(group) => group,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let mut group = group;
 		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
 			group.tokens.insert_local(token);
 		}
 
-		Ok(group)
+		Ok(ControlFlow::Break(group))
 	}
 
 	pub(crate) async fn create_parent_groups_with_transaction(
@@ -132,7 +172,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<ControlFlow<Option<tg::Id>, crate::database::Error>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
@@ -141,12 +181,20 @@ impl Session {
 			let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
 				.await?
 			{
-				Some(id) => id,
-				None => self
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let id = if let Some(id) = id {
+				id
+			} else {
+				let group = match self
 					.insert_group_with_transaction(transaction, &specifier, parent.as_ref(), batch)
 					.await?
-					.id
-					.into(),
+				{
+					ControlFlow::Break(group) => group,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				group.id.into()
 			};
 			if id.kind() == tg::id::Kind::Tag {
 				return Err(tg::error!("a tag cannot be a parent"));
@@ -154,7 +202,7 @@ impl Session {
 			parent = Some(id);
 		}
 
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 
 	async fn insert_group_with_transaction(
@@ -163,9 +211,14 @@ impl Session {
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::Group> {
+	) -> tg::Result<ControlFlow<tg::Group, crate::database::Error>> {
 		let id = tg::group::Id::new();
-		Self::insert_specifier_with_transaction(transaction, &id.clone().into(), specifier).await?;
+		match Self::insert_specifier_with_transaction(transaction, &id.clone().into(), specifier)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let name = specifier.name().to_owned();
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -174,7 +227,7 @@ impl Session {
 				values ({p}1, {p}2, {p}3);
 			"
 		);
-		transaction
+		let result = transaction
 			.execute(
 				statement.into(),
 				db::params![
@@ -183,8 +236,8 @@ impl Session {
 					parent.map(ToString::to_string)
 				],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
 		batch.items.push(tangram_index::batch::Item::PutGroup(
 			tangram_index::group::put::Arg {
 				id: id.clone(),
@@ -207,8 +260,13 @@ impl Session {
 				resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 				subject: subject.into(),
 			};
-			self.create_grant_with_transaction(transaction, arg, batch)
-				.await?;
+			match self
+				.create_grant_with_transaction(transaction, arg, batch)
+				.await?
+			{
+				ControlFlow::Break(_) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		}
 		let group = tg::Group {
 			id,
@@ -219,27 +277,30 @@ impl Session {
 			tokens: tg::authorization::Tokens::default(),
 		};
 
-		Ok(group)
+		Ok(ControlFlow::Break(group))
 	}
 
 	pub(crate) async fn resolve_parent_for_specifier_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> tg::Result<ControlFlow<Option<tg::Id>, crate::database::Error>> {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
 		let Some(parent) = specifier.parent() else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		let parent = Self::try_get_id_for_specifier_with_transaction(transaction, &parent)
-			.await?
+		let parent =
+			match Self::try_get_id_for_specifier_with_transaction(transaction, &parent).await? {
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			.ok_or_else(|| tg::error!("the parent does not exist"))?;
 		if parent.kind() == tg::id::Kind::Tag {
 			return Err(tg::error!("a tag cannot be a parent"));
 		}
 
-		Ok(Some(parent))
+		Ok(ControlFlow::Break(Some(parent)))
 	}
 
 	pub(crate) async fn create_group_request(

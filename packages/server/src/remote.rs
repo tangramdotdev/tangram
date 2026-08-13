@@ -4,7 +4,7 @@ use {
 	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
 	tangram_uri::Uri,
 };
@@ -89,45 +89,74 @@ impl Session {
 		&self,
 		principal: &tg::principal::Selector,
 	) -> tg::Result<Option<Option<tg::Principal>>> {
-		let mut connection = self
-			.server
+		let principal = principal.clone();
+		self.server
 			.database
-			.connection()
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let principal = principal.clone();
+				async move {
+					Self::resolve_remote_principal_selector_with_transaction(
+						transaction,
+						&principal,
+					)
+					.await
+				}
+				.boxed()
+			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+	}
+
+	async fn resolve_remote_principal_selector_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		principal: &tg::principal::Selector,
+	) -> tg::Result<ControlFlow<Option<Option<tg::Principal>>, crate::database::Error>> {
 		match principal {
 			tg::principal::Selector::Principal(principal) => match principal {
 				tg::Principal::Group(id) => {
 					let id = id.clone();
-					let specifier = Self::try_get_specifier_for_id_with_transaction(
-						&transaction,
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
+						transaction,
 						&id.clone().into(),
 					)
-					.await?;
-					Ok(specifier.map(|_| Some(tg::Principal::Group(id))))
+					.await?
+					{
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					Ok(ControlFlow::Break(
+						specifier.map(|_| Some(tg::Principal::Group(id))),
+					))
 				},
 				tg::Principal::Organization(id) => {
 					let id = id.clone();
-					let specifier = Self::try_get_specifier_for_id_with_transaction(
-						&transaction,
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
+						transaction,
 						&id.clone().into(),
 					)
-					.await?;
-					Ok(specifier.map(|_| Some(tg::Principal::Organization(id))))
+					.await?
+					{
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					Ok(ControlFlow::Break(
+						specifier.map(|_| Some(tg::Principal::Organization(id))),
+					))
 				},
-				tg::Principal::Root => Ok(Some(None)),
+				tg::Principal::Root => Ok(ControlFlow::Break(Some(None))),
 				tg::Principal::User(id) => {
 					let id = id.clone();
-					let specifier = Self::try_get_specifier_for_id_with_transaction(
-						&transaction,
+					let specifier = match Self::try_get_specifier_for_id_with_transaction(
+						transaction,
 						&id.clone().into(),
 					)
-					.await?;
-					Ok(specifier.map(|_| Some(tg::Principal::User(id))))
+					.await?
+					{
+						ControlFlow::Break(specifier) => specifier,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					Ok(ControlFlow::Break(
+						specifier.map(|_| Some(tg::Principal::User(id))),
+					))
 				},
 				tg::Principal::Process(_)
 				| tg::Principal::Anonymous
@@ -135,11 +164,15 @@ impl Session {
 				| tg::Principal::Sandbox(_) => Err(tg::error!("invalid remote principal")),
 			},
 			tg::principal::Selector::Specifier(specifier) => {
-				let Some(id) =
-					Self::try_get_id_for_specifier_with_transaction(&transaction, specifier)
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
 						.await?
-				else {
-					return Ok(None);
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				let Some(id) = id else {
+					return Ok(ControlFlow::Break(None));
 				};
 				let principal = match id.kind() {
 					tg::id::Kind::Group => Some(tg::Principal::Group(id.try_into()?)),
@@ -147,7 +180,7 @@ impl Session {
 					tg::id::Kind::User => Some(tg::Principal::User(id.try_into()?)),
 					_ => return Err(tg::error!("invalid remote principal")),
 				};
-				Ok(Some(principal))
+				Ok(ControlFlow::Break(Some(principal)))
 			},
 		}
 	}

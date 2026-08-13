@@ -53,61 +53,82 @@ impl Session {
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let data = session
-						.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
-						.await?;
-					let account = session
-						.usage_account_for_specifier_with_transaction(transaction, &data.specifier)
-						.await?;
-					let target = match data.target {
-						tg::tag::data::Target::Object(id) => tg::Either::Left(id),
-						tg::tag::data::Target::Process(id) => tg::Either::Right(id),
-					};
-					batch.items.push(tangram_index::batch::Item::PutTag(
-						tangram_index::tag::put::Arg {
-							account: account.clone(),
-							id: data.id,
-							name: data.name,
-							parent: data.parent,
-							permissions: data.permissions,
-							specifier: data.specifier,
-							target: target.clone(),
-						},
-					));
-					if let Some(account) = account {
-						let item = match target {
-							tg::Either::Left(object) => {
-								tangram_index::batch::Item::PutAccountObject(
-									tangram_index::usage::storage::put::ObjectArg {
-										account,
-										object,
-										touched_at,
-									},
-								)
-							},
-							tg::Either::Right(process) => {
-								tangram_index::batch::Item::PutAccountProcess(
-									tangram_index::usage::storage::put::ProcessArg {
-										account,
-										process,
-										touched_at,
-									},
-								)
-							},
-						};
-						batch.items.push(item);
-					}
 					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+						.put_tag_local_with_transaction(transaction, arg, permissions, touched_at)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 		Ok(())
+	}
+
+	async fn put_tag_local_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		arg: tg::tag::put::Arg,
+		permissions: Vec<tg::authorization::Permission>,
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let data = match self
+			.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(data) => data,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let account = match self
+			.usage_account_for_specifier_with_transaction(transaction, &data.specifier)
+			.await?
+		{
+			ControlFlow::Break(account) => account,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let target = match data.target {
+			tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+			tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+		};
+		batch.items.push(tangram_index::batch::Item::PutTag(
+			tangram_index::tag::put::Arg {
+				account: account.clone(),
+				id: data.id,
+				name: data.name,
+				parent: data.parent,
+				permissions: data.permissions,
+				specifier: data.specifier,
+				target: target.clone(),
+			},
+		));
+		if let Some(account) = account {
+			let item = match target {
+				tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
+					tangram_index::usage::storage::put::ObjectArg {
+						account,
+						object,
+						touched_at,
+					},
+				),
+				tg::Either::Right(process) => tangram_index::batch::Item::PutAccountProcess(
+					tangram_index::usage::storage::put::ProcessArg {
+						account,
+						process,
+						touched_at,
+					},
+				),
+			};
+			batch.items.push(item);
+		}
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_tag_with_transaction(
@@ -116,15 +137,30 @@ impl Session {
 		arg: tg::tag::put::Arg,
 		permissions: Vec<tg::authorization::Permission>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::tag::Data> {
+	) -> tg::Result<ControlFlow<tg::tag::Data, crate::database::Error>> {
 		let parent = if arg.ancestors.create {
-			self.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
+			match self
+				.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
 				.await?
+			{
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		} else {
-			Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier).await?
+			match Self::resolve_parent_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
+			{
+				ControlFlow::Break(parent) => parent,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 		};
 		let existing =
-			Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier).await?;
+			match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
+			{
+				ControlFlow::Break(existing) => existing,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
 		let target = Self::tag_target_to_string(&arg.target);
 		let permissions_json = serde_json::to_string(&permissions)
 			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
@@ -142,13 +178,13 @@ impl Session {
 					where id = {p}2;
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![target.clone(), id.to_string(), permissions_json],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				permissions: String,
@@ -160,21 +196,25 @@ impl Session {
 					where id = {p}1;
 				"
 			);
-			let row = transaction
+			let result = transaction
 				.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			let row = crate::database::retry!(result, "failed to execute the statement");
 			let permissions = serde_json::from_str(&row.permissions)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 			(id, permissions)
 		} else {
 			let id = tg::tag::Id::new();
-			Self::insert_specifier_with_transaction(
+			match Self::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
 				&arg.specifier,
 			)
-			.await?;
+			.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			let name = arg.specifier.name().to_owned();
 			let p = transaction.p();
 			let statement = formatdoc!(
@@ -183,7 +223,7 @@ impl Session {
 					values ({p}1, {p}2, {p}3, {p}4, {p}5);
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -194,8 +234,8 @@ impl Session {
 						permissions_json
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 			if arg.public {
 				let arg = tg::grant::create::Arg {
 					subject: tg::authorization::Subject::Public.into(),
@@ -207,8 +247,13 @@ impl Session {
 					),
 					resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 				};
-				self.create_grant_with_transaction(transaction, arg, batch)
-					.await?;
+				match self
+					.create_grant_with_transaction(transaction, arg, batch)
+					.await?
+				{
+					ControlFlow::Break(_) => (),
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 			if let Some(subject) = self.write_user_grant_subject() {
 				let arg = tg::grant::create::Arg {
@@ -221,19 +266,26 @@ impl Session {
 					),
 					resource: tg::Referent::with_node(tg::Selector::Id(id.clone().into())),
 				};
-				self.create_grant_with_transaction(transaction, arg, batch)
-					.await?;
+				match self
+					.create_grant_with_transaction(transaction, arg, batch)
+					.await?
+				{
+					ControlFlow::Break(_) => (),
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
 			(id, permissions)
 		};
-		Ok(tg::tag::Data {
+		let data = tg::tag::Data {
 			id,
 			target: arg.target,
 			name: arg.specifier.name().to_owned(),
 			parent,
 			permissions,
 			specifier: arg.specifier,
-		})
+		};
+
+		Ok(ControlFlow::Break(data))
 	}
 
 	async fn put_tag_remote(

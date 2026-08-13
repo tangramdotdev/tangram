@@ -1,7 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
@@ -62,6 +63,28 @@ impl Session {
 	}
 
 	async fn try_wait_login_local(&self, code: &str) -> tg::Result<WaitLogin> {
+		let code = code.to_owned();
+		let session = self.clone();
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let code = code.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_wait_login_local_with_transaction(transaction, &code)
+						.await
+				}
+				.boxed()
+			})
+			.await
+	}
+
+	async fn try_wait_login_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+	) -> tg::Result<ControlFlow<WaitLogin, crate::database::Error>> {
 		// Get the login.
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -72,16 +95,6 @@ impl Session {
 			token: Option<String>,
 			user: Option<String>,
 		}
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
@@ -90,10 +103,10 @@ impl Session {
 				where code = {p}1;
 			"#
 		);
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![code])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let Some(row) = row else {
 			return Err(tg::error!("invalid login code"));
 		};
@@ -119,14 +132,16 @@ impl Session {
 					.user
 					.ok_or_else(|| tg::error!("missing login user"))?
 					.parse::<tg::user::Id>()?;
-				let user = Self::try_get_user_with_transaction(&transaction, &user)
-					.await?
-					.ok_or_else(|| tg::error!("missing login user"))?;
+				let user = match Self::try_get_user_with_transaction(transaction, &user).await? {
+					ControlFlow::Break(user) => user,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+				.ok_or_else(|| tg::error!("missing login user"))?;
 				WaitLogin::Output(tg::user::login::wait::Output { token, user })
 			},
 			_ => return Err(tg::error!("invalid login status")),
 		};
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	pub(crate) async fn wait_login_request(

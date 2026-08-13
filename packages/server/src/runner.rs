@@ -2,6 +2,7 @@ use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, future},
 	std::{
+		ops::ControlFlow,
 		pin::pin,
 		sync::{
 			Mutex,
@@ -10,7 +11,7 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::{Stopper, Task},
 };
 
@@ -109,16 +110,6 @@ impl Session {
 		&self,
 		owner: &tg::principal::Selector,
 	) -> tg::Result<tg::Principal> {
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let owner = match owner {
 			tg::principal::Selector::Principal(principal) => {
 				tg::authorization::subject::Selector::Subject(principal.try_to_subject()?)
@@ -127,9 +118,25 @@ impl Session {
 				tg::authorization::subject::Selector::Specifier(specifier.clone())
 			},
 		};
-		let owner = Self::resolve_subject_with_transaction(&transaction, &owner)
-			.await?
-			.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let owner = owner.clone();
+				async move { Self::resolve_runner_owner_with_transaction(transaction, &owner).await }
+					.boxed()
+			})
+			.await
+	}
+
+	async fn resolve_runner_owner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		owner: &tg::authorization::subject::Selector,
+	) -> tg::Result<ControlFlow<tg::Principal, crate::database::Error>> {
+		let owner = match Self::resolve_subject_with_transaction(transaction, owner).await? {
+			ControlFlow::Break(owner) => owner,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to resolve the runner owner"))?;
 		let owner = match owner {
 			tg::authorization::Subject::Group(id) => tg::Principal::Group(id),
 			tg::authorization::Subject::Organization(id) => tg::Principal::Organization(id),
@@ -137,15 +144,28 @@ impl Session {
 			_ => return Err(tg::error!("invalid runner owner")),
 		};
 
-		Ok(owner)
+		Ok(ControlFlow::Break(owner))
 	}
 
 	pub(crate) async fn try_get_runner_data(
 		&self,
 		runner: &tg::runner::Id,
 	) -> tg::Result<Option<tg::runner::Data>> {
-		use tangram_database::prelude::*;
+		let runner = runner.clone();
+		self.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let runner = runner.clone();
+				async move { Self::try_get_runner_data_with_transaction(transaction, &runner).await }
+					.boxed()
+			})
+			.await
+	}
 
+	async fn try_get_runner_data_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		runner: &tg::runner::Id,
+	) -> tg::Result<ControlFlow<Option<tg::runner::Data>, crate::database::Error>> {
 		#[derive(tangram_database::row::Deserialize)]
 		struct Row {
 			created_at: i64,
@@ -154,21 +174,15 @@ impl Session {
 			owner: Option<tg::Id>,
 		}
 
-		let connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = format!("select created_at, owner from runners where id = {p}1;");
-		let row = connection
+		let result = transaction
 			.query_optional_into::<Row>(
 				statement.into(),
 				tangram_database::params![runner.to_string()],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let data = row
 			.map(|row| {
 				let owner = row.owner.map(Self::runner_owner_from_id).transpose()?;
@@ -180,7 +194,7 @@ impl Session {
 			})
 			.transpose()?;
 
-		Ok(data)
+		Ok(ControlFlow::Break(data))
 	}
 
 	pub(crate) fn runner_owner_from_id(owner: tg::Id) -> tg::Result<tg::Principal> {

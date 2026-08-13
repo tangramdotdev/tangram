@@ -1,8 +1,8 @@
 use {
 	crate::Session,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -42,28 +42,46 @@ impl Session {
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
 		// List the entries.
-		let entries =
-			{
-				let mut connection =
-					self.server.database.connection().await.map_err(|error| {
-						tg::error!(!error, "failed to get a database connection")
-					})?;
-				let transaction = connection
-					.transaction()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut entries = Vec::new();
-				entries.extend(Self::list_local_groups(&transaction).await?);
-				entries.extend(Self::list_local_organizations(&transaction).await?);
-				entries.extend(Self::list_local_tags(&transaction).await?);
-				entries.extend(Self::list_local_users(&transaction).await?);
-				entries
-			};
+		let entries = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				async move { Self::list_local_entries_with_transaction(transaction).await }.boxed()
+			})
+			.await?;
 
 		// Filter the visible entries.
 		let entries = self.filter_visible_entries(entries).await?;
 
 		Ok(entries)
+	}
+
+	async fn list_local_entries_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, crate::database::Error>> {
+		let mut entries = Vec::new();
+		let groups = match Self::list_local_groups(transaction).await? {
+			ControlFlow::Break(groups) => groups,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		entries.extend(groups);
+		let organizations = match Self::list_local_organizations(transaction).await? {
+			ControlFlow::Break(organizations) => organizations,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		entries.extend(organizations);
+		let tags = match Self::list_local_tags(transaction).await? {
+			ControlFlow::Break(tags) => tags,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		entries.extend(tags);
+		let users = match Self::list_local_users(transaction).await? {
+			ControlFlow::Break(users) => users,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		entries.extend(users);
+
+		Ok(ControlFlow::Break(entries))
 	}
 
 	pub(crate) async fn query_specifier_entries<F>(
@@ -153,7 +171,7 @@ impl Session {
 
 	async fn list_local_groups(
 		transaction: &crate::database::Transaction<'_>,
-	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -164,7 +182,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(
 				"
 					select groups.id, groups.name, groups.parent, specifiers.specifier
@@ -175,8 +193,8 @@ impl Session {
 				.into(),
 				db::params![],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let entries = rows
 			.into_iter()
 			.map(|row| {
@@ -193,12 +211,12 @@ impl Session {
 			})
 			.collect();
 
-		Ok(entries)
+		Ok(ControlFlow::Break(entries))
 	}
 
 	async fn list_local_organizations(
 		transaction: &crate::database::Transaction<'_>,
-	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -207,7 +225,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(
 				"
 					select organizations.id, organizations.name, specifiers.specifier
@@ -218,8 +236,8 @@ impl Session {
 				.into(),
 				db::params![],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let entries = rows
 			.into_iter()
 			.map(|row| {
@@ -235,12 +253,12 @@ impl Session {
 			})
 			.collect();
 
-		Ok(entries)
+		Ok(ControlFlow::Break(entries))
 	}
 
 	async fn list_local_tags(
 		transaction: &crate::database::Transaction<'_>,
-	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -252,7 +270,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(
 				"
 					select tags.id, tags.target, tags.name, tags.parent, specifiers.specifier
@@ -263,8 +281,8 @@ impl Session {
 				.into(),
 				db::params![],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let mut entries = Vec::new();
 		for row in rows {
 			let target = Self::parse_tag_target(&row.target)?;
@@ -285,12 +303,12 @@ impl Session {
 			entries.push((id, entry));
 		}
 
-		Ok(entries)
+		Ok(ControlFlow::Break(entries))
 	}
 
 	async fn list_local_users(
 		transaction: &crate::database::Transaction<'_>,
-	) -> tg::Result<Vec<(tg::Id, tg::list::Entry)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::list::Entry)>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
@@ -299,7 +317,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
-		let rows = transaction
+		let result = transaction
 			.query_all_into::<Row>(
 				"
 					select users.id, users.name, specifiers.specifier
@@ -310,8 +328,8 @@ impl Session {
 				.into(),
 				db::params![],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
 		let entries = rows
 			.into_iter()
 			.map(|row| {
@@ -327,7 +345,7 @@ impl Session {
 			})
 			.collect();
 
-		Ok(entries)
+		Ok(ControlFlow::Break(entries))
 	}
 
 	pub(crate) async fn list_request(

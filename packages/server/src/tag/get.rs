@@ -1,7 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database as db,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -47,18 +48,16 @@ impl Session {
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		// Get the tag.
-		let data =
-			{
-				let mut connection =
-					self.server.database.connection().await.map_err(|error| {
-						tg::error!(!error, "failed to get a database connection")
-					})?;
-				let transaction = connection
-					.transaction()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::try_get_tag_data_with_transaction(&transaction, id).await?
-			};
+		let id = id.clone();
+		let data = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let id = id.clone();
+				async move { Self::try_get_tag_data_with_transaction(transaction, &id).await }
+					.boxed()
+			})
+			.await?;
 		let Some(data) = data else {
 			return Ok(None);
 		};

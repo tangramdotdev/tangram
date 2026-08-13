@@ -1,7 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -137,6 +138,12 @@ pub(crate) struct Entry {
 	pub timestamp: i64,
 }
 
+#[derive(db::row::Deserialize)]
+struct Row {
+	response: String,
+	timestamp: i64,
+}
+
 impl Session {
 	pub(crate) async fn try_get_cached_remote_response(
 		&self,
@@ -188,32 +195,27 @@ impl Session {
 	) -> tg::Result<Option<Entry>> {
 		let request = serde_json::to_string(request)
 			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
-		let connection = self
+		let principal = self.context.principal.to_string();
+		let remote = remote.to_owned();
+		let row = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select response, timestamp
-				from remote_cache
-				where principal = {p}1 and remote = {p}2 and request = {p}3;
-			"
-		);
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			response: String,
-			timestamp: i64,
-		}
-		let row = connection
-			.query_optional_into::<Row>(
-				statement.into(),
-				db::params![self.context.principal.to_string(), remote, request],
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let principal = principal.clone();
+				let remote = remote.clone();
+				let request = request.clone();
+				async move {
+					Self::try_get_remote_cache_with_transaction(
+						transaction,
+						&principal,
+						&remote,
+						&request,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
 		let Some(row) = row else {
 			return Ok(None);
 		};
@@ -228,6 +230,28 @@ impl Session {
 		Ok(Some(entry))
 	}
 
+	async fn try_get_remote_cache_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		principal: &str,
+		remote: &str,
+		request: &str,
+	) -> tg::Result<ControlFlow<Option<Row>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select response, timestamp
+				from remote_cache
+				where principal = {p}1 and remote = {p}2 and request = {p}3;
+			"
+		);
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![principal, remote, request])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(row))
+	}
+
 	pub(crate) async fn put_remote_cache(
 		&self,
 		remote: &str,
@@ -239,13 +263,42 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache request"))?;
 		let response = serde_json::to_string(response)
 			.map_err(|error| tg::error!(!error, "failed to serialize the remote cache response"))?;
-		let connection = self
-			.server
+		let principal = self.context.principal.to_string();
+		let remote = remote.to_owned();
+		self.server
 			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
+			.run(|transaction| {
+				let principal = principal.clone();
+				let remote = remote.clone();
+				let request = request.clone();
+				let response = response.clone();
+				async move {
+					Self::put_remote_cache_with_transaction(
+						transaction,
+						&principal,
+						&remote,
+						&request,
+						&response,
+						timestamp,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(())
+	}
+
+	async fn put_remote_cache_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		principal: &str,
+		remote: &str,
+		request: &str,
+		response: &str,
+		timestamp: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				insert into remote_cache (principal, remote, request, response, timestamp)
@@ -254,21 +307,15 @@ impl Session {
 				set response = excluded.response, timestamp = excluded.timestamp;
 			"
 		);
-		connection
+		let result = transaction
 			.execute(
 				statement.into(),
-				db::params![
-					self.context.principal.to_string(),
-					remote,
-					request,
-					response,
-					timestamp
-				],
+				db::params![principal, remote, request, response, timestamp],
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn invalidate_remote_cache(&self, remote: &str) {
@@ -278,20 +325,34 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_remote_cache(&self, remote: &str) -> tg::Result<()> {
-		let connection = self
-			.server
+		let remote = remote.to_owned();
+		self.server
 			.database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = format!("delete from remote_cache where remote = {p}1;");
-		connection
-			.execute(statement.into(), db::params![remote])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.run(|transaction| {
+				let remote = remote.clone();
+				async move {
+					Self::delete_remote_cache_for_remote_with_transaction(transaction, &remote)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
 
 		Ok(())
+	}
+
+	async fn delete_remote_cache_for_remote_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		remote: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = format!("delete from remote_cache where remote = {p}1;");
+		let result = transaction
+			.execute(statement.into(), db::params![remote])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 }
 

@@ -36,67 +36,9 @@ impl Session {
 				let arg = arg.clone();
 				let current = current.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
-					let user = current
-						.upsert_login_user_with_transaction(transaction, &arg, &mut batch)
-						.await?;
-					for email in &arg.emails {
-						let p = transaction.p();
-						let statement = formatdoc!(
-							r#"
-								insert into user_emails ("user", email)
-								values ({p}1, {p}2)
-								on conflict ("user", email) do nothing;
-							"#
-						);
-						transaction
-							.execute(
-								statement.into(),
-								db::params![user.id.to_string(), email.clone()],
-							)
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to execute the statement")
-							})?;
-					}
-					let (token_id, token) = crate::token::create();
-					let token_hash = crate::token::hash(&token);
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-							insert into user_tokens (created_at, id, token, "user")
-							values ({p}1, {p}2, {p}3, {p}4);
-						"#
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![now, token_id.to_string(), token_hash, user.id.to_string()],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let statement = formatdoc!(
-						r#"
-							update logins
-							set status = 'finished', "user" = {p}1, token = {p}2, updated_at = {p}3
-							where code = {p}4 and status = 'started';
-						"#
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![user.id.to_string(), token, now, arg.code.clone()],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let user = Self::try_get_user_with_transaction(transaction, &user.id)
-						.await?
-						.ok_or_else(|| tg::error!("failed to find the user"))?;
 					current
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(user))
+						.finish_login_with_transaction(transaction, &arg, now)
+						.await
 				}
 				.boxed()
 			})
@@ -105,12 +47,90 @@ impl Session {
 		Ok(user)
 	}
 
+	async fn finish_login_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		arg: &FinishLoginArg,
+		now: i64,
+	) -> tg::Result<ControlFlow<tg::User, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		let user = match self
+			.upsert_login_user_with_transaction(transaction, arg, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(user) => user,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for email in &arg.emails {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				r#"
+					insert into user_emails ("user", email)
+					values ({p}1, {p}2)
+					on conflict ("user", email) do nothing;
+				"#
+			);
+			let result = transaction
+				.execute(
+					statement.into(),
+					db::params![user.id.to_string(), email.clone()],
+				)
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
+		}
+		let (token_id, token) = crate::token::create();
+		let token_hash = crate::token::hash(&token);
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				insert into user_tokens (created_at, id, token, "user")
+				values ({p}1, {p}2, {p}3, {p}4);
+			"#
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![now, token_id.to_string(), token_hash, user.id.to_string()],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		let statement = formatdoc!(
+			r#"
+				update logins
+				set status = 'finished', "user" = {p}1, token = {p}2, updated_at = {p}3
+				where code = {p}4 and status = 'started';
+			"#
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![user.id.to_string(), token, now, arg.code.clone()],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		let user = match Self::try_get_user_with_transaction(transaction, &user.id).await? {
+			ControlFlow::Break(user) => user,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		.ok_or_else(|| tg::error!("failed to find the user"))?;
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		Ok(ControlFlow::Break(user))
+	}
+
 	async fn upsert_login_user_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &FinishLoginArg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<tg::User> {
+	) -> tg::Result<ControlFlow<tg::User, crate::database::Error>> {
 		// Get the user from the identity.
 		if let Some(identity) = &arg.identity {
 			#[derive(db::row::Deserialize)]
@@ -125,20 +145,22 @@ impl Session {
 					where provider = {p}1 and subject = {p}2;
 				"#
 			);
-			if let Some(row) = transaction
+			let result = transaction
 				.query_optional_into::<Row>(
 					statement.into(),
 					db::params![identity.provider.clone(), identity.subject.clone()],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
-			{
+				.await;
+			let row = crate::database::retry!(result, "failed to execute the statement");
+			if let Some(row) = row {
 				let id = row.user.parse::<tg::user::Id>()?;
-				let user = Self::try_get_user_with_transaction(transaction, &id)
-					.await?
-					.ok_or_else(|| tg::error!("invalid user identity"))?;
+				let user = match Self::try_get_user_with_transaction(transaction, &id).await? {
+					ControlFlow::Break(user) => user,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+				.ok_or_else(|| tg::error!("invalid user identity"))?;
 
-				return Ok(user);
+				return Ok(ControlFlow::Break(user));
 			}
 		}
 
@@ -155,10 +177,10 @@ impl Session {
 				where code = {p}1;
 			"
 		);
-		let login = transaction
+		let result = transaction
 			.query_one_into::<LoginRow>(statement.into(), db::params![arg.code.clone()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let login = crate::database::retry!(result, "failed to execute the statement");
 
 		// Get the specifier.
 		let specifier = login
@@ -172,19 +194,32 @@ impl Session {
 		}
 
 		// Get or create the user.
-		let user = if let Some(id) =
-			Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
-		{
+		let id =
+			match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await? {
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let user = if let Some(id) = id {
 			let Ok(id) = id.try_into() else {
 				return Err(tg::error!("specifier is already in use"));
 			};
-			Self::try_get_user_with_transaction(transaction, &id)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the user"))?
+			match Self::try_get_user_with_transaction(transaction, &id).await? {
+				ControlFlow::Break(user) => user,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+			.ok_or_else(|| tg::error!("failed to find the user"))?
 		} else {
 			let id = tg::user::Id::new();
-			Self::insert_specifier_with_transaction(transaction, &id.clone().into(), &specifier)
-				.await?;
+			match Self::insert_specifier_with_transaction(
+				transaction,
+				&id.clone().into(),
+				&specifier,
+			)
+			.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			let name = specifier.name().to_owned();
 			let p = transaction.p();
 			let statement = formatdoc!(
@@ -193,10 +228,10 @@ impl Session {
 					values ({p}1, {p}2);
 				"
 			);
-			transaction
+			let result = transaction
 				.execute(statement.into(), db::params![id.to_string(), name])
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 			batch.items.push(tangram_index::batch::Item::PutUser(
 				tangram_index::user::put::Arg {
 					billing: Some(false),
@@ -204,9 +239,11 @@ impl Session {
 					specifier: specifier.clone(),
 				},
 			));
-			Self::try_get_user_with_transaction(transaction, &id)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the user"))?
+			match Self::try_get_user_with_transaction(transaction, &id).await? {
+				ControlFlow::Break(user) => user,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+			.ok_or_else(|| tg::error!("failed to find the user"))?
 		};
 
 		// Insert the identity.
@@ -218,7 +255,7 @@ impl Session {
 					values ({p}1, {p}2, {p}3);
 				"#
 			);
-			transaction
+			let result = transaction
 				.execute(
 					statement.into(),
 					db::params![
@@ -227,11 +264,11 @@ impl Session {
 						user.id.to_string()
 					],
 				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+				.await;
+			crate::database::retry!(result, "failed to execute the statement");
 		}
 
-		Ok(user)
+		Ok(ControlFlow::Break(user))
 	}
 }
 

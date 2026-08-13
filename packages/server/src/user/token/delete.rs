@@ -23,28 +23,36 @@ impl Session {
 				let token = token.clone();
 				let user = user.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						r#"
-							delete from user_tokens
-							where id = {p}1 and "user" = {p}2;
-						"#
-					);
-					let count = transaction
-						.execute(
-							statement.into(),
-							db::params![token.to_string(), user.to_string()],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(count == 1))
+					Self::delete_user_token_with_transaction(transaction, &token, &user).await
 				}
 				.boxed()
 			})
 			.await?;
 
 		Ok(deleted.then_some(()))
+	}
+
+	async fn delete_user_token_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		token: &tg::token::Id,
+		user: &tg::user::Id,
+	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				delete from user_tokens
+				where id = {p}1 and "user" = {p}2;
+			"#
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![token.to_string(), user.to_string()],
+			)
+			.await;
+		let count = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(count == 1))
 	}
 
 	pub(crate) async fn try_delete_user_token_request(

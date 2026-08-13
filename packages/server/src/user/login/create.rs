@@ -81,26 +81,15 @@ impl Session {
 				let email = email.clone();
 				let name = name.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into logins (
-								code, provider, status, name, email, expires_at, interval, created_at,
-								updated_at
-							)
-							values (
-								{p}1, 'insecure', 'started', {p}2, {p}3, {p}4, 0, {p}5, {p}5
-							);
-						"
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![code, name.to_string(), email, expires_at, now],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Self::create_insecure_login_with_transaction(
+						transaction,
+						&code,
+						&name,
+						email.as_deref(),
+						expires_at,
+						now,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -120,6 +109,37 @@ impl Session {
 		let output = tg::user::login::create::Output { code, url: None };
 
 		Ok(output)
+	}
+
+	async fn create_insecure_login_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+		name: &tg::Specifier,
+		email: Option<&str>,
+		expires_at: i64,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into logins (
+					code, provider, status, name, email, expires_at, interval, created_at,
+					updated_at
+				)
+				values (
+					{p}1, 'insecure', 'started', {p}2, {p}3, {p}4, 0, {p}5, {p}5
+				);
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![code, name.to_string(), email, expires_at, now],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn create_login_with_github(
@@ -163,26 +183,16 @@ impl Session {
 				let code = code.clone();
 				let name = arg.name.clone().map(|name| name.to_string());
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into logins (
-								code, provider, status, name, email, expires_at, interval, created_at,
-								updated_at
-							)
-							values (
-								{p}1, 'github', 'started', {p}2, {p}3, {p}4, {p}5, {p}6, {p}6
-							);
-						"
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![code, name, email, expires_at, interval, now],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Self::create_github_login_with_transaction(
+						transaction,
+						&code,
+						name.as_deref(),
+						email.as_deref(),
+						expires_at,
+						interval,
+						now,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -198,6 +208,38 @@ impl Session {
 		};
 
 		Ok(output)
+	}
+
+	async fn create_github_login_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		code: &str,
+		name: Option<&str>,
+		email: Option<&str>,
+		expires_at: i64,
+		interval: i64,
+		now: i64,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into logins (
+					code, provider, status, name, email, expires_at, interval, created_at,
+					updated_at
+				)
+				values (
+					{p}1, 'github', 'started', {p}2, {p}3, {p}4, {p}5, {p}6, {p}6
+				);
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![code, name, email, expires_at, interval, now],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn create_login_request(

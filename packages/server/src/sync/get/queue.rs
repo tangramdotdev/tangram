@@ -7,7 +7,7 @@ use {
 			queue::{DatabaseNode, ObjectNode, ProcessNode, SandboxNode},
 		},
 	},
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 };
@@ -56,7 +56,12 @@ impl Session {
 		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { Box::pin(session.sync_get_queue_process_batch(&state, nodes)).await }
+			async move {
+				session
+					.sync_get_queue_process_batch(&state, nodes)
+					.boxed()
+					.await
+			}
 		});
 
 		// Create the sandboxes future.

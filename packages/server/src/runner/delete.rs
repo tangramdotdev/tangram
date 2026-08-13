@@ -23,26 +23,31 @@ impl Session {
 			.database
 			.run(|transaction| {
 				let runner = runner.clone();
-				async move {
-					let p = transaction.p();
-					let statement = format!("delete from runner_tokens where runner = {p}1;");
-					transaction
-						.execute(statement.into(), db::params![runner.to_string()])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let statement = format!("delete from runners where id = {p}1;");
-					transaction
-						.execute(statement.into(), db::params![runner.to_string()])
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
-				}
-				.boxed()
+				async move { Self::delete_runner_with_transaction(transaction, &runner).await }
+					.boxed()
 			})
 			.await?;
 
 		Ok(Some(()))
+	}
+
+	async fn delete_runner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		runner: &tg::runner::Id,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = format!("delete from runner_tokens where runner = {p}1;");
+		let result = transaction
+			.execute(statement.into(), db::params![runner.to_string()])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		let statement = format!("delete from runners where id = {p}1;");
+		let result = transaction
+			.execute(statement.into(), db::params![runner.to_string()])
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn try_delete_runner_request(

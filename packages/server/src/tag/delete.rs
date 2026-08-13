@@ -70,26 +70,45 @@ impl Session {
 				let session = session.clone();
 				let tags = tags.clone();
 				async move {
-					let mut batch = tangram_index::batch::Arg::default();
 					session
-						.delete_tags_with_transaction(transaction, &tags, &mut batch)
-						.await?;
-					batch.items.extend(
-						tags.iter()
-							.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
-					);
-					let output = tg::tag::delete::Output { deleted: tags };
-					session
-						.server
-						.enqueue_database_outbox_with_transaction(transaction, &batch)
-						.await?;
-					Ok::<_, crate::database::Error>(ControlFlow::Break(output))
+						.delete_tags_local_with_transaction(transaction, tags)
+						.await
 				}
 				.boxed()
 			})
 			.await?;
 
 		Ok(output)
+	}
+
+	async fn delete_tags_local_with_transaction(
+		&self,
+		transaction: &crate::database::Transaction<'_>,
+		tags: Vec<tg::tag::Data>,
+	) -> tg::Result<ControlFlow<tg::tag::delete::Output, crate::database::Error>> {
+		let mut batch = tangram_index::batch::Arg::default();
+		match self
+			.delete_tags_with_transaction(transaction, &tags, &mut batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		batch.items.extend(
+			tags.iter()
+				.map(|tag| tangram_index::batch::Item::DeleteTag(tag.id.clone())),
+		);
+		match self
+			.server
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		let output = tg::tag::delete::Output { deleted: tags };
+
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn list_tags_to_delete(
@@ -124,28 +143,42 @@ impl Session {
 		};
 
 		// Get the tags in a single transaction.
-		let mut connection = self
+		let tags = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let specifiers = specifiers.clone();
+				async move { Self::list_tags_to_delete_with_transaction(transaction, specifiers).await }
+					.boxed()
+			})
+			.await?;
+
+		Ok(tags)
+	}
+
+	async fn list_tags_to_delete_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		specifiers: Vec<tg::Specifier>,
+	) -> tg::Result<ControlFlow<Vec<tg::tag::Data>, crate::database::Error>> {
 		let mut tags = Vec::new();
 		for specifier in specifiers {
-			let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(&transaction, &specifier).await?
-			else {
+			let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
+				.await?
+			{
+				ControlFlow::Break(id) => id,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let Some(id) = id else {
 				continue;
 			};
 			let Ok(id) = id.try_into() else {
 				continue;
 			};
-			let Some(tag) = Self::try_get_tag_data_with_transaction(&transaction, &id).await?
-			else {
+			let tag = match Self::try_get_tag_data_with_transaction(transaction, &id).await? {
+				ControlFlow::Break(tag) => tag,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let Some(tag) = tag else {
 				continue;
 			};
 			tags.push(tag);
@@ -157,7 +190,8 @@ impl Session {
 				.cmp(&a_depth)
 				.then_with(|| a.specifier.cmp(&b.specifier))
 		});
-		Ok(tags)
+
+		Ok(ControlFlow::Break(tags))
 	}
 
 	async fn delete_tags_with_transaction(
@@ -165,22 +199,28 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		tags: &[tg::tag::Data],
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		for tag in tags {
-			self.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)
-				.await?;
+			match self
+				.delete_node_grants_with_transaction(transaction, &tag.id.clone().into(), batch)
+				.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
 			for statement in [
 				format!("delete from tags where id = {p}1;"),
 				format!("delete from specifiers where id = {p}1;"),
 			] {
-				transaction
+				let result = transaction
 					.execute(statement.into(), db::params![tag.id.to_string()])
-					.await
-					.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+					.await;
+				crate::database::retry!(result, "failed to execute the statement");
 			}
 		}
-		Ok(())
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn delete_tags_remote(

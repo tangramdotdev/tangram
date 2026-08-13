@@ -1,8 +1,5 @@
 use {
-	num::ToPrimitive as _,
-	rusqlite as sqlite,
-	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	num::ToPrimitive as _, rusqlite as sqlite, tangram_client::prelude::*, tangram_database as db,
 };
 
 pub fn initialize(
@@ -48,20 +45,10 @@ pub fn initialize(
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	let schema_version = 1;
 
-	let connection = database
-		.connection()
+	let version = database
+		.run(get_database_version_with_transaction)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-	let version = connection
-		.with(|connection, _cache| {
-			connection
-				.pragma_query_value(None, "user_version", |row| {
-					Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
-				})
-				.map_err(|error| tg::error!(!error, "failed to get the version"))
-		})
-		.await?;
-	drop(connection);
+		.map_err(|error| tg::error!(!error, "failed to get the database version"))?;
 
 	if version > schema_version {
 		return Err(tg::error!(
@@ -77,48 +64,49 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	}
 
 	if version == 0 {
-		migration_0000(database)
+		database
+			.run(move |transaction, _cache| {
+				migration_0000_with_transaction(transaction, schema_version)
+			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the database schema"))?;
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		connection
-			.with(move |connection, _cache| {
-				connection
-					.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
-					.map_err(|error| tg::error!(!error, "failed to set the version"))
-			})
-			.await?;
 	}
 
 	Ok(())
 }
 
-async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
+fn get_database_version_with_transaction(
+	transaction: &sqlite::Transaction<'_>,
+	_cache: &db::sqlite::Cache,
+) -> tg::Result<std::ops::ControlFlow<usize, db::sqlite::Error>> {
+	let result = transaction
+		.pragma_query_value(None, "user_version", |row| {
+			Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
+		})
+		.map_err(db::sqlite::Error::from);
+	let version = crate::database::retry!(result, "failed to get the version");
+
+	Ok(std::ops::ControlFlow::Break(version))
+}
+
+fn migration_0000_with_transaction(
+	transaction: &sqlite::Transaction<'_>,
+	schema_version: usize,
+) -> tg::Result<std::ops::ControlFlow<(), db::sqlite::Error>> {
 	let sql = include_str!("./sqlite.sql");
-	let connection = database
-		.write_connection()
-		.await
-		.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-	connection
-		.with(move |connection, _cache| {
-			connection
-				.execute_batch(sql)
-				.map_err(|error| tg::error!(!error, "failed to execute the statements"))?;
-			Ok::<_, tg::Error>(())
-		})
-		.await?;
-	connection
-		.with(move |connection, _cache| {
-			let sql =
-				"insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
-			connection
-				.execute_batch(sql)
-				.map_err(|error| tg::error!(!error, "failed to execute the statements"))?;
-			Ok::<_, tg::Error>(())
-		})
-		.await?;
-	Ok(())
+	let result = transaction
+		.execute_batch(sql)
+		.map_err(db::sqlite::Error::from);
+	crate::database::retry!(result, "failed to execute the statements");
+	let sql = "insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
+	let result = transaction
+		.execute_batch(sql)
+		.map_err(db::sqlite::Error::from);
+	crate::database::retry!(result, "failed to execute the statements");
+	let result = transaction
+		.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
+		.map_err(db::sqlite::Error::from);
+	crate::database::retry!(result, "failed to set the version");
+
+	Ok(std::ops::ControlFlow::Break(()))
 }

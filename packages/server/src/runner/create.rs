@@ -31,44 +31,15 @@ impl Session {
 				let token_hash = token_hash.clone();
 				let token_id = token_id.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into runners (created_at, id, owner)
-							values ({p}1, {p}2, {p}3);
-						"
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![
-								created_at,
-								runner.to_string(),
-								owner_id.map(|owner| owner.to_string())
-							],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-					let statement = formatdoc!(
-						"
-							insert into runner_tokens (created_at, id, runner, token)
-							values ({p}1, {p}2, {p}3, {p}4);
-						"
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![
-								created_at,
-								token_id.to_string(),
-								runner.to_string(),
-								token_hash
-							],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Self::create_runner_with_transaction(
+						transaction,
+						created_at,
+						&runner,
+						owner_id.as_ref(),
+						&token_id,
+						&token_hash,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -85,6 +56,54 @@ impl Session {
 		let token = tg::runner::token::create::Output { data, token };
 
 		Ok(tg::runner::create::Output { runner, token })
+	}
+
+	async fn create_runner_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		created_at: i64,
+		runner: &tg::runner::Id,
+		owner: Option<&tg::Id>,
+		token: &tg::token::Id,
+		token_hash: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into runners (created_at, id, owner)
+				values ({p}1, {p}2, {p}3);
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![
+					created_at,
+					runner.to_string(),
+					owner.map(ToString::to_string)
+				],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+		let statement = formatdoc!(
+			"
+				insert into runner_tokens (created_at, id, runner, token)
+				values ({p}1, {p}2, {p}3, {p}4);
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![
+					created_at,
+					token.to_string(),
+					runner.to_string(),
+					token_hash
+				],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn create_runner_request(

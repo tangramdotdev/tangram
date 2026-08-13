@@ -60,7 +60,12 @@ impl Session {
 		.try_for_each_concurrent(process_concurrency, |nodes| {
 			let session = self.clone();
 			let state = state.clone();
-			async move { Box::pin(session.sync_put_store_process_batch(&state, nodes)).await }
+			async move {
+				session
+					.sync_put_store_process_batch(&state, nodes)
+					.boxed()
+					.await
+			}
 		});
 
 		// Join the objects and processes futures.
@@ -274,7 +279,7 @@ impl Session {
 			// Validate the process before waiting for all of its children.
 			Self::validate_process_data(&output.data)?;
 
-			// Load the complete children list for the wire representation.
+			// Load the children.
 			let arg = tg::process::children::get::Arg {
 				location: output.location.clone().map(Into::into),
 				tokens: tg::authorization::Tokens::with_local(node.token.clone()),

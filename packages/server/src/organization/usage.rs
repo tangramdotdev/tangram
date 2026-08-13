@@ -1,7 +1,9 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_database::prelude::*,
+	tangram_database as db,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -26,24 +28,19 @@ impl Session {
 			Some(_) => return Err(tg::error!("unauthorized")),
 		}
 
-		let mut connection = self
+		let organization = organization.clone();
+		let id = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let id = match organization {
-			tg::Selector::Id(id) => Some(id.clone()),
-			tg::Selector::Specifier(specifier) => {
-				Self::try_get_id_for_specifier_with_transaction(&transaction, specifier)
-					.await?
-					.and_then(|id| id.try_into().ok())
-			},
-		};
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let organization = organization.clone();
+				async move {
+					Self::try_resolve_organization_with_transaction(transaction, &organization)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
 		let Some(id) = id else {
 			return Ok(None);
 		};
@@ -67,6 +64,27 @@ impl Session {
 		};
 
 		Ok(Some(output))
+	}
+
+	async fn try_resolve_organization_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		organization: &tg::organization::Selector,
+	) -> tg::Result<ControlFlow<Option<tg::organization::Id>, crate::database::Error>> {
+		let id = match organization {
+			tg::Selector::Id(id) => Some(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				let id =
+					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+						.await?
+					{
+						ControlFlow::Break(id) => id,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+				id.and_then(|id| id.try_into().ok())
+			},
+		};
+
+		Ok(ControlFlow::Break(id))
 	}
 
 	pub(crate) async fn try_get_organization_usage_request(

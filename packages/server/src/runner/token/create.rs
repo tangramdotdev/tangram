@@ -26,22 +26,14 @@ impl Session {
 				let runner = runner.clone();
 				let token_hash = token_hash.clone();
 				async move {
-					let p = transaction.p();
-					let statement = formatdoc!(
-						"
-							insert into runner_tokens (created_at, id, runner, token)
-							values ({p}1, {p}2, {p}3, {p}4);
-						"
-					);
-					transaction
-						.execute(
-							statement.into(),
-							db::params![created_at, id.to_string(), runner.to_string(), token_hash],
-						)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
-
-					Ok::<_, crate::database::Error>(ControlFlow::Break(()))
+					Self::create_runner_token_with_transaction(
+						transaction,
+						created_at,
+						&id,
+						&runner,
+						&token_hash,
+					)
+					.await
 				}
 				.boxed()
 			})
@@ -49,6 +41,31 @@ impl Session {
 		let data = tg::runner::token::Data { created_at, id };
 
 		Ok(tg::runner::token::create::Output { data, token })
+	}
+
+	async fn create_runner_token_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		created_at: i64,
+		id: &tg::token::Id,
+		runner: &tg::runner::Id,
+		token_hash: &str,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into runner_tokens (created_at, id, runner, token)
+				values ({p}1, {p}2, {p}3, {p}4);
+			"
+		);
+		let result = transaction
+			.execute(
+				statement.into(),
+				db::params![created_at, id.to_string(), runner.to_string(), token_hash],
+			)
+			.await;
+		crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn create_runner_token_request(

@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	futures::FutureExt as _,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, response::Ext as _},
@@ -20,25 +22,15 @@ impl Session {
 		_arg: tg::user::token::list::Arg,
 	) -> tg::Result<tg::user::token::list::Output> {
 		let user = self.authenticated_user()?;
-		let connection = self
+		let rows = self
 			.server
 			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			r#"
-				select created_at, id
-				from user_tokens
-				where "user" = {p}1
-				order by id;
-			"#
-		);
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), db::params![user.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let user = user.clone();
+				async move { Self::list_user_tokens_with_transaction(transaction, &user).await }
+					.boxed()
+			})
+			.await?;
 		let data = rows
 			.into_iter()
 			.map(|row| tg::user::token::Data {
@@ -48,6 +40,27 @@ impl Session {
 			.collect();
 
 		Ok(tg::user::token::list::Output { data })
+	}
+
+	async fn list_user_tokens_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		user: &tg::user::Id,
+	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			r#"
+				select created_at, id
+				from user_tokens
+				where "user" = {p}1
+				order by id;
+			"#
+		);
+		let result = transaction
+			.query_all_into::<Row>(statement.into(), db::params![user.to_string()])
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+
+		Ok(ControlFlow::Break(rows))
 	}
 
 	pub(crate) async fn list_user_tokens_request(

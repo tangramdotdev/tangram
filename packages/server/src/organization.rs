@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	indoc::formatdoc,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -16,17 +17,21 @@ impl Session {
 	pub(crate) async fn try_get_organization_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::organization::Id,
-	) -> tg::Result<Option<tg::Organization>> {
+	) -> tg::Result<ControlFlow<Option<tg::Organization>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
 		}
 
-		let Some(specifier) =
-			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
+		let specifier =
+			match Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
 				.await?
-		else {
-			return Ok(None);
+			{
+				ControlFlow::Break(specifier) => specifier,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let Some(specifier) = specifier else {
+			return Ok(ControlFlow::Break(None));
 		};
 		let p = transaction.p();
 		let statement = formatdoc!(
@@ -36,10 +41,10 @@ impl Session {
 				where id = {p}1;
 			"
 		);
-		let row = transaction
+		let result = transaction
 			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
-			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
 		let organization = row.map(|row| tg::Organization {
 			id: id.clone(),
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -48,6 +53,6 @@ impl Session {
 			tokens: tg::authorization::Tokens::default(),
 		});
 
-		Ok(organization)
+		Ok(ControlFlow::Break(organization))
 	}
 }
