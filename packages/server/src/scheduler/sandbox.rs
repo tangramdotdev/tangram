@@ -60,6 +60,7 @@ struct Sandbox {
 enum SandboxState {
 	Creating { placement: Placement },
 	Pending,
+	Placing,
 	Uncertain { placement: Placement },
 }
 
@@ -476,6 +477,10 @@ impl State {
 				self.sandboxes.entries.remove(&id);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
+			SandboxState::Placing => {
+				self.sandboxes.entries.remove(&id);
+				Some(DequeueSandboxResponseOutput { dequeued: true })
+			},
 			SandboxState::Uncertain { placement } => {
 				let placement = placement.clone();
 				self.remove_reservation(&id, &placement, true);
@@ -667,6 +672,16 @@ impl State {
 		self.try_schedule(scheduler, &sandbox);
 	}
 
+	pub(super) fn handle_retry_sandbox(&mut self, id: &tg::sandbox::Id) {
+		let Some(sandbox) = self.sandboxes.entries.get(id) else {
+			return;
+		};
+		if !matches!(sandbox.state, SandboxState::Placing) {
+			return;
+		}
+		self.requeue_sandbox(id);
+	}
+
 	fn find_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
 		if let Some(parent) = sandbox.request.parent.as_ref()
 			&& let Some(borrowable) = self
@@ -791,6 +806,45 @@ impl State {
 			return false;
 		}
 		let Some(placement) = self.find_placement(scheduler, sandbox) else {
+			// Keep the sandbox queued if a runner could satisfy it once it has capacity.
+			if self
+				.runners
+				.entries
+				.values()
+				.any(|runner| placeable(runner, sandbox))
+			{
+				return false;
+			}
+
+			// No runner can satisfy the sandbox, so count the attempt and discard it once they are exhausted.
+			self.remove_queued_sandbox(id);
+			let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
+			sandbox.attempts += 1;
+			let attempts = sandbox.attempts;
+			if attempts >= scheduler.config.max_create_sandbox_attempts {
+				let error = tg::error!(sandbox = %id, %attempts, "no runners available");
+				tracing::error!(error = %error.trace(), "giving up on the sandbox");
+				self.sandboxes.entries.remove(id);
+				let discarded = DiscardedSandbox {
+					error: error.to_data_or_id(),
+					sandbox: id.clone(),
+				};
+				scheduler.publish_sandbox_discarded(self, discarded);
+				return false;
+			}
+
+			// Retry after the grace period in case a runner becomes available.
+			sandbox.state = SandboxState::Placing;
+			let duration = scheduler.config.create_sandbox_timeout;
+			let sandbox = id.clone();
+			self.operations.push(
+				async move {
+					tokio::time::sleep(duration).await;
+					Operation::RetrySandbox { sandbox }
+				}
+				.boxed(),
+			);
+
 			return false;
 		};
 		let capacity = sandbox.capacity;
@@ -950,6 +1004,16 @@ fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
 		.host
 		.as_ref()
 		.is_none_or(|host| host == &runner.host)
+}
+
+fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
+	let owner_matches = runner
+		.owner
+		.as_ref()
+		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
+	owner_matches
+		&& matches_host(runner, &sandbox.request)
+		&& contains(runner.capacity.total, sandbox.capacity)
 }
 
 fn score(

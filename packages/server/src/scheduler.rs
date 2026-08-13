@@ -86,6 +86,9 @@ enum Operation {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
 	},
+	RetrySandbox {
+		sandbox: tg::sandbox::Id,
+	},
 }
 
 enum Event {
@@ -861,6 +864,9 @@ impl Scheduler {
 				} else if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
+			},
+			Operation::RetrySandbox { sandbox } => {
+				state.handle_retry_sandbox(&sandbox);
 			},
 		}
 	}
