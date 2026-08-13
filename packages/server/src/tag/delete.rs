@@ -38,20 +38,9 @@ impl Session {
 		}
 
 		// List the tags before acquiring the write transaction.
-		let tags = {
-			let mut connection = self
-				.server
-				.database
-				.connection()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			self.list_tags_to_delete_with_transaction(&transaction, &arg.pattern, arg.recursive)
-				.await?
-		};
+		let tags = self
+			.list_tags_to_delete(&arg.pattern, arg.recursive)
+			.await?;
 
 		// Authorize the tags.
 		for tag in &tags {
@@ -103,6 +92,74 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn list_tags_to_delete(
+		&self,
+		pattern: &tg::specifier::Pattern,
+		recursive: bool,
+	) -> tg::Result<Vec<tg::tag::Data>> {
+		// List the matching specifiers without holding a database connection.
+		let specifiers = if !recursive && !pattern.contains_operators() {
+			vec![pattern.clone().try_into()?]
+		} else {
+			let entries = self
+				.list_local_entries()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
+			entries
+				.into_iter()
+				.filter_map(|entry| {
+					let tg::list::Entry::Tag { specifier, .. } = entry else {
+						return None;
+					};
+					let matches = if recursive {
+						specifier
+							.prefixes()
+							.any(|prefix| pattern.matches_specifier(&prefix))
+					} else {
+						pattern.matches_specifier(&specifier)
+					};
+					matches.then_some(specifier)
+				})
+				.collect()
+		};
+
+		// Get the tags in a single transaction.
+		let mut connection = self
+			.server
+			.database
+			.connection()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
+		let mut tags = Vec::new();
+		for specifier in specifiers {
+			let Some(id) =
+				Self::try_get_id_for_specifier_with_transaction(&transaction, &specifier).await?
+			else {
+				continue;
+			};
+			let Ok(id) = id.try_into() else {
+				continue;
+			};
+			let Some(tag) = Self::try_get_tag_data_with_transaction(&transaction, &id).await?
+			else {
+				continue;
+			};
+			tags.push(tag);
+		}
+		tags.sort_by(|a, b| {
+			let a_depth = a.specifier.components().count();
+			let b_depth = b.specifier.components().count();
+			b_depth
+				.cmp(&a_depth)
+				.then_with(|| a.specifier.cmp(&b.specifier))
+		});
+		Ok(tags)
+	}
+
 	async fn delete_tags_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
@@ -124,65 +181,6 @@ impl Session {
 			}
 		}
 		Ok(())
-	}
-
-	async fn list_tags_to_delete_with_transaction(
-		&self,
-		transaction: &crate::database::Transaction<'_>,
-		pattern: &tg::specifier::Pattern,
-		recursive: bool,
-	) -> tg::Result<Vec<tg::tag::Data>> {
-		if !recursive && !pattern.contains_operators() {
-			let specifier = pattern.clone().try_into()?;
-			let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
-			else {
-				return Ok(Vec::new());
-			};
-			let Ok(id) = id.try_into() else {
-				return Ok(Vec::new());
-			};
-			return Ok(vec![
-				Self::get_tag_data_with_transaction(transaction, &id).await?,
-			]);
-		}
-		let entries = self
-			.list_local_entries()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the tags"))?;
-		let mut tags = Vec::new();
-		for entry in entries {
-			let tg::list::Entry::Tag { specifier, .. } = entry else {
-				continue;
-			};
-			let matches = if recursive {
-				specifier
-					.prefixes()
-					.any(|prefix| pattern.matches_specifier(&prefix))
-			} else {
-				pattern.matches_specifier(&specifier)
-			};
-			if !matches {
-				continue;
-			}
-			let Some(id) =
-				Self::try_get_id_for_specifier_with_transaction(transaction, &specifier).await?
-			else {
-				continue;
-			};
-			let Ok(id) = id.try_into() else {
-				continue;
-			};
-			tags.push(Self::get_tag_data_with_transaction(transaction, &id).await?);
-		}
-		tags.sort_by(|a, b| {
-			let a_depth = a.specifier.components().count();
-			let b_depth = b.specifier.components().count();
-			b_depth
-				.cmp(&a_depth)
-				.then_with(|| a.specifier.cmp(&b.specifier))
-		});
-		Ok(tags)
 	}
 
 	async fn delete_tags_remote(

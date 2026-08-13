@@ -16,19 +16,32 @@ impl Session {
 		transaction: &Transaction<'_>,
 		id: &tg::tag::Id,
 	) -> tg::Result<tg::tag::Data> {
+		let data = Self::try_get_tag_data_with_transaction(transaction, id)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the tag"))?;
+
+		Ok(data)
+	}
+
+	pub(crate) async fn try_get_tag_data_with_transaction(
+		transaction: &Transaction<'_>,
+		id: &tg::tag::Id,
+	) -> tg::Result<Option<tg::tag::Data>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
-			target: String,
 			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
 			permissions: String,
+			target: String,
 		}
 
-		let specifier =
+		let Some(specifier) =
 			Self::try_get_specifier_for_id_with_transaction(transaction, &id.clone().into())
 				.await?
-				.ok_or_else(|| tg::error!("failed to find the tag"))?;
+		else {
+			return Ok(None);
+		};
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
@@ -37,21 +50,26 @@ impl Session {
 				where id = {p}1;
 			"
 		);
-		let row = transaction
-			.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
+		let Some(row) = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await
-			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?;
+			.map_err(|error| tg::error!(!error, "failed to execute the statement"))?
+		else {
+			return Ok(None);
+		};
 		let target = Self::parse_tag_target(&row.target)?;
 		let permissions = serde_json::from_str(&row.permissions)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
-		Ok(tg::tag::Data {
+		let data = tg::tag::Data {
 			id: id.clone(),
-			target,
 			name: row.name,
 			parent: row.parent,
 			permissions,
 			specifier,
-		})
+			target,
+		};
+
+		Ok(Some(data))
 	}
 
 	pub(crate) fn parse_tag_target(target: &str) -> tg::Result<tg::tag::data::Target> {
