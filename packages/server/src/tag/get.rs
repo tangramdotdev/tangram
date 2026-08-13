@@ -46,8 +46,8 @@ impl Session {
 		id: &tg::tag::Id,
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		// Look up the specifier.
-		let specifier =
+		// Get the tag.
+		let data =
 			{
 				let mut connection =
 					self.server.database.connection().await.map_err(|error| {
@@ -57,12 +57,12 @@ impl Session {
 					.transaction()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				Self::try_get_specifier_for_id_with_transaction(&transaction, &id.clone().into())
-					.await?
+				Self::try_get_tag_data_with_transaction(&transaction, id).await?
 			};
-		if specifier.is_none() {
+		let Some(data) = data else {
 			return Ok(None);
-		}
+		};
+		crate::checkpoint!(self.server, "tag.get.read", id = %id).await;
 
 		// Authorize the tag.
 		let id = id.clone().into();
@@ -88,23 +88,6 @@ impl Session {
 		if !visible {
 			return Ok(None);
 		}
-		crate::checkpoint!(self.server, "tag.get.authorized", id = %id).await;
-
-		// Get the tag.
-		let id = id.try_into()?;
-		let mut connection = self
-			.server
-			.database
-			.connection()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let Some(data) = Self::try_get_tag_data_with_transaction(&transaction, &id).await? else {
-			return Ok(None);
-		};
 
 		Ok(Some(tg::tag::get::Output {
 			data,
