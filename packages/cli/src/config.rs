@@ -843,6 +843,9 @@ pub struct ObjectOutbox {
 	pub batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fragment_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
 }
 
@@ -2698,6 +2701,9 @@ fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
 	let mut target = server::ObjectOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
+	}
+	if let Some(value) = source.fragment_size {
+		target.fragment_size = value;
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;

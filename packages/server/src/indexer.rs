@@ -23,7 +23,7 @@ struct Indexer {
 struct State {
 	barriers: Barriers,
 	database_outbox_id: Option<crate::database::outbox::Id>,
-	object_outbox_id: Option<crate::object::outbox::Id>,
+	object_outbox_batch_id: Option<crate::object::outbox::BatchId>,
 	requests: BTreeMap<String, IndexRequest>,
 }
 
@@ -496,40 +496,50 @@ impl Indexer {
 			partition_end: config.partition_end,
 			partition_start: config.partition_start,
 		};
-		let entries = self
+		let fragments = self
 			.server
 			.object_store
-			.dequeue_outbox(arg)
+			.dequeue_outbox_fragments(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to dequeue the object outbox"))?;
-		if entries.is_empty() {
+			.map_err(|error| tg::error!(!error, "failed to dequeue the object outbox fragments"))?;
+		if fragments.is_empty() {
 			return Ok(0);
 		}
 
-		// Deserialize the index batches.
-		let count = entries.len();
-		let mut args = Vec::with_capacity(count);
+		// Combine the fragments into batches.
+		let count = fragments.len();
+		let mut batches = BTreeMap::<_, Vec<_>>::new();
 		let mut keys = Vec::with_capacity(count);
-		for entry in entries {
-			let arg = tangram_index::batch::Arg::deserialize(&entry.payload)?;
-			args.push(arg);
-			let key = crate::object::outbox::Key {
-				id: entry.id,
-				partition: entry.partition,
+		for fragment in fragments {
+			let arg = tangram_index::batch::Arg::deserialize(&fragment.payload)?;
+			batches
+				.entry(fragment.batch)
+				.or_default()
+				.push((fragment.index, arg));
+			let key = crate::object::outbox::FragmentKey {
+				batch: fragment.batch,
+				index: fragment.index,
+				partition: fragment.partition,
 			};
 			keys.push(key);
 		}
 
-		// Submit each outbox entry separately to preserve its transaction boundary.
-		future::try_join_all(args.into_iter().map(|arg| self.server.index.batch(arg)))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;
-		let arg = crate::object::outbox::DeleteArg { keys };
+		// Submit the batches concurrently and each batch's fragments sequentially.
+		future::try_join_all(batches.into_values().map(|mut fragments| async move {
+			fragments.sort_unstable_by_key(|(index, _)| *index);
+			for (_, arg) in fragments {
+				self.server.index.batch(arg).await?;
+			}
+			Ok::<_, tg::Error>(())
+		}))
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;
+		let arg = crate::object::outbox::DeleteArg { fragments: keys };
 		self.server
 			.object_store
-			.delete_outbox(arg)
+			.delete_outbox_fragments(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete an object outbox batch"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete object outbox fragments"))?;
 
 		Ok(count)
 	}
@@ -849,7 +859,7 @@ impl State {
 		Self {
 			barriers: Barriers::new(),
 			database_outbox_id: None,
-			object_outbox_id: None,
+			object_outbox_batch_id: None,
 			requests: BTreeMap::new(),
 		}
 	}
@@ -879,18 +889,18 @@ impl State {
 		let config = &server.config.object.outbox;
 
 		// Poll the active cohort.
-		if let Some(id) = self.object_outbox_id {
-			let arg = crate::object::outbox::TryGetIdArg {
-				id: Some(id),
+		if let Some(batch) = self.object_outbox_batch_id {
+			let arg = crate::object::outbox::TryGetBatchArg {
+				batch: Some(batch),
 				partition_end: config.partition_total,
 				partition_start: 0,
 			};
-			let id = server
+			let batch = server
 				.object_store
-				.try_get_outbox_id_at_or_before(arg)
+				.try_get_outbox_batch_at_or_before(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to poll the object outbox"))?;
-			if id.is_some() {
+			if batch.is_some() {
 				return Ok(());
 			}
 			for request in self.requests.values_mut() {
@@ -898,7 +908,7 @@ impl State {
 					request.state = IndexRequestState::DatabaseOutbox;
 				}
 			}
-			self.object_outbox_id = None;
+			self.object_outbox_batch_id = None;
 
 			return Ok(());
 		}
@@ -911,27 +921,27 @@ impl State {
 		if !snapshot {
 			return Ok(());
 		}
-		let arg = crate::object::outbox::TryGetIdArg {
-			id: None,
+		let arg = crate::object::outbox::TryGetBatchArg {
+			batch: None,
 			partition_end: config.partition_total,
 			partition_start: 0,
 		};
-		let id = server
+		let batch = server
 			.object_store
-			.try_get_outbox_id_at_or_before(arg)
+			.try_get_outbox_batch_at_or_before(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to snapshot the object outbox"))?;
 		for request in self.requests.values_mut() {
 			if !matches!(request.state, IndexRequestState::ObjectOutbox) {
 				continue;
 			}
-			request.state = if id.is_some() {
+			request.state = if batch.is_some() {
 				IndexRequestState::ObjectOutboxPending
 			} else {
 				IndexRequestState::DatabaseOutbox
 			};
 		}
-		self.object_outbox_id = id;
+		self.object_outbox_batch_id = batch;
 
 		Ok(())
 	}
@@ -1190,7 +1200,7 @@ impl State {
 	fn fail(&mut self, error: &tg::Error, sender: &Sender) {
 		let error = error.to_string();
 		self.database_outbox_id = None;
-		self.object_outbox_id = None;
+		self.object_outbox_batch_id = None;
 		let ids = std::mem::take(&mut self.requests).into_keys();
 		for id in ids {
 			Self::send_response(

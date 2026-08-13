@@ -42,8 +42,8 @@ type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 enum Request {
 	Delete(self::delete::Request),
 	DeleteBatch(Vec<self::delete::Request>),
-	DeleteOutbox(crate::outbox::DeleteArg),
-	EnqueueOutbox(self::outbox::EnqueueRequest),
+	DeleteOutboxFragments(crate::outbox::DeleteArg),
+	EnqueueOutboxBatch(crate::outbox::Batch),
 	Put(self::put::Request),
 	PutBatch(Vec<self::put::Request>),
 }
@@ -51,8 +51,11 @@ enum Request {
 #[derive(Debug)]
 enum Key<'a> {
 	Object(&'a tg::object::Id),
-	Outbox { id: u128, partition: u64 },
-	OutboxId,
+	Outbox {
+		batch: [u8; 16],
+		index: u64,
+		partition: u64,
+	},
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -60,7 +63,6 @@ enum Key<'a> {
 enum KeyKind {
 	Object = 0,
 	Outbox = 1,
-	OutboxId = 2,
 }
 
 impl Store {
@@ -197,26 +199,26 @@ impl crate::Store for Store {
 		self.delete_batch(args).await
 	}
 
-	async fn delete_outbox(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
-		self.delete_outbox(arg).await
+	async fn delete_outbox_fragments(&self, arg: crate::outbox::DeleteArg) -> tg::Result<()> {
+		self.delete_outbox_fragments(arg).await
 	}
 
-	async fn dequeue_outbox(
+	async fn dequeue_outbox_fragments(
 		&self,
 		arg: crate::outbox::DequeueArg,
-	) -> tg::Result<Vec<crate::outbox::Item>> {
-		self.dequeue_outbox(arg).await
+	) -> tg::Result<Vec<crate::outbox::Fragment>> {
+		self.dequeue_outbox_fragments(arg).await
 	}
 
-	async fn enqueue_outbox(&self, arg: crate::outbox::EnqueueArg) -> tg::Result<()> {
-		self.enqueue_outbox(arg).await
+	async fn enqueue_outbox_batch(&self, arg: crate::outbox::Batch) -> tg::Result<()> {
+		self.enqueue_outbox_batch(arg).await
 	}
 
-	async fn try_get_outbox_id_at_or_before(
+	async fn try_get_outbox_batch_at_or_before(
 		&self,
-		arg: crate::outbox::TryGetIdArg,
-	) -> tg::Result<Option<crate::outbox::Id>> {
-		self.try_get_outbox_id_at_or_before(arg).await
+		arg: crate::outbox::TryGetBatchArg,
+	) -> tg::Result<Option<crate::outbox::BatchId>> {
+		self.try_get_outbox_batch_at_or_before(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -234,13 +236,17 @@ impl fdbt::TuplePack for Key<'_> {
 			Key::Object(id) => {
 				(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
-			Key::Outbox { id, partition } => (
+			Key::Outbox {
+				batch,
+				index,
+				partition,
+			} => (
 				KeyKind::Outbox.to_i32().unwrap(),
 				partition,
-				id.to_be_bytes().as_slice(),
+				batch.as_slice(),
+				index,
 			)
 				.pack(w, tuple_depth),
-			Key::OutboxId => (KeyKind::OutboxId.to_i32().unwrap(),).pack(w, tuple_depth),
 		}
 	}
 }

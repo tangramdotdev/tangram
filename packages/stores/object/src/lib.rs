@@ -105,25 +105,25 @@ pub trait Store {
 		args: Vec<DeleteArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn delete_outbox(
+	fn delete_outbox_fragments(
 		&self,
 		arg: outbox::DeleteArg,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn dequeue_outbox(
+	fn dequeue_outbox_fragments(
 		&self,
 		arg: outbox::DequeueArg,
-	) -> impl std::future::Future<Output = tg::Result<Vec<outbox::Item>>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<Vec<outbox::Fragment>>> + Send;
 
-	fn enqueue_outbox(
+	fn enqueue_outbox_batch(
 		&self,
-		arg: outbox::EnqueueArg,
+		arg: outbox::Batch,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_outbox_id_at_or_before(
+	fn try_get_outbox_batch_at_or_before(
 		&self,
-		arg: outbox::TryGetIdArg,
-	) -> impl std::future::Future<Output = tg::Result<Option<outbox::Id>>> + Send;
+		arg: outbox::TryGetBatchArg,
+	) -> impl std::future::Future<Output = tg::Result<Option<outbox::BatchId>>> + Send;
 
 	fn flush(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 }
