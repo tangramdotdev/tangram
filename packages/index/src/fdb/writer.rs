@@ -859,10 +859,154 @@ impl Index {
 		usage_partition_total: u64,
 		metrics: &Metrics,
 	) {
+		let result = Self::execute_transaction(
+			database,
+			subspace,
+			&batch.requests,
+			max_process_depth,
+			partition_total,
+			usage_partition_total,
+			metrics,
+		)
+		.await;
+
+		match result {
+			Ok(responses) => {
+				for (response, tracker) in std::iter::zip(responses, &batch.trackers) {
+					Self::complete_tracker(tracker, Ok(response));
+				}
+			},
+			Err(error) if Self::is_transaction_too_large(&error) => {
+				if batch.requests.len() > 1 {
+					let mid = batch.requests.len() / 2;
+					let mut requests = batch.requests;
+					let mut trackers = batch.trackers;
+					let right_requests = requests.split_off(mid);
+					let right_trackers = trackers.split_off(mid);
+					let left = Batch { requests, trackers };
+					let right = Batch {
+						requests: right_requests,
+						trackers: right_trackers,
+					};
+					Box::pin(Self::execute_batch(
+						database,
+						subspace,
+						left,
+						max_process_depth,
+						partition_total,
+						usage_partition_total,
+						metrics,
+					))
+					.await;
+					Box::pin(Self::execute_batch(
+						database,
+						subspace,
+						right,
+						max_process_depth,
+						partition_total,
+						usage_partition_total,
+						metrics,
+					))
+					.await;
+					return;
+				}
+
+				let request = batch.requests.into_iter().next().unwrap();
+				let tracker = batch.trackers.into_iter().next().unwrap();
+				let result = match request {
+					Request::Batch(arg) if arg.items.len() > 1 => {
+						Self::execute_ordered_batch(
+							database,
+							subspace,
+							arg,
+							max_process_depth,
+							partition_total,
+							usage_partition_total,
+							metrics,
+						)
+						.await
+					},
+					_ => Err(tg::error!(!error, "transaction too large")),
+				};
+				match result {
+					Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),
+					Err(error) => Self::fail_tracker(&tracker, &error),
+				}
+			},
+			Err(error) => {
+				let error = tg::error!(!error, "failed to execute batch");
+				for tracker in &batch.trackers {
+					Self::fail_tracker(tracker, &error);
+				}
+			},
+		}
+	}
+
+	async fn execute_ordered_batch(
+		database: &fdb::Database,
+		subspace: &fdbt::Subspace,
+		arg: crate::batch::Arg,
+		max_process_depth: Option<u64>,
+		partition_total: u64,
+		usage_partition_total: u64,
+		metrics: &Metrics,
+	) -> tg::Result<()> {
+		let Some((left, right)) = Self::try_split_batch_arg(arg) else {
+			return Err(tg::error!(
+				"cannot split an index batch with fewer than two items"
+			));
+		};
+		// Push the right half first so every left half commits before its right half.
+		let mut pending = vec![right, left];
+		while let Some(arg) = pending.pop() {
+			let request = Request::Batch(arg);
+			let result = Self::execute_transaction(
+				database,
+				subspace,
+				std::slice::from_ref(&request),
+				max_process_depth,
+				partition_total,
+				usage_partition_total,
+				metrics,
+			)
+			.await;
+			match result {
+				Ok(responses) => {
+					let [Response::Unit] = responses.as_slice() else {
+						return Err(tg::error!("unexpected write response"));
+					};
+				},
+				Err(error) if Self::is_transaction_too_large(&error) => {
+					let Request::Batch(arg) = request else {
+						unreachable!();
+					};
+					let Some((left, right)) = Self::try_split_batch_arg(arg) else {
+						return Err(tg::error!(!error, "transaction too large"));
+					};
+					// Preserve the order when another adaptive split is required.
+					pending.push(right);
+					pending.push(left);
+				},
+				Err(error) => return Err(tg::error!(!error, "failed to execute batch")),
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn execute_transaction(
+		database: &fdb::Database,
+		subspace: &fdbt::Subspace,
+		requests: &[Request],
+		max_process_depth: Option<u64>,
+		partition_total: u64,
+		usage_partition_total: u64,
+		metrics: &Metrics,
+	) -> Result<Vec<Response>, fdb::FdbBindingError> {
 		let start = std::time::Instant::now();
 		let retry_count = AtomicU64::new(0);
 
-		let priority_batch = batch.requests.iter().all(|request| {
+		let priority_batch = requests.iter().all(|request| {
 			matches!(
 				request,
 				Request::Batch(_)
@@ -890,7 +1034,7 @@ impl Index {
 		let result = database
 			.run(|txn, _maybe_committed| {
 				retry_count.fetch_add(1, Ordering::Relaxed);
-				let requests = batch.requests.clone();
+				let requests = requests.to_vec();
 				let subspace = subspace.clone();
 				async move {
 					if priority_batch {
@@ -924,62 +1068,15 @@ impl Index {
 		if attempts > 1 {
 			metrics.transaction_conflict_retry.add(attempts - 1, &[]);
 		}
-
-		match result {
-			Ok(responses) => {
-				for (response, tracker) in std::iter::zip(responses, &batch.trackers) {
-					Self::complete_tracker(tracker, Ok(response));
-				}
-			},
-			Err(fdb::FdbBindingError::NonRetryableFdbError(ref fdb_error))
-				if fdb_error.code() == 2101 =>
-			{
-				metrics.transaction_too_large.add(1, &[]);
-				if batch.requests.len() <= 1 {
-					let error = tg::error!("transaction too large");
-					for tracker in &batch.trackers {
-						Self::fail_tracker(tracker, &error);
-					}
-				} else {
-					let mid = batch.requests.len() / 2;
-					let mut requests = batch.requests;
-					let mut trackers = batch.trackers;
-					let right_requests = requests.split_off(mid);
-					let right_trackers = trackers.split_off(mid);
-					let left = Batch { requests, trackers };
-					let right = Batch {
-						requests: right_requests,
-						trackers: right_trackers,
-					};
-					Box::pin(Self::execute_batch(
-						database,
-						subspace,
-						left,
-						max_process_depth,
-						partition_total,
-						usage_partition_total,
-						metrics,
-					))
-					.await;
-					Box::pin(Self::execute_batch(
-						database,
-						subspace,
-						right,
-						max_process_depth,
-						partition_total,
-						usage_partition_total,
-						metrics,
-					))
-					.await;
-				}
-			},
-			Err(error) => {
-				let error = tg::error!(!error, "failed to execute batch");
-				for tracker in &batch.trackers {
-					Self::fail_tracker(tracker, &error);
-				}
-			},
+		if result
+			.as_ref()
+			.err()
+			.is_some_and(Self::is_transaction_too_large)
+		{
+			metrics.transaction_too_large.add(1, &[]);
 		}
+
+		result
 	}
 
 	async fn execute_request(
@@ -1209,6 +1306,24 @@ impl Index {
 		}
 	}
 
+	fn try_split_batch_arg(
+		mut arg: crate::batch::Arg,
+	) -> Option<(crate::batch::Arg, crate::batch::Arg)> {
+		if arg.items.len() <= 1 {
+			return None;
+		}
+		let right_items = arg.items.split_off(arg.items.len() / 2);
+		let right = crate::batch::Arg { items: right_items };
+
+		Some((arg, right))
+	}
+
+	fn is_transaction_too_large(error: &fdb::FdbBindingError) -> bool {
+		error
+			.get_fdb_error()
+			.is_some_and(|error| error.code() == 2101)
+	}
+
 	fn complete_tracker(tracker: &Arc<Mutex<RequestTracker>>, result: tg::Result<Response>) {
 		let mut state = tracker.lock().unwrap();
 		match result {
@@ -1276,5 +1391,44 @@ impl Metrics {
 			transaction_too_large,
 			transactions,
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn batch_arg_splitting_preserves_order() {
+		let ids = (0..9).map(|_| tg::group::Id::new()).collect::<Vec<_>>();
+		let arg = crate::batch::Arg {
+			items: ids
+				.iter()
+				.cloned()
+				.map(crate::batch::Item::DeleteGroup)
+				.collect(),
+		};
+		let mut pending = vec![arg];
+		let mut items = Vec::new();
+		while let Some(arg) = pending.pop() {
+			if arg.items.len() <= 2 {
+				items.extend(arg.items);
+				continue;
+			}
+			let (left, right) = Index::try_split_batch_arg(arg).unwrap();
+			pending.push(right);
+			pending.push(left);
+		}
+		let actual = items
+			.into_iter()
+			.map(|item| {
+				let crate::batch::Item::DeleteGroup(id) = item else {
+					panic!();
+				};
+				id
+			})
+			.collect::<Vec<_>>();
+
+		assert_eq!(actual, ids);
 	}
 }

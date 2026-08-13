@@ -1,6 +1,6 @@
 use tangram_client::prelude::*;
 
-/// An ordered sequence of mutations that executes in one transaction, which other args may share.
+/// An ordered sequence of mutations that may execute in multiple sequential transactions.
 #[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
