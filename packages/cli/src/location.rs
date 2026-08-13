@@ -32,28 +32,21 @@ pub struct Args {
 }
 
 impl Args {
+	pub(crate) fn apply_to_reference(&self, reference: &tg::Reference) -> tg::Reference {
+		let mut options = reference.options().clone();
+		if let Some(location) = self.get() {
+			options.location = Some(location);
+		}
+
+		tg::Reference::with_node_and_options(reference.node().clone(), options)
+	}
+
 	pub(crate) fn with_location(location: tg::location::Arg) -> Self {
 		Self {
 			local: None,
 			location: Some(location),
 			remotes: None,
 		}
-	}
-
-	pub(crate) fn with_fallback_location(self, location: Option<&tg::Location>) -> Self {
-		if self.get().is_some() {
-			return self;
-		}
-		location.map_or(self, |location| {
-			Self::with_location(location.clone().into())
-		})
-	}
-
-	pub(crate) fn with_fallback_location_arg(self, location: Option<tg::location::Arg>) -> Self {
-		if self.get().is_some() {
-			return self;
-		}
-		location.map_or(self, Self::with_location)
 	}
 
 	pub fn get(&self) -> Option<tg::location::Arg> {

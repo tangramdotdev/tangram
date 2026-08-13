@@ -16,28 +16,18 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
-		let explicit_location = args.locations.get();
-		let reference_location = args.process.options().location.clone();
-		let mut options = args.process.options().clone();
-		if let Some(location) = explicit_location.clone() {
-			options.location = Some(location);
-		}
-		let reference = tg::Reference::with_node_and_options(args.process.node().clone(), options);
+		let reference = args.locations.apply_to_reference(&args.process);
 		let process = self.resolve(&reference).await?.try_map(|node| match node {
 			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
 			tg::get::Node::Pointer(_) => Err(tg::error!("expected a process")),
 		})?;
-		let location = explicit_location
-			.or_else(|| process.options.location.clone().map(Into::into))
-			.or(reference_location);
-		self.command_process_wait_with_referent(process, location, args.print)
+		self.command_process_wait_with_referent(process, args.print)
 			.await
 	}
 
 	pub(crate) async fn command_process_wait_with_referent(
 		&mut self,
 		process: tg::Referent<tg::process::Id>,
-		location: Option<tg::location::Arg>,
 		print: crate::print::Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
@@ -45,7 +35,7 @@ impl Cli {
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let arg = tg::process::wait::Arg {
 			lease: None,
-			location,
+			location: None,
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let output = process

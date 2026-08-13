@@ -16,13 +16,23 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let (object, locations) = self
-			.resolve_object_with_locations(&args.object, args.locations)
+		let object = self
+			.resolve_object_with_location(&args.object, &args.locations)
 			.await?;
+		self.command_object_children_with_referent(args, object)
+			.await
+	}
+
+	pub(crate) async fn command_object_children_with_referent(
+		&mut self,
+		args: Args,
+		object: tg::Referent<tg::object::Id>,
+	) -> tg::Result<()> {
+		let client = self.client().await?;
+		let location = object.options.location.clone().map(Into::into);
 		let id = object.node;
 		let arg = tg::object::get::Arg {
-			location: locations.get(),
+			location,
 			metadata: false,
 			stored: false,
 			tokens: object.options.tokens,

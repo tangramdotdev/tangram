@@ -65,12 +65,21 @@ impl Timeout {
 
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let (process, locations) = self
-			.resolve_process_with_locations(&args.process, args.locations)
+		let process = self
+			.resolve_process_with_location(&args.process, &args.locations)
 			.await?;
-		let location = locations.get();
+		self.command_process_children_with_referent(args, process)
+			.await
+	}
+
+	pub(crate) async fn command_process_children_with_referent(
+		&mut self,
+		args: Args,
+		process: tg::Referent<tg::process::Id>,
+	) -> tg::Result<()> {
+		let client = self.client().await?;
 		let id = process.node;
+		let location = process.options.location.map(Into::into);
 		let tokens = process.options.tokens;
 		let process = tg::Process::<tg::Value>::new(
 			id.clone(),

@@ -17,14 +17,15 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_signal(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let (process, locations) = self
-			.resolve_process_with_locations(&args.process, args.location)
+		let process = self
+			.resolve_process_with_location(&args.process, &args.location)
 			.await?;
 		let id = process.node;
+		let location = process.options.location.map(Into::into);
 		let process = tg::Process::<tg::Value>::new(
 			id,
 			tg::process::Options {
-				location: locations.get(),
+				location,
 				tokens: process.options.tokens,
 				..Default::default()
 			},

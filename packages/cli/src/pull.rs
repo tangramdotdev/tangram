@@ -56,20 +56,20 @@ impl Cli {
 		let source = args.source.to_location()?;
 
 		// Get the references.
-		let reference_location = source.clone().unwrap_or_else(|| {
+		let location = source.clone().unwrap_or_else(|| {
 			tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
 				region: None,
 			})
 		});
-		let reference_location = Some(reference_location.into());
+		let location = Some(location.into());
 		let references = args
 			.references
 			.iter()
 			.map(|reference| {
 				let mut options = reference.options().clone();
 				if options.location.is_none() {
-					options.location.clone_from(&reference_location);
+					options.location.clone_from(&location);
 				}
 				tg::Reference::new(
 					reference.node().clone(),

@@ -16,18 +16,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_wait(&mut self, args: Args) -> tg::Result<()> {
-		let explicit_location = args.locations.get();
-		let reference_location = args.reference.options().location.clone();
-		let mut options = args.reference.options().clone();
-		if let Some(location) = explicit_location.clone() {
-			options.location = Some(location);
-		}
-		let reference =
-			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
+		let reference = args.locations.apply_to_reference(&args.reference);
 		let referent = self.resolve(&reference).await?;
-		let location = explicit_location
-			.or_else(|| referent.options.location.clone().map(Into::into))
-			.or(reference_location);
 		let id = match referent.node {
 			tg::get::Node::Id(id) => id,
 			tg::get::Node::Pointer(_) => {
@@ -37,12 +27,12 @@ impl Cli {
 		match id.kind() {
 			tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_process_wait_with_referent(process, location, args.print)
+				self.command_process_wait_with_referent(process, args.print)
 					.await?;
 			},
 			tg::id::Kind::Sandbox => {
 				let sandbox = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_sandbox_wait_with_referent(sandbox, location, args.print)
+				self.command_sandbox_wait_with_referent(sandbox, args.print)
 					.await?;
 			},
 			_ => return Err(tg::error!(%id, "expected a process or sandbox")),

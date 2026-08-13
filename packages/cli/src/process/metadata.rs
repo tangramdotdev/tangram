@@ -16,13 +16,23 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let (process, locations) = self
-			.resolve_process_with_locations(&args.process, args.locations)
+		let process = self
+			.resolve_process_with_location(&args.process, &args.locations)
 			.await?;
+		self.command_process_metadata_with_referent(args, process)
+			.await
+	}
+
+	pub(crate) async fn command_process_metadata_with_referent(
+		&mut self,
+		args: Args,
+		process: tg::Referent<tg::process::Id>,
+	) -> tg::Result<()> {
+		let client = self.client().await?;
+		let location = process.options.location.clone().map(Into::into);
 		let id = process.node;
 		let arg = tg::process::metadata::Arg {
-			location: locations.get(),
+			location,
 			tokens: process.options.tokens,
 		};
 		let output = client

@@ -56,12 +56,7 @@ impl Ttl {
 
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
-		let mut options = args.reference.options().clone();
-		if let Some(location) = args.locations.get() {
-			options.location = Some(location);
-		}
-		let reference =
-			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
+		let reference = args.locations.apply_to_reference(&args.reference);
 		let arg = tg::get::Arg {
 			cached: args.cached,
 			ttl: args.ttl.get(),
@@ -77,11 +72,13 @@ impl Cli {
 		args: Args,
 		referent: tg::Referent<tg::get::Node>,
 	) -> tg::Result<()> {
-		let reference_location = args.reference.options().location.clone();
-		let locations = args
-			.locations
-			.with_fallback_location(referent.options.location.as_ref())
-			.with_fallback_location_arg(reference_location);
+		let locations = referent
+			.options
+			.location
+			.clone()
+			.map(Into::into)
+			.map(crate::location::Args::with_location)
+			.unwrap_or_default();
 		let print = args.print;
 		self.print_info_message(&referent.without_runtime().to_string());
 		let kind = match referent.node() {
@@ -104,20 +101,20 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = object.options.into();
-			let object = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(object.node.into()),
+			let options = object.options.clone().into();
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Id(object.node.clone().into()),
 				options,
 			);
 			let args = crate::object::get::Args {
 				bytes: args.bytes,
-				locations,
+				locations: crate::location::Args::default(),
 				metadata: args.metadata,
-				object,
+				object: reference,
 				print,
 				stored: args.stored,
 			};
-			self.command_object_get(args).await?;
+			self.command_object_get_with_referent(args, object).await?;
 
 			return Ok(());
 		}
@@ -126,19 +123,20 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = process.options.into();
-			let process = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(process.node.into()),
+			let options = process.options.clone().into();
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Id(process.node.clone().into()),
 				options,
 			);
 			let args = crate::process::get::Args {
-				locations,
+				locations: crate::location::Args::default(),
 				metadata: args.metadata,
 				print,
-				process,
+				process: reference,
 				stored: args.stored,
 			};
-			self.command_process_get(args).await?;
+			self.command_process_get_with_referent(args, process)
+				.await?;
 
 			return Ok(());
 		}
@@ -240,51 +238,34 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_object_with_locations(
+	pub(crate) async fn resolve_object_with_location(
 		&mut self,
 		reference: &tg::Reference,
-		locations: crate::location::Args,
-	) -> tg::Result<(tg::Referent<tg::object::Id>, crate::location::Args)> {
-		let (referent, locations) = self.resolve_with_locations(reference, locations).await?;
-		let referent = referent.try_map(|node| match node {
-			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
-			tg::get::Node::Pointer(_) => Err(tg::error!("expected an object")),
-		})?;
-
-		Ok((referent, locations))
+		location: &crate::location::Args,
+	) -> tg::Result<tg::Referent<tg::object::Id>> {
+		let reference = location.apply_to_reference(reference);
+		self.resolve_object(&reference).await
 	}
 
-	pub(crate) async fn resolve_process_with_locations(
+	pub(crate) async fn resolve_process(
 		&mut self,
 		reference: &tg::Reference,
-		locations: crate::location::Args,
-	) -> tg::Result<(tg::Referent<tg::process::Id>, crate::location::Args)> {
-		let (referent, locations) = self.resolve_with_locations(reference, locations).await?;
+	) -> tg::Result<tg::Referent<tg::process::Id>> {
+		let referent = self.resolve(reference).await?;
 		let referent = referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
 			tg::get::Node::Pointer(_) => Err(tg::error!("expected a process")),
 		})?;
-
-		Ok((referent, locations))
+		Ok(referent)
 	}
 
-	async fn resolve_with_locations(
+	pub(crate) async fn resolve_process_with_location(
 		&mut self,
 		reference: &tg::Reference,
-		locations: crate::location::Args,
-	) -> tg::Result<(tg::Referent<tg::get::Node>, crate::location::Args)> {
-		let reference_location = reference.options().location.clone();
-		let mut options = reference.options().clone();
-		if let Some(location) = locations.get() {
-			options.location = Some(location);
-		}
-		let reference = tg::Reference::with_node_and_options(reference.node().clone(), options);
-		let referent = self.resolve(&reference).await?;
-		let locations = locations
-			.with_fallback_location(referent.options.location.as_ref())
-			.with_fallback_location_arg(reference_location);
-
-		Ok((referent, locations))
+		location: &crate::location::Args,
+	) -> tg::Result<tg::Referent<tg::process::Id>> {
+		let reference = location.apply_to_reference(reference);
+		self.resolve_process(&reference).await
 	}
 
 	pub(crate) async fn get(&mut self, reference: &tg::Reference) -> tg::Result<tg::get::Output> {

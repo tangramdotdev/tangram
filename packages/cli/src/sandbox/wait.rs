@@ -16,22 +16,35 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_sandbox_wait(&mut self, args: Args) -> tg::Result<()> {
-		let sandbox = tg::Referent::with_node(args.sandbox);
-		self.command_sandbox_wait_with_referent(sandbox, args.locations.get(), args.print)
+		let sandbox = tg::Sandbox::new(
+			args.sandbox,
+			tg::sandbox::Options {
+				location: args.locations.get(),
+				..tg::sandbox::Options::default()
+			},
+		);
+		self.command_sandbox_wait_with_sandbox(sandbox, args.print)
 			.await
 	}
 
 	pub(crate) async fn command_sandbox_wait_with_referent(
 		&mut self,
 		sandbox: tg::Referent<tg::sandbox::Id>,
-		location: Option<tg::location::Arg>,
+		print: crate::print::Options,
+	) -> tg::Result<()> {
+		let sandbox = tg::Sandbox::with_referent(sandbox);
+		self.command_sandbox_wait_with_sandbox(sandbox, print).await
+	}
+
+	async fn command_sandbox_wait_with_sandbox(
+		&mut self,
+		sandbox: tg::Sandbox,
 		print: crate::print::Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = sandbox.node.clone();
-		let sandbox = tg::Sandbox::with_referent(sandbox);
+		let id = sandbox.id().clone();
 		let arg = tg::sandbox::status::Arg {
-			location,
+			location: None,
 			..tg::sandbox::status::Arg::default()
 		};
 		let output = sandbox

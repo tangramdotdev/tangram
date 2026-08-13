@@ -13,13 +13,21 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_touch(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let (process, locations) = self
-			.resolve_process_with_locations(&args.process, args.locations)
+		let process = self
+			.resolve_process_with_location(&args.process, &args.locations)
 			.await?;
+		self.command_process_touch_with_referent(process).await
+	}
+
+	pub(crate) async fn command_process_touch_with_referent(
+		&mut self,
+		process: tg::Referent<tg::process::Id>,
+	) -> tg::Result<()> {
+		let client = self.client().await?;
+		let location = process.options.location.clone().map(Into::into);
 		let id = process.node;
 		let arg = tg::process::touch::Arg {
-			location: locations.get(),
+			location,
 			tokens: process.options.tokens,
 		};
 		client

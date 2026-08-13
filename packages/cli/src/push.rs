@@ -150,13 +150,13 @@ impl Cli {
 		let source = tg::Location::Local(tg::location::Local::default());
 
 		// Get the references.
-		let reference_location = Some(source.clone().into());
+		let location = Some(source.clone().into());
 		let references = args
 			.references
 			.iter()
 			.map(|reference| {
 				let mut options = reference.options().clone();
-				options.location.clone_from(&reference_location);
+				options.location.clone_from(&location);
 				tg::Reference::new(
 					reference.node().clone(),
 					options,

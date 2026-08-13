@@ -43,21 +43,11 @@ impl Timeout {
 
 impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
-		let reference_location = args.reference.options().location.clone();
-		let mut options = args.reference.options().clone();
-		if let Some(location) = args.locations.get() {
-			options.location = Some(location);
-		}
-		let reference =
-			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
+		let reference = args.locations.apply_to_reference(&args.reference);
 		let print = args.print;
 		let timeout = args.timeout;
 
 		let referent = self.resolve(&reference).await?;
-		let locations = args
-			.locations
-			.with_fallback_location(referent.options.location.as_ref())
-			.with_fallback_location_arg(reference_location);
 		let is_process = matches!(
 			referent.node(),
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process
@@ -67,24 +57,25 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = process.options.into();
-			let process = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(process.node.into()),
+			let options = process.options.clone().into();
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Id(process.node.clone().into()),
 				options,
 			);
 			let args = crate::process::children::Args {
 				length: None,
-				locations,
+				locations: crate::location::Args::default(),
 				position: None,
 				print,
-				process,
+				process: reference,
 				size: None,
 				timeout: crate::process::children::Timeout {
 					timeout: timeout.get(),
 					no_timeout: timeout.no_timeout,
 				},
 			};
-			self.command_process_children(args).await?;
+			self.command_process_children_with_referent(args, process)
+				.await?;
 		} else {
 			let object = referent
 				.into_graph_edge()?
@@ -93,17 +84,18 @@ impl Cli {
 						.map(|object| object.id())
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
-			let options = object.options.into();
-			let object = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(object.node.into()),
+			let options = object.options.clone().into();
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Id(object.node.clone().into()),
 				options,
 			);
 			let args = crate::object::children::Args {
-				locations,
-				object,
+				locations: crate::location::Args::default(),
+				object: reference,
 				print,
 			};
-			self.command_object_children(args).await?;
+			self.command_object_children_with_referent(args, object)
+				.await?;
 		}
 		Ok(())
 	}
