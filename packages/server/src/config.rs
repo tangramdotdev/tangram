@@ -1157,7 +1157,7 @@ impl Default for Cleaner {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
-			partition_end: 256,
+			partition_end: 1,
 			partition_start: 0,
 		}
 	}
@@ -1184,7 +1184,7 @@ impl Default for DatabaseOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
-			partition_total: 256,
+			partition_total: 1,
 		}
 	}
 }
@@ -1270,11 +1270,11 @@ impl Default for FdbIndex {
 		Self {
 			authorize: FdbIndexAuthorize::default(),
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			partition_total: 256,
+			partition_total: 1,
 			prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 64,
-			usage_partition_total: 256,
+			usage_partition_total: 1,
 			write_batch_size: 8_000,
 			write_concurrency: 256,
 		}
@@ -1302,7 +1302,7 @@ impl Default for Indexer {
 			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
-			partition_end: 256,
+			partition_end: 1,
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
 			updates: IndexerUpdates::default(),
@@ -1398,7 +1398,7 @@ impl Default for ObjectOutbox {
 		Self {
 			batch_size: 1024,
 			fragment_size: 1024,
-			partition_total: 256,
+			partition_total: 1,
 		}
 	}
 }
