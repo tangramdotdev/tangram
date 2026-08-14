@@ -167,122 +167,133 @@ impl Database {
 		};
 		tangram_futures::retry::retry(&options, || async {
 			let connection_options = connection_options.clone();
-			match self {
-				#[cfg(feature = "postgres")]
-				Self::Postgres(database) => {
-					let result =
-						db::Database::connection_with_options(database, connection_options.clone())
-							.await
-							.map_err(Error::Postgres);
-					let mut connection = match result {
-						Ok(connection) => connection,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let result = db::Connection::transaction(&mut connection)
+			let result = async {
+				match self {
+					#[cfg(feature = "postgres")]
+					Self::Postgres(database) => {
+						let result = db::Database::connection_with_options(
+							database,
+							connection_options.clone(),
+						)
 						.await
 						.map_err(Error::Postgres);
-					let inner = match result {
-						Ok(transaction) => transaction,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let transaction = Transaction::Postgres(inner);
-					let value = match f(&transaction).await {
-						Ok(ControlFlow::Break(value)) => value,
-						Ok(ControlFlow::Continue(error)) => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error.into()),
-					};
-					let result = transaction.commit().await;
-					match result {
-						Ok(()) => Ok(ControlFlow::Break(value)),
-						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
-						Err(error) => Err(error),
-					}
-				},
-				#[cfg(feature = "sqlite")]
-				Self::Sqlite(database) => {
-					let result =
-						db::Database::connection_with_options(database, connection_options.clone())
+						let mut connection = match result {
+							Ok(connection) => connection,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let result = db::Connection::transaction(&mut connection)
 							.await
-							.map_err(Error::Sqlite);
-					let mut connection = match result {
-						Ok(connection) => connection,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let result = db::Connection::transaction(&mut connection)
+							.map_err(Error::Postgres);
+						let inner = match result {
+							Ok(transaction) => transaction,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let transaction = Transaction::Postgres(inner);
+						let value = match f(&transaction).await {
+							Ok(ControlFlow::Break(value)) => value,
+							Ok(ControlFlow::Continue(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error.into()),
+						};
+						let result = transaction.commit().await;
+						match result {
+							Ok(()) => Ok(ControlFlow::Break(value)),
+							Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+							Err(error) => Err(error),
+						}
+					},
+					#[cfg(feature = "sqlite")]
+					Self::Sqlite(database) => {
+						let result = db::Database::connection_with_options(
+							database,
+							connection_options.clone(),
+						)
 						.await
 						.map_err(Error::Sqlite);
-					let inner = match result {
-						Ok(transaction) => transaction,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let transaction = Transaction::Sqlite(inner);
-					let value = match f(&transaction).await {
-						Ok(ControlFlow::Break(value)) => value,
-						Ok(ControlFlow::Continue(error)) => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error.into()),
-					};
-					let result = transaction.commit().await;
-					match result {
-						Ok(()) => Ok(ControlFlow::Break(value)),
-						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
-						Err(error) => Err(error),
-					}
-				},
-				#[cfg(feature = "turso")]
-				Self::Turso(database) => {
-					let result =
-						db::Database::connection_with_options(database, connection_options)
+						let mut connection = match result {
+							Ok(connection) => connection,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let result = db::Connection::transaction(&mut connection)
+							.await
+							.map_err(Error::Sqlite);
+						let inner = match result {
+							Ok(transaction) => transaction,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let transaction = Transaction::Sqlite(inner);
+						let value = match f(&transaction).await {
+							Ok(ControlFlow::Break(value)) => value,
+							Ok(ControlFlow::Continue(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error.into()),
+						};
+						let result = transaction.commit().await;
+						match result {
+							Ok(()) => Ok(ControlFlow::Break(value)),
+							Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+							Err(error) => Err(error),
+						}
+					},
+					#[cfg(feature = "turso")]
+					Self::Turso(database) => {
+						let result =
+							db::Database::connection_with_options(database, connection_options)
+								.await
+								.map_err(Error::Turso);
+						let mut connection = match result {
+							Ok(connection) => connection,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let result = db::Connection::transaction(&mut connection)
 							.await
 							.map_err(Error::Turso);
-					let mut connection = match result {
-						Ok(connection) => connection,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let result = db::Connection::transaction(&mut connection)
-						.await
-						.map_err(Error::Turso);
-					let inner = match result {
-						Ok(transaction) => transaction,
-						Err(error) if error.is_retry() => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error),
-					};
-					let transaction = Transaction::Turso(inner);
-					let value = match f(&transaction).await {
-						Ok(ControlFlow::Break(value)) => value,
-						Ok(ControlFlow::Continue(error)) => {
-							return Ok(ControlFlow::Continue(error));
-						},
-						Err(error) => return Err(error.into()),
-					};
-					let result = transaction.commit().await;
-					match result {
-						Ok(()) => Ok(ControlFlow::Break(value)),
-						Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
-						Err(error) => Err(error),
-					}
-				},
+						let inner = match result {
+							Ok(transaction) => transaction,
+							Err(error) if error.is_retry() => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error),
+						};
+						let transaction = Transaction::Turso(inner);
+						let value = match f(&transaction).await {
+							Ok(ControlFlow::Break(value)) => value,
+							Ok(ControlFlow::Continue(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							Err(error) => return Err(error.into()),
+						};
+						let result = transaction.commit().await;
+						match result {
+							Ok(()) => Ok(ControlFlow::Break(value)),
+							Err(error) if error.is_retry() => Ok(ControlFlow::Continue(error)),
+							Err(error) => Err(error),
+						}
+					},
+				}
 			}
+			.await;
+			if let Ok(ControlFlow::Continue(error)) = &result {
+				tracing::warn!(%error, "the database transaction returned a retryable error");
+			}
+			result
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "database error"))

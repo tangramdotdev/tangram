@@ -24,6 +24,10 @@ pub(crate) fn connected_subject(id: &tg::sandbox::Id) -> String {
 	format!("sandboxes.{id}.control.connected")
 }
 
+pub(crate) fn destroyed_subject(id: &tg::sandbox::Id) -> String {
+	format!("sandboxes.{id}.control.destroyed")
+}
+
 pub(crate) fn discarded_subject(id: &tg::sandbox::Id) -> String {
 	format!("sandboxes.{id}.control.discarded")
 }
@@ -55,6 +59,18 @@ impl Session {
 					!error,
 					sandbox = %id,
 					"failed to subscribe to sandbox discard notifications"
+				)
+			})?;
+		let mut destroyed_stream = self
+			.server
+			.messenger
+			.subscribe::<()>(destroyed_subject(id))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					sandbox = %id,
+					"failed to subscribe to sandbox destroyed notifications"
 				)
 			})?;
 		let id = id.clone();
@@ -104,6 +120,24 @@ impl Session {
 					})?;
 
 					Err(tg::error!(!error, sandbox = %id, "failed to create the sandbox"))
+				},
+				result = destroyed_stream.try_next() => {
+					result
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								sandbox = %id,
+								"failed to receive a sandbox destroyed notification"
+							)
+						})?
+						.ok_or_else(|| {
+							tg::error!(
+								sandbox = %id,
+								"the sandbox destroyed notification subscription ended"
+							)
+						})?;
+
+					Err(tg::error!(sandbox = %id, "the sandbox was destroyed before it connected"))
 				},
 			}
 		}

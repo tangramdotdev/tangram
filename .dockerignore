@@ -1,14 +1,14 @@
-!/target/release
-!/target/release/tangram
 *.pending-snap
 .DS_Store
 .git
-/.claude
-/.config
-/.tangram
-/packages/clients/js/dist
-/packages/typescript/dist
-/release
-/target/*
-/target/release/*
+.claude
+.config
+.tangram
+packages/clients/js/dist
+packages/typescript/dist
+release
 node_modules
+target
+
+# Docker applies the last matching pattern, so the negations must follow the exclusions above.
+!target/release/tangram

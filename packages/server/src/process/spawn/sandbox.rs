@@ -28,8 +28,9 @@ impl Session {
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
-				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
 				let sandbox = process.data.sandbox.clone();
+				let mut process_connection_future =
+					self.subscribe_process_connection(&id, &sandbox).await?;
 				let mut sandbox_connection_future =
 					self.subscribe_sandbox_connection(&sandbox).await?;
 				self.spawn_process_in_new_sandbox(process, &arg.command.options)

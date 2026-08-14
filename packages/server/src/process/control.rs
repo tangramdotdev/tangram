@@ -1,6 +1,7 @@
 use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
@@ -33,6 +34,7 @@ impl Session {
 	pub(crate) async fn subscribe_process_connection(
 		&self,
 		id: &tg::process::Id,
+		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<super::ConnectionFuture> {
 		let mut event_stream = self
 			.server
@@ -46,26 +48,67 @@ impl Session {
 					"failed to subscribe to the process control connection"
 				)
 			})?;
+		let mut destroyed_stream = self
+			.server
+			.messenger
+			.subscribe::<()>(crate::sandbox::control::destroyed_subject(sandbox))
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					%sandbox,
+					"failed to subscribe to sandbox destroyed notifications"
+				)
+			})?;
 		let id = id.clone();
+		let sandbox = sandbox.clone();
 		let future = async move {
-			let event = event_stream
-				.try_next()
-				.await
-				.map_err(|error| {
-					tg::error!(
-						!error,
-						process = %id,
-						"failed to receive the process control connection"
-					)
-				})?
-				.ok_or_else(|| {
-					tg::error!(
-						process = %id,
-						"the process control connection subscription ended"
-					)
-				})?;
+			let connected_future = event_stream.try_next();
+			let connected_future = pin!(connected_future);
+			let destroyed_future = destroyed_stream.try_next();
+			let destroyed_future = pin!(destroyed_future);
+			match future::select(connected_future, destroyed_future).await {
+				future::Either::Left((result, _)) => {
+					let event = result
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								process = %id,
+								"failed to receive the process control connection"
+							)
+						})?
+						.ok_or_else(|| {
+							tg::error!(
+								process = %id,
+								"the process control connection subscription ended"
+							)
+						})?;
 
-			Ok(event.payload)
+					Ok(event.payload)
+				},
+				future::Either::Right((result, _)) => {
+					result
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								%sandbox,
+								"failed to receive a sandbox destroyed notification"
+							)
+						})?
+						.ok_or_else(|| {
+							tg::error!(
+								%sandbox,
+								"the sandbox destroyed notification subscription ended"
+							)
+						})?;
+
+					Err(tg::error!(
+						%sandbox,
+						process = %id,
+						"the sandbox was destroyed before the process connected"
+					))
+				},
+			}
 		}
 		.boxed();
 
@@ -356,7 +399,6 @@ impl Session {
 			.map_err(|error| {
 				tg::error!(!error, "failed to publish the process control connection")
 			})?;
-
 		let grant = if assign {
 			let now = session.server.clock.unix_timestamp()?;
 			session.create_process_wait_token(&id, now)?
