@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Extracting a tar archive containing two entries whose names differ only in case produces a directory with both entries on a case sensitive file system, and reports the case conflict on a case insensitive one.
+# Extracting a tar archive containing two entries whose names differ only in case produces a directory with both entries on a case sensitive file system, and reports the case conflict on a case insensitive one. With `--overwrite` the conflict is not an error, and the last entry wins.
 
 # Create the entries in separate directories, because a case insensitive file system cannot hold both at once.
 let lower = artifact {
@@ -35,4 +35,19 @@ if $case_sensitive {
 	assert ($output.stderr | str contains 'failed to extract the archive entry') "the error should identify the failing archive entry"
 	assert ($output.stderr | str contains 'differs only in case') "the error should explain the case conflict"
 	assert ($output.stderr | str contains 'chap.html') "the error should name the conflicting entry"
+}
+
+# Extract the archive with `--overwrite`.
+let overwritten = mktemp -d | path join 'overwritten'
+let output = tg builtin extract --input $archive --overwrite --output $overwritten | complete
+success $output "the archive should extract"
+
+if $case_sensitive {
+	# The extracted directory should still contain both entries.
+	assert (($overwritten | path join 'chap.html') | path exists) "the extracted directory should contain the lowercase entry"
+	assert (($overwritten | path join 'Chap.html') | path exists) "the extracted directory should contain the capitalized entry"
+} else {
+	# The capitalized entry should have replaced the lowercase one.
+	assert ((ls $overwritten | length) == 1) "the extracted directory should contain one entry"
+	assert ((open --raw ($overwritten | path join 'Chap.html')) == 'upper') "the capitalized entry should replace the lowercase entry"
 }

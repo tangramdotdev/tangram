@@ -48,6 +48,9 @@ pub struct DownloadOptions {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub mode: Option<DownloadMode>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub overwrite: Option<bool>,
 }
 
 #[derive(
@@ -67,6 +70,12 @@ pub enum DownloadMode {
 	Raw,
 	Decompress,
 	Extract,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ExtractOptions {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub overwrite: Option<bool>,
 }
 
 pub async fn archive(
@@ -465,9 +474,11 @@ where
 	if let Some(algorithm) = options.checksum {
 		args.extend(["--checksum".into(), algorithm.to_string().into()]);
 	}
+	args.extend(["--mode".into(), mode.to_string().into()]);
+	if options.overwrite == Some(true) {
+		args.push("--overwrite".into());
+	}
 	args.extend([
-		"--mode".into(),
-		mode.to_string().into(),
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 		url.to_string().into(),
@@ -508,6 +519,11 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 	args.extend([
 		"--mode".into(),
 		options.mode.unwrap_or_default().to_string().into(),
+	]);
+	if options.overwrite == Some(true) {
+		args.push("--overwrite".into());
+	}
+	args.extend([
 		"--output".into(),
 		tg::Placeholder::new("output").into(),
 		url.to_string().into(),
@@ -525,24 +541,34 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 		.expect("the command builder should be complete")
 }
 
-pub async fn extract(input: &tg::Blob) -> tg::Result<tg::Artifact> {
+pub async fn extract(
+	input: &tg::Blob,
+	options: Option<ExtractOptions>,
+) -> tg::Result<tg::Artifact> {
 	let handle = tg::handle()?;
-	extract_with_handle(handle, input).await
+	extract_with_handle(handle, input, options).await
 }
 
-pub async fn extract_with_handle<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>
+pub async fn extract_with_handle<H>(
+	handle: &H,
+	input: &tg::Blob,
+	options: Option<ExtractOptions>,
+) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
+	let options = options.unwrap_or_default();
 	let input = tg::File::with_contents(input.clone());
-	let args = vec![
+	let mut args = vec![
 		tg::Value::from("builtin"),
 		"extract".into(),
 		"--input".into(),
 		input.into(),
-		"--output".into(),
-		tg::Placeholder::new("output").into(),
 	];
+	if options.overwrite == Some(true) {
+		args.push("--overwrite".into());
+	}
+	args.extend(["--output".into(), tg::Placeholder::new("output").into()]);
 	let arg = tg::process::Arg {
 		args,
 		executable: Some(tg::command::Executable {
@@ -559,16 +585,19 @@ where
 }
 
 #[must_use]
-pub fn extract_command(input: &tg::Blob) -> tg::Command {
+pub fn extract_command(input: &tg::Blob, options: Option<ExtractOptions>) -> tg::Command {
+	let options = options.unwrap_or_default();
 	let input = tg::File::with_contents(input.clone());
-	let args: Vec<tg::command::Value> = vec![
+	let mut args: Vec<tg::command::Value> = vec![
 		"builtin".into(),
 		"extract".into(),
 		"--input".into(),
 		input.into(),
-		"--output".into(),
-		tg::Placeholder::new("output").into(),
 	];
+	if options.overwrite == Some(true) {
+		args.push("--overwrite".into());
+	}
+	args.extend(["--output".into(), tg::Placeholder::new("output").into()]);
 	let executable = tg::command::Executable {
 		artifact: None,
 		path: Some("tg".into()),

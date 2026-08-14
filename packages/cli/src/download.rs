@@ -13,6 +13,10 @@ pub struct Args {
 	#[arg(long)]
 	pub mode: Option<tg::DownloadMode>,
 
+	/// When extracting, allow an entry to replace one that was already extracted, as tar does.
+	#[arg(long)]
+	pub overwrite: bool,
+
 	#[arg(index = 1)]
 	pub url: Uri,
 }
@@ -34,6 +38,7 @@ impl Cli {
 		let download_options = tg::DownloadOptions {
 			checksum,
 			mode: Some(mode),
+			overwrite: args.overwrite.then_some(true),
 		};
 		let command = tg::builtin::download_command(&args.url, Some(download_options));
 		let command = command

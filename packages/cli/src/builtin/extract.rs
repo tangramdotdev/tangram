@@ -25,6 +25,10 @@ pub struct Args {
 
 	#[arg(index = 2, conflicts_with = "output_named")]
 	pub output_positional: Option<PathBuf>,
+
+	/// Allow an entry to replace one that was already extracted, as tar does.
+	#[arg(long)]
+	pub overwrite: bool,
 }
 
 pub async fn run(args: Args) -> tg::Result<()> {
@@ -52,8 +56,10 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		|error| tg::error!(!error, path = %output.display(), "failed to create the output"),
 	)?;
 	match format {
-		tg::ArchiveFormat::Tar => extract_tar(&output, &mut input, compression).await?,
-		tg::ArchiveFormat::Zip => extract_zip(&output, &mut input).await?,
+		tg::ArchiveFormat::Tar => {
+			extract_tar(&output, &mut input, compression, args.overwrite).await?;
+		},
+		tg::ArchiveFormat::Zip => extract_zip(&output, &mut input, args.overwrite).await?,
 	}
 	progress.finish("finished extracting")?;
 
@@ -64,6 +70,7 @@ pub(crate) async fn extract_tar(
 	output: &Path,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 	compression: Option<tg::CompressionFormat>,
+	overwrite: bool,
 ) -> tg::Result<()> {
 	let reader = match compression {
 		Some(tg::CompressionFormat::Bz2) => {
@@ -105,6 +112,9 @@ pub(crate) async fn extract_tar(
 		tokio::fs::create_dir_all(parent)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
+		if overwrite {
+			remove_entry(&path).await?;
+		}
 		if kind.is_symlink() {
 			let target = entry
 				.link_name()
@@ -143,6 +153,7 @@ pub(crate) async fn extract_tar(
 pub(crate) async fn extract_zip(
 	output: &Path,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
+	overwrite: bool,
 ) -> tg::Result<()> {
 	let mut entries = Vec::new();
 	let mut central_directory = Vec::new();
@@ -179,6 +190,9 @@ pub(crate) async fn extract_zip(
 			tokio::fs::create_dir_all(parent)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the directory"))?;
+			if overwrite {
+				remove_entry(&path).await?;
+			}
 			let mut file = create_entry_file(&path).await?;
 			tokio::io::copy(&mut entry_reader.compat(), &mut file)
 				.await
@@ -267,6 +281,27 @@ pub(crate) async fn extract_zip(
 	}
 
 	Ok(())
+}
+
+// Remove an already extracted entry so that a later entry with the same path can replace it, as tar does.
+async fn remove_entry(path: &Path) -> tg::Result<()> {
+	let metadata = match tokio::fs::symlink_metadata(path).await {
+		Ok(metadata) => metadata,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+		Err(error) => {
+			return Err(tg::error!(
+				!error,
+				?path,
+				"failed to read the entry metadata"
+			));
+		},
+	};
+	if metadata.is_dir() {
+		return Err(tg::error!(?path, "an entry cannot replace a directory"));
+	}
+	tokio::fs::remove_file(path)
+		.await
+		.map_err(|error| tg::error!(!error, ?path, "failed to remove the entry"))
 }
 
 // Create the file for an archive entry. The file is created exclusively so that an archive cannot overwrite an entry it has already extracted.

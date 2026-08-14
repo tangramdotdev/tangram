@@ -7,6 +7,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
 
+	/// Allow an entry to replace one that was already extracted, as tar does.
+	#[arg(long)]
+	pub overwrite: bool,
+
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 }
@@ -18,7 +22,10 @@ impl Cli {
 		let blob = tg::Object::with_referent(blob)
 			.try_unwrap_blob()
 			.map_err(|_| tg::error!("expected a blob"))?;
-		let command = tg::builtin::extract_command(&blob);
+		let options = tg::ExtractOptions {
+			overwrite: args.overwrite.then_some(true),
+		};
+		let command = tg::builtin::extract_command(&blob, Some(options));
 		let command = command
 			.store_with_handle(&client)
 			.await

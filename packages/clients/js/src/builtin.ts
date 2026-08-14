@@ -7,6 +7,11 @@ export type CompressionFormat = "bz2" | "gz" | "xz" | "zst";
 export type DownloadOptions = {
 	checksum?: tg.Checksum.Algorithm | null;
 	mode?: "raw" | "decompress" | "extract" | null;
+	overwrite?: boolean | null;
+};
+
+export type ExtractOptions = {
+	overwrite?: boolean | null;
 };
 
 /** Archive an artifact. */
@@ -146,6 +151,7 @@ export let download = async (
 			: []),
 		"--mode",
 		mode,
+		...(options.overwrite === true ? ["--overwrite"] : []),
 		"--output",
 		tg.output,
 		url,
@@ -167,9 +173,20 @@ export let download = async (
 };
 
 /** Extract an artifact from an archive. */
-export let extract = async (blob: tg.Blob): Promise<tg.Artifact> => {
+export let extract = async (
+	blob: tg.Blob,
+	options?: ExtractOptions | null,
+): Promise<tg.Artifact> => {
 	let input = await tg.file(blob);
-	let args = ["builtin", "extract", "--input", input, "--output", tg.output];
+	let args = [
+		"builtin",
+		"extract",
+		"--input",
+		input,
+		...(options?.overwrite === true ? ["--overwrite"] : []),
+		"--output",
+		tg.output,
+	];
 	let value = await tg
 		.build()
 		.host(tg.host.current)

@@ -16,7 +16,9 @@ pub use {
 	self::{
 		artifact::Handle as Artifact,
 		blob::Handle as Blob,
-		builtin::{ArchiveFormat, CompressionFormat, DownloadMode, DownloadOptions},
+		builtin::{
+			ArchiveFormat, CompressionFormat, DownloadMode, DownloadOptions, ExtractOptions,
+		},
 		checkin::checkin,
 		checkout::checkout,
 		checksum::Checksum,

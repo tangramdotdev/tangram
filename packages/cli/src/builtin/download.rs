@@ -33,6 +33,10 @@ pub struct Args {
 	#[arg(index = 2, conflicts_with = "output_named")]
 	pub output_positional: Option<PathBuf>,
 
+	/// When extracting, allow an entry to replace one that was already extracted, as tar does.
+	#[arg(long)]
+	pub overwrite: bool,
+
 	#[arg(index = 1)]
 	pub url: Uri,
 }
@@ -134,10 +138,11 @@ pub async fn run(args: Args) -> tg::Result<()> {
 			)?;
 			match format {
 				tg::ArchiveFormat::Tar => {
-					super::extract::extract_tar(output, &mut reader, compression).await?;
+					super::extract::extract_tar(output, &mut reader, compression, args.overwrite)
+						.await?;
 				},
 				tg::ArchiveFormat::Zip => {
-					super::extract::extract_zip(output, &mut reader).await?;
+					super::extract::extract_zip(output, &mut reader, args.overwrite).await?;
 				},
 			}
 		},
