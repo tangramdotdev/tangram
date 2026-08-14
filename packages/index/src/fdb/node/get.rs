@@ -25,7 +25,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
-	) -> tg::Result<Vec<bool>> {
+	) -> crate::fdb::Result<Vec<bool>> {
 		futures::future::try_join_all(ids.iter().map(|id| async move {
 			Self::try_resolve_id_with_transaction(txn, subspace, id)
 				.await
@@ -56,7 +56,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		specifiers: &[tg::Specifier],
-	) -> tg::Result<Vec<Option<tg::Id>>> {
+	) -> crate::fdb::Result<Vec<Option<tg::Id>>> {
 		futures::future::try_join_all(
 			specifiers
 				.iter()
@@ -87,31 +87,37 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
-	) -> tg::Result<Vec<Option<tg::Specifier>>> {
+	) -> crate::fdb::Result<Vec<Option<tg::Specifier>>> {
 		futures::future::try_join_all(ids.iter().map(|id| async move {
 			match id.kind() {
-				tg::id::Kind::Group => {
-					Self::try_get_group_with_transaction(txn, subspace, &id.clone().try_into()?)
-						.await
-						.map(|group| group.map(|group| group.specifier))
-				},
+				tg::id::Kind::Group => Self::try_get_group_with_transaction(
+					txn,
+					subspace,
+					&id.clone().try_into().map_err(crate::fdb::custom_error)?,
+				)
+				.await
+				.map(|group| group.map(|group| group.specifier)),
 				tg::id::Kind::Organization => Self::try_get_organization_with_transaction(
 					txn,
 					subspace,
-					&id.clone().try_into()?,
+					&id.clone().try_into().map_err(crate::fdb::custom_error)?,
 				)
 				.await
 				.map(|organization| organization.map(|organization| organization.specifier)),
-				tg::id::Kind::Tag => {
-					Self::try_get_tag_with_transaction(txn, subspace, &id.clone().try_into()?)
-						.await
-						.map(|tag| tag.map(|tag| tag.specifier))
-				},
-				tg::id::Kind::User => {
-					Self::try_get_user_with_transaction(txn, subspace, &id.clone().try_into()?)
-						.await
-						.map(|user| user.map(|user| user.specifier))
-				},
+				tg::id::Kind::Tag => Self::try_get_tag_with_transaction(
+					txn,
+					subspace,
+					&id.clone().try_into().map_err(crate::fdb::custom_error)?,
+				)
+				.await
+				.map(|tag| tag.map(|tag| tag.specifier)),
+				tg::id::Kind::User => Self::try_get_user_with_transaction(
+					txn,
+					subspace,
+					&id.clone().try_into().map_err(crate::fdb::custom_error)?,
+				)
+				.await
+				.map(|user| user.map(|user| user.specifier)),
 				_ => Ok(None),
 			}
 		}))
@@ -122,7 +128,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Selector<tg::Id>,
-	) -> tg::Result<Option<(tg::Id, bool)>> {
+	) -> crate::fdb::Result<Option<(tg::Id, bool)>> {
 		match resource {
 			tg::Selector::Id(id) => Self::try_resolve_id_with_transaction(txn, subspace, id)
 				.await
@@ -147,22 +153,28 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> crate::fdb::Result<Option<tg::Id>> {
 		let key = match id.kind {
-			tg::id::Kind::User => Key::User(crate::fdb::user::Key::User(id.clone().try_into()?)),
-			tg::id::Kind::Group => {
-				Key::Group(crate::fdb::group::Key::Group(id.clone().try_into()?))
+			tg::id::Kind::User => Key::User(crate::fdb::user::Key::User(
+				id.clone().try_into().map_err(crate::fdb::custom_error)?,
+			)),
+			tg::id::Kind::Group => Key::Group(crate::fdb::group::Key::Group(
+				id.clone().try_into().map_err(crate::fdb::custom_error)?,
+			)),
+			tg::id::Kind::Organization => {
+				Key::Organization(crate::fdb::organization::Key::Organization(
+					id.clone().try_into().map_err(crate::fdb::custom_error)?,
+				))
 			},
-			tg::id::Kind::Organization => Key::Organization(
-				crate::fdb::organization::Key::Organization(id.clone().try_into()?),
-			),
-			tg::id::Kind::Tag => Key::Tag(crate::fdb::tag::Key::Tag(id.clone().try_into()?)),
-			tg::id::Kind::Process => {
-				Key::Process(crate::fdb::process::Key::Process(id.clone().try_into()?))
-			},
-			tg::id::Kind::Sandbox => {
-				Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone().try_into()?))
-			},
+			tg::id::Kind::Tag => Key::Tag(crate::fdb::tag::Key::Tag(
+				id.clone().try_into().map_err(crate::fdb::custom_error)?,
+			)),
+			tg::id::Kind::Process => Key::Process(crate::fdb::process::Key::Process(
+				id.clone().try_into().map_err(crate::fdb::custom_error)?,
+			)),
+			tg::id::Kind::Sandbox => Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(
+				id.clone().try_into().map_err(crate::fdb::custom_error)?,
+			)),
 			_ => {
 				let Ok(object) = tg::object::Id::try_from(id.clone()) else {
 					return Ok(None);
@@ -171,10 +183,7 @@ impl Index {
 			},
 		};
 		let key = Self::pack(subspace, &key);
-		let value = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the node"))?;
+		let value = txn.get(&key, false).await?;
 		Ok(value.map(|_| id.clone()))
 	}
 
@@ -182,15 +191,18 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
-	) -> tg::Result<Vec<tg::Id>> {
+	) -> crate::fdb::Result<Vec<tg::Id>> {
 		let mut ids = Vec::new();
 		let mut current = Some(id.clone());
 		while let Some(id) = current {
 			match id.kind {
 				tg::id::Kind::Tag => {
-					let Some(tag) =
-						Self::try_get_tag_with_transaction(txn, subspace, &id.clone().try_into()?)
-							.await?
+					let Some(tag) = Self::try_get_tag_with_transaction(
+						txn,
+						subspace,
+						&id.clone().try_into().map_err(crate::fdb::custom_error)?,
+					)
+					.await?
 					else {
 						break;
 					};
@@ -201,7 +213,7 @@ impl Index {
 					let Some(group) = Self::try_get_group_with_transaction(
 						txn,
 						subspace,
-						&id.clone().try_into()?,
+						&id.clone().try_into().map_err(crate::fdb::custom_error)?,
 					)
 					.await?
 					else {
@@ -224,18 +236,15 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		specifier: &tg::Specifier,
-	) -> tg::Result<Option<tg::Id>> {
+	) -> crate::fdb::Result<Option<tg::Id>> {
 		let key = Key::Node(crate::fdb::node::Key::Node(specifier.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %specifier, "failed to get the node"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
 		let id = tg::Id::from_slice(&bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the node id"))?;
+			.map_err(|error| crate::fdb::error!(!error, "failed to deserialize the node id"))?;
 		Ok(Some(id))
 	}
 }

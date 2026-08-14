@@ -25,7 +25,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::delete::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
 				let source = if arg.expires_at.is_some() {
@@ -68,7 +68,7 @@ impl Index {
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
@@ -87,14 +87,10 @@ impl Index {
 		.collect::<Vec<_>>();
 		for key in keys {
 			let key = Self::pack(subspace, &key);
-			let Some(value) = txn
-				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the grant entry"))?
-			else {
+			let Some(value) = txn.get(&key, false).await? else {
 				continue;
 			};
-			let mut value = GrantValue::deserialize(&value)?;
+			let mut value = GrantValue::deserialize(&value).map_err(crate::fdb::custom_error)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
 			if !value.delete(source, entry.expires_at) {
 				continue;
@@ -102,7 +98,7 @@ impl Index {
 			if value.is_empty() {
 				txn.clear(&key);
 			} else {
-				let bytes = value.serialize()?;
+				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&key, &bytes);
 			}
 			Self::update_grant_expiration(
@@ -126,21 +122,17 @@ impl Index {
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
-			let Some(value) = txn
-				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
-			else {
+			let Some(value) = txn.get(&key, false).await? else {
 				continue;
 			};
-			let mut value = GrantValue::deserialize(&value)?;
+			let mut value = GrantValue::deserialize(&value).map_err(crate::fdb::custom_error)?;
 			if !value.delete(source, entry.expires_at) {
 				continue;
 			}
 			if value.is_empty() {
 				txn.clear(&key);
 			} else {
-				let bytes = value.serialize()?;
+				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&key, &bytes);
 			}
 		}

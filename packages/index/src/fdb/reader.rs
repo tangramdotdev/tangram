@@ -99,7 +99,8 @@ impl Index {
 					subspace,
 					request,
 				)
-				.await;
+				.await
+				.map_err(|error| tg::error!(!error, "failed to execute the read request"));
 				sender.send(response).ok();
 			}
 		}))
@@ -112,7 +113,7 @@ impl Index {
 		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: crate::read::Request,
-	) -> tg::Result<crate::read::Response> {
+	) -> crate::fdb::Result<crate::read::Response> {
 		let response = match request {
 			crate::read::Request::AuthorizeBatch { args, principal } => {
 				let output = Self::authorize_batch_with_transaction(
@@ -161,7 +162,7 @@ impl Index {
 				crate::read::Response::TryGetProcessChildren(output)
 			},
 			crate::read::Request::LmdbLogCompactionBatch { .. } => {
-				return Err(tg::error!("unexpected LMDB read request"));
+				return Err(crate::fdb::error!("unexpected LMDB read request"));
 			},
 			crate::read::Request::GetRequesterSubjects { principal } => {
 				let output =
@@ -182,11 +183,7 @@ impl Index {
 				crate::read::Response::GetSandboxProcesses(output)
 			},
 			crate::read::Request::GetTransactionId => {
-				let output = transaction
-					.get_read_version()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the read version"))?
-					.cast_unsigned();
+				let output = transaction.get_read_version().await?.cast_unsigned();
 				crate::read::Response::GetTransactionId(output)
 			},
 			crate::read::Request::ListSandboxes => {

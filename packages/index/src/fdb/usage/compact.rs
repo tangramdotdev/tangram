@@ -33,7 +33,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::compact::Arg,
-	) -> tg::Result<crate::usage::compact::Output> {
+	) -> crate::fdb::Result<crate::usage::compact::Output> {
 		let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 		let mut candidates = Vec::new();
 		for partition in arg.partition_start..arg.partition_end {
@@ -56,11 +56,7 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while candidates.len() < arg.batch_size {
-				let Some(entry) = entries
-					.try_next()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get usage compactions"))?
-				else {
+				let Some(entry) = entries.try_next().await? else {
 					break;
 				};
 				let Key::Usage(crate::fdb::usage::Key::Compaction {
@@ -69,7 +65,7 @@ impl Index {
 					partition,
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				candidates.push((account, hour, partition));
 			}
@@ -107,7 +103,7 @@ impl Index {
 		partition: u64,
 		end_hour: i64,
 		limit: Option<usize>,
-	) -> tg::Result<usize> {
+	) -> crate::fdb::Result<usize> {
 		let mut count = 0;
 		loop {
 			if limit.is_some_and(|limit| count == limit) {
@@ -137,9 +133,10 @@ impl Index {
 		hour: i64,
 		partition: u64,
 		clear_compaction: bool,
-	) -> tg::Result<crate::usage::PartitionAggregate> {
+	) -> crate::fdb::Result<crate::usage::PartitionAggregate> {
 		let period =
-			crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)?;
+			crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)
+				.map_err(crate::fdb::custom_error)?;
 		let old = Self::try_get_usage_aggregate_with_transaction(
 			txn, subspace, account, partition, period,
 		)
@@ -150,7 +147,8 @@ impl Index {
 				let period = crate::usage::Period::from_kind_and_start(
 					crate::usage::PeriodKind::Hour,
 					start,
-				)?;
+				)
+				.map_err(crate::fdb::custom_error)?;
 				Self::try_get_usage_aggregate_with_transaction(
 					txn, subspace, account, partition, period,
 				)
@@ -163,13 +161,16 @@ impl Index {
 			Self::get_usage_deltas_with_transaction(txn, subspace, account, hour, partition)
 				.await?;
 		let sandbox_cpu = u128::try_from(deltas.sandbox_cpu)
-			.map_err(|_| tg::error!("the sandbox CPU usage is out of range"))?;
+			.map_err(|_| crate::fdb::error!("the sandbox CPU usage is out of range"))?;
 		let sandbox_memory = u128::try_from(deltas.sandbox_memory)
-			.map_err(|_| tg::error!("the sandbox memory usage is out of range"))?;
+			.map_err(|_| crate::fdb::error!("the sandbox memory usage is out of range"))?;
 		let aggregate = crate::usage::PartitionAggregate {
-			object_count: apply_delta(previous.object_count, deltas.object_count)?,
-			object_size: apply_delta(previous.object_size, deltas.object_size)?,
-			process_count: apply_delta(previous.process_count, deltas.process_count)?,
+			object_count: apply_delta(previous.object_count, deltas.object_count)
+				.map_err(crate::fdb::custom_error)?,
+			object_size: apply_delta(previous.object_size, deltas.object_size)
+				.map_err(crate::fdb::custom_error)?,
+			process_count: apply_delta(previous.process_count, deltas.process_count)
+				.map_err(crate::fdb::custom_error)?,
 			sandbox_count: deltas.sandbox_count,
 			sandbox_cpu,
 			sandbox_memory,
@@ -186,11 +187,11 @@ impl Index {
 		if storage_changed(old, aggregate) {
 			let next = hour
 				.checked_add(60 * 60)
-				.ok_or_else(|| tg::error!("the usage hour overflowed"))?;
+				.ok_or_else(|| crate::fdb::error!("the usage hour overflowed"))?;
 			Self::put_usage_compaction_with_transaction(txn, subspace, account, next, partition);
 		}
 		let day = crate::usage::Period::containing(crate::usage::PeriodKind::Day, period.start());
-		let closing_hour = crate::usage::closing_hour(day)?;
+		let closing_hour = crate::usage::closing_hour(day).map_err(crate::fdb::custom_error)?;
 		if hour == closing_hour {
 			Self::aggregate_usage_day_with_transaction(
 				txn, subspace, account, partition, day, hour,
@@ -216,7 +217,7 @@ impl Index {
 		partition: u64,
 		period: crate::usage::Period,
 		hour: i64,
-	) -> tg::Result<crate::usage::PartitionAggregate> {
+	) -> crate::fdb::Result<crate::usage::PartitionAggregate> {
 		let old = Self::try_get_usage_aggregate_with_transaction(
 			txn, subspace, account, partition, period,
 		)
@@ -234,7 +235,8 @@ impl Index {
 			crate::usage::PeriodKind::Month,
 		] {
 			let parent = crate::usage::Period::containing(kind, period.start());
-			let closing_hour = crate::usage::closing_hour(parent)?;
+			let closing_hour =
+				crate::usage::closing_hour(parent).map_err(crate::fdb::custom_error)?;
 			if hour == closing_hour {
 				Self::aggregate_usage_parent_with_transaction(
 					txn, subspace, account, partition, parent,
@@ -260,7 +262,7 @@ impl Index {
 		account: &crate::usage::Account,
 		partition: u64,
 		period: crate::usage::Period,
-	) -> tg::Result<crate::usage::PartitionAggregate> {
+	) -> crate::fdb::Result<crate::usage::PartitionAggregate> {
 		let aggregate =
 			Self::sum_usage_children_with_transaction(txn, subspace, account, partition, period)
 				.await?;
@@ -277,7 +279,7 @@ impl Index {
 		account: &crate::usage::Account,
 		partition: u64,
 		period: crate::usage::Period,
-	) -> tg::Result<Option<crate::usage::PartitionAggregate>> {
+	) -> crate::fdb::Result<Option<crate::usage::PartitionAggregate>> {
 		let key = Key::Usage(crate::fdb::usage::Key::Aggregate {
 			account: account.clone(),
 			partition,
@@ -286,10 +288,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let aggregate = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the usage aggregate"))?
+			.await?
 			.map(|bytes| crate::usage::deserialize_aggregate(&bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 
 		Ok(aggregate)
 	}
@@ -300,18 +302,14 @@ impl Index {
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let key = Key::Usage(crate::fdb::usage::Key::Compaction {
 			account: account.clone(),
 			hour,
 			partition,
 		});
 		let key = Self::pack(subspace, &key);
-		let contains = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the usage compaction"))?
-			.is_some();
+		let contains = txn.get(&key, false).await?.is_some();
 
 		Ok(contains)
 	}
@@ -372,7 +370,7 @@ impl Index {
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
-	) -> tg::Result<Deltas> {
+	) -> crate::fdb::Result<Deltas> {
 		let account = account.id().to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -389,21 +387,17 @@ impl Index {
 		};
 		let mut entries = txn.get_ranges_keyvalues(range, false);
 		let mut deltas = Deltas::default();
-		while let Some(entry) = entries
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the usage deltas"))?
-		{
+		while let Some(entry) = entries.try_next().await? {
 			let Key::Usage(crate::fdb::usage::Key::Delta { kind, .. }) =
 				Self::unpack(subspace, entry.key())?
 			else {
-				return Err(tg::error!("unexpected key type"));
+				return Err(crate::fdb::error!("unexpected key type"));
 			};
 			let value = i64::from_le_bytes(
 				entry
 					.value()
 					.try_into()
-					.map_err(|_| tg::error!("invalid usage delta"))?,
+					.map_err(|_| crate::fdb::error!("invalid usage delta"))?,
 			);
 			let value = i128::from(value);
 			let target = match kind {
@@ -416,7 +410,7 @@ impl Index {
 			};
 			*target = target
 				.checked_add(value)
-				.ok_or_else(|| tg::error!("the usage delta overflowed"))?;
+				.ok_or_else(|| crate::fdb::error!("the usage delta overflowed"))?;
 		}
 
 		Ok(deltas)
@@ -428,7 +422,7 @@ impl Index {
 		account: &crate::usage::Account,
 		partition: u64,
 		end_hour: i64,
-	) -> tg::Result<Option<i64>> {
+	) -> crate::fdb::Result<Option<i64>> {
 		let start = Self::pack(
 			subspace,
 			&(Kind::UsageCompaction.to_i32().unwrap(), partition),
@@ -442,18 +436,14 @@ impl Index {
 			..fdb::RangeOption::from((start.as_slice(), end.as_slice()))
 		};
 		let mut entries = txn.get_ranges_keyvalues(range, false);
-		while let Some(entry) = entries
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get usage compactions"))?
-		{
+		while let Some(entry) = entries.try_next().await? {
 			let Key::Usage(crate::fdb::usage::Key::Compaction {
 				account: candidate,
 				hour,
 				..
 			}) = Self::unpack(subspace, entry.key())?
 			else {
-				return Err(tg::error!("unexpected key type"));
+				return Err(crate::fdb::error!("unexpected key type"));
 			};
 			if candidate == *account {
 				return Ok(Some(hour));
@@ -469,15 +459,17 @@ impl Index {
 		account: &crate::usage::Account,
 		partition: u64,
 		period: crate::usage::Period,
-	) -> tg::Result<crate::usage::PartitionAggregate> {
+	) -> crate::fdb::Result<crate::usage::PartitionAggregate> {
 		let mut aggregate = crate::usage::PartitionAggregate::default();
-		for child in crate::usage::children(period)? {
+		for child in crate::usage::children(period).map_err(crate::fdb::custom_error)? {
 			let child = Self::try_get_usage_aggregate_with_transaction(
 				txn, subspace, account, partition, child,
 			)
 			.await?
 			.unwrap_or_default();
-			aggregate.checked_add(child)?;
+			aggregate
+				.checked_add(child)
+				.map_err(crate::fdb::custom_error)?;
 		}
 
 		Ok(aggregate)

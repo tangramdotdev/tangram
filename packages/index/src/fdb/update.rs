@@ -277,7 +277,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		kind: crate::update::Kind,
 		partition_total: u64,
-	) -> tg::Result<Option<u64>> {
+	) -> crate::fdb::Result<Option<u64>> {
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
 		let futures = (0..partition_total).map(|partition| {
 			let begin = Self::pack(subspace, &(key_kind, partition));
@@ -290,9 +290,7 @@ impl Index {
 				..Default::default()
 			};
 			async move {
-				let entries = txn.get_range(&range, 1, false).await.map_err(|error| {
-					tg::error!(!error, "failed to get the update version range")
-				})?;
+				let entries = txn.get_range(&range, 1, false).await?;
 				let Some(entry) = entries.first() else {
 					return Ok(None);
 				};
@@ -301,7 +299,7 @@ impl Index {
 					version, ..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected update key"));
+					return Err(crate::fdb::error!("unexpected update key"));
 				};
 				let transaction_id =
 					u64::from_be_bytes(version.as_bytes()[..8].try_into().unwrap());
@@ -349,7 +347,7 @@ impl Index {
 		max_process_depth: Option<u64>,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<crate::update::Output> {
+	) -> crate::fdb::Result<crate::update::Output> {
 		let mut entries = Vec::new();
 
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
@@ -367,10 +365,7 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let partition_entries = txn
-				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get update version range"))?;
+			let partition_entries = txn.get_range(&range, 1, false).await?;
 			for entry in partition_entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
@@ -380,7 +375,7 @@ impl Index {
 					kind,
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				entries.push((partition, version, id, kind));
 			}
@@ -395,10 +390,7 @@ impl Index {
 					kind: kind.clone(),
 				}),
 			);
-			let value = txn
-				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get update key"))?;
+			let value = txn.get(&key, false).await?;
 
 			let Some(value) = value else {
 				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
@@ -407,10 +399,19 @@ impl Index {
 			};
 
 			let (cursor, source) = match &kind {
-				Kind::Grant(_) | Kind::Node => {
-					(None, Some(deserialize_source_update(&kind, &value)?))
-				},
-				Kind::Storage(_) => (StorageUpdate::deserialize(&value)?.cursor, None),
+				Kind::Grant(_) | Kind::Node => (
+					None,
+					Some(
+						deserialize_source_update(&kind, &value)
+							.map_err(crate::fdb::custom_error)?,
+					),
+				),
+				Kind::Storage(_) => (
+					StorageUpdate::deserialize(&value)
+						.map_err(crate::fdb::custom_error)?
+						.cursor,
+					None,
+				),
 			};
 			let mut next_cursor = None;
 
@@ -546,7 +547,7 @@ impl Index {
 						kind: kind.clone(),
 					}),
 				);
-				txn.set(&key, &update.serialize()?);
+				txn.set(&key, &update.serialize().map_err(crate::fdb::custom_error)?);
 				true
 			} else {
 				Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await?;
@@ -580,7 +581,7 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
-	) -> tg::Result<Option<StorageCursor>> {
+	) -> crate::fdb::Result<Option<StorageCursor>> {
 		let (relationships, cursor) =
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
 		let kind = Kind::Storage(StorageKind::Add {
@@ -613,7 +614,7 @@ impl Index {
 		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
-	) -> tg::Result<Option<StorageCursor>> {
+	) -> crate::fdb::Result<Option<StorageCursor>> {
 		let (relationships, cursor) =
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
 		future::try_join_all(relationships.iter().map(|relationship| async move {
@@ -650,7 +651,7 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
-	) -> tg::Result<Option<StorageCursor>> {
+	) -> crate::fdb::Result<Option<StorageCursor>> {
 		let (accounts, cursor) = Self::get_storage_accounts_page(txn, subspace, id, cursor).await?;
 		future::try_join_all(accounts.iter().map(|account| async move {
 			match id {
@@ -686,7 +687,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
 		match id {
 			tg::Either::Left(object) => {
 				let after = match cursor {
@@ -698,7 +699,9 @@ impl Index {
 						| StorageCursor::ProcessObject(_)
 						| StorageCursor::ProcessAccount(_),
 					) => {
-						return Err(tg::error!(%object, "an object update has an invalid cursor"));
+						return Err(
+							crate::fdb::error!(%object, "an object update has an invalid cursor"),
+						);
 					},
 				};
 				Self::get_storage_object_relationships_page(txn, subspace, object, after).await
@@ -712,7 +715,9 @@ impl Index {
 							| StorageCursor::ProcessAccount(_)
 					)
 				) {
-					return Err(tg::error!(%process, "a process update has an invalid cursor"));
+					return Err(
+						crate::fdb::error!(%process, "a process update has an invalid cursor"),
+					);
 				}
 				Self::get_storage_process_relationships_page(txn, subspace, process, cursor).await
 			},
@@ -724,7 +729,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> tg::Result<(Vec<crate::usage::Account>, Option<StorageCursor>)> {
+	) -> crate::fdb::Result<(Vec<crate::usage::Account>, Option<StorageCursor>)> {
 		let (kind, item, after) = match (id, cursor) {
 			(tg::Either::Left(object), None) => (KeyKind::ObjectAccount, object.to_bytes(), None),
 			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
@@ -751,10 +756,14 @@ impl Index {
 				)),
 			),
 			(tg::Either::Left(object), Some(_)) => {
-				return Err(tg::error!(%object, "an object account update has an invalid cursor"));
+				return Err(
+					crate::fdb::error!(%object, "an object account update has an invalid cursor"),
+				);
 			},
 			(tg::Either::Right(process), Some(_)) => {
-				return Err(tg::error!(%process, "a process account update has an invalid cursor"));
+				return Err(
+					crate::fdb::error!(%process, "a process account update has an invalid cursor"),
+				);
 			},
 		};
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), item.as_ref()));
@@ -768,10 +777,7 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get usage accounts"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let mut accounts = entries
 			.iter()
 			.map(|entry| match Self::unpack(subspace, entry.key())? {
@@ -779,9 +785,9 @@ impl Index {
 					crate::fdb::usage::Key::ObjectAccount { account, .. }
 					| crate::fdb::usage::Key::ProcessAccount { account, .. },
 				) => Ok(account),
-				_ => Err(tg::error!("unexpected key type")),
+				_ => Err(crate::fdb::error!("unexpected key type")),
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let cursor = if accounts.len() > STORAGE_RELATION_BATCH_SIZE {
 			accounts.truncate(STORAGE_RELATION_BATCH_SIZE);
 			let account = accounts.last().unwrap().clone();
@@ -801,7 +807,7 @@ impl Index {
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
-	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -824,21 +830,18 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, %object, "failed to get object relationships"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let mut children = entries
 			.iter()
 			.map(|entry| {
 				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
 					Self::unpack(subspace, entry.key())?
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let cursor = if children.len() > STORAGE_RELATION_BATCH_SIZE {
 			children.truncate(STORAGE_RELATION_BATCH_SIZE);
 			Some(StorageCursor::Object(children.last().unwrap().clone()))
@@ -858,7 +861,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cursor: Option<&StorageCursor>,
-	) -> tg::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
 		let mut relationships = Vec::new();
 		let process_object_cursor = match cursor {
 			None | Some(StorageCursor::ProcessChild(_)) => {
@@ -915,7 +918,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<i64>,
-	) -> tg::Result<(Vec<tg::process::Id>, Option<i64>, bool)> {
+	) -> crate::fdb::Result<(Vec<tg::process::Id>, Option<i64>, bool)> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -932,7 +935,7 @@ impl Index {
 		if let Some(after) = after {
 			let position = after
 				.checked_add(1)
-				.ok_or_else(|| tg::error!("the process has too many children"))?;
+				.ok_or_else(|| crate::fdb::error!("the process has too many children"))?;
 			let begin = Self::pack(
 				subspace,
 				&(
@@ -946,8 +949,7 @@ impl Index {
 		let entries = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await
-			.map_err(|error| tg::error!(!error, %process, "failed to get process children"))?;
+			.await?;
 		let mut children = entries
 			.iter()
 			.map(|entry| {
@@ -957,11 +959,11 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok((child, position))
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let more = children.len() > STORAGE_RELATION_BATCH_SIZE;
 		children.truncate(STORAGE_RELATION_BATCH_SIZE);
 		let cursor = children.last().map(|(_, position)| *position);
@@ -976,7 +978,7 @@ impl Index {
 		process: &tg::process::Id,
 		after: Option<&ProcessObjectCursor>,
 		limit: usize,
-	) -> tg::Result<(Vec<(tg::object::Id, crate::process::object::Kind)>, bool)> {
+	) -> crate::fdb::Result<(Vec<(tg::object::Id, crate::process::object::Kind)>, bool)> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -1000,10 +1002,7 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, %process, "failed to get process objects"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let mut objects = entries
 			.iter()
 			.map(|entry| {
@@ -1013,11 +1012,11 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let more = objects.len() > limit;
 		objects.truncate(limit);
 
@@ -1029,7 +1028,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = match id {
 			tg::Either::Left(id) => {
 				let Some(object) = Self::try_get_object_with_transaction(txn, subspace, id).await?
@@ -1067,17 +1066,15 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(false);
 		};
-		let mut object = crate::object::Object::deserialize(&bytes)?;
+		let mut object =
+			crate::object::Object::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
 
@@ -1184,7 +1181,7 @@ impl Index {
 		if changed {
 			let value = object
 				.serialize()
-				.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
+				.map_err(|error| crate::fdb::error!(!error, "failed to serialize the object"))?;
 			txn.set(&key, &value);
 		}
 
@@ -1197,7 +1194,7 @@ impl Index {
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
 		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
@@ -1263,7 +1260,7 @@ impl Index {
 		)>,
 		managed: &BTreeSet<tg::authorization::Permission>,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let mut changed = false;
 		let current = entries
 			.iter()
@@ -1321,7 +1318,7 @@ impl Index {
 		subspace: &Subspace,
 		input: &ProcessGrantInputs<'_>,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let object_subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
@@ -1475,17 +1472,15 @@ impl Index {
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(false);
 		};
-		let process = crate::process::Process::deserialize(&bytes)?;
+		let process =
+			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		let resource = tg::Id::from(id.clone());
 		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
 			txn, subspace, &resource, subject,
@@ -1638,13 +1633,10 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
-	) -> tg::Result<ProcessOutput> {
+	) -> crate::fdb::Result<ProcessOutput> {
 		let process_key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let process_key = Self::pack(subspace, &process_key);
-		let bytes = txn
-			.get(&process_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let bytes = txn.get(&process_key, false).await?;
 		let Some(bytes) = bytes else {
 			let output = ProcessOutput {
 				changed: false,
@@ -1652,7 +1644,8 @@ impl Index {
 			};
 			return Ok(output);
 		};
-		let mut process = crate::process::Process::deserialize(&bytes)?;
+		let mut process =
+			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 
 		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
 		let children = future::try_join_all(
@@ -2421,7 +2414,7 @@ impl Index {
 		if changed {
 			let value = process
 				.serialize()
-				.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
+				.map_err(|error| crate::fdb::error!(!error, "failed to serialize the process"))?;
 			txn.set(&process_key, &value);
 		}
 
@@ -2440,7 +2433,7 @@ impl Index {
 		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		match id {
 			tg::Either::Left(id) => {
 				let parents = Self::get_object_parents_with_transaction(txn, subspace, id).await?;
@@ -2494,7 +2487,7 @@ impl Index {
 		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Self::pack(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
@@ -2504,12 +2497,13 @@ impl Index {
 		);
 		let source = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get update key"))?
+			.await?
 			.map(|bytes| deserialize_source_update(kind, &bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 		if !matches!(source, Some(Source::Put)) {
-			let value = serialize_update(kind, Source::Propagate)?;
+			let value =
+				serialize_update(kind, Source::Propagate).map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &value);
 		}
 

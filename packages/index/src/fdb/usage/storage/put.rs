@@ -13,24 +13,21 @@ impl Index {
 		arg: &crate::usage::storage::put::ObjectArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the account object"))?
-		else {
+		let Some(value) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
+		let mut entry =
+			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
-			txn.set(&key, &entry.serialize()?);
+			txn.set(&key, &entry.serialize().map_err(crate::fdb::custom_error)?);
 			Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
 		}
 
@@ -43,24 +40,21 @@ impl Index {
 		arg: &crate::usage::storage::put::ProcessArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the account process"))?
-		else {
+		let Some(value) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
+		let mut entry =
+			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
-			txn.set(&key, &entry.serialize()?);
+			txn.set(&key, &entry.serialize().map_err(crate::fdb::custom_error)?);
 			Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
 		}
 
@@ -73,7 +67,7 @@ impl Index {
 		object: &tg::object::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let mut accounts = BTreeSet::new();
 		let parents = Self::get_object_parents_with_transaction(txn, subspace, object).await?;
 		for parent in parents {
@@ -109,7 +103,7 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let mut accounts = BTreeSet::new();
 		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
 		for parent in parents {
@@ -139,7 +133,7 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let accounts = Self::get_process_accounts_with_transaction(txn, subspace, process).await?;
 		for account in accounts {
 			Self::enqueue_update_with_kind(
@@ -162,7 +156,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
-	) -> tg::Result<Vec<crate::usage::Account>> {
+	) -> crate::fdb::Result<Vec<crate::usage::Account>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -175,20 +169,17 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the object accounts"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let accounts = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Usage(crate::fdb::usage::Key::ObjectAccount { account, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(accounts)
 	}
@@ -197,7 +188,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
-	) -> tg::Result<Vec<crate::usage::Account>> {
+	) -> crate::fdb::Result<Vec<crate::usage::Account>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -210,20 +201,17 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process accounts"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let accounts = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Usage(crate::fdb::usage::Key::ProcessAccount { account, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(accounts)
 	}
@@ -236,21 +224,18 @@ impl Index {
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = txn
-			.get(&entry_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the account object"))?
-		{
-			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
+		if let Some(value) = txn.get(&entry_key, false).await? {
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)
+				.map_err(crate::fdb::custom_error)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
-				let value = entry.serialize()?;
+				let value = entry.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&entry_key, &value);
 				Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
 			}
@@ -261,7 +246,7 @@ impl Index {
 		let Some(object) = object else {
 			if touch_existing {
 				return Err(
-					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
+					crate::fdb::error!(object = %arg.object, "cannot add a missing object to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -270,7 +255,7 @@ impl Index {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
-		let value = entry.serialize()?;
+		let value = entry.serialize().map_err(crate::fdb::custom_error)?;
 		txn.set(&entry_key, &value);
 
 		let reverse_key = Key::Usage(crate::fdb::usage::Key::ObjectAccount {
@@ -291,8 +276,9 @@ impl Index {
 			1,
 			usage_partition,
 		);
-		let size = i64::try_from(object.metadata.node.size)
-			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
+		let size = i64::try_from(object.metadata.node.size).map_err(
+			|_| crate::fdb::error!(object = %arg.object, "the object size is too large"),
+		)?;
 		Self::add_usage_delta(
 			txn,
 			subspace,
@@ -327,21 +313,18 @@ impl Index {
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = txn
-			.get(&entry_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the account process"))?
-		{
-			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
+		if let Some(value) = txn.get(&entry_key, false).await? {
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)
+				.map_err(crate::fdb::custom_error)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
-				let value = entry.serialize()?;
+				let value = entry.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&entry_key, &value);
 				Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
 			}
@@ -352,7 +335,7 @@ impl Index {
 		if process.is_none() {
 			if touch_existing {
 				return Err(
-					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
+					crate::fdb::error!(process = %arg.process, "cannot add a missing process to a usage account"),
 				);
 			}
 			return Ok(false);
@@ -361,7 +344,7 @@ impl Index {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
-		let value = entry.serialize()?;
+		let value = entry.serialize().map_err(crate::fdb::custom_error)?;
 		txn.set(&entry_key, &value);
 
 		let reverse_key = Key::Usage(crate::fdb::usage::Key::ProcessAccount {

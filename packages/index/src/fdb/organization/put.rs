@@ -41,7 +41,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::put::Arg],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key =
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
@@ -50,18 +50,19 @@ impl Index {
 				Some(billing) => billing,
 				None => txn
 					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+					.await?
 					.map_or(Ok(false), |bytes| {
 						crate::organization::Organization::deserialize(&bytes)
 							.map(|organization| organization.billing)
-					})?,
+					})
+					.map_err(crate::fdb::custom_error)?,
 			};
 			let value = crate::organization::Organization {
 				billing,
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()?;
+			.serialize()
+			.map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -76,7 +77,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::put::Arg],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key = Key::Organization(crate::fdb::organization::Key::OrganizationMember {
 				organization: arg.organization.clone(),

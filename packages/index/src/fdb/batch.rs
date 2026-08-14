@@ -24,7 +24,7 @@ impl Index {
 		arg: &crate::batch::Arg,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for item in &arg.items {
 			match item {
 				crate::batch::Item::DeleteGrant(arg) => {

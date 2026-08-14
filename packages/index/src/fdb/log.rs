@@ -56,7 +56,7 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-	) -> tg::Result<Vec<crate::log::Entry>> {
+	) -> crate::fdb::Result<Vec<crate::log::Entry>> {
 		let key_kind = KeyKind::LogCompactionVersion.to_i32().unwrap();
 		let mut output = Vec::new();
 		for partition in partition_start..partition_end {
@@ -73,10 +73,7 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let entries = txn
-				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the log compaction range"))?;
+			let entries = txn.get_range(&range, 1, false).await?;
 			for entry in entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::LogCompaction(Key::Version {
@@ -85,7 +82,7 @@ impl Index {
 					version,
 				}) = key
 				else {
-					return Err(tg::error!("unexpected log compaction key"));
+					return Err(crate::fdb::error!("unexpected log compaction key"));
 				};
 				let version = crate::log::Version::new(*version.as_bytes());
 				output.push(crate::log::Entry {
@@ -112,7 +109,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		partition_total: u64,
-	) -> tg::Result<Option<u64>> {
+	) -> crate::fdb::Result<Option<u64>> {
 		let key_kind = KeyKind::LogCompactionVersion.to_i32().unwrap();
 		let futures = (0..partition_total).map(|partition| {
 			let begin = Self::pack(subspace, &(key_kind, partition));
@@ -125,15 +122,13 @@ impl Index {
 				..Default::default()
 			};
 			async move {
-				let entries = txn.get_range(&range, 1, false).await.map_err(|error| {
-					tg::error!(!error, "failed to get the log compaction range")
-				})?;
+				let entries = txn.get_range(&range, 1, false).await?;
 				let Some(entry) = entries.first() else {
 					return Ok(None);
 				};
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::LogCompaction(Key::Version { version, .. }) = key else {
-					return Err(tg::error!("unexpected log compaction key"));
+					return Err(crate::fdb::error!("unexpected log compaction key"));
 				};
 				let transaction_id =
 					u64::from_be_bytes(version.as_bytes()[..8].try_into().unwrap());
@@ -153,24 +148,23 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		entry: &crate::log::Entry,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let identity = Self::log_compaction_identity_key(&entry.process);
 		let identity_key = Self::pack(subspace, &identity);
-		let value = txn
-			.get(&identity_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the log compaction identity"))?;
+		let value = txn.get(&identity_key, false).await?;
 		let Some(value) = value else {
 			return Ok(());
 		};
-		let (partition, version) = fdbt::unpack::<(u64, fdbt::Versionstamp)>(&value)
-			.map_err(|error| tg::error!(!error, "failed to unpack the log compaction identity"))?;
-		let crate::log::Position::Fdb {
-			partition: entry_partition,
-			version: entry_version,
-		} = entry.position
-		else {
-			return Err(tg::error!("unexpected log compaction position"));
+		let (partition, version) =
+			fdbt::unpack::<(u64, fdbt::Versionstamp)>(&value).map_err(|error| {
+				crate::fdb::error!(!error, "failed to unpack the log compaction identity")
+			})?;
+		let (entry_partition, entry_version) = match &entry.position {
+			crate::log::Position::Fdb { partition, version } => (*partition, *version),
+			#[cfg(feature = "lmdb")]
+			crate::log::Position::Lmdb { .. } => {
+				return Err(crate::fdb::error!("unexpected log compaction position"));
+			},
 		};
 		let entry_version = fdbt::Versionstamp::from(*entry_version.bytes());
 		if partition != entry_partition || version != entry_version {
@@ -190,14 +184,10 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let identity = Self::log_compaction_identity_key(process);
 		let identity_key = Self::pack(subspace, &identity);
-		let exists = txn
-			.get(&identity_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the log compaction identity"))?
-			.is_some();
+		let exists = txn.get(&identity_key, false).await?.is_some();
 		if exists {
 			return Ok(());
 		}

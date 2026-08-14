@@ -28,7 +28,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::artifact::Id],
-	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::cache::Entry>>> {
 		futures::future::try_join_all(
 			ids.iter()
 				.map(|id| Self::try_get_cache_entry_with_transaction(txn, subspace, id)),
@@ -40,16 +40,15 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
-	) -> tg::Result<Option<crate::cache::Entry>> {
+	) -> crate::fdb::Result<Option<crate::cache::Entry>> {
 		let key = Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		Ok(Some(crate::cache::Entry::deserialize(&bytes)?))
+		Ok(Some(
+			crate::cache::Entry::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
+		))
 	}
 }

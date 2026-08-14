@@ -25,7 +25,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::put::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
 				let source = if arg.expires_at.is_some() {
@@ -70,7 +70,7 @@ impl Index {
 		source: GrantSource,
 		time_to_touch: Option<std::time::Duration>,
 		partition_total: u64,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
@@ -91,13 +91,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let mut value = txn
 				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the grant entry"))?
+				.await?
 				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
+				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)
+				.map_err(crate::fdb::custom_error)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
 			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize()?;
+				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&key, &bytes);
 				Self::update_grant_expiration(
 					txn,
@@ -126,12 +126,12 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let mut value = txn
 				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the visibility entry"))?
+				.await?
 				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
+				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)
+				.map_err(crate::fdb::custom_error)?;
 			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize()?;
+				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
 				txn.set(&key, &bytes);
 			}
 		}

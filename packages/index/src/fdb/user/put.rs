@@ -23,7 +23,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::user::put::Arg],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key = Key::User(crate::fdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
@@ -31,17 +31,18 @@ impl Index {
 				Some(billing) => billing,
 				None => txn
 					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the user"))?
+					.await?
 					.map_or(Ok(false), |bytes| {
 						crate::user::User::deserialize(&bytes).map(|user| user.billing)
-					})?,
+					})
+					.map_err(crate::fdb::custom_error)?,
 			};
 			let value = crate::user::User {
 				billing,
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()?;
+			.serialize()
+			.map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));

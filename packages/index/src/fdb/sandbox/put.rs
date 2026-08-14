@@ -11,16 +11,16 @@ impl Index {
 		args: &[crate::sandbox::put::Arg],
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let existing = txn
 				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox"))?
+				.await?
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()?;
+				.transpose()
+				.map_err(crate::fdb::custom_error)?;
 			let data = arg
 				.data
 				.clone()
@@ -45,7 +45,7 @@ impl Index {
 				runner,
 				touched_at,
 			};
-			let value = sandbox.serialize()?;
+			let value = sandbox.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &value);
 
 			let started = existing

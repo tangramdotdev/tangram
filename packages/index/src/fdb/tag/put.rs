@@ -22,7 +22,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::tag::put::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			Self::put_tag(txn, subspace, arg, partition_total).await?;
 		}
@@ -34,15 +34,15 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::tag::put::Arg,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let tag = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the tag"))?
+			.await?
 			.map(|bytes| crate::tag::Tag::deserialize(&bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 		if let Some(tag) = tag.as_ref()
 			&& (tag.account != arg.account
 				|| tag.specifier != arg.specifier
@@ -126,7 +126,8 @@ impl Index {
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
 		}
-		.serialize()?;
+		.serialize()
+		.map_err(crate::fdb::custom_error)?;
 		txn.set(&key, &value);
 
 		let node_key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));

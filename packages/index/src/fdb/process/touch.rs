@@ -71,7 +71,7 @@ impl Index {
 		arg: &crate::fdb::TouchProcesses,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
 		let crate::fdb::TouchProcesses {
 			account,
 			ids,
@@ -137,7 +137,7 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
 			async move {
@@ -162,17 +162,15 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<Option<crate::process::Process>> {
+	) -> crate::fdb::Result<Option<crate::process::Process>> {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let existing = txn.get(&key, false).await?;
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::process::Process::deserialize(bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 		let Some(mut process) = existing else {
 			return Ok(None);
 		};
@@ -183,13 +181,12 @@ impl Index {
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
-			.map_err(|error| tg::error!(!error, "failed to add read conflict range"))?;
+		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)?;
 
 		process.touched_at = process.touched_at.max(touched_at);
 		let value = process
 			.serialize()
-			.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
+			.map_err(|error| crate::fdb::error!(!error, "failed to serialize the process"))?;
 		txn.set(&key, &value);
 		if process.reference_count == 0 {
 			let id_bytes = id.to_bytes();

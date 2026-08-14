@@ -25,9 +25,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
 		partition_total: u64,
-	) -> tg::Result<crate::usage::clean::Output> {
+	) -> crate::fdb::Result<crate::usage::clean::Output> {
 		if arg.partition_start > arg.partition_end || arg.partition_end > partition_total {
-			return Err(tg::error!("the usage cleaning partition range is invalid"));
+			return Err(crate::fdb::error!(
+				"the usage cleaning partition range is invalid"
+			));
 		}
 		let mut keys = Vec::new();
 		let mut pending = false;
@@ -66,7 +68,7 @@ impl Index {
 		arg: &crate::usage::clean::Arg,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let cutoff = arg
 			.now
 			.checked_sub(arg.delta_time_to_live)
@@ -87,11 +89,7 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while keys.len() < arg.batch_size {
-				let Some(entry) = entries
-					.try_next()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get usage deltas"))?
-				else {
+				let Some(entry) = entries.try_next().await? else {
 					break;
 				};
 				let Key::Usage(crate::fdb::usage::Key::Delta {
@@ -101,12 +99,11 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
-				let period = crate::usage::Period::from_kind_and_start(
-					crate::usage::PeriodKind::Hour,
-					hour,
-				)?;
+				let period =
+					crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)
+						.map_err(crate::fdb::custom_error)?;
 				if period.end() > cutoff {
 					break;
 				}
@@ -136,7 +133,7 @@ impl Index {
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
 		unavailable: &mut BTreeMap<(crate::usage::Account, crate::usage::PeriodKind, u64), i64>,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for partition in arg.partition_start..arg.partition_end {
 			for kind in [
 				crate::usage::PeriodKind::Hour,
@@ -177,11 +174,7 @@ impl Index {
 				};
 				let mut entries = txn.get_ranges_keyvalues(range, false);
 				while keys.len() < arg.batch_size {
-					let Some(entry) = entries
-						.try_next()
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get usage aggregates"))?
-					else {
+					let Some(entry) = entries.try_next().await? else {
 						break;
 					};
 					let Key::Usage(crate::fdb::usage::Key::Aggregate {
@@ -190,7 +183,7 @@ impl Index {
 						period,
 					}) = Self::unpack(subspace, entry.key())?
 					else {
-						return Err(tg::error!("unexpected key type"));
+						return Err(crate::fdb::error!("unexpected key type"));
 					};
 					if period.end() > cutoff {
 						break;
@@ -198,16 +191,16 @@ impl Index {
 					let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 					let (dependency, eligible) = match period {
 						crate::usage::Period::Hour(_) => {
-							let next_hour = period
-								.start()
-								.as_second()
-								.checked_add(60 * 60)
-								.ok_or_else(|| tg::error!("the usage hour overflowed"))?;
+							let next_hour =
+								period.start().as_second().checked_add(60 * 60).ok_or_else(
+									|| crate::fdb::error!("the usage hour overflowed"),
+								)?;
 							let day = crate::usage::Period::containing(
 								crate::usage::PeriodKind::Day,
 								period.start(),
 							);
-							let closing_hour = crate::usage::closing_hour(day)?;
+							let closing_hour = crate::usage::closing_hour(day)
+								.map_err(crate::fdb::custom_error)?;
 							let next = Self::contains_usage_compaction_with_transaction(
 								txn, subspace, &account, next_hour, partition,
 							)
@@ -233,7 +226,8 @@ impl Index {
 								crate::usage::PeriodKind::Month,
 							] {
 								let parent = crate::usage::Period::containing(kind, period.start());
-								let closing_hour = crate::usage::closing_hour(parent)?;
+								let closing_hour = crate::usage::closing_hour(parent)
+									.map_err(crate::fdb::custom_error)?;
 								let contains = Self::contains_usage_compaction_with_transaction(
 									txn,
 									subspace,

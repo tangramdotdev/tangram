@@ -47,7 +47,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+	) -> crate::fdb::Result<Vec<(tg::process::Id, crate::process::Process)>> {
 		let command_bytes = command.to_bytes();
 		let prefix = (
 			Kind::CommandCacheableProcess.to_i32().unwrap(),
@@ -59,10 +59,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the cached processes"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let processes = entries
 			.iter()
 			.map(|entry| {
@@ -71,11 +68,11 @@ impl Index {
 					process, ..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(process)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		drop(entries);
 		let mut output = Vec::new();
 		for process in processes {
@@ -122,7 +119,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		ancestor: &tg::process::Id,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let mut seen = BTreeSet::from([process.clone()]);
 		let mut frontier = vec![process.clone()];
 		while !frontier.is_empty() {
@@ -166,7 +163,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<crate::process::Process>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
 		futures::future::try_join_all(
 			ids.iter()
 				.map(|id| Self::try_get_process_with_transaction(txn, subspace, id)),
@@ -178,24 +175,23 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<Option<crate::process::Process>> {
+	) -> crate::fdb::Result<Option<crate::process::Process>> {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		Ok(Some(crate::process::Process::deserialize(&bytes)?))
+		Ok(Some(
+			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
+		))
 	}
 
 	pub(crate) async fn get_process_children_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
+	) -> crate::fdb::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -208,19 +204,18 @@ impl Index {
 		let entries = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
+			.await?;
 
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(children)
 	}
@@ -231,7 +226,7 @@ impl Index {
 		id: &tg::process::Id,
 		position: std::io::SeekFrom,
 		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
+	) -> crate::fdb::Result<Option<Vec<tg::process::data::Child>>> {
 		let Some(_) = Self::try_get_process_with_transaction(txn, subspace, id).await? else {
 			return Ok(None);
 		};
@@ -240,7 +235,7 @@ impl Index {
 		}
 		let limit = length
 			.to_usize()
-			.ok_or_else(|| tg::error!("the process child length is too large"))?;
+			.ok_or_else(|| crate::fdb::error!("the process child length is too large"))?;
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -249,18 +244,15 @@ impl Index {
 		let position = match position {
 			std::io::SeekFrom::Start(position) => position
 				.to_i64()
-				.ok_or_else(|| tg::error!("the process child position is too large"))?,
+				.ok_or_else(|| crate::fdb::error!("the process child position is too large"))?,
 			std::io::SeekFrom::End(position) => {
 				if position >= 0 {
 					return Ok(Some(Vec::new()));
 				}
 				let selector = fdb::KeySelector::last_less_than(end.clone());
-				let key = txn
-					.get_key(&selector, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to seek to a process child"))?;
+				let key = txn.get_key(&selector, false).await?;
 				if key.as_ref() < begin.as_slice() {
-					return Err(tg::error!("invalid process child position"));
+					return Err(crate::fdb::error!("invalid process child position"));
 				}
 				let key = Self::unpack(subspace, &key)?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild {
@@ -268,16 +260,16 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				last_position
 					.checked_add(1)
 					.and_then(|children_length| children_length.checked_add(position))
 					.filter(|position| *position >= 0)
-					.ok_or_else(|| tg::error!("invalid process child position"))?
+					.ok_or_else(|| crate::fdb::error!("invalid process child position"))?
 			},
 			std::io::SeekFrom::Current(_) => {
-				return Err(tg::error!(
+				return Err(crate::fdb::error!(
 					"a current process child position is not supported"
 				));
 			},
@@ -300,8 +292,7 @@ impl Index {
 		let entries = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
+			.await?;
 		let children = entries
 			.iter()
 			.enumerate()
@@ -313,25 +304,27 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				let expected_position = position
 					.checked_add(index.to_i64().unwrap())
-					.ok_or_else(|| tg::error!("invalid process child position"))?;
+					.ok_or_else(|| crate::fdb::error!("invalid process child position"))?;
 				if child_position != expected_position {
-					return Err(tg::error!("the process child position is invalid"));
+					return Err(crate::fdb::error!("the process child position is invalid"));
 				}
 				let child: tg::process::data::Child = tangram_serialize::from_slice(entry.value())
 					.map_err(|error| {
-						tg::error!(!error, "failed to deserialize the process child")
+						crate::fdb::error!(!error, "failed to deserialize the process child")
 					})?;
 				if child.process.node != child_id {
-					return Err(tg::error!("the process child value does not match its key"));
+					return Err(crate::fdb::error!(
+						"the process child value does not match its key"
+					));
 				}
 
 				Ok(child)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		Ok(Some(children))
 	}
 
@@ -339,7 +332,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
+	) -> crate::fdb::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ChildProcess.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -349,10 +342,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process parents"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let parents = entries
 			.iter()
@@ -360,11 +350,11 @@ impl Index {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ChildProcess { parent, .. }) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(parent)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(parents)
 	}
@@ -373,7 +363,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
+	) -> crate::fdb::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessObject.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -383,10 +373,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process objects"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let objects = entries
 			.iter()
@@ -395,11 +382,11 @@ impl Index {
 				let Key::Process(crate::fdb::process::Key::ProcessObject { kind, object, .. }) =
 					key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(objects)
 	}

@@ -32,12 +32,14 @@ impl Index {
 		period: crate::usage::Period,
 		now: jiff::Timestamp,
 		partition_total: u64,
-	) -> tg::Result<crate::usage::Aggregate> {
+	) -> crate::fdb::Result<crate::usage::Aggregate> {
 		let started = Self::try_get_usage_started_with_transaction(txn, subspace)
 			.await?
-			.ok_or_else(|| tg::error!("usage tracking has not started"))?;
+			.ok_or_else(|| crate::fdb::error!("usage tracking has not started"))?;
 		if period.start().as_second() < started && period.end() <= now {
-			return Err(tg::error!("usage is unavailable for the requested period"));
+			return Err(crate::fdb::error!(
+				"usage is unavailable for the requested period"
+			));
 		}
 		let cutoffs = try_join_all((0..partition_total).map(|partition| {
 			Self::try_get_usage_unavailable_with_transaction(
@@ -54,7 +56,9 @@ impl Index {
 			.flatten()
 			.any(|cutoff| period.end().as_second() <= cutoff)
 		{
-			return Err(tg::error!("usage is unavailable for the requested period"));
+			return Err(crate::fdb::error!(
+				"usage is unavailable for the requested period"
+			));
 		}
 		if period.start() > now {
 			return Ok(crate::usage::Aggregate::default());
@@ -72,10 +76,14 @@ impl Index {
 				txn, subspace, account, partition, period, now,
 			)
 			.await?;
-			aggregate.checked_add(value)?;
+			aggregate
+				.checked_add(value)
+				.map_err(crate::fdb::custom_error)?;
 		}
 
-		aggregate.try_into_aggregate()
+		aggregate
+			.try_into_aggregate()
+			.map_err(crate::fdb::custom_error)
 	}
 
 	fn aggregate_usage_period_with_transaction<'a>(
@@ -85,7 +93,7 @@ impl Index {
 		partition: u64,
 		period: crate::usage::Period,
 		now: jiff::Timestamp,
-	) -> BoxFuture<'a, tg::Result<crate::usage::PartitionAggregate>> {
+	) -> BoxFuture<'a, crate::fdb::Result<crate::usage::PartitionAggregate>> {
 		async move {
 			if period.start() > now {
 				return Ok(crate::usage::PartitionAggregate::default());
@@ -115,7 +123,7 @@ impl Index {
 				| crate::usage::Period::Month(_)
 				| crate::usage::Period::Week(_) => {
 					let mut aggregate = crate::usage::PartitionAggregate::default();
-					for child in crate::usage::children(period)? {
+					for child in crate::usage::children(period).map_err(crate::fdb::custom_error)? {
 						if child.start() > now {
 							break;
 						}
@@ -123,7 +131,9 @@ impl Index {
 							txn, subspace, account, partition, child, now,
 						)
 						.await?;
-						aggregate.checked_add(child)?;
+						aggregate
+							.checked_add(child)
+							.map_err(crate::fdb::custom_error)?;
 					}
 					if period.end() <= now {
 						Self::put_usage_aggregate_with_transaction(

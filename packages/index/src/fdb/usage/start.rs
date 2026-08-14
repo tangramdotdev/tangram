@@ -10,11 +10,7 @@ impl Index {
 		self.database
 			.run(|txn, _| {
 				let subspace = subspace.clone();
-				async move {
-					Self::start_usage_with_transaction(&txn, &subspace, at)
-						.await
-						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))
-				}
+				async move { Self::start_usage_with_transaction(&txn, &subspace, at).await }
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start usage tracking"))?;
@@ -26,12 +22,9 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		at: jiff::Timestamp,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Self::pack(subspace, &Key::Usage(crate::fdb::usage::Key::Started));
-		let value = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the usage start time"))?;
+		let value = txn.get(&key, false).await?;
 		if value.is_none() {
 			let value = crate::usage::serialize_timestamp(at.as_second());
 			txn.set(&key, &value);
@@ -43,14 +36,14 @@ impl Index {
 	pub(in crate::fdb) async fn try_get_usage_started_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-	) -> tg::Result<Option<i64>> {
+	) -> crate::fdb::Result<Option<i64>> {
 		let key = Self::pack(subspace, &Key::Usage(crate::fdb::usage::Key::Started));
 		let value = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the usage start time"))?
+			.await?
 			.map(|bytes| crate::usage::deserialize_timestamp(&bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 
 		Ok(value)
 	}
@@ -61,7 +54,7 @@ impl Index {
 		account: &crate::usage::Account,
 		kind: crate::usage::PeriodKind,
 		partition: u64,
-	) -> tg::Result<Option<i64>> {
+	) -> crate::fdb::Result<Option<i64>> {
 		let key = Key::Usage(crate::fdb::usage::Key::Unavailable {
 			account: account.clone(),
 			kind,
@@ -70,10 +63,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let value = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the unavailable usage cutoff"))?
+			.await?
 			.map(|bytes| crate::usage::deserialize_timestamp(&bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 
 		Ok(value)
 	}

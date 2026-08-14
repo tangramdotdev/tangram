@@ -23,7 +23,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for id in ids {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);

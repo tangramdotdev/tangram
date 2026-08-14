@@ -28,7 +28,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::user::Id],
-	) -> tg::Result<Vec<Option<crate::user::User>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::user::User>>> {
 		futures::future::try_join_all(
 			ids.iter()
 				.map(|id| Self::try_get_user_with_transaction(txn, subspace, id)),
@@ -40,16 +40,15 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::user::Id,
-	) -> tg::Result<Option<crate::user::User>> {
+	) -> crate::fdb::Result<Option<crate::user::User>> {
 		let key = Key::User(crate::fdb::user::Key::User(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the user"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		Ok(Some(crate::user::User::deserialize(&bytes)?))
+		Ok(Some(
+			crate::user::User::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
+		))
 	}
 }

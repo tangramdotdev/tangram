@@ -12,9 +12,8 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::put::Arg,
 		partition_total: u64,
-	) -> Result<(), fdb::FdbBindingError> {
-		arg.validate()
-			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+	) -> crate::fdb::Result<()> {
+		arg.validate().map_err(crate::fdb::custom_error)?;
 		let id = &arg.id;
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -103,7 +102,7 @@ impl Index {
 			touched_at,
 		}
 		.serialize()
-		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+		.map_err(crate::fdb::custom_error)?;
 		txn.set(&key, &value);
 
 		if sandbox_changed
@@ -131,8 +130,7 @@ impl Index {
 				existing_sandbox,
 				partition_total,
 			)
-			.await
-			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+			.await?;
 		}
 
 		if sandbox_changed && let Some(sandbox) = &sandbox {
@@ -165,15 +163,9 @@ impl Index {
 				.try_collect::<Vec<_>>()
 				.await?;
 			for entry in &entries {
-				let key = Self::unpack(subspace, entry.key()).map_err(|error| {
-					fdb::FdbBindingError::CustomError(
-						tg::error!(!error, "failed to unpack a process child key").into(),
-					)
-				})?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
-					return Err(fdb::FdbBindingError::CustomError(
-						tg::error!("unexpected key type").into(),
-					));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
 					child,
@@ -186,11 +178,8 @@ impl Index {
 			txn.clear_range(&begin, &end);
 			for (position, child) in children.iter().enumerate() {
 				let child = child.clone().without_location_and_tokens();
-				let position = i64::try_from(position).map_err(|_| {
-					fdb::FdbBindingError::CustomError(
-						tg::error!("the process has too many children").into(),
-					)
-				})?;
+				let position = i64::try_from(position)
+					.map_err(|_| crate::fdb::error!("the process has too many children"))?;
 				let key = Key::Process(crate::fdb::process::Key::ProcessChild {
 					child: child.process.node.clone(),
 					position,
@@ -198,9 +187,7 @@ impl Index {
 				});
 				let key = Self::pack(subspace, &key);
 				let value = tangram_serialize::to_vec(&child).map_err(|error| {
-					fdb::FdbBindingError::CustomError(
-						tg::error!(!error, "failed to serialize the process child").into(),
-					)
+					crate::fdb::error!(!error, "failed to serialize the process child")
 				})?;
 				txn.set(&key, &value);
 
@@ -234,24 +221,16 @@ impl Index {
 				let position = entries
 					.first()
 					.map(|entry| {
-						let key = Self::unpack(subspace, entry.key()).map_err(|error| {
-							fdb::FdbBindingError::CustomError(
-								tg::error!(!error, "failed to unpack a process child key").into(),
-							)
-						})?;
+						let key = Self::unpack(subspace, entry.key())?;
 						let Key::Process(crate::fdb::process::Key::ProcessChild {
 							position, ..
 						}) = key
 						else {
-							return Err(fdb::FdbBindingError::CustomError(
-								tg::error!("unexpected key type").into(),
-							));
+							return Err(crate::fdb::error!("unexpected key type"));
 						};
-						position.checked_add(1).ok_or_else(|| {
-							fdb::FdbBindingError::CustomError(
-								tg::error!("the process has too many children").into(),
-							)
-						})
+						position
+							.checked_add(1)
+							.ok_or_else(|| crate::fdb::error!("the process has too many children"))
 					})
 					.transpose()?
 					.unwrap_or(0);
@@ -267,9 +246,7 @@ impl Index {
 				});
 				let process_child_key = Self::pack(subspace, &process_child_key);
 				let value = tangram_serialize::to_vec(&child).map_err(|error| {
-					fdb::FdbBindingError::CustomError(
-						tg::error!(!error, "failed to serialize the process child").into(),
-					)
+					crate::fdb::error!(!error, "failed to serialize the process child")
 				})?;
 				txn.set(&process_child_key, &value);
 				txn.set(&key, &position.to_be_bytes());
@@ -370,8 +347,7 @@ impl Index {
 				partition_total,
 				touched_at,
 			)
-			.await
-			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+			.await?;
 			Self::enqueue_account_process_relationships(
 				txn,
 				subspace,
@@ -379,8 +355,7 @@ impl Index {
 				partition_total,
 				touched_at,
 			)
-			.await
-			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+			.await?;
 		}
 
 		Ok(())
@@ -391,11 +366,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::process::put::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for process in args {
-			Self::put_process(txn, subspace, process, partition_total)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the process"))?;
+			Self::put_process(txn, subspace, process, partition_total).await?;
 		}
 		Ok(())
 	}

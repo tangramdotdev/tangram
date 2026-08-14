@@ -1002,7 +1002,7 @@ impl Index {
 		partition_total: u64,
 		usage_partition_total: u64,
 		metrics: &Metrics,
-	) -> Result<Vec<Response>, fdb::FdbBindingError> {
+	) -> crate::fdb::Result<Vec<Response>> {
 		let start = std::time::Instant::now();
 		let retry_count = AtomicU64::new(0);
 
@@ -1051,8 +1051,7 @@ impl Index {
 							partition_total,
 							usage_partition_total,
 						)
-						.await
-						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+						.await?;
 						responses.push(response);
 					}
 					Ok(responses)
@@ -1086,7 +1085,7 @@ impl Index {
 		max_process_depth: Option<u64>,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<Response> {
+	) -> crate::fdb::Result<Response> {
 		match request {
 			Request::Batch(arg) => {
 				Self::batch_with_transaction(

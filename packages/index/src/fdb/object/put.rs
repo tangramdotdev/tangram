@@ -10,7 +10,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::object::put::Arg,
 		partition_total: u64,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> crate::fdb::Result<()> {
 		let id = &arg.id;
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -69,7 +69,7 @@ impl Index {
 			touched_at,
 		}
 		.serialize()
-		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+		.map_err(crate::fdb::custom_error)?;
 
 		if existing.is_none() {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -143,8 +143,7 @@ impl Index {
 				partition_total,
 				touched_at,
 			)
-			.await
-			.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+			.await?;
 		}
 
 		Ok(())
@@ -155,11 +154,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::object::put::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for object in args {
-			Self::put_object(txn, subspace, object, partition_total)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+			Self::put_object(txn, subspace, object, partition_total).await?;
 		}
 		Ok(())
 	}

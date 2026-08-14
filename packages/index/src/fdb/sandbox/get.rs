@@ -26,7 +26,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+	) -> crate::fdb::Result<Vec<(tg::process::Id, crate::process::Process)>> {
 		let sandbox = sandbox.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -41,25 +41,26 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))?;
+			.await?;
 		let processes = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { process, .. }) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(process)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		drop(entries);
 		let mut output = Vec::with_capacity(processes.len());
 		for process in processes {
 			let data = Self::try_get_process_with_transaction(txn, subspace, &process)
 				.await?
-				.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
+				.ok_or_else(
+					|| crate::fdb::error!(%process, "failed to find the sandbox process"),
+				)?;
 			output.push((process, data));
 		}
 		Ok(output)
@@ -84,17 +85,15 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::sandbox::Id],
-	) -> tg::Result<Vec<Option<crate::sandbox::Sandbox>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::sandbox::Sandbox>>> {
 		futures::future::try_join_all(ids.iter().map(|id| async {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let bytes = txn
-				.get(&key, false)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
+			let bytes = txn.get(&key, false).await?;
 			bytes
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()
+				.map_err(crate::fdb::custom_error)
 		}))
 		.await
 	}
@@ -103,15 +102,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &foundationdb_tuple::Subspace,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<crate::sandbox::Sandbox>> {
+	) -> crate::fdb::Result<Option<crate::sandbox::Sandbox>> {
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?;
+		let bytes = txn.get(&key, false).await?;
 		bytes
 			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 			.transpose()
+			.map_err(crate::fdb::custom_error)
 	}
 }

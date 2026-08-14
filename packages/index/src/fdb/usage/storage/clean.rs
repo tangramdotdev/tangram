@@ -25,7 +25,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		Self::enqueue_update_with_kind(
 			txn,
 			subspace,
@@ -43,7 +43,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		Self::enqueue_update_with_kind(
 			txn,
 			subspace,
@@ -67,7 +67,7 @@ impl Index {
 		touched_at: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let candidate = Candidate::Object {
 			account: account.clone(),
 			object: object.clone(),
@@ -96,7 +96,7 @@ impl Index {
 		touched_at: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let candidate = Candidate::Process {
 			account: account.clone(),
 			partition,
@@ -121,7 +121,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let (entry_key, clean_key, touched_at) = match candidate {
 			Candidate::Object {
 				account,
@@ -162,15 +162,12 @@ impl Index {
 		};
 		let entry_key = Self::pack(subspace, &entry_key);
 		let clean_key = Self::pack(subspace, &clean_key);
-		let Some(value) = txn
-			.get(&entry_key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get a storage entry"))?
-		else {
+		let Some(value) = txn.get(&entry_key, false).await? else {
 			txn.clear(&clean_key);
 			return Ok(());
 		};
-		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
+		let mut entry =
+			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
 		if entry.touched_at != touched_at {
 			txn.clear(&clean_key);
 			return Ok(());
@@ -190,7 +187,10 @@ impl Index {
 		};
 		if reference_count > 0 {
 			entry.reference_count = reference_count;
-			txn.set(&entry_key, &entry.serialize()?);
+			txn.set(
+				&entry_key,
+				&entry.serialize().map_err(crate::fdb::custom_error)?,
+			);
 			txn.clear(&clean_key);
 			return Ok(());
 		}
@@ -234,7 +234,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let (parents, processes) = futures::future::try_join(
 			Self::get_object_parents_with_transaction(txn, subspace, object),
 			Self::get_object_processes_with_transaction(txn, subspace, object),
@@ -256,11 +256,10 @@ impl Index {
 			}))
 			.map(|key| Self::pack(subspace, &key))
 			.collect::<Vec<_>>();
-		let entries_future = futures::future::try_join_all(keys.iter().map(|key| async move {
-			txn.get(key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get a storage entry"))
-		}));
+		let entries_future =
+			futures::future::try_join_all(keys.iter().map(|key| async move {
+				Ok::<_, fdb::FdbBindingError>(txn.get(key, false).await?)
+			}));
 		let object_bytes = object.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, object_bytes.as_ref());
 		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
@@ -275,7 +274,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
 		let keys = parents
 			.into_iter()
@@ -287,11 +286,10 @@ impl Index {
 				Self::pack(subspace, &key)
 			})
 			.collect::<Vec<_>>();
-		let entries_future = futures::future::try_join_all(keys.iter().map(|key| async move {
-			txn.get(key, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get an account process"))
-		}));
+		let entries_future =
+			futures::future::try_join_all(keys.iter().map(|key| async move {
+				Ok::<_, fdb::FdbBindingError>(txn.get(key, false).await?)
+			}));
 		let process_bytes = process.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, process_bytes.as_ref());
 		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
@@ -306,7 +304,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		target: &[u8],
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let tags = Self::get_target_tags_with_transaction(txn, subspace, target).await?;
 		let tags = futures::future::try_join_all(
 			tags.iter()
@@ -331,7 +329,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -364,9 +362,11 @@ impl Index {
 		);
 		let value = Self::try_get_object_with_transaction(txn, subspace, object)
 			.await?
-			.ok_or_else(|| tg::error!(%object, "an object with a storage entry is missing"))?;
+			.ok_or_else(
+				|| crate::fdb::error!(%object, "an object with a storage entry is missing"),
+			)?;
 		let size = i64::try_from(value.metadata.node.size)
-			.map_err(|_| tg::error!("the object size is too large"))?;
+			.map_err(|_| crate::fdb::error!("the object size is too large"))?;
 		Self::add_usage_delta(
 			txn,
 			subspace,
@@ -396,7 +396,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
@@ -429,7 +429,9 @@ impl Index {
 		);
 		let value = Self::try_get_process_with_transaction(txn, subspace, process)
 			.await?
-			.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
+			.ok_or_else(
+				|| crate::fdb::error!(%process, "a process with a storage entry is missing"),
+			)?;
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::Process {
 			id: process.clone(),
@@ -447,19 +449,16 @@ impl Index {
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
-		let Some(value) = txn
-			.get(&Self::pack(subspace, &entry_key), false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get an account object"))?
-		else {
+		let Some(value) = txn.get(&Self::pack(subspace, &entry_key), false).await? else {
 			return Ok(());
 		};
-		let entry = crate::usage::storage::Entry::deserialize(&value)?;
+		let entry =
+			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountObject {
 			account: account.clone(),
@@ -478,19 +477,16 @@ impl Index {
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
-		let Some(value) = txn
-			.get(&Self::pack(subspace, &entry_key), false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get an account process"))?
-		else {
+		let Some(value) = txn.get(&Self::pack(subspace, &entry_key), false).await? else {
 			return Ok(());
 		};
-		let entry = crate::usage::storage::Entry::deserialize(&value)?;
+		let entry =
+			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountProcess {
 			account: account.clone(),

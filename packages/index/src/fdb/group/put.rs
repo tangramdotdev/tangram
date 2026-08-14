@@ -38,7 +38,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::put::Arg],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key = Key::Group(crate::fdb::group::Key::Group(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
@@ -46,7 +46,8 @@ impl Index {
 				parent: arg.parent.clone(),
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()?;
+			.serialize()
+			.map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -61,7 +62,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::member::put::Arg],
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for arg in args {
 			let key = Key::Group(crate::fdb::group::Key::GroupMember {
 				group: arg.group.clone(),

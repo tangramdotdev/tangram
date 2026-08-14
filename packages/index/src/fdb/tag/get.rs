@@ -11,24 +11,23 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::tag::Id,
-	) -> tg::Result<Option<crate::tag::Tag>> {
+	) -> crate::fdb::Result<Option<crate::tag::Tag>> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the tag"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		Ok(Some(crate::tag::Tag::deserialize(&bytes)?))
+		Ok(Some(
+			crate::tag::Tag::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
+		))
 	}
 
 	pub(crate) async fn get_target_tags_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		target: &[u8],
-	) -> tg::Result<Vec<tg::tag::Id>> {
+	) -> crate::fdb::Result<Vec<tg::tag::Id>> {
 		let key = (Kind::TargetTag.to_i32().unwrap(), target);
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);
@@ -37,21 +36,18 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the target tags"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let tags = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Tag(crate::fdb::tag::Key::TargetTag { tag, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(tag)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(tags)
 	}

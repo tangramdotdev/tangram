@@ -26,7 +26,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> crate::fdb::Result<Vec<tg::sandbox::Id>> {
 		let runner = runner.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -41,15 +41,14 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the runner sandboxes"))?;
+			.await?;
 		entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Runner(crate::fdb::runner::Key::RunnerSandbox { sandbox, .. }) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(sandbox)
 			})

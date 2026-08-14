@@ -11,7 +11,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
+	) -> crate::fdb::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
 		let bytes = resource.to_bytes();
 		let key = (Kind::ResourceGrant.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -21,10 +21,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let grants = entries
 			.iter()
@@ -36,11 +33,11 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok((subject, permission))
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(grants)
 	}
@@ -50,7 +47,7 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<Vec<crate::fdb::grant::GrantEntry>> {
+	) -> crate::fdb::Result<Vec<crate::fdb::grant::GrantEntry>> {
 		let bytes = resource.to_bytes();
 		let key = (
 			Kind::ResourceGrant.to_i32().unwrap(),
@@ -64,10 +61,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		entries
 			.iter()
@@ -79,9 +73,10 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())
+					.map_err(crate::fdb::custom_error)?;
 				Ok(crate::fdb::grant::GrantEntry {
 					explicit: value.explicit,
 					materialized: value.materialized,
@@ -98,7 +93,7 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<bool> {
+	) -> crate::fdb::Result<bool> {
 		let bytes = resource.to_bytes();
 		let key = (
 			Kind::Visibility.to_i32().unwrap(),
@@ -112,10 +107,7 @@ impl Index {
 			limit: Some(1),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the visibility entries"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		Ok(!entries.is_empty())
 	}
 }

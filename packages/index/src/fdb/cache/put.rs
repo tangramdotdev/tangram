@@ -1,7 +1,6 @@
 use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	tangram_client::prelude::*,
 };
 
 impl Index {
@@ -10,7 +9,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::cache::put::Arg,
 		partition_total: u64,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> crate::fdb::Result<()> {
 		let id = &arg.id;
 
 		let key = Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
@@ -20,7 +19,7 @@ impl Index {
 			touched_at: arg.touched_at,
 		}
 		.serialize()
-		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+		.map_err(crate::fdb::custom_error)?;
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.set(&key, &value);
@@ -65,10 +64,9 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::cache::put::Arg],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for cache_entry in args {
-			Self::put_cache_entry(txn, subspace, cache_entry, partition_total)
-				.map_err(|error| tg::error!(!error, "failed to put the cache entry"))?;
+			Self::put_cache_entry(txn, subspace, cache_entry, partition_total)?;
 		}
 		Ok(())
 	}

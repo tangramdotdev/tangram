@@ -47,7 +47,7 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::Id],
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<bool>> {
+	) -> crate::fdb::Result<Vec<bool>> {
 		if matches!(principal, tg::Principal::Root) {
 			return Ok(vec![true; ids.len()]);
 		}
@@ -70,10 +70,14 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tg::authorization::Subject>> {
+	) -> crate::fdb::Result<Vec<tg::authorization::Subject>> {
 		let mut subjects = vec![tg::authorization::Subject::Public];
 		if !matches!(principal, tg::Principal::Anonymous) {
-			subjects.push(principal.try_to_subject()?);
+			subjects.push(
+				principal
+					.try_to_subject()
+					.map_err(crate::fdb::custom_error)?,
+			);
 		}
 		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),

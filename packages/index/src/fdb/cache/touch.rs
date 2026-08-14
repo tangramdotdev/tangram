@@ -36,7 +36,7 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::cache::Entry>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
 			async move {
@@ -61,17 +61,15 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> tg::Result<Option<crate::cache::Entry>> {
+	) -> crate::fdb::Result<Option<crate::cache::Entry>> {
 		let key = Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache entry"))?;
+		let existing = txn.get(&key, false).await?;
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::cache::Entry::deserialize(bytes))
-			.transpose()?;
+			.transpose()
+			.map_err(crate::fdb::custom_error)?;
 		let Some(mut cache_entry) = existing else {
 			return Ok(None);
 		};
@@ -82,13 +80,12 @@ impl Index {
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
-			.map_err(|error| tg::error!(!error, "failed to add read conflict range"))?;
+		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)?;
 
 		cache_entry.touched_at = cache_entry.touched_at.max(touched_at);
 		let value = cache_entry
 			.serialize()
-			.map_err(|error| tg::error!(!error, "failed to serialize the cache entry"))?;
+			.map_err(|error| crate::fdb::error!(!error, "failed to serialize the cache entry"))?;
 		txn.set(&key, &value);
 		if cache_entry.reference_count == 0 {
 			let id_bytes = id.to_bytes();

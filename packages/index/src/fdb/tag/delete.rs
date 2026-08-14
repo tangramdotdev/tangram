@@ -22,7 +22,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		ids: &[tg::tag::Id],
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		for id in ids {
 			Self::delete_tag(txn, subspace, id, partition_total).await?;
 		}
@@ -34,17 +34,14 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		id: &tg::tag::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the tag"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(());
 		};
-		let data = crate::tag::Tag::deserialize(&bytes)?;
+		let data = crate::tag::Tag::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		let target = match &data.target {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
 			tg::Either::Right(id) => id.to_bytes().to_vec(),

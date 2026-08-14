@@ -29,7 +29,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::organization::Id],
-	) -> tg::Result<Vec<Option<crate::organization::Organization>>> {
+	) -> crate::fdb::Result<Vec<Option<crate::organization::Organization>>> {
 		futures::future::try_join_all(
 			ids.iter()
 				.map(|id| Self::try_get_organization_with_transaction(txn, subspace, id)),
@@ -41,26 +41,24 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::organization::Id,
-	) -> tg::Result<Option<crate::organization::Organization>> {
+	) -> crate::fdb::Result<Option<crate::organization::Organization>> {
 		let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the organization"))?;
+		let bytes = txn.get(&key, false).await?;
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		Ok(Some(crate::organization::Organization::deserialize(
-			&bytes,
-		)?))
+		Ok(Some(
+			crate::organization::Organization::deserialize(&bytes)
+				.map_err(crate::fdb::custom_error)?,
+		))
 	}
 
 	pub(crate) async fn get_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
-	) -> tg::Result<Vec<tg::organization::Member>> {
+	) -> crate::fdb::Result<Vec<tg::organization::Member>> {
 		let bytes = tg::Id::from(organization.clone()).to_bytes();
 		let key = (Kind::OrganizationMember.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -70,10 +68,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the organization members"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let members = entries
 			.iter()
@@ -84,11 +79,11 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(member)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(members)
 	}
@@ -97,7 +92,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
-	) -> tg::Result<Vec<tg::organization::Id>> {
+	) -> crate::fdb::Result<Vec<tg::organization::Id>> {
 		let bytes = member.to_bytes();
 		let key = (Kind::MemberOrganization.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -107,10 +102,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the member organizations"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 
 		let organizations = entries
 			.iter()
@@ -121,11 +113,11 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("unexpected key type"));
+					return Err(crate::fdb::error!("unexpected key type"));
 				};
 				Ok(organization)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		Ok(organizations)
 	}

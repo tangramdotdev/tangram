@@ -75,7 +75,7 @@ impl Index {
 
 	pub(super) async fn clean_with_transaction(
 		arg: TransactionArg<'_>,
-	) -> tg::Result<crate::clean::Output> {
+	) -> crate::fdb::Result<crate::clean::Output> {
 		let TransactionArg {
 			batch_size,
 			max_object_touched_at,
@@ -127,18 +127,12 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while candidates.len() < remaining_batch_size {
-				let Some(entry) = entries
-					.next()
-					.await
-					.transpose()
-					.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
-				else {
+				let Some(entry) = entries.next().await.transpose()? else {
 					break;
 				};
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Clean(key) = key else {
-					return Err(tg::error!("expected clean key"));
+					return Err(crate::fdb::error!("expected clean key"));
 				};
 				let (item, partition, touched_at, max_touched_at) = match key {
 					crate::fdb::clean::Key::AccountObject {
@@ -303,7 +297,7 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		partition_total: u64,
-	) -> tg::Result<usize> {
+	) -> crate::fdb::Result<usize> {
 		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
 		let mut args = Vec::new();
 		for partition in partition_start..partition_end {
@@ -320,16 +314,10 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while args.len() < batch_size {
-				let Some(entry) = entries
-					.next()
-					.await
-					.transpose()
-					.map_err(|error| tg::error!(!error, "failed to get the next entry"))?
-				else {
+				let Some(entry) = entries.next().await.transpose()? else {
 					break;
 				};
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
 					expires_at,
 					resource,
@@ -340,7 +328,7 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected a grant expiration key"));
+					return Err(crate::fdb::error!("expected a grant expiration key"));
 				};
 				args.push((
 					crate::grant::delete::Arg {
@@ -388,33 +376,39 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
-	) -> tg::Result<i64> {
+	) -> crate::fdb::Result<i64> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let entry = Self::try_get_cache_entry_with_transaction(txn, subspace, id)
 					.await?
 					.ok_or_else(
-						|| tg::error!(%id, "the clean key referenced a missing cache entry"),
+						|| crate::fdb::error!(%id, "the clean key referenced a missing cache entry"),
 					)?;
 				Ok(entry.touched_at)
 			},
 			Item::Object(id) => {
 				let object = Self::try_get_object_with_transaction(txn, subspace, id)
 					.await?
-					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
+					.ok_or_else(
+						|| crate::fdb::error!(%id, "the clean key referenced a missing object"),
+					)?;
 				Ok(object.touched_at)
 			},
 			Item::Process(id) => {
 				let process = Self::try_get_process_with_transaction(txn, subspace, id)
 					.await?
-					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
+					.ok_or_else(
+						|| crate::fdb::error!(%id, "the clean key referenced a missing process"),
+					)?;
 				Ok(process.touched_at)
 			},
 			Item::Sandbox(id) => {
 				let sandbox = Self::try_get_sandbox_with_transaction(txn, subspace, id)
 					.await?
-					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing sandbox"))?;
+					.ok_or_else(
+						|| crate::fdb::error!(%id, "the clean key referenced a missing sandbox"),
+					)?;
 				Ok(sandbox.touched_at)
 			},
 		}
@@ -467,7 +461,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let id_bytes = id.to_bytes();
 
 		let cache_entry_object_future = async {
@@ -480,12 +474,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 
 		let dependency_cache_entry_future = async {
@@ -501,12 +494,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 
 		let (cache_entry_object_count, dependency_cache_entry_count) =
@@ -520,7 +512,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let child_object_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
@@ -532,12 +524,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let object_process_future = async {
 			let id = id.to_bytes();
@@ -550,12 +541,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let target_tag_future = async {
 			let id = id.to_bytes();
@@ -568,12 +558,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let (child_object_count, object_process_count, target_tag_count) =
 			futures::future::try_join3(
@@ -592,12 +581,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let update_future = async {
 			let id = id.to_bytes();
@@ -611,13 +599,12 @@ impl Index {
 				};
 				count += txn
 					.get_range(&range, 1, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get range"))?
+					.await?
 					.len()
 					.to_u64()
 					.unwrap();
 			}
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let (object_account_count, update_count) =
 			futures::future::try_join(object_account_future, update_future).await?;
@@ -633,7 +620,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let child_process_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
@@ -645,12 +632,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let target_tag_future = async {
 			let id = id.to_bytes();
@@ -663,12 +649,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let (child_process_count, target_tag_count) =
 			futures::future::try_join(child_process_future, target_tag_future).await?;
@@ -682,12 +667,11 @@ impl Index {
 			};
 			let count = txn
 				.get_range(&range, 1, false)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get range"))?
+				.await?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let update_future = async {
 			let id = id.to_bytes();
@@ -701,13 +685,12 @@ impl Index {
 				};
 				count += txn
 					.get_range(&range, 1, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get range"))?
+					.await?
 					.len()
 					.to_u64()
 					.unwrap();
 			}
-			Ok::<_, tg::Error>(count)
+			Ok::<_, fdb::FdbBindingError>(count)
 		};
 		let (process_account_count, update_count) =
 			futures::future::try_join(process_account_future, update_future).await?;
@@ -719,7 +702,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<u64> {
+	) -> crate::fdb::Result<u64> {
 		let id = id.to_bytes();
 		let prefix = (Kind::SandboxProcess.to_i32().unwrap(), id.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
@@ -730,8 +713,7 @@ impl Index {
 		};
 		let count = txn
 			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?
+			.await?
 			.len()
 			.to_u64()
 			.unwrap();
@@ -744,62 +726,50 @@ impl Index {
 		subspace: &Subspace,
 		item: &Item,
 		reference_count: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn
-					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
-				{
-					let mut entry = crate::cache::Entry::deserialize(&bytes)?;
+				if let Some(bytes) = txn.get(&key, false).await? {
+					let mut entry = crate::cache::Entry::deserialize(&bytes)
+						.map_err(crate::fdb::custom_error)?;
 					entry.reference_count = reference_count;
-					let bytes = entry.serialize()?;
+					let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Object(id) => {
 				let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn
-					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get object"))?
-				{
-					let mut object = crate::object::Object::deserialize(&bytes)?;
+				if let Some(bytes) = txn.get(&key, false).await? {
+					let mut object = crate::object::Object::deserialize(&bytes)
+						.map_err(crate::fdb::custom_error)?;
 					object.reference_count = reference_count;
-					let bytes = object.serialize()?;
+					let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Process(id) => {
 				let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn
-					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get process"))?
-				{
-					let mut process = crate::process::Process::deserialize(&bytes)?;
+				if let Some(bytes) = txn.get(&key, false).await? {
+					let mut process = crate::process::Process::deserialize(&bytes)
+						.map_err(crate::fdb::custom_error)?;
 					process.reference_count = reference_count;
-					let bytes = process.serialize()?;
+					let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Sandbox(id) => {
 				let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn
-					.get(&key, false)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
-				{
-					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
+				if let Some(bytes) = txn.get(&key, false).await? {
+					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)
+						.map_err(crate::fdb::custom_error)?;
 					sandbox.reference_count = reference_count;
-					let bytes = sandbox.serialize()?;
+					let bytes = sandbox.serialize().map_err(crate::fdb::custom_error)?;
 					txn.set(&key, &bytes);
 				}
 			},
@@ -812,7 +782,7 @@ impl Index {
 		subspace: &Subspace,
 		item: &Item,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
@@ -829,7 +799,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
@@ -845,25 +815,21 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let dependencies = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntryDependency {
 					dependency,
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected cache entry dependency key"));
+					return Err(crate::fdb::error!("expected cache entry dependency key"));
 				};
 				Ok(dependency)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
@@ -893,7 +859,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let resource = id.clone().into();
 		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
 			.await?;
@@ -902,8 +868,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let cache_entry = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get object"))?
+			.await?
 			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
@@ -918,23 +883,19 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
 					key
 				else {
-					return Err(tg::error!("expected object child key"));
+					return Err(crate::fdb::error!("expected object child key"));
 				};
 				Ok(child)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -981,7 +942,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let resource = id.clone().into();
 		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
 			.await?;
@@ -990,10 +951,10 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let sandbox = txn
 			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process"))?
+			.await?
 			.map(|bytes| crate::process::Process::deserialize(&bytes))
-			.transpose()?
+			.transpose()
+			.map_err(crate::fdb::custom_error)?
 			.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let id_bytes = id.to_bytes();
@@ -1005,24 +966,20 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessChild {
 					child, ..
 				}) = key
 				else {
-					return Err(tg::error!("expected process child key"));
+					return Err(crate::fdb::error!("expected process child key"));
 				};
 				Ok(child)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -1044,26 +1001,22 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get range"))?;
+		let entries = txn.get_range(&range, 1, false).await?;
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
 					kind,
 					object,
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected process object key"));
+					return Err(crate::fdb::error!("expected process object key"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<crate::fdb::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
@@ -1114,7 +1067,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id))
 	}
 
@@ -1123,7 +1076,7 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		// Collect the materialized grants.
 		let resource_bytes = resource.to_bytes();
 		let prefix = (
@@ -1136,15 +1089,11 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let values = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the resource grant range"))?;
+		let values = txn.get_range(&range, 1, false).await?;
 		let entries = values
 			.iter()
 			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())
-					.map_err(|error| tg::error!(!error, "failed to unpack the key"))?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 					creator,
 					permission,
@@ -1152,15 +1101,16 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected a resource grant key"));
+					return Err(crate::fdb::error!("expected a resource grant key"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())
+					.map_err(crate::fdb::custom_error)?;
 				let entry = value
 					.source_expires_at(crate::fdb::grant::GrantSource::Materialized)
 					.map(|expires_at| (creator, expires_at, permission, subject));
 				Ok(entry)
 			})
-			.collect::<tg::Result<Vec<_>>>()?
+			.collect::<crate::fdb::Result<Vec<_>>>()?
 			.into_iter()
 			.flatten()
 			.collect::<Vec<_>>();
@@ -1191,25 +1141,22 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
-		else {
+		let Some(bytes) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut entry = crate::cache::Entry::deserialize(&bytes)?;
+		let mut entry =
+			crate::cache::Entry::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		let reference_count = entry.reference_count;
 		if reference_count > 1 {
 			entry.reference_count = reference_count - 1;
-			let bytes = entry.serialize()?;
+			let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 		} else {
 			entry.reference_count = 0;
-			let bytes = entry.serialize()?;
+			let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1230,25 +1177,22 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get object"))?
-		else {
+		let Some(bytes) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut object = crate::object::Object::deserialize(&bytes)?;
+		let mut object =
+			crate::object::Object::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		let reference_count = object.reference_count;
 		if reference_count > 1 {
 			object.reference_count = reference_count - 1;
-			let bytes = object.serialize()?;
+			let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 		} else {
 			object.reference_count = 0;
-			let bytes = object.serialize()?;
+			let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1269,25 +1213,22 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get process"))?
-		else {
+		let Some(bytes) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut process = crate::process::Process::deserialize(&bytes)?;
+		let mut process =
+			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		let reference_count = process.reference_count;
 		if reference_count > 1 {
 			process.reference_count = reference_count - 1;
-			let bytes = process.serialize()?;
+			let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 		} else {
 			process.reference_count = 0;
-			let bytes = process.serialize()?;
+			let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1308,19 +1249,16 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 		partition_total: u64,
-	) -> tg::Result<()> {
+	) -> crate::fdb::Result<()> {
 		let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn
-			.get(&key, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
-		else {
+		let Some(bytes) = txn.get(&key, false).await? else {
 			return Ok(());
 		};
-		let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
+		let mut sandbox =
+			crate::sandbox::Sandbox::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
 		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
-		let bytes = sandbox.serialize()?;
+		let bytes = sandbox.serialize().map_err(crate::fdb::custom_error)?;
 		txn.set(&key, &bytes);
 
 		if sandbox.reference_count == 0

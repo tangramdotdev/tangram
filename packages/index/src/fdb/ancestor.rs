@@ -18,27 +18,27 @@ impl Index {
 		transaction: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
-	) -> tg::Result<Option<Vec<tg::Id>>> {
+	) -> crate::fdb::Result<Option<Vec<tg::Id>>> {
 		let mut ancestors = Vec::new();
 		let mut current = Some(id.clone());
 		let mut visited = HashSet::<_, tg::id::BuildHasher>::default();
 		while let Some(id) = current {
 			if !visited.insert(id.clone()) {
-				return Err(tg::error!(%id, "the owner hierarchy contains a cycle"));
+				return Err(crate::fdb::error!(%id, "the owner hierarchy contains a cycle"));
 			}
 			current = match id.kind() {
 				tg::id::Kind::Group => {
 					let group = Self::try_get_group_with_transaction(
 						transaction,
 						subspace,
-						&id.clone().try_into()?,
+						&id.clone().try_into().map_err(crate::fdb::custom_error)?,
 					)
 					.await?;
 					let Some(group) = group else {
 						if ancestors.is_empty() {
 							return Ok(None);
 						}
-						return Err(tg::error!(%id, "failed to find an ancestor"));
+						return Err(crate::fdb::error!(%id, "failed to find an ancestor"));
 					};
 					group.parent
 				},
@@ -46,14 +46,14 @@ impl Index {
 					let organization = Self::try_get_organization_with_transaction(
 						transaction,
 						subspace,
-						&id.clone().try_into()?,
+						&id.clone().try_into().map_err(crate::fdb::custom_error)?,
 					)
 					.await?;
 					if organization.is_none() {
 						if ancestors.is_empty() {
 							return Ok(None);
 						}
-						return Err(tg::error!(%id, "failed to find an ancestor"));
+						return Err(crate::fdb::error!(%id, "failed to find an ancestor"));
 					}
 					None
 				},
@@ -61,18 +61,18 @@ impl Index {
 					let user = Self::try_get_user_with_transaction(
 						transaction,
 						subspace,
-						&id.clone().try_into()?,
+						&id.clone().try_into().map_err(crate::fdb::custom_error)?,
 					)
 					.await?;
 					if user.is_none() {
 						if ancestors.is_empty() {
 							return Ok(None);
 						}
-						return Err(tg::error!(%id, "failed to find an ancestor"));
+						return Err(crate::fdb::error!(%id, "failed to find an ancestor"));
 					}
 					None
 				},
-				_ => return Err(tg::error!(%id, "invalid owner")),
+				_ => return Err(crate::fdb::error!(%id, "invalid owner")),
 			};
 			ancestors.push(id);
 		}

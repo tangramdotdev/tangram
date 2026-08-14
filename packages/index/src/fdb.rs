@@ -13,6 +13,7 @@ mod authorize;
 mod batch;
 mod cache;
 mod clean;
+mod error;
 mod grant;
 mod group;
 mod key;
@@ -33,6 +34,7 @@ mod user;
 mod visible;
 mod writer;
 
+pub(crate) use error::{Result, custom_error, error};
 pub(super) use {
 	key::{Key, Kind},
 	writer::Metrics,
@@ -218,10 +220,10 @@ impl Index {
 	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(
 		subspace: &fdbt::Subspace,
 		bytes: &'a [u8],
-	) -> tg::Result<T> {
+	) -> crate::fdb::Result<T> {
 		subspace
 			.unpack(bytes)
-			.map_err(|error| tg::error!(!error, "failed to unpack key"))
+			.map_err(|error| crate::fdb::error!(!error, "failed to unpack key"))
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
