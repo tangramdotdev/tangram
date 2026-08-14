@@ -66,17 +66,8 @@ impl Cli {
 		let process = self
 			.resolve_process_with_locations(&args.process, &args.locations)
 			.await?;
-		let id = process.node;
-		let location = process.options.location.map(Into::into);
-		let tokens = process.options.tokens;
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location: location.clone(),
-				tokens: tokens.clone(),
-				..Default::default()
-			},
-		);
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let streams = if args.streams.is_empty() {
 			vec![
 				tg::process::stdio::Stream::Stdout,
@@ -87,7 +78,7 @@ impl Cli {
 		};
 		let arg = tg::process::stdio::read::Arg {
 			length: args.length,
-			location,
+			location: None,
 			position: args.position,
 			size: args.size,
 			streams,

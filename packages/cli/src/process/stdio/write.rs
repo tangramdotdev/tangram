@@ -24,22 +24,14 @@ impl Cli {
 		let process = self
 			.resolve_process_with_locations(&args.process, &args.location)
 			.await?;
-		let id = process.node;
-		let location = process.options.location.map(Into::into);
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location,
-				tokens: process.options.tokens,
-				..Default::default()
-			},
-		);
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let [stream] = args.streams.as_slice() else {
 			return Err(tg::error!("expected exactly one stdio stream"));
 		};
 		let stream = *stream;
 		let arg = tg::process::stdio::write::Arg {
-			location: process.location(),
+			location: None,
 			streams: vec![stream],
 			tokens: tg::authorization::Tokens::default(),
 		};

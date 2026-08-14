@@ -20,16 +20,8 @@ impl Cli {
 		let process = self
 			.resolve_process_with_locations(&args.process, &args.locations)
 			.await?;
-		let id = process.node;
-		let location = process.options.location.map(Into::into);
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location,
-				tokens: process.options.tokens,
-				..Default::default()
-			},
-		);
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let output = process
 			.output_with_handle(&client)
 			.await

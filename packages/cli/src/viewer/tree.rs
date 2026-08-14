@@ -1573,15 +1573,9 @@ impl Tree {
 				Item::Value(object.into())
 			},
 			tg::resolve::Node::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
-				let id: tg::process::Id = id.try_into()?;
-				let process = tg::Process::new(
-					id,
-					tg::process::Options {
-						location,
-						tokens: options.tokens.clone(),
-						..tg::process::Options::default()
-					},
-				);
+				let id = id.try_into()?;
+				let referent = tg::Referent::new(id, options.clone());
+				let process = tg::Process::with_referent(referent);
 				Item::Process(process)
 			},
 			tg::resolve::Node::Id(id) => {

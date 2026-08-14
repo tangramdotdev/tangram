@@ -85,20 +85,11 @@ impl Cli {
 		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = process.node;
-		let location = process.options.location.map(Into::into);
-		let tokens = process.options.tokens;
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location: location.clone(),
-				tokens: tokens.clone(),
-				..Default::default()
-			},
-		);
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let arg = tg::process::children::get::Arg {
 			length: options.length,
-			location,
+			location: None,
 			position: options.position,
 			size: options.size,
 			timeout: options.timeout.get(),
