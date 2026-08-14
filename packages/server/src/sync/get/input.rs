@@ -53,6 +53,9 @@ impl Session {
 				},
 
 				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Object(message)) => {
+					crate::checkpoint!(self.server, "sync.get.input.object", id = %message.id)
+						.await;
+
 					// Deserialize the object.
 					let data =
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
