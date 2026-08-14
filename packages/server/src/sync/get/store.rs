@@ -117,7 +117,7 @@ impl Session {
 			let data = tg::object::Data::deserialize(node.id.kind(), node.bytes.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 			let length = match &data {
-				tg::object::Data::Blob(blob) => Some(blob.length()?),
+				tg::object::Data::Blob(blob) => Some(blob.length()),
 				_ => None,
 			};
 			args.push(crate::object::store::PutArg {

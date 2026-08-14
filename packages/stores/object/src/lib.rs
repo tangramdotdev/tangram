@@ -35,11 +35,6 @@ pub struct TryGetBatchArg {
 }
 
 #[derive(Clone, Debug)]
-pub struct TryGetLengthArg {
-	pub id: tg::object::Id,
-}
-
-#[derive(Clone, Debug)]
 pub struct TryGetOutput {
 	pub object: Option<Object<'static>>,
 }
@@ -101,12 +96,6 @@ pub trait Store {
 		arg: TryGetBatchArg,
 	) -> impl std::future::Future<Output = tg::Result<Vec<TryGetOutput>>> + Send;
 
-	/// Gets the length of a blob without reading its bytes. It returns `None` if the object is absent or its length was not stored.
-	fn try_get_length(
-		&self,
-		arg: TryGetLengthArg,
-	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
-
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn put_batch(
@@ -151,21 +140,6 @@ impl Object<'_> {
 		tangram_serialize::to_writer(&mut bytes, self)
 			.map_err(|error| tg::error!(!error, "failed to serialize the object value"))?;
 		Ok(bytes.into())
-	}
-}
-
-impl<'a> Object<'a> {
-	/// Deserializes an object, borrowing its bytes from the slice. It avoids copying the bytes when only the metadata is needed.
-	pub fn deserialize_borrowed(bytes: &'a [u8]) -> tg::Result<Self> {
-		if bytes.is_empty() {
-			return Err(tg::error!("empty object value data"));
-		}
-		let format = bytes[0];
-		match format {
-			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|error| tg::error!(!error, "failed to deserialize the object value")),
-			_ => Err(tg::error!("invalid object value format")),
-		}
 	}
 }
 

@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
+	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -16,12 +16,6 @@ mod task;
 pub struct Config {
 	pub map_size: usize,
 	pub path: std::path::PathBuf,
-
-	/// An optional prefix for the POSIX lock semaphores. When set, LMDB derives
-	/// the reader and writer semaphore names by appending `r` and `w` to this
-	/// prefix instead of hashing the lock file, which lets processes in
-	/// different sandboxes share the same lock. See
-	/// `heed::EnvOpenOptions::semaphore_name`.
 	pub posix_sem_prefix: Option<String>,
 }
 
@@ -117,7 +111,6 @@ impl Store {
 		})
 	}
 
-	/// Opens an existing store read only and without locking. LMDB permits a process to open an environment read only while another process has it open read write, provided the map size is at least the writer's. The store returned by this function has no writer thread, so every write method panics.
 	pub fn new_readonly(config: &Config) -> tg::Result<Self> {
 		if !std::fs::exists(&config.path).unwrap_or(false) {
 			return Err(tg::error!(path = %config.path.display(), "the lmdb file does not exist"));
@@ -181,10 +174,6 @@ impl crate::Store for Store {
 
 	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
 		self.try_get_batch(arg).await
-	}
-
-	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
-		self.try_get_length(arg).await
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -285,7 +274,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			})
 			.await
@@ -349,7 +338,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12346,
 			})
 			.await
@@ -391,7 +380,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			})
 			.unwrap();
@@ -429,7 +418,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			}])
 			.await
@@ -443,7 +432,7 @@ mod tests {
 		);
 	}
 
-	// An object put with a length returns the length without its bytes being read, and an object put without one returns none.
+	// An object's length is persisted and replaced by later puts.
 	#[tokio::test]
 	async fn test_put_and_get_object_length() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -468,18 +457,20 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			})
 			.await
 			.unwrap();
-		let length = store
-			.try_get_length(crate::TryGetLengthArg { id: id.clone() })
+		let object = store
+			.try_get(crate::TryGetArg { id: id.clone() })
 			.await
+			.unwrap()
+			.object
 			.unwrap();
-		assert_eq!(length, Some(u64::try_from(content.len()).unwrap()));
+		assert_eq!(object.length, Some(content.len().to_u64().unwrap()));
 
-		// A later put without a length preserves the length.
+		// A later put without a length replaces the length.
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
@@ -490,11 +481,13 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		let length = store
-			.try_get_length(crate::TryGetLengthArg { id: id.clone() })
+		let object = store
+			.try_get(crate::TryGetArg { id: id.clone() })
 			.await
+			.unwrap()
+			.object
 			.unwrap();
-		assert_eq!(length, Some(u64::try_from(content.len()).unwrap()));
+		assert_eq!(object.length, None);
 
 		// An object put without a length has no length.
 		let other = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"other"));
@@ -508,19 +501,21 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		let length = store
-			.try_get_length(crate::TryGetLengthArg { id: other })
+		let object = store
+			.try_get(crate::TryGetArg { id: other })
 			.await
+			.unwrap()
+			.object
 			.unwrap();
-		assert_eq!(length, None);
+		assert_eq!(object.length, None);
 
 		// An absent object has no length.
 		let absent = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"absent"));
-		let length = store
-			.try_get_length(crate::TryGetLengthArg { id: absent })
+		let output = store
+			.try_get(crate::TryGetArg { id: absent })
 			.await
 			.unwrap();
-		assert_eq!(length, None);
+		assert!(output.object.is_none());
 	}
 
 	// Deleting an object removes the object.
@@ -547,7 +542,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				length: Some(u64::try_from(content.len()).unwrap()),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 10,
 			})
 			.await

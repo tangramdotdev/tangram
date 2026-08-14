@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
+	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	futures::FutureExt as _,
 	indoc::indoc,
 	tangram_client::prelude::*,
@@ -245,10 +245,6 @@ impl crate::Store for Store {
 
 	async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
 		self.try_get_batch(arg).await
-	}
-
-	async fn try_get_length(&self, _arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
-		Ok(None)
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {

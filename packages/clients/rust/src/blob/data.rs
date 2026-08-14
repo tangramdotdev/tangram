@@ -123,14 +123,11 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub fn length(&self) -> tg::Result<u64> {
+	#[must_use]
+	pub fn length(&self) -> u64 {
 		match self {
-			Self::Branch(branch) => branch
-				.children
-				.iter()
-				.try_fold(0u64, |length, child| length.checked_add(child.length))
-				.ok_or_else(|| tg::error!("the blob length overflowed")),
-			Self::Leaf(leaf) => Ok(leaf.bytes.len().to_u64().unwrap()),
+			Self::Branch(branch) => branch.children.iter().map(|child| child.length).sum(),
+			Self::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
 		}
 	}
 

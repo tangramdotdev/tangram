@@ -117,28 +117,10 @@ impl Store {
 		let key = Key::Object(id);
 		let key_bytes = key.pack_to_vec();
 
-		let existing = db
-			.get(transaction, &key_bytes)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-			.and_then(|bytes| Object::deserialize(bytes).ok());
-
-		let bytes = existing
-			.as_ref()
-			.and_then(|entry| entry.bytes.clone())
-			.or(request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())));
-
-		let length = request
-			.length
-			.or_else(|| existing.as_ref().and_then(|entry| entry.length));
-
-		let cache_pointer = request
-			.cache_pointer
-			.or_else(|| existing.and_then(|entry| entry.cache_pointer));
-
 		let value = Object {
-			bytes,
-			cache_pointer,
-			length,
+			bytes: request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
+			cache_pointer: request.cache_pointer,
+			length: request.length,
 			stored_at: request.stored_at,
 		};
 		let value_bytes = value.serialize().unwrap();
