@@ -35,6 +35,7 @@ pub struct Options {
 	/// Set arguments as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		id = "spawn.arg_strings",
 		long = "arg-string",
 		num_args = 1,
@@ -45,6 +46,7 @@ pub struct Options {
 	/// Set arguments as values.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		id = "spawn.arg_values",
 		long = "arg-value",
 		num_args = 1,
@@ -558,6 +560,60 @@ impl Cli {
 		let referent = self.resolve_with_arg(&reference, arg).await?;
 		let mut referent = referent.into_graph_edge()?;
 
+		// Set the args.
+		let mut args_: Vec<tg::command::Value> = Vec::new();
+		let mut matches = &self.matches;
+		while let Some((_, matches_)) = matches.subcommand() {
+			matches = matches_;
+		}
+		let arg_string_indices = if matches
+			.try_contains_id("spawn.arg_strings")
+			.unwrap_or(false)
+		{
+			matches
+				.indices_of("spawn.arg_strings")
+				.map(std::iter::Iterator::collect)
+				.unwrap_or_default()
+		} else {
+			Vec::new()
+		};
+		let arg_value_indices = if matches.try_contains_id("spawn.arg_values").unwrap_or(false) {
+			matches
+				.indices_of("spawn.arg_values")
+				.map(std::iter::Iterator::collect)
+				.unwrap_or_default()
+		} else {
+			Vec::new()
+		};
+		if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
+			for value in options.arg_strings {
+				args_.push(value.into());
+			}
+			for value in options.arg_values {
+				let value = value
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				args_.push(tg::command::Value::Value(value));
+			}
+		} else {
+			let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
+			for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
+				let value = value.into();
+				indexed.push((index, value));
+			}
+			for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
+				let value = value
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				indexed.push((index, tg::command::Value::Value(value)));
+			}
+			indexed.sort_by_key(|&(index, _)| index);
+			args_.extend(indexed.into_iter().map(|(_, value)| value));
+		}
+		for arg in trailing {
+			args_.push(arg.into());
+		}
+
 		// Create the command builder.
 		let mut command_env = None;
 		let mut command_options = None;
@@ -635,7 +691,7 @@ impl Cli {
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let host = tg::host::current().to_owned();
-							let args = vec![
+							let mut args = vec![
 								"js".into(),
 								"--export".into(),
 								export.into(),
@@ -643,6 +699,14 @@ impl Cli {
 								host.clone().into(),
 								tg::command::Value::Value(module.into()),
 							];
+							for arg in std::mem::take(&mut args_) {
+								let flag = match &arg {
+									tg::command::Value::String(_) => "-a",
+									tg::command::Value::Value(_) => "-A",
+								};
+								args.push(flag.into());
+								args.push(arg);
+							}
 							let executable = tg::command::Executable {
 								artifact: None,
 								path: Some("tg".into()),
@@ -686,7 +750,7 @@ impl Cli {
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
 								let host = tg::host::current().to_owned();
-								let args = vec![
+								let mut args = vec![
 									"js".into(),
 									"--export".into(),
 									export.into(),
@@ -694,6 +758,14 @@ impl Cli {
 									host.clone().into(),
 									tg::command::Value::Value(module.into()),
 								];
+								for arg in std::mem::take(&mut args_) {
+									let flag = match &arg {
+										tg::command::Value::String(_) => "-a",
+										tg::command::Value::Value(_) => "-A",
+									};
+									args.push(flag.into());
+									args.push(arg);
+								}
 								let executable = tg::command::Executable {
 									artifact: None,
 									path: Some("tg".into()),
@@ -730,56 +802,6 @@ impl Cli {
 			command = command.stdin(Some(tg::Blob::with_id(blob.clone())));
 		}
 
-		// Set the args.
-		let mut args_: Vec<tg::command::Value> = Vec::new();
-		let mut matches = &self.matches;
-		while let Some((_, matches_)) = matches.subcommand() {
-			matches = matches_;
-		}
-		let arg_string_indices = if matches.try_contains_id("arg_strings").unwrap_or(false) {
-			matches
-				.indices_of("arg_strings")
-				.map(std::iter::Iterator::collect)
-				.unwrap_or_default()
-		} else {
-			Vec::new()
-		};
-		let arg_value_indices = if matches.try_contains_id("arg_values").unwrap_or(false) {
-			matches
-				.indices_of("arg_values")
-				.map(std::iter::Iterator::collect)
-				.unwrap_or_default()
-		} else {
-			Vec::new()
-		};
-		if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
-			for value in options.arg_strings {
-				args_.push(value.into());
-			}
-			for value in options.arg_values {
-				let value = value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				args_.push(tg::command::Value::Value(value));
-			}
-		} else {
-			let mut indexed: Vec<(usize, tg::command::Value)> = Vec::new();
-			for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
-				let value = value.into();
-				indexed.push((index, value));
-			}
-			for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
-				let value = value
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-				indexed.push((index, tg::command::Value::Value(value)));
-			}
-			indexed.sort_by_key(|&(index, _)| index);
-			args_.extend(indexed.into_iter().map(|(_, value)| value));
-		}
-		for arg in trailing {
-			args_.push(arg.into());
-		}
 		command = command.args(args_);
 
 		// Set the cwd.

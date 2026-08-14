@@ -6,6 +6,7 @@ pub struct Args {
 	/// Set arguments as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		long = "arg-string",
 		num_args = 1,
 		short = 'a',
@@ -15,6 +16,7 @@ pub struct Args {
 	/// Set arguments as values.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		long = "arg-value",
 		num_args = 1,
 		short = 'A',
