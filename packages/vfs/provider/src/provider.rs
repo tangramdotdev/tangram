@@ -881,6 +881,9 @@ impl Fast {
 			map_size: config.object_store_map_size,
 			path,
 			posix_sem_prefix: config.object_store_posix_sem_prefix.clone(),
+			read_batch_size: 64,
+			read_concurrency: 1,
+			write_batch_size: 8_000,
 		};
 		let store = match object_store::lmdb::Store::new_readonly(&config) {
 			Err(error) => {
@@ -1901,6 +1904,9 @@ mod tests {
 			map_size: 10 * 1024 * 1024,
 			path: temp.path().join(&object_store_path),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 1,
+			write_batch_size: 8_000,
 		})
 		.unwrap();
 		store

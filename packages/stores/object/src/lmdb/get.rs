@@ -9,42 +9,26 @@ use {
 
 impl Store {
 	pub(super) async fn try_get(&self, arg: TryGetArg) -> tg::Result<TryGetOutput> {
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let object = Self::try_get_object_with_transaction(&db, &transaction, &arg.id)?;
-				Ok(TryGetOutput { object })
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::TryGet(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGet(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub(super) async fn try_get_batch(&self, arg: TryGetBatchArg) -> tg::Result<Vec<TryGetOutput>> {
 		if arg.ids.is_empty() {
 			return Ok(vec![]);
 		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut outputs = Vec::with_capacity(arg.ids.len());
-				for id in &arg.ids {
-					let object = Self::try_get_object_with_transaction(&db, &transaction, id)?;
-					outputs.push(TryGetOutput { object });
-				}
-				Ok(outputs)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		let request = crate::read::Request::TryGetBatch(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
 	}
 
 	pub fn try_get_sync(&self, arg: &TryGetArg) -> tg::Result<TryGetOutput> {
@@ -60,12 +44,7 @@ impl Store {
 			.env
 			.read_txn()
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-		let mut outputs = Vec::with_capacity(arg.ids.len());
-		for id in &arg.ids {
-			let object = Self::try_get_object_with_transaction(&self.db, &transaction, id)?;
-			outputs.push(TryGetOutput { object });
-		}
-		Ok(outputs)
+		Self::try_get_batch_with_transaction(&self.db, &transaction, arg)
 	}
 
 	pub fn try_get_data_sync(
@@ -88,7 +67,21 @@ impl Store {
 		Ok(TryGetOutput { object })
 	}
 
-	fn try_get_object_with_transaction(
+	pub(super) fn try_get_batch_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &TryGetBatchArg,
+	) -> tg::Result<Vec<TryGetOutput>> {
+		let mut outputs = Vec::with_capacity(arg.ids.len());
+		for id in &arg.ids {
+			let object = Self::try_get_object_with_transaction(db, transaction, id)?;
+			outputs.push(TryGetOutput { object });
+		}
+
+		Ok(outputs)
+	}
+
+	pub(super) fn try_get_object_with_transaction(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,

@@ -871,6 +871,15 @@ pub struct LmdbObjectStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub posix_sem_prefix: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_batch_size: Option<usize>,
 }
 
 #[serde_as]
@@ -2733,6 +2742,15 @@ fn resolve_lmdb_object_store(source: LmdbObjectStore) -> server::LmdbObjectStore
 	}
 	if let Some(value) = source.posix_sem_prefix {
 		target.posix_sem_prefix = Some(value);
+	}
+	if let Some(value) = source.read_batch_size {
+		target.read_batch_size = value;
+	}
+	if let Some(value) = source.read_concurrency {
+		target.read_concurrency = value;
+	}
+	if let Some(value) = source.write_batch_size {
+		target.write_batch_size = value;
 	}
 	target
 }

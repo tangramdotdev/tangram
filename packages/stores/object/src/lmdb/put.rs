@@ -18,32 +18,22 @@ pub(super) struct Request {
 
 impl Store {
 	pub(super) async fn put(&self, arg: PutArg) -> tg::Result<()> {
-		let id = arg.id.clone();
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::Put(Request {
+		let request = super::request::Request::Put(Request {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
 			length: arg.length,
 			stored_at: arg.stored_at,
 		});
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!(%id, "the task panicked"))?
+
+		self.send_write_request(request).await
 	}
 
 	pub(super) async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::PutBatch(
+		let request = super::request::Request::PutBatch(
 			args.into_iter()
 				.map(|arg| Request {
 					bytes: arg.bytes,
@@ -54,15 +44,8 @@ impl Store {
 				})
 				.collect(),
 		);
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))?
+
+		self.send_write_request(request).await
 	}
 
 	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
@@ -77,7 +60,7 @@ impl Store {
 			length: arg.length,
 			stored_at: arg.stored_at,
 		};
-		Self::task_put_object(&self.db, &mut transaction, request)?;
+		Self::put_inner_with_transaction(&self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
@@ -100,7 +83,7 @@ impl Store {
 				length: arg.length,
 				stored_at: arg.stored_at,
 			};
-			Self::task_put_object(&self.db, &mut transaction, request)?;
+			Self::put_inner_with_transaction(&self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -108,7 +91,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub(super) fn task_put_object(
+	pub(super) fn put_inner_with_transaction(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Request,

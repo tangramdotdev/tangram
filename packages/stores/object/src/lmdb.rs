@@ -2,6 +2,7 @@ use {
 	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
+	std::path::PathBuf,
 	tangram_client::prelude::*,
 };
 
@@ -10,37 +11,30 @@ mod flush;
 mod get;
 mod outbox;
 mod put;
-mod task;
+mod reader;
+mod request;
+mod writer;
 
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub map_size: usize,
-	pub path: std::path::PathBuf,
+	pub path: PathBuf,
 	pub posix_sem_prefix: Option<String>,
+	pub read_batch_size: usize,
+	pub read_concurrency: usize,
+	pub write_batch_size: usize,
 }
 
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
-	handle: Option<std::thread::JoinHandle<()>>,
-	sender: Option<RequestSender>,
+	reader_handles: Vec<std::thread::JoinHandle<()>>,
+	reader_sender: Option<crate::read::Sender>,
+	writer_handle: Option<std::thread::JoinHandle<()>>,
+	writer_sender: Option<writer::RequestSender>,
 }
 
 pub type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
-
-type RequestSender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
-type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
-type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
-type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
-
-enum Request {
-	Delete(self::delete::Request),
-	DeleteBatch(Vec<self::delete::Request>),
-	DeleteOutboxFragments(crate::outbox::DeleteArg),
-	EnqueueOutboxBatch(crate::outbox::Batch),
-	Put(self::put::Request),
-	PutBatch(Vec<self::put::Request>),
-}
 
 #[derive(Debug)]
 enum Key<'a> {
@@ -61,6 +55,8 @@ enum KeyKind {
 
 impl Store {
 	pub fn new(config: &Config) -> tg::Result<Self> {
+		Self::validate_config(config)?;
+
 		std::fs::OpenOptions::new()
 			.create(true)
 			.truncate(false)
@@ -96,22 +92,37 @@ impl Store {
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
 
-		// Create the thread.
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		let handle = std::thread::spawn({
+		// Spawn the reader tasks.
+		let (reader_sender, reader_handles) = Self::spawn_readers(config, db, &env);
+
+		// Spawn the writer task.
+		let (writer_sender, writer_receiver) = tokio::sync::mpsc::channel(writer::CHANNEL_CAPACITY);
+		let writer_handle = std::thread::spawn({
 			let env = env.clone();
-			move || Self::task(&env, &db, receiver)
+			let write_batch_size = config.write_batch_size;
+			move || {
+				Self::writer_task(writer::Arg {
+					db: &db,
+					env: &env,
+					receiver: writer_receiver,
+					write_batch_size,
+				});
+			}
 		});
 
 		Ok(Self {
 			db,
 			env,
-			handle: Some(handle),
-			sender: Some(sender),
+			reader_handles,
+			reader_sender: Some(reader_sender),
+			writer_handle: Some(writer_handle),
+			writer_sender: Some(writer_sender),
 		})
 	}
 
 	pub fn new_readonly(config: &Config) -> tg::Result<Self> {
+		Self::validate_config(config)?;
+
 		if !std::fs::exists(&config.path).unwrap_or(false) {
 			return Err(tg::error!(path = %config.path.display(), "the lmdb file does not exist"));
 		}
@@ -139,12 +150,67 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to open the database"))?
 			.ok_or_else(|| tg::error!("the database does not exist"))?;
 		drop(transaction);
+
+		// Spawn the reader tasks.
+		let (reader_sender, reader_handles) = Self::spawn_readers(config, db, &env);
+
 		Ok(Self {
 			db,
 			env,
-			handle: None,
-			sender: None,
+			reader_handles,
+			reader_sender: Some(reader_sender),
+			writer_handle: None,
+			writer_sender: None,
 		})
+	}
+
+	fn validate_config(config: &Config) -> tg::Result<()> {
+		if config.read_batch_size == 0 {
+			return Err(tg::error!(
+				"the LMDB object store read batch size must be greater than zero"
+			));
+		}
+		if config.read_concurrency == 0 {
+			return Err(tg::error!(
+				"the LMDB object store read concurrency must be greater than zero"
+			));
+		}
+		if config.write_batch_size == 0 {
+			return Err(tg::error!(
+				"the LMDB object store write batch size must be greater than zero"
+			));
+		}
+
+		Ok(())
+	}
+
+	fn spawn_readers(
+		config: &Config,
+		db: Db,
+		env: &lmdb::Env,
+	) -> (crate::read::Sender, Vec<std::thread::JoinHandle<()>>) {
+		let (reader_sender, reader_receiver) =
+			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
+		let reader_receiver = std::sync::Arc::new(std::sync::Mutex::new(reader_receiver));
+		let reader_handles = (0..config.read_concurrency)
+			.map(|_| {
+				let env = env.clone();
+				let read_batch_size = config.read_batch_size;
+				let receiver = reader_receiver.clone();
+				std::thread::spawn(move || {
+					Self::reader_task(&reader::Arg {
+						db,
+						env,
+						read_batch_size,
+						receiver,
+						#[cfg(test)]
+						test_hook: None,
+					});
+				})
+			})
+			.collect();
+
+		(reader_sender, reader_handles)
 	}
 
 	#[must_use]
@@ -160,8 +226,12 @@ impl Store {
 
 impl Drop for Store {
 	fn drop(&mut self) {
-		drop(self.sender.take());
-		if let Some(handle) = self.handle.take() {
+		drop(self.reader_sender.take());
+		drop(self.writer_sender.take());
+		for handle in self.reader_handles.drain(..) {
+			handle.join().ok();
+		}
+		if let Some(handle) = self.writer_handle.take() {
 			handle.join().ok();
 		}
 	}
@@ -248,6 +318,8 @@ impl fdbt::TuplePack for Key<'_> {
 mod tests {
 	use {super::*, bytes::Bytes, std::borrow::Cow};
 
+	mod reader;
+
 	// An object put with bytes can be retrieved with the same bytes.
 	#[tokio::test]
 	async fn test_put_and_get_object() {
@@ -257,6 +329,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -298,6 +373,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -363,6 +441,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -394,7 +475,7 @@ mod tests {
 		);
 	}
 
-	// An object put through the batch function can be retrieved with the same bytes.
+	// An object batch split across write transactions can be retrieved with the same bytes.
 	#[tokio::test]
 	async fn test_put_batch_and_get_object() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
@@ -403,6 +484,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 1,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -412,15 +496,30 @@ mod tests {
 		}));
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		let other_content = b"goodbye world";
+		let other_data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(other_content),
+		}));
+		let other_bytes = other_data.serialize().unwrap();
+		let other_id = tg::object::Id::new(tg::object::Kind::Blob, &other_bytes);
 
 		store
-			.put_batch(vec![crate::PutArg {
-				bytes: Some(bytes.clone()),
-				cache_pointer: None,
-				id: id.clone(),
-				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 12345,
-			}])
+			.put_batch(vec![
+				crate::PutArg {
+					bytes: Some(bytes.clone()),
+					cache_pointer: None,
+					id: id.clone(),
+					length: Some(content.len().to_u64().unwrap()),
+					stored_at: 12345,
+				},
+				crate::PutArg {
+					bytes: Some(other_bytes.clone()),
+					cache_pointer: None,
+					id: other_id.clone(),
+					length: Some(other_content.len().to_u64().unwrap()),
+					stored_at: 12345,
+				},
+			])
 			.await
 			.unwrap();
 
@@ -429,6 +528,12 @@ mod tests {
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
+		);
+		let arg = crate::TryGetArg { id: other_id };
+		let result = store.try_get(arg).await.unwrap().object;
+		assert_eq!(
+			result.and_then(|object| object.bytes),
+			Some(Cow::Owned(other_bytes.to_vec()))
 		);
 	}
 
@@ -441,6 +546,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -527,6 +635,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: temp.path().join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		let store = Store::new(&config).unwrap();
 

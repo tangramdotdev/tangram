@@ -14,103 +14,97 @@ impl Store {
 		if arg.fragments.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::DeleteOutboxFragments(arg);
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))?
+		let request = super::request::Request::DeleteOutboxFragments(arg);
+
+		self.send_write_request(request).await
 	}
 
 	pub async fn dequeue_outbox_fragments(&self, arg: DequeueArg) -> tg::Result<Vec<Fragment>> {
-		let db = self.db;
-		let env = self.env.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let mut fragments = Vec::new();
-			for partition in arg.partition_start..arg.partition_end {
-				let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
-				let entries = db
-					.prefix_iter(&transaction, &prefix)
-					.map_err(|error| tg::error!(!error, "failed to iterate the outbox"))?;
-				for entry in entries {
-					if fragments.len() >= arg.batch_size {
-						return Ok(fragments);
-					}
-					let (key, payload) = entry
-						.map_err(|error| tg::error!(!error, "failed to get an outbox fragment"))?;
-					let (partition, batch, index) = unpack_key(key)?;
-					fragments.push(Fragment {
-						batch: BatchId::new(batch),
-						index: FragmentIndex::new(index),
-						partition,
-						payload: bytes::Bytes::copy_from_slice(payload),
-					});
-				}
-			}
+		let request = crate::read::Request::DequeueOutboxFragments(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::DequeueOutboxFragments(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-			Ok(fragments)
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		Ok(output)
 	}
 
 	pub async fn enqueue_outbox_batch(&self, batch: Batch) -> tg::Result<()> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::EnqueueOutboxBatch(batch);
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))?
+		let request = super::request::Request::EnqueueOutboxBatch(batch);
+
+		self.send_write_request(request).await
 	}
 
 	pub async fn try_get_outbox_batch_at_or_before(
 		&self,
 		arg: TryGetBatchArg,
 	) -> tg::Result<Option<BatchId>> {
-		let db = self.db;
-		let env = self.env.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-			let mut output = None;
-			for partition in arg.partition_start..arg.partition_end {
-				let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
-				let entries = db
-					.rev_prefix_iter(&transaction, &prefix)
-					.map_err(|error| tg::error!(!error, "failed to iterate the outbox"))?;
-				for entry in entries {
-					let (key, _) = entry
-						.map_err(|error| tg::error!(!error, "failed to get an outbox fragment"))?;
-					let (_, batch, _) = unpack_key(key)?;
-					if arg.batch.is_some_and(|target| batch > target.value()) {
-						continue;
-					}
-					output = Some(output.map_or(batch, |output: [u8; 16]| output.max(batch)));
-					break;
-				}
-			}
+		let request = crate::read::Request::TryGetOutboxBatchAtOrBefore(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetOutboxBatchAtOrBefore(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
 
-			Ok(output.map(BatchId::new))
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
+		Ok(output)
 	}
 
-	pub(super) fn task_delete_outbox_fragments(
+	pub(super) fn dequeue_outbox_fragments_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &DequeueArg,
+	) -> tg::Result<Vec<Fragment>> {
+		let mut fragments = Vec::new();
+		for partition in arg.partition_start..arg.partition_end {
+			let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
+			let entries = db
+				.prefix_iter(transaction, &prefix)
+				.map_err(|error| tg::error!(!error, "failed to iterate the outbox"))?;
+			for entry in entries {
+				if fragments.len() >= arg.batch_size {
+					return Ok(fragments);
+				}
+				let (key, payload) = entry
+					.map_err(|error| tg::error!(!error, "failed to get an outbox fragment"))?;
+				let (partition, batch, index) = unpack_key(key)?;
+				fragments.push(Fragment {
+					batch: BatchId::new(batch),
+					index: FragmentIndex::new(index),
+					partition,
+					payload: bytes::Bytes::copy_from_slice(payload),
+				});
+			}
+		}
+
+		Ok(fragments)
+	}
+
+	pub(super) fn try_get_outbox_batch_at_or_before_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &TryGetBatchArg,
+	) -> tg::Result<Option<BatchId>> {
+		let mut output = None;
+		for partition in arg.partition_start..arg.partition_end {
+			let prefix = fdbt::pack(&(KeyKind::Outbox.to_i32().unwrap(), partition));
+			let entries = db
+				.rev_prefix_iter(transaction, &prefix)
+				.map_err(|error| tg::error!(!error, "failed to iterate the outbox"))?;
+			for entry in entries {
+				let (key, _) = entry
+					.map_err(|error| tg::error!(!error, "failed to get an outbox fragment"))?;
+				let (_, batch, _) = unpack_key(key)?;
+				if arg.batch.is_some_and(|target| batch > target.value()) {
+					continue;
+				}
+				output = Some(output.map_or(batch, |output: [u8; 16]| output.max(batch)));
+				break;
+			}
+		}
+
+		Ok(output.map(BatchId::new))
+	}
+
+	pub(super) fn delete_outbox_fragments_with_transaction(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: DeleteArg,
@@ -128,7 +122,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub(super) fn task_enqueue_outbox_batch(
+	pub(super) fn enqueue_outbox_batch_with_transaction(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch: Batch,
@@ -172,6 +166,9 @@ mod tests {
 			map_size: 1024 * 1024 * 10,
 			path: path.join("test.lmdb"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		};
 		Store::new(&config).unwrap()
 	}

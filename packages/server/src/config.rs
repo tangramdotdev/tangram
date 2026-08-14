@@ -575,6 +575,12 @@ pub struct LmdbObjectStore {
 	pub path: PathBuf,
 
 	pub posix_sem_prefix: Option<String>,
+
+	pub read_batch_size: usize,
+
+	pub read_concurrency: usize,
+
+	pub write_batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1415,6 +1421,9 @@ impl Default for LmdbObjectStore {
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("objects"),
 			posix_sem_prefix: None,
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
 		}
 	}
 }

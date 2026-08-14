@@ -27,6 +27,9 @@ impl Store {
 			map_size: config.map_size,
 			path: path.clone(),
 			posix_sem_prefix: config.resolved_posix_sem_prefix(),
+			read_batch_size: config.read_batch_size,
+			read_concurrency: config.read_concurrency,
+			write_batch_size: config.write_batch_size,
 		};
 		let lmdb = object_store::lmdb::Store::new(&config).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the lmdb store"),

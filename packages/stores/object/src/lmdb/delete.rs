@@ -15,30 +15,20 @@ pub(super) struct Request {
 
 impl Store {
 	pub(super) async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
-		let id = arg.id.clone();
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::Delete(Request {
+		let request = super::request::Request::Delete(Request {
 			id: arg.id,
 			now: arg.now,
 			ttl: arg.ttl,
 		});
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!(%id, "the task panicked"))?
+
+		self.send_write_request(request).await
 	}
 
 	pub(super) async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = super::Request::DeleteBatch(
+		let request = super::request::Request::DeleteBatch(
 			args.into_iter()
 				.map(|arg| Request {
 					id: arg.id,
@@ -47,15 +37,8 @@ impl Store {
 				})
 				.collect(),
 		);
-		self.sender
-			.as_ref()
-			.unwrap()
-			.send((request, sender))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))?
+
+		self.send_write_request(request).await
 	}
 
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
@@ -68,7 +51,7 @@ impl Store {
 			now: arg.now,
 			ttl: arg.ttl,
 		};
-		Self::task_delete_object(&self.db, &mut transaction, request)?;
+		Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
@@ -89,7 +72,7 @@ impl Store {
 				now: arg.now,
 				ttl: arg.ttl,
 			};
-			Self::task_delete_object(&self.db, &mut transaction, request)?;
+			Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -98,7 +81,7 @@ impl Store {
 	}
 
 	#[expect(clippy::needless_pass_by_value)]
-	pub(super) fn task_delete_object(
+	pub(super) fn delete_inner_with_transaction(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		request: Request,

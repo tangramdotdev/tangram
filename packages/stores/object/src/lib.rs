@@ -5,6 +5,9 @@ use {
 };
 
 #[cfg(feature = "lmdb")]
+mod read;
+
+#[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod memory;
 pub mod outbox;
