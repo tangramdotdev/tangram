@@ -6,6 +6,7 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, Index as _},
+	tangram_messenger::Messenger as _,
 	tangram_object_store::Store as _,
 };
 
@@ -748,6 +749,10 @@ impl Server {
 				.enqueue_outbox_batch(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
+			let subject = crate::indexer::object_outbox_subject(partition);
+			if let Err(error) = self.messenger.publish(subject, ()).await {
+				tracing::error!(%error, %partition, "failed to publish an object outbox notification");
+			}
 
 			return Ok(());
 		}

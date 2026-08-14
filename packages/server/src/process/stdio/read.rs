@@ -192,10 +192,12 @@ impl Session {
 				.map(|_| ())
 				.boxed();
 
-			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-				.skip(1)
-				.map(|_| ())
-				.boxed();
+			let interval = IntervalStream::new(tokio::time::interval(
+				self.server.config.process.stdio_wakeup_interval,
+			))
+			.skip(1)
+			.map(|_| ())
+			.boxed();
 
 			let wakeups = stream::select_all([log_wakeups, status_wakeups, interval]);
 			let wakeups = match arg.timeout {

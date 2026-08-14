@@ -47,14 +47,19 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let session = self.clone();
 		self.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let arg = arg.clone();
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
 					session
-						.put_tag_local_with_transaction(transaction, arg, permissions, touched_at)
+						.put_tag_local_with_transaction(
+							transaction,
+							arg,
+							permissions,
+							touched_at,
+							database_outbox_partition,
+						)
 						.await
 				}
 				.boxed()
@@ -69,6 +74,7 @@ impl Session {
 		arg: tg::tag::put::Arg,
 		permissions: Vec<tg::authorization::Permission>,
 		touched_at: i64,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let data = match self
@@ -121,7 +127,11 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

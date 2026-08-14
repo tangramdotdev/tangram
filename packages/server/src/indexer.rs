@@ -1,7 +1,8 @@
 use {
 	crate::{Server, Session},
 	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeMap, pin::pin, time::Duration},
@@ -10,6 +11,7 @@ use {
 	tangram_index::prelude::*,
 	tangram_messenger::{Messenger as _, Payload},
 	tangram_object_store::Store as _,
+	tokio_stream::wrappers::IntervalStream,
 };
 
 type Barriers = FuturesUnordered<futures::future::BoxFuture<'static, Vec<String>>>;
@@ -395,31 +397,79 @@ impl Indexer {
 		outbox: &crate::config::DatabaseOutbox,
 		region: &str,
 	) -> tg::Result<()> {
+		let wakeup_interval = config.database_outbox_wakeup_interval;
+		future::try_join_all(
+			(config.partition_start..config.partition_end).map(|partition| {
+				self.database_outbox_partition_task(outbox, region, partition, wakeup_interval)
+			}),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn database_outbox_partition_task(
+		&self,
+		outbox: &crate::config::DatabaseOutbox,
+		region: &str,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
 		loop {
-			match self.database_outbox_batch(config, outbox, region).await {
-				Ok(0) => {
-					tokio::time::sleep(config.poll_interval).await;
-				},
-				Ok(_) => {},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to service the database outbox");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				},
+			let result = self
+				.database_outbox_partition_task_inner(outbox, region, partition, wakeup_interval)
+				.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), %partition, "failed to service the database outbox");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn database_outbox_partition_task_inner(
+		&self,
+		outbox: &crate::config::DatabaseOutbox,
+		region: &str,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		let subject = database_outbox_subject(partition);
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject.clone())
+			.await
+			.map_err(
+				|error| tg::error!(!error, %subject, "failed to subscribe to database outbox notifications"),
+			)?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let mut wakeups = wakeups.boxed();
+		loop {
+			while wakeups.next().now_or_never().flatten().is_some() {}
+			let count = self
+				.database_outbox_batch(outbox, region, partition)
+				.await?;
+			if count == 0 && wakeups.next().await.is_none() {
+				return Err(tg::error!("the database outbox wakeup stream ended"));
 			}
 		}
 	}
 
 	async fn database_outbox_batch(
 		&self,
-		config: &crate::config::Indexer,
 		outbox: &crate::config::DatabaseOutbox,
 		region: &str,
+		partition: u64,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
 		let arg = crate::database::outbox::DequeueArg {
 			batch_size: outbox.batch_size,
-			partition_end: config.partition_end,
-			partition_start: config.partition_start,
+			partition_end: partition + 1,
+			partition_start: partition,
 			region: region.to_owned(),
 		};
 		let entries = self
@@ -471,30 +521,74 @@ impl Indexer {
 		let Some(outbox) = outbox else {
 			return future::pending().await;
 		};
+		let wakeup_interval = config.object_outbox_wakeup_interval;
+		future::try_join_all(
+			(config.partition_start..config.partition_end).map(|partition| {
+				self.object_outbox_partition_task(outbox, partition, wakeup_interval)
+			}),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn object_outbox_partition_task(
+		&self,
+		outbox: &crate::config::ObjectOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
 		loop {
-			match self.object_outbox_batch(config, outbox).await {
-				Ok(0) => {
-					tokio::time::sleep(config.poll_interval).await;
-				},
-				Ok(_) => {},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to service the object outbox");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				},
+			let result = self
+				.object_outbox_partition_task_inner(outbox, partition, wakeup_interval)
+				.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), %partition, "failed to service the object outbox");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn object_outbox_partition_task_inner(
+		&self,
+		outbox: &crate::config::ObjectOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		let subject = object_outbox_subject(partition);
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject.clone())
+			.await
+			.map_err(
+				|error| tg::error!(!error, %subject, "failed to subscribe to object outbox notifications"),
+			)?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let mut wakeups = wakeups.boxed();
+		loop {
+			while wakeups.next().now_or_never().flatten().is_some() {}
+			let count = self.object_outbox_batch(outbox, partition).await?;
+			if count == 0 && wakeups.next().await.is_none() {
+				return Err(tg::error!("the object outbox wakeup stream ended"));
 			}
 		}
 	}
 
 	async fn object_outbox_batch(
 		&self,
-		config: &crate::config::Indexer,
 		outbox: &crate::config::ObjectOutbox,
+		partition: u64,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
 		let arg = crate::object::outbox::DequeueArg {
 			batch_size: outbox.batch_size,
-			partition_end: config.partition_end,
-			partition_start: config.partition_start,
+			partition_end: partition + 1,
+			partition_start: partition,
 		};
 		let fragments = self
 			.server
@@ -1302,5 +1396,24 @@ impl Payload for ServerMessage {
 	fn serialize(&self) -> Result<bytes::Bytes, tangram_messenger::Error> {
 		let bytes = serde_json::to_vec(self).map_err(tangram_messenger::Error::serialization)?;
 		Ok(bytes.into())
+	}
+}
+
+pub(crate) fn database_outbox_subject(partition: u64) -> String {
+	format!("database.outbox.{partition}")
+}
+
+pub(crate) fn object_outbox_subject(partition: u64) -> String {
+	format!("stores.object.outbox.{partition}")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn outbox_subjects_include_the_partition() {
+		assert_eq!(database_outbox_subject(42), "database.outbox.42");
+		assert_eq!(object_outbox_subject(42), "stores.object.outbox.42");
 	}
 }

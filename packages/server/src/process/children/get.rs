@@ -132,9 +132,11 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ());
 			let wakeups = stream::select(children_wakeups, status_wakeups);
-			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-				.skip(1)
-				.map(|_| ());
+			let interval = IntervalStream::new(tokio::time::interval(
+				self.server.config.process.children_wakeup_interval,
+			))
+			.skip(1)
+			.map(|_| ());
 			let wakeups = stream::select(wakeups, interval);
 			let wakeups = match arg.timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),

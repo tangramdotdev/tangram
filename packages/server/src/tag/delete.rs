@@ -65,13 +65,16 @@ impl Session {
 		let session = self.clone();
 		let output = self
 			.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let session = session.clone();
 				let tags = tags.clone();
 				async move {
 					session
-						.delete_tags_local_with_transaction(transaction, tags)
+						.delete_tags_local_with_transaction(
+							transaction,
+							tags,
+							database_outbox_partition,
+						)
 						.await
 				}
 				.boxed()
@@ -85,6 +88,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		tags: Vec<tg::tag::Data>,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<tg::tag::delete::Output, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		match self
@@ -100,7 +104,11 @@ impl Session {
 		);
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

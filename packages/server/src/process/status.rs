@@ -158,9 +158,11 @@ impl Session {
 				tg::error!(!error, "failed to subscribe to the process status stream")
 			})?
 			.map(|_| ());
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-			.skip(1)
-			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(
+			self.server.config.process.status_wakeup_interval,
+		))
+		.skip(1)
+		.map(|_| ());
 		let wakeups = stream::select(notifications, interval);
 		let wakeups = match timeout {
 			Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),

@@ -69,8 +69,7 @@ impl Session {
 		// Write all of the nodes and enqueue their index mutations atomically.
 		let session = self.clone();
 		self.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let nodes = nodes.clone();
 				let replacement_ids = replacement_ids.clone();
 				let session = session.clone();
@@ -83,6 +82,7 @@ impl Session {
 							&replacement_ids,
 							&tag_permissions,
 							touched_at,
+							database_outbox_partition,
 						)
 						.await
 				}
@@ -100,6 +100,7 @@ impl Session {
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let mut tag_accounts = BTreeMap::new();
@@ -183,7 +184,11 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

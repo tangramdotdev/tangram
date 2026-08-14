@@ -2,11 +2,12 @@ use {
 	super::{Database, Transaction},
 	crate::Server,
 	bytes::Bytes,
-	futures::FutureExt as _,
+	futures::{FutureExt as _, future::BoxFuture},
 	indoc::formatdoc,
 	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_messenger::Messenger as _,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -80,9 +81,31 @@ impl Id {
 }
 
 impl Server {
+	pub async fn run_database_outbox_transaction<F, T, E>(&self, f: F) -> tg::Result<T>
+	where
+		for<'a, 'b> F: Fn(
+				&'a Transaction<'b>,
+				u64,
+			) -> BoxFuture<'a, std::result::Result<ControlFlow<T, crate::database::Error>, E>>
+			+ Sync,
+		T: Send + 'static,
+		E: Into<crate::database::Error> + Send + 'static,
+	{
+		let config = self.config.database.outbox();
+		let partition = rand::random_range(0..config.partition_total);
+		let output = self
+			.database
+			.run(|transaction| f(transaction, partition))
+			.await?;
+		self.spawn_publish_database_outbox_notification_task(partition);
+
+		Ok(output)
+	}
+
 	pub async fn enqueue_database_outbox_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
+		database_outbox_partition: u64,
 		arg: &tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		if arg.is_empty() {
@@ -102,14 +125,13 @@ impl Server {
 		if regions.is_empty() {
 			regions.insert(String::new());
 		}
-		let config = self.config.database.outbox();
 		let items = regions
 			.into_iter()
 			.map(|region| EnqueueItem {
-				partition: rand::random_range(0..config.partition_total),
+				partition: database_outbox_partition,
 				region,
 			})
-			.collect();
+			.collect::<Vec<_>>();
 		let id = Id::new(uuid::Uuid::now_v7().into_bytes());
 		let payload = arg.serialize()?.into();
 		let arg = EnqueueArg { id, items, payload };
@@ -142,6 +164,18 @@ impl Server {
 		crate::database::retry!(result, "failed to enqueue the database outbox items");
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	fn spawn_publish_database_outbox_notification_task(&self, partition: u64) {
+		let subject = crate::indexer::database_outbox_subject(partition);
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				if let Err(error) = server.messenger.publish(subject, ()).await {
+					tracing::error!(%error, %partition, "failed to publish a database outbox notification");
+				}
+			}
+		});
 	}
 }
 

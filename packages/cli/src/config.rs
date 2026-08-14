@@ -646,6 +646,10 @@ pub struct LmdbIndex {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database_outbox_wakeup_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
 
@@ -658,6 +662,10 @@ pub struct Indexer {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub message_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_outbox_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_end: Option<u64>,
@@ -945,6 +953,10 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 #[serde(deny_unknown_fields)]
 pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub children_wakeup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_live: Option<Duration>,
 
@@ -954,6 +966,14 @@ pub struct Process {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub spawn: Option<Spawn>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub status_wakeup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stdio_wakeup_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -1184,6 +1204,14 @@ pub struct Sandbox {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub nice: Option<u8>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub processes_wakeup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub status_wakeup_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
@@ -2501,6 +2529,9 @@ fn resolve_index_authorize_process_subtree(
 
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
+	if let Some(value) = source.database_outbox_wakeup_interval {
+		target.database_outbox_wakeup_interval = value;
+	}
 	if let Some(source) = source.log_compaction {
 		target.log_compaction = resolve_indexer_log_compaction(source);
 	}
@@ -2512,6 +2543,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	}
 	if let Some(value) = source.message_timeout {
 		target.message_timeout = value;
+	}
+	if let Some(value) = source.object_outbox_wakeup_interval {
+		target.object_outbox_wakeup_interval = value;
 	}
 	if let Some(value) = source.partition_end {
 		target.partition_end = value;
@@ -2831,6 +2865,9 @@ fn resolve_scylla_object_store_simple_speculative_execution(
 
 fn resolve_process(source: Process) -> server::Process {
 	let mut target = server::Process::default();
+	if let Some(value) = source.children_wakeup_interval {
+		target.children_wakeup_interval = value;
+	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
 	}
@@ -2839,6 +2876,12 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(source) = source.spawn {
 		target.spawn = resolve_spawn(source);
+	}
+	if let Some(value) = source.status_wakeup_interval {
+		target.status_wakeup_interval = value;
+	}
+	if let Some(value) = source.stdio_wakeup_interval {
+		target.stdio_wakeup_interval = value;
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
@@ -3049,6 +3092,12 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	}
 	if let Some(value) = source.nice {
 		target.nice = value;
+	}
+	if let Some(value) = source.processes_wakeup_interval {
+		target.processes_wakeup_interval = value;
+	}
+	if let Some(value) = source.status_wakeup_interval {
+		target.status_wakeup_interval = value;
 	}
 	if let Some(value) = source.time_to_live {
 		target.time_to_live = value;
@@ -3513,6 +3562,56 @@ mod tests {
 
 		assert_eq!(target.create_delay, Duration::from_millis(250));
 		assert_eq!(server::Spawn::default().create_delay, Duration::ZERO);
+	}
+
+	#[test]
+	fn parses_and_resolves_wakeup_intervals() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"database_outbox_wakeup_interval": 0.1,
+				"object_outbox_wakeup_interval": 0.2,
+			},
+			"process": {
+				"children_wakeup_interval": 0.3,
+				"status_wakeup_interval": 0.4,
+				"stdio_wakeup_interval": 0.5,
+			},
+			"sandbox": {
+				"processes_wakeup_interval": 0.6,
+				"status_wakeup_interval": 0.7,
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+
+		assert_eq!(
+			target.indexer.database_outbox_wakeup_interval,
+			Duration::from_millis(100)
+		);
+		assert_eq!(
+			target.indexer.object_outbox_wakeup_interval,
+			Duration::from_millis(200)
+		);
+		assert_eq!(
+			target.process.children_wakeup_interval,
+			Duration::from_millis(300)
+		);
+		assert_eq!(
+			target.process.status_wakeup_interval,
+			Duration::from_millis(400)
+		);
+		assert_eq!(
+			target.process.stdio_wakeup_interval,
+			Duration::from_millis(500)
+		);
+		assert_eq!(
+			target.sandbox.processes_wakeup_interval,
+			Duration::from_millis(600)
+		);
+		assert_eq!(
+			target.sandbox.status_wakeup_interval,
+			Duration::from_millis(700)
+		);
 	}
 
 	#[test]

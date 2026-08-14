@@ -426,6 +426,8 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
+	pub database_outbox_wakeup_interval: Duration,
+
 	pub log_compaction: IndexerLogCompaction,
 
 	pub max_process_depth: usize,
@@ -433,6 +435,8 @@ pub struct Indexer {
 	pub message_retry: Retry,
 
 	pub message_timeout: Duration,
+
+	pub object_outbox_wakeup_interval: Duration,
 
 	pub partition_end: u64,
 
@@ -624,11 +628,17 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 
 #[derive(Clone, Debug)]
 pub struct Process {
+	pub children_wakeup_interval: Duration,
+
 	pub grant_time_to_live: Duration,
 
 	pub grant_time_to_touch: Duration,
 
 	pub spawn: Spawn,
+
+	pub status_wakeup_interval: Duration,
+
+	pub stdio_wakeup_interval: Duration,
 
 	pub time_to_index: Duration,
 
@@ -767,6 +777,10 @@ pub struct Sandbox {
 	pub network: SandboxNetwork,
 
 	pub nice: u8,
+
+	pub processes_wakeup_interval: Duration,
+
+	pub status_wakeup_interval: Duration,
 
 	pub time_to_live: Duration,
 }
@@ -1304,10 +1318,12 @@ impl Default for LmdbIndex {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
+			database_outbox_wakeup_interval: Duration::from_mins(1),
 			log_compaction: IndexerLogCompaction::default(),
 			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
+			object_outbox_wakeup_interval: Duration::from_mins(1),
 			partition_end: 1,
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
@@ -1444,9 +1460,12 @@ impl LmdbObjectStore {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
+			children_wakeup_interval: Duration::from_mins(1),
 			grant_time_to_live: default_process_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),
+			status_wakeup_interval: Duration::from_mins(1),
+			stdio_wakeup_interval: Duration::from_mins(1),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1508,6 +1527,8 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			processes_wakeup_interval: Duration::from_mins(1),
+			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),
 		}
 	}

@@ -47,13 +47,16 @@ impl Session {
 		let session = self.clone();
 		let output = self
 			.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
 					session
-						.create_group_local_with_transaction(transaction, arg)
+						.create_group_local_with_transaction(
+							transaction,
+							arg,
+							database_outbox_partition,
+						)
 						.await
 				}
 				.boxed()
@@ -66,6 +69,7 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<tg::group::create::Output, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let group = match self
@@ -77,7 +81,11 @@ impl Session {
 		};
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

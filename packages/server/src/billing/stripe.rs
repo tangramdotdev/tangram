@@ -337,8 +337,7 @@ impl Session {
 		let server = self.server.clone();
 		let batch = self
 			.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let event = event.clone();
 				let server = server.clone();
 				let update = update.clone();
@@ -349,6 +348,7 @@ impl Session {
 						&event,
 						created_at,
 						update.as_ref(),
+						database_outbox_partition,
 					)
 					.await
 				}
@@ -366,6 +366,7 @@ impl Session {
 		event: &str,
 		created_at: i64,
 		update: Option<&CustomerUpdate>,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<tangram_index::batch::Arg, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		if let Some(update) = update {
@@ -447,7 +448,11 @@ impl Session {
 			.await;
 		crate::database::retry!(result, "failed to record the Stripe webhook event");
 		match server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

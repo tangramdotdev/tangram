@@ -280,6 +280,11 @@ impl Server {
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
+			if indexer.database_outbox_wakeup_interval.is_zero() {
+				return Err(tg::error!(
+					"the indexer database outbox wakeup interval must be greater than zero"
+				));
+			}
 			if indexer.log_compaction.enabled {
 				if indexer.log_compaction.batch_size == 0 {
 					return Err(tg::error!(
@@ -335,6 +340,11 @@ impl Server {
 					"the indexer message timeout must be greater than zero"
 				));
 			}
+			if indexer.object_outbox_wakeup_interval.is_zero() {
+				return Err(tg::error!(
+					"the indexer object outbox wakeup interval must be greater than zero"
+				));
+			}
 			if indexer.partition_end <= indexer.partition_start {
 				return Err(tg::error!(
 					"the indexer partition end must be greater than the partition start"
@@ -388,6 +398,31 @@ impl Server {
 			return Err(tg::error!(
 				"the object outbox partition total must be greater than zero"
 			));
+		}
+
+		// Validate the process wakeup intervals.
+		for (name, interval) in [
+			("children", config.process.children_wakeup_interval),
+			("status", config.process.status_wakeup_interval),
+			("stdio", config.process.stdio_wakeup_interval),
+		] {
+			if interval.is_zero() {
+				return Err(tg::error!(
+					"the process {name} wakeup interval must be greater than zero"
+				));
+			}
+		}
+
+		// Validate the sandbox wakeup intervals.
+		for (name, interval) in [
+			("processes", config.sandbox.processes_wakeup_interval),
+			("status", config.sandbox.status_wakeup_interval),
+		] {
+			if interval.is_zero() {
+				return Err(tg::error!(
+					"the sandbox {name} wakeup interval must be greater than zero"
+				));
+			}
 		}
 
 		// Validate the regions.

@@ -56,13 +56,17 @@ impl Session {
 		let session = self.clone();
 		let grant = self
 			.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
 					session
-						.create_grant_local_with_transaction(transaction, arg, permissions)
+						.create_grant_local_with_transaction(
+							transaction,
+							arg,
+							permissions,
+							database_outbox_partition,
+						)
 						.await
 				}
 				.boxed()
@@ -76,6 +80,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		mut arg: tg::grant::create::Arg,
 		permissions: tg::authorization::permission::Set,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<tg::Grant, crate::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
 		let mut batch = tangram_index::batch::Arg::default();
@@ -91,7 +96,11 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
@@ -127,13 +136,17 @@ impl Session {
 		let session = self.clone();
 		let output = self
 			.server
-			.database
-			.run(|transaction| {
+			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let arg = arg.clone();
 				let session = session.clone();
 				async move {
 					session
-						.delete_grant_local_with_transaction(transaction, arg, permissions)
+						.delete_grant_local_with_transaction(
+							transaction,
+							arg,
+							permissions,
+							database_outbox_partition,
+						)
 						.await
 				}
 				.boxed()
@@ -147,6 +160,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		mut arg: tg::grant::delete::Arg,
 		permissions: tg::authorization::permission::Set,
+		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
 		arg.permissions = tg::Either::Left(permissions);
 		let mut batch = tangram_index::batch::Arg::default();
@@ -159,7 +173,11 @@ impl Session {
 		};
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_outbox_with_transaction(
+				transaction,
+				database_outbox_partition,
+				&batch,
+			)
 			.await?
 		{
 			ControlFlow::Break(()) => (),
