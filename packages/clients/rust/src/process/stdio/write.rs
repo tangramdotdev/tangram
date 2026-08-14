@@ -29,6 +29,66 @@ pub enum Event {
 	Write(usize),
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub streams: Vec<Stream>,
+}
+
+impl<O> tg::Process<O> {
+	pub async fn write_stdio(
+		&self,
+		options: tg::process::stdio::write::Options,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+	) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.write_stdio_with_handle(handle, options, input).await
+	}
+
+	pub async fn write_stdio_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::stdio::write::Options,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		if self.id().is_left() {
+			if options.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
+				return Err(tg::error!("writing stdout or stderr is invalid"));
+			}
+			let mut stdin = self.stdin();
+			let mut input = std::pin::pin!(input);
+			while let Some(event) = input.try_next().await? {
+				match event {
+					tg::process::stdio::read::Event::Chunk(chunk) => {
+						if chunk.stream != tg::process::stdio::Stream::Stdin {
+							return Err(tg::error!("invalid process stdio stream"));
+						}
+						stdin.write_with_handle(handle, &chunk.bytes).await?;
+					},
+					tg::process::stdio::read::Event::End => {
+						stdin.close_with_handle(handle).await?;
+						break;
+					},
+				}
+			}
+			return Ok(());
+		}
+
+		if self.location().is_none() {
+			self.ensure_location_with_handle(handle).await?;
+		}
+		let id = self.id().unwrap_right();
+		let arg = tg::process::stdio::write::Arg {
+			location: self.location(),
+			streams: options.streams,
+			tokens: self.tokens(),
+		};
+		handle.write_process_stdio_all(id, arg, input).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_write_process_stdio(
 		&self,
@@ -114,52 +174,6 @@ impl tg::Session {
 		Ok(Some(stream))
 	}
 }
-
-impl<O> tg::Process<O> {
-	pub async fn write_stdio_all<H>(
-		&self,
-		handle: &H,
-		mut arg: tg::process::stdio::write::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		if self.id().is_left() {
-			if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
-				return Err(tg::error!("writing stdout or stderr is invalid"));
-			}
-			let mut stdin = self.stdin();
-			let mut input = std::pin::pin!(input);
-			while let Some(event) = input.try_next().await? {
-				match event {
-					tg::process::stdio::read::Event::Chunk(chunk) => {
-						if chunk.stream != tg::process::stdio::Stream::Stdin {
-							return Err(tg::error!("invalid process stdio stream"));
-						}
-						stdin.write_with_handle(handle, &chunk.bytes).await?;
-					},
-					tg::process::stdio::read::Event::End => {
-						stdin.close_with_handle(handle).await?;
-						break;
-					},
-				}
-			}
-			return Ok(());
-		}
-
-		if arg.location.is_none() {
-			self.ensure_location_with_handle(handle).await?;
-			arg.location = self.location();
-		}
-		if arg.tokens.is_empty() {
-			arg.tokens = self.tokens();
-		}
-		let id = self.id().unwrap_right();
-		handle.write_process_stdio_all(id, arg, input).await
-	}
-}
-
 impl TryFrom<Event> for tangram_http::sse::Event {
 	type Error = tg::Error;
 

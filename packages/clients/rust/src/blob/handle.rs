@@ -31,6 +31,7 @@ impl Blob {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let blob = Self::with_id(referent.node);
+		blob.state().set_location(referent.options.location);
 		blob.state().set_tokens(referent.options.tokens);
 
 		blob
@@ -59,6 +60,17 @@ impl Blob {
 	#[must_use]
 	pub fn id(&self) -> Id {
 		self.state.id().try_into().unwrap()
+	}
+
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {

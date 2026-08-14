@@ -1,17 +1,9 @@
-use {
-	self::print::Printer,
-	crate::prelude::*,
-	bytes::Bytes,
-	std::{
-		collections::{BTreeMap, VecDeque},
-		sync::Arc,
-	},
-	tokio::{sync::Semaphore, task::JoinSet},
-};
+use {self::print::Printer, crate::prelude::*, bytes::Bytes, std::collections::BTreeMap};
 
 pub use self::{data::*, parse::parse};
 
 pub mod data;
+pub mod load;
 pub mod parse;
 pub mod print;
 
@@ -90,6 +82,12 @@ impl Value {
 		}
 	}
 
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		for object in self.objects() {
+			object.inherit_location(location);
+		}
+	}
+
 	pub async fn store(&self) -> tg::Result<()> {
 		let handle = tg::handle()?;
 		self.store_with_handle(handle).await
@@ -145,7 +143,7 @@ impl Value {
 		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
-				let data = object_.to_data().without_tokens();
+				let data = object_.to_data().without_location_and_tokens();
 				let bytes = data
 					.serialize()
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
@@ -196,8 +194,14 @@ impl Value {
 			),
 			Self::Object(object) => {
 				let id = object.id();
+				let location = object.state().location();
 				let tokens = object.state().tokens();
-				Data::Object(tg::Referent::with_node_and_tokens(id, tokens))
+				let options = tg::referent::Options {
+					location,
+					tokens,
+					..tg::referent::Options::default()
+				};
+				Data::Object(tg::Referent::new(id, options))
 			},
 			Self::Bytes(bytes) => Data::Bytes(bytes.clone()),
 			Self::Mutation(mutation) => Data::Mutation(mutation.to_data()),
@@ -218,15 +222,14 @@ impl Value {
 			if state.id() != object.node {
 				return Err(tg::error!("invalid object batch output"));
 			}
+			state.set_location(object.options.location);
 			state.set_tokens(object.options.tokens);
 		}
 		Ok(())
 	}
 
 	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
-		let id = object.id();
-		let tokens = object.state().tokens();
-		tg::Referent::with_node_and_tokens(id, tokens)
+		object.to_referent()
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
@@ -319,63 +322,6 @@ impl Value {
 			_ => (),
 		}
 		Ok(children)
-	}
-
-	pub async fn load(
-		&self,
-		arg: tg::object::get::Arg,
-		depth: Option<u64>,
-		blobs: bool,
-	) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle, arg, depth, blobs).await
-	}
-
-	pub async fn load_with_handle<H>(
-		&self,
-		handle: &H,
-		arg: tg::object::get::Arg,
-		depth: Option<u64>,
-		blobs: bool,
-	) -> tg::Result<()>
-	where
-		H: tg::Handle + Clone + Send + Sync + 'static,
-	{
-		let semaphore = Arc::new(Semaphore::new(16));
-		let mut join_set: JoinSet<tg::Result<(Vec<Self>, Option<u64>)>> = JoinSet::new();
-		let mut queue = VecDeque::new();
-		queue.push_back((self.clone(), depth));
-		while !queue.is_empty() || !join_set.is_empty() {
-			while let Some((value, depth)) = queue.pop_front() {
-				let depth = match depth {
-					Some(0) => continue,
-					Some(depth) => Some(depth - 1),
-					None => None,
-				};
-				if let Self::Object(object) = &value
-					&& !blobs && object.is_blob()
-				{
-					continue;
-				}
-				let permit = semaphore.clone().acquire_owned().await.unwrap();
-				let handle = handle.clone();
-				let arg = arg.clone();
-				join_set.spawn(async move {
-					let _permit = permit;
-					let children = value.children_with_arg_with_handle(&handle, arg).await?;
-					Ok((children, depth))
-				});
-			}
-			if let Some(result) = join_set.join_next().await {
-				let (children, depth): (Vec<Self>, Option<u64>) = result
-					.map_err(|error| tg::error!(!error, "the load task panicked"))
-					.and_then(|result| result)?;
-				for child in children {
-					queue.push_back((child, depth));
-				}
-			}
-		}
-		Ok(())
 	}
 
 	pub fn print(&self, options: self::print::Options) -> String {

@@ -51,6 +51,10 @@ pub struct Options {
 	pub id: Option<tg::object::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 
@@ -113,6 +117,11 @@ impl<T> Referent<T> {
 		self.options.id.as_ref()
 	}
 
+	#[must_use]
+	pub fn location(&self) -> Option<&tg::Location> {
+		self.options.location.as_ref()
+	}
+
 	pub fn name(&self) -> Option<&str> {
 		self.options.name.as_deref()
 	}
@@ -171,6 +180,17 @@ impl<T> Referent<T> {
 
 		referent
 	}
+
+	#[must_use]
+	pub fn without_location_and_tokens(&self) -> Self
+	where
+		T: Clone,
+	{
+		let mut referent = self.clone();
+		referent.options.clear_location_and_tokens();
+
+		referent
+	}
 }
 
 impl<T> Referent<T>
@@ -210,10 +230,16 @@ where
 }
 
 impl Options {
+	pub fn clear_location_and_tokens(&mut self) {
+		self.location = None;
+		self.tokens.clear();
+	}
+
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
 		Self {
 			artifact: None,
 			id: None,
+			location: None,
 			name: None,
 			path: Some(path.into()),
 			tag: None,
@@ -223,6 +249,9 @@ impl Options {
 
 	pub fn inherit(&mut self, parent: &Options) {
 		self.tokens.inherit(&parent.tokens);
+		if self.location.is_none() {
+			self.location.clone_from(&parent.location);
+		}
 		if self.id.is_none() && self.tag.is_none() {
 			self.id = parent.id.clone();
 			self.tag = parent.tag.clone();
@@ -269,7 +298,7 @@ mod tests {
 	use {crate::prelude::*, std::collections::BTreeMap};
 
 	#[test]
-	fn tokens_roundtrip() {
+	fn location_and_tokens_roundtrip() {
 		let id: tg::file::Id = "fil_010000000000000000000000000000000000000000000000000000"
 			.parse()
 			.unwrap();
@@ -296,12 +325,20 @@ mod tests {
 				tg::Location::Local(tg::location::Local::default()),
 				token.clone(),
 			),
-			(remote, token),
+			(remote.clone(), token),
 		]));
-		let referent = tg::Referent::with_node_and_tokens(id, tokens);
+		let options = tg::referent::Options {
+			location: Some(remote),
+			tokens,
+			..tg::referent::Options::default()
+		};
+		let referent = tg::Referent::new(id, options);
 		let string = referent.to_string();
-		let parsed = string.parse().unwrap();
+		let parsed: tg::Referent<tg::file::Id> = string.parse().unwrap();
 
 		assert_eq!(referent, parsed);
+		let referent = referent.without_location_and_tokens();
+		assert!(referent.options.location.is_none());
+		assert!(referent.options.tokens.is_empty());
 	}
 }

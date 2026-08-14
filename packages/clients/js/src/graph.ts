@@ -32,6 +32,7 @@ export class Graph {
 	/** Get a graph with a referent. */
 	static withReferent(referent: tg.Referent<tg.Graph.Id>): tg.Graph {
 		let graph = tg.Graph.withId(referent.node);
+		graph.state.location = referent.options?.location ?? null;
 		graph.state.tokens = referent.options?.tokens ?? {};
 		return graph;
 	}
@@ -339,6 +340,7 @@ export class Graph {
 			}
 		}
 
+		tg.Object.inheritLocation(artifact, this.#state.location);
 		tg.Object.inheritTokens(artifact, this.#state.tokens);
 
 		return artifact;
@@ -727,7 +729,7 @@ export namespace Graph {
 				value.options?.location !== undefined &&
 				value.options.location !== null
 			) {
-				let location = tg.Location.Arg.toDataString(value.options.location);
+				let location = tg.Location.toDataString(value.options.location);
 				params.push(`location=${encodeURIComponent(location)}`);
 			}
 			if (value.options?.name !== undefined && value.options.name !== null) {
@@ -769,7 +771,7 @@ export namespace Graph {
 							break;
 						}
 						case "location": {
-							options.location = tg.Location.Arg.fromDataString(
+							options.location = tg.Location.fromDataString(
 								decodeURIComponent(value),
 							);
 							break;
@@ -1069,10 +1071,12 @@ export namespace Graph {
 			return data.nodes.flatMap(tg.Graph.Data.Node.children);
 		};
 
-		export let withoutTokens = (data: tg.Graph.Data): tg.Graph.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Graph.Data,
+		): tg.Graph.Data => {
 			return {
 				...data,
-				nodes: data.nodes.map(tg.Graph.Data.Node.withoutTokens),
+				nodes: data.nodes.map(tg.Graph.Data.Node.withoutLocationAndTokens),
 			};
 		};
 
@@ -1099,11 +1103,11 @@ export namespace Graph {
 				}
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Graph.Data.Node,
 			): tg.Graph.Data.Node => {
 				if (data.kind === "file") {
-					let file = tg.Graph.Data.File.withoutTokens(data);
+					let file = tg.Graph.Data.File.withoutLocationAndTokens(data);
 					return { ...file, kind: "file" };
 				}
 				return { ...data };
@@ -1190,7 +1194,7 @@ export namespace Graph {
 				];
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Graph.Data.File,
 			): tg.Graph.Data.File => {
 				let output = { ...data };
@@ -1201,7 +1205,9 @@ export namespace Graph {
 								tg.Reference.Data.withoutTokens(reference) as string,
 								dependency === null
 									? null
-									: tg.Graph.Data.Dependency.withoutTokens(dependency),
+									: tg.Graph.Data.Dependency.withoutLocationAndTokens(
+											dependency,
+										),
 							],
 						),
 					);
@@ -1301,15 +1307,18 @@ export namespace Graph {
 				}
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Graph.Dependency.Data,
 			): tg.Graph.Dependency.Data => {
 				if (typeof data === "string") {
-					return data;
+					let dependency = tg.Graph.Dependency.fromDataString(data);
+					dependency = tg.Referent.withoutLocationAndTokens(dependency);
+					return tg.Graph.Dependency.toDataString(dependency);
 				}
 				let output = { ...data };
 				if (output.options !== undefined) {
 					output.options = { ...output.options };
+					delete output.options.location;
 					delete output.options.tokens;
 				}
 				return output;

@@ -56,10 +56,10 @@ impl Diagnostic {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.location = self
 			.location
-			.map(tg::module::location::Data::without_tokens);
+			.map(tg::module::location::Data::without_location_and_tokens);
 
 		self
 	}

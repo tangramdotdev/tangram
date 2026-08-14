@@ -74,6 +74,7 @@ mod usage;
 mod user;
 mod view;
 mod viewer;
+mod wait;
 mod watch;
 mod write;
 
@@ -402,7 +403,7 @@ enum Command {
 
 	View(self::view::Args),
 
-	Wait(self::process::wait::Args),
+	Wait(self::wait::Args),
 
 	Watch(self::watch::Args),
 
@@ -709,7 +710,7 @@ impl Cli {
 			Command::User(args) => self.command_user(args).boxed_local(),
 			Command::Usage(args) => self.command_usage(args).boxed_local(),
 			Command::View(args) => self.command_view(args).boxed_local(),
-			Command::Wait(args) => self.command_process_wait(args).boxed_local(),
+			Command::Wait(args) => self.command_wait(args).boxed_local(),
 			Command::Watch(args) => self.command_watch(args).boxed_local(),
 			Command::Whoami(args) => self.command_user_whoami(args).boxed_local(),
 			Command::Write(args) => self.command_write(args).boxed_local(),

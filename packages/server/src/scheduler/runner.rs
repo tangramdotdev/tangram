@@ -268,7 +268,7 @@ impl Server {
 				session.spawn_process_finish_tasks(&process);
 			} else {
 				// Remove the tokens before updating the index.
-				let data = data.without_tokens();
+				let data = data.without_location_and_tokens();
 
 				self.index
 					.batch(tangram_index::batch::Arg {

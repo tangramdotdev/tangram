@@ -45,12 +45,7 @@ impl Cli {
 			stored: args.stored,
 			ttl: args.ttl,
 		};
-		let mut options = args.reference.options().clone();
-		if let Some(location) = args.locations.get() {
-			options.location = Some(location);
-		}
-		let reference =
-			tg::Reference::with_node_and_options(args.reference.node().clone(), options);
+		let reference = args.locations.apply_to_reference(&args.reference);
 		let arg = tg::resolve::Arg {
 			cached: args.cached,
 			ttl: args.ttl.get(),

@@ -13,35 +13,26 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_touch(&mut self, args: Args) -> tg::Result<()> {
-		let locations = args.locations;
+		let reference = args.locations.apply_to_reference(&args.reference);
 
-		let referent = self.resolve(&args.reference).await?;
-		let is_process = matches!(
-			referent.node(),
-			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process
-		);
-		if is_process {
-			let process = referent.try_map::<tg::process::Id, _>(|node| match node {
-				tg::get::Node::Id(id) => id.try_into(),
-				tg::get::Node::Pointer(_) => unreachable!(),
-			})?;
-			let process = tg::Reference::with_node_and_tokens(
-				tg::reference::Node::Id(process.node.into()),
-				process.options.tokens,
-			);
-			let args = crate::process::touch::Args { locations, process };
-			self.command_process_touch(args).await?;
-		} else {
-			let object = referent.try_map::<tg::object::Id, _>(|node| match node {
-				tg::get::Node::Id(id) => id.try_into(),
-				tg::get::Node::Pointer(_) => Err(tg::error!("expected an object or process id")),
-			})?;
-			let object = tg::Reference::with_node_and_tokens(
-				tg::reference::Node::Id(object.node.into()),
-				object.options.tokens,
-			);
-			let args = crate::object::touch::Args { locations, object };
-			self.command_object_touch(args).await?;
+		let referent = self.resolve(&reference).await?;
+		match referent.node {
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
+				let process = tg::Referent::new(id.try_into()?, referent.options);
+				self.command_process_touch_inner(
+					process,
+					crate::process::touch::Options::default(),
+				)
+				.await?;
+			},
+			tg::get::Node::Id(id) => {
+				let object = tg::Referent::new(id.try_into()?, referent.options);
+				self.command_object_touch_inner(object, crate::object::touch::Options::default())
+					.await?;
+			},
+			tg::get::Node::Pointer(_) => {
+				return Err(tg::error!("expected an object or process id"));
+			},
 		}
 
 		Ok(())

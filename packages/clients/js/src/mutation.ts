@@ -485,7 +485,9 @@ export namespace Mutation {
 			}
 		};
 
-		export let withoutTokens = (data: tg.Mutation.Data): tg.Mutation.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Mutation.Data,
+		): tg.Mutation.Data => {
 			switch (data.kind) {
 				case "unset": {
 					return { ...data };
@@ -494,21 +496,21 @@ export namespace Mutation {
 				case "set_if_unset": {
 					return {
 						...data,
-						value: tg.Value.Data.withoutTokens(data.value),
+						value: tg.Value.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				case "prepend":
 				case "append": {
 					return {
 						...data,
-						values: data.values.map(tg.Value.Data.withoutTokens),
+						values: data.values.map(tg.Value.Data.withoutLocationAndTokens),
 					};
 				}
 				case "prefix":
 				case "suffix": {
 					return {
 						...data,
-						template: tg.Template.Data.withoutTokens(data.template),
+						template: tg.Template.Data.withoutLocationAndTokens(data.template),
 					};
 				}
 				case "merge": {
@@ -517,7 +519,7 @@ export namespace Mutation {
 						value: globalThis.Object.fromEntries(
 							globalThis.Object.entries(data.value).map(([key, value]) => [
 								key,
-								tg.Value.Data.withoutTokens(value),
+								tg.Value.Data.withoutLocationAndTokens(value),
 							]),
 						),
 					};

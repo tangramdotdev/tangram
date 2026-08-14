@@ -1,9 +1,4 @@
-use {
-	crate::prelude::*,
-	std::{path::PathBuf, pin::pin},
-	tangram_futures::stream::TryExt as _,
-	tangram_uri::Uri,
-};
+use {crate::prelude::*, std::path::PathBuf, tangram_uri::Uri};
 
 #[derive(
 	Clone,
@@ -171,6 +166,14 @@ impl Reference {
 		self.export.as_deref()
 	}
 
+	pub fn set_node(&mut self, node: Node) {
+		self.node = node;
+	}
+
+	pub fn set_options(&mut self, options: Options) {
+		self.options = options;
+	}
+
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let node = path
@@ -204,31 +207,6 @@ impl Reference {
 			builder = builder.fragment(export);
 		}
 		builder.build().unwrap()
-	}
-
-	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Node>> {
-		let handle = tg::handle()?;
-		self.get_with_handle(handle).await
-	}
-
-	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Node>>
-	where
-		H: tg::Handle,
-	{
-		let arg = tg::get::Arg::default();
-		let stream = handle
-			.get(self, arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get stream"))?;
-		let stream = pin!(stream);
-		let output = stream
-			.try_last()
-			.await?
-			.ok_or_else(|| tg::error!("expected an event"))?
-			.try_unwrap_output()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the output"))?;
-		Ok(output)
 	}
 
 	#[must_use]
@@ -327,8 +305,25 @@ impl From<Options> for tg::referent::Options {
 		Self {
 			artifact: options.artifact,
 			id: options.id,
+			location: None,
 			name: options.name,
 			path: options.path,
+			tag: options.tag,
+			tokens: options.tokens,
+		}
+	}
+}
+
+impl From<tg::referent::Options> for Options {
+	fn from(options: tg::referent::Options) -> Self {
+		Self {
+			artifact: options.artifact,
+			get: None,
+			id: options.id,
+			location: options.location.map(Into::into),
+			name: options.name,
+			path: options.path,
+			source: None,
 			tag: options.tag,
 			tokens: options.tokens,
 		}

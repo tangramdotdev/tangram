@@ -46,23 +46,21 @@ impl Cli {
 		let ports = args.arg.ports;
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
-		let arg = tg::sandbox::create::Arg {
-			cpu: args.arg.cpu,
-			host: Some(args.host.unwrap_or_else(|| tg::host::current().to_owned())),
-			hostname: args.arg.hostname,
-			isolation: args.arg.isolation,
-			location: args.location.get(),
-			memory: args.arg.memory,
-			mounts: args.arg.mounts,
-			network,
-			owner,
-			ttl: args.ttl.get(),
-		};
-		let output = client
-			.create_sandbox(arg)
+		let sandbox = tg::Sandbox::builder()
+			.cpu(args.arg.cpu)
+			.host(args.host)
+			.hostname(args.arg.hostname)
+			.isolation(args.arg.isolation)
+			.location(args.location.get())
+			.memory(args.arg.memory)
+			.mounts(args.arg.mounts)
+			.network(network)
+			.owner(owner)
+			.ttl(args.ttl.get())
+			.build_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
-		Self::print_id(&output.id);
+		Self::print_id(sandbox.id());
 		Ok(())
 	}
 }

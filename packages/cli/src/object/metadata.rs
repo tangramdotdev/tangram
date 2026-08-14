@@ -5,10 +5,17 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub locations: crate::location::Args,
+	pub options: Options,
 
 	#[arg(index = 1)]
-	pub object: tg::Reference,
+	pub reference: tg::Reference,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
+	#[command(flatten)]
+	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -16,19 +23,26 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
-		let client = self.client().await?;
-		let object = self.resolve_object(&args.object).await?;
-		let id = object.node;
-		let arg = tg::object::metadata::Arg {
-			location: args.locations.get(),
-			tokens: object.options.tokens,
-		};
-		let output = client
-			.try_get_object_metadata(&id, arg)
+		let object = self
+			.resolve_object_with_locations(&args.reference, &args.options.locations)
+			.await?;
+		self.command_object_metadata_inner(object, args.options)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the object metadata"))?;
-		self.print_serde(output, args.print).await?;
+	}
+
+	pub(crate) async fn command_object_metadata_inner(
+		&mut self,
+		object: tg::Referent<tg::object::Id>,
+		options: Options,
+	) -> tg::Result<()> {
+		let client = self.client().await?;
+		let id = object.node.clone();
+		let object = tg::Object::with_referent(object);
+		let output = object
+			.metadata_with_handle(&client)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
+		self.print_serde(output, options.print).await?;
 		Ok(())
 	}
 }

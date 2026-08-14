@@ -18,12 +18,11 @@ impl Cli {
 	pub async fn command_sandbox_list(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let owner = self.resolve_owner(&client, &args.owner).await?;
-		let arg = tg::sandbox::list::Arg {
+		let options = tg::sandbox::list::Options {
 			location: args.locations.get(),
 			owner,
 		};
-		let output = client
-			.list_sandboxes(arg)
+		let output = tg::sandbox::list::list_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
 		self.print_serde(output.data, args.print).await?;

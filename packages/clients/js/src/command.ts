@@ -202,6 +202,7 @@ export class Command<
 	/** Get a command with a referent. */
 	static withReferent(referent: tg.Referent<tg.Command.Id>): tg.Command {
 		let command = tg.Command.withId(referent.node);
+		command.state.location = referent.options?.location ?? null;
 		command.state.tokens = referent.options?.tokens ?? {};
 		return command;
 	}
@@ -392,12 +393,12 @@ export namespace Command {
 				return tg.Value.Data.children(data.value);
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Command.Value.Data,
 			): tg.Command.Value.Data => {
 				return {
 					...data,
-					value: tg.Value.Data.withoutTokens(data.value),
+					value: tg.Value.Data.withoutLocationAndTokens(data.value),
 				};
 			};
 		}
@@ -657,20 +658,24 @@ export namespace Command {
 			];
 		};
 
-		export let withoutTokens = (data: tg.Command.Data): tg.Command.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Command.Data,
+		): tg.Command.Data => {
 			let output = { ...data };
 			if (data.args !== undefined) {
-				output.args = data.args.map(tg.Command.Value.Data.withoutTokens);
+				output.args = data.args.map(
+					tg.Command.Value.Data.withoutLocationAndTokens,
+				);
 			}
 			if (data.env !== undefined) {
 				output.env = globalThis.Object.fromEntries(
 					globalThis.Object.entries(data.env).map(([key, value]) => [
 						key,
-						tg.Command.Value.Data.withoutTokens(value),
+						tg.Command.Value.Data.withoutLocationAndTokens(value),
 					]),
 				);
 			}
-			output.executable = tg.Command.Data.Executable.withoutTokens(
+			output.executable = tg.Command.Data.Executable.withoutLocationAndTokens(
 				data.executable,
 			);
 			return output;
@@ -690,7 +695,7 @@ export namespace Command {
 					: [data.artifact];
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Command.Data.Executable,
 			): tg.Command.Data.Executable => {
 				return { ...data };

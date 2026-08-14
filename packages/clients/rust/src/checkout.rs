@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	serde_with::{DisplayFromStr, serde_as},
 	std::path::PathBuf,
 	tangram_futures::stream::TryExt as _,
@@ -40,6 +40,15 @@ pub struct Output {
 	pub path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub struct Options {
+	pub dependencies: bool,
+	pub extension: Option<String>,
+	pub force: bool,
+	pub lock: Option<Lock>,
+	pub path: Option<PathBuf>,
+}
+
 pub async fn checkout(arg: Arg) -> tg::Result<PathBuf> {
 	let handle = tg::handle()?;
 	checkout_with_handle(handle, arg).await
@@ -56,6 +65,37 @@ where
 		.and_then(|event| event.try_unwrap_output().ok())
 		.ok_or_else(|| tg::error!("stream ended without output"))?;
 	Ok(output.path)
+}
+
+impl tg::Artifact {
+	pub async fn checkout(
+		&self,
+		options: tg::checkout::Options,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>> {
+		let handle = tg::handle()?;
+		self.checkout_with_handle(handle, options).await
+	}
+
+	pub async fn checkout_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::checkout::Options,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::checkout::Arg {
+			artifact: self.to_referent(),
+			dependencies: options.dependencies,
+			extension: options.extension,
+			force: options.force,
+			lock: options.lock,
+			path: options.path,
+		};
+		let stream = handle.checkout(arg).await?.boxed();
+
+		Ok(stream)
+	}
 }
 
 impl tg::Session {
@@ -120,5 +160,17 @@ impl tg::Session {
 				)
 			});
 		Ok(stream)
+	}
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			dependencies: true,
+			extension: None,
+			force: false,
+			lock: Some(Lock::default()),
+			path: None,
+		}
 	}
 }

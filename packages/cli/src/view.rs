@@ -180,9 +180,9 @@ async fn get_node(
 	client: &tg::Client,
 	output: tg::get::Output,
 ) -> tg::Result<tg::Referent<crate::viewer::Item>> {
-	let tg::get::Output { location, referent } = output;
+	let tg::get::Output { referent } = output;
 	let tg::Referent { node, options } = referent;
-	let location = location.map(Into::into);
+	let location = options.location.clone().map(Into::into);
 	let node = match node {
 		tg::get::Node::Id(id) if id.kind().is_object() => {
 			let object = id.try_into()?;
@@ -216,48 +216,23 @@ async fn get_node(
 				crate::viewer::Item::Organization(organization)
 			},
 			tg::id::Kind::Process => {
-				let id: tg::process::Id = id.try_into()?;
-				let arg = tg::process::get::Arg {
-					location: location.clone(),
-					tokens: options.tokens.clone(),
-					..tg::process::get::Arg::default()
-				};
-				let output = client
-					.try_get_process(&id, arg)
+				let id = id.try_into()?;
+				let referent = tg::Referent::new(id, options.clone());
+				let process = tg::Process::with_referent(referent);
+				process
+					.try_load_with_handle(client)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
-				let location = output.location.map(Into::into);
-				let process = tg::Process::new(
-					id,
-					tg::process::Options {
-						location,
-						tokens: options.tokens.clone(),
-						..tg::process::Options::default()
-					},
-				);
 				crate::viewer::Item::Process(process)
 			},
 			tg::id::Kind::Sandbox => {
 				let id = id.try_into()?;
-				let arg = tg::sandbox::get::Arg {
-					location: location.clone(),
-					..tg::sandbox::get::Arg::default()
-				};
-				let output = client
-					.try_get_sandbox(&id, arg)
+				let referent = tg::Referent::new(id, options.clone());
+				let sandbox = tg::Sandbox::with_referent(referent);
+				sandbox
+					.try_load_with_handle(client)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
-				let location = output.location.clone().map(Into::into);
-				let mut tokens = options.tokens.clone();
-				tokens.inherit(&output.tokens);
-				let sandbox = tg::Sandbox::new(
-					id,
-					tg::sandbox::Options {
-						location,
-						state: Some(output),
-						tokens,
-					},
-				);
 				crate::viewer::Item::Sandbox(sandbox)
 			},
 			tg::id::Kind::Tag => {

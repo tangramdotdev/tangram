@@ -54,6 +54,7 @@ impl Session {
 				.try_get_with_selector(
 					&tg::Selector::Id(id.clone()),
 					options.location.as_ref(),
+					&options.tokens,
 					arg.cached,
 					arg.ttl,
 				)
@@ -75,26 +76,23 @@ impl Session {
 					},
 				)
 				.await?;
-			let output = sandbox.map(|sandbox| tg::get::Output {
-				location: sandbox.location,
-				referent: tg::Referent::with_node_and_tokens(
-					tg::get::Node::Id(sandbox.id.into()),
-					sandbox.tokens,
-				),
+			let output = sandbox.map(|sandbox| {
+				let options = tg::referent::Options {
+					location: sandbox.location,
+					tokens: sandbox.tokens,
+					..tg::referent::Options::default()
+				};
+				let referent = tg::Referent::new(tg::get::Node::Id(sandbox.id.into()), options);
+				tg::get::Output { referent }
 			});
 			let event = tg::progress::Event::Output(output);
 			let stream = stream::once(future::ok(event));
 
 			return Ok(stream.boxed());
 		}
-		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), options.clone().into());
-		let output = tg::get::Output {
-			location: options
-				.location
-				.as_ref()
-				.and_then(tg::location::Arg::to_location),
-			referent,
-		};
+		let referent_options: tg::referent::Options = options.clone().into();
+		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), referent_options);
+		let output = tg::get::Output { referent };
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
 			.await?;
@@ -134,20 +132,16 @@ impl Session {
 								Ok(tg::progress::Event::Indicators(indicators))
 							},
 							tg::progress::Event::Output(checkin_output) => {
+								let get = options.get;
 								let id = checkin_output.artifact.node.into();
-								let referent = tg::Referent::new(
-									tg::get::Node::Id(id),
-									checkin_output.artifact.options,
-								);
-								let output = tg::get::Output {
-									location: Some(tg::Location::Local(
-										tg::location::Local::default(),
-									)),
-									referent,
-								};
-								let output = session
-									.try_get_apply_get(output, options.get.as_deref())
-									.await?;
+								let mut referent_options = checkin_output.artifact.options;
+								referent_options.location =
+									Some(tg::Location::Local(tg::location::Local::default()));
+								let referent =
+									tg::Referent::new(tg::get::Node::Id(id), referent_options);
+								let output = tg::get::Output { referent };
+								let output =
+									session.try_get_apply_get(output, get.as_deref()).await?;
 								Ok::<_, tg::Error>(tg::progress::Event::Output(output))
 							},
 						}
@@ -162,17 +156,9 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_node_and_tokens(
-			tg::get::Node::Pointer(pointer.clone()),
-			options.tokens.clone(),
-		);
-		let output = tg::get::Output {
-			location: options
-				.location
-				.as_ref()
-				.and_then(tg::location::Arg::to_location),
-			referent,
-		};
+		let referent_options: tg::referent::Options = options.clone().into();
+		let referent = tg::Referent::new(tg::get::Node::Pointer(pointer.clone()), referent_options);
+		let output = tg::get::Output { referent };
 		if options.path.is_some() {
 			return Err(tg::error!("cannot get path in pointer"));
 		}
@@ -199,6 +185,7 @@ impl Session {
 			.try_get_with_selector(
 				&tg::Selector::Specifier(specifier),
 				options.location.as_ref(),
+				&options.tokens,
 				arg.cached,
 				arg.ttl,
 			)
@@ -244,10 +231,12 @@ impl Session {
 					.graph
 					.clone()
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				let graph = tg::Referent::with_node_and_tokens(
-					graph,
-					output.referent.options.tokens.clone(),
-				);
+				let options = tg::referent::Options {
+					location: output.referent.options.location.clone(),
+					tokens: output.referent.options.tokens.clone(),
+					..tg::referent::Options::default()
+				};
+				let graph = tg::Referent::new(graph, options);
 				let graph = tg::Graph::with_referent(graph);
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
 					graph: Some(graph),

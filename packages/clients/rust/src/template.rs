@@ -155,10 +155,10 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		for component in &mut self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				artifact.options.tokens.clear();
+				artifact.options.clear_location_and_tokens();
 			}
 		}
 
@@ -238,9 +238,7 @@ impl Component {
 		match self {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => {
-				let id = artifact.id();
-				let tokens = artifact.state().tokens();
-				let artifact = tg::Referent::with_node_and_tokens(id, tokens);
+				let artifact = artifact.to_referent();
 				tg::template::data::Component::Artifact(artifact)
 			},
 			Self::Placeholder(placeholder) => {

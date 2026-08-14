@@ -44,6 +44,87 @@ pub struct Chunk {
 	pub position: u64,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub length: Option<u64>,
+	pub position: Option<std::io::SeekFrom>,
+	pub size: Option<u64>,
+	pub timeout: Option<Duration>,
+}
+
+impl tg::Sandbox {
+	pub async fn processes(
+		&self,
+		options: tg::sandbox::processes::get::Options,
+	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static> {
+		let handle = tg::handle()?;
+		self.processes_with_handle(handle, options).await
+	}
+
+	pub async fn processes_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::sandbox::processes::get::Options,
+	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_processes_with_handle(handle, options)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the sandbox"))
+	}
+
+	pub async fn try_get_processes(
+		&self,
+		options: tg::sandbox::processes::get::Options,
+	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
+	{
+		let handle = tg::handle()?;
+		self.try_get_processes_with_handle(handle, options).await
+	}
+
+	pub async fn try_get_processes_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::sandbox::processes::get::Options,
+	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
+	where
+		H: tg::Handle,
+	{
+		use tg::handle::Ext as _;
+
+		let location = self.location();
+		let tokens = self.tokens();
+		let arg = tg::sandbox::processes::get::Arg {
+			length: options.length,
+			location: location.clone(),
+			position: options.position,
+			size: options.size,
+			timeout: options.timeout,
+			tokens: tokens.clone(),
+		};
+		let Some(stream) = handle.try_get_sandbox_processes(self.id(), arg).await? else {
+			return Ok(None);
+		};
+		let stream = stream
+			.map_ok(move |chunk| {
+				let location = location.clone();
+				let tokens = tokens.clone();
+				futures::stream::iter(chunk.data.into_iter().map(move |id| {
+					let options = tg::process::Options {
+						location: location.clone(),
+						tokens: tokens.clone(),
+						..tg::process::Options::default()
+					};
+					Ok(tg::Process::new(id, options))
+				}))
+			})
+			.try_flatten();
+
+		Ok(Some(stream))
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_sandbox_processes_stream(
 		&self,

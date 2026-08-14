@@ -18,7 +18,7 @@ pub struct Args {
 	pub position: Option<std::io::SeekFrom>,
 
 	#[arg(index = 1)]
-	pub process: tg::Reference,
+	pub reference: tg::Reference,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -63,18 +63,11 @@ struct PositionArg {
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let locations = args.locations.get();
-		let process = self.resolve_process(&args.process).await?;
-		let id = process.node;
-		let tokens = process.options.tokens;
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location: locations.clone(),
-				tokens: tokens.clone(),
-				..Default::default()
-			},
-		);
+		let process = self
+			.resolve_process_with_locations(&args.reference, &args.locations)
+			.await?;
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let streams = if args.streams.is_empty() {
 			vec![
 				tg::process::stdio::Stream::Stdout,
@@ -83,17 +76,15 @@ impl Cli {
 		} else {
 			args.streams
 		};
-		let arg = tg::process::stdio::read::Arg {
+		let options = tg::process::stdio::read::Options {
 			length: args.length,
-			location: locations,
 			position: args.position,
 			size: args.size,
 			streams,
 			timeout: args.timeout.get(),
-			tokens: tg::authorization::Tokens::default(),
 		};
 		let mut stdio = process
-			.try_read_stdio_all(&client, arg)
+			.try_read_stdio_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process stdio"))?
 			.ok_or_else(|| tg::error!(%id, "failed to get the process stdio"))?;

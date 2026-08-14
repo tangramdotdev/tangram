@@ -67,13 +67,18 @@ impl Module {
 		let mut ids = BTreeSet::new();
 		self.children(&mut ids);
 		children.extend(ids.into_iter().map(|id| {
-			tg::Referent::with_node_and_tokens(id, self.referent.options.tokens.clone())
+			let options = tg::referent::Options {
+				location: self.referent.options.location.clone(),
+				tokens: self.referent.options.tokens.clone(),
+				..tg::referent::Options::default()
+			};
+			tg::Referent::new(id, options)
 		}));
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.referent.options.tokens.clear();
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.referent.options.clear_location_and_tokens();
 
 		self
 	}

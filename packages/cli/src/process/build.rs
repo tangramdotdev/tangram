@@ -14,7 +14,6 @@ impl Cli {
 		options: &Options,
 		output: tg::Value,
 	) -> tg::Result<()> {
-		let location = options.spawn.location.get();
 		if options.detach && !options.verbose {
 			let string = output
 				.try_unwrap_string()
@@ -24,14 +23,7 @@ impl Cli {
 		} else if options.checkout.is_some() {
 			Self::print_display(output);
 		} else if (options.detach && options.verbose) || !output.is_null() {
-			let arg = tg::object::get::Arg {
-				location,
-				metadata: false,
-				stored: false,
-				tokens: tg::authorization::Tokens::default(),
-			};
-			self.print_value(&output, options.print.clone(), arg)
-				.await?;
+			self.print_value(&output, options.print.clone()).await?;
 		}
 
 		Ok(())

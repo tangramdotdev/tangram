@@ -150,13 +150,13 @@ impl Cli {
 		let source = tg::Location::Local(tg::location::Local::default());
 
 		// Get the references.
-		let reference_location = Some(source.clone().into());
+		let location = Some(source.clone().into());
 		let references = args
 			.references
 			.iter()
 			.map(|reference| {
 				let mut options = reference.options().clone();
-				options.location.clone_from(&reference_location);
+				options.location.clone_from(&location);
 				tg::Reference::new(
 					reference.node().clone(),
 					options,
@@ -167,10 +167,10 @@ impl Cli {
 		let mut nodes = Vec::with_capacity(references.len());
 		for reference in &references {
 			let referent = self.get(reference).await?.referent;
-			let tg::get::Node::Id(id) = referent.node else {
-				return Err(tg::error!("expected a node id"));
-			};
-			let node = tg::Referent::with_node_and_tokens(id, referent.options.tokens);
+			let node = referent.try_map(|node| match node {
+				tg::get::Node::Id(id) => Ok(id),
+				tg::get::Node::Pointer(_) => Err(tg::error!("expected a node id")),
+			})?;
 			nodes.push(node);
 		}
 

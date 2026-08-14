@@ -9,6 +9,7 @@ pub struct State(Arc<RwLock<Inner>>);
 #[derive(Debug)]
 struct Inner {
 	id: Option<tg::object::Id>,
+	location: Option<tg::Location>,
 	object: Option<tg::object::Object>,
 	stored: bool,
 	tokens: tg::authorization::Tokens,
@@ -22,6 +23,7 @@ impl State {
 		let stored = id.is_some();
 		Self(Arc::new(RwLock::new(Inner {
 			id,
+			location: None,
 			object,
 			stored,
 			tokens: tg::authorization::Tokens::default(),
@@ -32,6 +34,7 @@ impl State {
 	pub fn with_id(id: impl Into<tg::object::Id>) -> Self {
 		Self(Arc::new(RwLock::new(Inner {
 			id: Some(id.into()),
+			location: None,
 			object: None,
 			stored: true,
 			tokens: tg::authorization::Tokens::default(),
@@ -42,6 +45,7 @@ impl State {
 	pub fn with_object(object: impl Into<tg::object::Object>) -> Self {
 		Self(Arc::new(RwLock::new(Inner {
 			id: None,
+			location: None,
 			object: Some(object.into()),
 			stored: false,
 			tokens: tg::authorization::Tokens::default(),
@@ -65,7 +69,7 @@ impl State {
 			return id;
 		}
 		let object = inner.object.as_ref().unwrap();
-		let data = object.to_data().without_tokens();
+		let data = object.to_data().without_location_and_tokens();
 		let bytes = data.serialize().unwrap();
 		let id = tg::object::Id::new(data.kind(), &bytes);
 		drop(inner);
@@ -91,6 +95,17 @@ impl State {
 		self.0.write().unwrap().stored = stored;
 	}
 
+	pub fn set_location(&self, location: Option<tg::Location>) {
+		self.0.write().unwrap().location = location;
+	}
+
+	pub fn inherit_location(&self, location: Option<&tg::Location>) {
+		let mut inner = self.0.write().unwrap();
+		if inner.location.is_none() {
+			inner.location = location.cloned();
+		}
+	}
+
 	pub fn set_tokens(&self, tokens: tg::authorization::Tokens) {
 		self.0.write().unwrap().tokens = tokens;
 	}
@@ -106,6 +121,11 @@ impl State {
 	#[must_use]
 	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.read().unwrap().tokens.clone()
+	}
+
+	#[must_use]
+	pub fn location(&self) -> Option<tg::Location> {
+		self.0.read().unwrap().location.clone()
 	}
 
 	#[must_use]
@@ -190,6 +210,9 @@ impl State {
 
 		// Get the id.
 		let id = self.0.read().unwrap().id.clone().unwrap();
+		if arg.location.is_none() {
+			arg.location = self.location().map(Into::into);
+		}
 		if arg.tokens.is_empty() {
 			arg.tokens = self.tokens();
 		}
@@ -224,8 +247,10 @@ impl State {
 		let object = self.load_with_handle(handle).await?;
 		let children = object.children();
 		let tokens = self.tokens();
+		let location = self.location();
 
 		for child in &children {
+			child.inherit_location(location.as_ref());
 			child.inherit_tokens(&tokens);
 		}
 

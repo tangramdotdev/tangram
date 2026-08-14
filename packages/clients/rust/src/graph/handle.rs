@@ -32,6 +32,7 @@ impl Graph {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let graph = Self::with_id(referent.node);
+		graph.state().set_location(referent.options.location);
 		graph.state().set_tokens(referent.options.tokens);
 
 		graph
@@ -60,6 +61,17 @@ impl Graph {
 	#[must_use]
 	pub fn id(&self) -> Id {
 		self.state.id().try_into().unwrap()
+	}
+
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
@@ -220,6 +232,7 @@ impl Graph {
 			index,
 			kind: node.kind(),
 		});
+		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 
 		Ok(artifact)

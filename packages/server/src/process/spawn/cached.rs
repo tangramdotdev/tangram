@@ -630,7 +630,7 @@ impl Session {
 			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
 				continue;
 			};
-			self.update_spawn_process_output_tokens_for_location(&mut output, &location)?;
+			self.update_spawn_process_output_referents_for_location(&mut output, &location)?;
 			output.location = Some(location);
 			return Ok(Some(Output::new(self, output)));
 		}
@@ -700,7 +700,7 @@ impl Session {
 				name: remote.to_owned(),
 				region,
 			});
-			self.update_spawn_process_output_tokens_for_location(&mut output, &location)?;
+			self.update_spawn_process_output_referents_for_location(&mut output, &location)?;
 			output.location = Some(location);
 			return Ok(Some(Output::new(self, output)));
 		}

@@ -24,6 +24,7 @@ impl Error {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let error = Self::with_id(referent.node);
+		error.state().set_location(referent.options.location);
 		error.state().set_tokens(referent.options.tokens);
 
 		error
@@ -70,6 +71,17 @@ impl Error {
 	#[must_use]
 	pub fn id(&self) -> Id {
 		self.state.id().try_into().unwrap()
+	}
+
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
@@ -280,7 +292,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 			Err(error) => {
 				let source = error.source().map(|s| {
 					let error: Error = s.into();
-					let tokens = error.state().tokens();
+					let options = error.to_referent().options;
 					let node = error
 						.to_data_or_id()
 						.map_left(|data| {
@@ -292,7 +304,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 							}))
 						})
 						.map_right(|id| Box::new(tg::Error::with_id(id)));
-					tg::Referent::with_node_and_tokens(node, tokens)
+					tg::Referent::new(node, options)
 				});
 				Self::with_object(Object {
 					code: None,
@@ -312,7 +324,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		let source = value.source().map(|s| {
 			let error: Error = s.into();
-			let tokens = error.state().tokens();
+			let options = error.to_referent().options;
 			let node = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -324,7 +336,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			tg::Referent::with_node_and_tokens(node, tokens)
+			tg::Referent::new(node, options)
 		});
 		Self::with_object(Object {
 			code: None,

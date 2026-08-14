@@ -113,7 +113,7 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
-		arg.data = arg.data.without_tokens();
+		arg.data = arg.data.without_location_and_tokens();
 
 		// Create the index arguments.
 		let children = arg.data.children.clone();

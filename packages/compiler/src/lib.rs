@@ -936,6 +936,7 @@ impl Compiler {
 				tg::referent::Options {
 					artifact: None,
 					id: Some(id),
+					location: None,
 					name: None,
 					path: Some(path),
 					tag: None,
@@ -1074,6 +1075,7 @@ impl Compiler {
 			let options = tg::referent::Options {
 				artifact: None,
 				id: Some(id),
+				location: None,
 				name: None,
 				path,
 				tag: Some(tag),
@@ -1171,8 +1173,12 @@ impl Compiler {
 						_ => None,
 					};
 					let artifact = id.clone().try_into()?;
-					let artifact =
-						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
+					let referent_options = tg::referent::Options {
+						location: options.location.clone(),
+						tokens: options.tokens.clone(),
+						..tg::referent::Options::default()
+					};
+					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1272,8 +1278,12 @@ impl Compiler {
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					let artifact = id.clone().try_into()?;
-					let artifact =
-						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
+					let referent_options = tg::referent::Options {
+						location: options.location.clone(),
+						tokens: options.tokens.clone(),
+						..tg::referent::Options::default()
+					};
+					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1290,8 +1300,12 @@ impl Compiler {
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
-					let artifact =
-						tg::Referent::with_node_and_tokens(artifact, options.tokens.clone());
+					let referent_options = tg::referent::Options {
+						location: options.location.clone(),
+						tokens: options.tokens.clone(),
+						..tg::referent::Options::default()
+					};
+					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,

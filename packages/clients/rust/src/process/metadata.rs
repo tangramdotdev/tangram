@@ -134,6 +134,46 @@ impl Subtree {
 	}
 }
 
+impl<O> tg::Process<O> {
+	pub async fn metadata(&self) -> tg::Result<tg::process::Metadata> {
+		let handle = tg::handle()?;
+		self.metadata_with_handle(handle).await
+	}
+
+	pub async fn metadata_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Metadata>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_metadata_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process metadata"))
+	}
+
+	pub async fn try_get_metadata(&self) -> tg::Result<Option<tg::process::Metadata>> {
+		let handle = tg::handle()?;
+		self.try_get_metadata_with_handle(handle).await
+	}
+
+	pub async fn try_get_metadata_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::process::Metadata>>
+	where
+		H: tg::Handle,
+	{
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting process metadata is not supported for unsandboxed processes"
+			));
+		};
+		let arg = tg::process::metadata::Arg {
+			location: self.location(),
+			tokens: self.tokens(),
+		};
+		handle.try_get_process_metadata(id, arg).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_process_metadata(
 		&self,

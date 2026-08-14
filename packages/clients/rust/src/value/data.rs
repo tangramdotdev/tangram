@@ -141,23 +141,26 @@ impl Data {
 	}
 
 	#[must_use]
-	pub fn without_tokens(self) -> Self {
+	pub fn without_location_and_tokens(self) -> Self {
 		match self {
-			Self::Array(array) => {
-				Self::Array(array.into_iter().map(Self::without_tokens).collect())
-			},
+			Self::Array(array) => Self::Array(
+				array
+					.into_iter()
+					.map(Self::without_location_and_tokens)
+					.collect(),
+			),
 			Self::Map(map) => Self::Map(
 				map.into_iter()
-					.map(|(key, value)| (key, value.without_tokens()))
+					.map(|(key, value)| (key, value.without_location_and_tokens()))
 					.collect(),
 			),
 			Self::Object(mut object) => {
-				object.options.tokens.clear();
+				object.options.clear_location_and_tokens();
 				Self::Object(object)
 			},
-			Self::Mutation(mutation) => Self::Mutation(mutation.without_tokens()),
-			Self::Module(module) => Self::Module(module.without_tokens()),
-			Self::Template(template) => Self::Template(template.without_tokens()),
+			Self::Mutation(mutation) => Self::Mutation(mutation.without_location_and_tokens()),
+			Self::Module(module) => Self::Module(module.without_location_and_tokens()),
+			Self::Template(template) => Self::Template(template.without_location_and_tokens()),
 			value @ (Self::Null
 			| Self::Bool(_)
 			| Self::Number(_)

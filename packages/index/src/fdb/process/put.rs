@@ -185,7 +185,7 @@ impl Index {
 			let (begin, end) = range_subspace.range();
 			txn.clear_range(&begin, &end);
 			for (position, child) in children.iter().enumerate() {
-				let child = child.clone().without_tokens();
+				let child = child.clone().without_location_and_tokens();
 				let position = i64::try_from(position).map_err(|_| {
 					fdb::FdbBindingError::CustomError(
 						tg::error!("the process has too many children").into(),
@@ -259,7 +259,7 @@ impl Index {
 					cached: arg.cached,
 					process: tg::Referent::new(id.clone(), arg.options.clone()),
 				}
-				.without_tokens();
+				.without_location_and_tokens();
 				let process_child_key = Key::Process(crate::fdb::process::Key::ProcessChild {
 					child: id.clone(),
 					position,

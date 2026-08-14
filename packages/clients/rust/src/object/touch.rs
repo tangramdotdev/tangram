@@ -12,6 +12,39 @@ pub struct Arg {
 	pub tokens: tg::authorization::Tokens,
 }
 
+impl tg::Object {
+	pub async fn touch(&self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.touch_with_handle(handle).await
+	}
+
+	pub async fn touch_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		self.try_touch_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to touch the object"))
+	}
+
+	pub async fn try_touch(&self) -> tg::Result<Option<()>> {
+		let handle = tg::handle()?;
+		self.try_touch_with_handle(handle).await
+	}
+
+	pub async fn try_touch_with_handle<H>(&self, handle: &H) -> tg::Result<Option<()>>
+	where
+		H: tg::Handle,
+	{
+		let state = self.state();
+		let arg = tg::object::touch::Arg {
+			location: state.location().map(Into::into),
+			tokens: state.tokens(),
+		};
+		handle.try_touch_object(&self.id(), arg).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_touch_object(
 		&self,

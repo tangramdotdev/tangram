@@ -305,7 +305,7 @@ impl Session {
 			.boxed();
 
 		if let Some(data) = data {
-			let data = data.without_tokens();
+			let data = data.without_location_and_tokens();
 			let account = session
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;

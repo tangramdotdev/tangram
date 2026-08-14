@@ -290,6 +290,14 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdin.setProcess(this);
 		this.#stdout.setProcess(this);
 		this.#stderr.setProcess(this);
+		if (this.#state !== null) {
+			let location =
+				this.#location === null
+					? null
+					: tg.Location.Arg.toLocation(this.#location);
+			tg.Process.State.inheritLocation(this.#state, location);
+			tg.Process.State.inheritTokens(this.#state, this.#tokens);
+		}
 	}
 
 	get state(): tg.Process.State | null {
@@ -326,6 +334,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				? null
 				: tg.Location.Arg.fromLocation(output.location);
 		this.#state = tg.Process.State.fromData(output.data);
+		tg.Process.State.inheritLocation(this.#state, output.location ?? null);
 		tg.Process.State.inheritTokens(this.#state, this.#tokens);
 	}
 
@@ -358,6 +367,12 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	set tokens(tokens: tg.Authorization.Tokens) {
 		this.#tokens = tokens;
+	}
+
+	inheritLocation(location: tg.Location.Arg | null): void {
+		if (this.#location === null) {
+			this.#location = location;
+		}
 	}
 
 	inheritTokens(tokens: tg.Authorization.Tokens): void {
@@ -546,12 +561,22 @@ export class Process<O extends tg.Value = tg.Value> {
 			await this.#stdioPromise;
 		}
 		if (this.#wait !== null) {
+			let location =
+				this.#location === null
+					? null
+					: tg.Location.Arg.toLocation(this.#location);
+			tg.Process.Wait.inheritLocation(this.#wait, location);
 			tg.Process.Wait.inheritTokens(this.#wait, this.#tokens);
 			return this.#wait;
 		}
 		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== null);
 			let wait = await this.#promise;
+			let location =
+				this.#location === null
+					? null
+					: tg.Location.Arg.toLocation(this.#location);
+			tg.Process.Wait.inheritLocation(wait, location);
 			tg.Process.Wait.inheritTokens(wait, this.#tokens);
 			this.#wait = wait;
 			this.detach();
@@ -570,6 +595,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (wait === null) {
 			throw new Error("failed to find the process");
 		}
+		let location =
+			this.#location === null
+				? null
+				: tg.Location.Arg.toLocation(this.#location);
+		tg.Process.Wait.inheritLocation(wait, location);
 		tg.Process.Wait.inheritTokens(wait, this.#tokens);
 		this.#wait = wait;
 		this.detach();
@@ -1212,9 +1242,14 @@ export namespace Process {
 			if (typeof process !== "string") {
 				throw new Error("expected a sandboxed process id");
 			}
+			let location =
+				value.process.location === null
+					? null
+					: tg.Location.Arg.toLocation(value.process.location);
 			let tokens = value.process.tokens;
 			let options = {
 				...value.options,
+				...(location === null ? {} : { location }),
 				tokens,
 			};
 			let referent = { node: process, options };
@@ -1236,6 +1271,14 @@ export namespace Process {
 				options,
 				process: new tg.Process({
 					id: referent.node,
+					...(referent.options?.location !== undefined &&
+					referent.options.location !== null
+						? {
+								location: tg.Location.Arg.fromLocation(
+									referent.options.location,
+								),
+							}
+						: {}),
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
 					}),
@@ -1255,6 +1298,26 @@ export namespace Process {
 	}
 
 	export namespace State {
+		export let inheritLocation = (
+			state: State,
+			location: tg.Location | null,
+		): void => {
+			for (let child of state.children ?? []) {
+				child.process.inheritLocation(
+					location === null ? null : tg.Location.Arg.fromLocation(location),
+				);
+			}
+			if (state.error !== null) {
+				tg.Object.inheritLocation(state.error, location);
+			}
+			if (state.log !== null) {
+				tg.Object.inheritLocation(state.log, location);
+			}
+			if (state.output !== undefined) {
+				tg.Value.inheritLocation(state.output, location);
+			}
+		};
+
 		export let inheritTokens = (
 			state: State,
 			tokens: tg.Authorization.Tokens,
@@ -1307,8 +1370,7 @@ export namespace Process {
 				output.finished_at = value.finishedAt;
 			}
 			if (value.log !== null) {
-				let tokens = value.log.state.tokens;
-				let referent = tg.Referent.withNodeAndTokens(value.log.id, tokens);
+				let referent = tg.Object.toReferent(value.log);
 				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
@@ -1453,7 +1515,9 @@ export namespace Process {
 			process: string;
 		};
 
-		export let withoutTokens = (data: tg.Process.Data): tg.Process.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Process.Data,
+		): tg.Process.Data => {
 			let output = { ...data };
 			if (data.children !== undefined && data.children !== null) {
 				output.children = data.children.map((child) => {
@@ -1464,7 +1528,7 @@ export namespace Process {
 					return {
 						...child,
 						process: tg.Referent.toDataString(
-							tg.Referent.withoutToken(referent),
+							tg.Referent.withoutLocationAndTokens(referent),
 							(id) => id,
 						),
 					};
@@ -1477,11 +1541,11 @@ export namespace Process {
 						(id) => id as tg.Error.Id,
 					);
 					output.error = tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
+						tg.Referent.withoutLocationAndTokens(referent),
 						(id) => id,
 					);
 				} else {
-					output.error = tg.Error.Data.withoutTokens(data.error);
+					output.error = tg.Error.Data.withoutLocationAndTokens(data.error);
 				}
 			}
 			if (data.log !== undefined && data.log !== null) {
@@ -1490,12 +1554,12 @@ export namespace Process {
 					(id) => id as tg.Blob.Id,
 				);
 				output.log = tg.Referent.toDataString(
-					tg.Referent.withoutToken(referent),
+					tg.Referent.withoutLocationAndTokens(referent),
 					(id) => id,
 				);
 			}
 			if (data.output !== undefined) {
-				output.output = tg.Value.Data.withoutTokens(data.output);
+				output.output = tg.Value.Data.withoutLocationAndTokens(data.output);
 			}
 			return output;
 		};
@@ -1539,6 +1603,18 @@ export namespace Process {
 				output.output = tg.Value.fromData(data.output);
 			}
 			return output;
+		};
+
+		export let inheritLocation = (
+			wait: tg.Process.Wait,
+			location: tg.Location | null,
+		): void => {
+			if (wait.error !== null) {
+				tg.Object.inheritLocation(wait.error, location);
+			}
+			if (wait.output !== undefined) {
+				tg.Value.inheritLocation(wait.output, location);
+			}
 		};
 
 		export let inheritTokens = (

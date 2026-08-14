@@ -37,6 +37,42 @@ impl Stored {
 	}
 }
 
+impl tg::Object {
+	pub async fn stored(&self) -> tg::Result<tg::object::Stored> {
+		let handle = tg::handle()?;
+		self.stored_with_handle(handle).await
+	}
+
+	pub async fn stored_with_handle<H>(&self, handle: &H) -> tg::Result<tg::object::Stored>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_stored_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the object storage status"))
+	}
+
+	pub async fn try_get_stored(&self) -> tg::Result<Option<tg::object::Stored>> {
+		let handle = tg::handle()?;
+		self.try_get_stored_with_handle(handle).await
+	}
+
+	pub async fn try_get_stored_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::object::Stored>>
+	where
+		H: tg::Handle,
+	{
+		let state = self.state();
+		let arg = tg::object::stored::Arg {
+			location: state.location().map(Into::into),
+			tokens: state.tokens(),
+		};
+		handle.try_get_object_stored(&self.id(), arg).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_object_stored(
 		&self,

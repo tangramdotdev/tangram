@@ -1348,7 +1348,10 @@ impl Session {
 							cached: false,
 							children: Some(children),
 							command,
-							data: node.data.clone().map(tg::process::Data::without_tokens),
+							data: node
+								.data
+								.clone()
+								.map(tg::process::Data::without_location_and_tokens),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
 							log: Some(log),

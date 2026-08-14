@@ -149,6 +149,7 @@ impl Session {
 					.store_with_handle(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+				arg.command.options.location = command.state().location();
 				arg.command.options.tokens = command.state().tokens();
 				id
 			},
@@ -428,7 +429,7 @@ impl Session {
 				event.try_map_output(|output| {
 					output
 						.map(|mut output| -> tg::Result<_> {
-							self.update_spawn_process_output_tokens_for_location(
+							self.update_spawn_process_output_referents_for_location(
 								&mut output,
 								&location,
 							)?;
@@ -493,7 +494,7 @@ impl Session {
 								name: remote.clone(),
 								region,
 							});
-							self.update_spawn_process_output_tokens_for_location(
+							self.update_spawn_process_output_referents_for_location(
 								&mut output,
 								&location,
 							)?;
@@ -539,14 +540,14 @@ impl Session {
 		Err(tg::error!("expected an output"))
 	}
 
-	fn update_spawn_process_output_tokens_for_location(
+	fn update_spawn_process_output_referents_for_location(
 		&self,
 		output: &mut tg::process::spawn::Output,
 		location: &tg::Location,
 	) -> tg::Result<()> {
 		self.update_tokens_for_location(&mut output.tokens, location)?;
 		if let Some(wait) = &mut output.wait {
-			self.update_wait_output_tokens_for_location(wait, location)?;
+			self.update_wait_output_referents_for_location(wait, location)?;
 		}
 		Ok(())
 	}

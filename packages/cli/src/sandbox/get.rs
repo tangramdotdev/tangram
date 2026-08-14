@@ -24,21 +24,24 @@ pub struct Args {
 impl Cli {
 	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let output = client
-			.try_get_sandbox(
-				&args.sandbox,
-				tg::sandbox::get::Arg {
-					cached: args.cached,
-					location: args.locations.get(),
-					ttl: args.ttl.get(),
-				},
-			)
+		let id = args.sandbox;
+		let sandbox = tg::Sandbox::new(
+			id.clone(),
+			tg::sandbox::Options {
+				location: args.locations.get(),
+				..Default::default()
+			},
+		);
+		let options = tg::sandbox::get::Options {
+			cached: args.cached,
+			ttl: args.ttl.get(),
+		};
+		let output = sandbox
+			.try_get_with_handle(&client, options)
 			.await
-			.map_err(
-				|error| tg::error!(!error, sandbox = %args.sandbox, "failed to get the sandbox"),
-			)?
-			.ok_or_else(|| tg::error!(sandbox = %args.sandbox, "failed to find the sandbox"))?;
-		self.print_serde(output, args.print).await?;
+			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to get the sandbox"))?
+			.ok_or_else(|| tg::error!(sandbox = %id, "failed to find the sandbox"))?;
+		self.print_serde(output.as_ref(), args.print).await?;
 		Ok(())
 	}
 }

@@ -4,17 +4,17 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub input: tg::Reference,
-
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_decompress(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let input = self.resolve_object(&args.input).await?;
+		let input = self.resolve_object(&args.reference).await?;
 		let (input, blob) = match tg::Object::with_referent(input) {
 			tg::Object::Blob(blob) => (tg::Either::Left(blob), true),
 			tg::Object::File(file) => (tg::Either::Right(file), false),

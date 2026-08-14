@@ -5,13 +5,13 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub artifact: tg::Reference,
+	pub reference: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_bundle(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let artifact = self.resolve_artifact(&args.artifact).await?;
+		let artifact = self.resolve_artifact(&args.reference).await?;
 		let artifact = tg::Artifact::with_referent(artifact);
 		let artifact = tg::builtin::bundle_with_handle(&artifact, &client).await?;
 		let id = artifact

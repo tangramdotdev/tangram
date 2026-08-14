@@ -79,8 +79,8 @@ impl Cli {
 		let artifact = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
 			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
-		let mut options = tg::referent::Options::with_path(args.path.clone());
-		options.tokens = artifact.state().tokens();
+		let mut options = artifact.to_referent().options;
+		options.path = Some(args.path.clone());
 		let referent = tg::Referent::new(artifact.into(), options);
 
 		// Create the state.
@@ -143,7 +143,7 @@ impl Cli {
 					let node = if let Some(path) = path {
 						publish_checkin(&client, path, true).await?
 					} else {
-						tg::Referent::with_node_and_tokens(referent.node, referent.options.tokens)
+						referent
 					};
 					let id = node.node.clone();
 					items.push(node);
@@ -316,10 +316,12 @@ impl Cli {
 					.await
 					.map_err(|error| tg::error!(!error, %ancestor, "failed to get a tag ancestor"))?
 					.referent;
-				let tg::get::Node::Id(id) = referent.node else {
-					return Err(tg::error!(%ancestor, "expected a tag ancestor id"));
-				};
-				let node = tg::Referent::with_node_and_tokens(id, referent.options.tokens);
+				let node = referent.try_map(|node| match node {
+					tg::get::Node::Id(id) => Ok(id),
+					tg::get::Node::Pointer(_) => {
+						Err(tg::error!(%ancestor, "expected a tag ancestor id"))
+					},
+				})?;
 				items.push(node);
 			}
 			let arg = tg::push::Arg {
@@ -630,10 +632,7 @@ where
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = blob.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				blob.node().id().into(),
-				blob.options.tokens.clone(),
-			);
+			let node = blob.clone().map(|blob| blob.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
@@ -654,10 +653,7 @@ where
 		}
 
 		if let Some(tag) = directory.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				directory.node().id().into(),
-				directory.options.tokens.clone(),
-			);
+			let node = directory.clone().map(|directory| directory.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 		let Some(path) = directory.path() else {
@@ -691,10 +687,7 @@ where
 		}
 
 		if let Some(tag) = file.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				file.node().id().into(),
-				file.options.tokens.clone(),
-			);
+			let node = file.clone().map(|file| file.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 
@@ -741,10 +734,7 @@ where
 			return Err(tg::error!("invalid path"));
 		}
 		if let Some(tag) = symlink.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				symlink.node().id().into(),
-				symlink.options.tokens.clone(),
-			);
+			let node = symlink.clone().map(|symlink| symlink.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 		Ok(true)
@@ -756,10 +746,7 @@ where
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = command.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				command.node().id().into(),
-				command.options.tokens.clone(),
-			);
+			let node = command.clone().map(|command| command.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
@@ -771,10 +758,7 @@ where
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = graph.tag() {
-			let node = tg::Referent::with_node_and_tokens(
-				graph.node().id().into(),
-				graph.options.tokens.clone(),
-			);
+			let node = graph.clone().map(|graph| graph.id().into());
 			self.tags.push((tag.clone(), node));
 		}
 		Ok(false)
@@ -836,7 +820,6 @@ async fn publish_checkin(
 	let artifact = tg::checkin::checkin_with_handle(client, args)
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
-	let id = artifact.id().into();
-	let node = tg::Referent::with_node_and_tokens(id, artifact.state().tokens());
+	let node = artifact.to_referent().map(Into::into);
 	Ok(node)
 }

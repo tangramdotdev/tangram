@@ -804,6 +804,9 @@ where
 		if let Some(id) = &options.id {
 			self.map_entry("id", |s| s.string(&id.to_string()))?;
 		}
+		if let Some(location) = &options.location {
+			self.map_entry("location", |s| s.string(&location.to_string()))?;
+		}
 		if let Some(name) = &options.name {
 			self.map_entry("name", |s| s.string(name))?;
 		}

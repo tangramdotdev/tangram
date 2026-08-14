@@ -54,6 +54,31 @@ pub struct Item {
 	pub ttl: Option<Duration>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+	pub owner: Option<tg::Principal>,
+}
+
+pub async fn list(options: tg::sandbox::list::Options) -> tg::Result<tg::sandbox::list::Output> {
+	let handle = tg::handle()?;
+	list_with_handle(handle, options).await
+}
+
+pub async fn list_with_handle<H>(
+	handle: &H,
+	options: tg::sandbox::list::Options,
+) -> tg::Result<tg::sandbox::list::Output>
+where
+	H: tg::Handle,
+{
+	let arg = tg::sandbox::list::Arg {
+		location: options.location,
+		owner: options.owner,
+	};
+	handle.list_sandboxes(arg).await
+}
+
 impl tg::Session {
 	pub async fn list_sandboxes(
 		&self,

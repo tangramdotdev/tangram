@@ -22,8 +22,8 @@ impl Location {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.module = self.module.without_tokens();
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.module = self.module.without_location_and_tokens();
 
 		self
 	}

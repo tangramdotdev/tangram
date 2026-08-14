@@ -27,6 +27,7 @@ impl Symlink {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let symlink = Self::with_id(referent.node);
+		symlink.state().set_location(referent.options.location);
 		symlink.state().set_tokens(referent.options.tokens);
 
 		symlink
@@ -55,6 +56,17 @@ impl Symlink {
 	#[must_use]
 	pub fn id(&self) -> Id {
 		self.state.id().try_into().unwrap()
+	}
+
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
@@ -276,6 +288,7 @@ impl Symlink {
 			},
 		};
 		if let Some(artifact) = &artifact {
+			artifact.inherit_location(self.state.location().as_ref());
 			artifact.inherit_tokens(&self.state.tokens());
 		}
 		Ok(artifact)

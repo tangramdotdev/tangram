@@ -18,8 +18,9 @@ let output = tg --token $bob.token metadata $directory | complete
 failure $output "Bob should not be able to get Alice's object metadata without a grant."
 snapshot --normalize-ids $output.stderr '
 	error an error occurred
-	-> failed to find the object metadata
+	-> failed to get the object metadata
 	   id = dir_010000000000000000000000000000000000000000000000000000
+	-> failed to get the object metadata
 
 '
 
@@ -54,7 +55,8 @@ let output = tg --token $bob.token metadata $parent | complete
 failure $output "Bob should not be able to get Alice's process metadata without a grant."
 snapshot --normalize-ids $output.stderr '
 	error an error occurred
-	-> failed to find the process metadata
+	-> failed to get the process metadata
 	   id = pcs_010000000000000000000000000000000000000000000000000000
+	-> failed to get the process metadata
 
 '

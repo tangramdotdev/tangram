@@ -34,6 +34,7 @@ export class Directory {
 	/** Get a directory with a referent. */
 	static withReferent(referent: tg.Referent<tg.Directory.Id>): tg.Directory {
 		let directory = tg.Directory.withId(referent.node);
+		directory.state.location = referent.options?.location ?? null;
 		directory.state.tokens = referent.options?.tokens ?? {};
 		return directory;
 	}
@@ -323,13 +324,16 @@ export class Directory {
 				for (let [name, edge] of Object.entries(node.entries)) {
 					if (typeof edge === "number") {
 						let artifact = await graph.get(edge);
+						tg.Object.inheritLocation(artifact, this.#state.location);
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else if ("index" in edge) {
 						let artifact = await (edge.graph ?? graph).get(edge.index);
+						tg.Object.inheritLocation(artifact, this.#state.location);
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else {
+						tg.Object.inheritLocation(edge, this.#state.location);
 						tg.Object.inheritTokens(edge, this.#state.tokens);
 						yield [name, edge];
 					}
@@ -340,6 +344,8 @@ export class Directory {
 						child.directory,
 						graph,
 					);
+					childDir.state.inheritLocation(this.#state.location);
+					childDir.state.inheritTokens(this.#state.tokens);
 					for await (let entry of childDir) {
 						yield entry;
 					}
@@ -354,9 +360,11 @@ export class Directory {
 						"missing graph",
 					);
 					let artifact = await edge.graph.get(edge.index);
+					tg.Object.inheritLocation(artifact, this.#state.location);
 					tg.Object.inheritTokens(artifact, this.#state.tokens);
 					yield [name, artifact];
 				} else {
+					tg.Object.inheritLocation(edge, this.#state.location);
 					tg.Object.inheritTokens(edge, this.#state.tokens);
 					yield [name, edge];
 				}
@@ -364,6 +372,8 @@ export class Directory {
 		} else {
 			for (let child of object.children) {
 				let childDir = await Directory.resolveEdge(child.directory);
+				childDir.state.inheritLocation(this.#state.location);
+				childDir.state.inheritTokens(this.#state.tokens);
 				for await (let entry of childDir) {
 					yield entry;
 				}

@@ -17,13 +17,22 @@ pub struct Output {
 	pub released: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub lease: Option<String>,
+}
+
 impl<O> tg::Process<O> {
-	pub async fn cancel(&self) -> tg::Result<()> {
+	pub async fn cancel(&self, options: tg::process::cancel::Options) -> tg::Result<()> {
 		let handle = tg::handle()?;
-		self.cancel_with_handle(handle).await
+		self.cancel_with_handle(handle, options).await
 	}
 
-	pub async fn cancel_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn cancel_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::cancel::Options,
+	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
@@ -36,10 +45,10 @@ impl<O> tg::Process<O> {
 		self.ensure_location_with_handle(handle).await?;
 		let id = self.id().unwrap_right();
 		let location = self.location();
-		let lease = self
-			.lease()
-			.ok_or_else(|| tg::error!("missing lease"))?
-			.clone();
+		let lease = options
+			.lease
+			.or_else(|| self.lease().cloned())
+			.ok_or_else(|| tg::error!("missing lease"))?;
 		handle.cancel_process(id, Arg { location, lease }).await?;
 		self.detach();
 

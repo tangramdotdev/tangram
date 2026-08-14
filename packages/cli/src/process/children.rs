@@ -11,6 +11,16 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub options: Options,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
 	#[arg(long)]
 	pub length: Option<u64>,
 
@@ -22,9 +32,6 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[arg(index = 1)]
-	pub process: tg::Reference,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -65,33 +72,34 @@ impl Timeout {
 
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
+		let process = self
+			.resolve_process_with_locations(&args.reference, &args.options.locations)
+			.await?;
+		self.command_process_children_inner(process, args.options)
+			.await
+	}
+
+	pub(crate) async fn command_process_children_inner(
+		&mut self,
+		process: tg::Referent<tg::process::Id>,
+		options: Options,
+	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let locations = args.locations.get();
-		let process = self.resolve_process(&args.process).await?;
-		let id = process.node;
-		let tokens = process.options.tokens;
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location: locations.clone(),
-				tokens: tokens.clone(),
-				..Default::default()
-			},
-		);
-		let arg = tg::process::children::get::Arg {
-			length: args.length,
-			location: locations,
-			position: args.position,
-			size: args.size,
-			timeout: args.timeout.get(),
-			tokens: tg::authorization::Tokens::default(),
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		let options_ = tg::process::children::get::Options {
+			length: options.length,
+			position: options.position,
+			size: options.size,
+			timeout: options.timeout.get(),
 		};
 		let stream = process
-			.children_with_handle(&client, arg)
+			.children_with_handle(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
 			.map_ok(|child| child.to_data());
-		self.print_serde_stream(stream.boxed(), args.print).await?;
+		self.print_serde_stream(stream.boxed(), options.print)
+			.await?;
 		Ok(())
 	}
 }

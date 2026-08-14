@@ -40,7 +40,6 @@ impl Session {
 						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
 						tg::progress::Event::Output(output) => {
 							tg::progress::Event::Output(output.map(|output| tg::resolve::Output {
-								location: output.location,
 								referent: output.referent,
 							}))
 						},
@@ -91,7 +90,6 @@ impl Session {
 					.try_get_apply_get(output, options.get.as_deref())
 					.await?
 					.map(|output| tg::resolve::Output {
-						location: output.location,
 						referent: output.referent,
 					}),
 			}
@@ -124,12 +122,13 @@ impl Session {
 		let referent = tg::Referent::new(
 			tg::get::Node::Id(node),
 			tg::referent::Options {
+				location,
 				tag: Some(specifier),
 				tokens,
 				..tg::referent::Options::default()
 			},
 		);
-		let output = tg::get::Output { location, referent };
+		let output = tg::get::Output { referent };
 
 		Ok(Some(output))
 	}
@@ -185,14 +184,12 @@ impl Session {
 						output.referent.options.tokens.clear();
 					}
 					let location = tg::Location::Remote(remote.clone());
-					self.update_tokens_for_location(
-						&mut output.referent.options.tokens,
+					self.update_referent_options_for_location(
+						&mut output.referent.options,
 						&location,
 					)?;
-					output.location = Some(location);
 				}
 				let output = output.map(|output| tg::get::Output {
-					location: output.location,
 					referent: output.referent,
 				});
 
@@ -203,14 +200,12 @@ impl Session {
 			let referent = tg::Referent::new(
 				tg::get::Node::Id(list_target_to_id(target)),
 				tg::referent::Options {
+					location: Some(tg::Location::Remote(remote)),
 					tag: Some(specifier),
 					..tg::referent::Options::default()
 				},
 			);
-			let output = tg::get::Output {
-				location: Some(tg::Location::Remote(remote)),
-				referent,
-			};
+			let output = tg::get::Output { referent };
 			return Ok(Some(output));
 		}
 
@@ -238,10 +233,8 @@ impl Session {
 		let output = output
 			.map(|mut output| {
 				let location = tg::Location::Remote(remote);
-				self.update_tokens_for_location(&mut output.referent.options.tokens, &location)?;
-				output.location = Some(location);
+				self.update_referent_options_for_location(&mut output.referent.options, &location)?;
 				Ok::<_, tg::Error>(tg::get::Output {
-					location: output.location,
 					referent: output.referent,
 				})
 			})
@@ -323,12 +316,14 @@ impl Session {
 				.try_get_with_selector(
 					&tg::Selector::Specifier(specifier.clone()),
 					location,
+					&tg::authorization::Tokens::default(),
 					cached,
 					ttl,
 				)
 				.await?;
 			if let Some(output) = output {
-				let tg::get::Node::Id(id) = output.referent.node else {
+				let tg::Referent { node, options } = output.referent;
+				let tg::get::Node::Id(id) = node else {
 					unreachable!();
 				};
 				match id.kind() {
@@ -342,7 +337,7 @@ impl Session {
 						let id = tg::tag::Id::try_from(id)?;
 						let arg = tg::tag::get::Arg {
 							cached,
-							location: output.location.map(Into::into),
+							location: options.location.map(Into::into),
 							ttl,
 						};
 						let Some(output) =

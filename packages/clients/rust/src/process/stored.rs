@@ -86,6 +86,46 @@ impl Stored {
 	}
 }
 
+impl<O> tg::Process<O> {
+	pub async fn stored(&self) -> tg::Result<tg::process::Stored> {
+		let handle = tg::handle()?;
+		self.stored_with_handle(handle).await
+	}
+
+	pub async fn stored_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Stored>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_stored_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process storage status"))
+	}
+
+	pub async fn try_get_stored(&self) -> tg::Result<Option<tg::process::Stored>> {
+		let handle = tg::handle()?;
+		self.try_get_stored_with_handle(handle).await
+	}
+
+	pub async fn try_get_stored_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::process::Stored>>
+	where
+		H: tg::Handle,
+	{
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting the process storage status is not supported for unsandboxed processes"
+			));
+		};
+		let arg = tg::process::stored::Arg {
+			location: self.location(),
+			tokens: self.tokens(),
+		};
+		handle.try_get_process_stored(id, arg).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_process_stored(
 		&self,

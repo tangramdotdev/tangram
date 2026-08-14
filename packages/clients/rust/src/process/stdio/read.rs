@@ -47,6 +47,111 @@ pub enum Event {
 	End,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub length: Option<i64>,
+	pub position: Option<std::io::SeekFrom>,
+	pub size: Option<u64>,
+	pub streams: Vec<Stream>,
+	pub timeout: Option<Duration>,
+}
+
+impl<O> tg::Process<O> {
+	pub async fn try_read_stdio(
+		&self,
+		options: tg::process::stdio::read::Options,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		let handle = tg::handle()?;
+		self.try_read_stdio_with_handle(handle, options).await
+	}
+
+	pub async fn try_read_stdio_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::stdio::read::Options,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>
+	where
+		H: tg::Handle,
+	{
+		if options.streams.is_empty() {
+			return Err(tg::error!("expected at least one stdio stream"));
+		}
+
+		if self.id().is_left() {
+			let mut streams = Vec::new();
+			for stream in options.streams {
+				match stream {
+					tg::process::stdio::Stream::Stdin => {
+						return Err(tg::error!("reading stdin is invalid"));
+					},
+					tg::process::stdio::Stream::Stdout => {
+						let handle = handle.clone();
+						let stdout = self.stdout();
+						let stream = stream::try_unfold(
+							(handle, stdout),
+							|(handle, mut stdout)| async move {
+								let Some(bytes) = stdout.read_with_handle(&handle).await? else {
+									return Ok(None);
+								};
+								let event = tg::process::stdio::read::Event::Chunk(
+									tg::process::stdio::Chunk {
+										bytes,
+										position: None,
+										stream: tg::process::stdio::Stream::Stdout,
+									},
+								);
+								Ok(Some((event, (handle, stdout))))
+							},
+						);
+						streams.push(stream.boxed());
+					},
+					tg::process::stdio::Stream::Stderr => {
+						let handle = handle.clone();
+						let stderr = self.stderr();
+						let stream = stream::try_unfold(
+							(handle, stderr),
+							|(handle, mut stderr)| async move {
+								let Some(bytes) = stderr.read_with_handle(&handle).await? else {
+									return Ok(None);
+								};
+								let event = tg::process::stdio::read::Event::Chunk(
+									tg::process::stdio::Chunk {
+										bytes,
+										position: None,
+										stream: tg::process::stdio::Stream::Stderr,
+									},
+								);
+								Ok(Some((event, (handle, stderr))))
+							},
+						);
+						streams.push(stream.boxed());
+					},
+				}
+			}
+			let stream = futures::stream::select_all(streams).chain(stream::once(future::ok(
+				tg::process::stdio::read::Event::End,
+			)));
+			return Ok(Some(stream.boxed()));
+		}
+
+		let id = self.id().unwrap_right();
+		let arg = tg::process::stdio::read::Arg {
+			length: options.length,
+			location: self.location(),
+			position: options.position,
+			size: options.size,
+			streams: options.streams,
+			timeout: options.timeout,
+			tokens: self.tokens(),
+		};
+		let Some(stream) = handle.try_read_process_stdio_all(id, arg).await? else {
+			return Ok(None);
+		};
+
+		Ok(Some(stream.boxed()))
+	}
+}
+
 impl tg::Session {
 	pub async fn try_read_process_stdio(
 		&self,
@@ -121,92 +226,6 @@ impl tg::Session {
 		Ok(Some(stream))
 	}
 }
-
-impl<O> tg::Process<O> {
-	pub async fn try_read_stdio_all<H>(
-		&self,
-		handle: &H,
-		mut arg: tg::process::stdio::read::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>
-	where
-		H: tg::Handle,
-	{
-		if arg.streams.is_empty() {
-			return Err(tg::error!("expected at least one stdio stream"));
-		}
-		if arg.location.is_none() {
-			arg.location = self.location();
-		}
-		if arg.tokens.is_empty() {
-			arg.tokens = self.tokens();
-		}
-
-		if self.id().is_left() {
-			let mut streams = Vec::new();
-			for stream in arg.streams {
-				match stream {
-					tg::process::stdio::Stream::Stdin => {
-						return Err(tg::error!("reading stdin is invalid"));
-					},
-					tg::process::stdio::Stream::Stdout => {
-						let handle = handle.clone();
-						let stdout = self.stdout();
-						let stream = stream::try_unfold(
-							(handle, stdout),
-							|(handle, mut stdout)| async move {
-								let Some(bytes) = stdout.read_with_handle(&handle).await? else {
-									return Ok(None);
-								};
-								let event = tg::process::stdio::read::Event::Chunk(
-									tg::process::stdio::Chunk {
-										bytes,
-										position: None,
-										stream: tg::process::stdio::Stream::Stdout,
-									},
-								);
-								Ok(Some((event, (handle, stdout))))
-							},
-						);
-						streams.push(stream.boxed());
-					},
-					tg::process::stdio::Stream::Stderr => {
-						let handle = handle.clone();
-						let stderr = self.stderr();
-						let stream = stream::try_unfold(
-							(handle, stderr),
-							|(handle, mut stderr)| async move {
-								let Some(bytes) = stderr.read_with_handle(&handle).await? else {
-									return Ok(None);
-								};
-								let event = tg::process::stdio::read::Event::Chunk(
-									tg::process::stdio::Chunk {
-										bytes,
-										position: None,
-										stream: tg::process::stdio::Stream::Stderr,
-									},
-								);
-								Ok(Some((event, (handle, stderr))))
-							},
-						);
-						streams.push(stream.boxed());
-					},
-				}
-			}
-			let stream = futures::stream::select_all(streams).chain(stream::once(future::ok(
-				tg::process::stdio::read::Event::End,
-			)));
-			return Ok(Some(stream.boxed()));
-		}
-
-		let id = self.id().unwrap_right();
-		let Some(stream) = handle.try_read_process_stdio_all(id, arg).await? else {
-			return Ok(None);
-		};
-
-		Ok(Some(stream.boxed()))
-	}
-}
-
 impl TryFrom<Event> for tangram_http::sse::Event {
 	type Error = tg::Error;
 

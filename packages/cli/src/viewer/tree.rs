@@ -541,7 +541,7 @@ impl Tree {
 				.map(|child| child.blob.clone().into())
 				.collect(),
 		};
-		let metadata = get_object_metadata_as_value(client, blob.id()).await?;
+		let metadata = get_object_metadata_as_value(client, blob.clone()).await?;
 
 		blob.unload();
 		let client = client.clone();
@@ -626,7 +626,7 @@ impl Tree {
 		let value = tg::Value::Map(executable);
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let metadata = get_object_metadata_as_value(client, command.id()).await?;
+		let metadata = get_object_metadata_as_value(client, command.clone()).await?;
 		command.unload();
 
 		// Send the update.
@@ -825,7 +825,7 @@ impl Tree {
 			));
 		}
 
-		let metadata = get_object_metadata_as_value(client, error.id()).await?;
+		let metadata = get_object_metadata_as_value(client, error.clone()).await?;
 		error.unload();
 
 		// Send the update.
@@ -931,7 +931,7 @@ impl Tree {
 				},
 			},
 		};
-		let metadata = get_object_metadata_as_value(client, directory.id()).await?;
+		let metadata = get_object_metadata_as_value(client, directory.clone()).await?;
 		directory.unload();
 
 		// Send the update.
@@ -1049,7 +1049,7 @@ impl Tree {
 				children
 			},
 		};
-		let metadata = get_object_metadata_as_value(client, file.id()).await?;
+		let metadata = get_object_metadata_as_value(client, file.clone()).await?;
 		file.unload();
 
 		// Send the update.
@@ -1083,7 +1083,7 @@ impl Tree {
 	) -> tg::Result<()> {
 		// Get the graph nodes and metadata, then unload the object immediately.
 		let nodes = graph.nodes_with_handle(client).await?;
-		let metadata = get_object_metadata_as_value(client, graph.id()).await?;
+		let metadata = get_object_metadata_as_value(client, graph.clone()).await?;
 		graph.unload();
 
 		// Convert nodes to tg::Value::Maps
@@ -1437,7 +1437,11 @@ impl Tree {
 					specifier,
 					tokens,
 				} => {
-					let referent_tokens = tokens.clone();
+					let referent_options = tg::referent::Options {
+						location: location.clone(),
+						tokens: tokens.clone(),
+						..tg::referent::Options::default()
+					};
 					let group = tg::Group {
 						id,
 						location,
@@ -1446,10 +1450,7 @@ impl Tree {
 						specifier,
 						tokens,
 					};
-					Some(tg::Referent::with_node_and_tokens(
-						Item::Group(group),
-						referent_tokens,
-					))
+					Some(tg::Referent::new(Item::Group(group), referent_options))
 				},
 				tg::list::Entry::Tag {
 					id,
@@ -1460,16 +1461,20 @@ impl Tree {
 					specifier,
 					tokens,
 				} => {
-					let referent_tokens = tokens.clone();
+					let referent_options = tg::referent::Options {
+						location: location.clone(),
+						tokens: tokens.clone(),
+						..tg::referent::Options::default()
+					};
 					let target = match target {
-						tg::Either::Left(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
-						tg::Either::Right(id) => tg::tag::Target::Process(tg::Process::new(
-							id,
-							tg::process::Options {
-								location: location.clone().map(Into::into),
-								..tg::process::Options::default()
-							},
-						)),
+						tg::Either::Left(id) => {
+							let referent = tg::Referent::new(id, referent_options.clone());
+							tg::tag::Target::Object(tg::Object::with_referent(referent))
+						},
+						tg::Either::Right(id) => {
+							let referent = tg::Referent::new(id, referent_options.clone());
+							tg::tag::Target::Process(tg::Process::with_referent(referent))
+						},
 					};
 					let tag = tg::Tag {
 						id,
@@ -1481,10 +1486,7 @@ impl Tree {
 						specifier,
 						tokens,
 					};
-					Some(tg::Referent::with_node_and_tokens(
-						Item::Tag(tag),
-						referent_tokens,
-					))
+					Some(tg::Referent::new(Item::Tag(tag), referent_options))
 				},
 				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
 			})
@@ -1511,8 +1513,8 @@ impl Tree {
 		sandbox: &tg::Sandbox,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let arg = tg::sandbox::processes::get::Arg::default();
-		let processes = sandbox.processes_with_handle(client, arg).await?;
+		let options = tg::sandbox::processes::get::Options::default();
+		let processes = sandbox.processes_with_handle(client, options).await?;
 		let mut processes = pin!(processes);
 		while let Some(process) = processes.try_next().await? {
 			let guard = counter.guard();
@@ -1549,17 +1551,7 @@ impl Tree {
 			options,
 			None,
 		);
-		let stream = client
-			.resolve(&reference, tg::resolve::Arg::default())
-			.await?;
-		let mut stream = pin!(stream);
-		let mut output = None;
-		while let Some(event) = stream.try_next().await? {
-			if let tg::progress::Event::Output(referent) = event {
-				output.replace(referent);
-			}
-		}
-		let referent = output.ok_or_else(|| tg::error!("failed to resolve the tag"))?;
+		let referent = reference.resolve_with_handle(client).await?;
 		let tg::Referent {
 			node: item,
 			options,
@@ -1571,15 +1563,9 @@ impl Tree {
 				Item::Value(object.into())
 			},
 			tg::resolve::Node::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
-				let id: tg::process::Id = id.try_into()?;
-				let process = tg::Process::new(
-					id,
-					tg::process::Options {
-						location,
-						tokens: options.tokens.clone(),
-						..tg::process::Options::default()
-					},
-				);
+				let id = id.try_into()?;
+				let referent = tg::Referent::new(id, options.clone());
+				let process = tg::Process::with_referent(referent);
 				Item::Process(process)
 			},
 			tg::resolve::Node::Id(id) => {
@@ -1649,7 +1635,7 @@ impl Tree {
 
 		let command = process.command_with_handle(client).await?;
 		let value = tg::Value::Object(command.clone().into());
-		let metadata = get_process_metadata_as_value(client, process.id().unwrap_right()).await?;
+		let metadata = get_process_metadata_as_value(client, &process).await?;
 		update_sender
 			.send({
 				let client = client.clone();
@@ -1686,10 +1672,7 @@ impl Tree {
 			let guard = counter.guard();
 			async move {
 				let _guard = guard;
-				let Ok(wait) = process
-					.wait_with_handle(&client, tg::process::wait::Arg::default())
-					.await
-				else {
+				let Ok(wait) = process.wait_with_handle(&client).await else {
 					return;
 				};
 				if let Some(output) = wait.output {
@@ -1709,9 +1692,8 @@ impl Tree {
 		});
 
 		// Create the children stream.
-		let mut children = process
-			.children_with_handle(client, tg::process::children::get::Arg::default())
-			.await?;
+		let options = tg::process::children::get::Options::default();
+		let mut children = process.children_with_handle(client, options).await?;
 		let referent_module = command
 			.object_with_handle(client)
 			.await?
@@ -1753,7 +1735,7 @@ impl Tree {
 			// Check the status of the process.
 			let finished = child
 				.node
-				.status_with_handle(client)
+				.status_with_handle(client, tg::process::status::Options::default())
 				.await?
 				.try_next()
 				.await?
@@ -1839,7 +1821,7 @@ impl Tree {
 				children
 			},
 		};
-		let metadata = get_object_metadata_as_value(client, symlink.id()).await?;
+		let metadata = get_object_metadata_as_value(client, symlink.clone()).await?;
 		symlink.unload();
 
 		// Send the update.
@@ -2294,12 +2276,12 @@ impl Tree {
 		streams: Vec<tg::process::stdio::Stream>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let arg = tg::process::stdio::read::Arg {
+		let options = tg::process::stdio::read::Options {
 			streams,
 			..Default::default()
 		};
 		let mut log = process
-			.try_read_stdio_all(client, arg)
+			.try_read_stdio_with_handle(client, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process log"))?;
 		let mut line = Vec::new();
@@ -2482,7 +2464,10 @@ impl Tree {
 		}
 
 		// Create the status stream.
-		let mut status = process.node.status_with_handle(client).await?;
+		let mut status = process
+			.node
+			.status_with_handle(client, tg::process::status::Options::default())
+			.await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
 			let indicator = match (process.node.cached(), status) {
@@ -2536,14 +2521,10 @@ impl Tree {
 		}
 
 		// Check if the process was canceled.
-		let arg = tg::process::get::Arg {
-			location: process.node.location(),
-			metadata: false,
-			stored: false,
-			tokens: process.node.tokens(),
-		};
-		if client
-			.try_get_process(process.node.id().unwrap_right(), arg)
+		let options = tg::process::get::Options::default();
+		if process
+			.node
+			.try_get_with_handle(client, options)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2757,14 +2738,12 @@ impl Tree {
 								serde_json::to_string_pretty(&organization).unwrap()
 							},
 							Item::Process(process) => {
-								let arg = tg::process::get::Arg {
-									location: process.location(),
+								let options = tg::process::get::Options {
 									metadata: true,
 									stored: false,
-									tokens: process.tokens(),
 								};
-								client
-									.try_get_process(process.id().unwrap_right(), arg)
+								process
+									.try_get_with_handle(&client, options)
 									.await
 									.and_then(|output| {
 										let output = output.ok_or_else(|| {
@@ -2809,7 +2788,7 @@ impl Tree {
 									tg::Value::Object(object) => {
 										object.load_with_handle(&client).await.ok();
 										let metadata =
-											get_object_metadata_as_value(&client, object.id())
+											get_object_metadata_as_value(&client, object.clone())
 												.await
 												.unwrap_or_else(|error| {
 													tg::Value::String(error.to_string())
@@ -3076,12 +3055,9 @@ fn extend_process_log_line(line: &mut Vec<u8>, segment: &[u8]) {
 
 async fn get_process_metadata_as_value(
 	client: &impl tg::Handle,
-	id: &tg::process::Id,
+	process: &tg::Process,
 ) -> tg::Result<tg::Value> {
-	let Some(metadata) = client
-		.try_get_process_metadata(id, tg::process::metadata::Arg::default())
-		.await?
-	else {
+	let Some(metadata) = process.try_get_metadata_with_handle(client).await? else {
 		return Ok(tg::Value::Null);
 	};
 	let node = [
@@ -3120,12 +3096,10 @@ async fn get_process_metadata_as_value(
 
 async fn get_object_metadata_as_value(
 	client: &impl tg::Handle,
-	id: impl Into<tg::object::Id>,
+	object: impl Into<tg::Object>,
 ) -> tg::Result<tg::Value> {
-	let Some(metadata) = client
-		.try_get_object_metadata(&id.into(), tg::object::metadata::Arg::default())
-		.await?
-	else {
+	let object = object.into();
+	let Some(metadata) = object.try_get_metadata_with_handle(client).await? else {
 		return Ok(tg::Value::Null);
 	};
 	let node = [

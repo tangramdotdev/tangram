@@ -29,7 +29,8 @@ let denied = tg --token $eve.token get $process | complete
 failure $denied "an outsider must not read a process owned by a group"
 snapshot --normalize-ids $denied.stderr '
 	error an error occurred
-	-> failed to find the process
+	-> failed to get the process
 	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
 
 '

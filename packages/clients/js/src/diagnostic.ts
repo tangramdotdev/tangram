@@ -55,12 +55,14 @@ export namespace Diagnostic {
 			}
 		};
 
-		export let withoutTokens = (
+		export let withoutLocationAndTokens = (
 			data: tg.Diagnostic.Data,
 		): tg.Diagnostic.Data => {
 			let output = { ...data };
 			if (data.location !== undefined && data.location !== null) {
-				output.location = tg.Module.Location.Data.withoutTokens(data.location);
+				output.location = tg.Module.Location.Data.withoutLocationAndTokens(
+					data.location,
+				);
 			}
 			return output;
 		};

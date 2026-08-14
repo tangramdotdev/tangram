@@ -38,6 +38,7 @@ impl Object {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let object = Self::with_id(referent.node);
+		object.state().set_location(referent.options.location);
 		object.state().set_tokens(referent.options.tokens);
 
 		object
@@ -86,6 +87,10 @@ impl Object {
 		self.state().inherit_tokens(tokens);
 	}
 
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		self.state().inherit_location(location);
+	}
+
 	#[must_use]
 	pub fn id(&self) -> Id {
 		match self {
@@ -96,6 +101,19 @@ impl Object {
 			Self::Graph(object) => Id::Graph(object.id()),
 			Self::Command(object) => Id::Command(object.id()),
 			Self::Error(object) => Id::Error(object.id()),
+		}
+	}
+
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		match self {
+			Self::Blob(object) => object.to_referent().map(Into::into),
+			Self::Command(object) => object.to_referent().map(Into::into),
+			Self::Directory(object) => object.to_referent().map(Into::into),
+			Self::Error(object) => object.to_referent().map(Into::into),
+			Self::File(object) => object.to_referent().map(Into::into),
+			Self::Graph(object) => object.to_referent().map(Into::into),
+			Self::Symlink(object) => object.to_referent().map(Into::into),
 		}
 	}
 
@@ -265,7 +283,9 @@ impl Object {
 		let object = self.load_with_arg_with_handle(handle, arg).await?;
 		let children = object.children();
 		let tokens = self.state().tokens();
+		let location = self.state().location();
 		for child in &children {
+			child.inherit_location(location.as_ref());
 			child.inherit_tokens(&tokens);
 		}
 

@@ -15,8 +15,8 @@ use {
 	PartialEq,
 	derive_more::Display,
 	derive_more::IsVariant,
-	derive_more::Unwrap,
 	derive_more::TryUnwrap,
+	derive_more::Unwrap,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
@@ -44,8 +44,49 @@ pub struct Arg {
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Event {
-	Status(Status),
 	End,
+	Status(Status),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub timeout: Option<Duration>,
+}
+
+impl tg::Sandbox {
+	pub async fn wait(
+		&self,
+		options: tg::sandbox::status::Options,
+	) -> tg::Result<tg::sandbox::Status> {
+		let handle = tg::handle()?;
+		self.wait_with_handle(handle, options).await
+	}
+
+	pub async fn wait_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::sandbox::status::Options,
+	) -> tg::Result<tg::sandbox::Status>
+	where
+		H: tg::Handle,
+	{
+		use tg::handle::Ext as _;
+
+		let arg = tg::sandbox::status::Arg {
+			location: self.location(),
+			timeout: options.timeout,
+		};
+		let stream = handle.get_sandbox_status(self.id(), arg).await?;
+		let stream = std::pin::pin!(stream);
+		let status = stream
+			.try_filter(|status| futures::future::ready(status.is_destroyed()))
+			.try_next()
+			.await?
+			.ok_or_else(|| tg::error!("the sandbox status stream ended before it was destroyed"))?;
+		self.detach();
+
+		Ok(status)
+	}
 }
 
 impl tg::Session {

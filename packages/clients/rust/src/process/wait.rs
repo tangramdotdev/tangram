@@ -54,6 +54,64 @@ pub struct Wait {
 
 struct Error;
 
+impl<O> tg::Process<O> {
+	pub async fn wait(&self) -> tg::Result<tg::process::Wait> {
+		let handle = tg::handle()?;
+		self.wait_with_handle(handle).await
+	}
+
+	pub async fn wait_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Wait>
+	where
+		H: tg::Handle,
+	{
+		if let Some(task) = self.stdio_task.as_ref() {
+			task.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
+		}
+		if let Some(task) = &self.task {
+			let output = task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the task panicked"))??;
+			let wait: tg::process::Wait = output.try_into()?;
+			let location = self.location().and_then(|location| location.to_location());
+			wait.inherit_location(location.as_ref());
+			let tokens = self.tokens();
+			wait.inherit_tokens(&tokens);
+			self.detach();
+			return Ok(wait);
+		}
+		if let Some(wait) = self.wait.lock().unwrap().take() {
+			let location = self.location().and_then(|location| location.to_location());
+			wait.inherit_location(location.as_ref());
+			let tokens = self.tokens();
+			wait.inherit_tokens(&tokens);
+			self.detach();
+			return Ok(wait);
+		}
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"waiting for an unsandboxed process is not supported"
+			));
+		};
+		let location = self.location();
+		let arg = tg::process::wait::Arg {
+			lease: self.lease().cloned(),
+			location: location.clone(),
+			tokens: self.tokens(),
+		};
+		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
+		let location = location.and_then(|location| location.to_location());
+		wait.inherit_location(location.as_ref());
+		let tokens = self.tokens();
+		wait.inherit_tokens(&tokens);
+		self.detach();
+
+		Ok(wait)
+	}
+}
+
 impl tg::Session {
 	pub async fn try_wait_process_future(
 		&self,
@@ -127,6 +185,15 @@ impl tg::Session {
 }
 
 impl Wait {
+	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		if let Some(error) = &self.error {
+			error.state().inherit_location(location);
+		}
+		if let Some(output) = &self.output {
+			output.inherit_location(location);
+		}
+	}
+
 	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		if let Some(error) = &self.error {
 			error.state().inherit_tokens(tokens);
@@ -177,11 +244,10 @@ impl Wait {
 	#[must_use]
 	pub fn to_data(&self) -> Output {
 		Output {
-			error: self.error.as_ref().map(|error| {
-				error
-					.to_data_or_id()
-					.map_right(|id| tg::Referent::with_node_and_tokens(id, error.state().tokens()))
-			}),
+			error: self
+				.error
+				.as_ref()
+				.map(|error| error.to_data_or_id().map_right(|_| error.to_referent())),
 			exit: self.exit,
 			output: self.output.as_ref().map(tg::Value::to_data),
 		}

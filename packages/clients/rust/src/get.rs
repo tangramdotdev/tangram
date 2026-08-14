@@ -1,6 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	std::pin::pin,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false},
@@ -24,9 +26,6 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::Location>,
-
 	pub referent: tg::Referent<tg::get::Node>,
 }
 
@@ -71,16 +70,67 @@ impl Node {
 
 impl tg::Referent<Node> {
 	pub fn into_graph_edge(self) -> tg::Result<tg::Referent<tg::graph::Edge<tg::Object>>> {
+		let location = self.options.location.clone();
 		let tokens = self.options.tokens.clone();
 		let referent = self.try_map(Node::to_graph_edge)?;
 		match &referent.node {
-			tg::graph::Edge::Object(object) => object.inherit_tokens(&tokens),
+			tg::graph::Edge::Object(object) => {
+				object.inherit_location(location.as_ref());
+				object.inherit_tokens(&tokens);
+			},
 			tg::graph::Edge::Pointer(pointer) => {
 				if let Some(graph) = &pointer.graph {
+					graph.state().inherit_location(location.as_ref());
 					graph.state().inherit_tokens(&tokens);
 				}
 			},
 		}
+
+		Ok(referent)
+	}
+}
+
+impl tg::Reference {
+	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Node>> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle).await
+	}
+
+	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Node>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the reference"))
+	}
+
+	pub async fn try_get(&self) -> tg::Result<Option<tg::Referent<tg::get::Node>>> {
+		let handle = tg::handle()?;
+		self.try_get_with_handle(handle).await
+	}
+
+	pub async fn try_get_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::Referent<tg::get::Node>>>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::get::Arg::default();
+		let stream = handle
+			.try_get(self, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the reference stream"))?;
+		let stream = pin!(stream);
+		let Some(event) = stream.try_last().await? else {
+			return Ok(None);
+		};
+		let output = event
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?;
+		let referent = output.map(|output| output.referent);
 
 		Ok(referent)
 	}

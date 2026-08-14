@@ -76,7 +76,6 @@ impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let checkout = args.options.checkout.is_some();
 		let detach = args.options.detach;
-		let location = args.options.spawn.location.get();
 		let print = args.options.print.clone();
 		let verbose = args.options.verbose;
 
@@ -93,13 +92,7 @@ impl Cli {
 		} else if checkout {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
-			let arg = tg::object::get::Arg {
-				location,
-				metadata: false,
-				stored: false,
-				tokens: tg::authorization::Tokens::default(),
-			};
-			self.print_value(&output, print, arg).await?;
+			self.print_value(&output, print).await?;
 		}
 
 		Ok(())
@@ -226,9 +219,10 @@ impl Cli {
 				|_| async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
+						let options = tg::process::cancel::Options::default();
 						process
 							.node()
-							.cancel_with_handle(&client)
+							.cancel_with_handle(&client, options)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(?error, "failed to cancel the process");
@@ -244,13 +238,9 @@ impl Cli {
 		};
 
 		// Await the process.
-		let arg = tg::process::wait::Arg {
-			lease: process.node().lease().cloned(),
-			..tg::process::wait::Arg::default()
-		};
 		let wait = process
 			.node()
-			.wait_with_handle(&client, arg)
+			.wait_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
 
@@ -291,7 +281,7 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
-			let tokens = error.state().tokens();
+			let error_options = error.to_referent().options;
 			let error = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -304,7 +294,8 @@ impl Cli {
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
 			let mut source = process.clone().map(|_| error);
-			source.options.tokens = tokens;
+			source.options.location = error_options.location;
+			source.options.tokens = error_options.tokens;
 			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
 				source: Some(source),
@@ -341,22 +332,23 @@ impl Cli {
 			} else {
 				None
 			};
-			let artifact =
-				tg::Referent::with_node_and_tokens(artifact.id(), artifact.state().tokens());
-			let arg = tg::checkout::Arg {
-				artifact: artifact.clone(),
+			let id = artifact.id();
+			let options = tg::checkout::Options {
 				dependencies: path.is_some(),
 				extension: None,
 				force: options.checkout_force,
 				lock: None,
 				path,
 			};
-			let stream = client.checkout(arg).await.map_err(
-				|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
-			)?;
+			let stream = artifact
+				.checkout_with_handle(&client, options)
+				.await
+				.map_err(
+					|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
+				)?;
 			let tg::checkout::Output { path, .. } =
 				self.render_progress_stream(stream).await.map_err(
-					|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
+					|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
 				)?;
 			let value = path.display().to_string().into();
 			return Ok(value);

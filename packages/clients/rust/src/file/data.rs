@@ -64,9 +64,9 @@ impl File {
 	}
 
 	#[must_use]
-	pub fn without_tokens(self) -> Self {
+	pub fn without_location_and_tokens(self) -> Self {
 		match self {
-			Self::Node(node) => Self::Node(node.without_tokens()),
+			Self::Node(node) => Self::Node(node.without_location_and_tokens()),
 			Self::Pointer(pointer) => Self::Pointer(pointer),
 		}
 	}

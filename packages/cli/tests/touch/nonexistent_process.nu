@@ -10,6 +10,6 @@ snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to touch the process
 	   id = pcs_010000000000000000000000000000000000000000000000000000
-	-> failed to find the process
+	-> failed to touch the process
 
 '

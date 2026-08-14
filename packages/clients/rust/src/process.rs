@@ -66,7 +66,6 @@ pub struct Inner {
 	id: tg::Either<u32, Id>,
 	lease: Option<String>,
 	location: Arc<RwLock<Option<tg::location::Arg>>>,
-	metadata: RwLock<Option<Arc<Metadata>>>,
 	owned: AtomicBool,
 	state: RwLock<Option<Arc<State>>>,
 	stderr: tg::process::stdio::Reader,
@@ -85,7 +84,6 @@ pub struct Options {
 	pub cached: Option<bool>,
 	pub lease: Option<String>,
 	pub location: Option<tg::location::Arg>,
-	pub metadata: Option<Metadata>,
 	pub state: Option<State>,
 	pub tokens: tg::authorization::Tokens,
 }
@@ -153,6 +151,7 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn with_referent(referent: tg::Referent<Id>) -> Self {
 		let options = tg::process::Options {
+			location: referent.options.location.map(Into::into),
 			tokens: referent.options.tokens,
 			..Default::default()
 		};
@@ -166,12 +165,10 @@ impl<O> Process<O> {
 			cached,
 			lease,
 			location,
-			metadata,
 			state,
 			tokens,
 		} = options;
 		let location = Arc::new(RwLock::new(location));
-		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
 		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);
 		let stdin = tg::process::stdio::Writer::from_process(tg::process::stdio::Stream::Stdin);
@@ -182,7 +179,6 @@ impl<O> Process<O> {
 			id: tg::Either::Right(id),
 			lease,
 			location: location.clone(),
-			metadata,
 			owned: AtomicBool::new(false),
 			state,
 			stderr,
@@ -251,11 +247,6 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn metadata(&self) -> &RwLock<Option<Arc<Metadata>>> {
-		&self.metadata
-	}
-
-	#[must_use]
 	pub fn lease(&self) -> Option<&String> {
 		self.lease.as_ref()
 	}
@@ -317,6 +308,10 @@ impl<O> Process<O> {
 		H: tg::Handle,
 	{
 		if let Some(state) = self.state.read().unwrap().clone() {
+			let location = self.location().and_then(|location| location.to_location());
+			state.inherit_location(location.as_ref());
+			let tokens = self.tokens();
+			state.inherit_tokens(&tokens);
 			return Ok(Some(state));
 		}
 		let Some(id) = self.id().right() else {
@@ -336,11 +331,14 @@ impl<O> Process<O> {
 		if !output.tokens.is_empty() {
 			*self.tokens.write().unwrap() = output.tokens;
 		}
-		if let Some(location) = output.location {
-			self.location.write().unwrap().replace(location.into());
+		let location = output.location;
+		if let Some(location) = &location {
+			self.location
+				.write()
+				.unwrap()
+				.replace(location.clone().into());
 		}
 		let state = tg::process::State::try_from(output.data)?;
-		let location = self.location();
 		state.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		state.inherit_tokens(&tokens);
@@ -421,63 +419,6 @@ impl<O> Process<O> {
 		Ok(())
 	}
 
-	pub async fn wait(&self, arg: tg::process::wait::Arg) -> tg::Result<tg::process::Wait> {
-		let handle = tg::handle()?;
-		self.wait_with_handle(handle, arg).await
-	}
-
-	pub async fn wait_with_handle<H>(
-		&self,
-		handle: &H,
-		mut arg: tg::process::wait::Arg,
-	) -> tg::Result<tg::process::Wait>
-	where
-		H: tg::Handle,
-	{
-		if let Some(task) = self.stdio_task.as_ref() {
-			task.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-		}
-		if let Some(task) = &self.task {
-			let output = task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the task panicked"))??;
-			let wait: tg::process::Wait = output.try_into()?;
-			let tokens = self.tokens();
-			wait.inherit_tokens(&tokens);
-			self.detach();
-			return Ok(wait);
-		}
-		if let Some(wait) = self.wait.lock().unwrap().take() {
-			let tokens = self.tokens();
-			wait.inherit_tokens(&tokens);
-			self.detach();
-			return Ok(wait);
-		}
-		if arg.location.is_none() {
-			arg.location = self.location();
-		}
-		if arg.lease.is_none() {
-			arg.lease = self.lease().cloned();
-		}
-		if arg.tokens.is_empty() {
-			arg.tokens = self.tokens();
-		}
-		let Some(id) = self.id().right() else {
-			return Err(tg::error!(
-				"waiting for an unsandboxed process is not supported"
-			));
-		};
-		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
-		let tokens = self.tokens();
-		wait.inherit_tokens(&tokens);
-		self.detach();
-
-		Ok(wait)
-	}
-
 	pub async fn output(&self) -> tg::Result<O>
 	where
 		O: TryFrom<tg::Value>,
@@ -493,12 +434,7 @@ impl<O> Process<O> {
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let arg = tg::process::wait::Arg {
-			lease: self.lease().cloned(),
-			location: self.location(),
-			tokens: self.tokens(),
-		};
-		let wait = self.wait_with_handle(handle, arg).await?;
+		let wait = self.wait_with_handle(handle).await?;
 		let output = wait.into_output()?;
 		let tokens = self.tokens();
 		output.inherit_tokens(&tokens);

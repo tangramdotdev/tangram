@@ -1,6 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	std::pin::pin,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false},
@@ -24,13 +26,59 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::Location>,
-
 	pub referent: tg::Referent<tg::resolve::Node>,
 }
 
 pub type Node = tg::get::Node;
+
+impl tg::Reference {
+	pub async fn resolve(&self) -> tg::Result<tg::Referent<tg::resolve::Node>> {
+		let handle = tg::handle()?;
+		self.resolve_with_handle(handle).await
+	}
+
+	pub async fn resolve_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<tg::Referent<tg::resolve::Node>>
+	where
+		H: tg::Handle,
+	{
+		self.try_resolve_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to resolve the reference"))
+	}
+
+	pub async fn try_resolve(&self) -> tg::Result<Option<tg::Referent<tg::resolve::Node>>> {
+		let handle = tg::handle()?;
+		self.try_resolve_with_handle(handle).await
+	}
+
+	pub async fn try_resolve_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::Referent<tg::resolve::Node>>>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::resolve::Arg::default();
+		let stream = handle
+			.try_resolve(self, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the resolve stream"))?;
+		let stream = pin!(stream);
+		let Some(event) = stream.try_last().await? else {
+			return Ok(None);
+		};
+		let output = event
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?;
+		let referent = output.map(|output| output.referent);
+
+		Ok(referent)
+	}
+}
 
 impl tg::Session {
 	pub async fn try_resolve(

@@ -8,7 +8,8 @@ let output = tg object metadata fil_01000000000000000000000000000000000000000000
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to find the object metadata
+	-> failed to get the object metadata
 	   id = fil_010000000000000000000000000000000000000000000000000000
+	-> failed to get the object metadata
 
 '

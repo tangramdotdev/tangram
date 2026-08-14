@@ -36,6 +36,7 @@ export class Symlink {
 	/** Get a symlink with a referent. */
 	static withReferent(referent: tg.Referent<tg.Symlink.Id>): tg.Symlink {
 		let symlink = tg.Symlink.withId(referent.node);
+		symlink.state.location = referent.options?.location ?? null;
 		symlink.state.tokens = referent.options?.tokens ?? {};
 		return symlink;
 	}
@@ -215,6 +216,7 @@ export class Symlink {
 				}
 			}
 			if (artifact !== null) {
+				tg.Object.inheritLocation(artifact, this.#state.location);
 				tg.Object.inheritTokens(artifact, this.#state.tokens);
 			}
 			return artifact;

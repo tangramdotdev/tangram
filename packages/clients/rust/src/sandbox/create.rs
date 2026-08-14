@@ -45,6 +45,46 @@ pub struct Output {
 	pub id: tg::sandbox::Id,
 }
 
+impl tg::Sandbox {
+	pub async fn create() -> tg::Result<Self> {
+		Self::builder().build().await
+	}
+
+	pub async fn create_with_handle<H>(handle: &H) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
+		Self::builder().build_with_handle(handle).await
+	}
+
+	pub async fn create_with_arg(arg: tg::sandbox::create::Arg) -> tg::Result<Self> {
+		let handle = tg::handle()?;
+		Self::create_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn create_with_arg_with_handle<H>(
+		handle: &H,
+		mut arg: tg::sandbox::create::Arg,
+	) -> tg::Result<Self>
+	where
+		H: tg::Handle,
+	{
+		arg.host
+			.get_or_insert_with(|| tg::host::current().to_owned());
+		let location = arg.location.clone();
+		let output = handle.create_sandbox(arg).await?;
+		let handle = tg::handle::dynamic::Handle::new(handle.clone());
+		let options = tg::sandbox::Options {
+			location,
+			state: None,
+			tokens: tg::authorization::Tokens::default(),
+		};
+		let sandbox = Self::new_inner(output.id, options, Some(handle));
+
+		Ok(sandbox)
+	}
+}
+
 impl tg::Session {
 	pub async fn create_sandbox(
 		&self,

@@ -124,12 +124,16 @@ impl Command {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.args = self.args.into_iter().map(Value::without_tokens).collect();
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.args = self
+			.args
+			.into_iter()
+			.map(Value::without_location_and_tokens)
+			.collect();
 		self.env = self
 			.env
 			.into_iter()
-			.map(|(key, value)| (key, value.without_tokens()))
+			.map(|(key, value)| (key, value.without_location_and_tokens()))
 			.collect();
 
 		self
@@ -144,10 +148,10 @@ impl Value {
 	}
 
 	#[must_use]
-	pub fn without_tokens(self) -> Self {
+	pub fn without_location_and_tokens(self) -> Self {
 		match self {
-			Self::String(value) => Self::String(value.without_tokens()),
-			Self::Value(value) => Self::Value(value.without_tokens()),
+			Self::String(value) => Self::String(value.without_location_and_tokens()),
+			Self::Value(value) => Self::Value(value.without_location_and_tokens()),
 		}
 	}
 }

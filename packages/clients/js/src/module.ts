@@ -94,9 +94,7 @@ export namespace Module {
 			value.referent.options?.location !== undefined &&
 			value.referent.options.location !== null
 		) {
-			let location = tg.Location.Arg.toDataString(
-				value.referent.options.location,
-			);
+			let location = tg.Location.toDataString(value.referent.options.location);
 			params.push(`location=${encodeURIComponent(location)}`);
 		}
 		if (
@@ -160,7 +158,7 @@ export namespace Module {
 						break;
 					}
 					case "location": {
-						options.location = tg.Location.Arg.fromDataString(
+						options.location = tg.Location.fromDataString(
 							decodeURIComponent(value),
 						);
 						break;
@@ -205,11 +203,18 @@ export namespace Module {
 	};
 
 	export let children = (value: Module): Array<tg.Object> => {
-		if (typeof value.referent.node !== "string") {
-			return tg.Graph.Edge.children(value.referent.node);
-		} else {
-			return [];
+		let children =
+			typeof value.referent.node !== "string"
+				? tg.Graph.Edge.children(value.referent.node)
+				: [];
+		for (let child of children) {
+			tg.Object.inheritLocation(
+				child,
+				value.referent.options?.location ?? null,
+			);
+			tg.Object.inheritTokens(child, value.referent.options?.tokens ?? {});
 		}
+		return children;
 	};
 
 	export let withoutToken = (value: tg.Module): tg.Module => {
@@ -237,7 +242,9 @@ export namespace Module {
 			return tg.Graph.Data.Edge.children(source);
 		};
 
-		export let withoutTokens = (data: tg.Module.Data): tg.Module.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Module.Data,
+		): tg.Module.Data => {
 			if (typeof data.referent === "string") {
 				let referent = tg.Referent.fromDataString(
 					data.referent,
@@ -246,7 +253,7 @@ export namespace Module {
 				return {
 					...data,
 					referent: tg.Referent.toDataString(
-						tg.Referent.withoutToken(referent),
+						tg.Referent.withoutLocationAndTokens(referent),
 						(source) => source,
 					),
 				};
@@ -255,7 +262,7 @@ export namespace Module {
 			return {
 				...data,
 				referent: tg.Referent.toData(
-					tg.Referent.withoutToken(referent),
+					tg.Referent.withoutLocationAndTokens(referent),
 					(source) => source,
 				),
 			};
@@ -302,12 +309,12 @@ export namespace Module {
 				return tg.Module.Data.children(data.module);
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Module.Location.Data,
 			): tg.Module.Location.Data => {
 				return {
 					...data,
-					module: tg.Module.Data.withoutTokens(data.module),
+					module: tg.Module.Data.withoutLocationAndTokens(data.module),
 				};
 			};
 		}

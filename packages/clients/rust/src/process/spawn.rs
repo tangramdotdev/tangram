@@ -151,6 +151,9 @@ where
 				command_arg_.replace(command);
 			},
 			tg::Either::Right(command) => {
+				if options.location.is_none() {
+					options.location = command.state().location();
+				}
 				if options.tokens.is_empty() {
 					options.tokens = command.state().tokens();
 				}
@@ -469,6 +472,7 @@ impl<O: 'static> tg::Process<O> {
 							.store_with_handle(&handle)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+						arg.command.options.location = command.state().location();
 						arg.command.options.tokens = command.state().tokens();
 					}
 				},
@@ -536,7 +540,6 @@ impl<O: 'static> tg::Process<O> {
 			id: tg::Either::Right(id),
 			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
-			metadata: RwLock::new(None),
 			owned,
 			state: RwLock::new(None),
 			stderr,
@@ -717,7 +720,6 @@ impl<O: 'static> tg::Process<O> {
 			id: tg::Either::Left(pid),
 			lease: None,
 			location: Arc::new(RwLock::new(None)),
-			metadata: RwLock::new(None),
 			owned: std::sync::atomic::AtomicBool::new(true),
 			state: RwLock::new(None),
 			stderr,
@@ -792,9 +794,7 @@ impl<O: 'static> tg::Process<O> {
 						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 					tg::Error::with_referent(referent)
 				};
-				output.error = Some(error.to_data_or_id().map_right(|id| {
-					tg::Referent::with_node_and_tokens(id, error.state().tokens())
-				}));
+				output.error = Some(error.to_data_or_id().map_right(|_| error.to_referent()));
 			}
 		}
 

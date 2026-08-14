@@ -297,6 +297,12 @@ impl Dependency {
 			let id = format!("id={id}");
 			query.push(id);
 		}
+		if let Some(location) = &self.0.options.location {
+			let location = location.to_string();
+			let location = tangram_uri::encode_query_value(&location);
+			let location = format!("location={location}");
+			query.push(location);
+		}
 		if let Some(name) = &self.0.options.name {
 			let name = tangram_uri::encode_query_value(name);
 			let name = format!("name={name}");
@@ -352,6 +358,13 @@ impl Dependency {
 									.map_err(|_| tg::error!("failed to parse the id"))?,
 							);
 						},
+						"location" => {
+							options.location.replace(
+								value
+									.parse()
+									.map_err(|_| tg::error!("failed to parse the location"))?,
+							);
+						},
 						"name" => {
 							options.name.replace(value.into_owned());
 						},
@@ -374,8 +387,8 @@ impl Dependency {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.0.options.tokens.clear();
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.0.options.clear_location_and_tokens();
 
 		self
 	}
@@ -383,8 +396,12 @@ impl Dependency {
 
 impl Graph {
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.nodes = self.nodes.into_iter().map(Node::without_tokens).collect();
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.nodes = self
+			.nodes
+			.into_iter()
+			.map(Node::without_location_and_tokens)
+			.collect();
 
 		self
 	}
@@ -392,9 +409,9 @@ impl Graph {
 
 impl Node {
 	#[must_use]
-	pub fn without_tokens(self) -> Self {
+	pub fn without_location_and_tokens(self) -> Self {
 		match self {
-			Self::File(file) => Self::File(file.without_tokens()),
+			Self::File(file) => Self::File(file.without_location_and_tokens()),
 			value @ (Self::Directory(_) | Self::Symlink(_)) => value,
 		}
 	}
@@ -402,14 +419,14 @@ impl Node {
 
 impl File {
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.dependencies = self
 			.dependencies
 			.into_iter()
 			.map(|(reference, dependency)| {
 				(
 					reference.without_tokens(),
-					dependency.map(Dependency::without_tokens),
+					dependency.map(Dependency::without_location_and_tokens),
 				)
 			})
 			.collect();

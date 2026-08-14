@@ -29,7 +29,7 @@ impl Session {
 				region,
 			}) => self.put_object_remote(id, arg, remote, region).await?,
 		};
-		self.update_tokens_for_location(&mut output.object.options.tokens, &location)?;
+		self.update_referent_options_for_location(&mut output.object.options, &location)?;
 
 		Ok(output)
 	}

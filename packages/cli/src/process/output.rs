@@ -11,23 +11,17 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub process: tg::Reference,
+	pub reference: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let locations = args.locations.get();
-		let process = self.resolve_process(&args.process).await?;
-		let id = process.node;
-		let process = tg::Process::<tg::Value>::new(
-			id.clone(),
-			tg::process::Options {
-				location: locations,
-				tokens: process.options.tokens,
-				..Default::default()
-			},
-		);
+		let process = self
+			.resolve_process_with_locations(&args.reference, &args.locations)
+			.await?;
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
 		let output = process
 			.output_with_handle(&client)
 			.await
