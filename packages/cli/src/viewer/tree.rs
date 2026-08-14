@@ -1749,7 +1749,7 @@ impl Tree {
 			// Check the status of the process.
 			let finished = child
 				.node
-				.status_with_handle(client)
+				.status_with_handle(client, tg::process::status::Options::default())
 				.await?
 				.try_next()
 				.await?
@@ -2478,7 +2478,10 @@ impl Tree {
 		}
 
 		// Create the status stream.
-		let mut status = process.node.status_with_handle(client).await?;
+		let mut status = process
+			.node
+			.status_with_handle(client, tg::process::status::Options::default())
+			.await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
 			let indicator = match (process.node.cached(), status) {

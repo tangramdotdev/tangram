@@ -46,15 +46,13 @@ impl Cli {
 		let process = self
 			.resolve_process_with_locations(&args.process, &args.locations)
 			.await?;
-		let location = process.options.location.clone().map(Into::into);
-		let id = process.node;
-		let arg = tg::process::status::Arg {
-			location,
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		let options = tg::process::status::Options {
 			timeout: args.timeout.get(),
-			tokens: process.options.tokens,
 		};
-		let stream = client
-			.get_process_status(&id, arg)
+		let stream = process
+			.status_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process status"))?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;

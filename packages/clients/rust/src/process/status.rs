@@ -49,47 +49,56 @@ pub struct Arg {
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Event {
-	Status(Status),
 	End,
+	Status(Status),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub timeout: Option<Duration>,
 }
 
 impl<O> tg::Process<O> {
 	pub async fn status(
 		&self,
+		options: tg::process::status::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static> {
 		let handle = tg::handle()?;
-		self.status_with_handle(handle).await
+		self.status_with_handle(handle, options).await
 	}
 
 	pub async fn status_with_handle<H>(
 		&self,
 		handle: &H,
+		options: tg::process::status::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_status_with_handle(handle)
+		self.try_get_status_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
 	pub async fn try_get_status(
 		&self,
+		options: tg::process::status::Options,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>> {
 		let handle = tg::handle()?;
-		self.try_get_status_with_handle(handle).await
+		self.try_get_status_with_handle(handle, options).await
 	}
 
 	pub async fn try_get_status_with_handle<H>(
 		&self,
 		handle: &H,
+		options: tg::process::status::Options,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>>
 	where
 		H: tg::Handle,
 	{
 		let arg = tg::process::status::Arg {
 			location: self.location(),
-			timeout: None,
+			timeout: options.timeout,
 			tokens: self.tokens(),
 		};
 		let Some(id) = self.id().right() else {
