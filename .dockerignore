@@ -9,6 +9,4 @@ packages/typescript/dist
 release
 node_modules
 target
-
-# Docker applies the last matching pattern, so the negations must follow the exclusions above.
 !target/release/tangram
