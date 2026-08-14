@@ -44,21 +44,39 @@ impl tg::Reference {
 	where
 		H: tg::Handle,
 	{
+		self.try_resolve_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to resolve the reference"))
+	}
+
+	pub async fn try_resolve(&self) -> tg::Result<Option<tg::Referent<tg::resolve::Node>>> {
+		let handle = tg::handle()?;
+		self.try_resolve_with_handle(handle).await
+	}
+
+	pub async fn try_resolve_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::Referent<tg::resolve::Node>>>
+	where
+		H: tg::Handle,
+	{
 		let arg = tg::resolve::Arg::default();
 		let stream = handle
-			.resolve(self, arg)
+			.try_resolve(self, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the resolve stream"))?;
 		let stream = pin!(stream);
-		let output = stream
-			.try_last()
-			.await?
-			.ok_or_else(|| tg::error!("expected an event"))?
+		let Some(event) = stream.try_last().await? else {
+			return Ok(None);
+		};
+		let output = event
 			.try_unwrap_output()
 			.ok()
 			.ok_or_else(|| tg::error!("expected the output"))?;
+		let referent = output.map(|output| output.referent);
 
-		Ok(output)
+		Ok(referent)
 	}
 }
 

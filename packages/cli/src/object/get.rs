@@ -108,7 +108,7 @@ impl Cli {
 			self.print_info_message(&stored);
 		}
 		let value = tg::Value::Object(object);
-		self.print_value(&value, options.print, None).await?;
+		self.print_value(&value, options.print).await?;
 		Ok(())
 	}
 }

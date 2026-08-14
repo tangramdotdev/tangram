@@ -14,7 +14,6 @@ impl Cli {
 		options: &Options,
 		output: tg::Value,
 	) -> tg::Result<()> {
-		let location = options.spawn.location.get();
 		if options.detach && !options.verbose {
 			let string = output
 				.try_unwrap_string()
@@ -24,8 +23,7 @@ impl Cli {
 		} else if options.checkout.is_some() {
 			Self::print_display(output);
 		} else if (options.detach && options.verbose) || !output.is_null() {
-			self.print_value(&output, options.print.clone(), location)
-				.await?;
+			self.print_value(&output, options.print.clone()).await?;
 		}
 
 		Ok(())

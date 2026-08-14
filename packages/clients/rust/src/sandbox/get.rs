@@ -153,9 +153,6 @@ impl tg::Sandbox {
 	where
 		H: tg::Handle,
 	{
-		if let Some(state) = self.0.state.read().unwrap().clone() {
-			return Ok(Some(state));
-		}
 		let arg = tg::sandbox::get::Arg {
 			cached: options.cached,
 			location: self.location(),
@@ -181,19 +178,22 @@ impl tg::Sandbox {
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<tg::sandbox::get::Output>> {
-		self.get(tg::sandbox::get::Options::default()).await
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
 	}
 
 	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<tg::sandbox::get::Output>>
 	where
 		H: tg::Handle,
 	{
-		self.get_with_handle(handle, tg::sandbox::get::Options::default())
-			.await
+		self.try_load_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to load the sandbox"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>> {
-		self.try_get(tg::sandbox::get::Options::default()).await
+		let handle = tg::handle()?;
+		self.try_load_with_handle(handle).await
 	}
 
 	pub async fn try_load_with_handle<H>(
@@ -203,6 +203,9 @@ impl tg::Sandbox {
 	where
 		H: tg::Handle,
 	{
+		if let Some(state) = self.0.state.read().unwrap().clone() {
+			return Ok(Some(state));
+		}
 		self.try_get_with_handle(handle, tg::sandbox::get::Options::default())
 			.await
 	}

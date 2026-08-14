@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_futures::stream::TryExt as _};
+use {crate::Cli, tangram_client::prelude::*};
 
 #[cfg(target_os = "linux")]
 pub mod container;
@@ -317,19 +317,9 @@ impl Cli {
 		specifier: tg::Specifier,
 	) -> tg::Result<Option<tg::id::Kind>> {
 		let reference = tg::Reference::with_node(tg::reference::Node::Specifier(specifier.into()));
-		let stream = client.try_get(&reference, tg::get::Arg::default()).await?;
-		let stream = std::pin::pin!(stream);
-		let Some(event) = stream.try_last().await? else {
+		let Some(referent) = reference.try_get_with_handle(client).await? else {
 			return Ok(None);
 		};
-		let Some(output) = event
-			.try_unwrap_output()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the output"))?
-		else {
-			return Ok(None);
-		};
-		let referent = output.referent;
 		let id = referent
 			.node
 			.try_unwrap_id()

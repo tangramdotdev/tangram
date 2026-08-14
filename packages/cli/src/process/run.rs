@@ -76,7 +76,6 @@ impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let checkout = args.options.checkout.is_some();
 		let detach = args.options.detach;
-		let location = args.options.spawn.location.get();
 		let print = args.options.print.clone();
 		let verbose = args.options.verbose;
 
@@ -93,7 +92,7 @@ impl Cli {
 		} else if checkout {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
-			self.print_value(&output, print, location).await?;
+			self.print_value(&output, print).await?;
 		}
 
 		Ok(())
