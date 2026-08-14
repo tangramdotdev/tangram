@@ -29,7 +29,7 @@ let path = artifact {
 	'
 }
 let output = tg build $path --arg-string $target.process | str trim | tg cat $in
-assert ($output | str contains "failed to find the process")
+assert ($output | str contains "failed to touch the process")
 
 tg cancel $target.process $target.lease
 tg wait $target.process

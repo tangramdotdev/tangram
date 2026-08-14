@@ -10,6 +10,6 @@ snapshot --normalize $output.stderr '
 	error an error occurred
 	-> failed to touch the object
 	   id = fil_010000000000000000000000000000000000000000000000000000
-	-> failed to find the object
+	-> failed to touch the object
 
 '

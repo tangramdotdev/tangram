@@ -23,6 +23,6 @@ snapshot --normalize $status.stderr '
 	error an error occurred
 	-> failed to get the process status
 	   id = pcs_0000000000000000000000000000
-	-> failed to find the process
+	-> failed to get the process
 
 '

@@ -6,9 +6,10 @@ let server = spawn
 
 let output = tg object children fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
-snapshot --normalize-ids $output.stderr '
+snapshot --normalize-ids $output.stderr r#'
 	error an error occurred
-	-> failed to find the object
+	-> failed to get the object's children
 	   id = fil_010000000000000000000000000000000000000000000000000000
+	-> failed to load the object
 
-'
+'#

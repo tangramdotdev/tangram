@@ -8,7 +8,8 @@ let output = tg get pcs_010000000000000000000000000000000000000000000000000000 |
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to find the process
+	-> failed to get the process
 	   id = pcs_010000000000000000000000000000000000000000000000000000
+	-> failed to get the process
 
 '

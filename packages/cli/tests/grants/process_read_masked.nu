@@ -30,8 +30,9 @@ let denied = tg --url $remote.url --token $eve.token get $process | complete
 failure $denied "Eve should not read Alice's private process."
 snapshot --normalize-ids $denied.stderr '
 	error an error occurred
-	-> failed to find the process
+	-> failed to get the process
 	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
 
 '
 

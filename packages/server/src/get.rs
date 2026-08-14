@@ -42,30 +42,6 @@ impl Session {
 		options: &tg::reference::Options,
 		arg: &tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		if options.location.is_some()
-			&& (id.kind().is_object() || id.kind() == tg::id::Kind::Process)
-		{
-			let output = self
-				.try_get_with_selector(
-					&tg::Selector::Id(id.clone()),
-					options.location.as_ref(),
-					&options.tokens,
-					arg.cached,
-					arg.ttl,
-				)
-				.await?;
-			let output = match output {
-				Some(output) => {
-					self.try_get_apply_get(output, options.get.as_deref())
-						.await?
-				},
-				None => None,
-			};
-			let event = tg::progress::Event::Output(output);
-			let stream = stream::once(future::ok(event));
-
-			return Ok(stream.boxed());
-		}
 		if options.tokens.is_empty()
 			&& matches!(
 				id.kind(),
@@ -114,7 +90,8 @@ impl Session {
 
 			return Ok(stream.boxed());
 		}
-		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), options.clone().into());
+		let referent_options: tg::referent::Options = options.clone().into();
+		let referent = tg::Referent::new(tg::get::Node::Id(id.clone()), referent_options);
 		let output = tg::get::Output { referent };
 		let output = self
 			.try_get_apply_get(output, options.get.as_deref())
@@ -179,7 +156,7 @@ impl Session {
 		pointer: &tg::graph::data::Pointer,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent_options = options.clone().into();
+		let referent_options: tg::referent::Options = options.clone().into();
 		let referent = tg::Referent::new(tg::get::Node::Pointer(pointer.clone()), referent_options);
 		let output = tg::get::Output { referent };
 		if options.path.is_some() {

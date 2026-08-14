@@ -8,7 +8,8 @@ let output = tg process metadata pcs_0100000000000000000000000000000000000000000
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
-	-> failed to find the process metadata
+	-> failed to get the process metadata
 	   id = pcs_010000000000000000000000000000000000000000000000000000
+	-> failed to get the process metadata
 
 '

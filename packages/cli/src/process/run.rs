@@ -281,7 +281,7 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
-			let options = error.to_referent().options;
+			let error_options = error.to_referent().options;
 			let error = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -293,7 +293,9 @@ impl Cli {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			let source = tg::Referent::new(error, options);
+			let mut source = process.clone().map(|_| error);
+			source.options.location = error_options.location;
+			source.options.tokens = error_options.tokens;
 			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
 				source: Some(source),
