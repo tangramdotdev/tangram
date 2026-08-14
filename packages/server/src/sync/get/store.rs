@@ -110,19 +110,27 @@ impl Session {
 	) -> tg::Result<()> {
 		let touched_at = self.server.clock.unix_timestamp()?;
 
+		// Deserialize the objects and create the store args.
+		let mut datas = Vec::with_capacity(nodes.len());
+		let mut args = Vec::with_capacity(nodes.len());
+		for node in &nodes {
+			let data = tg::object::Data::deserialize(node.id.kind(), node.bytes.as_ref())
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+			let length = match &data {
+				tg::object::Data::Blob(blob) => Some(blob.length()?),
+				_ => None,
+			};
+			args.push(crate::object::store::PutArg {
+				bytes: Some(node.bytes.clone()),
+				cache_pointer: None,
+				id: node.id.clone(),
+				length,
+				stored_at: touched_at,
+			});
+			datas.push(data);
+		}
+
 		// Store the objects.
-		let args = nodes
-			.iter()
-			.map(|node| {
-				Ok(crate::object::store::PutArg {
-					bytes: Some(node.bytes.clone()),
-					cache_pointer: None,
-					id: node.id.clone(),
-					length: crate::object::store::blob_length(&node.id, &node.bytes),
-					stored_at: touched_at,
-				})
-			})
-			.collect::<tg::Result<_>>()?;
 		self.server
 			.object_store
 			.put_batch(args)
@@ -131,15 +139,11 @@ impl Session {
 
 		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
-		for node in &nodes {
-			// Deserialize the bytes.
-			let data = tg::object::Data::deserialize(node.id.kind(), node.bytes.as_ref())
-				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-
+		for (node, data) in nodes.iter().zip(&datas) {
 			// Get the metadata.
 			let metadata = node.metadata.clone().unwrap_or_else(|| {
 				let size = node.bytes.len().to_u64().unwrap();
-				let (node_solvable, node_solved) = match &data {
+				let (node_solvable, node_solved) = match data {
 					tg::object::Data::File(file) => match file {
 						tg::file::Data::Pointer(_) => (false, true),
 						tg::file::Data::Node(node) => (node.solvable(), node.solved()),
@@ -170,7 +174,7 @@ impl Session {
 
 			// Update the graph.
 			let arg = UpdateObjectLocalArg {
-				data: Some(&data),
+				data: Some(data),
 				id: &node.id,
 				marked: Some(true),
 				metadata: Some(metadata),

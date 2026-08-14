@@ -1,4 +1,4 @@
-use {super::Store, crate::PutArg, num::ToPrimitive as _, tangram_client::prelude::*};
+use {super::Store, crate::PutArg, tangram_client::prelude::*};
 
 impl Store {
 	pub(super) async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -11,16 +11,8 @@ impl Store {
 		}
 		let bytes = arg.bytes;
 		let id_bytes = id.to_bytes().to_vec();
-		let length = arg
-			.length
-			.map(|length| {
-				length
-					.to_i64()
-					.ok_or_else(|| tg::error!(%id, "invalid length"))
-			})
-			.transpose()?;
 		let stored_at = arg.stored_at;
-		let params = (bytes, id_bytes, length, stored_at);
+		let params = (bytes, id_bytes, stored_at);
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
@@ -52,18 +44,10 @@ impl Store {
 				let id = &arg.id;
 				let bytes = arg.bytes.clone();
 				let id_bytes = id.to_bytes().to_vec();
-				let length = arg
-					.length
-					.map(|length| {
-						length
-							.to_i64()
-							.ok_or_else(|| tg::error!(%id, "invalid length"))
-					})
-					.transpose()?;
 				let stored_at = arg.stored_at;
-				Ok((bytes, id_bytes, length, stored_at))
+				(bytes, id_bytes, stored_at)
 			})
-			.collect::<tg::Result<Vec<_>>>()?;
+			.collect::<Vec<_>>();
 		self.session
 			.batch(&batch, params)
 			.await

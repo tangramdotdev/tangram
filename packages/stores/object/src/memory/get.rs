@@ -27,7 +27,13 @@ impl Store {
 	#[must_use]
 	pub fn try_get_length_sync(&self, arg: &TryGetLengthArg) -> Option<u64> {
 		let state = self.state();
-		state.objects.get(&arg.id).and_then(|object| object.length)
+		state.objects.get(&arg.id).and_then(|object| {
+			object
+				.cache_pointer
+				.as_ref()
+				.map(|pointer| pointer.length)
+				.or(object.length)
+		})
 	}
 
 	pub fn try_get_data(&self, id: &tg::object::Id) -> tg::Result<Option<(u64, tg::object::Data)>> {

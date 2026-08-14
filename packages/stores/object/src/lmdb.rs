@@ -1,8 +1,5 @@
 use {
-	crate::{
-		DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetLengthBatchArg,
-		TryGetOutput,
-	},
+	crate::{DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -188,10 +185,6 @@ impl crate::Store for Store {
 
 	async fn try_get_length(&self, arg: TryGetLengthArg) -> tg::Result<Option<u64>> {
 		self.try_get_length(arg).await
-	}
-
-	async fn try_get_length_batch(&self, arg: TryGetLengthBatchArg) -> tg::Result<Vec<Option<u64>>> {
-		self.try_get_length_batch(arg).await
 	}
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {

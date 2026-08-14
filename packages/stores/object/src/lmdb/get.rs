@@ -1,8 +1,6 @@
 use {
 	super::{Db, Key, Store},
-	crate::{
-		Object, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetLengthBatchArg, TryGetOutput,
-	},
+	crate::{Object, TryGetArg, TryGetBatchArg, TryGetLengthArg, TryGetOutput},
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
@@ -58,33 +56,6 @@ impl Store {
 					.read_txn()
 					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 				Self::try_get_object_length_with_transaction(&db, &transaction, &arg.id)
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to join the task"))?
-	}
-
-	pub(super) async fn try_get_length_batch(
-		&self,
-		arg: TryGetLengthBatchArg,
-	) -> tg::Result<Vec<Option<u64>>> {
-		if arg.ids.is_empty() {
-			return Ok(vec![]);
-		}
-		tokio::task::spawn_blocking({
-			let db = self.db;
-			let env = self.env.clone();
-			move || {
-				let transaction = env
-					.read_txn()
-					.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
-				let mut outputs = Vec::with_capacity(arg.ids.len());
-				for id in &arg.ids {
-					let length =
-						Self::try_get_object_length_with_transaction(&db, &transaction, id)?;
-					outputs.push(length);
-				}
-				Ok(outputs)
 			}
 		})
 		.await
@@ -182,8 +153,9 @@ impl Store {
 		let object = Object::deserialize_borrowed(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		let length = object
-			.length
-			.or_else(|| object.cache_pointer.map(|pointer| pointer.length));
+			.cache_pointer
+			.map(|pointer| pointer.length)
+			.or(object.length);
 		Ok(length)
 	}
 

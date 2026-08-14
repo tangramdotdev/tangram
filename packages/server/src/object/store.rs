@@ -20,16 +20,6 @@ pub enum Store {
 	Scylla(object_store::scylla::Store),
 }
 
-/// Gets the length of a blob from its serialized bytes. It returns `None` if the object is not a blob or its bytes are invalid.
-#[must_use]
-pub fn blob_length(id: &tg::object::Id, bytes: &bytes::Bytes) -> Option<u64> {
-	if !matches!(id.kind(), tg::object::Kind::Blob) {
-		return None;
-	}
-	let blob = tg::blob::Data::deserialize(bytes.clone()).ok()?;
-	Some(blob.length())
-}
-
 impl Store {
 	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbObjectStore) -> tg::Result<Self> {

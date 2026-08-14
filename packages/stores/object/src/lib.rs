@@ -40,11 +40,6 @@ pub struct TryGetLengthArg {
 }
 
 #[derive(Clone, Debug)]
-pub struct TryGetLengthBatchArg {
-	pub ids: Vec<tg::object::Id>,
-}
-
-#[derive(Clone, Debug)]
 pub struct TryGetOutput {
 	pub object: Option<Object<'static>>,
 }
@@ -111,12 +106,6 @@ pub trait Store {
 		&self,
 		arg: TryGetLengthArg,
 	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
-
-	/// Gets the lengths of many blobs without reading their bytes. The output has one entry per requested ID, in order.
-	fn try_get_length_batch(
-		&self,
-		arg: TryGetLengthBatchArg,
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<u64>>>> + Send;
 
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
