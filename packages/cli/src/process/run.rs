@@ -291,7 +291,7 @@ impl Cli {
 
 		// Handle an error.
 		if let Some(error) = wait.error {
-			let tokens = error.state().tokens();
+			let options = error.to_referent().options;
 			let error = error
 				.to_data_or_id()
 				.map_left(|data| {
@@ -303,8 +303,7 @@ impl Cli {
 					}))
 				})
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			let mut source = process.clone().map(|_| error);
-			source.options.tokens = tokens;
+			let source = tg::Referent::new(error, options);
 			let error = tg::Error::with_object(tg::error::Object {
 				message: Some("the process failed".to_owned()),
 				source: Some(source),
@@ -341,7 +340,7 @@ impl Cli {
 			} else {
 				None
 			};
-			let artifact = tg::Referent::new(artifact.id(), artifact.state().referent_options());
+			let artifact = artifact.to_referent();
 			let arg = tg::checkout::Arg {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),

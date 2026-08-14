@@ -21,17 +21,20 @@ impl Session {
 			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
 		};
 		let Some(output) = self
-			.try_get_with_selector(&selector, arg.location.as_ref(), arg.cached, arg.ttl)
+			.try_get_with_selector(
+				&selector,
+				arg.location.as_ref(),
+				&tg::authorization::Tokens::default(),
+				arg.cached,
+				arg.ttl,
+			)
 			.await?
 		else {
 			return Ok(None);
 		};
-		let location = output
-			.referent
-			.options
-			.location
-			.clone()
-			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let Some(location) = output.referent.options.location.clone() else {
+			return Err(tg::error!("expected a location"));
+		};
 		let tg::get::Node::Id(id) = output.referent.node else {
 			unreachable!();
 		};

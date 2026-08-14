@@ -80,19 +80,15 @@ impl State {
 		let command = self.command.id().clone();
 		let created_at = self.created_at;
 		let debug = self.debug.clone();
-		let error = self.error.as_ref().map(|error| {
-			error
-				.to_data_or_id()
-				.map_right(|id| tg::Referent::new(id, error.state().referent_options()))
-		});
+		let error = self
+			.error
+			.as_ref()
+			.map(|error| error.to_data_or_id().map_right(|_| error.to_referent()));
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
-		let log = self
-			.log
-			.as_ref()
-			.map(|log| tg::Referent::new(log.id(), log.state().referent_options()));
+		let log = self.log.as_ref().map(tg::Blob::to_referent);
 		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;

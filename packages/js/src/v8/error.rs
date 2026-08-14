@@ -31,13 +31,13 @@ pub(super) fn to_exception<'s>(
 			let exception = from_data.call(scope, undefined.into(), &[data])?;
 			Some(exception)
 		},
-		tg::Either::Right(id) => {
+		tg::Either::Right(_) => {
 			let with_referent =
 				v8::String::new_external_onebyte_static(scope, b"withReferent").unwrap();
 			let with_referent = error_constructor.get(scope, with_referent.into()).unwrap();
 			let with_referent = v8::Local::<v8::Function>::try_from(with_referent).unwrap();
 
-			let referent = tg::Referent::new(id, error.state().referent_options());
+			let referent = error.to_referent();
 			let referent = Serde(referent).serialize(scope).unwrap();
 			let undefined = v8::undefined(scope);
 			let exception = with_referent.call(scope, undefined.into(), &[referent])?;
@@ -123,7 +123,7 @@ pub(super) fn from_exception<'s>(
 		.and_then(|value| value.to_object(scope))
 	{
 		let error = from_exception(state, scope, source.into())?;
-		let options = error.state().referent_options();
+		let options = error.to_referent().options;
 		let node = error
 			.to_data_or_id()
 			.map_left(|data| {

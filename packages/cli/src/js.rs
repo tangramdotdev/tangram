@@ -187,7 +187,7 @@ impl Cli {
 					xattr::set(&output_path, "user.tangram.error", &json)
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				} else {
-					let referent = tg::Referent::new(error.id(), error.state().referent_options());
+					let referent = error.to_referent();
 					let string = referent.to_string();
 					xattr::set(&output_path, "user.tangram.error", string.as_bytes())
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;

@@ -73,6 +73,17 @@ impl Error {
 		self.state.id().try_into().unwrap()
 	}
 
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
+	}
+
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
 		let handle = tg::handle()?;
 		self.object_with_handle(handle).await
@@ -281,7 +292,7 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 			Err(error) => {
 				let source = error.source().map(|s| {
 					let error: Error = s.into();
-					let options = error.state().referent_options();
+					let options = error.to_referent().options;
 					let node = error
 						.to_data_or_id()
 						.map_left(|data| {
@@ -313,7 +324,7 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 	fn from(value: &(dyn std::error::Error + 'static)) -> Self {
 		let source = value.source().map(|s| {
 			let error: Error = s.into();
-			let options = error.state().referent_options();
+			let options = error.to_referent().options;
 			let node = error
 				.to_data_or_id()
 				.map_left(|data| {

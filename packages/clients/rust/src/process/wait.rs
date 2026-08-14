@@ -186,11 +186,10 @@ impl Wait {
 	#[must_use]
 	pub fn to_data(&self) -> Output {
 		Output {
-			error: self.error.as_ref().map(|error| {
-				error
-					.to_data_or_id()
-					.map_right(|id| tg::Referent::new(id, error.state().referent_options()))
-			}),
+			error: self
+				.error
+				.as_ref()
+				.map(|error| error.to_data_or_id().map_right(|_| error.to_referent())),
 			exit: self.exit,
 			output: self.output.as_ref().map(tg::Value::to_data),
 		}

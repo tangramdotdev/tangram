@@ -238,9 +238,7 @@ impl Component {
 		match self {
 			Self::String(string) => tg::template::data::Component::String(string.clone()),
 			Self::Artifact(artifact) => {
-				let id = artifact.id();
-				let options = artifact.state().referent_options();
-				let artifact = tg::Referent::new(id, options);
+				let artifact = artifact.to_referent();
 				tg::template::data::Component::Artifact(artifact)
 			},
 			Self::Placeholder(placeholder) => {

@@ -11,6 +11,16 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub options: Options,
+
+	#[arg(index = 1)]
+	pub process: tg::Reference,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
 	#[arg(long)]
 	pub length: Option<u64>,
 
@@ -22,9 +32,6 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[arg(index = 1)]
-	pub process: tg::Reference,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -66,16 +73,16 @@ impl Timeout {
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let process = self
-			.resolve_process_with_location(&args.process, &args.locations)
+			.resolve_process_with_location(&args.process, &args.options.locations)
 			.await?;
-		self.command_process_children_with_referent(args, process)
+		self.command_process_children_inner(process, args.options)
 			.await
 	}
 
-	pub(crate) async fn command_process_children_with_referent(
+	pub(crate) async fn command_process_children_inner(
 		&mut self,
-		args: Args,
 		process: tg::Referent<tg::process::Id>,
+		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = process.node;
@@ -90,11 +97,11 @@ impl Cli {
 			},
 		);
 		let arg = tg::process::children::get::Arg {
-			length: args.length,
+			length: options.length,
 			location,
-			position: args.position,
-			size: args.size,
-			timeout: args.timeout.get(),
+			position: options.position,
+			size: options.size,
+			timeout: options.timeout.get(),
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let stream = process
@@ -102,7 +109,8 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
 			.map_ok(|child| child.to_data());
-		self.print_serde_stream(stream.boxed(), args.print).await?;
+		self.print_serde_stream(stream.boxed(), options.print)
+			.await?;
 		Ok(())
 	}
 }

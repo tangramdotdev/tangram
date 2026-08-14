@@ -4,6 +4,17 @@ use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// The object to print.
+	#[arg(index = 1)]
+	pub object: tg::Reference,
+
+	#[command(flatten)]
+	pub options: Options,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
 	/// Get the object's raw bytes.
 	#[arg(long)]
 	pub bytes: bool,
@@ -14,10 +25,6 @@ pub struct Args {
 	/// Get the object's metadata.
 	#[arg(long)]
 	pub metadata: bool,
-
-	/// The object to print.
-	#[arg(index = 1)]
-	pub object: tg::Reference,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -30,25 +37,25 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let object = self
-			.resolve_object_with_location(&args.object, &args.locations)
+			.resolve_object_with_location(&args.object, &args.options.locations)
 			.await?;
-		self.command_object_get_with_referent(args, object).await
+		self.command_object_get_inner(object, args.options).await
 	}
 
-	pub(crate) async fn command_object_get_with_referent(
+	pub(crate) async fn command_object_get_inner(
 		&mut self,
-		mut args: Args,
 		object: tg::Referent<tg::object::Id>,
+		mut options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = object.node.clone();
 		let location = object.options.location.clone().map(Into::into);
 		let tokens = object.options.tokens.clone();
-		if args.bytes {
+		if options.bytes {
 			let arg = tg::object::get::Arg {
 				location: location.clone(),
-				metadata: args.metadata,
-				stored: args.stored,
+				metadata: options.metadata,
+				stored: options.stored,
 				tokens: tokens.clone(),
 			};
 			let tg::object::get::Output {
@@ -80,16 +87,17 @@ impl Cli {
 		}
 		let object = tg::Object::with_referent(object);
 		let value = tg::Value::Object(object);
-		args.print
+		options
+			.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
 			location,
-			metadata: args.metadata,
-			stored: args.stored,
+			metadata: options.metadata,
+			stored: options.stored,
 			tokens,
 		};
-		if args.metadata || args.stored {
+		if options.metadata || options.stored {
 			let output = client
 				.try_get_object(&id, arg.clone())
 				.await
@@ -107,7 +115,7 @@ impl Cli {
 				self.print_info_message(&stored);
 			}
 		}
-		self.print_value(&value, args.print, arg).await?;
+		self.print_value(&value, options.print, arg).await?;
 		Ok(())
 	}
 }

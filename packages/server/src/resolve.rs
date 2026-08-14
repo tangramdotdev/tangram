@@ -316,6 +316,7 @@ impl Session {
 				.try_get_with_selector(
 					&tg::Selector::Specifier(specifier.clone()),
 					location,
+					&tg::authorization::Tokens::default(),
 					cached,
 					ttl,
 				)

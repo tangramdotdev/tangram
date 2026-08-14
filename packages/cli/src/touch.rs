@@ -25,13 +25,15 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			self.command_process_touch_with_referent(process).await?;
+			self.command_process_touch_inner(process, crate::process::touch::Options::default())
+				.await?;
 		} else {
 			let object = referent.try_map::<tg::object::Id, _>(|node| match node {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => Err(tg::error!("expected an object or process id")),
 			})?;
-			self.command_object_touch_with_referent(object).await?;
+			self.command_object_touch_inner(object, crate::object::touch::Options::default())
+				.await?;
 		}
 
 		Ok(())

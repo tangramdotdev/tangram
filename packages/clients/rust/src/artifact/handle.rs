@@ -89,6 +89,15 @@ impl Artifact {
 	}
 
 	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		match self {
+			Self::Directory(artifact) => artifact.to_referent().map(Into::into),
+			Self::File(artifact) => artifact.to_referent().map(Into::into),
+			Self::Symlink(artifact) => artifact.to_referent().map(Into::into),
+		}
+	}
+
+	#[must_use]
 	pub fn state(&self) -> tg::object::State {
 		match self {
 			Self::Directory(directory) => directory.state().clone(),

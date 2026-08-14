@@ -796,11 +796,7 @@ impl<O: 'static> tg::Process<O> {
 						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 					tg::Error::with_referent(referent)
 				};
-				output.error = Some(
-					error
-						.to_data_or_id()
-						.map_right(|id| tg::Referent::new(id, error.state().referent_options())),
-				);
+				output.error = Some(error.to_data_or_id().map_right(|_| error.to_referent()));
 			}
 		}
 

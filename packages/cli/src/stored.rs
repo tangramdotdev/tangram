@@ -30,18 +30,11 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = process.options.clone().into();
-			let reference = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(process.node.clone().into()),
-				options,
-			);
-			let args = crate::process::stored::Args {
+			let options = crate::process::stored::Options {
 				locations: crate::location::Args::default(),
 				print,
-				process: reference,
 			};
-			self.command_process_stored_with_referent(args, process)
-				.await?;
+			self.command_process_stored_inner(process, options).await?;
 		} else {
 			let object = referent
 				.into_graph_edge()?
@@ -50,18 +43,11 @@ impl Cli {
 						.map(|object| object.id())
 						.map_err(|_| tg::error!("expected an object"))
 				})?;
-			let options = object.options.clone().into();
-			let reference = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(object.node.clone().into()),
-				options,
-			);
-			let args = crate::object::stored::Args {
+			let options = crate::object::stored::Options {
 				locations: crate::location::Args::default(),
-				object: reference,
 				print,
 			};
-			self.command_object_stored_with_referent(args, object)
-				.await?;
+			self.command_object_stored_inner(object, options).await?;
 		}
 
 		Ok(())

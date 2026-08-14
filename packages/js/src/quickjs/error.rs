@@ -28,11 +28,11 @@ pub fn to_exception<'js>(ctx: &qjs::Ctx<'js>, error: &tg::Error) -> tg::Result<q
 				.map_err(|error| tg::error!(!error, "failed to call Tangram.Error.fromData"))?;
 			Ok(exception)
 		},
-		tg::Either::Right(id) => {
+		tg::Either::Right(_) => {
 			let with_referent = error_constructor
 				.get::<_, qjs::Function>("withReferent")
 				.unwrap();
-			let referent = tg::Referent::new(id, error.state().referent_options());
+			let referent = error.to_referent();
 			let referent = Serde(&referent).into_js(ctx).map_err(|error| {
 				tg::error!(
 					!error,
@@ -177,7 +177,7 @@ pub fn from_exception<'js>(
 		.filter(|value| !value.is_null() && !value.is_undefined())
 		.and_then(|cause| from_exception(state, ctx, &cause))
 		.map(|error| {
-			let options = error.state().referent_options();
+			let options = error.to_referent().options;
 			let node = error
 				.to_data_or_id()
 				.map_left(|data| {

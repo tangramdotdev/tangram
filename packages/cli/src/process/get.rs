@@ -5,6 +5,16 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub options: Options,
+
+	#[arg(index = 1)]
+	pub process: tg::Reference,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+#[group(skip)]
+pub struct Options {
+	#[command(flatten)]
 	pub locations: crate::location::Args,
 
 	/// Get the process's metadata.
@@ -14,9 +24,6 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	#[arg(index = 1)]
-	pub process: tg::Reference,
-
 	/// Get the process's storage status.
 	#[arg(long)]
 	pub stored: bool,
@@ -25,23 +32,23 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_get(&mut self, args: Args) -> tg::Result<()> {
 		let process = self
-			.resolve_process_with_location(&args.process, &args.locations)
+			.resolve_process_with_location(&args.process, &args.options.locations)
 			.await?;
-		self.command_process_get_with_referent(args, process).await
+		self.command_process_get_inner(process, args.options).await
 	}
 
-	pub(crate) async fn command_process_get_with_referent(
+	pub(crate) async fn command_process_get_inner(
 		&mut self,
-		args: Args,
 		process: tg::Referent<tg::process::Id>,
+		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let location = process.options.location.clone().map(Into::into);
 		let id = process.node;
 		let arg = tg::process::get::Arg {
 			location,
-			metadata: args.metadata,
-			stored: args.stored,
+			metadata: options.metadata,
+			stored: options.stored,
 			tokens: process.options.tokens,
 		};
 		let output = client
@@ -59,7 +66,7 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
 			self.print_info_message(&stored);
 		}
-		self.print_serde(output.data, args.print).await?;
+		self.print_serde(output.data, options.print).await?;
 		Ok(())
 	}
 }

@@ -101,20 +101,14 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = object.options.clone().into();
-			let reference = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(object.node.clone().into()),
-				options,
-			);
-			let args = crate::object::get::Args {
+			let options = crate::object::get::Options {
 				bytes: args.bytes,
 				locations: crate::location::Args::default(),
 				metadata: args.metadata,
-				object: reference,
 				print,
 				stored: args.stored,
 			};
-			self.command_object_get_with_referent(args, object).await?;
+			self.command_object_get_inner(object, options).await?;
 
 			return Ok(());
 		}
@@ -123,20 +117,13 @@ impl Cli {
 				tg::get::Node::Id(id) => id.try_into(),
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
-			let options = process.options.clone().into();
-			let reference = tg::Reference::with_node_and_options(
-				tg::reference::Node::Id(process.node.clone().into()),
-				options,
-			);
-			let args = crate::process::get::Args {
+			let options = crate::process::get::Options {
 				locations: crate::location::Args::default(),
 				metadata: args.metadata,
 				print,
-				process: reference,
 				stored: args.stored,
 			};
-			self.command_process_get_with_referent(args, process)
-				.await?;
+			self.command_process_get_inner(process, options).await?;
 
 			return Ok(());
 		}
@@ -324,14 +311,14 @@ impl Cli {
 			.is_ok_and(|path| path.is_relative());
 
 		// Make the path absolute.
+		let mut reference = reference.clone();
 		let mut node = reference.node().clone();
-		let options = reference.options().clone();
 		if let tg::reference::Node::Path(path) = &mut node {
 			*path = tangram_util::fs::canonicalize_parent(&path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		}
-		let reference = tg::Reference::with_node_and_options(node, options);
+		reference.set_node(node);
 
 		// Get the reference.
 		let stream = client
@@ -401,14 +388,14 @@ impl Cli {
 			.node()
 			.try_unwrap_path_ref()
 			.is_ok_and(|path| path.is_relative());
+		let mut reference = reference.clone();
 		let mut node = reference.node().clone();
-		let options = reference.options().clone();
 		if let tg::reference::Node::Path(path) = &mut node {
 			*path = tangram_util::fs::canonicalize_parent(&path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
 		}
-		let reference = tg::Reference::with_node_and_options(node, options);
+		reference.set_node(node);
 		let stream = client
 			.try_resolve(&reference, arg)
 			.await

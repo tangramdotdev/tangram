@@ -83,16 +83,6 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn referent_options(&self) -> tg::referent::Options {
-		let inner = self.0.read().unwrap();
-		tg::referent::Options {
-			location: inner.location.clone(),
-			tokens: inner.tokens.clone(),
-			..tg::referent::Options::default()
-		}
-	}
-
-	#[must_use]
 	pub fn stored(&self) -> bool {
 		self.0.read().unwrap().stored
 	}

@@ -33,12 +33,14 @@ pub struct Args {
 
 impl Args {
 	pub(crate) fn apply_to_reference(&self, reference: &tg::Reference) -> tg::Reference {
+		let mut reference = reference.clone();
 		let mut options = reference.options().clone();
 		if let Some(location) = self.get() {
 			options.location = Some(location);
 		}
+		reference.set_options(options);
 
-		tg::Reference::with_node_and_options(reference.node().clone(), options)
+		reference
 	}
 
 	pub(crate) fn with_location(location: tg::location::Arg) -> Self {

@@ -9,6 +9,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		location: Option<&tg::location::Arg>,
+		tokens: &tg::authorization::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -17,20 +18,33 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if locations.local.is_some()
-			&& let Some(output) = self.try_get_with_selector_local(selector).await?
-		{
-			return Ok(Some(output));
+		if let Some(local) = locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_get_with_selector_local(selector, tokens.local())
+					.await?
+			{
+				return Ok(Some(output));
+			}
+			for region in local.regions {
+				if let Some(output) = self
+					.try_get_with_selector_region(selector, &region, tokens)
+					.await?
+				{
+					return Ok(Some(output));
+				}
+			}
 		}
 		let results = locations
 			.remotes
 			.into_iter()
 			.map(|remote| {
 				let selector = selector.clone();
+				let tokens = tokens.clone();
 				async move {
 					let name = remote.name.clone();
 					let result = self
-						.try_get_with_selector_remote(&selector, remote, cached, ttl)
+						.try_get_with_selector_remote(&selector, remote, &tokens, cached, ttl)
 						.await;
 					(name, result)
 				}
@@ -55,6 +69,7 @@ impl Session {
 	async fn try_get_with_selector_local(
 		&self,
 		selector: &tg::Selector<tg::Id>,
+		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::get::Output>> {
 		let id = match selector {
 			tg::Selector::Id(id) => {
@@ -74,17 +89,22 @@ impl Session {
 			return Ok(None);
 		};
 		let permission = Self::read_permission_for_resource(&id)?;
+		let resource =
+			tg::Referent::with_node_and_token(tg::Selector::Id(id.clone()), token.cloned());
 		let authorized = self
-			.authorize(tg::Selector::Id(id.clone()), permission)
+			.authorize(resource, permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
 		if !authorized {
 			return Ok(None);
 		}
-		let token = self.create_read_token(&id)?;
+		let mut tokens = tg::authorization::Tokens::with_local(token.cloned());
+		if let Some(token) = self.create_read_token(&id)? {
+			tokens.insert_local(token);
+		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
-			tokens: tg::authorization::Tokens::with_local(token),
+			tokens,
 			..tg::referent::Options::default()
 		};
 		let referent = tg::Referent::new(tg::get::Node::Id(id), options);
@@ -93,21 +113,19 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	async fn try_get_with_selector_remote(
+	async fn try_get_with_selector_region(
 		&self,
 		selector: &tg::Selector<tg::Id>,
-		remote: Remote,
-		cached: bool,
-		ttl: tg::remote::cache::Ttl,
+		region: &str,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::get::Output>> {
-		// Create the remote request.
-		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
-			tg::location::arg::LocalComponent {
-				regions: remote.regions.clone(),
-			},
-		)]);
+		// Create the region request.
+		let source = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let options = tg::reference::Options {
-			location: Some(location),
+			location: Some(source.clone().into()),
+			tokens: tokens.for_location(&source),
 			..tg::reference::Options::default()
 		};
 		let node = match selector {
@@ -121,9 +139,74 @@ impl Session {
 			options,
 			..tg::get::Arg::default()
 		};
+
+		// Get the node from the region.
+		let client = self
+			.get_region_session_for_process(region)
+			.await
+			.map_err(|error| tg::error!(!error, %region, "failed to get the region client"))?;
+		let stream = client
+			.try_get(&reference, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %region, "failed to get the node"))?;
+		let mut stream = std::pin::pin!(stream);
+		let mut output = None;
+		while let Some(event) = stream.next().await {
+			if let tg::progress::Event::Output(event_output) = event? {
+				output = event_output;
+			}
+		}
+		if let Some(output) = &mut output {
+			self.update_referent_options_for_location(&mut output.referent.options, &source)?;
+		}
+		if let Some(output) = &output
+			&& !matches!(output.referent.node, tg::get::Node::Id(_))
+		{
+			return Err(tg::error!(%region, "expected an ID"));
+		}
+
+		Ok(output)
+	}
+
+	async fn try_get_with_selector_remote(
+		&self,
+		selector: &tg::Selector<tg::Id>,
+		remote: Remote,
+		tokens: &tg::authorization::Tokens,
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
+	) -> tg::Result<Option<tg::get::Output>> {
+		// Create the remote request.
+		let source = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: remote.regions.as_deref().and_then(|regions| match regions {
+				[region] => Some(region.clone()),
+				_ => None,
+			}),
+		});
+		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
+			tg::location::arg::LocalComponent {
+				regions: remote.regions.clone(),
+			},
+		)]);
+		let cache_options = tg::reference::Options {
+			location: Some(location.clone()),
+			..tg::reference::Options::default()
+		};
+		let node = match selector {
+			tg::Selector::Id(id) => tg::reference::Node::Id(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				tg::reference::Node::Specifier(specifier.clone().into())
+			},
+		};
+		let cache_reference = tg::Reference::with_node_and_options(node, cache_options.clone());
+		let cache_arg = tg::get::Arg {
+			options: cache_options,
+			..tg::get::Arg::default()
+		};
 		let request = crate::remote::cache::Request::Get(crate::remote::cache::GetRequest {
-			arg: arg.clone(),
-			reference: reference.clone(),
+			arg: cache_arg,
+			reference: cache_reference,
 		});
 
 		// Get a cached response.
@@ -171,6 +254,22 @@ impl Session {
 		}
 
 		// Get the node from the remote.
+		let options = tg::reference::Options {
+			location: Some(location),
+			tokens: tokens.for_location(&source),
+			..tg::reference::Options::default()
+		};
+		let node = match selector {
+			tg::Selector::Id(id) => tg::reference::Node::Id(id.clone()),
+			tg::Selector::Specifier(specifier) => {
+				tg::reference::Node::Specifier(specifier.clone().into())
+			},
+		};
+		let reference = tg::Reference::with_node_and_options(node, options.clone());
+		let arg = tg::get::Arg {
+			options,
+			..tg::get::Arg::default()
+		};
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
@@ -188,9 +287,11 @@ impl Session {
 		let response = crate::remote::cache::Response::Get(crate::remote::cache::GetResponse {
 			output: output.clone(),
 		});
-		self.put_cached_remote_response(&remote.name, &request, &response)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		if tokens.is_empty() {
+			self.put_cached_remote_response(&remote.name, &request, &response)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		}
 		if let Some(output) = &mut output {
 			let region = match output.referent.options.location.as_ref() {
 				Some(tg::Location::Local(local)) => local.region.clone(),

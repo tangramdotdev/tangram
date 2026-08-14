@@ -237,9 +237,7 @@ impl Value {
 	}
 
 	fn object_referent(object: &tg::Object) -> tg::Referent<tg::object::Id> {
-		let id = object.id();
-		let options = object.state().referent_options();
-		tg::Referent::new(id, options)
+		object.to_referent()
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {

@@ -53,6 +53,17 @@ impl Directory {
 		self.state.id().try_into().unwrap()
 	}
 
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.state.location(),
+			tokens: self.state.tokens(),
+			..tg::referent::Options::default()
+		};
+
+		tg::Referent::new(self.id(), options)
+	}
+
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
 		let handle = tg::handle()?;
 		self.object_with_handle(handle).await

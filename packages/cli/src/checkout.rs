@@ -108,12 +108,13 @@ impl Cli {
 
 		// Get the artifact.
 		let referent = self.resolve(&args.reference).await?;
-		let edge = referent.into_graph_edge()?.node;
-		let object = edge
-			.try_unwrap_object()
-			.map_err(|_| tg::error!("expected an object"))?;
-		let artifact = tg::Artifact::try_from(object)?;
-		let artifact = tg::Referent::new(artifact.id(), artifact.state().referent_options());
+		let artifact = referent.into_graph_edge()?.try_map(|edge| {
+			let object = edge
+				.try_unwrap_object()
+				.map_err(|_| tg::error!("expected an object"))?;
+			let artifact = tg::Artifact::try_from(object)?;
+			Ok::<_, tg::Error>(artifact.id())
+		})?;
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();

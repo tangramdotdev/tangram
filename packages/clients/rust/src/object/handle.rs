@@ -104,6 +104,19 @@ impl Object {
 		}
 	}
 
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		match self {
+			Self::Blob(object) => object.to_referent().map(Into::into),
+			Self::Command(object) => object.to_referent().map(Into::into),
+			Self::Directory(object) => object.to_referent().map(Into::into),
+			Self::Error(object) => object.to_referent().map(Into::into),
+			Self::File(object) => object.to_referent().map(Into::into),
+			Self::Graph(object) => object.to_referent().map(Into::into),
+			Self::Symlink(object) => object.to_referent().map(Into::into),
+		}
+	}
+
 	pub async fn object(&self) -> tg::Result<Object_> {
 		let handle = tg::handle()?;
 		self.object_with_handle(handle).await

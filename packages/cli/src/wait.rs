@@ -27,13 +27,20 @@ impl Cli {
 		match id.kind() {
 			tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_process_wait_with_referent(process, args.print)
-					.await?;
+				let options = crate::process::wait::Options {
+					locations: crate::location::Args::default(),
+					print: args.print,
+				};
+				self.command_process_wait_inner(process, options).await?;
 			},
 			tg::id::Kind::Sandbox => {
 				let sandbox = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_sandbox_wait_with_referent(sandbox, args.print)
-					.await?;
+				let sandbox = tg::Sandbox::with_referent(sandbox);
+				let options = crate::sandbox::wait::Options {
+					locations: crate::location::Args::default(),
+					print: args.print,
+				};
+				self.command_sandbox_wait_inner(sandbox, options).await?;
 			},
 			_ => return Err(tg::error!(%id, "expected a process or sandbox")),
 		}

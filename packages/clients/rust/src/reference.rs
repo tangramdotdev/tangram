@@ -171,6 +171,14 @@ impl Reference {
 		self.export.as_deref()
 	}
 
+	pub fn set_node(&mut self, node: Node) {
+		self.node = node;
+	}
+
+	pub fn set_options(&mut self, options: Options) {
+		self.options = options;
+	}
+
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
 		let path = uri.path();
 		let node = path

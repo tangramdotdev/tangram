@@ -1437,7 +1437,11 @@ impl Tree {
 					specifier,
 					tokens,
 				} => {
-					let referent_tokens = tokens.clone();
+					let referent_options = tg::referent::Options {
+						location: location.clone(),
+						tokens: tokens.clone(),
+						..tg::referent::Options::default()
+					};
 					let group = tg::Group {
 						id,
 						location,
@@ -1446,10 +1450,7 @@ impl Tree {
 						specifier,
 						tokens,
 					};
-					Some(tg::Referent::with_node_and_tokens(
-						Item::Group(group),
-						referent_tokens,
-					))
+					Some(tg::Referent::new(Item::Group(group), referent_options))
 				},
 				tg::list::Entry::Tag {
 					id,
@@ -1460,7 +1461,11 @@ impl Tree {
 					specifier,
 					tokens,
 				} => {
-					let referent_tokens = tokens.clone();
+					let referent_options = tg::referent::Options {
+						location: location.clone(),
+						tokens: tokens.clone(),
+						..tg::referent::Options::default()
+					};
 					let target = match target {
 						tg::Either::Left(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
 						tg::Either::Right(id) => tg::tag::Target::Process(tg::Process::new(
@@ -1481,10 +1486,7 @@ impl Tree {
 						specifier,
 						tokens,
 					};
-					Some(tg::Referent::with_node_and_tokens(
-						Item::Tag(tag),
-						referent_tokens,
-					))
+					Some(tg::Referent::new(Item::Tag(tag), referent_options))
 				},
 				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
 			})
