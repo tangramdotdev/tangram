@@ -35,6 +35,7 @@ pub struct Options {
 	/// Set arguments as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		id = "spawn.arg_strings",
 		long = "arg-string",
 		num_args = 1,
@@ -45,6 +46,7 @@ pub struct Options {
 	/// Set arguments as values.
 	#[arg(
 		action = clap::ArgAction::Append,
+		allow_hyphen_values = true,
 		id = "spawn.arg_values",
 		long = "arg-value",
 		num_args = 1,
@@ -689,7 +691,22 @@ impl Cli {
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let host = tg::host::current().to_owned();
-							let args = js_args(export, &host, module, std::mem::take(&mut args_));
+							let mut args = vec![
+								"js".into(),
+								"--export".into(),
+								export.into(),
+								"--host".into(),
+								host.clone().into(),
+								tg::command::Value::Value(module.into()),
+							];
+							for arg in std::mem::take(&mut args_) {
+								let flag = match &arg {
+									tg::command::Value::String(_) => "-a",
+									tg::command::Value::Value(_) => "-A",
+								};
+								args.push(flag.into());
+								args.push(arg);
+							}
 							let executable = tg::command::Executable {
 								artifact: None,
 								path: Some("tg".into()),
@@ -733,8 +750,22 @@ impl Cli {
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
 								let host = tg::host::current().to_owned();
-								let args =
-									js_args(export, &host, module, std::mem::take(&mut args_));
+								let mut args = vec![
+									"js".into(),
+									"--export".into(),
+									export.into(),
+									"--host".into(),
+									host.clone().into(),
+									tg::command::Value::Value(module.into()),
+								];
+								for arg in std::mem::take(&mut args_) {
+									let flag = match &arg {
+										tg::command::Value::String(_) => "-a",
+										tg::command::Value::Value(_) => "-A",
+									};
+									args.push(flag.into());
+									args.push(arg);
+								}
 								let executable = tg::command::Executable {
 									artifact: None,
 									path: Some("tg".into()),
@@ -949,29 +980,4 @@ impl Cli {
 			tag_ancestors: options.tag_ancestors.get(),
 		})
 	}
-}
-
-fn js_args(
-	export: String,
-	host: &str,
-	module: tg::Module,
-	args: Vec<tg::command::Value>,
-) -> Vec<tg::command::Value> {
-	let mut args_ = vec![
-		"js".into(),
-		"--export".into(),
-		export.into(),
-		"--host".into(),
-		host.to_owned().into(),
-		tg::command::Value::Value(module.into()),
-	];
-	for arg in args {
-		let flag = match &arg {
-			tg::command::Value::String(_) => "-a",
-			tg::command::Value::Value(_) => "-A",
-		};
-		args_.push(flag.into());
-		args_.push(arg);
-	}
-	args_
 }
