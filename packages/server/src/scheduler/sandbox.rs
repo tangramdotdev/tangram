@@ -54,13 +54,13 @@ struct Sandbox {
 	dequeue_requests: Vec<String>,
 	owner_ancestors: OwnerAncestors,
 	request: EnqueueSandboxRequestArg,
+	retrying: bool,
 	state: SandboxState,
 }
 
 enum SandboxState {
 	Creating { placement: Placement },
 	Pending,
-	Placing,
 	Uncertain { placement: Placement },
 }
 
@@ -374,6 +374,7 @@ impl State {
 			dequeue_requests: Vec::new(),
 			owner_ancestors,
 			request,
+			retrying: false,
 			state: SandboxState::Pending,
 		};
 		self.sandboxes.entries.insert(id.clone(), sandbox);
@@ -452,13 +453,7 @@ impl State {
 		runner.committed = tg::runner::Capacity::default();
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		if !std::mem::replace(&mut runner.ready, true) {
-			tracing::info!(
-				runner = %notification.runner,
-				connection_index = notification.connection_index,
-				"the runner became ready"
-			);
-		}
+		runner.ready = true;
 		self.queue.wake();
 
 		true
@@ -480,10 +475,6 @@ impl State {
 			},
 			SandboxState::Pending => {
 				self.remove_queued_sandbox(&id);
-				self.sandboxes.entries.remove(&id);
-				Some(DequeueSandboxResponseOutput { dequeued: true })
-			},
-			SandboxState::Placing => {
 				self.sandboxes.entries.remove(&id);
 				Some(DequeueSandboxResponseOutput { dequeued: true })
 			},
@@ -679,13 +670,14 @@ impl State {
 	}
 
 	pub(super) fn handle_retry_sandbox(&mut self, id: &tg::sandbox::Id) {
-		let Some(sandbox) = self.sandboxes.entries.get(id) else {
+		let Some(sandbox) = self.sandboxes.entries.get_mut(id) else {
 			return;
 		};
-		if !matches!(sandbox.state, SandboxState::Placing) {
+		if !matches!(sandbox.state, SandboxState::Pending) || !sandbox.retrying {
 			return;
 		}
-		self.requeue_sandbox(id);
+		sandbox.retrying = false;
+		self.queue.wake();
 	}
 
 	fn find_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
@@ -811,6 +803,9 @@ impl State {
 		if !matches!(sandbox.state, SandboxState::Pending) {
 			return false;
 		}
+		if sandbox.retrying {
+			return false;
+		}
 		let Some(placement) = self.find_placement(scheduler, sandbox) else {
 			// Keep the sandbox queued if a runner could satisfy it once it has capacity.
 			if self
@@ -823,13 +818,13 @@ impl State {
 			}
 
 			// No runner can satisfy the sandbox, so count the attempt and discard it once they are exhausted.
-			self.remove_queued_sandbox(id);
 			let sandbox = self.sandboxes.entries.get_mut(id).unwrap();
 			sandbox.attempts += 1;
 			let attempts = sandbox.attempts;
 			if attempts >= scheduler.config.max_create_sandbox_attempts {
 				let error = tg::error!(sandbox = %id, %attempts, "no runners available");
 				tracing::error!(error = %error.trace(), "giving up on the sandbox");
+				self.remove_queued_sandbox(id);
 				self.sandboxes.entries.remove(id);
 				let discarded = DiscardedSandbox {
 					error: error.to_data_or_id(),
@@ -840,7 +835,7 @@ impl State {
 			}
 
 			// Retry after the grace period in case a runner becomes available.
-			sandbox.state = SandboxState::Placing;
+			sandbox.retrying = true;
 			let duration = scheduler.config.create_sandbox_timeout;
 			let sandbox = id.clone();
 			self.operations.push(

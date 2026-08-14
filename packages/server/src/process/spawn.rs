@@ -297,20 +297,16 @@ impl Session {
 		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		tracing::info!(cached = ?arg.cached, "spawning the process locally");
-
 		// Authorize the command if a process may be created.
 		if arg.cached != Some(true) {
 			self.spawn_process_authorize_command(&command).await?;
 		}
-		tracing::info!("authorized the command");
 
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
 
 		// Authorize the sandbox owner.
 		self.spawn_process_authorize_sandbox_owner(&arg).await?;
-		tracing::info!(cacheable, "authorized the sandbox owner");
 
 		// Get or create the local process.
 		let mut output = self
@@ -322,10 +318,6 @@ impl Session {
 			)
 			.boxed()
 			.await?;
-		tracing::info!(
-			process = ?output.as_ref().map(|output| output.id.to_string()),
-			"got or created the local process"
-		);
 		if matches!(arg.sandbox, Some(tg::Either::Left(_)))
 			&& let Some(output) = &mut output
 			&& !output.cached
@@ -341,29 +333,20 @@ impl Session {
 			output.token = None;
 		}
 		let output = if cacheable && arg.cached.is_none() {
-			tracing::info!("spawning in a sandbox or getting a cached process");
-			let output = self
-				.spawn_process_in_sandbox_or_get_cached(&arg, output, cache_location)
+			self.spawn_process_in_sandbox_or_get_cached(&arg, output, cache_location)
 				.boxed()
-				.await?;
-			tracing::info!("spawned in a sandbox or got a cached process");
-			output
+				.await?
 		} else {
 			// Spawn the process in a sandbox.
-			tracing::info!("spawning the process in a new or existing sandbox");
 			let output = self
 				.spawn_process_in_new_or_existing_sandbox(&arg, output, None)
 				.boxed()
 				.await?;
-			tracing::info!("spawned the process in a new or existing sandbox");
 
 			// Wait for the local process or get a cached process.
-			let output = self
-				.spawn_process_wait_or_get_cached(&arg, output, cacheable)
+			self.spawn_process_wait_or_get_cached(&arg, output, cacheable)
 				.boxed()
-				.await?;
-			tracing::info!("waited for the local process or got a cached process");
-			output
+				.await?
 		};
 		let Some(mut output) = output else {
 			return Ok(None);
