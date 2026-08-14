@@ -696,7 +696,10 @@ impl Graph {
 		}
 
 		if let Some(stored) = stored {
-			node.local_stored = Some(stored);
+			match &mut node.local_stored {
+				Some(local_stored) => local_stored.merge(&stored),
+				None => node.local_stored = Some(stored),
+			}
 		}
 
 		if let Some(permissions) = permissions {

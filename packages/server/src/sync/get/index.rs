@@ -69,6 +69,10 @@ impl Session {
 		state: &State,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.index.object", id = %node.id).await;
+		}
+
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
