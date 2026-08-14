@@ -8,6 +8,7 @@ use {
 pub struct Options {
 	pub blobs: bool,
 	pub depth: Option<u64>,
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Value {
@@ -24,8 +25,15 @@ impl tg::Value {
 	where
 		H: tg::Handle + Clone + Send + Sync + 'static,
 	{
-		let tg::value::load::Options { blobs, depth } = options;
-		let arg = tg::object::get::Arg::default();
+		let tg::value::load::Options {
+			blobs,
+			depth,
+			location,
+		} = options;
+		let arg = tg::object::get::Arg {
+			location,
+			..tg::object::get::Arg::default()
+		};
 		let semaphore = Arc::new(Semaphore::new(16));
 		let mut join_set: JoinSet<tg::Result<(Vec<Self>, Option<u64>)>> = JoinSet::new();
 		let mut queue = VecDeque::new();

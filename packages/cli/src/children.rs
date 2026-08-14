@@ -42,8 +42,10 @@ impl Timeout {
 }
 
 impl Cli {
-	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_children(&mut self, mut args: Args) -> tg::Result<()> {
+		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
+		let locations = args.locations;
 		let print = args.print;
 		let timeout = args.timeout;
 
@@ -53,7 +55,7 @@ impl Cli {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
 				let options = crate::process::children::Options {
 					length: None,
-					locations: crate::location::Args::default(),
+					locations,
 					position: None,
 					print,
 					size: None,
@@ -73,10 +75,7 @@ impl Cli {
 							.map(|object| object.id())
 							.map_err(|_| tg::error!("expected an object"))
 					})?;
-				let options = crate::object::children::Options {
-					locations: crate::location::Args::default(),
-					print,
-				};
+				let options = crate::object::children::Options { locations, print };
 				self.command_object_children_inner(object, options).await?;
 			},
 		}

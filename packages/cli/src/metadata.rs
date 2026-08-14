@@ -15,8 +15,10 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_metadata(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_metadata(&mut self, mut args: Args) -> tg::Result<()> {
+		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
+		let locations = args.locations;
 		let print = args.print;
 
 		// Get the reference.
@@ -24,10 +26,7 @@ impl Cli {
 		match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
-				let options = crate::process::metadata::Options {
-					locations: crate::location::Args::default(),
-					print,
-				};
+				let options = crate::process::metadata::Options { locations, print };
 				self.command_process_metadata_inner(process, options)
 					.await?;
 			},
@@ -39,10 +38,7 @@ impl Cli {
 							.map(|object| object.id())
 							.map_err(|_| tg::error!("expected an object"))
 					})?;
-				let options = crate::object::metadata::Options {
-					locations: crate::location::Args::default(),
-					print,
-				};
+				let options = crate::object::metadata::Options { locations, print };
 				self.command_object_metadata_inner(object, options).await?;
 			},
 		}

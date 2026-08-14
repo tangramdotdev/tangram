@@ -45,6 +45,11 @@ pub struct Output {
 	pub output: Option<tg::value::Data>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Wait {
 	pub error: Option<tg::Error>,
@@ -55,12 +60,16 @@ pub struct Wait {
 struct Error;
 
 impl<O> tg::Process<O> {
-	pub async fn wait(&self) -> tg::Result<tg::process::Wait> {
+	pub async fn wait(&self, options: tg::process::wait::Options) -> tg::Result<tg::process::Wait> {
 		let handle = tg::handle()?;
-		self.wait_with_handle(handle).await
+		self.wait_with_handle(handle, options).await
 	}
 
-	pub async fn wait_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Wait>
+	pub async fn wait_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::wait::Options,
+	) -> tg::Result<tg::process::Wait>
 	where
 		H: tg::Handle,
 	{
@@ -95,7 +104,7 @@ impl<O> tg::Process<O> {
 				"waiting for an unsandboxed process is not supported"
 			));
 		};
-		let location = self.location();
+		let location = options.location.or_else(|| self.location());
 		let arg = tg::process::wait::Arg {
 			lease: self.lease().cloned(),
 			location: location.clone(),

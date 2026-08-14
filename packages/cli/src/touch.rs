@@ -12,8 +12,10 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_touch(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_touch(&mut self, mut args: Args) -> tg::Result<()> {
+		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
+		let locations = args.locations;
 
 		let referent = self.resolve(&reference).await?;
 		match referent.node {
@@ -21,14 +23,14 @@ impl Cli {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
 				self.command_process_touch_inner(
 					process,
-					crate::process::touch::Options::default(),
+					crate::process::touch::Options { locations },
 				)
 				.await?;
 			},
 			tg::get::Node::Id(id) => {
 				let object = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_object_touch_inner(object, crate::object::touch::Options::default())
-					.await?;
+				let options = crate::object::touch::Options { locations };
+				self.command_object_touch_inner(object, options).await?;
 			},
 			tg::get::Node::Pointer(_) => {
 				return Err(tg::error!("expected an object or process id"));

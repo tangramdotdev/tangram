@@ -20,6 +20,7 @@ pub struct Output {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub lease: Option<String>,
+	pub location: Option<tg::location::Arg>,
 }
 
 impl<O> tg::Process<O> {
@@ -37,16 +38,19 @@ impl<O> tg::Process<O> {
 		H: tg::Handle,
 	{
 		if self.id().is_left() {
-			self.signal_with_handle(handle, tg::process::Signal::SIGTERM)
+			let options = tg::process::signal::Options::default();
+			self.signal_with_handle(handle, tg::process::Signal::SIGTERM, options)
 				.await?;
 			self.detach();
 			return Ok(());
 		}
-		self.ensure_location_with_handle(handle).await?;
+		let tg::process::cancel::Options { lease, location } = options;
+		if location.is_none() && self.location().is_none() {
+			self.ensure_location_with_handle(handle).await?;
+		}
 		let id = self.id().unwrap_right();
-		let location = self.location();
-		let lease = options
-			.lease
+		let location = location.or_else(|| self.location());
+		let lease = lease
 			.or_else(|| self.lease().cloned())
 			.ok_or_else(|| tg::error!("missing lease"))?;
 		handle.cancel_process(id, Arg { location, lease }).await?;

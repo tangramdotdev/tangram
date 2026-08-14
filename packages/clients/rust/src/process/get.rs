@@ -48,6 +48,7 @@ pub struct Output {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub location: Option<tg::location::Arg>,
 	pub metadata: bool,
 	pub stored: bool,
 }
@@ -96,7 +97,7 @@ impl<O> tg::Process<O> {
 			));
 		};
 		let arg = tg::process::get::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			metadata: options.metadata,
 			stored: options.stored,
 			tokens: self.tokens(),

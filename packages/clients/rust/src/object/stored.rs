@@ -31,6 +31,11 @@ pub struct Stored {
 	pub subtree: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 impl Stored {
 	pub fn merge(&mut self, other: &Self) {
 		self.subtree = self.subtree || other.subtree;
@@ -38,35 +43,48 @@ impl Stored {
 }
 
 impl tg::Object {
-	pub async fn stored(&self) -> tg::Result<tg::object::Stored> {
+	pub async fn stored(
+		&self,
+		options: tg::object::stored::Options,
+	) -> tg::Result<tg::object::Stored> {
 		let handle = tg::handle()?;
-		self.stored_with_handle(handle).await
+		self.stored_with_handle(handle, options).await
 	}
 
-	pub async fn stored_with_handle<H>(&self, handle: &H) -> tg::Result<tg::object::Stored>
+	pub async fn stored_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::object::stored::Options,
+	) -> tg::Result<tg::object::Stored>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_stored_with_handle(handle)
+		self.try_get_stored_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the object storage status"))
 	}
 
-	pub async fn try_get_stored(&self) -> tg::Result<Option<tg::object::Stored>> {
+	pub async fn try_get_stored(
+		&self,
+		options: tg::object::stored::Options,
+	) -> tg::Result<Option<tg::object::Stored>> {
 		let handle = tg::handle()?;
-		self.try_get_stored_with_handle(handle).await
+		self.try_get_stored_with_handle(handle, options).await
 	}
 
 	pub async fn try_get_stored_with_handle<H>(
 		&self,
 		handle: &H,
+		options: tg::object::stored::Options,
 	) -> tg::Result<Option<tg::object::Stored>>
 	where
 		H: tg::Handle,
 	{
 		let state = self.state();
 		let arg = tg::object::stored::Arg {
-			location: state.location().map(Into::into),
+			location: options
+				.location
+				.or_else(|| state.location().map(Into::into)),
 			tokens: state.tokens(),
 		};
 		handle.try_get_object_stored(&self.id(), arg).await

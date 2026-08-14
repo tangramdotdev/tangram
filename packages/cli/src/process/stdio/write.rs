@@ -21,16 +21,20 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let mut location = args.location;
+		location.set_from_reference_if_unset(&args.reference);
 		let process = self
-			.resolve_process_with_locations(&args.reference, &args.location)
+			.resolve_process_with_locations(&args.reference, &location)
 			.await?;
 		let id = process.node.clone();
+		let location = location.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let [stream] = args.streams.as_slice() else {
 			return Err(tg::error!("expected exactly one stdio stream"));
 		};
 		let stream = *stream;
 		let options = tg::process::stdio::write::Options {
+			location,
 			streams: vec![stream],
 		};
 		let input = tangram_util::io::stdin()

@@ -16,6 +16,11 @@ pub struct Arg {
 	pub tokens: tg::authorization::Tokens,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 #[derive(
 	Clone,
 	Debug,
@@ -135,28 +140,39 @@ impl Subtree {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn metadata(&self) -> tg::Result<tg::process::Metadata> {
+	pub async fn metadata(
+		&self,
+		options: tg::process::metadata::Options,
+	) -> tg::Result<tg::process::Metadata> {
 		let handle = tg::handle()?;
-		self.metadata_with_handle(handle).await
+		self.metadata_with_handle(handle, options).await
 	}
 
-	pub async fn metadata_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Metadata>
+	pub async fn metadata_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::metadata::Options,
+	) -> tg::Result<tg::process::Metadata>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_metadata_with_handle(handle)
+		self.try_get_metadata_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process metadata"))
 	}
 
-	pub async fn try_get_metadata(&self) -> tg::Result<Option<tg::process::Metadata>> {
+	pub async fn try_get_metadata(
+		&self,
+		options: tg::process::metadata::Options,
+	) -> tg::Result<Option<tg::process::Metadata>> {
 		let handle = tg::handle()?;
-		self.try_get_metadata_with_handle(handle).await
+		self.try_get_metadata_with_handle(handle, options).await
 	}
 
 	pub async fn try_get_metadata_with_handle<H>(
 		&self,
 		handle: &H,
+		options: tg::process::metadata::Options,
 	) -> tg::Result<Option<tg::process::Metadata>>
 	where
 		H: tg::Handle,
@@ -167,7 +183,7 @@ impl<O> tg::Process<O> {
 			));
 		};
 		let arg = tg::process::metadata::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
 		handle.try_get_process_metadata(id, arg).await

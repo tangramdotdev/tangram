@@ -1672,7 +1672,10 @@ impl Tree {
 			let guard = counter.guard();
 			async move {
 				let _guard = guard;
-				let Ok(wait) = process.wait_with_handle(&client).await else {
+				let Ok(wait) = process
+					.wait_with_handle(&client, tg::process::wait::Options::default())
+					.await
+				else {
 					return;
 				};
 				if let Some(output) = wait.output {
@@ -2739,6 +2742,7 @@ impl Tree {
 							},
 							Item::Process(process) => {
 								let options = tg::process::get::Options {
+									location: None,
 									metadata: true,
 									stored: false,
 								};
@@ -3057,7 +3061,10 @@ async fn get_process_metadata_as_value(
 	client: &impl tg::Handle,
 	process: &tg::Process,
 ) -> tg::Result<tg::Value> {
-	let Some(metadata) = process.try_get_metadata_with_handle(client).await? else {
+	let Some(metadata) = process
+		.try_get_metadata_with_handle(client, tg::process::metadata::Options::default())
+		.await?
+	else {
 		return Ok(tg::Value::Null);
 	};
 	let node = [
@@ -3099,7 +3106,10 @@ async fn get_object_metadata_as_value(
 	object: impl Into<tg::Object>,
 ) -> tg::Result<tg::Value> {
 	let object = object.into();
-	let Some(metadata) = object.try_get_metadata_with_handle(client).await? else {
+	let Some(metadata) = object
+		.try_get_metadata_with_handle(client, tg::object::metadata::Options::default())
+		.await?
+	else {
 		return Ok(tg::Value::Null);
 	};
 	let node = [

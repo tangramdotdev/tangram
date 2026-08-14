@@ -23,7 +23,8 @@ impl Cli {
 		} else if options.checkout.is_some() {
 			Self::print_display(output);
 		} else if (options.detach && options.verbose) || !output.is_null() {
-			self.print_value(&output, options.print.clone()).await?;
+			self.print_value(&output, options.print.clone(), None)
+				.await?;
 		}
 
 		Ok(())

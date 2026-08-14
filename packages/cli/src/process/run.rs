@@ -92,7 +92,7 @@ impl Cli {
 		} else if checkout {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
-			self.print_value(&output, print).await?;
+			self.print_value(&output, print, None).await?;
 		}
 
 		Ok(())
@@ -240,7 +240,7 @@ impl Cli {
 		// Await the process.
 		let wait = process
 			.node()
-			.wait_with_handle(&client)
+			.wait_with_handle(&client, tg::process::wait::Options::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
 

@@ -119,7 +119,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			object => object
-				.children_with_handle(handle)
+				.children_with_handle(handle, tg::object::get::Options::default())
 				.await?
 				.into_iter()
 				.map(tg::Referent::with_node)

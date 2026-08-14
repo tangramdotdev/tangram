@@ -46,7 +46,7 @@ impl Cli {
 	{
 		let value = serde_json::to_value(&value)
 			.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
-		self.print_value(&value.into(), options).await?;
+		self.print_value(&value.into(), options, None).await?;
 		Ok(())
 	}
 
@@ -90,7 +90,7 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to serialize the value"))?;
 			let indent = if pretty { 1 } else { 0 };
 			let value = value.into();
-			self.load_value(&value, options.clone()).await?;
+			self.load_value(&value, options.clone(), None).await?;
 			Self::print_value_inner(&mut stdout, &value, options.clone(), indent).await?;
 			if tty {
 				stdout
@@ -124,9 +124,10 @@ impl Cli {
 		&mut self,
 		value: &tg::Value,
 		options: Options,
+		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		self.load_value(value, options.clone()).await?;
+		self.load_value(value, options.clone(), location).await?;
 		Self::print_value_inner(&mut stdout, value, options, 0).await?;
 		stdout
 			.write_all(b"\n")
@@ -139,7 +140,12 @@ impl Cli {
 		Ok(())
 	}
 
-	async fn load_value(&mut self, value: &tg::Value, options: Options) -> tg::Result<()> {
+	async fn load_value(
+		&mut self,
+		value: &tg::Value,
+		options: Options,
+		location: Option<tg::location::Arg>,
+	) -> tg::Result<()> {
 		let depth = match options.depth.unwrap_or(Depth::Finite(0)) {
 			Depth::Finite(depth) => Some(depth),
 			Depth::Infinite => None,
@@ -151,6 +157,7 @@ impl Cli {
 		let options = tg::value::load::Options {
 			blobs: options.blobs,
 			depth,
+			location,
 		};
 		value.load_with_handle(&client, options).await?;
 		Ok(())

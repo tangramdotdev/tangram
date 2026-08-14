@@ -37,6 +37,11 @@ pub struct Output {
 	pub tokens: tg::authorization::Tokens,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 impl tg::Session {
 	pub async fn try_get_object(
 		&self,

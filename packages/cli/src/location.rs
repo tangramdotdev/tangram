@@ -51,6 +51,28 @@ impl Args {
 		}
 	}
 
+	pub(crate) fn set_from_reference_if_unset(&mut self, reference: &tg::Reference) {
+		if self.get().is_some() {
+			return;
+		}
+		let Some(location) = reference.options().location.clone() else {
+			return;
+		};
+		*self = Self::with_location(location);
+	}
+
+	pub(crate) fn get_for_options<T>(
+		&self,
+		referent: &tg::Referent<T>,
+	) -> Option<tg::location::Arg> {
+		referent
+			.options
+			.location
+			.clone()
+			.map(Into::into)
+			.or_else(|| self.get())
+	}
+
 	pub fn get(&self) -> Option<tg::location::Arg> {
 		if let Some(location) = &self.location {
 			return Some(location.clone());

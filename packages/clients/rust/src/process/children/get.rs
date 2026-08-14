@@ -41,6 +41,7 @@ pub enum Event {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub length: Option<u64>,
+	pub location: Option<tg::location::Arg>,
 	pub position: Option<std::io::SeekFrom>,
 	pub size: Option<u64>,
 	pub timeout: Option<Duration>,
@@ -94,7 +95,7 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		let location = self.location();
+		let location = options.location.or_else(|| self.location());
 		let tokens = self.tokens();
 		let arg = tg::process::children::get::Arg {
 			length: options.length,

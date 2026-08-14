@@ -72,6 +72,11 @@ pub struct Stored {
 	pub subtree_output: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 impl Stored {
 	pub fn merge(&mut self, other: &Self) {
 		self.node_command = self.node_command || other.node_command;
@@ -87,28 +92,39 @@ impl Stored {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn stored(&self) -> tg::Result<tg::process::Stored> {
+	pub async fn stored(
+		&self,
+		options: tg::process::stored::Options,
+	) -> tg::Result<tg::process::Stored> {
 		let handle = tg::handle()?;
-		self.stored_with_handle(handle).await
+		self.stored_with_handle(handle, options).await
 	}
 
-	pub async fn stored_with_handle<H>(&self, handle: &H) -> tg::Result<tg::process::Stored>
+	pub async fn stored_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::stored::Options,
+	) -> tg::Result<tg::process::Stored>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_stored_with_handle(handle)
+		self.try_get_stored_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process storage status"))
 	}
 
-	pub async fn try_get_stored(&self) -> tg::Result<Option<tg::process::Stored>> {
+	pub async fn try_get_stored(
+		&self,
+		options: tg::process::stored::Options,
+	) -> tg::Result<Option<tg::process::Stored>> {
 		let handle = tg::handle()?;
-		self.try_get_stored_with_handle(handle).await
+		self.try_get_stored_with_handle(handle, options).await
 	}
 
 	pub async fn try_get_stored_with_handle<H>(
 		&self,
 		handle: &H,
+		options: tg::process::stored::Options,
 	) -> tg::Result<Option<tg::process::Stored>>
 	where
 		H: tg::Handle,
@@ -119,7 +135,7 @@ impl<O> tg::Process<O> {
 			));
 		};
 		let arg = tg::process::stored::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
 		handle.try_get_process_stored(id, arg).await

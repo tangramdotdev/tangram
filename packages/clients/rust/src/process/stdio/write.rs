@@ -31,6 +31,7 @@ pub enum Event {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub location: Option<tg::location::Arg>,
 	pub streams: Vec<Stream>,
 }
 
@@ -76,12 +77,12 @@ impl<O> tg::Process<O> {
 			return Ok(());
 		}
 
-		if self.location().is_none() {
+		if options.location.is_none() && self.location().is_none() {
 			self.ensure_location_with_handle(handle).await?;
 		}
 		let id = self.id().unwrap_right();
 		let arg = tg::process::stdio::write::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			streams: options.streams,
 			tokens: self.tokens(),
 		};

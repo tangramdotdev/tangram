@@ -2,6 +2,11 @@ use crate::prelude::*;
 
 pub mod post;
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 #[derive(
 	Clone, Copy, Debug, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]

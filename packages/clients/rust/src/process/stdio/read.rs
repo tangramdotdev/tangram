@@ -50,6 +50,7 @@ pub enum Event {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub length: Option<i64>,
+	pub location: Option<tg::location::Arg>,
 	pub position: Option<std::io::SeekFrom>,
 	pub size: Option<u64>,
 	pub streams: Vec<Stream>,
@@ -137,7 +138,7 @@ impl<O> tg::Process<O> {
 		let id = self.id().unwrap_right();
 		let arg = tg::process::stdio::read::Arg {
 			length: options.length,
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			position: options.position,
 			size: options.size,
 			streams: options.streams,

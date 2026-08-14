@@ -36,7 +36,7 @@ impl<O> tg::Process<O> {
 		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		let output = process
-			.output_with_handle(handle)
+			.output_with_handle(handle, tg::process::wait::Options::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process output"))?;
 

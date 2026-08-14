@@ -380,15 +380,20 @@ impl<O> Process<O> {
 			.map(|state| &state.retry))
 	}
 
-	pub async fn signal(&self, signal: tg::process::Signal) -> tg::Result<()> {
+	pub async fn signal(
+		&self,
+		signal: tg::process::Signal,
+		options: tg::process::signal::Options,
+	) -> tg::Result<()> {
 		let handle = tg::handle()?;
-		self.signal_with_handle(handle, signal).await
+		self.signal_with_handle(handle, signal, options).await
 	}
 
 	pub async fn signal_with_handle<H>(
 		&self,
 		handle: &H,
 		signal: tg::process::Signal,
+		options: tg::process::signal::Options,
 	) -> tg::Result<()>
 	where
 		H: tg::Handle,
@@ -407,9 +412,11 @@ impl<O> Process<O> {
 			return Ok(());
 		}
 
-		self.ensure_location_with_handle(handle).await?;
+		if options.location.is_none() && self.location().is_none() {
+			self.ensure_location_with_handle(handle).await?;
+		}
 		let arg = tg::process::signal::post::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			signal,
 			tokens: self.tokens(),
 		};
@@ -419,22 +426,26 @@ impl<O> Process<O> {
 		Ok(())
 	}
 
-	pub async fn output(&self) -> tg::Result<O>
+	pub async fn output(&self, options: tg::process::wait::Options) -> tg::Result<O>
 	where
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let handle = tg::handle()?;
-		self.output_with_handle(handle).await
+		self.output_with_handle(handle, options).await
 	}
 
-	pub async fn output_with_handle<H>(&self, handle: &H) -> tg::Result<O>
+	pub async fn output_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::wait::Options,
+	) -> tg::Result<O>
 	where
 		H: tg::Handle,
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let wait = self.wait_with_handle(handle).await?;
+		let wait = self.wait_with_handle(handle, options).await?;
 		let output = wait.into_output()?;
 		let tokens = self.tokens();
 		output.inherit_tokens(&tokens);

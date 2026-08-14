@@ -20,23 +20,28 @@ pub struct Options {
 
 impl Cli {
 	pub async fn command_process_touch(&mut self, args: Args) -> tg::Result<()> {
+		let mut options = args.options;
+		options
+			.locations
+			.set_from_reference_if_unset(&args.reference);
 		let process = self
-			.resolve_process_with_locations(&args.reference, &args.options.locations)
+			.resolve_process_with_locations(&args.reference, &options.locations)
 			.await?;
-		self.command_process_touch_inner(process, args.options)
-			.await
+		self.command_process_touch_inner(process, options).await
 	}
 
 	pub(crate) async fn command_process_touch_inner(
 		&mut self,
 		process: tg::Referent<tg::process::Id>,
-		_options: Options,
+		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = process.node.clone();
+		let location = options.locations.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
+		let options = tg::process::touch::Options { location };
 		process
-			.touch_with_handle(&client)
+			.touch_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(())

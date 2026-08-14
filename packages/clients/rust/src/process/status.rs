@@ -55,6 +55,7 @@ pub enum Event {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub location: Option<tg::location::Arg>,
 	pub timeout: Option<Duration>,
 }
 
@@ -97,7 +98,7 @@ impl<O> tg::Process<O> {
 		H: tg::Handle,
 	{
 		let arg = tg::process::status::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			timeout: options.timeout,
 			tokens: self.tokens(),
 		};

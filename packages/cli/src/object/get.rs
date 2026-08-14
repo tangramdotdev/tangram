@@ -36,10 +36,14 @@ pub struct Options {
 
 impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
+		let mut options = args.options;
+		options
+			.locations
+			.set_from_reference_if_unset(&args.reference);
 		let object = self
-			.resolve_object_with_locations(&args.reference, &args.options.locations)
+			.resolve_object_with_locations(&args.reference, &options.locations)
 			.await?;
-		self.command_object_get_inner(object, args.options).await
+		self.command_object_get_inner(object, options).await
 	}
 
 	pub(crate) async fn command_object_get_inner(
@@ -49,7 +53,7 @@ impl Cli {
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = object.node.clone();
-		let location = object.options.location.clone().map(Into::into);
+		let location = options.locations.get_for_options(&object);
 		let tokens = object.options.tokens.clone();
 		if options.bytes {
 			let arg = tg::object::get::Arg {
@@ -91,8 +95,11 @@ impl Cli {
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		if options.metadata {
+			let options_ = tg::object::metadata::Options {
+				location: location.clone(),
+			};
 			let metadata = object
-				.metadata_with_handle(&client)
+				.metadata_with_handle(&client, options_)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
 			let metadata = serde_json::to_string(&metadata)
@@ -100,7 +107,10 @@ impl Cli {
 			self.print_info_message(&metadata);
 		}
 		if options.stored {
-			let stored = object.stored_with_handle(&client).await.map_err(
+			let options_ = tg::object::stored::Options {
+				location: location.clone(),
+			};
+			let stored = object.stored_with_handle(&client, options_).await.map_err(
 				|error| tg::error!(!error, %id, "failed to get the object's storage status"),
 			)?;
 			let stored = serde_json::to_string(&stored)
@@ -108,7 +118,7 @@ impl Cli {
 			self.print_info_message(&stored);
 		}
 		let value = tg::Value::Object(object);
-		self.print_value(&value, options.print).await?;
+		self.print_value(&value, options.print, location).await?;
 		Ok(())
 	}
 }

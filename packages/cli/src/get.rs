@@ -55,7 +55,8 @@ impl Ttl {
 }
 
 impl Cli {
-	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_get(&mut self, mut args: Args) -> tg::Result<()> {
+		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
 		let arg = tg::get::Arg {
 			cached: args.cached,
@@ -72,11 +73,9 @@ impl Cli {
 		args: Args,
 		referent: tg::Referent<tg::get::Node>,
 	) -> tg::Result<()> {
-		let locations = referent
-			.options
-			.location
-			.clone()
-			.map(Into::into)
+		let locations = args
+			.locations
+			.get_for_options(&referent)
 			.map(crate::location::Args::with_location)
 			.unwrap_or_default();
 		let print = args.print;
@@ -103,7 +102,7 @@ impl Cli {
 			})?;
 			let options = crate::object::get::Options {
 				bytes: args.bytes,
-				locations: crate::location::Args::default(),
+				locations: locations.clone(),
 				metadata: args.metadata,
 				print,
 				stored: args.stored,
@@ -118,7 +117,7 @@ impl Cli {
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
 			let options = crate::process::get::Options {
-				locations: crate::location::Args::default(),
+				locations: locations.clone(),
 				metadata: args.metadata,
 				print,
 				stored: args.stored,

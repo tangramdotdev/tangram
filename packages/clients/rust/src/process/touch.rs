@@ -12,27 +12,40 @@ pub struct Arg {
 	pub tokens: tg::authorization::Tokens,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub location: Option<tg::location::Arg>,
+}
+
 impl<O> tg::Process<O> {
-	pub async fn touch(&self) -> tg::Result<()> {
+	pub async fn touch(&self, options: tg::process::touch::Options) -> tg::Result<()> {
 		let handle = tg::handle()?;
-		self.touch_with_handle(handle).await
+		self.touch_with_handle(handle, options).await
 	}
 
-	pub async fn touch_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn touch_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::touch::Options,
+	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		self.try_touch_with_handle(handle)
+		self.try_touch_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to touch the process"))
 	}
 
-	pub async fn try_touch(&self) -> tg::Result<Option<()>> {
+	pub async fn try_touch(&self, options: tg::process::touch::Options) -> tg::Result<Option<()>> {
 		let handle = tg::handle()?;
-		self.try_touch_with_handle(handle).await
+		self.try_touch_with_handle(handle, options).await
 	}
 
-	pub async fn try_touch_with_handle<H>(&self, handle: &H) -> tg::Result<Option<()>>
+	pub async fn try_touch_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::touch::Options,
+	) -> tg::Result<Option<()>>
 	where
 		H: tg::Handle,
 	{
@@ -42,7 +55,7 @@ impl<O> tg::Process<O> {
 			));
 		};
 		let arg = tg::process::touch::Arg {
-			location: self.location(),
+			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
 		handle.try_touch_process(id, arg).await

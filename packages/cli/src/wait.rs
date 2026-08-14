@@ -15,8 +15,10 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_wait(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_wait(&mut self, mut args: Args) -> tg::Result<()> {
+		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
+		let locations = args.locations;
 		let referent = self.resolve(&reference).await?;
 		let id = match referent.node {
 			tg::get::Node::Id(id) => id,
@@ -28,7 +30,7 @@ impl Cli {
 			tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
 				let options = crate::process::wait::Options {
-					locations: crate::location::Args::default(),
+					locations,
 					print: args.print,
 				};
 				self.command_process_wait_inner(process, options).await?;
@@ -37,7 +39,7 @@ impl Cli {
 				let sandbox = tg::Referent::new(id.try_into()?, referent.options);
 				let sandbox = tg::Sandbox::with_referent(sandbox);
 				let options = crate::sandbox::wait::Options {
-					locations: crate::location::Args::default(),
+					locations,
 					print: args.print,
 				};
 				self.command_sandbox_wait_inner(sandbox, options).await?;

@@ -214,7 +214,7 @@ impl Object {
 		H: tg::Handle,
 	{
 		self.load_with_handle(handle).await?;
-		self.children_with_handle(handle)
+		self.children_with_handle(handle, tg::object::get::Options::default())
 			.await?
 			.iter()
 			.map(|object| async {
@@ -259,17 +259,24 @@ impl Object {
 		}
 	}
 
-	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+	pub async fn children(&self, options: tg::object::get::Options) -> tg::Result<Vec<tg::Object>> {
 		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		self.children_with_handle(handle, options).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::object::get::Options,
+	) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		self.children_with_arg_with_handle(handle, tg::object::get::Arg::default())
-			.await
+		let arg = tg::object::get::Arg {
+			location: options.location,
+			..tg::object::get::Arg::default()
+		};
+		self.children_with_arg_with_handle(handle, arg).await
 	}
 
 	pub(crate) async fn children_with_arg_with_handle<H>(

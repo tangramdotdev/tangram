@@ -43,12 +43,16 @@ impl Timeout {
 impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let mut locations = args.locations;
+		locations.set_from_reference_if_unset(&args.reference);
 		let process = self
-			.resolve_process_with_locations(&args.reference, &args.locations)
+			.resolve_process_with_locations(&args.reference, &locations)
 			.await?;
 		let id = process.node.clone();
+		let location = locations.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options = tg::process::status::Options {
+			location,
 			timeout: args.timeout.get(),
 		};
 		let stream = process
