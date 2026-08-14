@@ -189,9 +189,7 @@ export class Error {
 
 	static toDataOrId(value: tg.Error): tg.Error.Data | string {
 		if (value.state.stored) {
-			let id = value.state.id as tg.Error.Id;
-			let options = value.state.referentOptions;
-			let referent = { node: id, options };
+			let referent = tg.Object.toReferent(value);
 			return tg.Referent.toDataString(referent, (id) => id);
 		}
 		return tg.Error.toData(value);
@@ -581,15 +579,19 @@ export namespace Error {
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
 
-		export let withoutTokens = (data: tg.Error.Data): tg.Error.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Error.Data,
+		): tg.Error.Data => {
 			let output = { ...data };
 			if (data.diagnostics !== undefined && data.diagnostics !== null) {
 				output.diagnostics = data.diagnostics.map(
-					tg.Diagnostic.Data.withoutTokens,
+					tg.Diagnostic.Data.withoutLocationAndTokens,
 				);
 			}
 			if (data.location !== undefined && data.location !== null) {
-				output.location = tg.Error.Data.Location.withoutTokens(data.location);
+				output.location = tg.Error.Data.Location.withoutLocationAndTokens(
+					data.location,
+				);
 			}
 			if (data.source !== undefined && data.source !== null) {
 				if (typeof data.source === "string") {
@@ -605,13 +607,17 @@ export namespace Error {
 					let source = tg.Referent.fromData(data.source, (node) => node);
 					source = tg.Referent.withoutLocationAndTokens(source);
 					if (typeof data.source.node !== "string") {
-						source.node = tg.Error.Data.withoutTokens(data.source.node);
+						source.node = tg.Error.Data.withoutLocationAndTokens(
+							data.source.node,
+						);
 					}
 					output.source = tg.Referent.toData(source, (node) => node);
 				}
 			}
 			if (data.stack !== undefined && data.stack !== null) {
-				output.stack = data.stack.map(tg.Error.Data.Location.withoutTokens);
+				output.stack = data.stack.map(
+					tg.Error.Data.Location.withoutLocationAndTokens,
+				);
 			}
 			return output;
 		};
@@ -633,12 +639,12 @@ export namespace Error {
 				return tg.Error.Data.File.children(data.file);
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Error.Data.Location,
 			): tg.Error.Data.Location => {
 				return {
 					...data,
-					file: tg.Error.Data.File.withoutTokens(data.file),
+					file: tg.Error.Data.File.withoutLocationAndTokens(data.file),
 				};
 			};
 		}
@@ -652,13 +658,13 @@ export namespace Error {
 				}
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Error.Data.File,
 			): tg.Error.Data.File => {
 				if (data.kind === "module") {
 					return {
 						...data,
-						value: tg.Module.Data.withoutTokens(data.value),
+						value: tg.Module.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				return { ...data };

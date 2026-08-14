@@ -141,7 +141,7 @@ impl Session {
 						.is_none_or(|requested| requested.eager);
 					let data: tg::process::Data = serde_json::from_slice(&message.bytes)
 						.map_err(|error| tg::error!(!error, "failed to deserialize the process"))?;
-					let data = data.without_tokens();
+					let data = data.without_location_and_tokens();
 					let bytes = serde_json::to_vec(&data)
 						.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 

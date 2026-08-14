@@ -24,7 +24,7 @@ pub struct Options {
 impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
 		let object = self
-			.resolve_object_with_location(&args.object, &args.options.locations)
+			.resolve_object_with_locations(&args.object, &args.options.locations)
 			.await?;
 		self.command_object_children_inner(object, args.options)
 			.await

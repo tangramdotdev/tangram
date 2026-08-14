@@ -51,7 +51,7 @@ export namespace Value {
 		} else if (value instanceof Array) {
 			return value.map(toData);
 		} else if (tg.Object.is(value)) {
-			let referent = objectReferent(value);
+			let referent = tg.Object.toReferent(value);
 			let value_ = tg.Referent.toDataString(referent, (id) => id);
 			return { kind: "object", value: value_ };
 		} else if (value instanceof Uint8Array) {
@@ -233,12 +233,12 @@ export namespace Value {
 			if (object.state.object === null) {
 				continue;
 			}
-			let data = tg.Object.Data.withoutTokens(
+			let data = tg.Object.Data.withoutLocationAndTokens(
 				tg.Object.Object.toData(object.state.object),
 			);
 			let id = tg.client.objectId(data);
 			let children = tg.Object.Object.children(object.state.object).map(
-				objectReferent,
+				tg.Object.toReferent,
 			);
 			object.state.id = id;
 			states.push(object.state);
@@ -270,12 +270,6 @@ export namespace Value {
 			state.location = node.options?.location ?? null;
 			state.tokens = node.options?.tokens ?? {};
 		}
-	};
-
-	let objectReferent = (object: tg.Object): tg.Referent<tg.Object.Id> => {
-		let id = object.state.id;
-		let options = object.state.referentOptions;
-		return { node: id, options };
 	};
 
 	export type Data =
@@ -322,9 +316,11 @@ export namespace Value {
 			}
 		};
 
-		export let withoutTokens = (data: tg.Value.Data): tg.Value.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Value.Data,
+		): tg.Value.Data => {
 			if (data instanceof Array) {
-				return data.map(withoutTokens);
+				return data.map(withoutLocationAndTokens);
 			} else if (typeof data === "object" && data !== null) {
 				if (data.kind === "map") {
 					return {
@@ -332,7 +328,7 @@ export namespace Value {
 						value: globalThis.Object.fromEntries(
 							globalThis.Object.entries(data.value).map(([key, value]) => [
 								key,
-								withoutTokens(value),
+								withoutLocationAndTokens(value),
 							]),
 						),
 					};
@@ -351,17 +347,17 @@ export namespace Value {
 				} else if (data.kind === "mutation") {
 					return {
 						...data,
-						value: tg.Mutation.Data.withoutTokens(data.value),
+						value: tg.Mutation.Data.withoutLocationAndTokens(data.value),
 					};
 				} else if (data.kind === "module") {
 					return {
 						...data,
-						value: tg.Module.Data.withoutTokens(data.value),
+						value: tg.Module.Data.withoutLocationAndTokens(data.value),
 					};
 				} else if (data.kind === "template") {
 					return {
 						...data,
-						value: tg.Template.Data.withoutTokens(data.value),
+						value: tg.Template.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				return { ...data };

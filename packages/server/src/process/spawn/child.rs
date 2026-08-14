@@ -101,7 +101,7 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let child_id = &child.process.node;
 		let parent_arg = parent_data.map(|parent_data| {
-			let parent_data = parent_data.without_tokens();
+			let parent_data = parent_data.without_location_and_tokens();
 			tangram_index::process::put::Arg {
 				cached: false,
 				children: None,

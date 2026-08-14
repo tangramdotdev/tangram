@@ -112,7 +112,7 @@ export namespace Object {
 			if (this.#id !== null) {
 				return this.#id;
 			}
-			let data = tg.Object.Data.withoutTokens(
+			let data = tg.Object.Data.withoutLocationAndTokens(
 				tg.Object.Object.toData(this.#object!),
 			);
 			this.#id = tg.client.objectId(data);
@@ -143,13 +143,6 @@ export namespace Object {
 
 		set object(object: tg.Object.Object | null) {
 			this.#object = object;
-		}
-
-		get referentOptions(): tg.Referent.Options {
-			return {
-				location: this.location,
-				tokens: this.tokens,
-			};
 		}
 
 		get stored(): boolean {
@@ -367,7 +360,9 @@ export namespace Object {
 			}
 		};
 
-		export let withoutTokens = (data: tg.Object.Data): tg.Object.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Object.Data,
+		): tg.Object.Data => {
 			switch (data.kind) {
 				case "blob":
 				case "directory":
@@ -377,30 +372,40 @@ export namespace Object {
 				case "command": {
 					return {
 						...data,
-						value: tg.Command.Data.withoutTokens(data.value),
+						value: tg.Command.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				case "error": {
 					return {
 						...data,
-						value: tg.Error.Data.withoutTokens(data.value),
+						value: tg.Error.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				case "file": {
 					return {
 						...data,
-						value: tg.File.Data.withoutTokens(data.value),
+						value: tg.File.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 				case "graph": {
 					return {
 						...data,
-						value: tg.Graph.Data.withoutTokens(data.value),
+						value: tg.Graph.Data.withoutLocationAndTokens(data.value),
 					};
 				}
 			}
 		};
 	}
+
+	export let toReferent = <T extends tg.Object>(
+		object: T,
+	): tg.Referent<T["id"]> => {
+		let options = {
+			location: object.state.location,
+			tokens: object.state.tokens,
+		};
+		return { node: object.id, options };
+	};
 
 	/** Get an object with a referent. */
 	export let withReferent = (

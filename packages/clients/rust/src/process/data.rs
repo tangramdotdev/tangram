@@ -129,12 +129,15 @@ struct Error;
 
 impl Data {
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
-		self.children = self
-			.children
-			.map(|children| children.into_iter().map(Child::without_tokens).collect());
+	pub fn without_location_and_tokens(mut self) -> Self {
+		self.children = self.children.map(|children| {
+			children
+				.into_iter()
+				.map(Child::without_location_and_tokens)
+				.collect()
+		});
 		self.error = self.error.map(|error| match error {
-			tg::Either::Left(error) => tg::Either::Left(error.without_tokens()),
+			tg::Either::Left(error) => tg::Either::Left(error.without_location_and_tokens()),
 			tg::Either::Right(mut error) => {
 				error.options.clear_location_and_tokens();
 				tg::Either::Right(error)
@@ -144,7 +147,9 @@ impl Data {
 			log.options.clear_location_and_tokens();
 			log
 		});
-		self.output = self.output.map(tg::value::Data::without_tokens);
+		self.output = self
+			.output
+			.map(tg::value::Data::without_location_and_tokens);
 
 		self
 	}
@@ -152,7 +157,7 @@ impl Data {
 
 impl Child {
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.process.options.clear_location_and_tokens();
 
 		self

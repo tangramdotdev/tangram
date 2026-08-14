@@ -24,7 +24,7 @@ pub struct Options {
 impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let process = self
-			.resolve_process_with_location(&args.process, &args.options.locations)
+			.resolve_process_with_locations(&args.process, &args.options.locations)
 			.await?;
 		self.command_process_metadata_inner(process, args.options)
 			.await

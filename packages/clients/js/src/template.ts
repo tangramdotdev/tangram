@@ -111,9 +111,7 @@ export class Template {
 						value: tg.Placeholder.toData(component),
 					};
 				} else {
-					let id = component.id;
-					let options = component.state.referentOptions;
-					let referent = { node: id, options };
+					let referent = tg.Object.toReferent(component);
 					return {
 						kind: "artifact",
 						value: tg.Referent.toDataString(referent, (id) => id),
@@ -270,7 +268,9 @@ export namespace Template {
 			});
 		};
 
-		export let withoutTokens = (data: tg.Template.Data): tg.Template.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Template.Data,
+		): tg.Template.Data => {
 			let components = data.components.map((component) => {
 				if (component.kind === "artifact") {
 					let referent = tg.Referent.fromDataString(

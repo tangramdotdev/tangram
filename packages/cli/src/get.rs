@@ -225,12 +225,12 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_object_with_location(
+	pub(crate) async fn resolve_object_with_locations(
 		&mut self,
 		reference: &tg::Reference,
-		location: &crate::location::Args,
+		locations: &crate::location::Args,
 	) -> tg::Result<tg::Referent<tg::object::Id>> {
-		let reference = location.apply_to_reference(reference);
+		let reference = locations.apply_to_reference(reference);
 		self.resolve_object(&reference).await
 	}
 
@@ -246,12 +246,12 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_process_with_location(
+	pub(crate) async fn resolve_process_with_locations(
 		&mut self,
 		reference: &tg::Reference,
-		location: &crate::location::Args,
+		locations: &crate::location::Args,
 	) -> tg::Result<tg::Referent<tg::process::Id>> {
-		let reference = location.apply_to_reference(reference);
+		let reference = locations.apply_to_reference(reference);
 		self.resolve_process(&reference).await
 	}
 

@@ -324,7 +324,7 @@ impl Session {
 				children: output
 					.children
 					.into_iter()
-					.map(tg::process::data::Child::without_tokens)
+					.map(tg::process::data::Child::without_location_and_tokens)
 					.collect(),
 				status: output.status,
 			};
@@ -351,7 +351,7 @@ impl Session {
 		let output = LocalChildren {
 			children: children
 				.into_iter()
-				.map(tg::process::data::Child::without_tokens)
+				.map(tg::process::data::Child::without_location_and_tokens)
 				.collect(),
 			status,
 		};

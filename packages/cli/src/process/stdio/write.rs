@@ -22,7 +22,7 @@ impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let process = self
-			.resolve_process_with_location(&args.process, &args.location)
+			.resolve_process_with_locations(&args.process, &args.location)
 			.await?;
 		let id = process.node;
 		let location = process.options.location.map(Into::into);

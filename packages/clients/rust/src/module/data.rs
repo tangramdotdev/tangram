@@ -77,7 +77,7 @@ impl Module {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.referent.options.clear_location_and_tokens();
 
 		self

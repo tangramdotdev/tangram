@@ -242,7 +242,9 @@ export namespace Module {
 			return tg.Graph.Data.Edge.children(source);
 		};
 
-		export let withoutTokens = (data: tg.Module.Data): tg.Module.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Module.Data,
+		): tg.Module.Data => {
 			if (typeof data.referent === "string") {
 				let referent = tg.Referent.fromDataString(
 					data.referent,
@@ -307,12 +309,12 @@ export namespace Module {
 				return tg.Module.Data.children(data.module);
 			};
 
-			export let withoutTokens = (
+			export let withoutLocationAndTokens = (
 				data: tg.Module.Location.Data,
 			): tg.Module.Location.Data => {
 				return {
 					...data,
-					module: tg.Module.Data.withoutTokens(data.module),
+					module: tg.Module.Data.withoutLocationAndTokens(data.module),
 				};
 			};
 		}

@@ -350,7 +350,7 @@ impl Session {
 		data: tg::process::Data,
 		metadata: Option<tg::process::Metadata>,
 	) -> tg::process::get::Output {
-		let data = data.without_tokens();
+		let data = data.without_location_and_tokens();
 		let location = self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
@@ -703,7 +703,7 @@ impl Server {
 				if !data.status.is_finished() {
 					return None;
 				}
-				let data = data.without_tokens();
+				let data = data.without_location_and_tokens();
 				let metadata = metadata.then_some(process.metadata);
 				Some(tg::process::get::Output {
 					data,

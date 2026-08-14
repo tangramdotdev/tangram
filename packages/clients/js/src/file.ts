@@ -582,9 +582,11 @@ export namespace File {
 			}
 		};
 
-		export let withoutTokens = (data: tg.File.Data): tg.File.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.File.Data,
+		): tg.File.Data => {
 			if (!tg.Graph.Data.Pointer.is(data)) {
-				return tg.Graph.Data.File.withoutTokens(data);
+				return tg.Graph.Data.File.withoutLocationAndTokens(data);
 			}
 			return typeof data === "object" ? { ...data } : data;
 		};

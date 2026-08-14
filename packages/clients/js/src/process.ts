@@ -1370,8 +1370,7 @@ export namespace Process {
 				output.finished_at = value.finishedAt;
 			}
 			if (value.log !== null) {
-				let options = value.log.state.referentOptions;
-				let referent = { node: value.log.id, options };
+				let referent = tg.Object.toReferent(value.log);
 				output.log = tg.Referent.toDataString(referent, (id) => id);
 			}
 			if (value.output !== undefined) {
@@ -1516,7 +1515,9 @@ export namespace Process {
 			process: string;
 		};
 
-		export let withoutTokens = (data: tg.Process.Data): tg.Process.Data => {
+		export let withoutLocationAndTokens = (
+			data: tg.Process.Data,
+		): tg.Process.Data => {
 			let output = { ...data };
 			if (data.children !== undefined && data.children !== null) {
 				output.children = data.children.map((child) => {
@@ -1544,7 +1545,7 @@ export namespace Process {
 						(id) => id,
 					);
 				} else {
-					output.error = tg.Error.Data.withoutTokens(data.error);
+					output.error = tg.Error.Data.withoutLocationAndTokens(data.error);
 				}
 			}
 			if (data.log !== undefined && data.log !== null) {
@@ -1558,7 +1559,7 @@ export namespace Process {
 				);
 			}
 			if (data.output !== undefined) {
-				output.output = tg.Value.Data.withoutTokens(data.output);
+				output.output = tg.Value.Data.withoutLocationAndTokens(data.output);
 			}
 			return output;
 		};

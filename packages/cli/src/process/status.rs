@@ -44,7 +44,7 @@ impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let process = self
-			.resolve_process_with_location(&args.process, &args.locations)
+			.resolve_process_with_locations(&args.process, &args.locations)
 			.await?;
 		let location = process.options.location.clone().map(Into::into);
 		let id = process.node;

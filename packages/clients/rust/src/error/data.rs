@@ -144,25 +144,30 @@ impl Error {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.diagnostics = self.diagnostics.map(|diagnostics| {
 			diagnostics
 				.into_iter()
-				.map(tg::diagnostic::Data::without_tokens)
+				.map(tg::diagnostic::Data::without_location_and_tokens)
 				.collect()
 		});
-		self.location = self.location.map(Location::without_tokens);
+		self.location = self.location.map(Location::without_location_and_tokens);
 		self.source = self.source.map(|mut source| {
 			source.options.clear_location_and_tokens();
 			source.node = match source.node {
-				tg::Either::Left(error) => tg::Either::Left(Box::new((*error).without_tokens())),
+				tg::Either::Left(error) => {
+					tg::Either::Left(Box::new((*error).without_location_and_tokens()))
+				},
 				tg::Either::Right(id) => tg::Either::Right(id),
 			};
 			source
 		});
-		self.stack = self
-			.stack
-			.map(|stack| stack.into_iter().map(Location::without_tokens).collect());
+		self.stack = self.stack.map(|stack| {
+			stack
+				.into_iter()
+				.map(Location::without_location_and_tokens)
+				.collect()
+		});
 
 		self
 	}
@@ -195,10 +200,10 @@ impl Location {
 	}
 
 	#[must_use]
-	pub fn without_tokens(mut self) -> Self {
+	pub fn without_location_and_tokens(mut self) -> Self {
 		self.file = match self.file {
 			File::Internal(path) => File::Internal(path),
-			File::Module(module) => File::Module(module.without_tokens()),
+			File::Module(module) => File::Module(module.without_location_and_tokens()),
 		};
 
 		self

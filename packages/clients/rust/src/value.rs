@@ -151,7 +151,7 @@ impl Value {
 		let mut states = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
-				let data = object_.to_data().without_tokens();
+				let data = object_.to_data().without_location_and_tokens();
 				let bytes = data
 					.serialize()
 					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
