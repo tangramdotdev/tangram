@@ -133,6 +133,181 @@ impl Session {
 		Ok(stream)
 	}
 
+	pub(crate) async fn cache_tag_entry(
+		&self,
+		specifier: &tg::Specifier,
+		artifact: &tg::artifact::Id,
+		suffix: Option<&str>,
+	) -> tg::Result<PathBuf> {
+		let relative_path = Self::tag_cache_entry_relative_path(specifier, suffix);
+		let path = self.server.store_path().join(&relative_path);
+		if self.server.vfs.lock().unwrap().is_some() {
+			return Ok(path);
+		}
+
+		let _guard = self.server.tag_cache_entry_lock.lock().await;
+
+		// Ensure that the tag did not change while the artifact was cached.
+		let selector = tg::tag::Selector::Specifier(specifier.clone());
+		let arg = tg::tag::get::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			..Default::default()
+		};
+		let target =
+			self.try_get_tag(&selector, arg)
+				.await?
+				.and_then(|output| match output.data.target {
+					tg::tag::data::Target::Object(id) => tg::artifact::Id::try_from(id).ok(),
+					tg::tag::data::Target::Process(_) => None,
+				});
+		if target.as_ref() != Some(artifact) {
+			return Err(tg::error!(%specifier, "the tag changed while it was cached"));
+		}
+
+		// Create the ancestor entries.
+		let root = self.server.cache_path();
+		let mut parent = root.clone();
+		let components = specifier.components().collect::<Vec<_>>();
+		for component in components.iter().take(components.len().saturating_sub(1)) {
+			parent.push(component);
+			match tokio::fs::symlink_metadata(&parent).await {
+				Ok(metadata) if metadata.is_dir() => (),
+				Ok(_) => {
+					tokio::fs::remove_file(&parent).await.map_err(|error| {
+						tg::error!(!error, "failed to remove a tag cache entry")
+					})?;
+					tokio::fs::create_dir(&parent).await.map_err(|error| {
+						tg::error!(!error, "failed to create a tag cache directory")
+					})?;
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+					tokio::fs::create_dir(&parent).await.map_err(|error| {
+						tg::error!(!error, "failed to create a tag cache directory")
+					})?;
+				},
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to inspect a tag cache entry"));
+				},
+			}
+		}
+
+		// Replace the tag entry.
+		let entry = root.join(&relative_path);
+		match tokio::fs::symlink_metadata(&entry).await {
+			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir_all(&entry)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a tag cache entry"))?,
+			Ok(_) => tokio::fs::remove_file(&entry)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a tag cache entry"))?,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a tag cache entry"));
+			},
+		}
+		let mut target = PathBuf::new();
+		for _ in 1..components.len() {
+			target.push("..");
+		}
+		let suffix = suffix.unwrap_or_default();
+		target.push(format!("{artifact}{suffix}"));
+		tokio::fs::symlink(&target, &entry)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create a tag cache entry"))?;
+
+		Ok(path)
+	}
+
+	pub(crate) async fn invalidate_tag_cache_entries(
+		&self,
+		specifiers: &[tg::Specifier],
+	) -> tg::Result<()> {
+		let _guard = self.server.tag_cache_entry_lock.lock().await;
+		let cache_path = self.server.cache_path();
+		for specifier in specifiers {
+			let path = specifier
+				.components()
+				.fold(cache_path.clone(), |path, component| path.join(component));
+			Self::remove_tag_cache_symlink(&path).await?;
+			let parent = path.parent().unwrap();
+			let prefix = format!("{}@module.", specifier.name());
+			match tokio::fs::read_dir(parent).await {
+				Ok(mut entries) => {
+					while let Some(entry) = entries
+						.next_entry()
+						.await
+						.map_err(|error| tg::error!(!error, "failed to read the cache directory"))?
+					{
+						let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+							continue;
+						};
+						if name.starts_with(&prefix) {
+							Self::remove_tag_cache_symlink(&entry.path()).await?;
+						}
+					}
+				},
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to read the cache directory"));
+				},
+			}
+			Self::prune_tag_cache_directories(parent, &cache_path).await?;
+		}
+
+		Ok(())
+	}
+
+	fn tag_cache_entry_relative_path(specifier: &tg::Specifier, suffix: Option<&str>) -> PathBuf {
+		let mut path = specifier
+			.components()
+			.map(String::from)
+			.collect::<PathBuf>();
+		if let Some(suffix) = suffix {
+			let name = tg::store::path::module_component(specifier.name(), suffix);
+			path.set_file_name(name);
+		}
+		path
+	}
+
+	async fn remove_tag_cache_symlink(path: &Path) -> tg::Result<()> {
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_symlink() => tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove the tag cache entry"))?,
+			Ok(_) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect the tag cache entry"));
+			},
+		}
+		Ok(())
+	}
+
+	async fn prune_tag_cache_directories(path: &Path, root: &Path) -> tg::Result<()> {
+		let mut path = path.to_owned();
+		while path != root {
+			match tokio::fs::remove_dir(&path).await {
+				Ok(()) => (),
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::DirectoryNotEmpty | std::io::ErrorKind::NotFound
+					) =>
+				{
+					break;
+				},
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to remove a tag cache directory"));
+				},
+			}
+			let Some(parent) = path.parent() else {
+				break;
+			};
+			path = parent.to_owned();
+		}
+		Ok(())
+	}
+
 	async fn cache_ensure_stored_and_authorized(
 		&self,
 		artifacts: &[tg::Referent<tg::artifact::Id>],
@@ -369,7 +544,7 @@ impl Session {
 					event = stream.next() => {
 						if let Some(Ok(tg::progress::Event::Indicators(indicators))) = event {
 							for indicator in indicators {
-								if indicator.name == "artifacts" && let Some(current) = indicator.current {
+								if indicator.name == "store" && let Some(current) = indicator.current {
 									progress.increment("artifacts", current.saturating_sub(dependency_artifacts));
 									dependency_artifacts = current;
 								} else if indicator.name == "bytes" && let Some(current) = indicator.current {
@@ -442,7 +617,7 @@ impl Session {
 					event = stream.next() => {
 						if let Some(Ok(tg::progress::Event::Indicators(indicators))) = event {
 							for indicator in indicators {
-								if indicator.name == "artifacts" && let Some(current) = indicator.current {
+								if indicator.name == "store" && let Some(current) = indicator.current {
 									progress.increment("artifacts", current.saturating_sub(dependency_artifacts));
 									dependency_artifacts = current;
 								} else if indicator.name == "bytes" && let Some(current) = indicator.current {

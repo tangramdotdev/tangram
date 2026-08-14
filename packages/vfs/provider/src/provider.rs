@@ -112,6 +112,7 @@ struct Node {
 	lookup_count: u64,
 	name: Option<String>,
 	parent: u64,
+	tag: Option<TagInfo>,
 }
 
 #[derive(Clone)]
@@ -120,6 +121,24 @@ struct NodeInfo {
 	attrs: Option<vfs::Attrs>,
 	depth: u64,
 	parent: u64,
+	tag: Option<TagInfo>,
+}
+
+#[derive(Clone)]
+struct TagInfo {
+	specifier: tg::Specifier,
+	suffix: Option<String>,
+	target: Option<tg::artifact::Id>,
+}
+
+struct TagChild {
+	name: tg::specifier::Component,
+	target: Option<tg::artifact::Id>,
+}
+
+enum TagEntry {
+	Directory,
+	Symlink(tg::artifact::Id),
 }
 
 struct ReaddirPlusPage {
@@ -419,7 +438,50 @@ impl Inner {
 			return Ok(Some(id));
 		}
 
-		// Look up an existing node.
+		// Resolve root entries and tags using the flat store namespace.
+		let parent_node = self.nodes.get(parent)?;
+		if parent == vfs::ROOT_NODE_ID {
+			match tg::store::path::parse_component(name) {
+				Ok(tg::store::path::Component::Id { id, .. }) => {
+					if !self.authorize(&id) {
+						return Ok(None);
+					}
+					let attrs = attrs_from_artifact(Some(&id));
+					let id = self
+						.nodes
+						.get_or_insert_child(parent, name, id, 1, attrs, remember)?;
+					return Ok(Some(id));
+				},
+				Ok(tg::store::path::Component::Tag { component, suffix }) => {
+					return self
+						.lookup_tag(parent, name, None, component, suffix, remember)
+						.await;
+				},
+				Err(_) => return Ok(None),
+			}
+		}
+		if let Some(tag) = &parent_node.tag {
+			if tag.target.is_some() {
+				return Ok(None);
+			}
+			let Ok(tg::store::path::Component::Tag { component, suffix }) =
+				tg::store::path::parse_component(name)
+			else {
+				return Ok(None);
+			};
+			return self
+				.lookup_tag(
+					parent,
+					name,
+					Some(&tag.specifier),
+					component,
+					suffix,
+					remember,
+				)
+				.await;
+		}
+
+		// Look up an existing artifact node.
 		let id = if remember {
 			self.nodes.lookup_and_remember(parent, name)
 		} else {
@@ -429,56 +491,27 @@ impl Inner {
 			return Ok(Some(id));
 		}
 
-		// Resolve a root child as an artifact ID with an optional module extension.
-		let entry = if parent == vfs::ROOT_NODE_ID {
-			let name = None
-				.or_else(|| name.strip_suffix(".tg.ts"))
-				.or_else(|| name.strip_suffix(".tg.js"))
-				.or_else(|| Path::new(name).file_stem().and_then(|name| name.to_str()))
-				.unwrap_or(name);
-			let Ok(artifact) = name.parse::<tg::artifact::Id>() else {
-				return Ok(None);
-			};
-			if !self.authorize(&artifact) {
-				return Ok(None);
-			}
-			Some((artifact, 1))
-		} else {
-			None
-		};
-
-		let entry = if entry.is_some() {
-			entry
-		} else {
-			let NodeInfo {
-				artifact, depth, ..
-			} = self.nodes.get(parent)?;
-			let Some(artifact) = artifact else {
-				return Ok(None);
-			};
-			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
-				return Ok(None);
-			}
-			// The fast path descends the directory tree to the named entry, so unlike the fallback it does not enumerate the whole directory.
-			let artifact = 'a: {
-				if let Some(fast) = &self.fast {
-					match fast.directory_lookup_entry(&artifact, name) {
-						Err(error) if is_fallback(&error) => (),
-						result => break 'a result?,
-					}
-				}
-				let entries = self.directory_entries(&artifact).await?;
-				entries.get(name).map(tg::Artifact::id)
-			};
-			let Some(artifact) = artifact else {
-				return Ok(None);
-			};
-			Some((artifact, depth + 1))
-		};
-
-		let Some((artifact, depth)) = entry else {
+		let Some(artifact) = parent_node.artifact else {
 			return Ok(None);
 		};
+		if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+			return Ok(None);
+		}
+		// The fast path descends the directory tree to the named entry, so unlike the fallback it does not enumerate the whole directory.
+		let artifact = 'a: {
+			if let Some(fast) = &self.fast {
+				match fast.directory_lookup_entry(&artifact, name) {
+					Err(error) if is_fallback(&error) => (),
+					result => break 'a result?,
+				}
+			}
+			let entries = self.directory_entries(&artifact).await?;
+			entries.get(name).map(tg::Artifact::id)
+		};
+		let Some(artifact) = artifact else {
+			return Ok(None);
+		};
+		let depth = parent_node.depth + 1;
 
 		// Insert the resolved node.
 		let attrs = attrs_from_artifact(Some(&artifact));
@@ -487,6 +520,164 @@ impl Inner {
 			.get_or_insert_child(parent, name, artifact, depth, attrs, remember)?;
 
 		Ok(Some(id))
+	}
+
+	async fn lookup_tag(
+		&self,
+		parent: u64,
+		name: &str,
+		parent_specifier: Option<&tg::Specifier>,
+		component: tg::specifier::Component,
+		suffix: Option<&str>,
+		remember: bool,
+	) -> std::io::Result<Option<u64>> {
+		let specifier = match parent_specifier {
+			Some(parent) => format!("{parent}/{component}"),
+			None => component.to_string(),
+		};
+		let specifier: tg::Specifier = specifier
+			.parse()
+			.map_err(|error| std::io::Error::other(tg::error!(!error, "invalid tag")))?;
+		let Some(entry) = self.get_tag_entry(&specifier).await? else {
+			return Ok(None);
+		};
+		let depth = self.nodes.get(parent)?.depth + 1;
+		let (attrs, target) = match entry {
+			TagEntry::Directory if suffix.is_none() => (
+				vfs::Attrs::new(vfs::AttrsInner::Directory).cacheable(false),
+				None,
+			),
+			TagEntry::Directory => return Ok(None),
+			TagEntry::Symlink(target) => {
+				let target_path = render_tag(depth, &target, suffix);
+				let size = target_path.len().to_u64().unwrap();
+				(
+					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false),
+					Some(target),
+				)
+			},
+		};
+		let tag = TagInfo {
+			specifier,
+			suffix: suffix.map(ToOwned::to_owned),
+			target,
+		};
+		let id = self
+			.nodes
+			.get_or_insert_tag_child(parent, name, depth, attrs, tag, remember)?;
+		Ok(Some(id))
+	}
+
+	async fn get_tag_entry(&self, specifier: &tg::Specifier) -> std::io::Result<Option<TagEntry>> {
+		let session = self.client.session(self.client.context());
+		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let selector = tg::tag::Selector::Specifier(specifier.clone());
+		let arg = tg::tag::get::Arg {
+			location: location.clone(),
+			..Default::default()
+		};
+		if let Some(output) = session.try_get_tag(&selector, arg).await.map_err(eio)? {
+			let tg::tag::data::Target::Object(target) = output.data.target else {
+				return Ok(None);
+			};
+			let Ok(target) = tg::artifact::Id::try_from(target) else {
+				return Ok(None);
+			};
+
+			return Ok(Some(TagEntry::Symlink(target)));
+		}
+
+		let selector = tg::group::Selector::Specifier(specifier.clone());
+		let arg = tg::group::get::Arg {
+			location: location.clone(),
+			..Default::default()
+		};
+		if session
+			.try_get_group(&selector, arg)
+			.await
+			.map_err(eio)?
+			.is_some()
+		{
+			return Ok(Some(TagEntry::Directory));
+		}
+
+		let selector = tg::organization::Selector::Specifier(specifier.clone());
+		let arg = tg::organization::get::Arg {
+			location: location.clone(),
+			..Default::default()
+		};
+		if session
+			.try_get_organization(&selector, arg)
+			.await
+			.map_err(eio)?
+			.is_some()
+		{
+			return Ok(Some(TagEntry::Directory));
+		}
+
+		let selector = tg::user::Selector::Specifier(specifier.clone());
+		let arg = tg::user::get::Arg {
+			location,
+			..Default::default()
+		};
+		if session
+			.try_get_user(&selector, arg)
+			.await
+			.map_err(eio)?
+			.is_some()
+		{
+			return Ok(Some(TagEntry::Directory));
+		}
+
+		Ok(None)
+	}
+
+	async fn list_tag_children(
+		&self,
+		parent: Option<tg::Specifier>,
+	) -> std::io::Result<Vec<TagChild>> {
+		let session = self.client.session(self.client.context());
+		let root = parent.is_none();
+		let arg = tg::list::Arg {
+			cached: false,
+			groups: true,
+			length: None,
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			organizations: root,
+			parent: parent.map(tg::Selector::Specifier),
+			recursive: false,
+			reverse: false,
+			tags: true,
+			ttl: tg::remote::cache::Ttl::default(),
+			users: root,
+		};
+		let output = session.list(arg).await.map_err(eio)?;
+		let children = output
+			.data
+			.into_iter()
+			.filter_map(|entry| match entry {
+				tg::list::Entry::Group { name, .. }
+				| tg::list::Entry::Organization { name, .. }
+				| tg::list::Entry::User { name, .. } => Some(TagChild {
+					name: name.parse().ok()?,
+					target: None,
+				}),
+				tg::list::Entry::Tag {
+					name,
+					target: tg::Either::Left(target),
+					..
+				} => Some(TagChild {
+					name: name.parse().ok()?,
+					target: Some(tg::artifact::Id::try_from(target).ok()?),
+				}),
+				tg::list::Entry::Tag {
+					target: tg::Either::Right(_),
+					..
+				} => None,
+			})
+			.collect();
+
+		Ok(children)
 	}
 
 	// Authorize the artifact subtree for the mount's principal.
@@ -610,7 +801,10 @@ impl Inner {
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		// Resolve the directory.
 		let NodeInfo {
-			artifact, parent, ..
+			artifact,
+			parent,
+			tag,
+			..
 		} = self.nodes.get(id)?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
@@ -619,22 +813,33 @@ impl Inner {
 			None => None,
 			Some(_) => return Err(std::io::Error::other("expected a directory")),
 		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-
 		// Collect the directory entries.
-		let children = self.directory_entry_ids(&directory).await?;
-		let mut entries = Vec::with_capacity(children.len() + 2);
+		let mut entries = Vec::new();
 		entries.push((".".to_owned(), id, vfs::EntryKind::Directory));
 		entries.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
-		for (name, artifact) in children {
-			let kind = match artifact.kind() {
-				tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
-				tg::artifact::Kind::File => vfs::EntryKind::File,
-				tg::artifact::Kind::Symlink => vfs::EntryKind::Symlink,
-			};
-			entries.push((name, 0, kind));
+		if let Some(directory) = directory {
+			let children = self.directory_entry_ids(&directory).await?;
+			for (name, artifact) in children {
+				let kind = match artifact.kind() {
+					tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
+					tg::artifact::Kind::File => vfs::EntryKind::File,
+					tg::artifact::Kind::Symlink => vfs::EntryKind::Symlink,
+				};
+				entries.push((name, 0, kind));
+			}
+		} else if id == vfs::ROOT_NODE_ID || tag.as_ref().is_some_and(|tag| tag.target.is_none()) {
+			let specifier = tag.map(|tag| tag.specifier);
+			let children = self.list_tag_children(specifier).await?;
+			entries.extend(children.into_iter().map(|child| {
+				let kind = if child.target.is_some() {
+					vfs::EntryKind::Symlink
+				} else {
+					vfs::EntryKind::Directory
+				};
+				(child.name.to_string(), 0, kind)
+			}));
+		} else {
+			return Err(std::io::Error::other("expected a directory"));
 		}
 
 		// Select the requested page.
@@ -668,6 +873,7 @@ impl Inner {
 			artifact,
 			depth,
 			parent,
+			tag,
 			..
 		} = self.nodes.get(id)?;
 		let directory = match artifact {
@@ -677,12 +883,7 @@ impl Inner {
 			None => None,
 			Some(_) => return Err(std::io::Error::other("expected a directory")),
 		};
-		let Some(directory) = directory else {
-			return Ok(Vec::new());
-		};
-
 		// Initialize the requested page.
-		let children = self.directory_entry_ids(&directory).await?;
 		let mut page = ReaddirPlusPage {
 			length: usize::try_from(length).unwrap_or(usize::MAX),
 			offset: usize::try_from(offset).unwrap_or(usize::MAX),
@@ -702,28 +903,71 @@ impl Inner {
 		}
 
 		// Add the child entries.
-		for (name, artifact) in children {
-			if page.position < page.offset {
+		if let Some(directory) = directory {
+			let children = self.directory_entry_ids(&directory).await?;
+			for (name, artifact) in children {
+				if page.position < page.offset {
+					page.position += 1;
+					continue;
+				}
+				let attrs = self
+					.compute_attrs_for_node(Some(&artifact), depth + 1)
+					.await?;
+				if ReaddirPlusPage::entry_size(name.len()) + page.size > page.length {
+					break;
+				}
+				let node_id = self.nodes.get_or_insert_child(
+					id,
+					&name,
+					artifact,
+					depth + 1,
+					Some(attrs),
+					false,
+				)?;
+				page.size += ReaddirPlusPage::entry_size(name.len());
 				page.position += 1;
-				continue;
+				entries.push((name, node_id, attrs));
 			}
-			let attrs = self
-				.compute_attrs_for_node(Some(&artifact), depth + 1)
-				.await?;
-			if ReaddirPlusPage::entry_size(name.len()) + page.size > page.length {
-				break;
+		} else if id == vfs::ROOT_NODE_ID || tag.as_ref().is_some_and(|tag| tag.target.is_none()) {
+			let parent_specifier = tag.map(|tag| tag.specifier);
+			let children = self.list_tag_children(parent_specifier.clone()).await?;
+			for child in children {
+				if page.position < page.offset {
+					page.position += 1;
+					continue;
+				}
+				let name = child.name.to_string();
+				if ReaddirPlusPage::entry_size(name.len()) + page.size > page.length {
+					break;
+				}
+				let specifier = match &parent_specifier {
+					Some(parent) => format!("{parent}/{}", child.name),
+					None => child.name.to_string(),
+				}
+				.parse()
+				.map_err(std::io::Error::other)?;
+				let target = child.target;
+				let attrs = if let Some(target) = &target {
+					let target_path = render_tag(depth + 1, target, None);
+					let size = target_path.len().to_u64().unwrap();
+					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false)
+				} else {
+					vfs::Attrs::new(vfs::AttrsInner::Directory).cacheable(false)
+				};
+				let tag = TagInfo {
+					specifier,
+					suffix: None,
+					target,
+				};
+				let node =
+					self.nodes
+						.get_or_insert_tag_child(id, &name, depth + 1, attrs, tag, false)?;
+				page.size += ReaddirPlusPage::entry_size(name.len());
+				page.position += 1;
+				entries.push((name, node, attrs));
 			}
-			let node_id = self.nodes.get_or_insert_child(
-				id,
-				&name,
-				artifact,
-				depth + 1,
-				Some(attrs),
-				false,
-			)?;
-			page.size += ReaddirPlusPage::entry_size(name.len());
-			page.position += 1;
-			entries.push((name, node_id, attrs));
+		} else {
+			return Err(std::io::Error::other("expected a directory"));
 		}
 
 		Ok(entries)
@@ -731,8 +975,17 @@ impl Inner {
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		let NodeInfo {
-			artifact, depth, ..
+			artifact,
+			depth,
+			tag,
+			..
 		} = self.nodes.get(id)?;
+		if let Some(tag) = tag {
+			let Some(TagEntry::Symlink(target)) = self.get_tag_entry(&tag.specifier).await? else {
+				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+			};
+			return Ok(render_tag(depth, &target, tag.suffix.as_deref()));
+		}
 		let Some(artifact) = artifact else {
 			return Err(std::io::Error::other("expected a symlink"));
 		};
@@ -1484,6 +1737,7 @@ impl Nodes {
 				lookup_count: u64::MAX,
 				name: None,
 				parent: vfs::ROOT_NODE_ID,
+				tag: None,
 			},
 		);
 		let state = Mutex::new(State { next: 1000, nodes });
@@ -1536,6 +1790,7 @@ impl Nodes {
 				attrs: node.attrs,
 				depth: node.depth,
 				parent: node.parent,
+				tag: node.tag.clone(),
 			})
 			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))
 	}
@@ -1669,6 +1924,60 @@ impl Nodes {
 				lookup_count: u64::from(remember),
 				name: Some(name.to_owned()),
 				parent,
+				tag: None,
+			},
+		);
+		state
+			.nodes
+			.get_mut(&parent)
+			.unwrap()
+			.children
+			.insert(name.to_owned(), id);
+		Ok(id)
+	}
+
+	fn get_or_insert_tag_child(
+		&self,
+		parent: u64,
+		name: &str,
+		depth: u64,
+		attrs: vfs::Attrs,
+		tag: TagInfo,
+		remember: bool,
+	) -> std::io::Result<u64> {
+		let mut state = self.state.lock().unwrap();
+		if let Some(id) = state
+			.nodes
+			.get(&parent)
+			.and_then(|node| node.children.get(name).copied())
+		{
+			let node = state.nodes.get_mut(&id).unwrap();
+			node.accessed = Instant::now();
+			node.artifact = None;
+			node.attrs = Some(attrs);
+			node.tag = Some(tag);
+			if remember {
+				node.lookup_count = node.lookup_count.saturating_add(1);
+			}
+			return Ok(id);
+		}
+		if !state.nodes.contains_key(&parent) {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		}
+		let id = state.next;
+		state.next += 1;
+		state.nodes.insert(
+			id,
+			Node {
+				accessed: Instant::now(),
+				artifact: None,
+				attrs: Some(attrs),
+				children: BTreeMap::new(),
+				depth,
+				lookup_count: u64::from(remember),
+				name: Some(name.to_owned()),
+				parent,
+				tag: Some(tag),
 			},
 		);
 		state
@@ -1802,6 +2111,16 @@ fn render_symlink(
 		return Err(std::io::Error::from_raw_os_error(libc::EIO));
 	}
 	Ok(target.as_os_str().as_bytes().to_vec().into())
+}
+
+fn render_tag(depth: u64, artifact: &tg::artifact::Id, suffix: Option<&str>) -> Bytes {
+	let mut target = PathBuf::new();
+	for _ in 0..depth.saturating_sub(1) {
+		target.push("..");
+	}
+	let suffix = suffix.unwrap_or_default();
+	target.push(format!("{artifact}{suffix}"));
+	target.as_os_str().as_bytes().to_vec().into()
 }
 
 fn init_logging() {

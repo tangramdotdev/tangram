@@ -127,12 +127,13 @@ pub enum EntryKind {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attrs {
-	pub inner: AttrsInner,
 	pub atime: Timestamp,
-	pub mtime: Timestamp,
+	pub cacheable: bool,
 	pub ctime: Timestamp,
-	pub uid: u32,
 	pub gid: u32,
+	pub inner: AttrsInner,
+	pub mtime: Timestamp,
+	pub uid: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -716,12 +717,19 @@ impl Attrs {
 	#[must_use]
 	pub fn new(inner: AttrsInner) -> Self {
 		Self {
-			inner,
 			atime: Timestamp::default(),
-			mtime: Timestamp::default(),
+			cacheable: true,
 			ctime: Timestamp::default(),
-			uid: rustix::process::getuid().as_raw(),
 			gid: rustix::process::getgid().as_raw(),
+			inner,
+			mtime: Timestamp::default(),
+			uid: rustix::process::getuid().as_raw(),
 		}
+	}
+
+	#[must_use]
+	pub fn cacheable(mut self, cacheable: bool) -> Self {
+		self.cacheable = cacheable;
+		self
 	}
 }

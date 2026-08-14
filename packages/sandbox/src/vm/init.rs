@@ -17,9 +17,9 @@ use {
 const NETWORK_INTERFACE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 const SANDBOX_FS_TAG: &str = "sandbox";
-const ARTIFACTS_FS_TAG: &str = "artifacts";
+const STORE_FS_TAG: &str = "store";
 const HOST_MOUNT_POINT: &str = "/mnt/host";
-const ARTIFACTS_MOUNT_POINT: &str = "/mnt/host/opt/tangram/artifacts";
+const STORE_MOUNT_POINT: &str = "/mnt/host/opt/tangram/store";
 const HOST_INIT_CONFIG_PATH: &str = "/mnt/host/init.json";
 const ROOTVIEW_SCRATCH: &str = "/mnt/root";
 const ROOTVIEW_UPPER: &str = "/mnt/root/upper";
@@ -93,22 +93,22 @@ pub fn run() -> tg::Result<ExitCode> {
 
 	mount_virtiofs(SANDBOX_FS_TAG, HOST_MOUNT_POINT, None)?;
 	tracing::trace!("mounted {HOST_MOUNT_POINT}");
-	let artifacts_options = if dax_from_cmdline() {
+	let store_options = if dax_from_cmdline() {
 		Some("dax")
 	} else {
 		None
 	};
-	mount_virtiofs(ARTIFACTS_FS_TAG, ARTIFACTS_MOUNT_POINT, artifacts_options)?;
-	tracing::trace!("mounted {ARTIFACTS_MOUNT_POINT}");
+	mount_virtiofs(STORE_FS_TAG, STORE_MOUNT_POINT, store_options)?;
+	tracing::trace!("mounted {STORE_MOUNT_POINT}");
 
 	let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-	let path = c"/mnt/host/opt/tangram/artifacts";
+	let path = c"/mnt/host/opt/tangram/store";
 	if unsafe { libc::stat(path.as_ptr(), &raw mut stat) } == 0 {
 		let major = libc::major(stat.st_dev);
 		let minor = libc::minor(stat.st_dev);
 		let bdi = format!("/sys/class/bdi/{major}:{minor}/read_ahead_kb");
 		if let Err(error) = std::fs::write(&bdi, "1024") {
-			tracing::warn!(%error, path = %bdi, "failed to raise the artifacts readahead");
+			tracing::warn!(%error, path = %bdi, "failed to raise the store readahead");
 		}
 	}
 
@@ -305,8 +305,8 @@ fn setup_rootfs(config: &Config) -> tg::Result<()> {
 			true,
 		),
 		(
-			Path::new(HOST_MOUNT_POINT).join("opt/tangram/artifacts"),
-			Path::new(ROOTVIEW_MERGED).join("opt/tangram/artifacts"),
+			Path::new(HOST_MOUNT_POINT).join("opt/tangram/store"),
+			Path::new(ROOTVIEW_MERGED).join("opt/tangram/store"),
 			true,
 			true,
 		),
@@ -537,7 +537,7 @@ fn wait_for_virtiofs() -> tg::Result<()> {
 		return Err(tg::error!(!error, "failed to bind the uevent socket"));
 	}
 
-	let mut pending: Vec<&str> = vec![SANDBOX_FS_TAG, ARTIFACTS_FS_TAG];
+	let mut pending: Vec<&str> = vec![SANDBOX_FS_TAG, STORE_FS_TAG];
 	if let Ok(entries) = std::fs::read_dir("/sys/fs/virtiofs") {
 		for entry in entries.flatten() {
 			let tag_path = entry.path().join("tag");

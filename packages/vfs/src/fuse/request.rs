@@ -834,6 +834,8 @@ where
 
 	#[must_use]
 	pub(super) fn fuse_attr_out(node: u64, attr: crate::Attrs) -> fuse_attr_out {
+		let attr_valid = if attr.cacheable { u64::MAX } else { 0 };
+
 		// Derive the inode metadata.
 		let (size, mode) = match attr.inner {
 			AttrsInner::Directory => (0, S_IFDIR | 0o555),
@@ -866,7 +868,7 @@ where
 				size,
 				uid: attr.uid,
 			},
-			attr_valid: u64::MAX,
+			attr_valid,
 			attr_valid_nsec: 0,
 			dummy: 0,
 		}
@@ -874,12 +876,13 @@ where
 
 	#[must_use]
 	fn fuse_entry_out_from_attrs(node: u64, attr: crate::Attrs) -> fuse_entry_out {
+		let entry_valid = if attr.cacheable { u64::MAX } else { 0 };
 		let attr_out = Self::fuse_attr_out(node, attr);
 		fuse_entry_out {
 			attr: attr_out.attr,
-			attr_valid: u64::MAX,
+			attr_valid: entry_valid,
 			attr_valid_nsec: 0,
-			entry_valid: u64::MAX,
+			entry_valid,
 			entry_valid_nsec: 0,
 			generation: 0,
 			nodeid: node,

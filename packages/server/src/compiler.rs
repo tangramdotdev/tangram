@@ -10,15 +10,13 @@ use {
 impl Session {
 	pub(crate) fn create_compiler(&self) -> tangram_compiler::Shared {
 		let handle = tg::handle::dynamic::Handle::new(self.clone());
-		let artifacts_path = self.server.artifacts_path();
-		let tags_path = self.server.tags_path();
+		let store_path = self.server.store_path();
 		let library_path = self.server.library_path();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let version = self.server.version.clone();
 		tangram_compiler::Compiler::start(
 			handle,
-			artifacts_path,
-			tags_path,
+			store_path,
 			library_path,
 			main_runtime_handle,
 			version,

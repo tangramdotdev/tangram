@@ -52,6 +52,11 @@ impl Session {
 			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
 		let touched_at = self.server.clock.unix_timestamp()?;
+		let specifiers = arg
+			.tags
+			.iter()
+			.map(|tag| tag.specifier.clone())
+			.collect::<Vec<_>>();
 		let session = self.clone();
 		self.server
 			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
@@ -72,6 +77,7 @@ impl Session {
 				.boxed()
 			})
 			.await?;
+		self.invalidate_tag_cache_entries(&specifiers).await?;
 		Ok(())
 	}
 

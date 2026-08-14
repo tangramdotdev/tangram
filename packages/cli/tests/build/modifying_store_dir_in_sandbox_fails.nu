@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A build fails when it attempts to modify an artifact in the read-only artifacts directory inside the sandbox.
+# A build fails when it attempts to modify an artifact in the sandbox's read-only store directory.
 
 let server = spawn --busybox
 

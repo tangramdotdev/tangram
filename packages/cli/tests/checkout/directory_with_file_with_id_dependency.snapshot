@@ -4,7 +4,7 @@
     ".tangram": {
       "kind": "directory",
       "entries": {
-        "artifacts": {
+        "store": {
           "kind": "directory",
           "entries": {
             "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {

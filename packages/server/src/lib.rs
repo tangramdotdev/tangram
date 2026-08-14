@@ -142,6 +142,7 @@ pub struct State {
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	runner: self::runner::Runner,
 	tangram_path: PathBuf,
+	tag_cache_entry_lock: tokio::sync::Mutex<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -244,12 +245,6 @@ impl Server {
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
-
-		// Ensure the tags directory exists.
-		let tags_path = path.join("tags");
-		tokio::fs::create_dir_all(&tags_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to create the tags directory"))?;
 
 		// Get the available parallelism.
 		let parallelism =
@@ -908,6 +903,7 @@ impl Server {
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			runner,
 			tangram_path,
+			tag_cache_entry_lock: tokio::sync::Mutex::new(()),
 			temps,
 			version,
 			vfs,
@@ -1007,7 +1003,7 @@ impl Server {
 			});
 
 		// Start the VFS if enabled.
-		let artifacts_path = server.artifacts_path();
+		let store_path = server.store_path();
 		let cache_path = server.path.join("cache");
 		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
 			config::VfsKind::Auto => {
@@ -1027,10 +1023,10 @@ impl Server {
 			config::VfsKind::Fuse => vfs::Kind::Fuse,
 			config::VfsKind::Nfs => vfs::Kind::Nfs,
 		};
-		let artifacts_exists = match tokio::fs::try_exists(&artifacts_path).await {
+		let store_exists = match tokio::fs::try_exists(&store_path).await {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				self::vfs::Server::unmount(vfs_kind, &artifacts_path).await?;
+				self::vfs::Server::unmount(vfs_kind, &store_path).await?;
 				true
 			},
 			Err(error) => {
@@ -1041,26 +1037,26 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
 		if let Some(options) = server.config.vfs.clone() {
-			if artifacts_exists && !cache_exists {
-				tokio::fs::rename(&artifacts_path, &cache_path)
+			if store_exists && !cache_exists {
+				tokio::fs::rename(&store_path, &cache_path)
 					.await
 					.map_err(|error| {
 						tg::error!(
 							!error,
-							"failed to move the artifacts directory to the cache path"
+							"failed to move the store directory to the cache path"
 						)
 					})?;
 			}
-			tokio::fs::create_dir_all(&artifacts_path)
+			tokio::fs::create_dir_all(&store_path)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
 			tokio::fs::create_dir_all(&cache_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
 			let vfs = self::vfs::Server::start(
 				&server,
 				vfs_kind,
-				&artifacts_path,
+				&store_path,
 				options,
 				Origin::Host,
 				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
@@ -1071,18 +1067,18 @@ impl Server {
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
 			if cache_exists {
-				tokio::fs::rename(&cache_path, &artifacts_path)
+				tokio::fs::rename(&cache_path, &store_path)
 					.await
 					.map_err(|error| {
 						tg::error!(
 							!error,
-							"failed to move the artifacts directory to the cache directory"
+							"failed to move the cache directory to the store path"
 						)
 					})?;
 			}
-			tokio::fs::create_dir_all(&artifacts_path)
+			tokio::fs::create_dir_all(&store_path)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
 		}
 
 		// Spawn the HTTP task.
@@ -1527,8 +1523,8 @@ impl Server {
 	}
 
 	#[must_use]
-	fn artifacts_path(&self) -> PathBuf {
-		self.path.join("artifacts")
+	fn store_path(&self) -> PathBuf {
+		self.path.join("store")
 	}
 
 	#[must_use]
@@ -1536,7 +1532,7 @@ impl Server {
 		if self.vfs.lock().unwrap().is_some() {
 			self.path.join("cache")
 		} else {
-			self.artifacts_path()
+			self.store_path()
 		}
 	}
 
@@ -1549,11 +1545,6 @@ impl Server {
 			.get_or_insert_with(|| Arc::new(Temp::new(self)))
 			.clone();
 		library.path().to_owned()
-	}
-
-	#[must_use]
-	fn tags_path(&self) -> PathBuf {
-		self.path.join("tags")
 	}
 
 	#[must_use]

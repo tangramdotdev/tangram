@@ -81,7 +81,7 @@ fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 		"/sys",
 		"/opt/tangram",
 		"/tmp",
-		"/opt/tangram/artifacts",
+		"/opt/tangram/store",
 		"/opt/tangram/libexec",
 		"/opt/tangram/output",
 	] {

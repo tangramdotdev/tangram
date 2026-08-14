@@ -73,13 +73,13 @@ impl Cli {
 
 	pub async fn command_clean_force(&mut self) -> tg::Result<()> {
 		let path = self.directory_path();
-		let artifacts_path = path.join("artifacts");
+		let store_path = path.join("store");
 
 		// Stop the server if it is running.
 		self.stop_server().await.ok();
 
-		// Force unmount the VFS artifacts path if it is mounted.
-		Self::force_unmount_vfs(&artifacts_path).await;
+		// Force unmount the VFS store path if it is mounted.
+		Self::force_unmount_vfs(&store_path).await;
 
 		// Create the progress handle.
 		let progress = tangram_server::progress::Handle::<()>::new();

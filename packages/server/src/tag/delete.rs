@@ -80,6 +80,12 @@ impl Session {
 				.boxed()
 			})
 			.await?;
+		let specifiers = output
+			.deleted
+			.iter()
+			.map(|tag| tag.specifier.clone())
+			.collect::<Vec<_>>();
+		self.invalidate_tag_cache_entries(&specifiers).await?;
 
 		Ok(output)
 	}

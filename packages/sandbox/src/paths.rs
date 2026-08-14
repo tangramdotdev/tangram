@@ -41,10 +41,7 @@ impl Sandbox {
 					Self::host_tmp_path_from_root(&self.0.arg.path),
 				),
 				(self.guest_output_path(), self.host_output_path()),
-				(
-					self.guest_artifacts_path(),
-					self.0.arg.artifacts_path.clone(),
-				),
+				(self.guest_store_path(), self.0.arg.store_path.clone()),
 			]);
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
@@ -62,8 +59,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn guest_artifacts_path(&self) -> PathBuf {
-		Self::guest_artifacts_path_from_host_artifacts_path(&self.0.arg.artifacts_path)
+	pub fn guest_store_path(&self) -> PathBuf {
+		Self::guest_store_path_from_host_store_path(&self.0.arg.store_path)
 	}
 
 	#[must_use]
@@ -113,10 +110,7 @@ impl Sandbox {
 					self.guest_tmp_path(),
 				),
 				(self.host_output_path(), self.guest_output_path()),
-				(
-					self.0.arg.artifacts_path.clone(),
-					self.guest_artifacts_path(),
-				),
+				(self.0.arg.store_path.clone(), self.guest_store_path()),
 			]);
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
@@ -169,15 +163,15 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_artifacts_path_from_host_artifacts_path(artifacts_path: &Path) -> PathBuf {
+	pub(crate) fn guest_store_path_from_host_store_path(store_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
-			artifacts_path.to_owned()
+			store_path.to_owned()
 		}
 		#[cfg(target_os = "linux")]
 		{
-			let _ = artifacts_path;
-			"/opt/tangram/artifacts".into()
+			let _ = store_path;
+			"/opt/tangram/store".into()
 		}
 	}
 

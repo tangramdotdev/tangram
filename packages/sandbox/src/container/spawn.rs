@@ -126,7 +126,7 @@ pub(crate) async fn spawn(
 			.arg("--fuse-fd")
 			.arg(fuse_fd.as_raw_fd().to_string())
 			.arg("--fuse-path")
-			.arg(&arg.artifacts_path);
+			.arg(&arg.store_path);
 		// Clear CLOEXEC on the FUSE socket after forking so only the sandbox inherits it.
 		let raw = fuse_fd.as_raw_fd();
 		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
@@ -166,9 +166,9 @@ pub(crate) async fn spawn(
 		.arg(Sandbox::host_nsswitch_path_from_root(&arg.path))
 		.arg("/etc/nsswitch.conf")
 		.arg("--ro-bind")
-		.arg(&arg.artifacts_path)
-		.arg(Sandbox::guest_artifacts_path_from_host_artifacts_path(
-			&arg.artifacts_path,
+		.arg(&arg.store_path)
+		.arg(Sandbox::guest_store_path_from_host_store_path(
+			&arg.store_path,
 		))
 		.arg("--ro-bind")
 		.arg(&arg.tangram_path)

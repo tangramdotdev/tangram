@@ -15,5 +15,5 @@ failure $before "Eve should not read Alice's private artifact before the exploit
 
 # Eve checks in the server's cache path for Alice's artifact id. This must be denied, since
 # checkin_cache_path mints an object_subtree authorization token for the id without authorizing the caller.
-let exploit = tg --token $eve.token checkin $"($dir)/artifacts/($secret)" | complete
+let exploit = tg --token $eve.token checkin $"($dir)/store/($secret)" | complete
 failure $exploit "Eve must not check in an artifact she cannot read and mint a read token for it."

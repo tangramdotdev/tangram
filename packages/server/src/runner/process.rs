@@ -1104,12 +1104,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
 
 			let sandbox_process = sandbox.create_process();
-			let guest_artifacts_path = sandbox.guest_artifacts_path();
+			let guest_store_path = sandbox.guest_store_path();
 			let guest_output_path = sandbox.guest_output_path_for_process(&sandbox_process);
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let args = render_args(&command.args, &guest_artifacts_path, &guest_output_path)?;
+			let args = render_args(&command.args, &guest_store_path, &guest_output_path)?;
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1121,7 +1121,7 @@ impl Session {
 			};
 
 			// Render the env.
-			let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+			let mut env = render_env(&command.env, &guest_store_path, &guest_output_path)?;
 			let engine = match self.server.config.runner.js.engine {
 				crate::config::JsEngine::Auto => "auto",
 				crate::config::JsEngine::QuickJs => "quickjs",
@@ -1151,7 +1151,7 @@ impl Session {
 
 			// Render the executable.
 			let executable = if let Some(artifact) = &command.executable.artifact {
-				let mut path = guest_artifacts_path.join(artifact.to_string());
+				let mut path = guest_store_path.join(artifact.to_string());
 				if let Some(executable_path) = &command.executable.path {
 					path.push(executable_path);
 				}
@@ -1457,13 +1457,13 @@ impl Session {
 
 fn render_args(
 	args: &[tg::command::data::Value],
-	artifacts_path: &Path,
+	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
 	args.iter()
 		.map(|arg| match arg {
 			tg::command::data::Value::String(value) => {
-				render_value_string(value, artifacts_path, output_path)
+				render_value_string(value, store_path, output_path)
 			},
 			tg::command::data::Value::Value(value) => {
 				let value = tg::Value::try_from_data(value.clone())?;
@@ -1475,7 +1475,7 @@ fn render_args(
 
 fn render_env(
 	env: &BTreeMap<String, tg::command::data::Value>,
-	artifacts_path: &Path,
+	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
 	for key in env.keys() {
@@ -1492,7 +1492,7 @@ fn render_env(
 			let key = key.clone();
 			let value = match value {
 				tg::command::data::Value::String(value) => {
-					render_value_string(value, artifacts_path, output_path)?
+					render_value_string(value, store_path, output_path)?
 				},
 				tg::command::data::Value::Value(value) => {
 					tg::Value::try_from_data(value.clone())?.to_string()
@@ -1516,21 +1516,21 @@ fn render_env(
 
 fn render_value_string(
 	value: &tg::value::Data,
-	artifacts_path: &Path,
+	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<String> {
 	match value {
 		tg::value::Data::String(string) => Ok(string.clone()),
 		tg::value::Data::Object(object) if object.node.is_artifact() => {
 			let artifact: tg::artifact::Id = object.node.clone().try_into().unwrap();
-			Ok(artifacts_path
+			Ok(store_path
 				.join(artifact.to_string())
 				.to_string_lossy()
 				.into_owned())
 		},
 		tg::value::Data::Template(template) => template.try_render(|component| match component {
 			tg::template::data::Component::String(string) => Ok(string.clone().into()),
-			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
+			tg::template::data::Component::Artifact(artifact) => Ok(store_path
 				.join(artifact.node.to_string())
 				.to_str()
 				.unwrap()

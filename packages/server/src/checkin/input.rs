@@ -13,7 +13,7 @@ use {
 
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
-	artifacts_path: Option<&'a Path>,
+	store_path: Option<&'a Path>,
 	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
@@ -40,7 +40,7 @@ enum ParentVariant {
 
 pub(super) struct CheckinInputArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
-	pub artifacts_path: Option<&'a Path>,
+	pub store_path: Option<&'a Path>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	pub graph: &'a mut Graph,
 	pub ignorer: Option<ignore::Ignorer>,
@@ -55,7 +55,7 @@ impl Session {
 	pub(super) fn checkin_input(&self, arg: CheckinInputArg<'_>) -> tg::Result<()> {
 		let CheckinInputArg {
 			arg,
-			artifacts_path,
+			store_path,
 			fixup_sender,
 			graph,
 			ignorer,
@@ -84,7 +84,7 @@ impl Session {
 		// Create the state.
 		let mut state = State {
 			arg,
-			artifacts_path,
+			store_path,
 			fixup_sender,
 			graph,
 			ignorer,
@@ -100,10 +100,10 @@ impl Session {
 		};
 		let mut stack = vec![item];
 
-		// Collect the artifacts path entries.
-		let artifacts_entries = if let Some(artifacts_path) = artifacts_path {
-			let read_dir = std::fs::read_dir(artifacts_path).map_err(
-				|error| tg::error!(!error, path = %artifacts_path.display(), "failed to read the artifacts directory"),
+		// Collect the store path entries.
+		let store_entries = if let Some(store_path) = store_path {
+			let read_dir = std::fs::read_dir(store_path).map_err(
+				|error| tg::error!(!error, path = %store_path.display(), "failed to read the store directory"),
 			)?;
 			let mut entries = Vec::new();
 			for entry in read_dir {
@@ -116,8 +116,8 @@ impl Session {
 			Vec::new()
 		};
 
-		// Add the artifacts path entries to the stack.
-		for (path, _) in &artifacts_entries {
+		// Add the store path entries to the stack.
+		for (path, _) in &store_entries {
 			stack.push(Item {
 				path: path.clone(),
 				parent: None,
@@ -129,8 +129,8 @@ impl Session {
 			self.checkin_visit(&mut state, &mut stack, item)?;
 		}
 
-		// Set the artifacts for artifacts path entries.
-		for (path, name) in artifacts_entries {
+		// Set the artifacts for store path entries.
+		for (path, name) in store_entries {
 			if let Some(index) = state.graph.paths.get(&path)
 				&& let Some(name) = name.to_str()
 				&& let Ok(id) = name.parse::<tg::artifact::Id>()
@@ -203,10 +203,10 @@ impl Session {
 			|error| tg::error!(!error, path = %item.path.display(), "failed to get the metadata"),
 		)?;
 
-		// Skip ignored files, unless the path is in the artifacts path.
+		// Skip ignored files, unless the path is in the store path.
 		if !state
-			.artifacts_path
-			.is_some_and(|artifacts_path| item.path.starts_with(artifacts_path))
+			.store_path
+			.is_some_and(|store_path| item.path.starts_with(store_path))
 			&& state
 				.ignorer
 				.as_mut()
@@ -609,14 +609,14 @@ impl Session {
 
 		// Check for an artifact symlink.
 		let cache_path = self.server.cache_path();
-		let artifacts_path = self.server.artifacts_path();
+		let store_path = self.server.store_path();
 		let target_in_artifact_path = absolute_target
 			.strip_prefix(&cache_path)
 			.map(|path| (&cache_path, path))
 			.or_else(|_| {
 				absolute_target
-					.strip_prefix(&artifacts_path)
-					.map(|path| (&artifacts_path, path))
+					.strip_prefix(&store_path)
+					.map(|path| (&store_path, path))
 			});
 		if let Ok((artifact_path, path_in_artifact_path)) = target_in_artifact_path {
 			// Get the artifact.
@@ -664,12 +664,12 @@ impl Session {
 			return Ok(());
 		}
 
-		// If the target is in the artifacts directory, then treat it as an artifact symlink.
-		if let Some(artifacts_path) = &state.artifacts_path
-			&& let Ok(path_in_artifacts_path) = absolute_target.strip_prefix(artifacts_path)
+		// If the target is in the store directory, then treat it as an artifact symlink.
+		if let Some(store_path) = &state.store_path
+			&& let Ok(path_in_store_path) = absolute_target.strip_prefix(store_path)
 		{
 			// Get the artifact.
-			let mut components = path_in_artifacts_path.components();
+			let mut components = path_in_store_path.components();
 			let Some(artifact) = components.next().and_then(|component| {
 				if let std::path::Component::Normal(component) = component {
 					component.to_str()?.parse::<tg::artifact::Id>().ok()
@@ -690,7 +690,7 @@ impl Session {
 
 			// If this is a destructive checkin and the target is absolute, make it relative.
 			if state.arg.options.destructive && target.is_absolute() {
-				let mut source = artifacts_path.join("_");
+				let mut source = store_path.join("_");
 				if let Ok(path) = path.strip_prefix(state.root) {
 					source.push(path);
 				}
@@ -714,7 +714,7 @@ impl Session {
 				index,
 				variant: ParentVariant::SymlinkArtifact,
 			};
-			let entry_path = artifacts_path.join(artifact.to_string());
+			let entry_path = store_path.join(artifact.to_string());
 			stack.push(Item {
 				path: entry_path,
 				parent: Some(parent),

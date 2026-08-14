@@ -78,12 +78,12 @@ export let bundle = async (
 	)) {
 		entries[id] = await removeDependencies(dependency, 3);
 	}
-	let artifacts = await tg.directory(entries);
+	let store = await tg.directory(entries);
 	let output = await removeDependencies(artifact, 0);
 	tg.assert(output instanceof tg.Directory);
 	return await tg.directory(output, {
 		".tangram": {
-			artifacts,
+			store,
 		},
 	});
 };
@@ -232,7 +232,7 @@ let removeDependencies = async (
 			for (let index = 0; index < Math.max(0, depth - 1); index++) {
 				components.push("..");
 			}
-			components.push(".tangram", "artifacts", dependency.id);
+			components.push(".tangram", "store", dependency.id);
 		}
 		if (path !== null) {
 			components.push(path);

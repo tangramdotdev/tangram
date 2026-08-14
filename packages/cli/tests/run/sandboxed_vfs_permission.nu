@@ -21,7 +21,7 @@ let path = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
 		export default async function (id: string) {
-			let path = `/opt/tangram/artifacts/${id}/secret.txt`;
+			let path = `/opt/tangram/store/${id}/secret.txt`;
 			return await tg.run`if cat "${path}" 2>/dev/null; then echo leaked; else echo denied; fi`
 				.env(tg.build(busybox))
 				.sandbox();

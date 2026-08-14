@@ -441,6 +441,7 @@ fn statx_reports_supported_metadata() {
 	// Convert the provider attributes.
 	let attrs = crate::Attrs {
 		atime: crate::Timestamp { nanos: 2, secs: 1 },
+		cacheable: true,
 		ctime: crate::Timestamp { nanos: 6, secs: 5 },
 		gid: 8,
 		inner: AttrsInner::Symlink { size: 513 },

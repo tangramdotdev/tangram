@@ -19,8 +19,8 @@ pub(crate) fn spawn(
 	command
 		.arg("--index")
 		.arg(arg.index.to_string())
-		.arg("--artifacts-path")
-		.arg(&arg.artifacts_path)
+		.arg("--store-path")
+		.arg(&arg.store_path)
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
 		.arg("--max-cpu")

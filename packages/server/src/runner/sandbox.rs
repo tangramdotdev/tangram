@@ -533,16 +533,16 @@ impl Session {
 				)
 				.await
 				.map_err(|error| {
-					tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+					tg::error!(!error, ?expected_id, "failed to start the store VFS")
 				})?;
 				(Some(vfs), None, None, None)
 			},
 			tangram_sandbox::Isolation::Container(_) if self.server.config.vfs.is_some() => {
-				let mount_path = temp.path().join("artifacts");
+				let mount_path = temp.path().join("store");
 				tokio::fs::create_dir_all(&mount_path)
 					.await
 					.map_err(|error| {
-						tg::error!(!error, "failed to create the artifacts mount directory")
+						tg::error!(!error, "failed to create the store mount directory")
 					})?;
 
 				// Create the socket pair over which the sandbox sends the mounted FUSE descriptor.
@@ -591,17 +591,17 @@ impl Session {
 					)
 				})?;
 
-		// Create the sandbox with a readonly artifacts mount.
-		let artifacts_path = self.server.artifacts_path();
+		// Create the sandbox with a readonly store mount.
+		let store_path = self.server.store_path();
 		#[cfg(target_os = "linux")]
-		let artifacts_source = vfs_mount.clone().unwrap_or_else(|| artifacts_path.clone());
+		let store_source = vfs_mount.clone().unwrap_or_else(|| store_path.clone());
 		#[cfg(not(target_os = "linux"))]
-		let artifacts_source = artifacts_path.clone();
+		let store_source = store_path.clone();
 		let mut mounts = arg.mounts;
 		mounts.push(tg::sandbox::Mount {
 			readonly: true,
-			source: artifacts_source.clone(),
-			target: artifacts_path.clone(),
+			source: store_source.clone(),
+			target: store_path.clone(),
 		});
 		let network = match arg.network {
 			None => None,
@@ -614,7 +614,7 @@ impl Session {
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
-			artifacts_path: artifacts_source,
+			store_path: store_source,
 			cpu: arg.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
@@ -655,7 +655,7 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "the VFS startup task panicked"))?
 					.map_err(|error| {
-						tg::error!(!error, ?expected_id, "failed to start the artifacts VFS")
+						tg::error!(!error, ?expected_id, "failed to start the store VFS")
 					})?;
 				Some(vfs)
 			},

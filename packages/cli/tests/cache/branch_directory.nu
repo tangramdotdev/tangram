@@ -27,5 +27,5 @@ let id = tg checkin $path
 # Cache the branch directory.
 tg cache $id
 
-# Snapshot the artifacts directory.
+# Snapshot the store directory.
 snapshot --path $server.cache_directory

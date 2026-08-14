@@ -78,6 +78,8 @@ const PROVIDER_READDIR_MIN_LENGTH: usize =
 const LEASE_REAPER_INTERVAL_SECONDS: u64 = 15;
 const LEASE_TIME_SECONDS: u32 = 60;
 
+static DYNAMIC_CHANGE_INDEX: AtomicU64 = AtomicU64::new(1);
+
 pub struct Server<P>(Arc<State<P>>);
 
 pub struct State<P> {
@@ -429,7 +431,7 @@ where
 
 	async fn mount(path: &Path, host: &str, port: u16) -> Result<(), std::io::Error> {
 		let options = format!(
-			"async,actimeo=60,mutejukebox,noacl,noquota,nobrowse,rdonly,rsize=2097152,nocallback,tcp,vers=4,namedattr,port={port}"
+			"async,actimeo=0,mutejukebox,noacl,noquota,nobrowse,nonegnamecache,rdonly,rsize=2097152,nocallback,tcp,vers=4,namedattr,port={port}"
 		);
 		let url = format!("{host}:/");
 		let status = tokio::process::Command::new("mount_nfs")
@@ -864,7 +866,7 @@ where
 
 	async fn get_file_attr_data(&self, file_handle: nfs_fh4) -> Option<FileAttrData> {
 		if file_handle == ROOT {
-			let attrs = Attrs::new(AttrsInner::Directory);
+			let attrs = Attrs::new(AttrsInner::Directory).cacheable(false);
 			return Some(FileAttrData::new(
 				file_handle,
 				nfs_ftype4::NF4DIR,
@@ -1821,11 +1823,15 @@ impl FileAttrData {
 		for attr in ALL_SUPPORTED_ATTRS {
 			supported_attrs.set(attr.to_usize().unwrap());
 		}
-		let change = attrs
-			.ctime
-			.secs
-			.saturating_mul(1_000_000_000)
-			.saturating_add(u64::from(attrs.ctime.nanos));
+		let change = if attrs.cacheable {
+			attrs
+				.ctime
+				.secs
+				.saturating_mul(1_000_000_000)
+				.saturating_add(u64::from(attrs.ctime.nanos))
+		} else {
+			DYNAMIC_CHANGE_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+		};
 		let named_attr = matches!(file_type, nfs_ftype4::NF4REG);
 		FileAttrData {
 			supported_attrs,
