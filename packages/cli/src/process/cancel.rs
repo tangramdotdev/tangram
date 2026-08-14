@@ -4,21 +4,21 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(index = 2)]
+	pub lease: String,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub process: tg::Reference,
-
-	#[arg(index = 2)]
-	pub lease: String,
+	pub reference: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let process = self
-			.resolve_process_with_locations(&args.process, &args.location)
+			.resolve_process_with_locations(&args.reference, &args.location)
 			.await?;
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options = tg::process::cancel::Options {

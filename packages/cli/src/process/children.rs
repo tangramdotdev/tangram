@@ -15,7 +15,7 @@ pub struct Args {
 	pub options: Options,
 
 	#[arg(index = 1)]
-	pub process: tg::Reference,
+	pub reference: tg::Reference,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -73,7 +73,7 @@ impl Timeout {
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let process = self
-			.resolve_process_with_locations(&args.process, &args.options.locations)
+			.resolve_process_with_locations(&args.reference, &args.options.locations)
 			.await?;
 		self.command_process_children_inner(process, args.options)
 			.await

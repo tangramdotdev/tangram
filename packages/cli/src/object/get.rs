@@ -4,12 +4,12 @@ use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The object to print.
-	#[arg(index = 1)]
-	pub object: tg::Reference,
-
 	#[command(flatten)]
 	pub options: Options,
+
+	/// The object to print.
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -37,7 +37,7 @@ pub struct Options {
 impl Cli {
 	pub async fn command_object_get(&mut self, args: Args) -> tg::Result<()> {
 		let object = self
-			.resolve_object_with_locations(&args.object, &args.options.locations)
+			.resolve_object_with_locations(&args.reference, &args.options.locations)
 			.await?;
 		self.command_object_get_inner(object, args.options).await
 	}

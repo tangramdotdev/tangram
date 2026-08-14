@@ -4,23 +4,23 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(index = 1)]
-	pub artifact: tg::Reference,
-
 	#[command(flatten)]
 	pub build: crate::process::build::Options,
 
 	#[arg(long)]
-	pub format: tg::ArchiveFormat,
+	pub compression: Option<tg::CompressionFormat>,
 
 	#[arg(long)]
-	pub compression: Option<tg::CompressionFormat>,
+	pub format: tg::ArchiveFormat,
+
+	#[arg(index = 1)]
+	pub reference: tg::Reference,
 }
 
 impl Cli {
 	pub async fn command_archive(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let artifact = self.resolve_artifact(&args.artifact).await?;
+		let artifact = self.resolve_artifact(&args.reference).await?;
 		let artifact = tg::Artifact::with_referent(artifact);
 		tg::builtin::validate_archive_artifact_with_handle(&artifact, &client).await?;
 		let format = args.format;
