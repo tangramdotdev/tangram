@@ -158,7 +158,7 @@ impl Data {
 	pub fn without_tokens(mut self) -> Self {
 		for component in &mut self.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
-				artifact.options.clear_runtime();
+				artifact.options.clear_location_and_tokens();
 			}
 		}
 

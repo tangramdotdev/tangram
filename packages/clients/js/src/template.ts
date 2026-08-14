@@ -280,7 +280,7 @@ export namespace Template {
 					return {
 						...component,
 						value: tg.Referent.toDataString(
-							tg.Referent.withoutRuntime(referent),
+							tg.Referent.withoutLocationAndTokens(referent),
 							(id) => id,
 						),
 					};

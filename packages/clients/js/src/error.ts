@@ -598,12 +598,12 @@ export namespace Error {
 						(node) => node as tg.Error.Id,
 					);
 					output.source = tg.Referent.toDataString(
-						tg.Referent.withoutRuntime(referent),
+						tg.Referent.withoutLocationAndTokens(referent),
 						(node) => node,
 					);
 				} else {
 					let source = tg.Referent.fromData(data.source, (node) => node);
-					source = tg.Referent.withoutRuntime(source);
+					source = tg.Referent.withoutLocationAndTokens(source);
 					if (typeof data.source.node !== "string") {
 						source.node = tg.Error.Data.withoutTokens(data.source.node);
 					}

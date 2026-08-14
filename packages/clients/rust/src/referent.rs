@@ -182,12 +182,12 @@ impl<T> Referent<T> {
 	}
 
 	#[must_use]
-	pub fn without_runtime(&self) -> Self
+	pub fn without_location_and_tokens(&self) -> Self
 	where
 		T: Clone,
 	{
 		let mut referent = self.clone();
-		referent.options.clear_runtime();
+		referent.options.clear_location_and_tokens();
 
 		referent
 	}
@@ -230,7 +230,7 @@ where
 }
 
 impl Options {
-	pub fn clear_runtime(&mut self) {
+	pub fn clear_location_and_tokens(&mut self) {
 		self.location = None;
 		self.tokens.clear();
 	}
@@ -298,7 +298,7 @@ mod tests {
 	use {crate::prelude::*, std::collections::BTreeMap};
 
 	#[test]
-	fn runtime_options_roundtrip() {
+	fn location_and_tokens_roundtrip() {
 		let id: tg::file::Id = "fil_010000000000000000000000000000000000000000000000000000"
 			.parse()
 			.unwrap();
@@ -337,7 +337,7 @@ mod tests {
 		let parsed: tg::Referent<tg::file::Id> = string.parse().unwrap();
 
 		assert_eq!(referent, parsed);
-		let referent = referent.without_runtime();
+		let referent = referent.without_location_and_tokens();
 		assert!(referent.options.location.is_none());
 		assert!(referent.options.tokens.is_empty());
 	}

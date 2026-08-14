@@ -136,12 +136,12 @@ impl Data {
 		self.error = self.error.map(|error| match error {
 			tg::Either::Left(error) => tg::Either::Left(error.without_tokens()),
 			tg::Either::Right(mut error) => {
-				error.options.clear_runtime();
+				error.options.clear_location_and_tokens();
 				tg::Either::Right(error)
 			},
 		});
 		self.log = self.log.map(|mut log| {
-			log.options.clear_runtime();
+			log.options.clear_location_and_tokens();
 			log
 		});
 		self.output = self.output.map(tg::value::Data::without_tokens);
@@ -153,7 +153,7 @@ impl Data {
 impl Child {
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.process.options.clear_runtime();
+		self.process.options.clear_location_and_tokens();
 
 		self
 	}

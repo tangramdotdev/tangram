@@ -1527,7 +1527,7 @@ export namespace Process {
 					return {
 						...child,
 						process: tg.Referent.toDataString(
-							tg.Referent.withoutRuntime(referent),
+							tg.Referent.withoutLocationAndTokens(referent),
 							(id) => id,
 						),
 					};
@@ -1540,7 +1540,7 @@ export namespace Process {
 						(id) => id as tg.Error.Id,
 					);
 					output.error = tg.Referent.toDataString(
-						tg.Referent.withoutRuntime(referent),
+						tg.Referent.withoutLocationAndTokens(referent),
 						(id) => id,
 					);
 				} else {
@@ -1553,7 +1553,7 @@ export namespace Process {
 					(id) => id as tg.Blob.Id,
 				);
 				output.log = tg.Referent.toDataString(
-					tg.Referent.withoutRuntime(referent),
+					tg.Referent.withoutLocationAndTokens(referent),
 					(id) => id,
 				);
 			}

@@ -388,7 +388,7 @@ impl Dependency {
 
 	#[must_use]
 	pub fn without_tokens(mut self) -> Self {
-		self.0.options.clear_runtime();
+		self.0.options.clear_location_and_tokens();
 
 		self
 	}

@@ -227,7 +227,9 @@ export namespace Referent {
 		return referent;
 	};
 
-	export let withoutRuntime = <T>(value: tg.Referent<T>): tg.Referent<T> => {
+	export let withoutLocationAndTokens = <T>(
+		value: tg.Referent<T>,
+	): tg.Referent<T> => {
 		let referent = withoutToken(value);
 		if (referent.options !== undefined) {
 			delete referent.options.location;

@@ -251,7 +251,7 @@ export namespace Module {
 				return {
 					...data,
 					referent: tg.Referent.toDataString(
-						tg.Referent.withoutRuntime(referent),
+						tg.Referent.withoutLocationAndTokens(referent),
 						(source) => source,
 					),
 				};
@@ -260,7 +260,7 @@ export namespace Module {
 			return {
 				...data,
 				referent: tg.Referent.toData(
-					tg.Referent.withoutRuntime(referent),
+					tg.Referent.withoutLocationAndTokens(referent),
 					(source) => source,
 				),
 			};

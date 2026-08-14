@@ -152,7 +152,7 @@ impl Data {
 					.collect(),
 			),
 			Self::Object(mut object) => {
-				object.options.clear_runtime();
+				object.options.clear_location_and_tokens();
 				Self::Object(object)
 			},
 			Self::Mutation(mutation) => Self::Mutation(mutation.without_tokens()),

@@ -1308,7 +1308,7 @@ export namespace Graph {
 			): tg.Graph.Dependency.Data => {
 				if (typeof data === "string") {
 					let dependency = tg.Graph.Dependency.fromDataString(data);
-					dependency = tg.Referent.withoutRuntime(dependency);
+					dependency = tg.Referent.withoutLocationAndTokens(dependency);
 					return tg.Graph.Dependency.toDataString(dependency);
 				}
 				let output = { ...data };

@@ -344,7 +344,7 @@ export namespace Value {
 					return {
 						...data,
 						value: tg.Referent.toDataString(
-							tg.Referent.withoutRuntime(referent),
+							tg.Referent.withoutLocationAndTokens(referent),
 							(id) => id,
 						),
 					};
