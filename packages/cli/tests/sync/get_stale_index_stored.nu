@@ -33,6 +33,7 @@ tg --url $remote.url index
 # Get the file. This stores the file's own data but not the blob it points to, and it writes the
 # index entry that the pull later reads.
 tg --url $client.url get $file | ignore
+tg --url $client.url index
 assert equal (tg --url $client.url stored --local $file | from json) {} "the index must report that the file's subtree is not stored"
 
 # Hold the last object to arrive, so that the root cannot finish before the stale value lands.
