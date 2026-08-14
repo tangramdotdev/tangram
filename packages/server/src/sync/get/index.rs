@@ -70,6 +70,26 @@ impl Session {
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.index.object.filter", id = %node.id).await;
+		}
+
+		// Separate the visible nodes. Missing nodes still need the local index as a fallback.
+		let (visible_nodes, nodes): (Vec<_>, Vec<_>) = {
+			let graph = state.graph.lock().unwrap();
+			nodes
+				.into_iter()
+				.partition(|node| !node.missing && graph.get_object_local_visible(&node.id).subtree)
+		};
+		for node in visible_nodes {
+			Self::sync_get_index_send_object_stored(state, &node.id).await?;
+		}
+		if nodes.is_empty() {
+			Self::sync_get_index_close_queue_if_end(state);
+
+			return Ok(());
+		}
+
+		for node in &nodes {
 			crate::checkpoint!(self.server, "sync.get.index.object", id = %node.id).await;
 		}
 
@@ -110,16 +130,7 @@ impl Session {
 
 			// If the object is visible, then send a stored message.
 			if visible.subtree {
-				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
-					tg::sync::GetStoredObjectMessage {
-						id: node.id.clone(),
-					},
-				));
-				state
-					.sender
-					.send(Ok(message))
-					.await
-					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
+				Self::sync_get_index_send_object_stored(state, &node.id).await?;
 			}
 
 			if node.missing {
@@ -162,10 +173,23 @@ impl Session {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_local();
-		if end {
-			state.queue.close();
-		}
+		Self::sync_get_index_close_queue_if_end(state);
+
+		Ok(())
+	}
+
+	async fn sync_get_index_send_object_stored(
+		state: &State,
+		id: &tg::object::Id,
+	) -> tg::Result<()> {
+		let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
+			tg::sync::GetStoredObjectMessage { id: id.clone() },
+		));
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
 
 		Ok(())
 	}
@@ -175,6 +199,36 @@ impl Session {
 		state: &State,
 		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
+		// Separate the visible nodes. Missing nodes still need the local index as a fallback.
+		let (visible_nodes, nodes): (Vec<_>, Vec<_>) = {
+			let graph = state.graph.lock().unwrap();
+			nodes.into_iter().partition(|node| {
+				if node.missing {
+					return false;
+				}
+				let visible = graph.get_process_local_visible(&node.id);
+
+				graph.process_visible(&visible)
+			})
+		};
+		for node in visible_nodes {
+			let visible = state
+				.graph
+				.lock()
+				.unwrap()
+				.get_process_local_visible(&node.id);
+			Self::sync_get_index_send_process_stored(state, &node.id, &visible).await?;
+		}
+		if nodes.is_empty() {
+			Self::sync_get_index_close_queue_if_end(state);
+
+			return Ok(());
+		}
+
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.index.process", id = %node.id).await;
+		}
+
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
@@ -224,27 +278,7 @@ impl Session {
 				.get_process_local_visible(&node.id);
 
 			// If the process is visible, then send a stored message.
-			if Graph::process_visible_any(&visible) {
-				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
-					tg::sync::GetStoredProcessMessage {
-						id: node.id.clone(),
-						node_command_stored: visible.node_command,
-						node_error_stored: visible.node_error,
-						node_log_stored: visible.node_log,
-						node_output_stored: visible.node_output,
-						subtree_command_stored: visible.subtree_command,
-						subtree_error_stored: visible.subtree_error,
-						subtree_log_stored: visible.subtree_log,
-						subtree_output_stored: visible.subtree_output,
-						subtree_stored: visible.subtree,
-					},
-				));
-				state
-					.sender
-					.send(Ok(message))
-					.await
-					.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
-			}
+			Self::sync_get_index_send_process_stored(state, &node.id, &visible).await?;
 
 			if node.missing {
 				// If the process is not stored, then error.
@@ -282,12 +316,46 @@ impl Session {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_local();
-		if end {
-			state.queue.close();
-		}
+		Self::sync_get_index_close_queue_if_end(state);
 
 		Ok(())
+	}
+
+	async fn sync_get_index_send_process_stored(
+		state: &State,
+		id: &tg::process::Id,
+		visible: &tangram_index::process::Stored,
+	) -> tg::Result<()> {
+		if !Graph::process_visible_any(visible) {
+			return Ok(());
+		}
+		let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
+			tg::sync::GetStoredProcessMessage {
+				id: id.clone(),
+				node_command_stored: visible.node_command,
+				node_error_stored: visible.node_error,
+				node_log_stored: visible.node_log,
+				node_output_stored: visible.node_output,
+				subtree_command_stored: visible.subtree_command,
+				subtree_error_stored: visible.subtree_error,
+				subtree_log_stored: visible.subtree_log,
+				subtree_output_stored: visible.subtree_output,
+				subtree_stored: visible.subtree,
+			},
+		));
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
+
+		Ok(())
+	}
+
+	fn sync_get_index_close_queue_if_end(state: &State) {
+		if state.graph.lock().unwrap().end_local() {
+			state.queue.close();
+		}
 	}
 
 	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {

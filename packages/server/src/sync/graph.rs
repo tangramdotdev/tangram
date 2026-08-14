@@ -2049,6 +2049,22 @@ impl Graph {
 		(!permissions.is_empty()).then_some(permissions)
 	}
 
+	#[must_use]
+	pub fn process_visible(&self, visible: &tangram_index::process::Stored) -> bool {
+		if self.process_children {
+			visible.subtree
+				&& (!self.process_commands || visible.subtree_command)
+				&& (!self.process_errors || visible.subtree_error)
+				&& (!self.process_logs || visible.subtree_log)
+				&& (!self.process_outputs || visible.subtree_output)
+		} else {
+			(!self.process_commands || visible.node_command)
+				&& (!self.process_errors || visible.node_error)
+				&& (!self.process_logs || visible.node_log)
+				&& (!self.process_outputs || visible.node_output)
+		}
+	}
+
 	pub fn process_visible_any(visible: &tangram_index::process::Stored) -> bool {
 		visible.node_command
 			|| visible.node_error
@@ -2172,21 +2188,7 @@ impl Graph {
 			| Node::Tag(node)
 			| Node::User(node) => node.local_message.is_some(),
 			Node::Object(_) => self.object_local_visible(index),
-			Node::Process(_) => {
-				let visible = self.process_local_visible(index);
-				if self.process_children {
-					visible.subtree
-						&& (!self.process_commands || visible.subtree_command)
-						&& (!self.process_errors || visible.subtree_error)
-						&& (!self.process_logs || visible.subtree_log)
-						&& (!self.process_outputs || visible.subtree_output)
-				} else {
-					(!self.process_commands || visible.node_command)
-						&& (!self.process_errors || visible.node_error)
-						&& (!self.process_logs || visible.node_log)
-						&& (!self.process_outputs || visible.node_output)
-				}
-			},
+			Node::Process(_) => self.process_visible(&self.process_local_visible(index)),
 		}
 	}
 
