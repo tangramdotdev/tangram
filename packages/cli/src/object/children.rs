@@ -36,23 +36,16 @@ impl Cli {
 		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = object.options.location.clone().map(Into::into);
-		let id = object.node;
-		let arg = tg::object::get::Arg {
-			location,
-			metadata: false,
-			stored: false,
-			tokens: object.options.tokens,
-		};
-		let output = client
-			.try_get_object(&id, arg)
+		let id = object.node.clone();
+		let object = tg::Object::with_referent(object);
+		let children = object
+			.children_with_handle(&client)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
-		let data = tg::object::Data::deserialize(id.kind(), output.bytes)?;
-		let mut children = BTreeSet::new();
-		data.children(&mut children);
-		let output = children.into_iter().collect::<Vec<_>>();
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object's children"))?;
+		let output = children
+			.into_iter()
+			.map(|object| object.id())
+			.collect::<BTreeSet<_>>();
 		self.print_serde(output, options.print).await?;
 		Ok(())
 	}

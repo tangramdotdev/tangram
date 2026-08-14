@@ -76,17 +76,15 @@ impl Cli {
 		} else {
 			args.streams
 		};
-		let arg = tg::process::stdio::read::Arg {
+		let options = tg::process::stdio::read::Options {
 			length: args.length,
-			location: None,
 			position: args.position,
 			size: args.size,
 			streams,
 			timeout: args.timeout.get(),
-			tokens: tg::authorization::Tokens::default(),
 		};
 		let mut stdio = process
-			.try_read_stdio_all(&client, arg)
+			.try_read_stdio_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process stdio"))?
 			.ok_or_else(|| tg::error!(%id, "failed to get the process stdio"))?;

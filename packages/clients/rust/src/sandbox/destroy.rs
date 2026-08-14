@@ -12,6 +12,27 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 }
 
+impl tg::Sandbox {
+	pub async fn destroy(&self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.destroy_with_handle(handle).await
+	}
+
+	pub async fn destroy_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::sandbox::destroy::Arg {
+			error: None,
+			location: self.location(),
+		};
+		handle.destroy_sandbox(self.id(), arg).await?;
+		self.detach();
+
+		Ok(())
+	}
+}
+
 impl tg::Session {
 	pub async fn try_destroy_sandbox(
 		&self,

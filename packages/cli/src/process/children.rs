@@ -87,16 +87,14 @@ impl Cli {
 		let client = self.client().await?;
 		let id = process.node.clone();
 		let process = tg::Process::<tg::Value>::with_referent(process);
-		let arg = tg::process::children::get::Arg {
+		let options_ = tg::process::children::get::Options {
 			length: options.length,
-			location: None,
 			position: options.position,
 			size: options.size,
 			timeout: options.timeout.get(),
-			tokens: tg::authorization::Tokens::default(),
 		};
 		let stream = process
-			.children_with_handle(&client, arg)
+			.children_with_handle(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
 			.map_ok(|child| child.to_data());

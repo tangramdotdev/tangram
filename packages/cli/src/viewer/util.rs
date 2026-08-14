@@ -1,4 +1,4 @@
-use {futures::TryStreamExt as _, std::pin::pin, tangram_client::prelude::*};
+use {std::pin::pin, tangram_client::prelude::*, tokio::io::AsyncReadExt as _};
 
 const BLOB_LENGTH_LIMIT: u64 = 1 << 20;
 
@@ -7,24 +7,20 @@ pub async fn format_blob(client: &tg::Client, blob: &tg::Blob) -> tg::Result<Str
 	if length > BLOB_LENGTH_LIMIT {
 		return Err(tg::error!("cannot view blobs larger than 1 MiB"));
 	}
-	let arg = tg::read::Arg {
-		blob: blob.id(),
-		tokens: blob.state().tokens(),
-		options: tg::read::Options {
-			length: Some(BLOB_LENGTH_LIMIT),
-			..tg::read::Options::default()
-		},
+	let options = tg::read::Options {
+		length: Some(BLOB_LENGTH_LIMIT),
+		..tg::read::Options::default()
 	};
-	let stream = client
-		.try_read(arg)
+	let reader = blob
+		.read_with_handle(client, options)
 		.await
-		.map_err(|error| tg::error!(!error, "failed to read the blob"))?
-		.ok_or_else(|| tg::error!("blob not found"))?;
-	let mut stream = pin!(stream);
+		.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
+	let mut reader = pin!(reader);
 	let mut contents = Vec::with_capacity(length.try_into().unwrap_or_default());
-	while let Some(chunk) = stream.try_next().await? {
-		contents.extend_from_slice(&chunk.bytes);
-	}
+	reader
+		.read_to_end(&mut contents)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 
 	Ok(format_bytes(contents))
 }

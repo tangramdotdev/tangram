@@ -40,12 +40,9 @@ impl Cli {
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = sandbox.id().clone();
-		let arg = tg::sandbox::status::Arg {
-			location: None,
-			..tg::sandbox::status::Arg::default()
-		};
+		let options_ = tg::sandbox::status::Options::default();
 		let output = sandbox
-			.wait_with_handle(&client, arg)
+			.wait_with_handle(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to wait for the sandbox"))?;
 		self.print_serde(output, options.print).await?;

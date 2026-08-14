@@ -38,6 +38,14 @@ pub enum Event {
 	End,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub length: Option<u64>,
+	pub position: Option<std::io::SeekFrom>,
+	pub size: Option<u64>,
+	pub timeout: Option<Duration>,
+}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
 	pub position: u64,
@@ -47,54 +55,55 @@ pub struct Chunk {
 impl<O> tg::Process<O> {
 	pub async fn children(
 		&self,
-		arg: tg::process::children::get::Arg,
+		options: tg::process::children::get::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static> {
 		let handle = tg::handle()?;
-		self.children_with_handle(handle, arg).await
+		self.children_with_handle(handle, options).await
 	}
 
 	pub async fn children_with_handle<H>(
 		&self,
 		handle: &H,
-		arg: tg::process::children::get::Arg,
+		options: tg::process::children::get::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_children_with_handle(handle, arg)
+		self.try_get_children_with_handle(handle, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
 	pub async fn try_get_children(
 		&self,
-		arg: tg::process::children::get::Arg,
+		options: tg::process::children::get::Options,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
 	> {
 		let handle = tg::handle()?;
-		self.try_get_children_with_handle(handle, arg).await
+		self.try_get_children_with_handle(handle, options).await
 	}
 
 	pub async fn try_get_children_with_handle<H>(
 		&self,
 		handle: &H,
-		arg: tg::process::children::get::Arg,
+		options: tg::process::children::get::Options,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
 	>
 	where
 		H: tg::Handle,
 	{
-		let mut arg = arg;
-		if arg.location.is_none() {
-			arg.location = self.location();
-		}
-		if arg.tokens.is_empty() {
-			arg.tokens = self.tokens();
-		}
-		let location = arg.location.clone();
-		let tokens = arg.tokens.clone();
+		let location = self.location();
+		let tokens = self.tokens();
+		let arg = tg::process::children::get::Arg {
+			length: options.length,
+			location: location.clone(),
+			position: options.position,
+			size: options.size,
+			timeout: options.timeout,
+			tokens: tokens.clone(),
+		};
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
 				"getting the process children is not supported for unsandboxed processes"

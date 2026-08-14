@@ -37,13 +37,8 @@ impl Cli {
 		let client = self.client().await?;
 		let id = process.node.clone();
 		let process = tg::Process::<tg::Value>::with_referent(process);
-		let arg = tg::process::wait::Arg {
-			lease: None,
-			location: None,
-			tokens: tg::authorization::Tokens::default(),
-		};
 		let output = process
-			.wait_with_handle(&client, arg)
+			.wait_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
 		self.print_serde(output.to_data(), options.print).await?;

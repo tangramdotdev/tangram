@@ -36,17 +36,11 @@ impl Cli {
 		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = process.options.location.clone().map(Into::into);
-		let id = process.node;
-		let arg = tg::process::stored::Arg {
-			location,
-			tokens: process.options.tokens,
-		};
-		let output = client
-			.try_get_process_stored(&id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process's storage status"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process's storage status"))?;
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		let output = process.stored_with_handle(&client).await.map_err(
+			|error| tg::error!(!error, %id, "failed to get the process's storage status"),
+		)?;
 		self.print_serde(output, options.print).await?;
 		Ok(())
 	}

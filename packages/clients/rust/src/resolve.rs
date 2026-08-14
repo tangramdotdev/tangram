@@ -1,6 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	std::pin::pin,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false},
@@ -28,6 +30,37 @@ pub struct Output {
 }
 
 pub type Node = tg::get::Node;
+
+impl tg::Reference {
+	pub async fn resolve(&self) -> tg::Result<tg::Referent<tg::resolve::Node>> {
+		let handle = tg::handle()?;
+		self.resolve_with_handle(handle).await
+	}
+
+	pub async fn resolve_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<tg::Referent<tg::resolve::Node>>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::resolve::Arg::default();
+		let stream = handle
+			.resolve(self, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the resolve stream"))?;
+		let stream = pin!(stream);
+		let output = stream
+			.try_last()
+			.await?
+			.ok_or_else(|| tg::error!("expected an event"))?
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?;
+
+		Ok(output)
+	}
+}
 
 impl tg::Session {
 	pub async fn try_resolve(

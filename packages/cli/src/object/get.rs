@@ -86,36 +86,29 @@ impl Cli {
 			return Ok(());
 		}
 		let object = tg::Object::with_referent(object);
-		let value = tg::Value::Object(object);
 		options
 			.print
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
-		let arg = tg::object::get::Arg {
-			location,
-			metadata: options.metadata,
-			stored: options.stored,
-			tokens,
-		};
-		if options.metadata || options.stored {
-			let output = client
-				.try_get_object(&id, arg.clone())
+		if options.metadata {
+			let metadata = object
+				.metadata_with_handle(&client)
 				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-				.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
-			if let Some(metadata) = output.metadata {
-				let metadata = serde_json::to_string(&metadata)
-					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
-				self.print_info_message(&metadata);
-			}
-			if let Some(stored) = output.stored {
-				let stored = serde_json::to_string(&stored).map_err(|error| {
-					tg::error!(!error, "failed to serialize the storage status")
-				})?;
-				self.print_info_message(&stored);
-			}
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
+			let metadata = serde_json::to_string(&metadata)
+				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
+			self.print_info_message(&metadata);
 		}
-		self.print_value(&value, options.print, arg).await?;
+		if options.stored {
+			let stored = object.stored_with_handle(&client).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the object's storage status"),
+			)?;
+			let stored = serde_json::to_string(&stored)
+				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
+			self.print_info_message(&stored);
+		}
+		let value = tg::Value::Object(object);
+		self.print_value(&value, options.print, None).await?;
 		Ok(())
 	}
 }

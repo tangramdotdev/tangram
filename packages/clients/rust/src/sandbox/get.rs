@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::time::Duration,
+	std::{sync::Arc, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false},
@@ -107,6 +107,105 @@ pub struct Usage {
 
 	#[tangram_serialize(id = 1)]
 	pub memory: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub cached: bool,
+	pub ttl: tg::remote::cache::Ttl,
+}
+
+impl tg::Sandbox {
+	pub async fn get(
+		&self,
+		options: tg::sandbox::get::Options,
+	) -> tg::Result<Arc<tg::sandbox::get::Output>> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle, options).await
+	}
+
+	pub async fn get_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::sandbox::get::Options,
+	) -> tg::Result<Arc<tg::sandbox::get::Output>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_with_handle(handle, options)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the sandbox"))
+	}
+
+	pub async fn try_get(
+		&self,
+		options: tg::sandbox::get::Options,
+	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>> {
+		let handle = tg::handle()?;
+		self.try_get_with_handle(handle, options).await
+	}
+
+	pub async fn try_get_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::sandbox::get::Options,
+	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>>
+	where
+		H: tg::Handle,
+	{
+		if let Some(state) = self.0.state.read().unwrap().clone() {
+			return Ok(Some(state));
+		}
+		let arg = tg::sandbox::get::Arg {
+			cached: options.cached,
+			location: self.location(),
+			ttl: options.ttl,
+		};
+		let Some(output) = handle.try_get_sandbox(self.id(), arg).await? else {
+			return Ok(None);
+		};
+		if let Some(location) = &output.location {
+			self.0
+				.location
+				.write()
+				.unwrap()
+				.replace(location.clone().into());
+		}
+		if !output.tokens.is_empty() {
+			*self.0.tokens.write().unwrap() = output.tokens.clone();
+		}
+		let state = Arc::new(output);
+		self.0.state.write().unwrap().replace(state.clone());
+
+		Ok(Some(state))
+	}
+
+	pub async fn load(&self) -> tg::Result<Arc<tg::sandbox::get::Output>> {
+		self.get(tg::sandbox::get::Options::default()).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<tg::sandbox::get::Output>>
+	where
+		H: tg::Handle,
+	{
+		self.get_with_handle(handle, tg::sandbox::get::Options::default())
+			.await
+	}
+
+	pub async fn try_load(&self) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>> {
+		self.try_get(tg::sandbox::get::Options::default()).await
+	}
+
+	pub async fn try_load_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_with_handle(handle, tg::sandbox::get::Options::default())
+			.await
+	}
 }
 
 fn deserialize_duration(

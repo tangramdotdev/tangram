@@ -227,25 +227,12 @@ async fn get_node(
 			},
 			tg::id::Kind::Sandbox => {
 				let id = id.try_into()?;
-				let arg = tg::sandbox::get::Arg {
-					location: location.clone(),
-					..tg::sandbox::get::Arg::default()
-				};
-				let output = client
-					.try_get_sandbox(&id, arg)
+				let referent = tg::Referent::new(id, options.clone());
+				let sandbox = tg::Sandbox::with_referent(referent);
+				sandbox
+					.try_load_with_handle(client)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
-				let location = output.location.clone().map(Into::into);
-				let mut tokens = options.tokens.clone();
-				tokens.inherit(&output.tokens);
-				let sandbox = tg::Sandbox::new(
-					id,
-					tg::sandbox::Options {
-						location,
-						state: Some(output),
-						tokens,
-					},
-				);
 				crate::viewer::Item::Sandbox(sandbox)
 			},
 			tg::id::Kind::Tag => {

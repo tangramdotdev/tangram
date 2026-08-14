@@ -30,10 +30,8 @@ impl Cli {
 			return Err(tg::error!("expected exactly one stdio stream"));
 		};
 		let stream = *stream;
-		let arg = tg::process::stdio::write::Arg {
-			location: None,
+		let options = tg::process::stdio::write::Options {
 			streams: vec![stream],
-			tokens: tg::authorization::Tokens::default(),
 		};
 		let input = tangram_util::io::stdin()
 			.map_err(|error| tg::error!(!error, "failed to open stdin"))?
@@ -55,7 +53,7 @@ impl Cli {
 			)))
 			.boxed();
 		process
-			.write_stdio_all(&client, arg, input)
+			.write_stdio_with_handle(&client, options, input)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to write process stdio"))?;
 		Ok(())

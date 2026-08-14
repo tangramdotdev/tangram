@@ -64,15 +64,20 @@ impl From<tg::tag::get::Output> for Tag {
 			permissions,
 			specifier,
 		} = data;
+		let options = tg::referent::Options {
+			location: location.clone(),
+			tokens: tokens.clone(),
+			..tg::referent::Options::default()
+		};
 		let target = match target {
-			tg::tag::data::Target::Object(id) => tg::tag::Target::Object(tg::Object::with_id(id)),
-			tg::tag::data::Target::Process(id) => tg::tag::Target::Process(tg::Process::new(
-				id,
-				tg::process::Options {
-					location: location.clone().map(Into::into),
-					..tg::process::Options::default()
-				},
-			)),
+			tg::tag::data::Target::Object(id) => {
+				let object = tg::Object::with_referent(tg::Referent::new(id, options.clone()));
+				tg::tag::Target::Object(object)
+			},
+			tg::tag::data::Target::Process(id) => {
+				let process = tg::Process::with_referent(tg::Referent::new(id, options));
+				tg::tag::Target::Process(process)
+			},
 		};
 
 		Self {

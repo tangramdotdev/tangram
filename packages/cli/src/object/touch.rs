@@ -32,14 +32,10 @@ impl Cli {
 		_options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = object.options.location.clone().map(Into::into);
-		let id = object.node;
-		let arg = tg::object::touch::Arg {
-			location,
-			tokens: object.options.tokens,
-		};
-		client
-			.touch_object(&id, arg)
+		let id = object.node.clone();
+		let object = tg::Object::with_referent(object);
+		object
+			.touch_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?;
 		Ok(())

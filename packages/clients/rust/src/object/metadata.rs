@@ -131,6 +131,42 @@ impl Subtree {
 	}
 }
 
+impl tg::Object {
+	pub async fn metadata(&self) -> tg::Result<tg::object::Metadata> {
+		let handle = tg::handle()?;
+		self.metadata_with_handle(handle).await
+	}
+
+	pub async fn metadata_with_handle<H>(&self, handle: &H) -> tg::Result<tg::object::Metadata>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_metadata_with_handle(handle)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the object metadata"))
+	}
+
+	pub async fn try_get_metadata(&self) -> tg::Result<Option<tg::object::Metadata>> {
+		let handle = tg::handle()?;
+		self.try_get_metadata_with_handle(handle).await
+	}
+
+	pub async fn try_get_metadata_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::object::Metadata>>
+	where
+		H: tg::Handle,
+	{
+		let state = self.state();
+		let arg = tg::object::metadata::Arg {
+			location: state.location().map(Into::into),
+			tokens: state.tokens(),
+		};
+		handle.try_get_object_metadata(&self.id(), arg).await
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_object_metadata(
 		&self,

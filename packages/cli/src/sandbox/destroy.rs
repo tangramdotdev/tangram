@@ -11,10 +11,12 @@ pub struct Args {
 impl Cli {
 	pub async fn command_sandbox_destroy(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::sandbox::destroy::Arg::default();
-		client.destroy_sandbox(&args.sandbox, arg).await.map_err(
-			|error| tg::error!(!error, sandbox = %args.sandbox, "failed to destroy the sandbox"),
-		)?;
+		let sandbox = tg::Sandbox::with_id(args.sandbox);
+		let id = sandbox.id().clone();
+		sandbox
+			.destroy_with_handle(&client)
+			.await
+			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to destroy the sandbox"))?;
 		Ok(())
 	}
 }

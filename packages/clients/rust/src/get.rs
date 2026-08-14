@@ -1,6 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	std::pin::pin,
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false},
@@ -85,6 +87,34 @@ impl tg::Referent<Node> {
 		}
 
 		Ok(referent)
+	}
+}
+
+impl tg::Reference {
+	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Node>> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle).await
+	}
+
+	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Node>>
+	where
+		H: tg::Handle,
+	{
+		let arg = tg::get::Arg::default();
+		let stream = handle
+			.get(self, arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get stream"))?;
+		let stream = pin!(stream);
+		let output = stream
+			.try_last()
+			.await?
+			.ok_or_else(|| tg::error!("expected an event"))?
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?;
+
+		Ok(output)
 	}
 }
 

@@ -46,6 +46,78 @@ pub struct Output {
 	pub tokens: tg::authorization::Tokens,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub metadata: bool,
+	pub stored: bool,
+}
+
+impl<O> tg::Process<O> {
+	pub async fn get(
+		&self,
+		options: tg::process::get::Options,
+	) -> tg::Result<tg::process::get::Output> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle, options).await
+	}
+
+	pub async fn get_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::get::Options,
+	) -> tg::Result<tg::process::get::Output>
+	where
+		H: tg::Handle,
+	{
+		self.try_get_with_handle(handle, options)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process"))
+	}
+
+	pub async fn try_get(
+		&self,
+		options: tg::process::get::Options,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		let handle = tg::handle()?;
+		self.try_get_with_handle(handle, options).await
+	}
+
+	pub async fn try_get_with_handle<H>(
+		&self,
+		handle: &H,
+		options: tg::process::get::Options,
+	) -> tg::Result<Option<tg::process::get::Output>>
+	where
+		H: tg::Handle,
+	{
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting an unsandboxed process is not supported"
+			));
+		};
+		let arg = tg::process::get::Arg {
+			location: self.location(),
+			metadata: options.metadata,
+			stored: options.stored,
+			tokens: self.tokens(),
+		};
+		let Some(output) = handle.try_get_process(id, arg).await? else {
+			return Ok(None);
+		};
+		if let Some(location) = &output.location {
+			self.location
+				.write()
+				.unwrap()
+				.replace(location.clone().into());
+		}
+		if !output.tokens.is_empty() {
+			*self.tokens.write().unwrap() = output.tokens.clone();
+		}
+
+		Ok(Some(output))
+	}
+}
+
 impl tg::Session {
 	pub async fn try_get_process(
 		&self,

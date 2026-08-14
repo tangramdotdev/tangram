@@ -20,17 +20,11 @@ impl Cli {
 		let process = self
 			.resolve_process_with_locations(&args.process, &args.location)
 			.await?;
-		let location = process.options.location.map(Into::into);
-		let process = tg::Process::<tg::Value>::new(
-			process.node,
-			tg::process::Options {
-				lease: Some(args.lease),
-				location,
-				tokens: process.options.tokens,
-				..Default::default()
-			},
-		);
-		process.cancel_with_handle(&client).await.map_err(
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		let options = tg::process::cancel::Options {
+			lease: Some(args.lease),
+		};
+		process.cancel_with_handle(&client, options).await.map_err(
 			|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),
 		)?;
 		Ok(())

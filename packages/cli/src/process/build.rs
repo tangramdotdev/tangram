@@ -24,13 +24,7 @@ impl Cli {
 		} else if options.checkout.is_some() {
 			Self::print_display(output);
 		} else if (options.detach && options.verbose) || !output.is_null() {
-			let arg = tg::object::get::Arg {
-				location,
-				metadata: false,
-				stored: false,
-				tokens: tg::authorization::Tokens::default(),
-			};
-			self.print_value(&output, options.print.clone(), arg)
+			self.print_value(&output, options.print.clone(), location)
 				.await?;
 		}
 

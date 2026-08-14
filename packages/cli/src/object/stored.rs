@@ -35,17 +35,11 @@ impl Cli {
 		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = object.options.location.clone().map(Into::into);
-		let id = object.node;
-		let arg = tg::object::stored::Arg {
-			location,
-			tokens: object.options.tokens,
-		};
-		let output = client
-			.try_get_object_stored(&id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object's storage status"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the object's storage status"))?;
+		let id = object.node.clone();
+		let object = tg::Object::with_referent(object);
+		let output = object.stored_with_handle(&client).await.map_err(
+			|error| tg::error!(!error, %id, "failed to get the object's storage status"),
+		)?;
 		self.print_serde(output, options.print).await?;
 		Ok(())
 	}

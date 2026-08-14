@@ -36,17 +36,12 @@ impl Cli {
 		options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = process.options.location.clone().map(Into::into);
-		let id = process.node;
-		let arg = tg::process::metadata::Arg {
-			location,
-			tokens: process.options.tokens,
-		};
-		let output = client
-			.try_get_process_metadata(&id, arg)
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		let output = process
+			.metadata_with_handle(&client)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process metadata"))?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process metadata"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process metadata"))?;
 		self.print_serde(output, options.print).await?;
 		Ok(())
 	}

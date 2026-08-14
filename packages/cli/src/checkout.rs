@@ -115,24 +115,28 @@ impl Cli {
 			let artifact = tg::Artifact::try_from(object)?;
 			Ok::<_, tg::Error>(artifact.id())
 		})?;
+		let id = artifact.node.clone();
+		let artifact = tg::Artifact::with_referent(artifact);
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();
 		let force = args.force;
 		let lock = args.lock.get();
-		let arg = tg::checkout::Arg {
-			artifact: artifact.clone(),
+		let options = tg::checkout::Options {
 			dependencies,
 			extension: None,
 			force,
 			lock,
 			path,
 		};
-		let stream = client.checkout(arg).await.map_err(
-			|error| tg::error!(!error, artifact = %artifact.node, "failed to create the checkout stream"),
-		)?;
+		let stream = artifact
+			.checkout_with_handle(&client, options)
+			.await
+			.map_err(
+				|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
+			)?;
 		let output = self.render_progress_stream(stream).await.map_err(
-			|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
+			|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
 		)?;
 
 		// Print the output.

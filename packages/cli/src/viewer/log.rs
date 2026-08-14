@@ -600,7 +600,7 @@ impl State {
 		size: Option<u64>,
 	) -> tg::Result<BoxStream<'static, tg::Result<Chunk>>> {
 		// Create the request.
-		let arg = tg::process::stdio::read::Arg {
+		let options = tg::process::stdio::read::Options {
 			length,
 			position,
 			size,
@@ -611,7 +611,7 @@ impl State {
 		// Read the log.
 		let stream = self
 			.process
-			.try_read_stdio_all(&self.client, arg)
+			.try_read_stdio_with_handle(&self.client, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the log stream"))?;
 

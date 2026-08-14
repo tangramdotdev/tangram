@@ -33,14 +33,10 @@ impl Cli {
 		_options: Options,
 	) -> tg::Result<()> {
 		let client = self.client().await?;
-		let location = process.options.location.clone().map(Into::into);
-		let id = process.node;
-		let arg = tg::process::touch::Arg {
-			location,
-			tokens: process.options.tokens,
-		};
-		client
-			.touch_process(&id, arg)
+		let id = process.node.clone();
+		let process = tg::Process::<tg::Value>::with_referent(process);
+		process
+			.touch_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(())

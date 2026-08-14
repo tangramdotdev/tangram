@@ -93,13 +93,7 @@ impl Cli {
 		} else if checkout {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
-			let arg = tg::object::get::Arg {
-				location,
-				metadata: false,
-				stored: false,
-				tokens: tg::authorization::Tokens::default(),
-			};
-			self.print_value(&output, print, arg).await?;
+			self.print_value(&output, print, location).await?;
 		}
 
 		Ok(())
@@ -226,9 +220,10 @@ impl Cli {
 				|_| async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
+						let options = tg::process::cancel::Options::default();
 						process
 							.node()
-							.cancel_with_handle(&client)
+							.cancel_with_handle(&client, options)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(?error, "failed to cancel the process");
@@ -244,13 +239,9 @@ impl Cli {
 		};
 
 		// Await the process.
-		let arg = tg::process::wait::Arg {
-			lease: process.node().lease().cloned(),
-			..tg::process::wait::Arg::default()
-		};
 		let wait = process
 			.node()
-			.wait_with_handle(&client, arg)
+			.wait_with_handle(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
 
@@ -340,21 +331,23 @@ impl Cli {
 			} else {
 				None
 			};
-			let artifact = artifact.to_referent();
-			let arg = tg::checkout::Arg {
-				artifact: artifact.clone(),
+			let id = artifact.id();
+			let options = tg::checkout::Options {
 				dependencies: path.is_some(),
 				extension: None,
 				force: options.checkout_force,
 				lock: None,
 				path,
 			};
-			let stream = client.checkout(arg).await.map_err(
-				|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
-			)?;
+			let stream = artifact
+				.checkout_with_handle(&client, options)
+				.await
+				.map_err(
+					|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
+				)?;
 			let tg::checkout::Output { path, .. } =
 				self.render_progress_stream(stream).await.map_err(
-					|error| tg::error!(!error, artifact = %artifact.node, "failed to check out the artifact"),
+					|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
 				)?;
 			let value = path.display().to_string().into();
 			return Ok(value);
