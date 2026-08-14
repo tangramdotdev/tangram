@@ -5,9 +5,9 @@ create table if not exists objects (
 );
 
 create table if not exists outbox (
-	batch blob,
+	"batch" blob,
 	fragment bigint,
 	partition bigint,
 	payload blob,
-	primary key ((partition), batch, fragment)
-) with clustering order by (batch asc, fragment asc);
+	primary key ((partition), "batch", fragment)
+) with clustering order by ("batch" asc, fragment asc);

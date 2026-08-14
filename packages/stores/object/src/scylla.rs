@@ -147,10 +147,10 @@ impl Store {
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
-			"
+			r#"
 				delete from outbox
-				where partition = ? and batch = ? and fragment = ?;
-			"
+				where partition = ? and "batch" = ? and fragment = ?;
+			"#
 		);
 		let mut delete_outbox_fragment = session.prepare(statement).await.map_err(|error| {
 			tg::error!(
@@ -161,12 +161,12 @@ impl Store {
 		delete_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
-			"
-				select batch, fragment, partition, payload
+			r#"
+				select "batch", fragment, partition, payload
 				from outbox
 				where partition in ?
 				limit ?;
-			"
+			"#
 		);
 		let mut dequeue_outbox_fragments = session.prepare(statement).await.map_err(|error| {
 			tg::error!(
@@ -177,10 +177,10 @@ impl Store {
 		dequeue_outbox_fragments.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
-			"
-				insert into outbox (batch, fragment, partition, payload)
+			r#"
+				insert into outbox ("batch", fragment, partition, payload)
 				values (?, ?, ?, ?);
-			"
+			"#
 		);
 		let mut enqueue_outbox_fragment = session.prepare(statement).await.map_err(|error| {
 			tg::error!(
@@ -191,11 +191,11 @@ impl Store {
 		enqueue_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
-			"
-				select max(batch)
+			r#"
+				select max("batch")
 				from outbox
 				where partition in ?;
-			"
+			"#
 		);
 		let mut try_get_outbox_batch = session.prepare(statement).await.map_err(|error| {
 			tg::error!(!error, "failed to prepare the get outbox batch statement")
@@ -203,11 +203,11 @@ impl Store {
 		try_get_outbox_batch.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
-			"
-				select max(batch)
+			r#"
+				select max("batch")
 				from outbox
-				where partition in ? and batch <= ?;
-			"
+				where partition in ? and "batch" <= ?;
+			"#
 		);
 		let mut try_get_outbox_batch_at_or_before =
 			session.prepare(statement).await.map_err(|error| {
