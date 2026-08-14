@@ -108,7 +108,48 @@ impl crate::Store for Store {
 
 #[cfg(test)]
 mod tests {
-	use {super::*, bytes::Bytes, std::borrow::Cow};
+	use {
+		super::*,
+		bytes::Bytes,
+		num::ToPrimitive as _,
+		std::{borrow::Cow, path::PathBuf},
+	};
+
+	// A put replaces an existing object.
+	#[test]
+	fn put_replaces_object() {
+		let store = Store::default();
+		let first_bytes = Bytes::from_static(b"first");
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &first_bytes);
+		let cache_pointer = crate::CachePointer {
+			artifact: tg::file::Id::new(b"first").into(),
+			length: 5,
+			path: Some(PathBuf::from("first")),
+			position: 1,
+		};
+		store.put(crate::PutArg {
+			bytes: Some(first_bytes),
+			cache_pointer: Some(cache_pointer),
+			id: id.clone(),
+			length: Some(5),
+			stored_at: 1,
+		});
+
+		let second_bytes = Bytes::from_static(b"second");
+		store.put_batch(vec![crate::PutArg {
+			bytes: Some(second_bytes.clone()),
+			cache_pointer: None,
+			id: id.clone(),
+			length: None,
+			stored_at: 2,
+		}]);
+
+		let object = store.try_get_sync(&crate::TryGetArg { id }).object.unwrap();
+		assert_eq!(object.bytes, Some(Cow::Owned(second_bytes.to_vec())));
+		assert!(object.cache_pointer.is_none());
+		assert!(object.length.is_none());
+		assert_eq!(object.stored_at, 2);
+	}
 
 	// Deleting an object removes the object.
 	#[test]
@@ -125,6 +166,7 @@ mod tests {
 			bytes: Some(bytes.clone()),
 			cache_pointer: None,
 			id: id.clone(),
+			length: Some(content.len().to_u64().unwrap()),
 			stored_at: 10,
 		});
 

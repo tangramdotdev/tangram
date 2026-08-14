@@ -16,12 +16,6 @@ mod task;
 pub struct Config {
 	pub map_size: usize,
 	pub path: std::path::PathBuf,
-
-	/// An optional prefix for the POSIX lock semaphores. When set, LMDB derives
-	/// the reader and writer semaphore names by appending `r` and `w` to this
-	/// prefix instead of hashing the lock file, which lets processes in
-	/// different sandboxes share the same lock. See
-	/// `heed::EnvOpenOptions::semaphore_name`.
 	pub posix_sem_prefix: Option<String>,
 }
 
@@ -117,7 +111,6 @@ impl Store {
 		})
 	}
 
-	/// Opens an existing store read only and without locking. LMDB permits a process to open an environment read only while another process has it open read write, provided the map size is at least the writer's. The store returned by this function has no writer thread, so every write method panics.
 	pub fn new_readonly(config: &Config) -> tg::Result<Self> {
 		if !std::fs::exists(&config.path).unwrap_or(false) {
 			return Err(tg::error!(path = %config.path.display(), "the lmdb file does not exist"));
@@ -281,6 +274,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			})
 			.await
@@ -321,6 +315,7 @@ mod tests {
 				bytes: None,
 				cache_pointer: None,
 				id: id.clone(),
+				length: None,
 				stored_at: 12345,
 			})
 			.await
@@ -343,6 +338,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12346,
 			})
 			.await
@@ -384,6 +380,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			})
 			.unwrap();
@@ -421,6 +418,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
 			}])
 			.await
@@ -432,6 +430,92 @@ mod tests {
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
+	}
+
+	// An object's length is persisted and replaced by later puts.
+	#[tokio::test]
+	async fn test_put_and_get_object_length() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp.path().join("test.lmdb"),
+			posix_sem_prefix: None,
+		};
+		let store = Store::new(&config).unwrap();
+
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		// Put an object with a length.
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
+				stored_at: 12345,
+			})
+			.await
+			.unwrap();
+		let object = store
+			.try_get(crate::TryGetArg { id: id.clone() })
+			.await
+			.unwrap()
+			.object
+			.unwrap();
+		assert_eq!(object.length, Some(content.len().to_u64().unwrap()));
+
+		// A later put without a length replaces the length.
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				length: None,
+				stored_at: 12346,
+			})
+			.await
+			.unwrap();
+		let object = store
+			.try_get(crate::TryGetArg { id: id.clone() })
+			.await
+			.unwrap()
+			.object
+			.unwrap();
+		assert_eq!(object.length, None);
+
+		// An object put without a length has no length.
+		let other = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"other"));
+		store
+			.put(crate::PutArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: other.clone(),
+				length: None,
+				stored_at: 12345,
+			})
+			.await
+			.unwrap();
+		let object = store
+			.try_get(crate::TryGetArg { id: other })
+			.await
+			.unwrap()
+			.object
+			.unwrap();
+		assert_eq!(object.length, None);
+
+		// An absent object has no length.
+		let absent = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"absent"));
+		let output = store
+			.try_get(crate::TryGetArg { id: absent })
+			.await
+			.unwrap();
+		assert!(output.object.is_none());
 	}
 
 	// Deleting an object removes the object.
@@ -458,6 +542,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
+				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 10,
 			})
 			.await

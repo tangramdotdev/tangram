@@ -1256,6 +1256,9 @@ impl Fast {
 		let Some(object) = self.try_get_object(transaction, &id)? else {
 			return Err(fallback());
 		};
+		if let Some(length) = object.length {
+			return Ok(length);
+		}
 		if let Some(cache_pointer) = object.cache_pointer {
 			return Ok(cache_pointer.length);
 		}
@@ -1905,6 +1908,7 @@ mod tests {
 				bytes: Some(bytes),
 				cache_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
+				length: None,
 				stored_at: 0,
 			})
 			.unwrap();

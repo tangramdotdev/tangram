@@ -54,32 +54,17 @@ impl Session {
 				.to_i64()
 				.unwrap();
 
-		// Store the objects.
+		// Get the grant subject.
 		let grant_subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
 		};
-		let put_args: Vec<_> = arg
-			.objects
-			.iter()
-			.map(|object| crate::object::store::PutArg {
-				bytes: Some(object.bytes.clone()),
-				cache_pointer: None,
-				id: object.id.clone(),
-				stored_at: now,
-			})
-			.collect();
-		self.server
-			.object_store
-			.put_batch(put_args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-
-		// Deserialize the objects and create the index args.
+		// Create the store and index args.
 		let mut batch_objects = BTreeSet::new();
 		let mut object_children = BTreeMap::new();
 		let mut object_children_with_tokens = BTreeMap::new();
+		let mut put_args = Vec::with_capacity(arg.objects.len());
 		let mut put_object_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
 			batch_objects.insert(object.id.clone());
@@ -87,6 +72,19 @@ impl Session {
 			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+
+			// Create the store arg.
+			let length = match &data {
+				tg::object::Data::Blob(blob) => Some(blob.length()),
+				_ => None,
+			};
+			put_args.push(crate::object::store::PutArg {
+				bytes: Some(object.bytes.clone()),
+				cache_pointer: None,
+				id: object.id.clone(),
+				length,
+				stored_at: now,
+			});
 
 			// Get the children.
 			let mut children = BTreeSet::new();
@@ -116,6 +114,13 @@ impl Session {
 
 			put_object_args.push(arg);
 		}
+
+		// Store the objects.
+		self.server
+			.object_store
+			.put_batch(put_args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
 		// Determine which objects can receive subtree grants.
 		let mut subtree_objects = BTreeSet::new();

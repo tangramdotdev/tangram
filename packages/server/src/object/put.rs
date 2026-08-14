@@ -54,10 +54,16 @@ impl Session {
 		let data = tg::object::Data::deserialize(id.kind(), arg.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
+		let length = match &data {
+			tg::object::Data::Blob(blob) => Some(blob.length()),
+			_ => None,
+		};
+
 		let put_arg = crate::object::store::PutArg {
 			bytes: Some(arg.bytes.clone()),
 			cache_pointer: None,
 			id: id.clone(),
+			length,
 			stored_at: now,
 		};
 		self.server

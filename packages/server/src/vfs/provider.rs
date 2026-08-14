@@ -2010,6 +2010,9 @@ impl Provider {
 			})?
 			.object;
 		if let Some(object) = object {
+			if let Some(length) = object.length {
+				return Ok(length);
+			}
 			if let Some(length) = object.cache_pointer.map(|pointer| pointer.length) {
 				return Ok(length);
 			}
@@ -2115,6 +2118,9 @@ impl Provider {
 		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
+		if let Some(length) = object.length {
+			return Ok(length);
+		}
 		if let Some(cache_pointer) = object.cache_pointer {
 			return Ok(cache_pointer.length);
 		}

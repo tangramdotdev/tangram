@@ -20,6 +20,7 @@ pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
+	pub length: Option<u64>,
 	pub stored_at: i64,
 }
 
@@ -52,6 +53,10 @@ pub struct Object<'a> {
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub cache_pointer: Option<CachePointer>,
+
+	/// The length of the blob, if the object is a blob. It lets the length be read without deserializing the bytes.
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub length: Option<u64>,
 
 	#[tangram_serialize(id = 2)]
 	pub stored_at: i64,
@@ -165,6 +170,7 @@ impl Object<'_> {
 		Object {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			cache_pointer: self.cache_pointer,
+			length: self.length,
 			stored_at: self.stored_at,
 		}
 	}

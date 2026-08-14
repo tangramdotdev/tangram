@@ -1,6 +1,6 @@
 use {
-	crate::prelude::*, bytes::Bytes, serde_with::serde_as, std::collections::BTreeSet,
-	tangram_util::serde::BytesBase64,
+	crate::prelude::*, bytes::Bytes, num::ToPrimitive as _, serde_with::serde_as,
+	std::collections::BTreeSet, tangram_util::serde::BytesBase64,
 };
 
 #[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
@@ -121,6 +121,14 @@ impl Blob {
 			},
 		};
 		Ok(blob)
+	}
+
+	#[must_use]
+	pub fn length(&self) -> u64 {
+		match self {
+			Self::Branch(branch) => branch.children.iter().map(|child| child.length).sum(),
+			Self::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
+		}
 	}
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {

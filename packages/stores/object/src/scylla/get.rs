@@ -49,6 +49,7 @@ impl Store {
 				let object = objects.get(id).cloned().map(|bytes| crate::Object {
 					bytes: Some(Cow::Owned(bytes.to_vec())),
 					cache_pointer: None,
+					length: None,
 					stored_at: 0,
 				});
 				TryGetOutput { object }
@@ -89,6 +90,7 @@ impl Store {
 		Ok(Some(crate::Object {
 			bytes: Some(bytes),
 			cache_pointer: None,
+			length: None,
 			stored_at: 0,
 		}))
 	}
