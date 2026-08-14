@@ -750,9 +750,14 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
 			let subject = crate::indexer::object_outbox_subject(partition);
-			if let Err(error) = self.messenger.publish(subject, ()).await {
-				tracing::error!(%error, %partition, "failed to publish an object outbox notification");
-			}
+			tokio::spawn({
+				let server = self.clone();
+				async move {
+					if let Err(error) = server.messenger.publish(subject, ()).await {
+						tracing::error!(%error, %partition, "failed to publish an object outbox notification");
+					}
+				}
+			});
 
 			return Ok(());
 		}
