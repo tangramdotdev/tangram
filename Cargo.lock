@@ -8277,6 +8277,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_scylla_client"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "scylla",
+ "tokio",
+]
+
+[[package]]
 name = "tangram_serialize"
 version = "0.0.0"
 dependencies = [

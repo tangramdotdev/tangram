@@ -19,6 +19,7 @@ members = [
   "packages/quickjs",
   "packages/stores/object",
   "packages/sandbox",
+  "packages/scylla/client",
   "packages/serialize",
   "packages/server",
   "packages/uri",
