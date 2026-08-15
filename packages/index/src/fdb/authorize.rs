@@ -1249,25 +1249,25 @@ impl Index {
 				let cached_processes = cache.object_processes.get(&object).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
-				let object_parents = if let Some(parents) = cached_parents {
-					parents
-				} else {
-					crate::fdb::propagate!(
+				let object_parents = async {
+					if let Some(parents) = cached_parents {
+						Ok(ControlFlow::Break(parents))
+					} else {
 						Self::get_object_parents_with_transaction(txn, subspace, &object).await
-					)
+					}
 				};
-				let processes = if let Some(processes) = cached_processes {
-					processes
-				} else {
-					crate::fdb::propagate!(
+				let processes = async {
+					if let Some(processes) = cached_processes {
+						Ok(ControlFlow::Break(processes))
+					} else {
 						Self::get_object_processes_with_transaction(txn, subspace, &object).await
-					)
+					}
 				};
-				let tags = if let Some(tags) = cached_tags {
-					tags
-				} else {
-					let mut tag_cache = Cache::default();
-					crate::fdb::propagate!(
+				let tags = async {
+					if let Some(tags) = cached_tags {
+						Ok(ControlFlow::Break(tags))
+					} else {
+						let mut tag_cache = Cache::default();
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
@@ -1277,7 +1277,21 @@ impl Index {
 							&mut tag_cache,
 						)
 						.await
-					)
+					}
+				};
+				let (object_parents, processes, tags) =
+					futures::try_join!(object_parents, processes, tags)?;
+				let object_parents = match object_parents {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let processes = match processes {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let tags = match tags {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
 				cache
 					.object_parents
@@ -1318,26 +1332,31 @@ impl Index {
 				let cached_parents = cache.process_parents.get(&process).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
-				let sandbox = if let Some(sandbox) = cached_sandbox {
-					sandbox
-				} else {
-					crate::fdb::propagate!(
-						Self::try_get_process_with_transaction(txn, subspace, &process).await
-					)
-					.and_then(|process| process.sandbox)
+				let sandbox = async {
+					if let Some(sandbox) = cached_sandbox {
+						Ok(ControlFlow::Break(sandbox))
+					} else {
+						let result =
+							Self::try_get_process_with_transaction(txn, subspace, &process).await;
+						let process = crate::fdb::propagate!(result);
+
+						Ok(ControlFlow::Break(
+							process.and_then(|process| process.sandbox),
+						))
+					}
 				};
-				let process_parents = if let Some(parents) = cached_parents {
-					parents
-				} else {
-					crate::fdb::propagate!(
+				let process_parents = async {
+					if let Some(parents) = cached_parents {
+						Ok(ControlFlow::Break(parents))
+					} else {
 						Self::get_process_parents_with_transaction(txn, subspace, &process).await
-					)
+					}
 				};
-				let tags = if let Some(tags) = cached_tags {
-					tags
-				} else {
-					let mut tag_cache = Cache::default();
-					crate::fdb::propagate!(
+				let tags = async {
+					if let Some(tags) = cached_tags {
+						Ok(ControlFlow::Break(tags))
+					} else {
+						let mut tag_cache = Cache::default();
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
@@ -1347,7 +1366,21 @@ impl Index {
 							&mut tag_cache,
 						)
 						.await
-					)
+					}
+				};
+				let (sandbox, process_parents, tags) =
+					futures::try_join!(sandbox, process_parents, tags)?;
+				let sandbox = match sandbox {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let process_parents = match process_parents {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let tags = match tags {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
 				cache
 					.process_sandboxes

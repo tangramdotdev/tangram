@@ -242,12 +242,19 @@ impl Index {
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let parents = crate::fdb::propagate!(
-			Self::get_object_parents_with_transaction(txn, subspace, object).await
-		);
-		let processes = crate::fdb::propagate!(
-			Self::get_object_processes_with_transaction(txn, subspace, object).await
-		);
+		let (parents, processes) = futures::future::try_join(
+			Self::get_object_parents_with_transaction(txn, subspace, object),
+			Self::get_object_processes_with_transaction(txn, subspace, object),
+		)
+		.await?;
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let processes = match processes {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let keys = parents
 			.into_iter()
 			.map(|object| {
@@ -264,15 +271,27 @@ impl Index {
 			}))
 			.map(|key| Self::pack(subspace, &key))
 			.collect::<Vec<_>>();
-		let entries_future = futures::future::try_join_all(
-			keys.iter()
-				.map(|key| async move { txn.get(key, false).await }),
-		);
+		let entries_future = async {
+			let result = futures::future::try_join_all(
+				keys.iter()
+					.map(|key| async move { txn.get(key, false).await }),
+			)
+			.await;
+			let entries = crate::fdb::retry!(result);
+
+			Ok::<_, tg::Error>(ControlFlow::Break(entries))
+		};
 		let object_bytes = object.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, object_bytes.as_ref());
-		let result = entries_future.await;
-		let entries = crate::fdb::retry!(result);
-		let tag_count = crate::fdb::propagate!(tags_future.await);
+		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let tag_count = match tag_count {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
 
@@ -298,15 +317,27 @@ impl Index {
 				Self::pack(subspace, &key)
 			})
 			.collect::<Vec<_>>();
-		let entries_future = futures::future::try_join_all(
-			keys.iter()
-				.map(|key| async move { txn.get(key, false).await }),
-		);
+		let entries_future = async {
+			let result = futures::future::try_join_all(
+				keys.iter()
+					.map(|key| async move { txn.get(key, false).await }),
+			)
+			.await;
+			let entries = crate::fdb::retry!(result);
+
+			Ok::<_, tg::Error>(ControlFlow::Break(entries))
+		};
 		let process_bytes = process.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, process_bytes.as_ref());
-		let result = entries_future.await;
-		let entries = crate::fdb::retry!(result);
-		let tag_count = crate::fdb::propagate!(tags_future.await);
+		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let tag_count = match tag_count {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
 
