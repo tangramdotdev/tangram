@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -23,12 +24,12 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

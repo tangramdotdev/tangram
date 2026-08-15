@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -38,7 +39,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::put::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::Group(crate::fdb::group::Key::Group(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
@@ -46,8 +47,7 @@ impl Index {
 				parent: arg.parent.clone(),
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()
-			.map_err(crate::fdb::custom_error)?;
+			.serialize()?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -55,14 +55,14 @@ impl Index {
 			let value = tg::Id::from(arg.id.clone()).to_bytes();
 			txn.set(&key, value.as_ref());
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn put_group_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::member::put::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::Group(crate::fdb::group::Key::GroupMember {
 				group: arg.group.clone(),
@@ -78,6 +78,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

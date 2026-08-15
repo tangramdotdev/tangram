@@ -3,7 +3,7 @@ use {
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeMap,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -25,26 +25,28 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
 		partition_total: u64,
-	) -> crate::fdb::Result<crate::usage::clean::Output> {
+	) -> tg::Result<ControlFlow<crate::usage::clean::Output, fdb::FdbError>> {
 		if arg.partition_start > arg.partition_end || arg.partition_end > partition_total {
-			return Err(crate::fdb::error!(
-				"the usage cleaning partition range is invalid"
-			));
+			return Err(tg::error!("the usage cleaning partition range is invalid"));
 		}
 		let mut keys = Vec::new();
 		let mut pending = false;
 		let mut unavailable = BTreeMap::new();
-		Self::find_usage_delta_candidates(txn, subspace, arg, &mut keys, &mut pending).await?;
+		crate::fdb::propagate!(
+			Self::find_usage_delta_candidates(txn, subspace, arg, &mut keys, &mut pending).await
+		);
 		if keys.len() < arg.batch_size {
-			Self::find_usage_aggregate_candidates(
-				txn,
-				subspace,
-				arg,
-				&mut keys,
-				&mut pending,
-				&mut unavailable,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::find_usage_aggregate_candidates(
+					txn,
+					subspace,
+					arg,
+					&mut keys,
+					&mut pending,
+					&mut unavailable,
+				)
+				.await
+			);
 		}
 		for ((account, kind, partition), through) in unavailable {
 			Self::mark_usage_unavailable_with_transaction(
@@ -59,7 +61,7 @@ impl Index {
 			done: keys.is_empty() && !pending,
 		};
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn find_usage_delta_candidates(
@@ -68,7 +70,7 @@ impl Index {
 		arg: &crate::usage::clean::Arg,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let cutoff = arg
 			.now
 			.checked_sub(arg.delta_time_to_live)
@@ -89,7 +91,7 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while keys.len() < arg.batch_size {
-				let Some(entry) = entries.try_next().await? else {
+				let Some(entry) = crate::fdb::retry!(entries.try_next().await) else {
 					break;
 				};
 				let Key::Usage(crate::fdb::usage::Key::Delta {
@@ -99,18 +101,21 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
-				let period =
-					crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)
-						.map_err(crate::fdb::custom_error)?;
+				let period = crate::usage::Period::from_kind_and_start(
+					crate::usage::PeriodKind::Hour,
+					hour,
+				)?;
 				if period.end() > cutoff {
 					break;
 				}
-				let compacting = Self::contains_usage_compaction_with_transaction(
-					txn, subspace, &account, hour, partition,
-				)
-				.await?;
+				let compacting = crate::fdb::propagate!(
+					Self::contains_usage_compaction_with_transaction(
+						txn, subspace, &account, hour, partition,
+					)
+					.await
+				);
 				if compacting {
 					let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 					*pending |= hour < current_hour;
@@ -123,7 +128,7 @@ impl Index {
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn find_usage_aggregate_candidates(
@@ -133,7 +138,7 @@ impl Index {
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
 		unavailable: &mut BTreeMap<(crate::usage::Account, crate::usage::PeriodKind, u64), i64>,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for partition in arg.partition_start..arg.partition_end {
 			for kind in [
 				crate::usage::PeriodKind::Hour,
@@ -174,7 +179,7 @@ impl Index {
 				};
 				let mut entries = txn.get_ranges_keyvalues(range, false);
 				while keys.len() < arg.batch_size {
-					let Some(entry) = entries.try_next().await? else {
+					let Some(entry) = crate::fdb::retry!(entries.try_next().await) else {
 						break;
 					};
 					let Key::Usage(crate::fdb::usage::Key::Aggregate {
@@ -183,7 +188,7 @@ impl Index {
 						period,
 					}) = Self::unpack(subspace, entry.key())?
 					else {
-						return Err(crate::fdb::error!("unexpected key type"));
+						return Err(tg::error!("unexpected key type"));
 					};
 					if period.end() > cutoff {
 						break;
@@ -191,28 +196,32 @@ impl Index {
 					let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 					let (dependency, eligible) = match period {
 						crate::usage::Period::Hour(_) => {
-							let next_hour =
-								period.start().as_second().checked_add(60 * 60).ok_or_else(
-									|| crate::fdb::error!("the usage hour overflowed"),
-								)?;
+							let next_hour = period
+								.start()
+								.as_second()
+								.checked_add(60 * 60)
+								.ok_or_else(|| tg::error!("the usage hour overflowed"))?;
 							let day = crate::usage::Period::containing(
 								crate::usage::PeriodKind::Day,
 								period.start(),
 							);
-							let closing_hour = crate::usage::closing_hour(day)
-								.map_err(crate::fdb::custom_error)?;
-							let next = Self::contains_usage_compaction_with_transaction(
-								txn, subspace, &account, next_hour, partition,
-							)
-							.await?;
-							let closing = Self::contains_usage_compaction_with_transaction(
-								txn,
-								subspace,
-								&account,
-								closing_hour,
-								partition,
-							)
-							.await?;
+							let closing_hour = crate::usage::closing_hour(day)?;
+							let next = crate::fdb::propagate!(
+								Self::contains_usage_compaction_with_transaction(
+									txn, subspace, &account, next_hour, partition,
+								)
+								.await
+							);
+							let closing = crate::fdb::propagate!(
+								Self::contains_usage_compaction_with_transaction(
+									txn,
+									subspace,
+									&account,
+									closing_hour,
+									partition,
+								)
+								.await
+							);
 							let dependency = next || closing;
 							let eligible = (next && next_hour < current_hour)
 								|| (closing && closing_hour < current_hour);
@@ -226,16 +235,17 @@ impl Index {
 								crate::usage::PeriodKind::Month,
 							] {
 								let parent = crate::usage::Period::containing(kind, period.start());
-								let closing_hour = crate::usage::closing_hour(parent)
-									.map_err(crate::fdb::custom_error)?;
-								let contains = Self::contains_usage_compaction_with_transaction(
-									txn,
-									subspace,
-									&account,
-									closing_hour,
-									partition,
-								)
-								.await?;
+								let closing_hour = crate::usage::closing_hour(parent)?;
+								let contains = crate::fdb::propagate!(
+									Self::contains_usage_compaction_with_transaction(
+										txn,
+										subspace,
+										&account,
+										closing_hour,
+										partition,
+									)
+									.await
+								);
 								dependency |= contains;
 								eligible |= contains && closing_hour < current_hour;
 							}
@@ -257,11 +267,11 @@ impl Index {
 					}
 				}
 				if keys.len() == arg.batch_size {
-					return Ok(());
+					return Ok(ControlFlow::Break(()));
 				}
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

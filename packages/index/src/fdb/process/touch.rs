@@ -3,7 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -71,7 +71,7 @@ impl Index {
 		arg: &crate::fdb::TouchProcesses,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
+	) -> tg::Result<ControlFlow<Vec<Option<crate::process::Process>>, fdb::FdbError>> {
 		let crate::fdb::TouchProcesses {
 			account,
 			ids,
@@ -79,55 +79,71 @@ impl Index {
 			time_to_touch,
 			touched_at,
 		} = arg;
-		let processes = Self::touch_processes_with_transaction(
-			txn,
-			subspace,
-			ids,
-			*touched_at,
-			*time_to_touch,
-			partition_total,
-		)
-		.await?;
-		if let Some(account) = account.as_ref() {
-			future::try_join_all(
-				std::iter::zip(ids, &processes)
-					.filter(|(_, process)| process.is_some())
-					.map(|(id, _)| {
-						let arg = crate::usage::storage::put::ProcessArg {
-							account: account.clone(),
-							process: id.clone(),
-							touched_at: *touched_at,
-						};
-						async move {
-							if *put_account
-								&& Self::put_account_process(
-									txn,
-									subspace,
-									&arg,
-									partition_total,
-									usage_partition_total,
-									false,
-									None,
-								)
-								.await?
-							{
-								return Ok(());
-							}
-							Self::touch_account_process(
-								txn,
-								subspace,
-								&arg,
-								*time_to_touch,
-								partition_total,
-							)
-							.await
-						}
-					}),
+		let processes = crate::fdb::propagate!(
+			Self::touch_processes_with_transaction(
+				txn,
+				subspace,
+				ids,
+				*touched_at,
+				*time_to_touch,
+				partition_total,
 			)
-			.await?;
+			.await
+		);
+		if let Some(account) = account.as_ref() {
+			{
+				let result = future::try_join_all(
+					std::iter::zip(ids, &processes)
+						.filter(|(_, process)| process.is_some())
+						.map(|(id, _)| {
+							let arg = crate::usage::storage::put::ProcessArg {
+								account: account.clone(),
+								process: id.clone(),
+								touched_at: *touched_at,
+							};
+							async move {
+								if *put_account
+									&& crate::fdb::propagate!(
+										Self::put_account_process(
+											txn,
+											subspace,
+											&arg,
+											partition_total,
+											usage_partition_total,
+											false,
+											None,
+										)
+										.await
+									) {
+									return Ok::<_, tg::Error>(ControlFlow::Break(()));
+								}
+								crate::fdb::propagate!(
+									Self::touch_account_process(
+										txn,
+										subspace,
+										&arg,
+										*time_to_touch,
+										partition_total,
+									)
+									.await
+								);
+
+								Ok::<_, tg::Error>(ControlFlow::Break(()))
+							}
+						}),
+				)
+				.await;
+				let results = result?;
+				for result in results {
+					match result {
+						ControlFlow::Break(()) => {},
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+				}
+			};
 		}
 
-		Ok(processes)
+		Ok(ControlFlow::Break(processes))
 	}
 
 	pub(crate) async fn touch_processes_with_transaction(
@@ -137,22 +153,36 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
-		future::try_join_all(ids.iter().map(|id| {
-			let subspace = subspace.clone();
-			async move {
-				Self::touch_process_with_transaction(
-					txn,
-					&subspace,
-					id,
-					touched_at,
-					time_to_touch,
-					partition_total,
-				)
-				.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::process::Process>>, fdb::FdbError>> {
+		let processes = {
+			let result = future::try_join_all(ids.iter().map(|id| {
+				let subspace = subspace.clone();
+				async move {
+					Self::touch_process_with_transaction(
+						txn,
+						&subspace,
+						id,
+						touched_at,
+						time_to_touch,
+						partition_total,
+					)
+					.await
+				}
+			}))
+			.await;
+			let results = result?;
+			let mut values = Vec::new();
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
 			}
-		}))
-		.await
+			values
+		};
+
+		Ok(ControlFlow::Break(processes))
 	}
 
 	async fn touch_process_with_transaction(
@@ -162,31 +192,34 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<Option<crate::process::Process>> {
+	) -> tg::Result<ControlFlow<Option<crate::process::Process>, fdb::FdbError>> {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = txn.get(&key, false).await?;
+		let existing = crate::fdb::retry!(txn.get(&key, false).await);
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::process::Process::deserialize(bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?;
+			.transpose()?;
 		let Some(mut process) = existing else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if touched_at - process.touched_at < time_to_touch {
-			return Ok(Some(process));
+			return Ok(ControlFlow::Break(Some(process)));
 		}
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)?;
+		crate::fdb::retry!(txn.add_conflict_range(
+			&key,
+			&key_end,
+			fdb::options::ConflictRangeType::Read,
+		));
 
 		process.touched_at = process.touched_at.max(touched_at);
 		let value = process
 			.serialize()
-			.map_err(|error| crate::fdb::error!(!error, "failed to serialize the process"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 		txn.set(&key, &value);
 		if process.reference_count == 0 {
 			let id_bytes = id.to_bytes();
@@ -202,6 +235,6 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		Ok(Some(process))
+		Ok(ControlFlow::Break(Some(process)))
 	}
 }

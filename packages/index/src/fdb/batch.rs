@@ -1,6 +1,7 @@
 use {
 	super::{Index, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -24,183 +25,225 @@ impl Index {
 		arg: &crate::batch::Arg,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for item in &arg.items {
 			match item {
 				crate::batch::Item::DeleteGrant(arg) => {
-					Self::delete_grants_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::delete_grants_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::DeleteGroup(id) => {
-					Self::delete_groups_with_transaction(txn, subspace, std::slice::from_ref(id))
-						.await?;
+					crate::fdb::propagate!(
+						Self::delete_groups_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(id),
+						)
+						.await
+					);
 				},
 				crate::batch::Item::DeleteGroupMember(arg) => {
-					Self::delete_group_members_with_transaction(
+					crate::fdb::propagate!(Self::delete_group_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
-					)?;
+					));
 				},
 				crate::batch::Item::DeleteOrganization(id) => {
-					Self::delete_organizations_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(id),
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::delete_organizations_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(id),
+						)
+						.await
+					);
 				},
 				crate::batch::Item::DeleteOrganizationMember(arg) => {
-					Self::delete_organization_members_with_transaction(
+					crate::fdb::propagate!(Self::delete_organization_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
-					)?;
+					));
 				},
 				crate::batch::Item::DeleteSandbox(id) => {
-					Self::delete_sandboxes_with_transaction(
+					crate::fdb::propagate!(Self::delete_sandboxes_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(id),
-					)?;
+					));
 				},
 				crate::batch::Item::DeleteTag(id) => {
-					Self::delete_tags_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(id),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::delete_tags_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(id),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::DeleteUser(id) => {
-					Self::delete_users_with_transaction(txn, subspace, std::slice::from_ref(id))
-						.await?;
+					crate::fdb::propagate!(
+						Self::delete_users_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(id),
+						)
+						.await
+					);
 				},
 				crate::batch::Item::EnqueueLogCompaction(process) => {
-					Self::enqueue_log_compaction_with_transaction(
-						txn,
-						subspace,
-						process,
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::enqueue_log_compaction_with_transaction(
+							txn,
+							subspace,
+							process,
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutCacheEntry(arg) => {
-					Self::put_cache_entries_with_transaction(
+					crate::fdb::propagate!(Self::put_cache_entries_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
 						partition_total,
-					)?;
+					));
 				},
 				crate::batch::Item::PutGrant(arg) => {
-					Self::put_grants_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_grants_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutGroup(arg) => {
-					Self::put_groups_with_transaction(txn, subspace, std::slice::from_ref(arg))?;
+					crate::fdb::propagate!(Self::put_groups_with_transaction(
+						txn,
+						subspace,
+						std::slice::from_ref(arg),
+					));
 				},
 				crate::batch::Item::PutGroupMember(arg) => {
-					Self::put_group_members_with_transaction(
+					crate::fdb::propagate!(Self::put_group_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
-					)?;
+					));
 				},
 				crate::batch::Item::PutObject(arg) => {
-					Self::put_objects_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_objects_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutAccountObject(arg) => {
-					Self::put_account_object(
-						txn,
-						subspace,
-						arg,
-						partition_total,
-						usage_partition_total,
-						true,
-						None,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_account_object(
+							txn,
+							subspace,
+							arg,
+							partition_total,
+							usage_partition_total,
+							true,
+							None,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutAccountProcess(arg) => {
-					Self::put_account_process(
-						txn,
-						subspace,
-						arg,
-						partition_total,
-						usage_partition_total,
-						true,
-						None,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_account_process(
+							txn,
+							subspace,
+							arg,
+							partition_total,
+							usage_partition_total,
+							true,
+							None,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutOrganization(arg) => {
-					Self::put_organizations_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_organizations_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutOrganizationMember(arg) => {
-					Self::put_organization_members_with_transaction(
+					crate::fdb::propagate!(Self::put_organization_members_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),
-					)?;
+					));
 				},
 				crate::batch::Item::PutProcess(arg) => {
-					Self::put_processes_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_processes_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutSandbox(arg) => {
-					Self::put_sandboxes_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-						usage_partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_sandboxes_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+							usage_partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutTag(arg) => {
-					Self::put_tags_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(arg),
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::put_tags_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
 				},
 				crate::batch::Item::PutUser(arg) => {
-					Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg))
-						.await?;
+					crate::fdb::propagate!(
+						Self::put_users_with_transaction(txn, subspace, std::slice::from_ref(arg),)
+							.await
+					);
 				},
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

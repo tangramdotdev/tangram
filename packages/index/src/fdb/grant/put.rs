@@ -4,6 +4,7 @@ use {
 		grant::{GrantIndexEntry, GrantSource, GrantValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -25,7 +26,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::put::Arg],
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
 				let source = if arg.expires_at.is_some() {
@@ -33,21 +34,23 @@ impl Index {
 				} else {
 					GrantSource::Explicit
 				};
-				let changed = Self::put_grant_index_entry(
-					txn,
-					subspace,
-					&GrantIndexEntry {
-						creator: arg.creator.as_ref(),
-						expires_at: arg.expires_at,
-						permission,
-						subject: &arg.subject,
-						resource: &arg.resource,
-					},
-					source,
-					arg.time_to_touch,
-					partition_total,
-				)
-				.await?;
+				let changed = crate::fdb::propagate!(
+					Self::put_grant_index_entry(
+						txn,
+						subspace,
+						&GrantIndexEntry {
+							creator: arg.creator.as_ref(),
+							expires_at: arg.expires_at,
+							permission,
+							subject: &arg.subject,
+							resource: &arg.resource,
+						},
+						source,
+						arg.time_to_touch,
+						partition_total,
+					)
+					.await
+				);
 				if changed {
 					Self::enqueue_grant_update(
 						txn,
@@ -60,7 +63,7 @@ impl Index {
 				}
 			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_grant_index_entry(
@@ -70,7 +73,7 @@ impl Index {
 		source: GrantSource,
 		time_to_touch: Option<std::time::Duration>,
 		partition_total: u64,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut changed = false;
 		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
 			resource: entry.resource.clone(),
@@ -89,15 +92,12 @@ impl Index {
 		.collect::<Vec<_>>();
 		for key in keys {
 			let key = Self::pack(subspace, &key);
-			let mut value = txn
-				.get(&key, false)
-				.await?
+			let mut value = crate::fdb::retry!(txn.get(&key, false).await)
 				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)
-				.map_err(crate::fdb::custom_error)?;
+				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
 			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
+				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
 				Self::update_grant_expiration(
 					txn,
@@ -112,10 +112,12 @@ impl Index {
 			}
 		}
 		if !changed {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 
-		for id in Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await? {
+		for id in crate::fdb::propagate!(
+			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await
+		) {
 			let key = Key::Grant(crate::fdb::grant::Key::Visibility {
 				resource: id,
 				subject: entry.subject.clone(),
@@ -124,18 +126,15 @@ impl Index {
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
-			let mut value = txn
-				.get(&key, false)
-				.await?
+			let mut value = crate::fdb::retry!(txn.get(&key, false).await)
 				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)
-				.map_err(crate::fdb::custom_error)?;
+				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			if value.put(source, entry.expires_at, time_to_touch) {
-				let bytes = value.serialize().map_err(crate::fdb::custom_error)?;
+				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
 			}
 		}
-		Ok(changed)
+		Ok(ControlFlow::Break(changed))
 	}
 
 	pub(crate) fn update_grant_expiration(

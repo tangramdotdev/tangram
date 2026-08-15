@@ -4,7 +4,10 @@ use {
 	foundationdb_tuple::Subspace,
 	futures::{StreamExt as _, TryStreamExt as _, stream},
 	num_traits::ToPrimitive as _,
-	std::collections::{HashMap, HashSet, VecDeque},
+	std::{
+		collections::{HashMap, HashSet, VecDeque},
+		ops::ControlFlow,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -248,9 +251,9 @@ impl Index {
 		subspace: &Subspace,
 		args: &[crate::authorize::Arg],
 		principal: &tg::Principal,
-	) -> crate::fdb::Result<Vec<Option<crate::authorize::Output>>> {
+	) -> tg::Result<ControlFlow<Vec<Option<crate::authorize::Output>>, fdb::FdbError>> {
 		if args.is_empty() {
-			return Ok(Vec::new());
+			return Ok(ControlFlow::Break(Vec::new()));
 		}
 		if matches!(principal, tg::Principal::Root) {
 			let outputs = args
@@ -261,29 +264,43 @@ impl Index {
 					})
 				})
 				.collect();
-			return Ok(outputs);
+			return Ok(ControlFlow::Break(outputs));
 		}
 		let mut requester = Requester::new(principal);
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
-			Self::load_requester_subjects_with_transaction(
-				txn,
-				subspace,
-				config.concurrency,
-				&mut requester,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::load_requester_subjects_with_transaction(
+					txn,
+					subspace,
+					config.concurrency,
+					&mut requester,
+				)
+				.await
+			);
 		}
 		let resource_requests = args
 			.iter()
 			.map(|arg| arg.resource.clone())
 			.collect::<Vec<_>>();
-		let resources = stream::iter(resource_requests)
-			.map(|resource| async move {
-				Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
-			})
-			.buffered(config.concurrency)
-			.try_collect::<Vec<_>>()
-			.await?;
+		let resources = {
+			let result = stream::iter(resource_requests)
+				.map(|resource| async move {
+					Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
+				})
+				.buffered(config.concurrency)
+				.try_collect::<Vec<_>>()
+				.await;
+			let results = result?;
+			let mut values = Vec::new();
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
 		let permissions = std::iter::zip(args, &resources)
 			.map(|(arg, resource)| {
 				let Some((resource, exact)) = resource else {
@@ -293,9 +310,8 @@ impl Index {
 					return Ok(Some(arg.permissions));
 				}
 				crate::authorize::permissions_for_specifier_prefix(resource, arg.permissions)
-					.map_err(crate::fdb::custom_error)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let token_resources = args
 			.iter()
 			.map(|arg| arg.token.as_ref().map(|body| body.resource.clone()))
@@ -337,14 +353,16 @@ impl Index {
 				token,
 				txn,
 			};
-			let authorized = Self::authorize_with_transaction(
-				context,
-				&id,
-				permissions,
-				authorization,
-				&mut cache,
-			)
-			.await?;
+			let authorized = crate::fdb::propagate!(
+				Self::authorize_with_transaction(
+					context,
+					&id,
+					permissions,
+					authorization,
+					&mut cache,
+				)
+				.await
+			);
 			let permissions = if permissions == arg.permissions {
 				authorized
 			} else if authorized.contains(permissions) {
@@ -355,7 +373,7 @@ impl Index {
 			outputs.push(Some(crate::authorize::Output { permissions }));
 		}
 
-		Ok(outputs)
+		Ok(ControlFlow::Break(outputs))
 	}
 
 	async fn load_requester_subjects_with_transaction(
@@ -363,12 +381,12 @@ impl Index {
 		subspace: &Subspace,
 		concurrency: usize,
 		requester: &mut Requester<'_>,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let Some(id) = requester.id.clone() else {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		};
 		if !matches!(id.kind(), tg::id::Kind::Group | tg::id::Kind::User) {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 		let mut visited = HashSet::new();
 		let mut frontier = vec![id];
@@ -379,14 +397,46 @@ impl Index {
 				.collect::<Vec<_>>();
 			let relations = stream::iter(members)
 				.map(|member| async move {
-					futures::try_join!(
+					let (groups, organizations) = futures::try_join!(
 						Self::get_member_groups_with_transaction(txn, subspace, &member),
 						Self::get_member_organizations_with_transaction(txn, subspace, &member),
-					)
+					)?;
+					let groups = {
+						let result = groups;
+						match result {
+							ControlFlow::Break(value) => value,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						}
+					};
+					let organizations = {
+						let result = organizations;
+						match result {
+							ControlFlow::Break(value) => value,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						}
+					};
+
+					Ok::<_, tg::Error>(ControlFlow::Break((groups, organizations)))
 				})
 				.buffer_unordered(concurrency)
 				.try_collect::<Vec<_>>()
 				.await?;
+			let relations = {
+				let results = relations;
+				let mut values = Vec::new();
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					values.push(value);
+				}
+				values
+			};
 			let mut next = Vec::new();
 			for (groups, organizations) in relations {
 				for group in groups {
@@ -403,7 +453,7 @@ impl Index {
 			}
 			frontier = next;
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn authorize_with_transaction(
@@ -412,18 +462,20 @@ impl Index {
 		permissions: tg::authorization::permission::Set,
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<tg::authorization::permission::Set> {
+	) -> tg::Result<ControlFlow<tg::authorization::permission::Set, fdb::FdbError>> {
 		let roots = permissions
 			.iter()
 			.map(|permission| (resource.clone(), permission))
 			.collect::<Vec<_>>();
-		Self::authorize_permissions_ordinary_with_transaction(
-			context,
-			&roots,
-			authorization,
-			cache,
-		)
-		.await?;
+		crate::fdb::propagate!(
+			Self::authorize_permissions_ordinary_with_transaction(
+				context,
+				&roots,
+				authorization,
+				cache,
+			)
+			.await
+		);
 		let mut authorized = permissions.empty_like();
 		for permission in permissions.iter() {
 			let key = (resource.clone(), permission);
@@ -436,13 +488,13 @@ impl Index {
 			let permission_authorized = match permission {
 				tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
-				) => Self::authorize_with_object_subtree_search_with_transaction(
+				) => crate::fdb::propagate!(Self::authorize_with_object_subtree_search_with_transaction(
 					context,
 					resource,
 					authorization,
 					cache,
 				)
-				.await?
+				.await)
 				.unwrap_or(false),
 				tg::authorization::Permission::Process(
 					permission @ (tg::authorization::permission::process::Permission::NodeCommand
@@ -450,14 +502,14 @@ impl Index {
 					| tg::authorization::permission::process::Permission::NodeLog
 					| tg::authorization::permission::process::Permission::NodeOutput),
 				) => {
-					Self::authorize_process_node_with_transaction(
+					crate::fdb::propagate!(Self::authorize_process_node_with_transaction(
 						context,
 						resource,
 						permission,
 						authorization,
 						cache,
 					)
-					.await?
+					.await)
 				},
 				tg::authorization::Permission::Process(
 					permission @ (tg::authorization::permission::process::Permission::Subtree
@@ -465,14 +517,14 @@ impl Index {
 					| tg::authorization::permission::process::Permission::SubtreeError
 					| tg::authorization::permission::process::Permission::SubtreeLog
 					| tg::authorization::permission::process::Permission::SubtreeOutput),
-				) => Self::authorize_with_process_subtree_search_with_transaction(
+				) => crate::fdb::propagate!(Self::authorize_with_process_subtree_search_with_transaction(
 					context,
 					resource,
 					permission,
 					authorization,
 					cache,
 				)
-				.await?
+				.await)
 				.unwrap_or(false),
 				_ => false,
 			};
@@ -482,7 +534,7 @@ impl Index {
 				));
 			}
 		}
-		Ok(authorized)
+		Ok(ControlFlow::Break(authorized))
 	}
 
 	async fn authorize_permissions_ordinary_with_transaction(
@@ -490,7 +542,7 @@ impl Index {
 		roots: &[(tg::Id, tg::authorization::Permission)],
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let mut nodes = Vec::new();
 		let mut node_ids = HashMap::new();
 		let mut queue = VecDeque::new();
@@ -532,7 +584,7 @@ impl Index {
 				.iter()
 				.all(|root| authorization.get(root).copied().unwrap_or(false))
 			{
-				return Ok(());
+				return Ok(ControlFlow::Break(()));
 			}
 			let dependency_concurrency = context.config.concurrency.div_ceil(requests.len().max(1));
 
@@ -555,18 +607,48 @@ impl Index {
 						);
 						let (directly_authorized, dependencies) =
 							futures::try_join!(directly_authorized, dependencies)?;
+						let directly_authorized = {
+							let result = directly_authorized;
+							match result {
+								ControlFlow::Break(value) => value,
+								ControlFlow::Continue(error) => {
+									return Ok(ControlFlow::Continue(error));
+								},
+							}
+						};
+						let dependencies = {
+							let result = dependencies;
+							match result {
+								ControlFlow::Break(value) => value,
+								ControlFlow::Continue(error) => {
+									return Ok(ControlFlow::Continue(error));
+								},
+							}
+						};
 						direct_cache.merge(dependency_cache);
-						Ok::<_, fdb::FdbBindingError>(AuthorizationNodeEvaluation {
+						Ok::<_, tg::Error>(ControlFlow::Break(AuthorizationNodeEvaluation {
 							node_id,
 							directly_authorized,
 							dependencies,
 							cache: direct_cache,
-						})
+						}))
 					},
 				)
 				.buffer_unordered(context.config.concurrency)
 				.try_collect::<Vec<_>>()
 				.await?;
+			let evaluations = {
+				let results = evaluations;
+				let mut values = Vec::new();
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					values.push(value);
+				}
+				values
+			};
 
 			for evaluation in evaluations {
 				cache.merge(evaluation.cache);
@@ -613,14 +695,14 @@ impl Index {
 				.iter()
 				.all(|root| authorization.get(root).copied().unwrap_or(false))
 			{
-				return Ok(());
+				return Ok(ControlFlow::Break(()));
 			}
 		}
 
 		for node in nodes {
 			authorization.entry(node.key).or_insert(false);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn propagate_authorization(
@@ -645,18 +727,18 @@ impl Index {
 		resource: &tg::Id,
 		permission: tg::authorization::Permission,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		if let (tg::Principal::Process(process), tg::authorization::Permission::Process(_)) =
 			(context.requester.principal, permission)
 			&& tg::Id::from(process.clone()) == *resource
 		{
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		if let (tg::Principal::User(user), tg::authorization::Permission::User(_)) =
 			(context.requester.principal, permission)
 			&& tg::Id::from(user.clone()) == *resource
 		{
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		if let (
 			tg::Principal::Sandbox(sandbox),
@@ -667,7 +749,7 @@ impl Index {
 		) = (context.requester.principal, permission)
 			&& tg::Id::from(sandbox.clone()) == *resource
 		{
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		if matches!(
 			permission,
@@ -677,51 +759,55 @@ impl Index {
 			)
 		) && resource.kind() == tg::id::Kind::Sandbox
 		{
-			let sandbox =
-				tg::sandbox::Id::try_from(resource.clone()).map_err(crate::fdb::custom_error)?;
-			if let Some(owner) = Self::get_cached_sandbox_owner_with_transaction(
-				context.txn,
-				context.subspace,
-				&sandbox,
-				cache,
-			)
-			.await?
-			{
-				let owner = owner.try_to_subject().map_err(crate::fdb::custom_error)?;
-				if Self::subject_contains_requester_with_transaction(
+			let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
+			if let Some(owner) = crate::fdb::propagate!(
+				Self::get_cached_sandbox_owner_with_transaction(
 					context.txn,
 					context.subspace,
-					&owner,
-					context.requester,
+					&sandbox,
+					cache,
 				)
-				.await?
-				{
-					return Ok(true);
+				.await
+			) {
+				let owner = owner.try_to_subject()?;
+				if crate::fdb::propagate!(
+					Self::subject_contains_requester_with_transaction(
+						context.txn,
+						context.subspace,
+						&owner,
+						context.requester,
+					)
+					.await
+				) {
+					return Ok(ControlFlow::Break(true));
 				}
 			}
 		}
 
-		let grants = Self::get_cached_resource_grants_with_transaction(
-			context.txn,
-			context.subspace,
-			resource,
-			cache,
-		)
-		.await?;
+		let grants = crate::fdb::propagate!(
+			Self::get_cached_resource_grants_with_transaction(
+				context.txn,
+				context.subspace,
+				resource,
+				cache,
+			)
+			.await
+		);
 		for (granted_subject, granted_permission) in grants {
 			if granted_permission.implies(permission)
-				&& Self::subject_contains_requester_with_transaction(
-					context.txn,
-					context.subspace,
-					&granted_subject,
-					context.requester,
-				)
-				.await?
-			{
-				return Ok(true);
+				&& crate::fdb::propagate!(
+					Self::subject_contains_requester_with_transaction(
+						context.txn,
+						context.subspace,
+						&granted_subject,
+						context.requester,
+					)
+					.await
+				) {
+				return Ok(ControlFlow::Break(true));
 			}
 		}
-		Ok(false)
+		Ok(ControlFlow::Break(false))
 	}
 
 	fn is_authorized_by_token(
@@ -739,7 +825,7 @@ impl Index {
 		resource: &tg::Id,
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Option<bool>> {
+	) -> tg::Result<ControlFlow<Option<bool>, fdb::FdbError>> {
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
@@ -750,26 +836,28 @@ impl Index {
 			max_depth: context.config.object_subtree.max_depth,
 			remaining: context.config.object_subtree.max_objects,
 		};
-		let root = tg::object::Id::try_from(resource.clone()).map_err(crate::fdb::custom_error)?;
+		let root = tg::object::Id::try_from(resource.clone())?;
 		let mut visited = HashSet::from([root.clone()]);
 		let mut frontier = vec![root];
 		let mut depth = 0;
 		while !frontier.is_empty() {
 			if frontier.len() > budget.remaining {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 			budget.remaining -= frontier.len();
 			let subtree_roots = frontier
 				.iter()
 				.map(|object| (tg::Id::from(object.clone()), subtree))
 				.collect::<Vec<_>>();
-			Self::authorize_permissions_ordinary_with_transaction(
-				context,
-				&subtree_roots,
-				authorization,
-				cache,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::authorize_permissions_ordinary_with_transaction(
+					context,
+					&subtree_roots,
+					authorization,
+					cache,
+				)
+				.await
+			);
 			let uncovered = frontier
 				.into_iter()
 				.filter(|object| {
@@ -785,18 +873,20 @@ impl Index {
 				.iter()
 				.map(|object| (tg::Id::from(object.clone()), node))
 				.collect::<Vec<_>>();
-			Self::authorize_permissions_ordinary_with_transaction(
-				context,
-				&node_roots,
-				authorization,
-				cache,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::authorize_permissions_ordinary_with_transaction(
+					context,
+					&node_roots,
+					authorization,
+					cache,
+				)
+				.await
+			);
 			if node_roots
 				.iter()
 				.any(|key| !authorization.get(key).copied().unwrap_or(false))
 			{
-				return Ok(Some(false));
+				return Ok(ControlFlow::Break(Some(false)));
 			}
 
 			let limit = if depth == budget.max_depth {
@@ -811,41 +901,55 @@ impl Index {
 				.into_iter()
 				.map(|object| (object.clone(), cache.clone_for_object_children(&object)))
 				.collect::<Vec<_>>();
-			let children = stream::iter(requests)
-				.map(|(object, mut cache)| async move {
-					let children = Self::get_cached_object_children_limited_with_transaction(
-						context.txn,
-						context.subspace,
-						&object,
-						limit,
-						&mut cache,
-					)
-					.await?;
-					Ok::<_, fdb::FdbBindingError>((children, cache))
-				})
-				.buffer_unordered(context.config.concurrency)
-				.try_collect::<Vec<_>>()
-				.await?;
+			let children = {
+				let result = stream::iter(requests)
+					.map(|(object, mut cache)| async move {
+						let children = crate::fdb::propagate!(
+							Self::get_cached_object_children_limited_with_transaction(
+								context.txn,
+								context.subspace,
+								&object,
+								limit,
+								&mut cache,
+							)
+							.await
+						);
+						Ok::<_, tg::Error>(ControlFlow::Break((children, cache)))
+					})
+					.buffer_unordered(context.config.concurrency)
+					.try_collect::<Vec<_>>()
+					.await;
+				let results = result?;
+				let mut values = Vec::new();
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					values.push(value);
+				}
+				values
+			};
 			let mut next = Vec::new();
 			for (children, child_cache) in children {
 				cache.merge(child_cache);
 				for child in children {
 					if visited.insert(child.clone()) {
 						if depth == budget.max_depth {
-							return Ok(None);
+							return Ok(ControlFlow::Break(None));
 						}
 						next.push(child);
 					}
 				}
 			}
 			if next.len() > budget.remaining {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 			frontier = next;
 			depth += 1;
 		}
 
-		Ok(Some(true))
+		Ok(ControlFlow::Break(Some(true)))
 	}
 
 	async fn authorize_with_process_subtree_search_with_transaction(
@@ -854,7 +958,7 @@ impl Index {
 		permission: tg::authorization::permission::process::Permission,
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Option<bool>> {
+	) -> tg::Result<ControlFlow<Option<bool>, fdb::FdbError>> {
 		let node_permission = match permission {
 			tg::authorization::permission::process::Permission::Subtree => {
 				tg::authorization::permission::process::Permission::Node
@@ -878,26 +982,28 @@ impl Index {
 			max_depth: context.config.process_subtree.max_depth,
 			remaining: context.config.process_subtree.max_processes,
 		};
-		let root = tg::process::Id::try_from(resource.clone()).map_err(crate::fdb::custom_error)?;
+		let root = tg::process::Id::try_from(resource.clone())?;
 		let mut visited = HashSet::from([root.clone()]);
 		let mut frontier = vec![root];
 		let mut depth = 0;
 		while !frontier.is_empty() {
 			if frontier.len() > budget.remaining {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 			budget.remaining -= frontier.len();
 			let subtree_roots = frontier
 				.iter()
 				.map(|process| (tg::Id::from(process.clone()), subtree))
 				.collect::<Vec<_>>();
-			Self::authorize_permissions_ordinary_with_transaction(
-				context,
-				&subtree_roots,
-				authorization,
-				cache,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::authorize_permissions_ordinary_with_transaction(
+					context,
+					&subtree_roots,
+					authorization,
+					cache,
+				)
+				.await
+			);
 			let uncovered = frontier
 				.into_iter()
 				.filter(|process| {
@@ -914,29 +1020,32 @@ impl Index {
 				.iter()
 				.map(|process| (tg::Id::from(process.clone()), node))
 				.collect::<Vec<_>>();
-			Self::authorize_permissions_ordinary_with_transaction(
-				context,
-				&node_roots,
-				authorization,
-				cache,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::authorize_permissions_ordinary_with_transaction(
+					context,
+					&node_roots,
+					authorization,
+					cache,
+				)
+				.await
+			);
 			for process in &uncovered {
 				let resource = tg::Id::from(process.clone());
 				let key = (resource.clone(), node);
 				if authorization.get(&key).copied().unwrap_or(false) {
 					continue;
 				}
-				if !Self::authorize_process_node_with_transaction(
-					context,
-					&resource,
-					node_permission,
-					authorization,
-					cache,
-				)
-				.await?
-				{
-					return Ok(Some(false));
+				if !crate::fdb::propagate!(
+					Self::authorize_process_node_with_transaction(
+						context,
+						&resource,
+						node_permission,
+						authorization,
+						cache,
+					)
+					.await
+				) {
+					return Ok(ControlFlow::Break(Some(false)));
 				}
 			}
 
@@ -952,41 +1061,55 @@ impl Index {
 				.into_iter()
 				.map(|process| (process.clone(), cache.clone_for_process_children(&process)))
 				.collect::<Vec<_>>();
-			let children = stream::iter(requests)
-				.map(|(process, mut cache)| async move {
-					let children = Self::get_cached_process_children_limited_with_transaction(
-						context.txn,
-						context.subspace,
-						&process,
-						limit,
-						&mut cache,
-					)
-					.await?;
-					Ok::<_, fdb::FdbBindingError>((children, cache))
-				})
-				.buffer_unordered(context.config.concurrency)
-				.try_collect::<Vec<_>>()
-				.await?;
+			let children = {
+				let result = stream::iter(requests)
+					.map(|(process, mut cache)| async move {
+						let children = crate::fdb::propagate!(
+							Self::get_cached_process_children_limited_with_transaction(
+								context.txn,
+								context.subspace,
+								&process,
+								limit,
+								&mut cache,
+							)
+							.await
+						);
+						Ok::<_, tg::Error>(ControlFlow::Break((children, cache)))
+					})
+					.buffer_unordered(context.config.concurrency)
+					.try_collect::<Vec<_>>()
+					.await;
+				let results = result?;
+				let mut values = Vec::new();
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					values.push(value);
+				}
+				values
+			};
 			let mut next = Vec::new();
 			for (children, child_cache) in children {
 				cache.merge(child_cache);
 				for child in children {
 					if visited.insert(child.clone()) {
 						if depth == budget.max_depth {
-							return Ok(None);
+							return Ok(ControlFlow::Break(None));
 						}
 						next.push(child);
 					}
 				}
 			}
 			if next.len() > budget.remaining {
-				return Ok(None);
+				return Ok(ControlFlow::Break(None));
 			}
 			frontier = next;
 			depth += 1;
 		}
 
-		Ok(Some(true))
+		Ok(ControlFlow::Break(Some(true)))
 	}
 
 	async fn authorize_process_node_with_transaction(
@@ -995,18 +1118,20 @@ impl Index {
 		permission: tg::authorization::permission::process::Permission,
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let process_permission = tg::authorization::Permission::Process(permission);
 		let root = (resource.clone(), process_permission);
-		Self::authorize_permissions_ordinary_with_transaction(
-			context,
-			std::slice::from_ref(&root),
-			authorization,
-			cache,
-		)
-		.await?;
+		crate::fdb::propagate!(
+			Self::authorize_permissions_ordinary_with_transaction(
+				context,
+				std::slice::from_ref(&root),
+				authorization,
+				cache,
+			)
+			.await
+		);
 		if authorization.get(&root).copied().unwrap_or(false) {
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		let kind = match permission {
 			tg::authorization::permission::process::Permission::NodeCommand => {
@@ -1021,17 +1146,18 @@ impl Index {
 			tg::authorization::permission::process::Permission::NodeOutput => {
 				crate::process::object::Kind::Output
 			},
-			_ => return Ok(false),
+			_ => return Ok(ControlFlow::Break(false)),
 		};
-		let process =
-			tg::process::Id::try_from(resource.clone()).map_err(crate::fdb::custom_error)?;
-		let objects = Self::get_cached_process_objects_with_transaction(
-			context.txn,
-			context.subspace,
-			&process,
-			cache,
-		)
-		.await?;
+		let process = tg::process::Id::try_from(resource.clone())?;
+		let objects = crate::fdb::propagate!(
+			Self::get_cached_process_objects_with_transaction(
+				context.txn,
+				context.subspace,
+				&process,
+				cache,
+			)
+			.await
+		);
 		let objects = objects
 			.into_iter()
 			.filter_map(|(object, object_kind)| {
@@ -1045,7 +1171,7 @@ impl Index {
 			})
 			.collect::<Vec<_>>();
 		if objects.is_empty() {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -1054,32 +1180,36 @@ impl Index {
 			.iter()
 			.map(|object| (tg::Id::from(object.clone()), subtree))
 			.collect::<Vec<_>>();
-		Self::authorize_permissions_ordinary_with_transaction(
-			context,
-			&roots,
-			authorization,
-			cache,
-		)
-		.await?;
+		crate::fdb::propagate!(
+			Self::authorize_permissions_ordinary_with_transaction(
+				context,
+				&roots,
+				authorization,
+				cache,
+			)
+			.await
+		);
 		for (object, root) in std::iter::zip(objects, roots) {
 			if authorization.get(&root).copied().unwrap_or(false) {
 				continue;
 			}
 			let resource = object.into();
-			if !Self::authorize_with_object_subtree_search_with_transaction(
-				context,
-				&resource,
-				authorization,
-				cache,
+			if !crate::fdb::propagate!(
+				Self::authorize_with_object_subtree_search_with_transaction(
+					context,
+					&resource,
+					authorization,
+					cache,
+				)
+				.await
 			)
-			.await?
 			.unwrap_or(false)
 			{
-				return Ok(false);
+				return Ok(ControlFlow::Break(false));
 			}
 		}
 
-		Ok(true)
+		Ok(ControlFlow::Break(true))
 	}
 
 	async fn get_authorization_dependencies_with_transaction(
@@ -1089,13 +1219,13 @@ impl Index {
 		resource: &tg::Id,
 		permission: tg::authorization::Permission,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<(tg::Id, tg::authorization::Permission)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::authorization::Permission)>, fdb::FdbError>> {
 		let mut dependencies = Vec::new();
 
 		// Add the process subject grant relationships.
-		let grants =
-			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache)
-				.await?;
+		let grants = crate::fdb::propagate!(
+			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache).await
+		);
 		for (subject, granted_permission) in grants {
 			if !granted_permission.implies(permission) {
 				continue;
@@ -1114,31 +1244,30 @@ impl Index {
 
 		match permission {
 			tg::authorization::Permission::Object(_) => {
-				let object =
-					tg::object::Id::try_from(resource.clone()).map_err(crate::fdb::custom_error)?;
+				let object = tg::object::Id::try_from(resource.clone())?;
 				let cached_parents = cache.object_parents.get(&object).cloned();
 				let cached_processes = cache.object_processes.get(&object).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
-				let object_parents = async {
-					if let Some(parents) = cached_parents {
-						Ok(parents)
-					} else {
+				let object_parents = if let Some(parents) = cached_parents {
+					parents
+				} else {
+					crate::fdb::propagate!(
 						Self::get_object_parents_with_transaction(txn, subspace, &object).await
-					}
+					)
 				};
-				let processes = async {
-					if let Some(processes) = cached_processes {
-						Ok(processes)
-					} else {
+				let processes = if let Some(processes) = cached_processes {
+					processes
+				} else {
+					crate::fdb::propagate!(
 						Self::get_object_processes_with_transaction(txn, subspace, &object).await
-					}
+					)
 				};
-				let tags = async {
-					if let Some(tags) = cached_tags {
-						Ok(tags)
-					} else {
-						let mut tag_cache = Cache::default();
+				let tags = if let Some(tags) = cached_tags {
+					tags
+				} else {
+					let mut tag_cache = Cache::default();
+					crate::fdb::propagate!(
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
@@ -1148,10 +1277,8 @@ impl Index {
 							&mut tag_cache,
 						)
 						.await
-					}
+					)
 				};
-				let (object_parents, processes, tags) =
-					futures::try_join!(object_parents, processes, tags)?;
 				cache
 					.object_parents
 					.insert(object.clone(), object_parents.clone());
@@ -1186,35 +1313,31 @@ impl Index {
 				dependencies.extend(tags);
 			},
 			tg::authorization::Permission::Process(process_permission) => {
-				let process = tg::process::Id::try_from(resource.clone())
-					.map_err(crate::fdb::custom_error)?;
+				let process = tg::process::Id::try_from(resource.clone())?;
 				let cached_sandbox = cache.process_sandboxes.get(&process).cloned();
 				let cached_parents = cache.process_parents.get(&process).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
-				let sandbox = async {
-					if let Some(sandbox) = cached_sandbox {
-						Ok(sandbox)
-					} else {
-						Ok::<_, fdb::FdbBindingError>(
-							Self::try_get_process_with_transaction(txn, subspace, &process)
-								.await?
-								.and_then(|process| process.sandbox),
-						)
-					}
+				let sandbox = if let Some(sandbox) = cached_sandbox {
+					sandbox
+				} else {
+					crate::fdb::propagate!(
+						Self::try_get_process_with_transaction(txn, subspace, &process).await
+					)
+					.and_then(|process| process.sandbox)
 				};
-				let process_parents = async {
-					if let Some(parents) = cached_parents {
-						Ok(parents)
-					} else {
+				let process_parents = if let Some(parents) = cached_parents {
+					parents
+				} else {
+					crate::fdb::propagate!(
 						Self::get_process_parents_with_transaction(txn, subspace, &process).await
-					}
+					)
 				};
-				let tags = async {
-					if let Some(tags) = cached_tags {
-						Ok(tags)
-					} else {
-						let mut tag_cache = Cache::default();
+				let tags = if let Some(tags) = cached_tags {
+					tags
+				} else {
+					let mut tag_cache = Cache::default();
+					crate::fdb::propagate!(
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
@@ -1224,10 +1347,8 @@ impl Index {
 							&mut tag_cache,
 						)
 						.await
-					}
+					)
 				};
-				let (sandbox, process_parents, tags) =
-					futures::try_join!(sandbox, process_parents, tags)?;
 				cache
 					.process_sandboxes
 					.insert(process.clone(), sandbox.clone());
@@ -1267,13 +1388,13 @@ impl Index {
 					)
 				) && resource.kind() == tg::id::Kind::Sandbox
 				{
-					let sandbox = tg::sandbox::Id::try_from(resource.clone())
-						.map_err(crate::fdb::custom_error)?;
-					if let Some(owner) = Self::get_cached_sandbox_owner_with_transaction(
-						txn, subspace, &sandbox, cache,
-					)
-					.await?
-					{
+					let sandbox = tg::sandbox::Id::try_from(resource.clone())?;
+					if let Some(owner) = crate::fdb::propagate!(
+						Self::get_cached_sandbox_owner_with_transaction(
+							txn, subspace, &sandbox, cache,
+						)
+						.await
+					) {
 						let owner = match owner {
 							tg::Principal::Group(id) => Some(tg::Id::from(id)),
 							tg::Principal::Organization(id) => Some(tg::Id::from(id)),
@@ -1287,22 +1408,22 @@ impl Index {
 						if let Some(owner) = owner {
 							dependencies.push((
 								owner.clone(),
-								crate::authorize::write_permission_for_resource(&owner)
-									.map_err(crate::fdb::custom_error)?,
+								crate::authorize::write_permission_for_resource(&owner)?,
 							));
 						}
 					}
 				}
-				if let Some(parent) = Self::get_cached_resource_parent_with_transaction(
-					txn, subspace, resource, cache,
-				)
-				.await?
-				{
+				if let Some(parent) = crate::fdb::propagate!(
+					Self::get_cached_resource_parent_with_transaction(
+						txn, subspace, resource, cache,
+					)
+					.await
+				) {
 					dependencies.push((parent, permission));
 				}
 			},
 		}
-		Ok(dependencies)
+		Ok(ControlFlow::Break(dependencies))
 	}
 
 	async fn subject_contains_requester_with_transaction(
@@ -1310,39 +1431,45 @@ impl Index {
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		requester: &Requester<'_>,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
-			return Ok(requester.subjects.contains(subject));
+			return Ok(ControlFlow::Break(requester.subjects.contains(subject)));
 		}
 		if subject == &tg::authorization::Subject::Public {
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		if requester.subject == *subject {
-			return Ok(true);
+			return Ok(ControlFlow::Break(true));
 		}
 		if requester.id.is_none() {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 		let contains = {
 			let cache = requester.membership_cache();
 			cache.subject_contains_requester.get(subject).copied()
 		};
 		if let Some(contains) = contains {
-			return Ok(contains);
+			return Ok(ControlFlow::Break(contains));
 		}
 		let contains = match subject {
 			tg::authorization::Subject::Group(group) => {
-				Self::group_contains_requester_with_transaction(txn, subspace, group, requester)
-					.await?
+				crate::fdb::propagate!(
+					Self::group_contains_requester_with_transaction(
+						txn, subspace, group, requester,
+					)
+					.await
+				)
 			},
 			tg::authorization::Subject::Organization(organization) => {
-				Self::organization_contains_requester_with_transaction(
-					txn,
-					subspace,
-					organization,
-					requester,
+				crate::fdb::propagate!(
+					Self::organization_contains_requester_with_transaction(
+						txn,
+						subspace,
+						organization,
+						requester,
+					)
+					.await
 				)
-				.await?
 			},
 			_ => false,
 		};
@@ -1350,7 +1477,7 @@ impl Index {
 			.membership_cache()
 			.subject_contains_requester
 			.insert(subject.clone(), contains);
-		Ok(contains)
+		Ok(ControlFlow::Break(contains))
 	}
 
 	async fn group_contains_requester_with_transaction(
@@ -1358,14 +1485,14 @@ impl Index {
 		subspace: &Subspace,
 		group: &tg::group::Id,
 		requester: &Requester<'_>,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let subject = tg::authorization::Subject::Group(group.clone());
 		let contains = {
 			let cache = requester.membership_cache();
 			cache.subject_contains_requester.get(&subject).copied()
 		};
 		if let Some(contains) = contains {
-			return Ok(contains);
+			return Ok(ControlFlow::Break(contains));
 		}
 		let root = group.clone();
 		let mut visited = HashSet::new();
@@ -1385,7 +1512,7 @@ impl Index {
 						.membership_cache()
 						.subject_contains_requester
 						.insert(tg::authorization::Subject::Group(root), true);
-					return Ok(true);
+					return Ok(ControlFlow::Break(true));
 				}
 				continue;
 			}
@@ -1396,13 +1523,13 @@ impl Index {
 			let members = if let Some(members) = members {
 				members
 			} else {
-				let members: std::sync::Arc<[tg::Id]> =
-					Self::get_group_members_with_transaction(txn, subspace, &group)
-						.await?
-						.into_iter()
-						.map(tg::Id::from)
-						.collect::<Vec<_>>()
-						.into();
+				let members: std::sync::Arc<[tg::Id]> = crate::fdb::propagate!(
+					Self::get_group_members_with_transaction(txn, subspace, &group).await
+				)
+				.into_iter()
+				.map(tg::Id::from)
+				.collect::<Vec<_>>()
+				.into();
 				requester
 					.membership_cache()
 					.group_members
@@ -1415,12 +1542,10 @@ impl Index {
 						.membership_cache()
 						.subject_contains_requester
 						.insert(tg::authorization::Subject::Group(root), true);
-					return Ok(true);
+					return Ok(ControlFlow::Break(true));
 				}
 				if member.kind() == tg::id::Kind::Group {
-					queue.push_back(
-						tg::group::Id::try_from(member).map_err(crate::fdb::custom_error)?,
-					);
+					queue.push_back(tg::group::Id::try_from(member)?);
 				}
 			}
 		}
@@ -1430,7 +1555,7 @@ impl Index {
 				.subject_contains_requester
 				.insert(tg::authorization::Subject::Group(group), false);
 		}
-		Ok(false)
+		Ok(ControlFlow::Break(false))
 	}
 
 	async fn organization_contains_requester_with_transaction(
@@ -1438,14 +1563,14 @@ impl Index {
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
 		requester: &Requester<'_>,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let subject = tg::authorization::Subject::Organization(organization.clone());
 		let contains = {
 			let cache = requester.membership_cache();
 			cache.subject_contains_requester.get(&subject).copied()
 		};
 		if let Some(contains) = contains {
-			return Ok(contains);
+			return Ok(ControlFlow::Break(contains));
 		}
 		let members = {
 			let cache = requester.membership_cache();
@@ -1454,13 +1579,13 @@ impl Index {
 		let members = if let Some(members) = members {
 			members
 		} else {
-			let members: std::sync::Arc<[tg::Id]> =
-				Self::get_organization_members_with_transaction(txn, subspace, organization)
-					.await?
-					.into_iter()
-					.map(tg::Id::from)
-					.collect::<Vec<_>>()
-					.into();
+			let members: std::sync::Arc<[tg::Id]> = crate::fdb::propagate!(
+				Self::get_organization_members_with_transaction(txn, subspace, organization).await
+			)
+			.into_iter()
+			.map(tg::Id::from)
+			.collect::<Vec<_>>()
+			.into();
 			requester
 				.membership_cache()
 				.organization_members
@@ -1476,13 +1601,16 @@ impl Index {
 						tg::authorization::Subject::Organization(organization.clone()),
 						true,
 					);
-				return Ok(true);
+				return Ok(ControlFlow::Break(true));
 			}
 			if member.kind() == tg::id::Kind::Group {
-				let group = tg::group::Id::try_from(member).map_err(crate::fdb::custom_error)?;
-				if Self::group_contains_requester_with_transaction(txn, subspace, &group, requester)
-					.await?
-				{
+				let group = tg::group::Id::try_from(member)?;
+				if crate::fdb::propagate!(
+					Self::group_contains_requester_with_transaction(
+						txn, subspace, &group, requester,
+					)
+					.await
+				) {
 					requester
 						.membership_cache()
 						.subject_contains_requester
@@ -1490,7 +1618,7 @@ impl Index {
 							tg::authorization::Subject::Organization(organization.clone()),
 							true,
 						);
-					return Ok(true);
+					return Ok(ControlFlow::Break(true));
 				}
 			}
 		}
@@ -1501,7 +1629,7 @@ impl Index {
 				tg::authorization::Subject::Organization(organization.clone()),
 				false,
 			);
-		Ok(false)
+		Ok(ControlFlow::Break(false))
 	}
 
 	async fn get_cached_resource_grants_with_transaction(
@@ -1509,15 +1637,22 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
+	) -> tg::Result<
+		ControlFlow<
+			Vec<(tg::authorization::Subject, tg::authorization::Permission)>,
+			fdb::FdbError,
+		>,
+	> {
 		if let Some(grants) = cache.resource_grants.get(resource) {
-			return Ok(grants.clone());
+			return Ok(ControlFlow::Break(grants.clone()));
 		}
-		let grants = Self::get_resource_grants_with_transaction(txn, subspace, resource).await?;
+		let grants = crate::fdb::propagate!(
+			Self::get_resource_grants_with_transaction(txn, subspace, resource).await
+		);
 		cache
 			.resource_grants
 			.insert(resource.clone(), grants.clone());
-		Ok(grants)
+		Ok(ControlFlow::Break(grants))
 	}
 
 	async fn get_cached_resource_parent_with_transaction(
@@ -1525,37 +1660,27 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Option<tg::Id>> {
+	) -> tg::Result<ControlFlow<Option<tg::Id>, fdb::FdbError>> {
 		if let Some(parent) = cache.resource_parents.get(resource) {
-			return Ok(parent.clone());
+			return Ok(ControlFlow::Break(parent.clone()));
 		}
 		let parent = match resource.kind() {
-			tg::id::Kind::Tag => Self::try_get_tag_with_transaction(
-				txn,
-				subspace,
-				&resource
-					.clone()
-					.try_into()
-					.map_err(crate::fdb::custom_error)?,
+			tg::id::Kind::Tag => crate::fdb::propagate!(
+				Self::try_get_tag_with_transaction(txn, subspace, &resource.clone().try_into()?,)
+					.await
 			)
-			.await?
 			.and_then(|tag| tag.parent),
-			tg::id::Kind::Group => Self::try_get_group_with_transaction(
-				txn,
-				subspace,
-				&resource
-					.clone()
-					.try_into()
-					.map_err(crate::fdb::custom_error)?,
+			tg::id::Kind::Group => crate::fdb::propagate!(
+				Self::try_get_group_with_transaction(txn, subspace, &resource.clone().try_into()?,)
+					.await
 			)
-			.await?
 			.and_then(|group| group.parent),
 			_ => None,
 		};
 		cache
 			.resource_parents
 			.insert(resource.clone(), parent.clone());
-		Ok(parent)
+		Ok(ControlFlow::Break(parent))
 	}
 
 	async fn get_cached_target_tags_with_transaction(
@@ -1565,22 +1690,37 @@ impl Index {
 		node: &tg::Id,
 		permission: tg::authorization::Permission,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<(tg::Id, tg::authorization::Permission)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::authorization::Permission)>, fdb::FdbError>> {
 		let key = (node.clone(), permission);
 		if let Some(tags) = cache.target_tags.get(&key) {
-			return Ok(tags.clone());
+			return Ok(ControlFlow::Break(tags.clone()));
 		}
 		let target_bytes = node.to_bytes();
-		let tags =
-			Self::get_target_tags_with_transaction(txn, subspace, target_bytes.as_ref()).await?;
-		let tags = stream::iter(tags)
-			.map(|tag| async move {
-				let value = Self::try_get_tag_with_transaction(txn, subspace, &tag).await?;
-				Ok::<_, fdb::FdbBindingError>((tag, value))
-			})
-			.buffered(concurrency)
-			.try_collect::<Vec<_>>()
-			.await?;
+		let tags = crate::fdb::propagate!(
+			Self::get_target_tags_with_transaction(txn, subspace, target_bytes.as_ref()).await
+		);
+		let tags = {
+			let result = stream::iter(tags)
+				.map(|tag| async move {
+					let value = crate::fdb::propagate!(
+						Self::try_get_tag_with_transaction(txn, subspace, &tag).await
+					);
+					Ok::<_, tg::Error>(ControlFlow::Break((tag, value)))
+				})
+				.buffered(concurrency)
+				.try_collect::<Vec<_>>()
+				.await;
+			let results = result?;
+			let mut values = Vec::new();
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
 		let mut parents = Vec::new();
 		for (tag, value) in tags {
 			let Some(value) = value else {
@@ -1600,7 +1740,7 @@ impl Index {
 			}
 		}
 		cache.target_tags.insert(key, parents.clone());
-		Ok(parents)
+		Ok(ControlFlow::Break(parents))
 	}
 
 	async fn get_cached_object_children_limited_with_transaction(
@@ -1609,9 +1749,11 @@ impl Index {
 		object: &tg::object::Id,
 		limit: usize,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<tg::object::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::object::Id>, fdb::FdbError>> {
 		if let Some(children) = cache.object_children.get(object) {
-			return Ok(children.iter().take(limit).cloned().collect());
+			return Ok(ControlFlow::Break(
+				children.iter().take(limit).cloned().collect(),
+			));
 		}
 		let bytes = object.to_bytes();
 		let key = (Kind::ObjectChild.to_i32().unwrap(), bytes.as_ref());
@@ -1622,23 +1764,23 @@ impl Index {
 			limit: Some(limit),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		if children.len() < limit {
 			cache
 				.object_children
 				.insert(object.clone(), children.clone());
 		}
-		Ok(children)
+		Ok(ControlFlow::Break(children))
 	}
 
 	async fn get_cached_process_children_limited_with_transaction(
@@ -1647,9 +1789,11 @@ impl Index {
 		process: &tg::process::Id,
 		limit: usize,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<tg::process::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
 		if let Some(children) = cache.process_children.get(process) {
-			return Ok(children.iter().take(limit).cloned().collect());
+			return Ok(ControlFlow::Break(
+				children.iter().take(limit).cloned().collect(),
+			));
 		}
 		let bytes = process.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
@@ -1660,24 +1804,24 @@ impl Index {
 			limit: Some(limit),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		if children.len() < limit {
 			cache
 				.process_children
 				.insert(process.clone(), children.clone());
 		}
 
-		Ok(children)
+		Ok(ControlFlow::Break(children))
 	}
 
 	async fn get_cached_process_objects_with_transaction(
@@ -1685,9 +1829,10 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::object::Id, crate::process::object::Kind)>, fdb::FdbError>>
+	{
 		if let Some(objects) = cache.process_objects.get(process) {
-			return Ok(objects.clone());
+			return Ok(ControlFlow::Break(objects.clone()));
 		}
 		let bytes = process.to_bytes();
 		let key = (Kind::ProcessObject.to_i32().unwrap(), bytes.as_ref());
@@ -1697,7 +1842,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let objects = entries
 			.iter()
 			.map(|entry| {
@@ -1705,16 +1850,16 @@ impl Index {
 				let Key::Process(crate::fdb::process::Key::ProcessObject { kind, object, .. }) =
 					key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		cache
 			.process_objects
 			.insert(process.clone(), objects.clone());
 
-		Ok(objects)
+		Ok(ControlFlow::Break(objects))
 	}
 
 	async fn get_cached_sandbox_owner_with_transaction(
@@ -1722,21 +1867,18 @@ impl Index {
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
 		cache: &mut Cache,
-	) -> crate::fdb::Result<Option<tg::Principal>> {
+	) -> tg::Result<ControlFlow<Option<tg::Principal>, fdb::FdbError>> {
 		if let Some(owner) = cache.sandbox_owners.get(sandbox) {
-			return Ok(owner.clone());
+			return Ok(ControlFlow::Break(owner.clone()));
 		}
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(sandbox.clone()));
 		let key = Self::pack(subspace, &key);
-		let owner = txn
-			.get(&key, false)
-			.await?
+		let owner = crate::fdb::retry!(txn.get(&key, false).await)
 			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?
+			.transpose()?
 			.and_then(|sandbox| sandbox.data)
 			.and_then(|data| data.owner);
 		cache.sandbox_owners.insert(sandbox.clone(), owner.clone());
-		Ok(owner)
+		Ok(ControlFlow::Break(owner))
 	}
 }

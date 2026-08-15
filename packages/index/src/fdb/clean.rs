@@ -7,6 +7,7 @@ use {
 	foundationdb_tuple::Subspace,
 	futures::StreamExt as _,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -75,7 +76,7 @@ impl Index {
 
 	pub(super) async fn clean_with_transaction(
 		arg: TransactionArg<'_>,
-	) -> crate::fdb::Result<crate::clean::Output> {
+	) -> tg::Result<ControlFlow<crate::clean::Output, fdb::FdbError>> {
 		let TransactionArg {
 			batch_size,
 			max_object_touched_at,
@@ -89,16 +90,18 @@ impl Index {
 			usage_partition_total,
 			txn,
 		} = arg;
-		let grants = Self::delete_expired_grants(
-			txn,
-			subspace,
-			now,
-			batch_size,
-			partition_start,
-			partition_end,
-			partition_total,
-		)
-		.await?;
+		let grants = crate::fdb::propagate!(
+			Self::delete_expired_grants(
+				txn,
+				subspace,
+				now,
+				batch_size,
+				partition_start,
+				partition_end,
+				partition_total,
+			)
+			.await
+		);
 		let mut output = crate::clean::Output {
 			grants,
 			..Default::default()
@@ -127,12 +130,12 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while candidates.len() < remaining_batch_size {
-				let Some(entry) = entries.next().await.transpose()? else {
+				let Some(entry) = crate::fdb::retry!(entries.next().await.transpose()) else {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Clean(key) = key else {
-					return Err(crate::fdb::error!("expected clean key"));
+					return Err(tg::error!("expected clean key"));
 				};
 				let (item, partition, touched_at, max_touched_at) = match key {
 					crate::fdb::clean::Key::AccountObject {
@@ -212,38 +215,43 @@ impl Index {
 		for candidate in &candidates {
 			match &candidate.item {
 				Item::AccountObject { account, object } => {
-					Self::clean_account_object_entry(
-						txn,
-						subspace,
-						account,
-						object,
-						now,
-						candidate.partition,
-						candidate.touched_at,
-						partition_total,
-						usage_partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::clean_account_object_entry(
+							txn,
+							subspace,
+							account,
+							object,
+							now,
+							candidate.partition,
+							candidate.touched_at,
+							partition_total,
+							usage_partition_total,
+						)
+						.await
+					);
 					continue;
 				},
 				Item::AccountProcess { account, process } => {
-					Self::clean_account_process_entry(
-						txn,
-						subspace,
-						account,
-						process,
-						now,
-						candidate.partition,
-						candidate.touched_at,
-						partition_total,
-						usage_partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::clean_account_process_entry(
+							txn,
+							subspace,
+							account,
+							process,
+							now,
+							candidate.partition,
+							candidate.touched_at,
+							partition_total,
+							usage_partition_total,
+						)
+						.await
+					);
 					continue;
 				},
 				Item::CacheEntry(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
 			}
-			let touched_at = Self::get_touched_at(txn, subspace, &candidate.item).await?;
+			let touched_at =
+				crate::fdb::propagate!(Self::get_touched_at(txn, subspace, &candidate.item).await);
 			if touched_at != candidate.touched_at {
 				Self::delete_clean_key(txn, subspace, candidate);
 				continue;
@@ -252,22 +260,35 @@ impl Index {
 			let reference_count = match &candidate.item {
 				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 				Item::CacheEntry(id) => {
-					Self::compute_cache_entry_reference_count(txn, subspace, id).await?
+					crate::fdb::propagate!(
+						Self::compute_cache_entry_reference_count(txn, subspace, id).await
+					)
 				},
-				Item::Object(id) => Self::compute_object_reference_count(txn, subspace, id).await?,
+				Item::Object(id) => crate::fdb::propagate!(
+					Self::compute_object_reference_count(txn, subspace, id).await
+				),
 				Item::Process(id) => {
-					Self::compute_process_reference_count(txn, subspace, id).await?
+					crate::fdb::propagate!(
+						Self::compute_process_reference_count(txn, subspace, id).await
+					)
 				},
 				Item::Sandbox(id) => {
-					Self::compute_sandbox_reference_count(txn, subspace, id).await?
+					crate::fdb::propagate!(
+						Self::compute_sandbox_reference_count(txn, subspace, id).await
+					)
 				},
 			};
 
 			let item = if reference_count > 0 {
-				Self::set_reference_count(txn, subspace, &candidate.item, reference_count).await?;
+				crate::fdb::propagate!(
+					Self::set_reference_count(txn, subspace, &candidate.item, reference_count)
+						.await
+				);
 				None
 			} else {
-				Self::delete_item(txn, subspace, &candidate.item, partition_total).await?;
+				crate::fdb::propagate!(
+					Self::delete_item(txn, subspace, &candidate.item, partition_total).await
+				);
 				Some(candidate.item.clone())
 			};
 
@@ -286,7 +307,7 @@ impl Index {
 
 		output.done = grants == 0 && candidates.is_empty();
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn delete_expired_grants(
@@ -297,7 +318,7 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		partition_total: u64,
-	) -> crate::fdb::Result<usize> {
+	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
 		let mut args = Vec::new();
 		for partition in partition_start..partition_end {
@@ -314,7 +335,7 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while args.len() < batch_size {
-				let Some(entry) = entries.next().await.transpose()? else {
+				let Some(entry) = crate::fdb::retry!(entries.next().await.transpose()) else {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())?;
@@ -328,7 +349,7 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("expected a grant expiration key"));
+					return Err(tg::error!("expected a grant expiration key"));
 				};
 				args.push((
 					crate::grant::delete::Arg {
@@ -345,20 +366,22 @@ impl Index {
 		let count = args.len();
 		for (arg, source) in args {
 			for permission in arg.permissions.iter() {
-				Self::delete_grant_index_entry(
-					txn,
-					subspace,
-					&crate::fdb::grant::GrantIndexEntry {
-						creator: arg.creator.as_ref(),
-						expires_at: arg.expires_at,
-						permission,
-						subject: &arg.subject,
-						resource: &arg.resource,
-					},
-					source,
-					partition_total,
-				)
-				.await?;
+				crate::fdb::propagate!(
+					Self::delete_grant_index_entry(
+						txn,
+						subspace,
+						&crate::fdb::grant::GrantIndexEntry {
+							creator: arg.creator.as_ref(),
+							expires_at: arg.expires_at,
+							permission,
+							subject: &arg.subject,
+							resource: &arg.resource,
+						},
+						source,
+						partition_total,
+					)
+					.await
+				);
 				Self::enqueue_grant_update(
 					txn,
 					subspace,
@@ -369,49 +392,47 @@ impl Index {
 				);
 			}
 		}
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn get_touched_at(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
-	) -> crate::fdb::Result<i64> {
-		match item {
+	) -> tg::Result<ControlFlow<i64, fdb::FdbError>> {
+		let touched_at = match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
-				let entry = Self::try_get_cache_entry_with_transaction(txn, subspace, id)
-					.await?
-					.ok_or_else(
-						|| crate::fdb::error!(%id, "the clean key referenced a missing cache entry"),
-					)?;
-				Ok(entry.touched_at)
+				let entry = crate::fdb::propagate!(
+					Self::try_get_cache_entry_with_transaction(txn, subspace, id).await
+				)
+				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing cache entry"))?;
+				entry.touched_at
 			},
 			Item::Object(id) => {
-				let object = Self::try_get_object_with_transaction(txn, subspace, id)
-					.await?
-					.ok_or_else(
-						|| crate::fdb::error!(%id, "the clean key referenced a missing object"),
-					)?;
-				Ok(object.touched_at)
+				let object = crate::fdb::propagate!(
+					Self::try_get_object_with_transaction(txn, subspace, id).await
+				)
+				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
+				object.touched_at
 			},
 			Item::Process(id) => {
-				let process = Self::try_get_process_with_transaction(txn, subspace, id)
-					.await?
-					.ok_or_else(
-						|| crate::fdb::error!(%id, "the clean key referenced a missing process"),
-					)?;
-				Ok(process.touched_at)
+				let process = crate::fdb::propagate!(
+					Self::try_get_process_with_transaction(txn, subspace, id).await
+				)
+				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
+				process.touched_at
 			},
 			Item::Sandbox(id) => {
-				let sandbox = Self::try_get_sandbox_with_transaction(txn, subspace, id)
-					.await?
-					.ok_or_else(
-						|| crate::fdb::error!(%id, "the clean key referenced a missing sandbox"),
-					)?;
-				Ok(sandbox.touched_at)
+				let sandbox = crate::fdb::propagate!(
+					Self::try_get_sandbox_with_transaction(txn, subspace, id).await
+				)
+				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing sandbox"))?;
+				sandbox.touched_at
 			},
-		}
+		};
+
+		Ok(ControlFlow::Break(touched_at))
 	}
 
 	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
@@ -461,7 +482,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
-	) -> crate::fdb::Result<u64> {
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let id_bytes = id.to_bytes();
 
 		let cache_entry_object_future = async {
@@ -478,7 +499,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 
 		let dependency_cache_entry_future = async {
@@ -498,21 +519,23 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 
-		let (cache_entry_object_count, dependency_cache_entry_count) =
-			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future)
-				.await?;
+		let (cache_entry_object_count, dependency_cache_entry_count) = crate::fdb::retry!(
+			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future,)
+				.await
+		);
 		let count = cache_entry_object_count + dependency_cache_entry_count;
-		Ok(count)
+
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_object_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> crate::fdb::Result<u64> {
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let child_object_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
@@ -528,7 +551,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 		let object_process_future = async {
 			let id = id.to_bytes();
@@ -545,7 +568,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 		let target_tag_future = async {
 			let id = id.to_bytes();
@@ -562,15 +585,16 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
-		let (child_object_count, object_process_count, target_tag_count) =
+		let (child_object_count, object_process_count, target_tag_count) = crate::fdb::retry!(
 			futures::future::try_join3(
 				child_object_future,
 				object_process_future,
 				target_tag_future,
 			)
-			.await?;
+			.await
+		);
 		let object_account_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ObjectAccount.to_i32().unwrap(), id.as_ref());
@@ -585,7 +609,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 		let update_future = async {
 			let id = id.to_bytes();
@@ -604,23 +628,24 @@ impl Index {
 					.to_u64()
 					.unwrap();
 			}
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
-		let (object_account_count, update_count) =
-			futures::future::try_join(object_account_future, update_future).await?;
+		let (object_account_count, update_count) = crate::fdb::retry!(
+			futures::future::try_join(object_account_future, update_future).await
+		);
 		let count = child_object_count
 			+ object_account_count
 			+ object_process_count
 			+ target_tag_count
 			+ update_count;
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_process_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> crate::fdb::Result<u64> {
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let child_process_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
@@ -636,7 +661,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 		let target_tag_future = async {
 			let id = id.to_bytes();
@@ -653,10 +678,11 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
-		let (child_process_count, target_tag_count) =
-			futures::future::try_join(child_process_future, target_tag_future).await?;
+		let (child_process_count, target_tag_count) = crate::fdb::retry!(
+			futures::future::try_join(child_process_future, target_tag_future).await
+		);
 		let process_account_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ProcessAccount.to_i32().unwrap(), id.as_ref());
@@ -671,7 +697,7 @@ impl Index {
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
 		let update_future = async {
 			let id = id.to_bytes();
@@ -690,19 +716,21 @@ impl Index {
 					.to_u64()
 					.unwrap();
 			}
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, fdb::FdbError>(count)
 		};
-		let (process_account_count, update_count) =
-			futures::future::try_join(process_account_future, update_future).await?;
+		let (process_account_count, update_count) = crate::fdb::retry!(
+			futures::future::try_join(process_account_future, update_future).await
+		);
 		let count = child_process_count + process_account_count + target_tag_count + update_count;
-		Ok(count)
+
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_sandbox_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
-	) -> crate::fdb::Result<u64> {
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let id = id.to_bytes();
 		let prefix = (Kind::SandboxProcess.to_i32().unwrap(), id.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
@@ -711,14 +739,12 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let count = txn
-			.get_range(&range, 1, false)
-			.await?
+		let count = crate::fdb::retry!(txn.get_range(&range, 1, false).await)
 			.len()
 			.to_u64()
 			.unwrap();
 
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn set_reference_count(
@@ -726,55 +752,51 @@ impl Index {
 		subspace: &Subspace,
 		item: &Item,
 		reference_count: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
 				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn.get(&key, false).await? {
-					let mut entry = crate::cache::Entry::deserialize(&bytes)
-						.map_err(crate::fdb::custom_error)?;
+				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+					let mut entry = crate::cache::Entry::deserialize(&bytes)?;
 					entry.reference_count = reference_count;
-					let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
+					let bytes = entry.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Object(id) => {
 				let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn.get(&key, false).await? {
-					let mut object = crate::object::Object::deserialize(&bytes)
-						.map_err(crate::fdb::custom_error)?;
+				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+					let mut object = crate::object::Object::deserialize(&bytes)?;
 					object.reference_count = reference_count;
-					let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
+					let bytes = object.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Process(id) => {
 				let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn.get(&key, false).await? {
-					let mut process = crate::process::Process::deserialize(&bytes)
-						.map_err(crate::fdb::custom_error)?;
+				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+					let mut process = crate::process::Process::deserialize(&bytes)?;
 					process.reference_count = reference_count;
-					let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
+					let bytes = process.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 			Item::Sandbox(id) => {
 				let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = txn.get(&key, false).await? {
-					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)
-						.map_err(crate::fdb::custom_error)?;
+				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
 					sandbox.reference_count = reference_count;
-					let bytes = sandbox.serialize().map_err(crate::fdb::custom_error)?;
+					let bytes = sandbox.serialize()?;
 					txn.set(&key, &bytes);
 				}
 			},
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn delete_item(
@@ -782,7 +804,7 @@ impl Index {
 		subspace: &Subspace,
 		item: &Item,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::CacheEntry(id) => {
@@ -799,7 +821,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
@@ -815,7 +837,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let dependencies = entries
 			.iter()
 			.map(|entry| {
@@ -825,11 +847,11 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("expected cache entry dependency key"));
+					return Err(tg::error!("expected cache entry dependency key"));
 				};
 				Ok(dependency)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
@@ -842,16 +864,18 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			Self::decrement_cache_entry_reference_count(
-				txn,
-				subspace,
-				&dependency,
-				partition_total,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::decrement_cache_entry_reference_count(
+					txn,
+					subspace,
+					&dependency,
+					partition_total,
+				)
+				.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn delete_object(
@@ -859,16 +883,21 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let resource = id.clone().into();
-		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
-			.await?;
+		crate::fdb::propagate!(
+			Self::delete_materialized_grants_for_resource(
+				txn,
+				subspace,
+				&resource,
+				partition_total,
+			)
+			.await
+		);
 
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let cache_entry = txn
-			.get(&key, false)
-			.await?
+		let cache_entry = crate::fdb::retry!(txn.get(&key, false).await)
 			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
@@ -883,7 +912,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -891,11 +920,11 @@ impl Index {
 				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
 					key
 				else {
-					return Err(crate::fdb::error!("expected object child key"));
+					return Err(tg::error!("expected object child key"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -907,7 +936,10 @@ impl Index {
 			txn.clear(&key);
 		}
 		for child in children {
-			Self::decrement_object_reference_count(txn, subspace, &child, partition_total).await?;
+			crate::fdb::propagate!(
+				Self::decrement_object_reference_count(txn, subspace, &child, partition_total)
+					.await
+			);
 		}
 
 		if let Some(cache_entry) = &cache_entry {
@@ -925,16 +957,18 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			Self::decrement_cache_entry_reference_count(
-				txn,
-				subspace,
-				cache_entry,
-				partition_total,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::decrement_cache_entry_reference_count(
+					txn,
+					subspace,
+					cache_entry,
+					partition_total,
+				)
+				.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn delete_process(
@@ -942,19 +976,23 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let resource = id.clone().into();
-		Self::delete_materialized_grants_for_resource(txn, subspace, &resource, partition_total)
-			.await?;
+		crate::fdb::propagate!(
+			Self::delete_materialized_grants_for_resource(
+				txn,
+				subspace,
+				&resource,
+				partition_total,
+			)
+			.await
+		);
 
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let sandbox = txn
-			.get(&key, false)
-			.await?
+		let sandbox = crate::fdb::retry!(txn.get(&key, false).await)
 			.map(|bytes| crate::process::Process::deserialize(&bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?
+			.transpose()?
 			.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let id_bytes = id.to_bytes();
@@ -966,7 +1004,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -975,11 +1013,11 @@ impl Index {
 					child, ..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("expected process child key"));
+					return Err(tg::error!("expected process child key"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -991,7 +1029,10 @@ impl Index {
 			txn.clear(&key);
 		}
 		for child in children {
-			Self::decrement_process_reference_count(txn, subspace, &child, partition_total).await?;
+			crate::fdb::propagate!(
+				Self::decrement_process_reference_count(txn, subspace, &child, partition_total)
+					.await
+			);
 		}
 
 		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
@@ -1001,7 +1042,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
@@ -1012,11 +1053,11 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("expected process object key"));
+					return Err(tg::error!("expected process object key"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
@@ -1038,7 +1079,10 @@ impl Index {
 			}
 		}
 		for (object, _) in object_processes {
-			Self::decrement_object_reference_count(txn, subspace, &object, partition_total).await?;
+			crate::fdb::propagate!(
+				Self::decrement_object_reference_count(txn, subspace, &object, partition_total)
+					.await
+			);
 		}
 
 		if let Some(sandbox) = sandbox {
@@ -1056,18 +1100,20 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total)
-				.await?;
+			crate::fdb::propagate!(
+				Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total,)
+					.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn delete_sandbox(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id))
 	}
 
@@ -1076,7 +1122,7 @@ impl Index {
 		subspace: &Subspace,
 		resource: &tg::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		// Collect the materialized grants.
 		let resource_bytes = resource.to_bytes();
 		let prefix = (
@@ -1089,7 +1135,7 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let values = txn.get_range(&range, 1, false).await?;
+		let values = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 		let entries = values
 			.iter()
 			.map(|entry| {
@@ -1101,39 +1147,40 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("expected a resource grant key"));
+					return Err(tg::error!("expected a resource grant key"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())
-					.map_err(crate::fdb::custom_error)?;
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
 				let entry = value
 					.source_expires_at(crate::fdb::grant::GrantSource::Materialized)
 					.map(|expires_at| (creator, expires_at, permission, subject));
 				Ok(entry)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?
+			.collect::<tg::Result<Vec<_>>>()?
 			.into_iter()
 			.flatten()
 			.collect::<Vec<_>>();
 
 		// Delete the materialized grants.
 		for (creator, expires_at, permission, subject) in entries {
-			Self::delete_grant_index_entry(
-				txn,
-				subspace,
-				&crate::fdb::grant::GrantIndexEntry {
-					creator: creator.as_ref(),
-					expires_at,
-					permission,
-					subject: &subject,
-					resource,
-				},
-				crate::fdb::grant::GrantSource::Materialized,
-				partition_total,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::delete_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: creator.as_ref(),
+						expires_at,
+						permission,
+						subject: &subject,
+						resource,
+					},
+					crate::fdb::grant::GrantSource::Materialized,
+					partition_total,
+				)
+				.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn decrement_cache_entry_reference_count(
@@ -1141,22 +1188,21 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn.get(&key, false).await? else {
-			return Ok(());
+		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut entry =
-			crate::cache::Entry::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut entry = crate::cache::Entry::deserialize(&bytes)?;
 		let reference_count = entry.reference_count;
 		if reference_count > 1 {
 			entry.reference_count = reference_count - 1;
-			let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = entry.serialize()?;
 			txn.set(&key, &bytes);
 		} else {
 			entry.reference_count = 0;
-			let bytes = entry.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = entry.serialize()?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1169,7 +1215,7 @@ impl Index {
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(super) async fn decrement_object_reference_count(
@@ -1177,22 +1223,21 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn.get(&key, false).await? else {
-			return Ok(());
+		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut object =
-			crate::object::Object::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut object = crate::object::Object::deserialize(&bytes)?;
 		let reference_count = object.reference_count;
 		if reference_count > 1 {
 			object.reference_count = reference_count - 1;
-			let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = object.serialize()?;
 			txn.set(&key, &bytes);
 		} else {
 			object.reference_count = 0;
-			let bytes = object.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = object.serialize()?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1205,7 +1250,7 @@ impl Index {
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(super) async fn decrement_process_reference_count(
@@ -1213,22 +1258,21 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn.get(&key, false).await? else {
-			return Ok(());
+		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut process =
-			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut process = crate::process::Process::deserialize(&bytes)?;
 		let reference_count = process.reference_count;
 		if reference_count > 1 {
 			process.reference_count = reference_count - 1;
-			let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = process.serialize()?;
 			txn.set(&key, &bytes);
 		} else {
 			process.reference_count = 0;
-			let bytes = process.serialize().map_err(crate::fdb::custom_error)?;
+			let bytes = process.serialize()?;
 			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
@@ -1241,7 +1285,7 @@ impl Index {
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(super) async fn decrement_sandbox_reference_count(
@@ -1249,16 +1293,15 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = txn.get(&key, false).await? else {
-			return Ok(());
+		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut sandbox =
-			crate::sandbox::Sandbox::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
 		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
-		let bytes = sandbox.serialize().map_err(crate::fdb::custom_error)?;
+		let bytes = sandbox.serialize()?;
 		txn.set(&key, &bytes);
 
 		if sandbox.reference_count == 0
@@ -1278,6 +1321,6 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -3,7 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
-	std::time::Duration,
+	std::{ops::ControlFlow, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -49,42 +49,53 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<Vec<Option<crate::object::Object>>> {
-		let objects = Self::touch_objects_with_transaction(
-			txn,
-			subspace,
-			ids,
-			touched_at,
-			time_to_touch,
-			partition_total,
-		)
-		.await?;
-		if let Some(account) = account {
-			future::try_join_all(
-				std::iter::zip(ids, &objects)
-					.filter(|(_, object)| object.is_some())
-					.map(|(id, _)| {
-						let arg = crate::usage::storage::put::ObjectArg {
-							account: account.clone(),
-							object: id.clone(),
-							touched_at,
-						};
-						async move {
-							Self::touch_account_object(
-								txn,
-								subspace,
-								&arg,
-								time_to_touch,
-								partition_total,
-							)
-							.await
-						}
-					}),
+	) -> tg::Result<ControlFlow<Vec<Option<crate::object::Object>>, fdb::FdbError>> {
+		let objects = crate::fdb::propagate!(
+			Self::touch_objects_with_transaction(
+				txn,
+				subspace,
+				ids,
+				touched_at,
+				time_to_touch,
+				partition_total,
 			)
-			.await?;
+			.await
+		);
+		if let Some(account) = account {
+			{
+				let result = future::try_join_all(
+					std::iter::zip(ids, &objects)
+						.filter(|(_, object)| object.is_some())
+						.map(|(id, _)| {
+							let arg = crate::usage::storage::put::ObjectArg {
+								account: account.clone(),
+								object: id.clone(),
+								touched_at,
+							};
+							async move {
+								Self::touch_account_object(
+									txn,
+									subspace,
+									&arg,
+									time_to_touch,
+									partition_total,
+								)
+								.await
+							}
+						}),
+				)
+				.await;
+				let results = result?;
+				for result in results {
+					match result {
+						ControlFlow::Break(()) => {},
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					}
+				}
+			};
 		}
 
-		Ok(objects)
+		Ok(ControlFlow::Break(objects))
 	}
 
 	pub(crate) async fn touch_objects_with_transaction(
@@ -94,22 +105,36 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<Vec<Option<crate::object::Object>>> {
-		future::try_join_all(ids.iter().map(|id| {
-			let subspace = subspace.clone();
-			async move {
-				Self::touch_object_with_transaction(
-					txn,
-					&subspace,
-					id,
-					touched_at,
-					time_to_touch,
-					partition_total,
-				)
-				.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::object::Object>>, fdb::FdbError>> {
+		let objects = {
+			let result = future::try_join_all(ids.iter().map(|id| {
+				let subspace = subspace.clone();
+				async move {
+					Self::touch_object_with_transaction(
+						txn,
+						&subspace,
+						id,
+						touched_at,
+						time_to_touch,
+						partition_total,
+					)
+					.await
+				}
+			}))
+			.await;
+			let results = result?;
+			let mut values = Vec::new();
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
 			}
-		}))
-		.await
+			values
+		};
+
+		Ok(ControlFlow::Break(objects))
 	}
 
 	async fn touch_object_with_transaction(
@@ -119,31 +144,34 @@ impl Index {
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<Option<crate::object::Object>> {
+	) -> tg::Result<ControlFlow<Option<crate::object::Object>, fdb::FdbError>> {
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = txn.get(&key, false).await?;
+		let existing = crate::fdb::retry!(txn.get(&key, false).await);
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::object::Object::deserialize(bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?;
+			.transpose()?;
 		let Some(mut object) = existing else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if touched_at - object.touched_at < time_to_touch {
-			return Ok(Some(object));
+			return Ok(ControlFlow::Break(Some(object)));
 		}
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)?;
+		crate::fdb::retry!(txn.add_conflict_range(
+			&key,
+			&key_end,
+			fdb::options::ConflictRangeType::Read,
+		));
 
 		object.touched_at = object.touched_at.max(touched_at);
 		let value = object
 			.serialize()
-			.map_err(|error| crate::fdb::error!(!error, "failed to serialize the object"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
 		txn.set(&key, &value);
 		if object.reference_count == 0 {
 			let id_bytes = id.to_bytes();
@@ -159,6 +187,6 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
-		Ok(Some(object))
+		Ok(ControlFlow::Break(Some(object)))
 	}
 }

@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -29,36 +30,49 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::organization::Id],
-	) -> crate::fdb::Result<Vec<Option<crate::organization::Organization>>> {
-		futures::future::try_join_all(
-			ids.iter()
-				.map(|id| Self::try_get_organization_with_transaction(txn, subspace, id)),
-		)
-		.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::organization::Organization>>, fdb::FdbError>> {
+		let organizations = {
+			let result = futures::future::try_join_all(
+				ids.iter()
+					.map(|id| Self::try_get_organization_with_transaction(txn, subspace, id)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::new();
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
+		Ok(ControlFlow::Break(organizations))
 	}
 
 	pub(crate) async fn try_get_organization_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::organization::Id,
-	) -> crate::fdb::Result<Option<crate::organization::Organization>> {
+	) -> tg::Result<ControlFlow<Option<crate::organization::Organization>, fdb::FdbError>> {
 		let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
 		let Some(bytes) = bytes else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		Ok(Some(
-			crate::organization::Organization::deserialize(&bytes)
-				.map_err(crate::fdb::custom_error)?,
-		))
+		let organization = Some(crate::organization::Organization::deserialize(&bytes)?);
+
+		Ok(ControlFlow::Break(organization))
 	}
 
 	pub(crate) async fn get_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
-	) -> crate::fdb::Result<Vec<tg::organization::Member>> {
+	) -> tg::Result<ControlFlow<Vec<tg::organization::Member>, fdb::FdbError>> {
 		let bytes = tg::Id::from(organization.clone()).to_bytes();
 		let key = (Kind::OrganizationMember.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -68,7 +82,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 
 		let members = entries
 			.iter()
@@ -79,20 +93,20 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(member)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(members)
+		Ok(ControlFlow::Break(members))
 	}
 
 	pub(crate) async fn get_member_organizations_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
-	) -> crate::fdb::Result<Vec<tg::organization::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::organization::Id>, fdb::FdbError>> {
 		let bytes = member.to_bytes();
 		let key = (Kind::MemberOrganization.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -102,7 +116,7 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn.get_range(&range, 1, false).await?;
+		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
 
 		let organizations = entries
 			.iter()
@@ -113,12 +127,12 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(organization)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(organizations)
+		Ok(ControlFlow::Break(organizations))
 	}
 }

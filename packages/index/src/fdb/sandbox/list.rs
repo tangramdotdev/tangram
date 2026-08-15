@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -53,10 +54,10 @@ impl Index {
 	pub(crate) async fn list_sandboxes_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-	) -> crate::fdb::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(Kind::Sandbox.to_i32().unwrap(),));
-		let entries = txn
-			.get_range(
+		let entries = crate::fdb::retry!(
+			txn.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -64,19 +65,21 @@ impl Index {
 				1,
 				false,
 			)
-			.await?;
-		entries
+			.await
+		);
+		let sandboxes = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id)) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
-				let sandbox = crate::sandbox::Sandbox::deserialize(entry.value())
-					.map_err(crate::fdb::custom_error)?;
+				let sandbox = crate::sandbox::Sandbox::deserialize(entry.value())?;
 				Ok((id, sandbox))
 			})
-			.collect()
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break(sandboxes))
 	}
 
 	pub(crate) async fn list_sandboxes_for_principal_with_transaction(
@@ -84,10 +87,10 @@ impl Index {
 		subspace: &Subspace,
 		principal: &tg::Principal,
 		kind: Kind,
-	) -> crate::fdb::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), principal.to_string()));
-		let entries = txn
-			.get_range(
+		let entries = crate::fdb::retry!(
+			txn.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -95,7 +98,8 @@ impl Index {
 				1,
 				false,
 			)
-			.await?;
+			.await
+		);
 		let sandboxes = entries
 			.iter()
 			.map(|entry| {
@@ -108,21 +112,20 @@ impl Index {
 						Key::Sandbox(crate::fdb::sandbox::Key::OwnerSandbox {
 							sandbox, ..
 						}) if kind == Kind::OwnerSandbox => sandbox,
-						_ => return Err(crate::fdb::error!("unexpected key type")),
+						_ => return Err(tg::error!("unexpected key type")),
 					};
 				Ok(sandbox)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
 		let mut output = Vec::with_capacity(sandboxes.len());
 		for sandbox in sandboxes {
-			let data = Self::try_get_sandbox_with_transaction(txn, subspace, &sandbox)
-				.await?
-				.ok_or_else(
-					|| crate::fdb::error!(%sandbox, "failed to find the principal sandbox"),
-				)?;
+			let data = crate::fdb::propagate!(
+				Self::try_get_sandbox_with_transaction(txn, subspace, &sandbox).await
+			)
+			.ok_or_else(|| tg::error!(%sandbox, "failed to find the principal sandbox"))?;
 			output.push((sandbox, data));
 		}
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 }

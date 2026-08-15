@@ -2,7 +2,10 @@ use {
 	crate::fdb::Index,
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	std::collections::{HashSet, VecDeque},
+	std::{
+		collections::{HashSet, VecDeque},
+		ops::ControlFlow,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -47,37 +50,37 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::Id],
 		principal: &tg::Principal,
-	) -> crate::fdb::Result<Vec<bool>> {
+	) -> tg::Result<ControlFlow<Vec<bool>, fdb::FdbError>> {
 		if matches!(principal, tg::Principal::Root) {
-			return Ok(vec![true; ids.len()]);
+			return Ok(ControlFlow::Break(vec![true; ids.len()]));
 		}
-		let subjects = Self::requester_subjects_with_transaction(txn, subspace, principal).await?;
+		let subjects = crate::fdb::propagate!(
+			Self::requester_subjects_with_transaction(txn, subspace, principal).await
+		);
 		let mut output = Vec::with_capacity(ids.len());
 		for id in ids {
 			let mut visible = false;
 			for subject in &subjects {
-				if Self::try_get_visibility_with_transaction(txn, subspace, id, subject).await? {
+				if crate::fdb::propagate!(
+					Self::try_get_visibility_with_transaction(txn, subspace, id, subject).await
+				) {
 					visible = true;
 					break;
 				}
 			}
 			output.push(visible);
 		}
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	pub(crate) async fn requester_subjects_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
-	) -> crate::fdb::Result<Vec<tg::authorization::Subject>> {
+	) -> tg::Result<ControlFlow<Vec<tg::authorization::Subject>, fdb::FdbError>> {
 		let mut subjects = vec![tg::authorization::Subject::Public];
 		if !matches!(principal, tg::Principal::Anonymous) {
-			subjects.push(
-				principal
-					.try_to_subject()
-					.map_err(crate::fdb::custom_error)?,
-			);
+			subjects.push(principal.try_to_subject()?);
 		}
 		let id = match principal {
 			tg::Principal::Group(id) => Some(tg::Id::from(id.clone())),
@@ -93,7 +96,9 @@ impl Index {
 			let mut queue = VecDeque::from([id.clone()]);
 			let mut visited = HashSet::from([id]);
 			while let Some(id) = queue.pop_front() {
-				let groups = Self::get_member_groups_with_transaction(txn, subspace, &id).await?;
+				let groups = crate::fdb::propagate!(
+					Self::get_member_groups_with_transaction(txn, subspace, &id).await
+				);
 				for group in groups {
 					let id = tg::Id::from(group.clone());
 					if visited.insert(id.clone()) {
@@ -101,8 +106,9 @@ impl Index {
 						queue.push_back(id);
 					}
 				}
-				let organizations =
-					Self::get_member_organizations_with_transaction(txn, subspace, &id).await?;
+				let organizations = crate::fdb::propagate!(
+					Self::get_member_organizations_with_transaction(txn, subspace, &id).await
+				);
 				for organization in organizations {
 					let id = tg::Id::from(organization.clone());
 					if visited.insert(id.clone()) {
@@ -112,6 +118,6 @@ impl Index {
 				}
 			}
 		}
-		Ok(subjects)
+		Ok(ControlFlow::Break(subjects))
 	}
 }
