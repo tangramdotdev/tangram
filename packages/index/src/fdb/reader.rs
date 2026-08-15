@@ -1,7 +1,10 @@
 use {
 	super::Index,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{StreamExt as _, future, stream},
+	futures::{
+		StreamExt as _,
+		stream::{self, FuturesUnordered},
+	},
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
 };
@@ -92,43 +95,54 @@ impl Index {
 			Ok(transaction) => transaction,
 		};
 		loop {
-			// Execute the pending requests.
-			let read_requests = requests
-				.iter()
-				.map(|(request, _)| request.clone())
-				.collect::<Vec<_>>();
-			let results = Self::execute_read_requests_with_transaction(
-				authorize,
-				partition_total,
-				&transaction,
-				subspace,
-				read_requests,
-			)
-			.await;
+			let (retry_error, retry_requests) = {
+				// Execute the pending requests concurrently.
+				let transaction = &transaction;
+				let mut futures = requests
+					.into_iter()
+					.map(|(request, sender)| {
+						let read_request = request.clone();
+						async move {
+							let result = Self::execute_read_request(
+								authorize,
+								partition_total,
+								transaction,
+								subspace,
+								read_request,
+							)
+							.await;
 
-			// Send the completed responses and collect the retryable requests.
-			let mut retry_error = None;
-			let mut retry_requests = Vec::new();
-			for (result, (request, sender)) in std::iter::zip(results, requests) {
-				match result {
-					Err(error) => {
-						sender.send(Err(error)).ok();
-					},
-					Ok(ControlFlow::Break(response)) => {
-						sender.send(Ok(response)).ok();
-					},
-					Ok(ControlFlow::Continue(error)) if error.is_retryable() => {
-						if !sender.is_closed() {
-							retry_error.get_or_insert(error);
-							retry_requests.push((request, sender));
+							(result, request, sender)
 						}
-					},
-					Ok(ControlFlow::Continue(error)) => {
-						let error = tg::error!(!error, "failed to execute a read request");
-						sender.send(Err(error)).ok();
-					},
+					})
+					.collect::<FuturesUnordered<_>>();
+
+				// Send each completed response and collect the retryable requests.
+				let mut retry_error = None;
+				let mut retry_requests = Vec::new();
+				while let Some((result, request, sender)) = futures.next().await {
+					match result {
+						Err(error) => {
+							sender.send(Err(error)).ok();
+						},
+						Ok(ControlFlow::Break(response)) => {
+							sender.send(Ok(response)).ok();
+						},
+						Ok(ControlFlow::Continue(error)) if error.is_retryable() => {
+							if !sender.is_closed() {
+								retry_error.get_or_insert(error);
+								retry_requests.push((request, sender));
+							}
+						},
+						Ok(ControlFlow::Continue(error)) => {
+							let error = tg::error!(!error, "failed to execute a read request");
+							sender.send(Err(error)).ok();
+						},
+					}
 				}
-			}
+
+				(retry_error, retry_requests)
+			};
 			let Some(error) = retry_error else {
 				return;
 			};
@@ -147,19 +161,6 @@ impl Index {
 			};
 			requests = retry_requests;
 		}
-	}
-
-	async fn execute_read_requests_with_transaction(
-		authorize: super::AuthorizeConfig,
-		partition_total: u64,
-		transaction: &fdb::Transaction,
-		subspace: &fdbt::Subspace,
-		requests: Vec<crate::read::Request>,
-	) -> Vec<tg::Result<ControlFlow<crate::read::Response, fdb::FdbError>>> {
-		future::join_all(requests.into_iter().map(|request| {
-			Self::execute_read_request(authorize, partition_total, transaction, subspace, request)
-		}))
-		.await
 	}
 
 	async fn execute_read_request(
