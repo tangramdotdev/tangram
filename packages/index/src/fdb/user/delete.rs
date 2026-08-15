@@ -28,7 +28,8 @@ impl Index {
 		for id in ids {
 			let key = Key::User(crate::fdb::user::Key::User(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let user = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let user = crate::fdb::retry!(result)
 				.map(|bytes| crate::user::User::deserialize(&bytes))
 				.transpose()?;
 			if let Some(user) = user {

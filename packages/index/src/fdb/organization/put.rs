@@ -47,14 +47,14 @@ impl Index {
 			let key =
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = match arg.billing {
-				Some(billing) => billing,
-				None => {
-					crate::fdb::retry!(txn.get(&key, false).await).map_or(Ok(false), |bytes| {
-						crate::organization::Organization::deserialize(&bytes)
-							.map(|organization| organization.billing)
-					})?
-				},
+			let billing = if let Some(billing) = arg.billing {
+				billing
+			} else {
+				let result = txn.get(&key, false).await;
+				crate::fdb::retry!(result).map_or(Ok(false), |bytes| {
+					crate::organization::Organization::deserialize(&bytes)
+						.map(|organization| organization.billing)
+				})?
 			};
 			let value = crate::organization::Organization {
 				billing,

@@ -33,8 +33,8 @@ impl Index {
 			subspace,
 			&(Kind::RunnerSandbox.to_i32().unwrap(), runner.as_ref()),
 		);
-		let entries = crate::fdb::retry!(
-			txn.get_range(
+		let result = txn
+			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -42,8 +42,8 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-		);
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let sandboxes = entries
 			.iter()
 			.map(|entry| {

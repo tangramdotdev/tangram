@@ -92,7 +92,8 @@ impl Index {
 		.collect::<Vec<_>>();
 		for key in keys {
 			let key = Self::pack(subspace, &key);
-			let mut value = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let mut value = crate::fdb::retry!(result)
 				.as_deref()
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
@@ -126,7 +127,8 @@ impl Index {
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
-			let mut value = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let mut value = crate::fdb::retry!(result)
 				.as_deref()
 				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
 			if value.put(source, entry.expires_at, time_to_touch) {

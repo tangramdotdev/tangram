@@ -19,7 +19,8 @@ impl Index {
 		let existing = if arg.complete() {
 			None
 		} else {
-			crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			crate::fdb::retry!(result)
 				.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 		};
 

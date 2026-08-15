@@ -43,7 +43,8 @@ impl Index {
 		for id in ids {
 			let key = Key::Group(crate::fdb::group::Key::Group(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let group = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let group = crate::fdb::retry!(result)
 				.map(|bytes| crate::group::Group::deserialize(&bytes))
 				.transpose()?;
 			if let Some(group) = group {

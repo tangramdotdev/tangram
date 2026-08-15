@@ -130,7 +130,8 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while candidates.len() < remaining_batch_size {
-				let Some(entry) = crate::fdb::retry!(entries.next().await.transpose()) else {
+				let result = entries.next().await.transpose();
+				let Some(entry) = crate::fdb::retry!(result) else {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())?;
@@ -335,7 +336,8 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while args.len() < batch_size {
-				let Some(entry) = crate::fdb::retry!(entries.next().await.transpose()) else {
+				let result = entries.next().await.transpose();
+				let Some(entry) = crate::fdb::retry!(result) else {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())?;
@@ -522,10 +524,10 @@ impl Index {
 			Ok::<_, fdb::FdbError>(count)
 		};
 
-		let (cache_entry_object_count, dependency_cache_entry_count) = crate::fdb::retry!(
-			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future,)
-				.await
-		);
+		let result =
+			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future)
+				.await;
+		let (cache_entry_object_count, dependency_cache_entry_count) = crate::fdb::retry!(result);
 		let count = cache_entry_object_count + dependency_cache_entry_count;
 
 		Ok(ControlFlow::Break(count))
@@ -587,14 +589,14 @@ impl Index {
 				.unwrap();
 			Ok::<_, fdb::FdbError>(count)
 		};
-		let (child_object_count, object_process_count, target_tag_count) = crate::fdb::retry!(
-			futures::future::try_join3(
-				child_object_future,
-				object_process_future,
-				target_tag_future,
-			)
-			.await
-		);
+		let result = futures::future::try_join3(
+			child_object_future,
+			object_process_future,
+			target_tag_future,
+		)
+		.await;
+		let (child_object_count, object_process_count, target_tag_count) =
+			crate::fdb::retry!(result);
 		let object_account_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ObjectAccount.to_i32().unwrap(), id.as_ref());
@@ -630,9 +632,8 @@ impl Index {
 			}
 			Ok::<_, fdb::FdbError>(count)
 		};
-		let (object_account_count, update_count) = crate::fdb::retry!(
-			futures::future::try_join(object_account_future, update_future).await
-		);
+		let result = futures::future::try_join(object_account_future, update_future).await;
+		let (object_account_count, update_count) = crate::fdb::retry!(result);
 		let count = child_object_count
 			+ object_account_count
 			+ object_process_count
@@ -680,9 +681,8 @@ impl Index {
 				.unwrap();
 			Ok::<_, fdb::FdbError>(count)
 		};
-		let (child_process_count, target_tag_count) = crate::fdb::retry!(
-			futures::future::try_join(child_process_future, target_tag_future).await
-		);
+		let result = futures::future::try_join(child_process_future, target_tag_future).await;
+		let (child_process_count, target_tag_count) = crate::fdb::retry!(result);
 		let process_account_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ProcessAccount.to_i32().unwrap(), id.as_ref());
@@ -718,9 +718,8 @@ impl Index {
 			}
 			Ok::<_, fdb::FdbError>(count)
 		};
-		let (process_account_count, update_count) = crate::fdb::retry!(
-			futures::future::try_join(process_account_future, update_future).await
-		);
+		let result = futures::future::try_join(process_account_future, update_future).await;
+		let (process_account_count, update_count) = crate::fdb::retry!(result);
 		let count = child_process_count + process_account_count + target_tag_count + update_count;
 
 		Ok(ControlFlow::Break(count))
@@ -739,10 +738,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let count = crate::fdb::retry!(txn.get_range(&range, 1, false).await)
-			.len()
-			.to_u64()
-			.unwrap();
+		let result = txn.get_range(&range, 1, false).await;
+		let count = crate::fdb::retry!(result).len().to_u64().unwrap();
 
 		Ok(ControlFlow::Break(count))
 	}
@@ -758,7 +755,8 @@ impl Index {
 			Item::CacheEntry(id) => {
 				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+				let result = txn.get(&key, false).await;
+				if let Some(bytes) = crate::fdb::retry!(result) {
 					let mut entry = crate::cache::Entry::deserialize(&bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
@@ -768,7 +766,8 @@ impl Index {
 			Item::Object(id) => {
 				let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+				let result = txn.get(&key, false).await;
+				if let Some(bytes) = crate::fdb::retry!(result) {
 					let mut object = crate::object::Object::deserialize(&bytes)?;
 					object.reference_count = reference_count;
 					let bytes = object.serialize()?;
@@ -778,7 +777,8 @@ impl Index {
 			Item::Process(id) => {
 				let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+				let result = txn.get(&key, false).await;
+				if let Some(bytes) = crate::fdb::retry!(result) {
 					let mut process = crate::process::Process::deserialize(&bytes)?;
 					process.reference_count = reference_count;
 					let bytes = process.serialize()?;
@@ -788,7 +788,8 @@ impl Index {
 			Item::Sandbox(id) => {
 				let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 				let key = Self::pack(subspace, &key);
-				if let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) {
+				let result = txn.get(&key, false).await;
+				if let Some(bytes) = crate::fdb::retry!(result) {
 					let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
 					sandbox.reference_count = reference_count;
 					let bytes = sandbox.serialize()?;
@@ -837,7 +838,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let dependencies = entries
 			.iter()
 			.map(|entry| {
@@ -897,7 +899,8 @@ impl Index {
 
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let cache_entry = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let cache_entry = crate::fdb::retry!(result)
 			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 			.and_then(|obj| obj.cache_entry);
 
@@ -912,7 +915,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -990,7 +994,8 @@ impl Index {
 
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let sandbox = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let sandbox = crate::fdb::retry!(result)
 			.map(|bytes| crate::process::Process::deserialize(&bytes))
 			.transpose()?
 			.and_then(|process| process.sandbox);
@@ -1004,7 +1009,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -1042,7 +1048,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
@@ -1135,7 +1142,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let values = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let values = crate::fdb::retry!(result);
 		let entries = values
 			.iter()
 			.map(|entry| {
@@ -1191,7 +1199,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(bytes) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut entry = crate::cache::Entry::deserialize(&bytes)?;
@@ -1226,7 +1235,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(bytes) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut object = crate::object::Object::deserialize(&bytes)?;
@@ -1261,7 +1271,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(bytes) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut process = crate::process::Process::deserialize(&bytes)?;
@@ -1296,7 +1307,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let Some(bytes) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(bytes) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;

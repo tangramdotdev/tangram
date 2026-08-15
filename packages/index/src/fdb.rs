@@ -39,7 +39,6 @@ pub(crate) use error::{propagate, retry};
 pub(crate) use transaction::run;
 pub(super) use {
 	key::{Key, Kind},
-	transaction::Transaction,
 	writer::Metrics,
 };
 

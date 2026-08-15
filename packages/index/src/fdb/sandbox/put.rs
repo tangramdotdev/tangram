@@ -16,7 +16,8 @@ impl Index {
 		for arg in args {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let existing = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let existing = crate::fdb::retry!(result)
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
 			let data = arg

@@ -19,7 +19,8 @@ impl Index {
 			object: arg.object.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
@@ -45,7 +46,8 @@ impl Index {
 			process: arg.process.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = crate::fdb::retry!(txn.get(&key, false).await) else {
+		let result = txn.get(&key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
@@ -177,7 +179,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let accounts = entries
 			.iter()
 			.map(|entry| {
@@ -209,7 +212,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let accounts = entries
 			.iter()
 			.map(|entry| {
@@ -238,7 +242,8 @@ impl Index {
 			object: arg.object.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = crate::fdb::retry!(txn.get(&entry_key, false).await) {
+		let result = txn.get(&entry_key, false).await;
+		if let Some(value) = crate::fdb::retry!(result) {
 			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
@@ -327,7 +332,8 @@ impl Index {
 			process: arg.process.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = crate::fdb::retry!(txn.get(&entry_key, false).await) {
+		let result = txn.get(&entry_key, false).await;
+		if let Some(value) = crate::fdb::retry!(result) {
 			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;

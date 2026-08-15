@@ -19,7 +19,8 @@ impl Index {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let existing = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let existing = crate::fdb::retry!(result)
 			.and_then(|bytes| crate::process::Process::deserialize(&bytes).ok());
 		let merge = !arg.complete();
 
@@ -158,11 +159,11 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..fdb::RangeOption::from(&range_subspace)
 			};
-			let entries = crate::fdb::retry!(
-				txn.get_ranges_keyvalues(range, false)
-					.try_collect::<Vec<_>>()
-					.await
-			);
+			let result = txn
+				.get_ranges_keyvalues(range, false)
+				.try_collect::<Vec<_>>()
+				.await;
+			let entries = crate::fdb::retry!(result);
 			for entry in &entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
@@ -206,7 +207,8 @@ impl Index {
 				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			let exists = crate::fdb::retry!(txn.get(&key, false).await).is_some();
+			let result = txn.get(&key, false).await;
+			let exists = crate::fdb::retry!(result).is_some();
 			if !exists {
 				let parent_bytes = parent.to_bytes();
 				let prefix = (Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
@@ -217,7 +219,8 @@ impl Index {
 					reverse: true,
 					..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 				};
-				let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+				let result = txn.get_range(&range, 1, false).await;
+				let entries = crate::fdb::retry!(result);
 				let position = entries
 					.first()
 					.map(|entry| {

@@ -33,8 +33,8 @@ impl Index {
 			subspace,
 			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
 		);
-		let entries = crate::fdb::retry!(
-			txn.get_range(
+		let result = txn
+			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -42,8 +42,8 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-		);
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()
 			.map(|entry| {
@@ -94,7 +94,7 @@ impl Index {
 			)
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -115,7 +115,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<crate::sandbox::Sandbox>, fdb::FdbError>> {
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let sandbox = bytes
 			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 			.transpose()?;

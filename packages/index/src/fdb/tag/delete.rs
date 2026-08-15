@@ -38,7 +38,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
 			return Ok(ControlFlow::Break(()));
 		};

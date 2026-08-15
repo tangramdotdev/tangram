@@ -163,7 +163,8 @@ impl Index {
 		};
 		let entry_key = Self::pack(subspace, &entry_key);
 		let clean_key = Self::pack(subspace, &clean_key);
-		let Some(value) = crate::fdb::retry!(txn.get(&entry_key, false).await) else {
+		let result = txn.get(&entry_key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			txn.clear(&clean_key);
 			return Ok(ControlFlow::Break(()));
 		};
@@ -269,7 +270,8 @@ impl Index {
 		);
 		let object_bytes = object.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, object_bytes.as_ref());
-		let entries = crate::fdb::retry!(entries_future.await);
+		let result = entries_future.await;
+		let entries = crate::fdb::retry!(result);
 		let tag_count = crate::fdb::propagate!(tags_future.await);
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
@@ -302,7 +304,8 @@ impl Index {
 		);
 		let process_bytes = process.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, process_bytes.as_ref());
-		let entries = crate::fdb::retry!(entries_future.await);
+		let result = entries_future.await;
+		let entries = crate::fdb::retry!(result);
 		let tag_count = crate::fdb::propagate!(tags_future.await);
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
@@ -326,7 +329,7 @@ impl Index {
 			)
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -477,9 +480,8 @@ impl Index {
 			account: account.clone(),
 			object: object.clone(),
 		});
-		let Some(value) =
-			crate::fdb::retry!(txn.get(&Self::pack(subspace, &entry_key), false).await)
-		else {
+		let result = txn.get(&Self::pack(subspace, &entry_key), false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let entry = crate::usage::storage::Entry::deserialize(&value)?;
@@ -506,9 +508,8 @@ impl Index {
 			account: account.clone(),
 			process: process.clone(),
 		});
-		let Some(value) =
-			crate::fdb::retry!(txn.get(&Self::pack(subspace, &entry_key), false).await)
-		else {
+		let result = txn.get(&Self::pack(subspace, &entry_key), false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
 		let entry = crate::usage::storage::Entry::deserialize(&value)?;

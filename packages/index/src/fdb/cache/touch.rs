@@ -54,7 +54,7 @@ impl Index {
 			}))
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -78,7 +78,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<crate::cache::Entry>, fdb::FdbError>> {
 		let key = Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let existing = crate::fdb::retry!(result);
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::cache::Entry::deserialize(bytes))
@@ -93,11 +94,8 @@ impl Index {
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		crate::fdb::retry!(txn.add_conflict_range(
-			&key,
-			&key_end,
-			fdb::options::ConflictRangeType::Read,
-		));
+		let result = txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read);
+		crate::fdb::retry!(result);
 
 		cache_entry.touched_at = cache_entry.touched_at.max(touched_at);
 		let value = cache_entry

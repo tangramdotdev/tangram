@@ -91,7 +91,8 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while keys.len() < arg.batch_size {
-				let Some(entry) = crate::fdb::retry!(entries.try_next().await) else {
+				let result = entries.try_next().await;
+				let Some(entry) = crate::fdb::retry!(result) else {
 					break;
 				};
 				let Key::Usage(crate::fdb::usage::Key::Delta {
@@ -179,7 +180,8 @@ impl Index {
 				};
 				let mut entries = txn.get_ranges_keyvalues(range, false);
 				while keys.len() < arg.batch_size {
-					let Some(entry) = crate::fdb::retry!(entries.try_next().await) else {
+					let result = entries.try_next().await;
+					let Some(entry) = crate::fdb::retry!(result) else {
 						break;
 					};
 					let Key::Usage(crate::fdb::usage::Key::Aggregate {

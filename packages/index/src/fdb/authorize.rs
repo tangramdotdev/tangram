@@ -291,7 +291,7 @@ impl Index {
 				.try_collect::<Vec<_>>()
 				.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -427,7 +427,7 @@ impl Index {
 				.await?;
 			let relations = {
 				let results = relations;
-				let mut values = Vec::new();
+				let mut values = Vec::with_capacity(results.len());
 				for result in results {
 					let value = match result {
 						ControlFlow::Break(value) => value,
@@ -639,7 +639,7 @@ impl Index {
 				.await?;
 			let evaluations = {
 				let results = evaluations;
-				let mut values = Vec::new();
+				let mut values = Vec::with_capacity(results.len());
 				for result in results {
 					let value = match result {
 						ControlFlow::Break(value) => value,
@@ -920,7 +920,7 @@ impl Index {
 					.try_collect::<Vec<_>>()
 					.await;
 				let results = result?;
-				let mut values = Vec::new();
+				let mut values = Vec::with_capacity(results.len());
 				for result in results {
 					let value = match result {
 						ControlFlow::Break(value) => value,
@@ -1080,7 +1080,7 @@ impl Index {
 					.try_collect::<Vec<_>>()
 					.await;
 				let results = result?;
-				let mut values = Vec::new();
+				let mut values = Vec::with_capacity(results.len());
 				for result in results {
 					let value = match result {
 						ControlFlow::Break(value) => value,
@@ -1711,7 +1711,7 @@ impl Index {
 				.try_collect::<Vec<_>>()
 				.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -1764,7 +1764,8 @@ impl Index {
 			limit: Some(limit),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -1804,7 +1805,8 @@ impl Index {
 			limit: Some(limit),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.map(|entry| {
@@ -1842,7 +1844,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let objects = entries
 			.iter()
 			.map(|entry| {
@@ -1873,7 +1876,8 @@ impl Index {
 		}
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(sandbox.clone()));
 		let key = Self::pack(subspace, &key);
-		let owner = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let owner = crate::fdb::retry!(result)
 			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 			.transpose()?
 			.and_then(|sandbox| sandbox.data)

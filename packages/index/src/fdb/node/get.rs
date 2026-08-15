@@ -34,7 +34,7 @@ impl Index {
 			)
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -79,7 +79,7 @@ impl Index {
 				}))
 				.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -158,7 +158,7 @@ impl Index {
 			}))
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -230,7 +230,8 @@ impl Index {
 			},
 		};
 		let key = Self::pack(subspace, &key);
-		let value = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let value = crate::fdb::retry!(result);
 		let id = value.map(|_| id.clone());
 
 		Ok(ControlFlow::Break(id))
@@ -286,7 +287,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<tg::Id>, fdb::FdbError>> {
 		let key = Key::Node(crate::fdb::node::Key::Node(specifier.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
 			return Ok(ControlFlow::Break(None));
 		};

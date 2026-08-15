@@ -51,13 +51,13 @@ where
 }
 
 impl Transaction {
-	pub(super) fn new(transaction: fdb::Transaction) -> Self {
+	fn new(transaction: fdb::Transaction) -> Self {
 		let inner = Arc::new(transaction);
 
 		Self { inner }
 	}
 
-	pub(super) fn take(self) -> tg::Result<fdb::Transaction> {
+	fn take(self) -> tg::Result<fdb::Transaction> {
 		Arc::try_unwrap(self.inner)
 			.map_err(|_| tg::error!("a reference to the transaction was retained"))
 	}

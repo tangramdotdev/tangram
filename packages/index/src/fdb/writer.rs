@@ -8,10 +8,7 @@ use {
 	opentelemetry as otel,
 	std::{
 		ops::ControlFlow,
-		sync::{
-			Arc, Mutex,
-			atomic::{AtomicU64, Ordering},
-		},
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 };
@@ -1027,7 +1024,7 @@ impl Index {
 		metrics: &Metrics,
 	) -> std::result::Result<Vec<Response>, TransactionError> {
 		let start = std::time::Instant::now();
-		let retry_count = AtomicU64::new(0);
+		let mut attempt_count = 0;
 
 		let priority_batch = requests.iter().all(|request| {
 			matches!(
@@ -1058,9 +1055,9 @@ impl Index {
 		let result = match transaction {
 			Err(error) => Err(TransactionError::FoundationDb(error)),
 			Ok(transaction) => {
-				let mut transaction = super::Transaction::new(transaction);
+				let mut transaction = transaction;
 				loop {
-					retry_count.fetch_add(1, Ordering::Relaxed);
+					attempt_count += 1;
 					let result = Self::execute_requests_with_transaction(
 						&transaction,
 						subspace,
@@ -1075,27 +1072,19 @@ impl Index {
 						Err(error) => break Err(TransactionError::Tangram(error)),
 						Ok(ControlFlow::Break(responses)) => responses,
 						Ok(ControlFlow::Continue(error)) => {
-							let raw_transaction = match transaction.take() {
-								Ok(transaction) => transaction,
-								Err(error) => break Err(TransactionError::Tangram(error)),
-							};
-							match raw_transaction.on_error(error).await {
+							match transaction.on_error(error).await {
 								Ok(value) => {
-									transaction = super::Transaction::new(value);
+									transaction = value;
 									continue;
 								},
 								Err(error) => break Err(TransactionError::FoundationDb(error)),
 							}
 						},
 					};
-					let raw_transaction = match transaction.take() {
-						Ok(transaction) => transaction,
-						Err(error) => break Err(TransactionError::Tangram(error)),
-					};
-					match raw_transaction.commit().await {
+					match transaction.commit().await {
 						Ok(_) => break Ok(responses),
 						Err(error) => match error.on_error().await {
-							Ok(value) => transaction = super::Transaction::new(value),
+							Ok(value) => transaction = value,
 							Err(error) => break Err(TransactionError::FoundationDb(error)),
 						},
 					}
@@ -1107,9 +1096,10 @@ impl Index {
 		metrics.commit_duration.record(duration, &[]);
 		metrics.transactions.add(1, &[]);
 
-		let attempts = retry_count.load(Ordering::Relaxed);
-		if attempts > 1 {
-			metrics.transaction_conflict_retry.add(attempts - 1, &[]);
+		if attempt_count > 1 {
+			metrics
+				.transaction_conflict_retry
+				.add(attempt_count - 1, &[]);
 		}
 		if matches!(
 			&result,

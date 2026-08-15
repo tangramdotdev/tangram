@@ -59,7 +59,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()
 			.map(|entry| {
@@ -129,7 +130,7 @@ impl Index {
 				}))
 				.await;
 				let results = result?;
-				let mut values = Vec::new();
+				let mut values = Vec::with_capacity(results.len());
 				for result in results {
 					let value = match result {
 						ControlFlow::Break(value) => value,
@@ -182,7 +183,7 @@ impl Index {
 			)
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -203,7 +204,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<crate::process::Process>, fdb::FdbError>> {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
 			return Ok(ControlFlow::Break(None));
 		};
@@ -226,11 +228,11 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(
-			txn.get_ranges_keyvalues(range, false)
-				.try_collect::<Vec<_>>()
-				.await
-		);
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::fdb::retry!(result);
 
 		let children = entries
 			.iter()
@@ -278,7 +280,8 @@ impl Index {
 					return Ok(ControlFlow::Break(Some(Vec::new())));
 				}
 				let selector = fdb::KeySelector::last_less_than(end.clone());
-				let key = crate::fdb::retry!(txn.get_key(&selector, false).await);
+				let result = txn.get_key(&selector, false).await;
+				let key = crate::fdb::retry!(result);
 				if key.as_ref() < begin.as_slice() {
 					return Err(tg::error!("invalid process child position"));
 				}
@@ -317,11 +320,11 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..Default::default()
 		};
-		let entries = crate::fdb::retry!(
-			txn.get_ranges_keyvalues(range, false)
-				.try_collect::<Vec<_>>()
-				.await
-		);
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.enumerate()
@@ -370,7 +373,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let parents = entries
 			.iter()
@@ -402,7 +406,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let objects = entries
 			.iter()

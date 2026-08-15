@@ -38,7 +38,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
-		let tag = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let tag = crate::fdb::retry!(result)
 			.map(|bytes| crate::tag::Tag::deserialize(&bytes))
 			.transpose()?;
 		if let Some(tag) = tag.as_ref()

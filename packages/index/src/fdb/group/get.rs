@@ -38,7 +38,7 @@ impl Index {
 			)
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -59,7 +59,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<crate::group::Group>, fdb::FdbError>> {
 		let key = Key::Group(crate::fdb::group::Key::Group(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
 			return Ok(ControlFlow::Break(None));
 		};
@@ -82,7 +83,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let members = entries
 			.iter()
@@ -112,7 +114,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let groups = entries
 			.iter()

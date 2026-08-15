@@ -74,7 +74,8 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+			let result = txn.get_range(&range, 1, false).await;
+			let entries = crate::fdb::retry!(result);
 			for entry in entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::LogCompaction(Key::Version {
@@ -123,7 +124,8 @@ impl Index {
 				..Default::default()
 			};
 			async move {
-				let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+				let result = txn.get_range(&range, 1, false).await;
+				let entries = crate::fdb::retry!(result);
 				let Some(entry) = entries.first() else {
 					return Ok(ControlFlow::Break(None));
 				};
@@ -139,7 +141,7 @@ impl Index {
 		let transaction_id = {
 			let result = future::try_join_all(futures).await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -163,7 +165,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let identity = Self::log_compaction_identity_key(&entry.process);
 		let identity_key = Self::pack(subspace, &identity);
-		let value = crate::fdb::retry!(txn.get(&identity_key, false).await);
+		let result = txn.get(&identity_key, false).await;
+		let value = crate::fdb::retry!(result);
 		let Some(value) = value else {
 			return Ok(ControlFlow::Break(()));
 		};
@@ -197,7 +200,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let identity = Self::log_compaction_identity_key(process);
 		let identity_key = Self::pack(subspace, &identity);
-		let exists = crate::fdb::retry!(txn.get(&identity_key, false).await).is_some();
+		let result = txn.get(&identity_key, false).await;
+		let exists = crate::fdb::retry!(result).is_some();
 		if exists {
 			return Ok(ControlFlow::Break(()));
 		}

@@ -123,7 +123,7 @@ impl Index {
 			}))
 			.await;
 			let results = result?;
-			let mut values = Vec::new();
+			let mut values = Vec::with_capacity(results.len());
 			for result in results {
 				let value = match result {
 					ControlFlow::Break(value) => value,
@@ -147,7 +147,8 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<crate::object::Object>, fdb::FdbError>> {
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let existing = crate::fdb::retry!(txn.get(&key, false).await);
+		let result = txn.get(&key, false).await;
+		let existing = crate::fdb::retry!(result);
 		let existing = existing
 			.as_ref()
 			.map(|bytes| crate::object::Object::deserialize(bytes))
@@ -162,11 +163,8 @@ impl Index {
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
-		crate::fdb::retry!(txn.add_conflict_range(
-			&key,
-			&key_end,
-			fdb::options::ConflictRangeType::Read,
-		));
+		let result = txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read);
+		crate::fdb::retry!(result);
 
 		object.touched_at = object.touched_at.max(touched_at);
 		let value = object

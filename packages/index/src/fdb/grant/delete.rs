@@ -90,7 +90,8 @@ impl Index {
 		.collect::<Vec<_>>();
 		for key in keys {
 			let key = Self::pack(subspace, &key);
-			let Some(value) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			let result = txn.get(&key, false).await;
+			let Some(value) = crate::fdb::retry!(result) else {
 				continue;
 			};
 			let mut value = GrantValue::deserialize(&value)?;
@@ -127,7 +128,8 @@ impl Index {
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
-			let Some(value) = crate::fdb::retry!(txn.get(&key, false).await) else {
+			let result = txn.get(&key, false).await;
+			let Some(value) = crate::fdb::retry!(result) else {
 				continue;
 			};
 			let mut value = GrantValue::deserialize(&value)?;

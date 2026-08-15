@@ -28,12 +28,13 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::fdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = match arg.billing {
-				Some(billing) => billing,
-				None => crate::fdb::retry!(txn.get(&key, false).await)
-					.map_or(Ok(false), |bytes| {
-						crate::user::User::deserialize(&bytes).map(|user| user.billing)
-					})?,
+			let billing = if let Some(billing) = arg.billing {
+				billing
+			} else {
+				let result = txn.get(&key, false).await;
+				crate::fdb::retry!(result).map_or(Ok(false), |bytes| {
+					crate::user::User::deserialize(&bytes).map(|user| user.billing)
+				})?
 			};
 			let value = crate::user::User {
 				billing,

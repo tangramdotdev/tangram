@@ -43,7 +43,8 @@ impl Index {
 		for id in ids {
 			let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let organization = crate::fdb::retry!(txn.get(&key, false).await)
+			let result = txn.get(&key, false).await;
+			let organization = crate::fdb::retry!(result)
 				.map(|bytes| crate::organization::Organization::deserialize(&bytes))
 				.transpose()?;
 			if let Some(organization) = organization {

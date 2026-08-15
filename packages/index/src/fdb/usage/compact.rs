@@ -57,7 +57,8 @@ impl Index {
 			};
 			let mut entries = txn.get_ranges_keyvalues(range, false);
 			while candidates.len() < arg.batch_size {
-				let Some(entry) = crate::fdb::retry!(entries.try_next().await) else {
+				let result = entries.try_next().await;
+				let Some(entry) = crate::fdb::retry!(result) else {
 					break;
 				};
 				let Key::Usage(crate::fdb::usage::Key::Compaction {
@@ -299,7 +300,8 @@ impl Index {
 			period,
 		});
 		let key = Self::pack(subspace, &key);
-		let aggregate = crate::fdb::retry!(txn.get(&key, false).await)
+		let result = txn.get(&key, false).await;
+		let aggregate = crate::fdb::retry!(result)
 			.map(|bytes| crate::usage::deserialize_aggregate(&bytes))
 			.transpose()?;
 
@@ -319,7 +321,8 @@ impl Index {
 			partition,
 		});
 		let key = Self::pack(subspace, &key);
-		let contains = crate::fdb::retry!(txn.get(&key, false).await).is_some();
+		let result = txn.get(&key, false).await;
+		let contains = crate::fdb::retry!(result).is_some();
 
 		Ok(ControlFlow::Break(contains))
 	}
@@ -397,7 +400,11 @@ impl Index {
 		};
 		let mut entries = txn.get_ranges_keyvalues(range, false);
 		let mut deltas = Deltas::default();
-		while let Some(entry) = crate::fdb::retry!(entries.try_next().await) {
+		loop {
+			let result = entries.try_next().await;
+			let Some(entry) = crate::fdb::retry!(result) else {
+				break;
+			};
 			let Key::Usage(crate::fdb::usage::Key::Delta { kind, .. }) =
 				Self::unpack(subspace, entry.key())?
 			else {
@@ -446,7 +453,11 @@ impl Index {
 			..fdb::RangeOption::from((start.as_slice(), end.as_slice()))
 		};
 		let mut entries = txn.get_ranges_keyvalues(range, false);
-		while let Some(entry) = crate::fdb::retry!(entries.try_next().await) {
+		loop {
+			let result = entries.try_next().await;
+			let Some(entry) = crate::fdb::retry!(result) else {
+				break;
+			};
 			let Key::Usage(crate::fdb::usage::Key::Compaction {
 				account: candidate,
 				hour,

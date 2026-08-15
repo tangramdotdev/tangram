@@ -56,8 +56,8 @@ impl Index {
 		subspace: &Subspace,
 	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(Kind::Sandbox.to_i32().unwrap(),));
-		let entries = crate::fdb::retry!(
-			txn.get_range(
+		let result = txn
+			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -65,8 +65,8 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-		);
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let sandboxes = entries
 			.iter()
 			.map(|entry| {
@@ -89,8 +89,8 @@ impl Index {
 		kind: Kind,
 	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), principal.to_string()));
-		let entries = crate::fdb::retry!(
-			txn.get_range(
+		let result = txn
+			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
 					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -98,8 +98,8 @@ impl Index {
 				1,
 				false,
 			)
-			.await
-		);
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let sandboxes = entries
 			.iter()
 			.map(|entry| {

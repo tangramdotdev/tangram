@@ -6,7 +6,6 @@ pub(crate) type Receiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)
 pub(crate) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
-#[derive(Clone)]
 pub(crate) enum Request {
 	AuthorizeBatch {
 		args: Vec<crate::authorize::Arg>,

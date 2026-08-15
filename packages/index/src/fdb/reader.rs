@@ -95,31 +95,29 @@ impl Index {
 			Ok(transaction) => transaction,
 		};
 		loop {
-			let (retry_error, retry_requests) = {
+			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
 				let transaction = &transaction;
+				let request_count = requests.len();
 				let mut futures = requests
 					.into_iter()
-					.map(|(request, sender)| {
-						let read_request = request.clone();
-						async move {
-							let result = Self::execute_read_request(
-								authorize,
-								partition_total,
-								transaction,
-								subspace,
-								read_request,
-							)
-							.await;
+					.map(|(request, sender)| async move {
+						let result = Self::execute_read_request(
+							authorize,
+							partition_total,
+							transaction,
+							subspace,
+							&request,
+						)
+						.await;
 
-							(result, request, sender)
-						}
+						(result, request, sender)
 					})
 					.collect::<FuturesUnordered<_>>();
 
 				// Send each completed response and collect the retryable requests.
 				let mut retry_error = None;
-				let mut retry_requests = Vec::new();
+				let mut retry_requests = Vec::with_capacity(request_count);
 				while let Some((result, request, sender)) = futures.next().await {
 					match result {
 						Err(error) => {
@@ -146,6 +144,10 @@ impl Index {
 			let Some(error) = retry_error else {
 				return;
 			};
+			retry_requests.retain(|(_, sender)| !sender.is_closed());
+			if retry_requests.is_empty() {
+				return;
+			}
 
 			// Reset the transaction for the retryable requests.
 			transaction = match transaction.on_error(error).await {
@@ -168,7 +170,7 @@ impl Index {
 		partition_total: u64,
 		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		request: crate::read::Request,
+		request: &crate::read::Request,
 	) -> tg::Result<ControlFlow<crate::read::Response, fdb::FdbError>> {
 		let response = match request {
 			crate::read::Request::AuthorizeBatch { args, principal } => {
@@ -176,15 +178,15 @@ impl Index {
 					authorize,
 					transaction,
 					subspace,
-					&args,
-					&principal,
+					args,
+					principal,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::AuthorizeBatch(output)
 			},
 			crate::read::Request::ContainsIds { ids } => {
-				let result = Self::contains_ids_with_transaction(transaction, subspace, &ids).await;
+				let result = Self::contains_ids_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::ContainsIds(output)
 			},
@@ -196,9 +198,9 @@ impl Index {
 				let result = Self::log_compaction_batch_with_transaction(
 					transaction,
 					subspace,
-					batch_size,
-					partition_start,
-					partition_end,
+					*batch_size,
+					*partition_start,
+					*partition_end,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -212,9 +214,9 @@ impl Index {
 				let result = Self::try_get_process_children_page_with_transaction(
 					transaction,
 					subspace,
-					&id,
-					position,
-					length,
+					id,
+					*position,
+					*length,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -225,21 +227,21 @@ impl Index {
 			},
 			crate::read::Request::GetRequesterSubjects { principal } => {
 				let result =
-					Self::requester_subjects_with_transaction(transaction, subspace, &principal)
+					Self::requester_subjects_with_transaction(transaction, subspace, principal)
 						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::GetRequesterSubjects(output)
 			},
 			crate::read::Request::GetRunnerSandboxes { runner } => {
 				let result =
-					Self::get_runner_sandboxes_with_transaction(transaction, subspace, &runner)
+					Self::get_runner_sandboxes_with_transaction(transaction, subspace, runner)
 						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::GetRunnerSandboxes(output)
 			},
 			crate::read::Request::GetSandboxProcesses { sandbox } => {
 				let result =
-					Self::get_sandbox_processes_with_transaction(transaction, subspace, &sandbox)
+					Self::get_sandbox_processes_with_transaction(transaction, subspace, sandbox)
 						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::GetSandboxProcesses(output)
@@ -258,7 +260,7 @@ impl Index {
 				let result = Self::list_sandboxes_for_principal_with_transaction(
 					transaction,
 					subspace,
-					&creator,
+					creator,
 					super::Kind::CreatorSandbox,
 				)
 				.await;
@@ -269,7 +271,7 @@ impl Index {
 				let result = Self::list_sandboxes_for_principal_with_transaction(
 					transaction,
 					subspace,
-					&owner,
+					owner,
 					super::Kind::OwnerSandbox,
 				)
 				.await;
@@ -280,8 +282,8 @@ impl Index {
 				let result = Self::process_has_ancestor_with_transaction(
 					transaction,
 					subspace,
-					&process,
-					&ancestor,
+					process,
+					ancestor,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -289,29 +291,26 @@ impl Index {
 			},
 			crate::read::Request::TryGetAncestors { id } => {
 				let result =
-					Self::try_get_ancestors_with_transaction(transaction, subspace, &id).await;
+					Self::try_get_ancestors_with_transaction(transaction, subspace, id).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetAncestors(output)
 			},
 			crate::read::Request::TryGetCacheEntries { ids } => {
 				let result =
-					Self::try_get_cache_entries_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_cache_entries_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetCacheEntries(output)
 			},
 			crate::read::Request::TryGetCachedProcesses { command } => {
-				let result = Self::try_get_cached_processes_with_transaction(
-					transaction,
-					subspace,
-					&command,
-				)
-				.await;
+				let result =
+					Self::try_get_cached_processes_with_transaction(transaction, subspace, command)
+						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetCachedProcesses(output)
 			},
 			crate::read::Request::TryGetGroups { ids } => {
 				let result =
-					Self::try_get_groups_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_groups_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetGroups(output)
 			},
@@ -319,7 +318,7 @@ impl Index {
 				let result = Self::try_get_ids_for_specifiers_with_transaction(
 					transaction,
 					subspace,
-					&specifiers,
+					specifiers,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -327,7 +326,7 @@ impl Index {
 			},
 			crate::read::Request::TryGetObjects { ids } => {
 				let result =
-					Self::try_get_objects_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_objects_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetObjects(output)
 			},
@@ -345,7 +344,7 @@ impl Index {
 				let result = Self::try_get_oldest_update_transaction_id_with_transaction(
 					transaction,
 					subspace,
-					kind,
+					*kind,
 					partition_total,
 				)
 				.await;
@@ -354,38 +353,37 @@ impl Index {
 			},
 			crate::read::Request::TryGetOrganizations { ids } => {
 				let result =
-					Self::try_get_organizations_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_organizations_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetOrganizations(output)
 			},
 			crate::read::Request::TryGetProcesses { ids } => {
 				let result =
-					Self::try_get_processes_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_processes_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetProcesses(output)
 			},
 			crate::read::Request::TryGetSandboxes { ids } => {
 				let result =
-					Self::try_get_sandboxes_with_transaction(transaction, subspace, &ids).await;
+					Self::try_get_sandboxes_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetSandboxes(output)
 			},
 			crate::read::Request::TryGetSpecifiersForIds { ids } => {
 				let result =
-					Self::try_get_specifiers_for_ids_with_transaction(transaction, subspace, &ids)
+					Self::try_get_specifiers_for_ids_with_transaction(transaction, subspace, ids)
 						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetSpecifiersForIds(output)
 			},
 			crate::read::Request::TryGetUsers { ids } => {
-				let result =
-					Self::try_get_users_with_transaction(transaction, subspace, &ids).await;
+				let result = Self::try_get_users_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetUsers(output)
 			},
 			crate::read::Request::Visible { ids, principal } => {
 				let result =
-					Self::visible_with_transaction(transaction, subspace, &ids, &principal).await;
+					Self::visible_with_transaction(transaction, subspace, ids, principal).await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::Visible(output)
 			},

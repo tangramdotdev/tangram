@@ -27,7 +27,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let grants = entries
 			.iter()
@@ -67,7 +68,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let entries = entries
 			.iter()
@@ -114,7 +116,8 @@ impl Index {
 			limit: Some(1),
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = crate::fdb::retry!(txn.get_range(&range, 1, false).await);
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		Ok(ControlFlow::Break(!entries.is_empty()))
 	}
