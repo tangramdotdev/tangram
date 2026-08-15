@@ -82,7 +82,7 @@ impl Index {
 			.map(|(request, _)| request.clone())
 			.collect::<Vec<_>>();
 		let subspace = subspace.clone();
-		let result = crate::fdb::run(database, |transaction| {
+		let result = crate::fdb::run_read(database, |transaction| {
 			let requests = read_requests.clone();
 			let subspace = subspace.clone();
 			async move {
@@ -101,7 +101,7 @@ impl Index {
 		match result {
 			Ok(responses) => {
 				for (response, (_, sender)) in std::iter::zip(responses, requests) {
-					sender.send(Ok(response)).ok();
+					sender.send(response).ok();
 				}
 			},
 			Err(error) => {
@@ -118,15 +118,20 @@ impl Index {
 		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		requests: Vec<crate::read::Request>,
-	) -> tg::Result<ControlFlow<Vec<crate::read::Response>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<tg::Result<crate::read::Response>>, fdb::FdbError>> {
 		let results = future::join_all(requests.into_iter().map(|request| {
 			Self::execute_read_request(authorize, partition_total, transaction, subspace, request)
 		}))
 		.await;
 		let mut responses = Vec::with_capacity(results.len());
 		for result in results {
-			let response = crate::fdb::propagate!(result);
-			responses.push(response);
+			match result {
+				Ok(ControlFlow::Break(response)) => responses.push(Ok(response)),
+				Ok(ControlFlow::Continue(error)) => {
+					return Ok(ControlFlow::Continue(error));
+				},
+				Err(error) => responses.push(Err(error)),
+			}
 		}
 
 		Ok(ControlFlow::Break(responses))
