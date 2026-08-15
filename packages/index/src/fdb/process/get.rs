@@ -4,7 +4,7 @@ use {
 	foundationdb_tuple::Subspace,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -47,7 +47,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		command: &tg::object::Id,
-	) -> crate::fdb::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::Process)>, fdb::FdbError>> {
 		let command_bytes = command.to_bytes();
 		let prefix = (
 			Kind::CommandCacheableProcess.to_i32().unwrap(),
@@ -59,7 +59,8 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&range_subspace)
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()
 			.map(|entry| {
@@ -68,17 +69,17 @@ impl Index {
 					process, ..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(process)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
 		let mut output = Vec::new();
 		for process in processes {
-			let Some(data) =
-				Self::try_get_process_with_transaction(txn, subspace, &process).await?
-			else {
+			let Some(data) = crate::fdb::propagate!(
+				Self::try_get_process_with_transaction(txn, subspace, &process).await
+			) else {
 				continue;
 			};
 			if data.data.is_none() {
@@ -91,7 +92,7 @@ impl Index {
 			let b_created_at = b.data.as_ref().unwrap().created_at;
 			a_created_at.cmp(&b_created_at).then_with(|| a_id.cmp(b_id))
 		});
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	pub async fn process_has_ancestor(
@@ -119,26 +120,37 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		ancestor: &tg::process::Id,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut seen = BTreeSet::from([process.clone()]);
 		let mut frontier = vec![process.clone()];
 		while !frontier.is_empty() {
-			let parents =
-				futures::future::try_join_all(frontier.iter().map(|process| {
+			let parents = {
+				let result = futures::future::try_join_all(frontier.iter().map(|process| {
 					Self::get_process_parents_with_transaction(txn, subspace, process)
 				}))
-				.await?;
+				.await;
+				let results = result?;
+				let mut values = Vec::with_capacity(results.len());
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					values.push(value);
+				}
+				values
+			};
 			frontier = Vec::new();
 			for parent in parents.into_iter().flatten() {
 				if &parent == ancestor {
-					return Ok(true);
+					return Ok(ControlFlow::Break(true));
 				}
 				if seen.insert(parent.clone()) {
 					frontier.push(parent);
 				}
 			}
 		}
-		Ok(false)
+		Ok(ControlFlow::Break(false))
 	}
 
 	pub async fn try_get_processes(
@@ -163,35 +175,50 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
-	) -> crate::fdb::Result<Vec<Option<crate::process::Process>>> {
-		futures::future::try_join_all(
-			ids.iter()
-				.map(|id| Self::try_get_process_with_transaction(txn, subspace, id)),
-		)
-		.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::process::Process>>, fdb::FdbError>> {
+		let processes = {
+			let result = futures::future::try_join_all(
+				ids.iter()
+					.map(|id| Self::try_get_process_with_transaction(txn, subspace, id)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
+		Ok(ControlFlow::Break(processes))
 	}
 
 	pub(crate) async fn try_get_process_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> crate::fdb::Result<Option<crate::process::Process>> {
+	) -> tg::Result<ControlFlow<Option<crate::process::Process>, fdb::FdbError>> {
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		Ok(Some(
-			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
-		))
+		let process = Some(crate::process::Process::deserialize(&bytes)?);
+
+		Ok(ControlFlow::Break(process))
 	}
 
 	pub(crate) async fn get_process_children_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> crate::fdb::Result<Vec<tg::process::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -201,23 +228,24 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn
+		let result = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await?;
+			.await;
+		let entries = crate::fdb::retry!(result);
 
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(children)
+		Ok(ControlFlow::Break(children))
 	}
 
 	pub(crate) async fn try_get_process_children_page_with_transaction(
@@ -226,16 +254,18 @@ impl Index {
 		id: &tg::process::Id,
 		position: std::io::SeekFrom,
 		length: u64,
-	) -> crate::fdb::Result<Option<Vec<tg::process::data::Child>>> {
-		let Some(_) = Self::try_get_process_with_transaction(txn, subspace, id).await? else {
-			return Ok(None);
+	) -> tg::Result<ControlFlow<Option<Vec<tg::process::data::Child>>, fdb::FdbError>> {
+		let Some(_) =
+			crate::fdb::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
+		else {
+			return Ok(ControlFlow::Break(None));
 		};
 		if length == 0 {
-			return Ok(Some(Vec::new()));
+			return Ok(ControlFlow::Break(Some(Vec::new())));
 		}
 		let limit = length
 			.to_usize()
-			.ok_or_else(|| crate::fdb::error!("the process child length is too large"))?;
+			.ok_or_else(|| tg::error!("the process child length is too large"))?;
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -244,15 +274,16 @@ impl Index {
 		let position = match position {
 			std::io::SeekFrom::Start(position) => position
 				.to_i64()
-				.ok_or_else(|| crate::fdb::error!("the process child position is too large"))?,
+				.ok_or_else(|| tg::error!("the process child position is too large"))?,
 			std::io::SeekFrom::End(position) => {
 				if position >= 0 {
-					return Ok(Some(Vec::new()));
+					return Ok(ControlFlow::Break(Some(Vec::new())));
 				}
 				let selector = fdb::KeySelector::last_less_than(end.clone());
-				let key = txn.get_key(&selector, false).await?;
+				let result = txn.get_key(&selector, false).await;
+				let key = crate::fdb::retry!(result);
 				if key.as_ref() < begin.as_slice() {
-					return Err(crate::fdb::error!("invalid process child position"));
+					return Err(tg::error!("invalid process child position"));
 				}
 				let key = Self::unpack(subspace, &key)?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild {
@@ -260,16 +291,16 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				last_position
 					.checked_add(1)
 					.and_then(|children_length| children_length.checked_add(position))
 					.filter(|position| *position >= 0)
-					.ok_or_else(|| crate::fdb::error!("invalid process child position"))?
+					.ok_or_else(|| tg::error!("invalid process child position"))?
 			},
 			std::io::SeekFrom::Current(_) => {
-				return Err(crate::fdb::error!(
+				return Err(tg::error!(
 					"a current process child position is not supported"
 				));
 			},
@@ -289,10 +320,11 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..Default::default()
 		};
-		let entries = txn
+		let result = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await?;
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let children = entries
 			.iter()
 			.enumerate()
@@ -304,35 +336,34 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				let expected_position = position
 					.checked_add(index.to_i64().unwrap())
-					.ok_or_else(|| crate::fdb::error!("invalid process child position"))?;
+					.ok_or_else(|| tg::error!("invalid process child position"))?;
 				if child_position != expected_position {
-					return Err(crate::fdb::error!("the process child position is invalid"));
+					return Err(tg::error!("the process child position is invalid"));
 				}
 				let child: tg::process::data::Child = tangram_serialize::from_slice(entry.value())
 					.map_err(|error| {
-						crate::fdb::error!(!error, "failed to deserialize the process child")
+						tg::error!(!error, "failed to deserialize the process child")
 					})?;
 				if child.process.node != child_id {
-					return Err(crate::fdb::error!(
-						"the process child value does not match its key"
-					));
+					return Err(tg::error!("the process child value does not match its key"));
 				}
 
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
-		Ok(Some(children))
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break(Some(children)))
 	}
 
 	pub(crate) async fn get_process_parents_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> crate::fdb::Result<Vec<tg::process::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
 		let bytes = id.to_bytes();
 		let key = (Kind::ChildProcess.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -342,7 +373,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let parents = entries
 			.iter()
@@ -350,20 +382,21 @@ impl Index {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ChildProcess { parent, .. }) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(parent)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(parents)
+		Ok(ControlFlow::Break(parents))
 	}
 
 	pub(crate) async fn get_process_objects_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
-	) -> crate::fdb::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::object::Id, crate::process::object::Kind)>, fdb::FdbError>>
+	{
 		let bytes = id.to_bytes();
 		let key = (Kind::ProcessObject.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -373,7 +406,8 @@ impl Index {
 			..fdb::RangeOption::from(&range_subspace)
 		};
 
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 
 		let objects = entries
 			.iter()
@@ -382,12 +416,12 @@ impl Index {
 				let Key::Process(crate::fdb::process::Key::ProcessObject { kind, object, .. }) =
 					key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(objects)
+		Ok(ControlFlow::Break(objects))
 	}
 }

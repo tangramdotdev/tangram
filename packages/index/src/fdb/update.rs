@@ -8,7 +8,7 @@ use {
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -277,7 +277,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		kind: crate::update::Kind,
 		partition_total: u64,
-	) -> crate::fdb::Result<Option<u64>> {
+	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
 		let futures = (0..partition_total).map(|partition| {
 			let begin = Self::pack(subspace, &(key_kind, partition));
@@ -290,29 +290,41 @@ impl Index {
 				..Default::default()
 			};
 			async move {
-				let entries = txn.get_range(&range, 1, false).await?;
+				let result = txn.get_range(&range, 1, false).await;
+				let entries = crate::fdb::retry!(result);
 				let Some(entry) = entries.first() else {
-					return Ok(None);
+					return Ok(ControlFlow::Break(None));
 				};
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
 					version, ..
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected update key"));
+					return Err(tg::error!("unexpected update key"));
 				};
 				let transaction_id =
 					u64::from_be_bytes(version.as_bytes()[..8].try_into().unwrap());
-				Ok(Some(transaction_id))
+				Ok(ControlFlow::Break(Some(transaction_id)))
 			}
 		});
-		let transaction_id = future::try_join_all(futures)
-			.await?
-			.into_iter()
-			.flatten()
-			.min();
+		let transaction_id = {
+			let result = future::try_join_all(futures).await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		}
+		.into_iter()
+		.flatten()
+		.min();
 
-		Ok(transaction_id)
+		Ok(ControlFlow::Break(transaction_id))
 	}
 
 	pub async fn update_batch(
@@ -347,7 +359,7 @@ impl Index {
 		max_process_depth: Option<u64>,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<crate::update::Output> {
+	) -> tg::Result<ControlFlow<crate::update::Output, fdb::FdbError>> {
 		let mut entries = Vec::new();
 
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
@@ -365,7 +377,8 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..Default::default()
 			};
-			let partition_entries = txn.get_range(&range, 1, false).await?;
+			let result = txn.get_range(&range, 1, false).await;
+			let partition_entries = crate::fdb::retry!(result);
 			for entry in partition_entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let crate::fdb::Key::Update(crate::fdb::update::Key::UpdateVersion {
@@ -375,7 +388,7 @@ impl Index {
 					kind,
 				}) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				entries.push((partition, version, id, kind));
 			}
@@ -390,7 +403,8 @@ impl Index {
 					kind: kind.clone(),
 				}),
 			);
-			let value = txn.get(&key, false).await?;
+			let result = txn.get(&key, false).await;
+			let value = crate::fdb::retry!(result);
 
 			let Some(value) = value else {
 				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
@@ -399,50 +413,48 @@ impl Index {
 			};
 
 			let (cursor, source) = match &kind {
-				Kind::Grant(_) | Kind::Node => (
-					None,
-					Some(
-						deserialize_source_update(&kind, &value)
-							.map_err(crate::fdb::custom_error)?,
-					),
-				),
-				Kind::Storage(_) => (
-					StorageUpdate::deserialize(&value)
-						.map_err(crate::fdb::custom_error)?
-						.cursor,
-					None,
-				),
+				Kind::Grant(_) | Kind::Node => {
+					(None, Some(deserialize_source_update(&kind, &value)?))
+				},
+				Kind::Storage(_) => (StorageUpdate::deserialize(&value)?.cursor, None),
 			};
 			let mut next_cursor = None;
 
 			let changed = match &kind {
 				Kind::Grant(subject) => match &id {
 					tg::Either::Left(id) => {
-						Self::update_object_grants_for_subject(
-							txn,
-							subspace,
-							id,
-							subject,
-							partition_total,
+						crate::fdb::propagate!(
+							Self::update_object_grants_for_subject(
+								txn,
+								subspace,
+								id,
+								subject,
+								partition_total,
+							)
+							.await
 						)
-						.await?
 					},
 					tg::Either::Right(id) => {
-						Self::update_process_grants_for_subject(
-							txn,
-							subspace,
-							id,
-							subject,
-							partition_total,
+						crate::fdb::propagate!(
+							Self::update_process_grants_for_subject(
+								txn,
+								subspace,
+								id,
+								subject,
+								partition_total,
+							)
+							.await
 						)
-						.await?
 					},
 				},
 				Kind::Node => match &id {
-					tg::Either::Left(id) => Self::update_object(txn, subspace, id).await?,
+					tg::Either::Left(id) => {
+						crate::fdb::propagate!(Self::update_object(txn, subspace, id).await)
+					},
 					tg::Either::Right(id) => {
-						let process_output =
-							Self::update_process(txn, subspace, id, max_process_depth).await?;
+						let process_output = crate::fdb::propagate!(
+							Self::update_process(txn, subspace, id, max_process_depth).await
+						);
 						if process_output.depth_exceeded {
 							output.processes_with_depth_exceeded.push(id.clone());
 						}
@@ -454,76 +466,86 @@ impl Index {
 					touched_at,
 				}) => match &id {
 					tg::Either::Left(object) => {
-						Self::put_account_object(
-							txn,
-							subspace,
-							&crate::usage::storage::put::ObjectArg {
-								account: account.clone(),
-								object: object.clone(),
-								touched_at: *touched_at,
-							},
-							partition_total,
-							usage_partition_total,
-							false,
-							Some(&version),
+						crate::fdb::propagate!(
+							Self::put_account_object(
+								txn,
+								subspace,
+								&crate::usage::storage::put::ObjectArg {
+									account: account.clone(),
+									object: object.clone(),
+									touched_at: *touched_at,
+								},
+								partition_total,
+								usage_partition_total,
+								false,
+								Some(&version),
+							)
+							.await
 						)
-						.await?
 					},
 					tg::Either::Right(process) => {
-						Self::put_account_process(
-							txn,
-							subspace,
-							&crate::usage::storage::put::ProcessArg {
-								account: account.clone(),
-								process: process.clone(),
-								touched_at: *touched_at,
-							},
-							partition_total,
-							usage_partition_total,
-							false,
-							Some(&version),
+						crate::fdb::propagate!(
+							Self::put_account_process(
+								txn,
+								subspace,
+								&crate::usage::storage::put::ProcessArg {
+									account: account.clone(),
+									process: process.clone(),
+									touched_at: *touched_at,
+								},
+								partition_total,
+								usage_partition_total,
+								false,
+								Some(&version),
+							)
+							.await
 						)
-						.await?
 					},
 				},
 				Kind::Storage(StorageKind::Clean(account)) => {
-					next_cursor = Self::propagate_storage_clean(
-						txn,
-						subspace,
-						&id,
-						account,
-						cursor.as_ref(),
-						partition_total,
-					)
-					.await?;
+					next_cursor = crate::fdb::propagate!(
+						Self::propagate_storage_clean(
+							txn,
+							subspace,
+							&id,
+							account,
+							cursor.as_ref(),
+							partition_total,
+						)
+						.await
+					);
 					false
 				},
 				Kind::Storage(StorageKind::CleanAll) => {
-					next_cursor = Self::propagate_storage_accounts_clean(
-						txn,
-						subspace,
-						&id,
-						cursor.as_ref(),
-						partition_total,
-					)
-					.await?;
+					next_cursor = crate::fdb::propagate!(
+						Self::propagate_storage_accounts_clean(
+							txn,
+							subspace,
+							&id,
+							cursor.as_ref(),
+							partition_total,
+						)
+						.await
+					);
 					false
 				},
 				Kind::Storage(StorageKind::Propagate {
 					account,
 					touched_at,
 				}) => {
-					next_cursor = Self::propagate_storage_relationships(
-						txn,
-						subspace,
-						&id,
-						account,
-						cursor.as_ref(),
-						partition_total,
-						*touched_at,
-						&version,
-					)
-					.await?;
+					next_cursor = crate::fdb::propagate!(
+						Self::propagate_storage_relationships(
+							txn,
+							subspace,
+							&id,
+							account,
+							cursor.as_ref(),
+							partition_total,
+							*touched_at,
+							&version,
+						)
+						.await
+					);
 					false
 				},
 			};
@@ -533,7 +555,10 @@ impl Index {
 					Source::Put => true,
 					Source::Propagate => changed,
 				} {
-				Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total).await?;
+				crate::fdb::propagate!(
+					Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total,)
+						.await
+				);
 			}
 
 			let continued = if let Some(cursor) = next_cursor {
@@ -547,10 +572,12 @@ impl Index {
 						kind: kind.clone(),
 					}),
 				);
-				txn.set(&key, &update.serialize().map_err(crate::fdb::custom_error)?);
+				txn.set(&key, &update.serialize()?);
 				true
 			} else {
-				Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await?;
+				crate::fdb::propagate!(
+					Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await
+				);
 				let key = Self::pack(
 					subspace,
 					&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
@@ -568,7 +595,7 @@ impl Index {
 			output.count += 1;
 		}
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -581,9 +608,10 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
-	) -> crate::fdb::Result<Option<StorageCursor>> {
-		let (relationships, cursor) =
-			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
+	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+		let (relationships, cursor) = crate::fdb::propagate!(
+			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
+		);
 		let kind = Kind::Storage(StorageKind::Add {
 			account: account.clone(),
 			touched_at,
@@ -604,7 +632,7 @@ impl Index {
 			);
 		}
 
-		Ok(cursor)
+		Ok(ControlFlow::Break(cursor))
 	}
 
 	async fn propagate_storage_clean(
@@ -614,35 +642,47 @@ impl Index {
 		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
-	) -> crate::fdb::Result<Option<StorageCursor>> {
-		let (relationships, cursor) =
-			Self::get_storage_relationships_page(txn, subspace, id, cursor).await?;
-		future::try_join_all(relationships.iter().map(|relationship| async move {
-			match relationship {
-				StorageRelationship::Object(object) => {
-					Self::schedule_account_object_for_cleaning(
-						txn,
-						subspace,
-						account,
-						object,
-						partition_total,
-					)
-					.await
-				},
-				StorageRelationship::Process(process) => {
-					Self::schedule_account_process_for_cleaning(
-						txn,
-						subspace,
-						account,
-						process,
-						partition_total,
-					)
-					.await
-				},
+	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+		let (relationships, cursor) = crate::fdb::propagate!(
+			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
+		);
+		{
+			let result =
+				future::try_join_all(relationships.iter().map(|relationship| async move {
+					match relationship {
+						StorageRelationship::Object(object) => {
+							Self::schedule_account_object_for_cleaning(
+								txn,
+								subspace,
+								account,
+								object,
+								partition_total,
+							)
+							.await
+						},
+						StorageRelationship::Process(process) => {
+							Self::schedule_account_process_for_cleaning(
+								txn,
+								subspace,
+								account,
+								process,
+								partition_total,
+							)
+							.await
+						},
+					}
+				}))
+				.await;
+			let results = result?;
+			for result in results {
+				match result {
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
-		}))
-		.await?;
-		Ok(cursor)
+		};
+
+		Ok(ControlFlow::Break(cursor))
 	}
 
 	async fn propagate_storage_accounts_clean(
@@ -651,35 +691,46 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
 		partition_total: u64,
-	) -> crate::fdb::Result<Option<StorageCursor>> {
-		let (accounts, cursor) = Self::get_storage_accounts_page(txn, subspace, id, cursor).await?;
-		future::try_join_all(accounts.iter().map(|account| async move {
-			match id {
-				tg::Either::Left(object) => {
-					Self::schedule_account_object_for_cleaning(
-						txn,
-						subspace,
-						account,
-						object,
-						partition_total,
-					)
-					.await
-				},
-				tg::Either::Right(process) => {
-					Self::schedule_account_process_for_cleaning(
-						txn,
-						subspace,
-						account,
-						process,
-						partition_total,
-					)
-					.await
-				},
+	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+		let (accounts, cursor) = crate::fdb::propagate!(
+			Self::get_storage_accounts_page(txn, subspace, id, cursor).await
+		);
+		{
+			let result = future::try_join_all(accounts.iter().map(|account| async move {
+				match id {
+					tg::Either::Left(object) => {
+						Self::schedule_account_object_for_cleaning(
+							txn,
+							subspace,
+							account,
+							object,
+							partition_total,
+						)
+						.await
+					},
+					tg::Either::Right(process) => {
+						Self::schedule_account_process_for_cleaning(
+							txn,
+							subspace,
+							account,
+							process,
+							partition_total,
+						)
+						.await
+					},
+				}
+			}))
+			.await;
+			let results = result?;
+			for result in results {
+				match result {
+					ControlFlow::Break(()) => {},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
 			}
-		}))
-		.await?;
+		};
 
-		Ok(cursor)
+		Ok(ControlFlow::Break(cursor))
 	}
 
 	async fn get_storage_relationships_page(
@@ -687,7 +738,8 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
+	{
 		match id {
 			tg::Either::Left(object) => {
 				let after = match cursor {
@@ -699,9 +751,7 @@ impl Index {
 						| StorageCursor::ProcessObject(_)
 						| StorageCursor::ProcessAccount(_),
 					) => {
-						return Err(
-							crate::fdb::error!(%object, "an object update has an invalid cursor"),
-						);
+						return Err(tg::error!(%object, "an object update has an invalid cursor"));
 					},
 				};
 				Self::get_storage_object_relationships_page(txn, subspace, object, after).await
@@ -715,9 +765,7 @@ impl Index {
 							| StorageCursor::ProcessAccount(_)
 					)
 				) {
-					return Err(
-						crate::fdb::error!(%process, "a process update has an invalid cursor"),
-					);
+					return Err(tg::error!(%process, "a process update has an invalid cursor"));
 				}
 				Self::get_storage_process_relationships_page(txn, subspace, process, cursor).await
 			},
@@ -729,7 +777,8 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-	) -> crate::fdb::Result<(Vec<crate::usage::Account>, Option<StorageCursor>)> {
+	) -> tg::Result<ControlFlow<(Vec<crate::usage::Account>, Option<StorageCursor>), fdb::FdbError>>
+	{
 		let (kind, item, after) = match (id, cursor) {
 			(tg::Either::Left(object), None) => (KeyKind::ObjectAccount, object.to_bytes(), None),
 			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
@@ -756,14 +805,10 @@ impl Index {
 				)),
 			),
 			(tg::Either::Left(object), Some(_)) => {
-				return Err(
-					crate::fdb::error!(%object, "an object account update has an invalid cursor"),
-				);
+				return Err(tg::error!(%object, "an object account update has an invalid cursor"));
 			},
 			(tg::Either::Right(process), Some(_)) => {
-				return Err(
-					crate::fdb::error!(%process, "a process account update has an invalid cursor"),
-				);
+				return Err(tg::error!(%process, "a process account update has an invalid cursor"));
 			},
 		};
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), item.as_ref()));
@@ -777,7 +822,8 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let mut accounts = entries
 			.iter()
 			.map(|entry| match Self::unpack(subspace, entry.key())? {
@@ -785,9 +831,9 @@ impl Index {
 					crate::fdb::usage::Key::ObjectAccount { account, .. }
 					| crate::fdb::usage::Key::ProcessAccount { account, .. },
 				) => Ok(account),
-				_ => Err(crate::fdb::error!("unexpected key type")),
+				_ => Err(tg::error!("unexpected key type")),
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let cursor = if accounts.len() > STORAGE_RELATION_BATCH_SIZE {
 			accounts.truncate(STORAGE_RELATION_BATCH_SIZE);
 			let account = accounts.last().unwrap().clone();
@@ -799,7 +845,7 @@ impl Index {
 			None
 		};
 
-		Ok((accounts, cursor))
+		Ok(ControlFlow::Break((accounts, cursor)))
 	}
 
 	async fn get_storage_object_relationships_page(
@@ -807,7 +853,8 @@ impl Index {
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
-	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
+	{
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -830,18 +877,19 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let mut children = entries
 			.iter()
 			.map(|entry| {
 				let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild { child, .. }) =
 					Self::unpack(subspace, entry.key())?
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(child)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let cursor = if children.len() > STORAGE_RELATION_BATCH_SIZE {
 			children.truncate(STORAGE_RELATION_BATCH_SIZE);
 			Some(StorageCursor::Object(children.last().unwrap().clone()))
@@ -853,7 +901,7 @@ impl Index {
 			.map(StorageRelationship::Object)
 			.collect();
 
-		Ok((relationships, cursor))
+		Ok(ControlFlow::Break((relationships, cursor)))
 	}
 
 	async fn get_storage_process_relationships_page(
@@ -861,7 +909,8 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cursor: Option<&StorageCursor>,
-	) -> crate::fdb::Result<(Vec<StorageRelationship>, Option<StorageCursor>)> {
+	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
+	{
 		let mut relationships = Vec::new();
 		let process_object_cursor = match cursor {
 			None | Some(StorageCursor::ProcessChild(_)) => {
@@ -869,17 +918,21 @@ impl Index {
 					Some(StorageCursor::ProcessChild(position)) => Some(*position),
 					_ => None,
 				};
-				let (children, child_cursor, more) =
-					Self::get_storage_process_children_page(txn, subspace, process, after).await?;
+				let (children, child_cursor, more) = crate::fdb::propagate!(
+					Self::get_storage_process_children_page(txn, subspace, process, after).await
+				);
 				relationships.extend(children.into_iter().map(StorageRelationship::Process));
 				if more {
-					return Ok((
+					return Ok(ControlFlow::Break((
 						relationships,
 						Some(StorageCursor::ProcessChild(child_cursor.unwrap())),
-					));
+					)));
 				}
 				if relationships.len() == STORAGE_RELATION_BATCH_SIZE {
-					return Ok((relationships, Some(StorageCursor::ProcessObject(None))));
+					return Ok(ControlFlow::Break((
+						relationships,
+						Some(StorageCursor::ProcessObject(None)),
+					)));
 				}
 				None
 			},
@@ -891,14 +944,16 @@ impl Index {
 			) => unreachable!(),
 		};
 		let limit = STORAGE_RELATION_BATCH_SIZE - relationships.len();
-		let (objects, more) = Self::get_storage_process_objects_page(
-			txn,
-			subspace,
-			process,
-			process_object_cursor,
-			limit,
-		)
-		.await?;
+		let (objects, more) = crate::fdb::propagate!(
+			Self::get_storage_process_objects_page(
+				txn,
+				subspace,
+				process,
+				process_object_cursor,
+				limit,
+			)
+			.await
+		);
 		let cursor = objects.last().map(|(object, kind)| ProcessObjectCursor {
 			kind: *kind,
 			object: object.clone(),
@@ -910,7 +965,7 @@ impl Index {
 		);
 		let cursor = more.then_some(StorageCursor::ProcessObject(cursor));
 
-		Ok((relationships, cursor))
+		Ok(ControlFlow::Break((relationships, cursor)))
 	}
 
 	async fn get_storage_process_children_page(
@@ -918,7 +973,7 @@ impl Index {
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<i64>,
-	) -> crate::fdb::Result<(Vec<tg::process::Id>, Option<i64>, bool)> {
+	) -> tg::Result<ControlFlow<(Vec<tg::process::Id>, Option<i64>, bool), fdb::FdbError>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -935,7 +990,7 @@ impl Index {
 		if let Some(after) = after {
 			let position = after
 				.checked_add(1)
-				.ok_or_else(|| crate::fdb::error!("the process has too many children"))?;
+				.ok_or_else(|| tg::error!("the process has too many children"))?;
 			let begin = Self::pack(
 				subspace,
 				&(
@@ -946,10 +1001,11 @@ impl Index {
 			);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn
+		let result = txn
 			.get_ranges_keyvalues(range, false)
 			.try_collect::<Vec<_>>()
-			.await?;
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let mut children = entries
 			.iter()
 			.map(|entry| {
@@ -959,17 +1015,17 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok((child, position))
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let more = children.len() > STORAGE_RELATION_BATCH_SIZE;
 		children.truncate(STORAGE_RELATION_BATCH_SIZE);
 		let cursor = children.last().map(|(_, position)| *position);
 		let children = children.into_iter().map(|(child, _)| child).collect();
 
-		Ok((children, cursor, more))
+		Ok(ControlFlow::Break((children, cursor, more)))
 	}
 
 	async fn get_storage_process_objects_page(
@@ -978,7 +1034,9 @@ impl Index {
 		process: &tg::process::Id,
 		after: Option<&ProcessObjectCursor>,
 		limit: usize,
-	) -> crate::fdb::Result<(Vec<(tg::object::Id, crate::process::object::Kind)>, bool)> {
+	) -> tg::Result<
+		ControlFlow<(Vec<(tg::object::Id, crate::process::object::Kind)>, bool), fdb::FdbError>,
+	> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -1002,7 +1060,8 @@ impl Index {
 			begin.push(0);
 			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
 		}
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let mut objects = entries
 			.iter()
 			.map(|entry| {
@@ -1012,15 +1071,15 @@ impl Index {
 					..
 				}) = Self::unpack(subspace, entry.key())?
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let more = objects.len() > limit;
 		objects.truncate(limit);
 
-		Ok((objects, more))
+		Ok(ControlFlow::Break((objects, more)))
 	}
 
 	async fn schedule_update_item_clean(
@@ -1028,12 +1087,13 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = match id {
 			tg::Either::Left(id) => {
-				let Some(object) = Self::try_get_object_with_transaction(txn, subspace, id).await?
-				else {
-					return Ok(());
+				let Some(object) = crate::fdb::propagate!(
+					Self::try_get_object_with_transaction(txn, subspace, id).await
+				) else {
+					return Ok(ControlFlow::Break(()));
 				};
 				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
 				crate::fdb::clean::Key::Object {
@@ -1043,10 +1103,10 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
-				let Some(process) =
-					Self::try_get_process_with_transaction(txn, subspace, id).await?
-				else {
-					return Ok(());
+				let Some(process) = crate::fdb::propagate!(
+					Self::try_get_process_with_transaction(txn, subspace, id).await
+				) else {
+					return Ok(ControlFlow::Break(()));
 				};
 				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
 				crate::fdb::clean::Key::Process {
@@ -1059,31 +1119,45 @@ impl Index {
 		let key = crate::fdb::Key::Clean(key);
 		txn.set(&Self::pack(subspace, &key), &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn update_object(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		};
-		let mut object =
-			crate::object::Object::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut object = crate::object::Object::deserialize(&bytes)?;
 
-		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
+		let children = crate::fdb::propagate!(
+			Self::get_object_children_with_transaction(txn, subspace, id).await
+		);
 
-		let child_objects: Vec<Option<crate::object::Object>> = future::try_join_all(
-			children
-				.iter()
-				.map(|child| Self::try_get_object_with_transaction(txn, subspace, child)),
-		)
-		.await?;
+		let child_objects = {
+			let result = future::try_join_all(
+				children
+					.iter()
+					.map(|child| Self::try_get_object_with_transaction(txn, subspace, child)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
 		let mut changed = false;
 
 		if !object.stored.subtree {
@@ -1181,11 +1255,11 @@ impl Index {
 		if changed {
 			let value = object
 				.serialize()
-				.map_err(|error| crate::fdb::error!(!error, "failed to serialize the object"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
 			txn.set(&key, &value);
 		}
 
-		Ok(changed)
+		Ok(ControlFlow::Break(changed))
 	}
 
 	async fn update_object_grants_for_subject(
@@ -1194,23 +1268,39 @@ impl Index {
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
-		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
-		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
-			txn, subspace, &resource, subject,
-		)
-		.await?;
-		let child_entries = future::try_join_all(children.iter().map(|child| {
-			let resource = tg::Id::from(child.clone());
-			async move {
-				Self::get_resource_grant_entries_for_subject_with_transaction(
-					txn, subspace, &resource, subject,
-				)
-				.await
+		let children = crate::fdb::propagate!(
+			Self::get_object_children_with_transaction(txn, subspace, id).await
+		);
+		let entries = crate::fdb::propagate!(
+			Self::get_resource_grant_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		let child_entries = {
+			let result = future::try_join_all(children.iter().map(|child| {
+				let resource = tg::Id::from(child.clone());
+				async move {
+					Self::get_resource_grant_entries_for_subject_with_transaction(
+						txn, subspace, &resource, subject,
+					)
+					.await
+				}
+			}))
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
 			}
-		}))
-		.await?;
+			values
+		};
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -1260,7 +1350,7 @@ impl Index {
 		)>,
 		managed: &BTreeSet<tg::authorization::Permission>,
 		partition_total: u64,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut changed = false;
 		let current = entries
 			.iter()
@@ -1272,45 +1362,47 @@ impl Index {
 			})
 			.collect::<BTreeSet<_>>();
 		for (subject, permission, expires_at) in current.difference(expected) {
-			if Self::delete_grant_index_entry(
-				txn,
-				subspace,
-				&crate::fdb::grant::GrantIndexEntry {
-					creator: None,
-					expires_at: *expires_at,
-					permission: *permission,
-					subject,
-					resource,
-				},
-				crate::fdb::grant::GrantSource::Materialized,
-				partition_total,
-			)
-			.await?
-			{
+			if crate::fdb::propagate!(
+				Self::delete_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: None,
+						expires_at: *expires_at,
+						permission: *permission,
+						subject,
+						resource,
+					},
+					crate::fdb::grant::GrantSource::Materialized,
+					partition_total,
+				)
+				.await
+			) {
 				changed = true;
 			}
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
-			if Self::put_grant_index_entry(
-				txn,
-				subspace,
-				&crate::fdb::grant::GrantIndexEntry {
-					creator: None,
-					expires_at: *expires_at,
-					permission: *permission,
-					subject,
-					resource,
-				},
-				crate::fdb::grant::GrantSource::Materialized,
-				None,
-				partition_total,
-			)
-			.await?
-			{
+			if crate::fdb::propagate!(
+				Self::put_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: None,
+						expires_at: *expires_at,
+						permission: *permission,
+						subject,
+						resource,
+					},
+					crate::fdb::grant::GrantSource::Materialized,
+					None,
+					partition_total,
+				)
+				.await
+			) {
 				changed = true;
 			}
 		}
-		Ok(changed)
+		Ok(ControlFlow::Break(changed))
 	}
 
 	async fn update_process_grants(
@@ -1318,7 +1410,7 @@ impl Index {
 		subspace: &Subspace,
 		input: &ProcessGrantInputs<'_>,
 		partition_total: u64,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let object_subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
@@ -1472,42 +1564,62 @@ impl Index {
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		};
-		let process =
-			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let process = crate::process::Process::deserialize(&bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
-			txn, subspace, &resource, subject,
-		)
-		.await?;
-		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
-		let child_entries = future::try_join_all(children.iter().map(|child| {
-			let resource = tg::Id::from(child.clone());
-			async move {
-				Self::get_resource_grant_entries_for_subject_with_transaction(
-					txn, subspace, &resource, subject,
-				)
-				.await
+		let entries = crate::fdb::propagate!(
+			Self::get_resource_grant_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		let children = crate::fdb::propagate!(
+			Self::get_process_children_with_transaction(txn, subspace, id).await
+		);
+		let child_entries = {
+			let result = future::try_join_all(children.iter().map(|child| {
+				let resource = tg::Id::from(child.clone());
+				async move {
+					Self::get_resource_grant_entries_for_subject_with_transaction(
+						txn, subspace, &resource, subject,
+					)
+					.await
+				}
+			}))
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
 			}
-		}))
-		.await?;
-		let objects = Self::get_process_objects_with_transaction(txn, subspace, id).await?;
+			values
+		};
+		let objects = crate::fdb::propagate!(
+			Self::get_process_objects_with_transaction(txn, subspace, id).await
+		);
 		let mut command_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
 		let mut error_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
 		let mut log_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
 		let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
-			let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
-				txn, subspace, &resource, subject,
-			)
-			.await?;
+			let entries = crate::fdb::propagate!(
+				Self::get_resource_grant_entries_for_subject_with_transaction(
+					txn, subspace, &resource, subject,
+				)
+				.await
+			);
 			match kind {
 				crate::process::object::Kind::Command => {
 					command_object_entries = Some(entries);
@@ -1633,35 +1745,53 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
-	) -> crate::fdb::Result<ProcessOutput> {
+	) -> tg::Result<ControlFlow<ProcessOutput, fdb::FdbError>> {
 		let process_key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let process_key = Self::pack(subspace, &process_key);
-		let bytes = txn.get(&process_key, false).await?;
+		let result = txn.get(&process_key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
 			let output = ProcessOutput {
 				changed: false,
 				depth_exceeded: false,
 			};
-			return Ok(output);
+			return Ok(ControlFlow::Break(output));
 		};
-		let mut process =
-			crate::process::Process::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let mut process = crate::process::Process::deserialize(&bytes)?;
 
-		let children = Self::get_process_children_with_transaction(txn, subspace, id).await?;
-		let children = future::try_join_all(
-			children
-				.iter()
-				.map(|child| Self::try_get_process_with_transaction(txn, subspace, child)),
-		)
-		.await?;
+		let children = crate::fdb::propagate!(
+			Self::get_process_children_with_transaction(txn, subspace, id).await
+		);
+		let children = {
+			let result = future::try_join_all(
+				children
+					.iter()
+					.map(|child| Self::try_get_process_with_transaction(txn, subspace, child)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
 
-		let objects = Self::get_process_objects_with_transaction(txn, subspace, id).await?;
+		let objects = crate::fdb::propagate!(
+			Self::get_process_objects_with_transaction(txn, subspace, id).await
+		);
 		let mut command_object: Option<crate::object::Object> = None;
 		let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		let mut log_object: Option<Option<crate::object::Object>> = None;
 		let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		for (object_id, kind) in &objects {
-			let object = Self::try_get_object_with_transaction(txn, subspace, object_id).await?;
+			let object = crate::fdb::propagate!(
+				Self::try_get_object_with_transaction(txn, subspace, object_id).await
+			);
 			match kind {
 				crate::process::object::Kind::Command => {
 					command_object = object;
@@ -2414,7 +2544,7 @@ impl Index {
 		if changed {
 			let value = process
 				.serialize()
-				.map_err(|error| crate::fdb::error!(!error, "failed to serialize the process"))?;
+				.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
 			txn.set(&process_key, &value);
 		}
 
@@ -2423,7 +2553,7 @@ impl Index {
 			depth_exceeded,
 		};
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	async fn enqueue_parents(
@@ -2433,51 +2563,62 @@ impl Index {
 		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match id {
 			tg::Either::Left(id) => {
-				let parents = Self::get_object_parents_with_transaction(txn, subspace, id).await?;
+				let parents = crate::fdb::propagate!(
+					Self::get_object_parents_with_transaction(txn, subspace, id).await
+				);
 				for parent in parents {
-					Self::enqueue_update_propagate(
-						txn,
-						subspace,
-						&tg::Either::Left(parent),
-						kind,
-						version,
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::enqueue_update_propagate(
+							txn,
+							subspace,
+							&tg::Either::Left(parent),
+							kind,
+							version,
+							partition_total,
+						)
+						.await
+					);
 				}
-				let process_parents =
-					Self::get_object_processes_with_transaction(txn, subspace, id).await?;
+				let process_parents = crate::fdb::propagate!(
+					Self::get_object_processes_with_transaction(txn, subspace, id).await
+				);
 				for (process, _kind) in process_parents {
-					Self::enqueue_update_propagate(
-						txn,
-						subspace,
-						&tg::Either::Right(process),
-						kind,
-						version,
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::enqueue_update_propagate(
+							txn,
+							subspace,
+							&tg::Either::Right(process),
+							kind,
+							version,
+							partition_total,
+						)
+						.await
+					);
 				}
 			},
 			tg::Either::Right(id) => {
-				let parents = Self::get_process_parents_with_transaction(txn, subspace, id).await?;
+				let parents = crate::fdb::propagate!(
+					Self::get_process_parents_with_transaction(txn, subspace, id).await
+				);
 				for parent in parents {
-					Self::enqueue_update_propagate(
-						txn,
-						subspace,
-						&tg::Either::Right(parent),
-						kind,
-						version,
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::enqueue_update_propagate(
+							txn,
+							subspace,
+							&tg::Either::Right(parent),
+							kind,
+							version,
+							partition_total,
+						)
+						.await
+					);
 				}
 			},
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn enqueue_update_propagate(
@@ -2487,7 +2628,7 @@ impl Index {
 		kind: &Kind,
 		version: &fdbt::Versionstamp,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Self::pack(
 			subspace,
 			&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
@@ -2495,15 +2636,12 @@ impl Index {
 				kind: kind.clone(),
 			}),
 		);
-		let source = txn
-			.get(&key, false)
-			.await?
+		let result = txn.get(&key, false).await;
+		let source = crate::fdb::retry!(result)
 			.map(|bytes| deserialize_source_update(kind, &bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?;
+			.transpose()?;
 		if !matches!(source, Some(Source::Put)) {
-			let value =
-				serialize_update(kind, Source::Propagate).map_err(crate::fdb::custom_error)?;
+			let value = serialize_update(kind, Source::Propagate)?;
 			txn.set(&key, &value);
 		}
 
@@ -2521,7 +2659,7 @@ impl Index {
 			.unwrap();
 		txn.set(&key, &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn clear_update_version(

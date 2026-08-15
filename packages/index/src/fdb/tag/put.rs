@@ -1,6 +1,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -22,11 +23,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::tag::put::Arg],
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
-			Self::put_tag(txn, subspace, arg, partition_total).await?;
+			crate::fdb::propagate!(Self::put_tag(txn, subspace, arg, partition_total).await);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn put_tag(
@@ -34,15 +35,13 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::tag::put::Arg,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
-		let tag = txn
-			.get(&key, false)
-			.await?
+		let result = txn.get(&key, false).await;
+		let tag = crate::fdb::retry!(result)
 			.map(|bytes| crate::tag::Tag::deserialize(&bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)?;
+			.transpose()?;
 		if let Some(tag) = tag.as_ref()
 			&& (tag.account != arg.account
 				|| tag.specifier != arg.specifier
@@ -50,17 +49,26 @@ impl Index {
 		{
 			match &tag.target {
 				tg::Either::Left(id) => {
-					Self::schedule_object_accounts_for_cleaning(txn, subspace, id, partition_total)
-						.await?;
+					crate::fdb::propagate!(
+						Self::schedule_object_accounts_for_cleaning(
+							txn,
+							subspace,
+							id,
+							partition_total,
+						)
+						.await
+					);
 				},
 				tg::Either::Right(id) => {
-					Self::schedule_process_accounts_for_cleaning(
-						txn,
-						subspace,
-						id,
-						partition_total,
-					)
-					.await?;
+					crate::fdb::propagate!(
+						Self::schedule_process_accounts_for_cleaning(
+							txn,
+							subspace,
+							id,
+							partition_total,
+						)
+						.await
+					);
 				},
 			}
 		}
@@ -80,12 +88,16 @@ impl Index {
 
 			match &tag.target {
 				tg::Either::Left(id) => {
-					Self::decrement_object_reference_count(txn, subspace, id, partition_total)
-						.await?;
+					crate::fdb::propagate!(
+						Self::decrement_object_reference_count(txn, subspace, id, partition_total)
+							.await
+					);
 				},
 				tg::Either::Right(id) => {
-					Self::decrement_process_reference_count(txn, subspace, id, partition_total)
-						.await?;
+					crate::fdb::propagate!(
+						Self::decrement_process_reference_count(txn, subspace, id, partition_total)
+							.await
+					);
 				},
 			}
 		}
@@ -126,8 +138,7 @@ impl Index {
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
 		}
-		.serialize()
-		.map_err(crate::fdb::custom_error)?;
+		.serialize()?;
 		txn.set(&key, &value);
 
 		let node_key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -162,6 +173,6 @@ impl Index {
 		let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 		txn.set(&tag_parent_key, &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

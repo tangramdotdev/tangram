@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -26,13 +27,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		runner: &tg::runner::Id,
-	) -> crate::fdb::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<ControlFlow<Vec<tg::sandbox::Id>, fdb::FdbError>> {
 		let runner = runner.to_bytes();
 		let prefix = Self::pack(
 			subspace,
 			&(Kind::RunnerSandbox.to_i32().unwrap(), runner.as_ref()),
 		);
-		let entries = txn
+		let result = txn
 			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
@@ -41,17 +42,20 @@ impl Index {
 				1,
 				false,
 			)
-			.await?;
-		entries
+			.await;
+		let entries = crate::fdb::retry!(result);
+		let sandboxes = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Runner(crate::fdb::runner::Key::RunnerSandbox { sandbox, .. }) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(sandbox)
 			})
-			.collect()
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break(sandboxes))
 	}
 }

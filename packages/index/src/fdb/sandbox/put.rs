@@ -1,6 +1,7 @@
 use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -11,16 +12,14 @@ impl Index {
 		args: &[crate::sandbox::put::Arg],
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let existing = txn
-				.get(&key, false)
-				.await?
+			let result = txn.get(&key, false).await;
+			let existing = crate::fdb::retry!(result)
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()
-				.map_err(crate::fdb::custom_error)?;
+				.transpose()?;
 			let data = arg
 				.data
 				.clone()
@@ -45,7 +44,7 @@ impl Index {
 				runner,
 				touched_at,
 			};
-			let value = sandbox.serialize().map_err(crate::fdb::custom_error)?;
+			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
 
 			let started = existing
@@ -65,7 +64,12 @@ impl Index {
 					memory,
 					sandbox_count: 1,
 				};
-				Self::put_compute_usage(txn, subspace, arg, usage_partition_total)?;
+				crate::fdb::propagate!(Self::put_compute_usage(
+					txn,
+					subspace,
+					arg,
+					usage_partition_total,
+				));
 			}
 
 			let id_bytes = arg.id.to_bytes();
@@ -178,6 +182,6 @@ impl Index {
 				txn.set(&key, &[]);
 			}
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

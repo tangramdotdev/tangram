@@ -1,4 +1,7 @@
-use {crate::fdb::Index, foundationdb as fdb, foundationdb_tuple as fdbt};
+use {
+	crate::fdb::Index, foundationdb as fdb, foundationdb_tuple as fdbt, std::ops::ControlFlow,
+	tangram_client::prelude::*,
+};
 
 impl Index {
 	pub(crate) fn put_compute_usage(
@@ -6,11 +9,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: crate::usage::compute::put::Arg<'_>,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let partition = rand::random_range(0..partition_total);
 		if let Some(cpu) = arg.cpu {
-			let delta = i64::try_from(cpu)
-				.map_err(|_| crate::fdb::error!("the compute CPU usage is too large"))?;
+			let delta =
+				i64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is too large"))?;
 			Self::add_usage_delta(
 				txn,
 				subspace,
@@ -23,7 +26,7 @@ impl Index {
 		}
 		if let Some(memory) = arg.memory {
 			let delta = i64::try_from(memory)
-				.map_err(|_| crate::fdb::error!("the compute memory usage is too large"))?;
+				.map_err(|_| tg::error!("the compute memory usage is too large"))?;
 			Self::add_usage_delta(
 				txn,
 				subspace,
@@ -35,7 +38,7 @@ impl Index {
 			);
 		}
 		let delta = i64::try_from(arg.sandbox_count)
-			.map_err(|_| crate::fdb::error!("the sandbox count usage is too large"))?;
+			.map_err(|_| tg::error!("the sandbox count usage is too large"))?;
 		Self::add_usage_delta(
 			txn,
 			subspace,
@@ -46,6 +49,6 @@ impl Index {
 			partition,
 		);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

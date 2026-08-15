@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -26,13 +27,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
-	) -> crate::fdb::Result<Vec<(tg::process::Id, crate::process::Process)>> {
+	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::Process)>, fdb::FdbError>> {
 		let sandbox = sandbox.to_bytes();
 		let prefix = Self::pack(
 			subspace,
 			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
 		);
-		let entries = txn
+		let result = txn
 			.get_range(
 				&fdb::RangeOption {
 					mode: fdb::options::StreamingMode::WantAll,
@@ -41,29 +42,29 @@ impl Index {
 				1,
 				false,
 			)
-			.await?;
+			.await;
+		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { process, .. }) = key
 				else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(process)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
 		let mut output = Vec::with_capacity(processes.len());
 		for process in processes {
-			let data = Self::try_get_process_with_transaction(txn, subspace, &process)
-				.await?
-				.ok_or_else(
-					|| crate::fdb::error!(%process, "failed to find the sandbox process"),
-				)?;
+			let data = crate::fdb::propagate!(
+				Self::try_get_process_with_transaction(txn, subspace, &process).await
+			)
+			.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
 			output.push((process, data));
 		}
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
 	pub async fn try_get_sandboxes(
@@ -85,30 +86,41 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::sandbox::Id],
-	) -> crate::fdb::Result<Vec<Option<crate::sandbox::Sandbox>>> {
-		futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
-			let key = Self::pack(subspace, &key);
-			let bytes = txn.get(&key, false).await?;
-			bytes
-				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
-				.transpose()
-				.map_err(crate::fdb::custom_error)
-		}))
-		.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::sandbox::Sandbox>>, fdb::FdbError>> {
+		let sandboxes = {
+			let result = futures::future::try_join_all(
+				ids.iter()
+					.map(|id| Self::try_get_sandbox_with_transaction(txn, subspace, id)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
+		Ok(ControlFlow::Break(sandboxes))
 	}
 
 	pub(crate) async fn try_get_sandbox_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &foundationdb_tuple::Subspace,
 		id: &tg::sandbox::Id,
-	) -> crate::fdb::Result<Option<crate::sandbox::Sandbox>> {
+	) -> tg::Result<ControlFlow<Option<crate::sandbox::Sandbox>, fdb::FdbError>> {
 		let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
-		bytes
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
+		let sandbox = bytes
 			.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
-			.transpose()
-			.map_err(crate::fdb::custom_error)
+			.transpose()?;
+
+		Ok(ControlFlow::Break(sandbox))
 	}
 }

@@ -6,9 +6,9 @@ use {
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::{StreamExt as _, stream},
 	opentelemetry as otel,
-	std::sync::{
-		Arc, Mutex,
-		atomic::{AtomicU64, Ordering},
+	std::{
+		ops::ControlFlow,
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 };
@@ -48,6 +48,11 @@ struct RequestTracker {
 struct Batch {
 	requests: Vec<Request>,
 	trackers: Vec<Arc<Mutex<RequestTracker>>>,
+}
+
+enum TransactionError {
+	FoundationDb(fdb::FdbError),
+	Tangram(tg::Error),
 }
 
 impl Index {
@@ -876,7 +881,7 @@ impl Index {
 					Self::complete_tracker(tracker, Ok(response));
 				}
 			},
-			Err(error) if Self::is_transaction_too_large(&error) => {
+			Err(TransactionError::FoundationDb(error)) if Self::is_transaction_too_large(error) => {
 				if batch.requests.len() > 1 {
 					let mid = batch.requests.len() / 2;
 					let mut requests = batch.requests;
@@ -934,7 +939,12 @@ impl Index {
 				}
 			},
 			Err(error) => {
-				let error = tg::error!(!error, "failed to execute batch");
+				let error = match error {
+					TransactionError::FoundationDb(error) => {
+						tg::error!(!error, "failed to execute a batch")
+					},
+					TransactionError::Tangram(error) => error,
+				};
 				for tracker in &batch.trackers {
 					Self::fail_tracker(tracker, &error);
 				}
@@ -976,7 +986,9 @@ impl Index {
 						return Err(tg::error!("unexpected write response"));
 					};
 				},
-				Err(error) if Self::is_transaction_too_large(&error) => {
+				Err(TransactionError::FoundationDb(error))
+					if Self::is_transaction_too_large(error) =>
+				{
 					let Request::Batch(arg) = request else {
 						unreachable!();
 					};
@@ -987,7 +999,15 @@ impl Index {
 					pending.push(right);
 					pending.push(left);
 				},
-				Err(error) => return Err(tg::error!(!error, "failed to execute batch")),
+				Err(error) => {
+					let error = match error {
+						TransactionError::FoundationDb(error) => {
+							tg::error!(!error, "failed to execute a batch")
+						},
+						TransactionError::Tangram(error) => error,
+					};
+					return Err(error);
+				},
 			}
 		}
 
@@ -1002,9 +1022,9 @@ impl Index {
 		partition_total: u64,
 		usage_partition_total: u64,
 		metrics: &Metrics,
-	) -> crate::fdb::Result<Vec<Response>> {
+	) -> std::result::Result<Vec<Response>, TransactionError> {
 		let start = std::time::Instant::now();
-		let retry_count = AtomicU64::new(0);
+		let mut attempt_count = 0;
 
 		let priority_batch = requests.iter().all(|request| {
 			matches!(
@@ -1031,51 +1051,95 @@ impl Index {
 			)
 		});
 
-		let result = database
-			.run(|txn, _maybe_committed| {
-				retry_count.fetch_add(1, Ordering::Relaxed);
-				let requests = requests.to_vec();
-				let subspace = subspace.clone();
-				async move {
-					if priority_batch {
-						txn.set_option(fdb::options::TransactionOption::PriorityBatch)
-							.unwrap();
+		let transaction = database.create_trx();
+		let result = match transaction {
+			Err(error) => Err(TransactionError::FoundationDb(error)),
+			Ok(transaction) => {
+				let mut transaction = transaction;
+				loop {
+					attempt_count += 1;
+					let result = Self::execute_requests_with_transaction(
+						&transaction,
+						subspace,
+						requests,
+						max_process_depth,
+						partition_total,
+						usage_partition_total,
+						priority_batch,
+					)
+					.await;
+					let responses = match result {
+						Err(error) => break Err(TransactionError::Tangram(error)),
+						Ok(ControlFlow::Break(responses)) => responses,
+						Ok(ControlFlow::Continue(error)) => {
+							match transaction.on_error(error).await {
+								Ok(value) => {
+									transaction = value;
+									continue;
+								},
+								Err(error) => break Err(TransactionError::FoundationDb(error)),
+							}
+						},
+					};
+					match transaction.commit().await {
+						Ok(_) => break Ok(responses),
+						Err(error) => match error.on_error().await {
+							Ok(value) => transaction = value,
+							Err(error) => break Err(TransactionError::FoundationDb(error)),
+						},
 					}
-					let mut responses = Vec::new();
-					for request in requests {
-						let response = Self::execute_request(
-							&txn,
-							&subspace,
-							&request,
-							max_process_depth,
-							partition_total,
-							usage_partition_total,
-						)
-						.await?;
-						responses.push(response);
-					}
-					Ok(responses)
 				}
-			})
-			.await;
+			},
+		};
 
 		let duration = start.elapsed().as_secs_f64();
 		metrics.commit_duration.record(duration, &[]);
 		metrics.transactions.add(1, &[]);
 
-		let attempts = retry_count.load(Ordering::Relaxed);
-		if attempts > 1 {
-			metrics.transaction_conflict_retry.add(attempts - 1, &[]);
+		if attempt_count > 1 {
+			metrics
+				.transaction_conflict_retry
+				.add(attempt_count - 1, &[]);
 		}
-		if result
-			.as_ref()
-			.err()
-			.is_some_and(Self::is_transaction_too_large)
-		{
+		if matches!(
+			&result,
+			Err(TransactionError::FoundationDb(error)) if Self::is_transaction_too_large(*error)
+		) {
 			metrics.transaction_too_large.add(1, &[]);
 		}
 
 		result
+	}
+
+	async fn execute_requests_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		requests: &[Request],
+		max_process_depth: Option<u64>,
+		partition_total: u64,
+		usage_partition_total: u64,
+		priority_batch: bool,
+	) -> tg::Result<ControlFlow<Vec<Response>, fdb::FdbError>> {
+		if priority_batch {
+			txn.set_option(fdb::options::TransactionOption::PriorityBatch)
+				.unwrap();
+		}
+		let mut responses = Vec::with_capacity(requests.len());
+		for request in requests {
+			let result = Self::execute_request(
+				txn,
+				subspace,
+				request,
+				max_process_depth,
+				partition_total,
+				usage_partition_total,
+			)
+			.await;
+			let response = crate::fdb::propagate!(result);
+			responses.push(response);
+		}
+
+		Ok(ControlFlow::Break(responses))
 	}
 
 	async fn execute_request(
@@ -1085,18 +1149,19 @@ impl Index {
 		max_process_depth: Option<u64>,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<Response> {
-		match request {
+	) -> tg::Result<ControlFlow<Response, fdb::FdbError>> {
+		let response = match request {
 			Request::Batch(arg) => {
-				Self::batch_with_transaction(
+				let result = Self::batch_with_transaction(
 					txn,
 					subspace,
 					arg,
 					partition_total,
 					usage_partition_total,
 				)
-				.await?;
-				Ok(Response::Unit)
+				.await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::Clean(crate::fdb::Clean {
 				batch_size,
@@ -1120,189 +1185,240 @@ impl Index {
 					usage_partition_total,
 					txn,
 				};
-				Self::clean_with_transaction(arg)
-					.await
-					.map(Response::CleanOutput)
+				let result = Self::clean_with_transaction(arg).await;
+				let output = crate::fdb::propagate!(result);
+				Response::CleanOutput(output)
 			},
 			Request::CleanUsage(arg) => {
-				Self::clean_usage_with_transaction(txn, subspace, arg, usage_partition_total)
-					.await
-					.map(Response::CleanUsageOutput)
+				let result =
+					Self::clean_usage_with_transaction(txn, subspace, arg, usage_partition_total)
+						.await;
+				let output = crate::fdb::propagate!(result);
+				Response::CleanUsageOutput(output)
 			},
-			Request::CompactUsage(arg) => Self::compact_usage_with_transaction(txn, subspace, arg)
-				.await
-				.map(Response::CompactUsageOutput),
+			Request::CompactUsage(arg) => {
+				let result = Self::compact_usage_with_transaction(txn, subspace, arg).await;
+				let output = crate::fdb::propagate!(result);
+				Response::CompactUsageOutput(output)
+			},
 			Request::CompleteLogCompaction(entry) => {
-				Self::complete_log_compaction_with_transaction(txn, subspace, entry).await?;
-				Ok(Response::Unit)
+				let result =
+					Self::complete_log_compaction_with_transaction(txn, subspace, entry).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteGrants(args) => {
-				Self::delete_grants_with_transaction(txn, subspace, args, partition_total).await?;
-				Ok(Response::Unit)
+				let result =
+					Self::delete_grants_with_transaction(txn, subspace, args, partition_total)
+						.await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteGroupMembers(args) => {
-				Self::delete_group_members_with_transaction(txn, subspace, args)?;
-				Ok(Response::Unit)
+				let result = Self::delete_group_members_with_transaction(txn, subspace, args);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteGroups(ids) => {
-				Self::delete_groups_with_transaction(txn, subspace, ids).await?;
-				Ok(Response::Unit)
+				let result = Self::delete_groups_with_transaction(txn, subspace, ids).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteOrganizationMembers(args) => {
-				Self::delete_organization_members_with_transaction(txn, subspace, args)?;
-				Ok(Response::Unit)
+				let result =
+					Self::delete_organization_members_with_transaction(txn, subspace, args);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteOrganizations(ids) => {
-				Self::delete_organizations_with_transaction(txn, subspace, ids).await?;
-				Ok(Response::Unit)
+				let result = Self::delete_organizations_with_transaction(txn, subspace, ids).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteSandboxes(ids) => {
-				Self::delete_sandboxes_with_transaction(txn, subspace, ids)?;
-				Ok(Response::Unit)
+				let result = Self::delete_sandboxes_with_transaction(txn, subspace, ids);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteUsers(ids) => {
-				Self::delete_users_with_transaction(txn, subspace, ids).await?;
-				Ok(Response::Unit)
+				let result = Self::delete_users_with_transaction(txn, subspace, ids).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::DeleteTags(tags) => {
-				Self::delete_tags_with_transaction(txn, subspace, tags, partition_total)
-					.await
-					.map(|()| Response::Unit)
+				let result =
+					Self::delete_tags_with_transaction(txn, subspace, tags, partition_total).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::EnqueueLogCompaction(process) => {
-				Self::enqueue_log_compaction_with_transaction(
+				let result = Self::enqueue_log_compaction_with_transaction(
 					txn,
 					subspace,
 					process,
 					partition_total,
 				)
-				.await?;
-				Ok(Response::Unit)
+				.await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::GetUsage {
 				account,
 				now,
 				period,
-			} => Self::get_usage_with_transaction(
-				txn,
-				subspace,
-				account,
-				*period,
-				*now,
-				usage_partition_total,
-			)
-			.await
-			.map(Response::Usage),
+			} => {
+				let result = Self::get_usage_with_transaction(
+					txn,
+					subspace,
+					account,
+					*period,
+					*now,
+					usage_partition_total,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				Response::Usage(output)
+			},
 			Request::PutCacheEntries(args) => {
-				Self::put_cache_entries_with_transaction(txn, subspace, args, partition_total)?;
-				Ok(Response::Unit)
+				let result =
+					Self::put_cache_entries_with_transaction(txn, subspace, args, partition_total);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutGrants(args) => {
-				Self::put_grants_with_transaction(txn, subspace, args, partition_total).await?;
-				Ok(Response::Unit)
+				let result =
+					Self::put_grants_with_transaction(txn, subspace, args, partition_total).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutGroupMembers(args) => {
-				Self::put_group_members_with_transaction(txn, subspace, args)?;
-				Ok(Response::Unit)
+				let result = Self::put_group_members_with_transaction(txn, subspace, args);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutGroups(args) => {
-				Self::put_groups_with_transaction(txn, subspace, args)?;
-				Ok(Response::Unit)
+				let result = Self::put_groups_with_transaction(txn, subspace, args);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutObjects(args) => {
-				Self::put_objects_with_transaction(txn, subspace, args, partition_total).await?;
-				Ok(Response::Unit)
+				let result =
+					Self::put_objects_with_transaction(txn, subspace, args, partition_total).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutOrganizationMembers(args) => {
-				Self::put_organization_members_with_transaction(txn, subspace, args)?;
-				Ok(Response::Unit)
+				let result = Self::put_organization_members_with_transaction(txn, subspace, args);
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutOrganizations(args) => {
-				Self::put_organizations_with_transaction(txn, subspace, args).await?;
-				Ok(Response::Unit)
+				let result = Self::put_organizations_with_transaction(txn, subspace, args).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutProcesses(args) => {
-				Self::put_processes_with_transaction(txn, subspace, args, partition_total).await?;
-				Ok(Response::Unit)
+				let result =
+					Self::put_processes_with_transaction(txn, subspace, args, partition_total)
+						.await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutSandboxes(args) => {
-				Self::put_sandboxes_with_transaction(
+				let result = Self::put_sandboxes_with_transaction(
 					txn,
 					subspace,
 					args,
 					partition_total,
 					usage_partition_total,
 				)
-				.await?;
-				Ok(Response::Unit)
+				.await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutTags(args) => {
-				Self::put_tags_with_transaction(txn, subspace, args, partition_total)
-					.await
-					.map(|()| Response::Unit)
+				let result =
+					Self::put_tags_with_transaction(txn, subspace, args, partition_total).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::PutUsers(args) => {
-				Self::put_users_with_transaction(txn, subspace, args).await?;
-				Ok(Response::Unit)
+				let result = Self::put_users_with_transaction(txn, subspace, args).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 			Request::TouchCacheEntries(crate::fdb::TouchCacheEntries {
 				ids,
 				time_to_touch,
 				touched_at,
-			}) => Self::touch_cache_entries_with_transaction(
-				txn,
-				subspace,
-				ids,
-				*touched_at,
-				*time_to_touch,
-				partition_total,
-			)
-			.await
-			.map(Response::CacheEntries),
+			}) => {
+				let result = Self::touch_cache_entries_with_transaction(
+					txn,
+					subspace,
+					ids,
+					*touched_at,
+					*time_to_touch,
+					partition_total,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				Response::CacheEntries(output)
+			},
 			Request::TouchObjects(crate::fdb::TouchObjects {
 				account,
 				ids,
 				time_to_touch,
 				touched_at,
-			}) => Self::touch_objects_with_account_with_transaction(
-				txn,
-				subspace,
-				ids,
-				account.as_ref(),
-				*touched_at,
-				*time_to_touch,
-				partition_total,
-			)
-			.await
-			.map(Response::Objects),
-			Request::TouchProcesses(arg) => Self::touch_processes_with_account_with_transaction(
-				txn,
-				subspace,
-				arg,
-				partition_total,
-				usage_partition_total,
-			)
-			.await
-			.map(Response::Processes),
+			}) => {
+				let result = Self::touch_objects_with_account_with_transaction(
+					txn,
+					subspace,
+					ids,
+					account.as_ref(),
+					*touched_at,
+					*time_to_touch,
+					partition_total,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				Response::Objects(output)
+			},
+			Request::TouchProcesses(arg) => {
+				let result = Self::touch_processes_with_account_with_transaction(
+					txn,
+					subspace,
+					arg,
+					partition_total,
+					usage_partition_total,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				Response::Processes(output)
+			},
 			Request::Update(crate::fdb::Update {
 				batch_size,
 				kind,
 				partition_start,
 				partition_end,
-			}) => Self::update_with_transaction(
-				txn,
-				subspace,
-				*batch_size,
-				*kind,
-				*partition_start,
-				*partition_end,
-				max_process_depth,
-				partition_total,
-				usage_partition_total,
-			)
-			.await
-			.map(Response::UpdateOutput),
-		}
+			}) => {
+				let result = Self::update_with_transaction(
+					txn,
+					subspace,
+					*batch_size,
+					*kind,
+					*partition_start,
+					*partition_end,
+					max_process_depth,
+					partition_total,
+					usage_partition_total,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				Response::UpdateOutput(output)
+			},
+		};
+
+		Ok(ControlFlow::Break(response))
 	}
 
 	fn try_split_batch_arg(
@@ -1317,10 +1433,8 @@ impl Index {
 		Some((arg, right))
 	}
 
-	fn is_transaction_too_large(error: &fdb::FdbBindingError) -> bool {
-		error
-			.get_fdb_error()
-			.is_some_and(|error| error.code() == 2101)
+	fn is_transaction_too_large(error: fdb::FdbError) -> bool {
+		error.code() == 2101
 	}
 
 	fn complete_tracker(tracker: &Arc<Mutex<RequestTracker>>, result: tg::Result<Response>) {

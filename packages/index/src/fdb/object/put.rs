@@ -1,6 +1,7 @@
 use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -10,7 +11,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::object::put::Arg,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let id = &arg.id;
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -18,8 +19,8 @@ impl Index {
 		let existing = if arg.complete() {
 			None
 		} else {
-			txn.get(&key, false)
-				.await?
+			let result = txn.get(&key, false).await;
+			crate::fdb::retry!(result)
 				.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
 		};
 
@@ -58,7 +59,7 @@ impl Index {
 				|| existing.stored != stored
 		});
 		if !changed && !touch {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 
 		let value = crate::object::Object {
@@ -68,8 +69,7 @@ impl Index {
 			stored,
 			touched_at,
 		}
-		.serialize()
-		.map_err(crate::fdb::custom_error)?;
+		.serialize()?;
 
 		if existing.is_none() {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -136,17 +136,19 @@ impl Index {
 				&tg::Either::Left(id.clone()),
 				partition_total,
 			);
-			Self::enqueue_account_object_from_parents(
-				txn,
-				subspace,
-				id,
-				partition_total,
-				touched_at,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::enqueue_account_object_from_parents(
+					txn,
+					subspace,
+					id,
+					partition_total,
+					touched_at,
+				)
+				.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_objects_with_transaction(
@@ -154,10 +156,10 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::object::put::Arg],
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for object in args {
-			Self::put_object(txn, subspace, object, partition_total).await?;
+			crate::fdb::propagate!(Self::put_object(txn, subspace, object, partition_total).await);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

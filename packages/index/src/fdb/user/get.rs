@@ -2,6 +2,7 @@ use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -28,27 +29,42 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::user::Id],
-	) -> crate::fdb::Result<Vec<Option<crate::user::User>>> {
-		futures::future::try_join_all(
-			ids.iter()
-				.map(|id| Self::try_get_user_with_transaction(txn, subspace, id)),
-		)
-		.await
+	) -> tg::Result<ControlFlow<Vec<Option<crate::user::User>>, fdb::FdbError>> {
+		let users = {
+			let result = futures::future::try_join_all(
+				ids.iter()
+					.map(|id| Self::try_get_user_with_transaction(txn, subspace, id)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
+		Ok(ControlFlow::Break(users))
 	}
 
 	pub(crate) async fn try_get_user_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::user::Id,
-	) -> crate::fdb::Result<Option<crate::user::User>> {
+	) -> tg::Result<ControlFlow<Option<crate::user::User>, fdb::FdbError>> {
 		let key = Key::User(crate::fdb::user::Key::User(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
-			return Ok(None);
+			return Ok(ControlFlow::Break(None));
 		};
-		Ok(Some(
-			crate::user::User::deserialize(&bytes).map_err(crate::fdb::custom_error)?,
-		))
+		let user = Some(crate::user::User::deserialize(&bytes)?);
+
+		Ok(ControlFlow::Break(user))
 	}
 }

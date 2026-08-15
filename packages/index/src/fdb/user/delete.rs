@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -23,16 +24,14 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::user::Id],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
 			let key = Key::User(crate::fdb::user::Key::User(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let user = txn
-				.get(&key, false)
-				.await?
+			let result = txn.get(&key, false).await;
+			let user = crate::fdb::retry!(result)
 				.map(|bytes| crate::user::User::deserialize(&bytes))
-				.transpose()
-				.map_err(crate::fdb::custom_error)?;
+				.transpose()?;
 			if let Some(user) = user {
 				let node_key = Key::Node(crate::fdb::node::Key::Node(user.specifier));
 				let node_key = Self::pack(subspace, &node_key);
@@ -40,6 +39,6 @@ impl Index {
 			}
 			txn.clear(&key);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

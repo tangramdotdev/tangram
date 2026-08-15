@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -38,16 +39,14 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::organization::Id],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
 			let key = Key::Organization(crate::fdb::organization::Key::Organization(id.clone()));
 			let key = Self::pack(subspace, &key);
-			let organization = txn
-				.get(&key, false)
-				.await?
+			let result = txn.get(&key, false).await;
+			let organization = crate::fdb::retry!(result)
 				.map(|bytes| crate::organization::Organization::deserialize(&bytes))
-				.transpose()
-				.map_err(crate::fdb::custom_error)?;
+				.transpose()?;
 			if let Some(organization) = organization {
 				let node_key = Key::Node(crate::fdb::node::Key::Node(organization.specifier));
 				let node_key = Self::pack(subspace, &node_key);
@@ -55,14 +54,14 @@ impl Index {
 			}
 			txn.clear(&key);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn delete_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::delete::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::Organization(crate::fdb::organization::Key::OrganizationMember {
 				organization: arg.organization.clone(),
@@ -78,6 +77,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -28,13 +28,15 @@ mod response;
 mod runner;
 mod sandbox;
 mod tag;
+mod transaction;
 mod update;
 mod usage;
 mod user;
 mod visible;
 mod writer;
 
-pub(crate) use error::{Result, custom_error, error};
+pub(crate) use error::{propagate, retry};
+pub(crate) use transaction::run;
 pub(super) use {
 	key::{Key, Kind},
 	writer::Metrics,
@@ -220,10 +222,10 @@ impl Index {
 	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(
 		subspace: &fdbt::Subspace,
 		bytes: &'a [u8],
-	) -> crate::fdb::Result<T> {
+	) -> tg::Result<T> {
 		subspace
 			.unpack(bytes)
-			.map_err(|error| crate::fdb::error!(!error, "failed to unpack key"))
+			.map_err(|error| tg::error!(!error, "failed to unpack key"))
 	}
 
 	pub async fn get_transaction_id(&self) -> tg::Result<u64> {

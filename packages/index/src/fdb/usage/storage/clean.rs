@@ -1,6 +1,7 @@
 use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -25,7 +26,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		Self::enqueue_update_with_kind(
 			txn,
 			subspace,
@@ -35,7 +36,7 @@ impl Index {
 			partition_total,
 		);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn schedule_process_accounts_for_cleaning(
@@ -43,7 +44,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		Self::enqueue_update_with_kind(
 			txn,
 			subspace,
@@ -53,7 +54,7 @@ impl Index {
 			partition_total,
 		);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -67,7 +68,7 @@ impl Index {
 		touched_at: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let candidate = Candidate::Object {
 			account: account.clone(),
 			object: object.clone(),
@@ -96,7 +97,7 @@ impl Index {
 		touched_at: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let candidate = Candidate::Process {
 			account: account.clone(),
 			partition,
@@ -121,7 +122,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let (entry_key, clean_key, touched_at) = match candidate {
 			Candidate::Object {
 				account,
@@ -162,71 +163,77 @@ impl Index {
 		};
 		let entry_key = Self::pack(subspace, &entry_key);
 		let clean_key = Self::pack(subspace, &clean_key);
-		let Some(value) = txn.get(&entry_key, false).await? else {
+		let result = txn.get(&entry_key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
 			txn.clear(&clean_key);
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut entry =
-			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		if entry.touched_at != touched_at {
 			txn.clear(&clean_key);
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 		let reference_count = match candidate {
 			Candidate::Object {
 				account, object, ..
 			} => {
-				Self::compute_account_object_reference_count(txn, subspace, account, object).await?
+				crate::fdb::propagate!(
+					Self::compute_account_object_reference_count(txn, subspace, account, object)
+						.await
+				)
 			},
 			Candidate::Process {
 				account, process, ..
 			} => {
-				Self::compute_account_process_reference_count(txn, subspace, account, process)
-					.await?
+				crate::fdb::propagate!(
+					Self::compute_account_process_reference_count(txn, subspace, account, process,)
+						.await
+				)
 			},
 		};
 		if reference_count > 0 {
 			entry.reference_count = reference_count;
-			txn.set(
-				&entry_key,
-				&entry.serialize().map_err(crate::fdb::custom_error)?,
-			);
+			txn.set(&entry_key, &entry.serialize()?);
 			txn.clear(&clean_key);
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 		match candidate {
 			Candidate::Object {
 				account, object, ..
 			} => {
-				Self::delete_account_object(
-					txn,
-					subspace,
-					account,
-					object,
-					now,
-					partition_total,
-					usage_partition_total,
-				)
-				.await?;
+				crate::fdb::propagate!(
+					Self::delete_account_object(
+						txn,
+						subspace,
+						account,
+						object,
+						now,
+						partition_total,
+						usage_partition_total,
+					)
+					.await
+				);
 			},
 			Candidate::Process {
 				account, process, ..
 			} => {
-				Self::delete_account_process(
-					txn,
-					subspace,
-					account,
-					process,
-					now,
-					partition_total,
-					usage_partition_total,
-				)
-				.await?;
+				crate::fdb::propagate!(
+					Self::delete_account_process(
+						txn,
+						subspace,
+						account,
+						process,
+						now,
+						partition_total,
+						usage_partition_total,
+					)
+					.await
+				);
 			},
 		}
 		txn.clear(&clean_key);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn compute_account_object_reference_count(
@@ -234,12 +241,20 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
-	) -> crate::fdb::Result<u64> {
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let (parents, processes) = futures::future::try_join(
 			Self::get_object_parents_with_transaction(txn, subspace, object),
 			Self::get_object_processes_with_transaction(txn, subspace, object),
 		)
 		.await?;
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let processes = match processes {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let keys = parents
 			.into_iter()
 			.map(|object| {
@@ -256,17 +271,31 @@ impl Index {
 			}))
 			.map(|key| Self::pack(subspace, &key))
 			.collect::<Vec<_>>();
-		let entries_future =
-			futures::future::try_join_all(keys.iter().map(|key| async move {
-				Ok::<_, fdb::FdbBindingError>(txn.get(key, false).await?)
-			}));
+		let entries_future = async {
+			let result = futures::future::try_join_all(
+				keys.iter()
+					.map(|key| async move { txn.get(key, false).await }),
+			)
+			.await;
+			let entries = crate::fdb::retry!(result);
+
+			Ok::<_, tg::Error>(ControlFlow::Break(entries))
+		};
 		let object_bytes = object.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, object_bytes.as_ref());
 		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let tag_count = match tag_count {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
 
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_account_process_reference_count(
@@ -274,8 +303,10 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
-	) -> crate::fdb::Result<u64> {
-		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
+		let parents = crate::fdb::propagate!(
+			Self::get_process_parents_with_transaction(txn, subspace, process).await
+		);
 		let keys = parents
 			.into_iter()
 			.map(|process| {
@@ -286,17 +317,31 @@ impl Index {
 				Self::pack(subspace, &key)
 			})
 			.collect::<Vec<_>>();
-		let entries_future =
-			futures::future::try_join_all(keys.iter().map(|key| async move {
-				Ok::<_, fdb::FdbBindingError>(txn.get(key, false).await?)
-			}));
+		let entries_future = async {
+			let result = futures::future::try_join_all(
+				keys.iter()
+					.map(|key| async move { txn.get(key, false).await }),
+			)
+			.await;
+			let entries = crate::fdb::retry!(result);
+
+			Ok::<_, tg::Error>(ControlFlow::Break(entries))
+		};
 		let process_bytes = process.to_bytes();
 		let tags_future = Self::count_account_tags(txn, subspace, account, process_bytes.as_ref());
 		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let tag_count = match tag_count {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let entry_count = entries.iter().filter(|value| value.is_some()).count();
 		let count = u64::try_from(entry_count).unwrap() + tag_count;
 
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	async fn count_account_tags(
@@ -304,20 +349,34 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		target: &[u8],
-	) -> crate::fdb::Result<u64> {
-		let tags = Self::get_target_tags_with_transaction(txn, subspace, target).await?;
-		let tags = futures::future::try_join_all(
-			tags.iter()
-				.map(|tag| Self::try_get_tag_with_transaction(txn, subspace, tag)),
-		)
-		.await?;
+	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
+		let tags = crate::fdb::propagate!(
+			Self::get_target_tags_with_transaction(txn, subspace, target).await
+		);
+		let tags = {
+			let result = futures::future::try_join_all(
+				tags.iter()
+					.map(|tag| Self::try_get_tag_with_transaction(txn, subspace, tag)),
+			)
+			.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
 		let count = tags
 			.iter()
 			.filter(|tag| tag.as_ref().and_then(|tag| tag.account.as_ref()) == Some(account))
 			.count();
 		let count = u64::try_from(count).unwrap();
 
-		Ok(count)
+		Ok(ControlFlow::Break(count))
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -329,7 +388,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -360,13 +419,12 @@ impl Index {
 			crate::fdb::update::Source::Put,
 			partition_total,
 		);
-		let value = Self::try_get_object_with_transaction(txn, subspace, object)
-			.await?
-			.ok_or_else(
-				|| crate::fdb::error!(%object, "an object with a storage entry is missing"),
-			)?;
+		let value = crate::fdb::propagate!(
+			Self::try_get_object_with_transaction(txn, subspace, object).await
+		)
+		.ok_or_else(|| tg::error!(%object, "an object with a storage entry is missing"))?;
 		let size = i64::try_from(value.metadata.node.size)
-			.map_err(|_| crate::fdb::error!("the object size is too large"))?;
+			.map_err(|_| tg::error!("the object size is too large"))?;
 		Self::add_usage_delta(
 			txn,
 			subspace,
@@ -384,7 +442,7 @@ impl Index {
 		});
 		txn.set(&Self::pack(subspace, &key), &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -396,7 +454,7 @@ impl Index {
 		now: i64,
 		partition_total: u64,
 		usage_partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
@@ -427,11 +485,10 @@ impl Index {
 			crate::fdb::update::Source::Put,
 			partition_total,
 		);
-		let value = Self::try_get_process_with_transaction(txn, subspace, process)
-			.await?
-			.ok_or_else(
-				|| crate::fdb::error!(%process, "a process with a storage entry is missing"),
-			)?;
+		let value = crate::fdb::propagate!(
+			Self::try_get_process_with_transaction(txn, subspace, process).await
+		)
+		.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::Process {
 			id: process.clone(),
@@ -440,7 +497,7 @@ impl Index {
 		});
 		txn.set(&Self::pack(subspace, &key), &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(in crate::fdb) async fn schedule_account_object_for_cleaning(
@@ -449,16 +506,16 @@ impl Index {
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
 		});
-		let Some(value) = txn.get(&Self::pack(subspace, &entry_key), false).await? else {
-			return Ok(());
+		let result = txn.get(&Self::pack(subspace, &entry_key), false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let entry =
-			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
+		let entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountObject {
 			account: account.clone(),
@@ -468,7 +525,7 @@ impl Index {
 		});
 		txn.set(&Self::pack(subspace, &key), &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(in crate::fdb) async fn schedule_account_process_for_cleaning(
@@ -477,16 +534,16 @@ impl Index {
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
 		});
-		let Some(value) = txn.get(&Self::pack(subspace, &entry_key), false).await? else {
-			return Ok(());
+		let result = txn.get(&Self::pack(subspace, &entry_key), false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let entry =
-			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
+		let entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::fdb::clean::Key::AccountProcess {
 			account: account.clone(),
@@ -496,6 +553,6 @@ impl Index {
 		});
 		txn.set(&Self::pack(subspace, &key), &[]);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

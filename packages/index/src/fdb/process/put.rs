@@ -3,6 +3,7 @@ use {
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -12,15 +13,14 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::put::Arg,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
-		arg.validate().map_err(crate::fdb::custom_error)?;
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		arg.validate()?;
 		let id = &arg.id;
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let existing = txn
-			.get(&key, false)
-			.await?
+		let result = txn.get(&key, false).await;
+		let existing = crate::fdb::retry!(result)
 			.and_then(|bytes| crate::process::Process::deserialize(&bytes).ok());
 		let merge = !arg.complete();
 
@@ -89,7 +89,7 @@ impl Index {
 					|| existing.stored != stored
 			});
 		if !changed && !touch {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		}
 
 		let value = crate::process::Process {
@@ -101,8 +101,7 @@ impl Index {
 			stored,
 			touched_at,
 		}
-		.serialize()
-		.map_err(crate::fdb::custom_error)?;
+		.serialize()?;
 		txn.set(&key, &value);
 
 		if sandbox_changed
@@ -124,13 +123,15 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			Self::decrement_sandbox_reference_count(
-				txn,
-				subspace,
-				existing_sandbox,
-				partition_total,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::decrement_sandbox_reference_count(
+					txn,
+					subspace,
+					existing_sandbox,
+					partition_total,
+				)
+				.await
+			);
 		}
 
 		if sandbox_changed && let Some(sandbox) = &sandbox {
@@ -158,14 +159,15 @@ impl Index {
 				mode: fdb::options::StreamingMode::WantAll,
 				..fdb::RangeOption::from(&range_subspace)
 			};
-			let entries = txn
+			let result = txn
 				.get_ranges_keyvalues(range, false)
 				.try_collect::<Vec<_>>()
-				.await?;
+				.await;
+			let entries = crate::fdb::retry!(result);
 			for entry in &entries {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Process(crate::fdb::process::Key::ProcessChild { child, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
 					child,
@@ -179,16 +181,15 @@ impl Index {
 			for (position, child) in children.iter().enumerate() {
 				let child = child.clone().without_location_and_tokens();
 				let position = i64::try_from(position)
-					.map_err(|_| crate::fdb::error!("the process has too many children"))?;
+					.map_err(|_| tg::error!("the process has too many children"))?;
 				let key = Key::Process(crate::fdb::process::Key::ProcessChild {
 					child: child.process.node.clone(),
 					position,
 					process: id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
-				let value = tangram_serialize::to_vec(&child).map_err(|error| {
-					crate::fdb::error!(!error, "failed to serialize the process child")
-				})?;
+				let value = tangram_serialize::to_vec(&child)
+					.map_err(|error| tg::error!(!error, "failed to serialize the process child"))?;
 				txn.set(&key, &value);
 
 				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
@@ -206,7 +207,8 @@ impl Index {
 				parent: parent.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			let exists = txn.get(&key, false).await?.is_some();
+			let result = txn.get(&key, false).await;
+			let exists = crate::fdb::retry!(result).is_some();
 			if !exists {
 				let parent_bytes = parent.to_bytes();
 				let prefix = (Kind::ProcessChild.to_i32().unwrap(), parent_bytes.as_ref());
@@ -217,7 +219,8 @@ impl Index {
 					reverse: true,
 					..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 				};
-				let entries = txn.get_range(&range, 1, false).await?;
+				let result = txn.get_range(&range, 1, false).await;
+				let entries = crate::fdb::retry!(result);
 				let position = entries
 					.first()
 					.map(|entry| {
@@ -226,11 +229,11 @@ impl Index {
 							position, ..
 						}) = key
 						else {
-							return Err(crate::fdb::error!("unexpected key type"));
+							return Err(tg::error!("unexpected key type"));
 						};
 						position
 							.checked_add(1)
-							.ok_or_else(|| crate::fdb::error!("the process has too many children"))
+							.ok_or_else(|| tg::error!("the process has too many children"))
 					})
 					.transpose()?
 					.unwrap_or(0);
@@ -245,9 +248,8 @@ impl Index {
 					process: parent.clone(),
 				});
 				let process_child_key = Self::pack(subspace, &process_child_key);
-				let value = tangram_serialize::to_vec(&child).map_err(|error| {
-					crate::fdb::error!(!error, "failed to serialize the process child")
-				})?;
+				let value = tangram_serialize::to_vec(&child)
+					.map_err(|error| tg::error!(!error, "failed to serialize the process child"))?;
 				txn.set(&process_child_key, &value);
 				txn.set(&key, &position.to_be_bytes());
 			}
@@ -340,25 +342,29 @@ impl Index {
 				&tg::Either::Right(id.clone()),
 				partition_total,
 			);
-			Self::enqueue_account_process_from_parents(
-				txn,
-				subspace,
-				id,
-				partition_total,
-				touched_at,
-			)
-			.await?;
-			Self::enqueue_account_process_relationships(
-				txn,
-				subspace,
-				id,
-				partition_total,
-				touched_at,
-			)
-			.await?;
+			crate::fdb::propagate!(
+				Self::enqueue_account_process_from_parents(
+					txn,
+					subspace,
+					id,
+					partition_total,
+					touched_at,
+				)
+				.await
+			);
+			crate::fdb::propagate!(
+				Self::enqueue_account_process_relationships(
+					txn,
+					subspace,
+					id,
+					partition_total,
+					touched_at,
+				)
+				.await
+			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
@@ -366,10 +372,12 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[crate::process::put::Arg],
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for process in args {
-			Self::put_process(txn, subspace, process, partition_total).await?;
+			crate::fdb::propagate!(
+				Self::put_process(txn, subspace, process, partition_total).await
+			);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

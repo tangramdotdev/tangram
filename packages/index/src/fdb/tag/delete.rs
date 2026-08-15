@@ -1,6 +1,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -22,11 +23,11 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		ids: &[tg::tag::Id],
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
-			Self::delete_tag(txn, subspace, id, partition_total).await?;
+			crate::fdb::propagate!(Self::delete_tag(txn, subspace, id, partition_total).await);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn delete_tag(
@@ -34,14 +35,15 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		id: &tg::tag::Id,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let bytes = txn.get(&key, false).await?;
+		let result = txn.get(&key, false).await;
+		let bytes = crate::fdb::retry!(result);
 		let Some(bytes) = bytes else {
-			return Ok(());
+			return Ok(ControlFlow::Break(()));
 		};
-		let data = crate::tag::Tag::deserialize(&bytes).map_err(crate::fdb::custom_error)?;
+		let data = crate::tag::Tag::deserialize(&bytes)?;
 		let target = match &data.target {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
 			tg::Either::Right(id) => id.to_bytes().to_vec(),
@@ -75,19 +77,39 @@ impl Index {
 
 		match &data.target {
 			tg::Either::Left(id) => {
-				Self::schedule_object_accounts_for_cleaning(txn, subspace, id, partition_total)
-					.await?;
-				Self::decrement_object_reference_count(txn, subspace, id, partition_total).await?;
+				crate::fdb::propagate!(
+					Self::schedule_object_accounts_for_cleaning(
+						txn,
+						subspace,
+						id,
+						partition_total,
+					)
+					.await
+				);
+				crate::fdb::propagate!(
+					Self::decrement_object_reference_count(txn, subspace, id, partition_total)
+						.await
+				);
 			},
 			tg::Either::Right(id) => {
-				Self::schedule_process_accounts_for_cleaning(txn, subspace, id, partition_total)
-					.await?;
-				Self::decrement_process_reference_count(txn, subspace, id, partition_total).await?;
+				crate::fdb::propagate!(
+					Self::schedule_process_accounts_for_cleaning(
+						txn,
+						subspace,
+						id,
+						partition_total,
+					)
+					.await
+				);
+				crate::fdb::propagate!(
+					Self::decrement_process_reference_count(txn, subspace, id, partition_total)
+						.await
+				);
 			},
 		}
 
 		txn.clear(&key);
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

@@ -2,7 +2,7 @@ use {
 	crate::fdb::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -13,25 +13,25 @@ impl Index {
 		arg: &crate::usage::storage::put::ObjectArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = txn.get(&key, false).await? else {
-			return Ok(());
+		let result = txn.get(&key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut entry =
-			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
-			txn.set(&key, &entry.serialize().map_err(crate::fdb::custom_error)?);
+			txn.set(&key, &entry.serialize()?);
 			Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn touch_account_process(
@@ -40,25 +40,25 @@ impl Index {
 		arg: &crate::usage::storage::put::ProcessArg,
 		time_to_touch: std::time::Duration,
 		partition_total: u64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
 		let key = Self::pack(subspace, &key);
-		let Some(value) = txn.get(&key, false).await? else {
-			return Ok(());
+		let result = txn.get(&key, false).await;
+		let Some(value) = crate::fdb::retry!(result) else {
+			return Ok(ControlFlow::Break(()));
 		};
-		let mut entry =
-			crate::usage::storage::Entry::deserialize(&value).map_err(crate::fdb::custom_error)?;
+		let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
-			txn.set(&key, &entry.serialize().map_err(crate::fdb::custom_error)?);
+			txn.set(&key, &entry.serialize()?);
 			Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn enqueue_account_object_from_parents(
@@ -67,18 +67,23 @@ impl Index {
 		object: &tg::object::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let mut accounts = BTreeSet::new();
-		let parents = Self::get_object_parents_with_transaction(txn, subspace, object).await?;
+		let parents = crate::fdb::propagate!(
+			Self::get_object_parents_with_transaction(txn, subspace, object).await
+		);
 		for parent in parents {
-			accounts
-				.extend(Self::get_object_accounts_with_transaction(txn, subspace, &parent).await?);
+			accounts.extend(crate::fdb::propagate!(
+				Self::get_object_accounts_with_transaction(txn, subspace, &parent).await
+			));
 		}
-		let processes = Self::get_object_processes_with_transaction(txn, subspace, object).await?;
+		let processes = crate::fdb::propagate!(
+			Self::get_object_processes_with_transaction(txn, subspace, object).await
+		);
 		for (process, _) in processes {
-			accounts.extend(
-				Self::get_process_accounts_with_transaction(txn, subspace, &process).await?,
-			);
+			accounts.extend(crate::fdb::propagate!(
+				Self::get_process_accounts_with_transaction(txn, subspace, &process).await
+			));
 		}
 		for account in accounts {
 			Self::enqueue_update_with_kind(
@@ -94,7 +99,7 @@ impl Index {
 			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn enqueue_account_process_from_parents(
@@ -103,12 +108,15 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let mut accounts = BTreeSet::new();
-		let parents = Self::get_process_parents_with_transaction(txn, subspace, process).await?;
+		let parents = crate::fdb::propagate!(
+			Self::get_process_parents_with_transaction(txn, subspace, process).await
+		);
 		for parent in parents {
-			accounts
-				.extend(Self::get_process_accounts_with_transaction(txn, subspace, &parent).await?);
+			accounts.extend(crate::fdb::propagate!(
+				Self::get_process_accounts_with_transaction(txn, subspace, &parent).await
+			));
 		}
 		for account in accounts {
 			Self::enqueue_update_with_kind(
@@ -124,7 +132,7 @@ impl Index {
 			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn enqueue_account_process_relationships(
@@ -133,8 +141,10 @@ impl Index {
 		process: &tg::process::Id,
 		partition_total: u64,
 		touched_at: i64,
-	) -> crate::fdb::Result<()> {
-		let accounts = Self::get_process_accounts_with_transaction(txn, subspace, process).await?;
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let accounts = crate::fdb::propagate!(
+			Self::get_process_accounts_with_transaction(txn, subspace, process).await
+		);
 		for account in accounts {
 			Self::enqueue_update_with_kind(
 				txn,
@@ -149,14 +159,14 @@ impl Index {
 			);
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	async fn get_object_accounts_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
-	) -> crate::fdb::Result<Vec<crate::usage::Account>> {
+	) -> tg::Result<ControlFlow<Vec<crate::usage::Account>, fdb::FdbError>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -169,26 +179,27 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let accounts = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Usage(crate::fdb::usage::Key::ObjectAccount { account, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok(ControlFlow::Break(accounts))
 	}
 
 	async fn get_process_accounts_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
-	) -> crate::fdb::Result<Vec<crate::usage::Account>> {
+	) -> tg::Result<ControlFlow<Vec<crate::usage::Account>, fdb::FdbError>> {
 		let process_bytes = process.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -201,19 +212,20 @@ impl Index {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&fdbt::Subspace::from_bytes(prefix))
 		};
-		let entries = txn.get_range(&range, 1, false).await?;
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
 		let accounts = entries
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Usage(crate::fdb::usage::Key::ProcessAccount { account, .. }) = key else {
-					return Err(crate::fdb::error!("unexpected key type"));
+					return Err(tg::error!("unexpected key type"));
 				};
 				Ok(account)
 			})
-			.collect::<crate::fdb::Result<Vec<_>>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(accounts)
+		Ok(ControlFlow::Break(accounts))
 	}
 
 	pub(crate) async fn put_account_object(
@@ -224,38 +236,40 @@ impl Index {
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = txn.get(&entry_key, false).await? {
-			let mut entry = crate::usage::storage::Entry::deserialize(&value)
-				.map_err(crate::fdb::custom_error)?;
+		let result = txn.get(&entry_key, false).await;
+		if let Some(value) = crate::fdb::retry!(result) {
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
-				let value = entry.serialize().map_err(crate::fdb::custom_error)?;
+				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
 				Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
 			}
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 
-		let object = Self::try_get_object_with_transaction(txn, subspace, &arg.object).await?;
+		let object = crate::fdb::propagate!(
+			Self::try_get_object_with_transaction(txn, subspace, &arg.object).await
+		);
 		let Some(object) = object else {
 			if touch_existing {
 				return Err(
-					crate::fdb::error!(object = %arg.object, "cannot add a missing object to a usage account"),
+					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
 				);
 			}
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		};
 		let entry = crate::usage::storage::Entry {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
-		let value = entry.serialize().map_err(crate::fdb::custom_error)?;
+		let value = entry.serialize()?;
 		txn.set(&entry_key, &value);
 
 		let reverse_key = Key::Usage(crate::fdb::usage::Key::ObjectAccount {
@@ -276,9 +290,8 @@ impl Index {
 			1,
 			usage_partition,
 		);
-		let size = i64::try_from(object.metadata.node.size).map_err(
-			|_| crate::fdb::error!(object = %arg.object, "the object size is too large"),
-		)?;
+		let size = i64::try_from(object.metadata.node.size)
+			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
 		Self::add_usage_delta(
 			txn,
 			subspace,
@@ -302,7 +315,7 @@ impl Index {
 			version,
 		);
 
-		Ok(true)
+		Ok(ControlFlow::Break(true))
 	}
 
 	pub(crate) async fn put_account_process(
@@ -313,38 +326,40 @@ impl Index {
 		usage_partition_total: u64,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
-	) -> crate::fdb::Result<bool> {
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = txn.get(&entry_key, false).await? {
-			let mut entry = crate::usage::storage::Entry::deserialize(&value)
-				.map_err(crate::fdb::custom_error)?;
+		let result = txn.get(&entry_key, false).await;
+		if let Some(value) = crate::fdb::retry!(result) {
+			let mut entry = crate::usage::storage::Entry::deserialize(&value)?;
 			if touch_existing && arg.touched_at > entry.touched_at {
 				entry.touched_at = arg.touched_at;
-				let value = entry.serialize().map_err(crate::fdb::custom_error)?;
+				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
 				Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
 			}
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 
-		let process = Self::try_get_process_with_transaction(txn, subspace, &arg.process).await?;
+		let process = crate::fdb::propagate!(
+			Self::try_get_process_with_transaction(txn, subspace, &arg.process).await
+		);
 		if process.is_none() {
 			if touch_existing {
 				return Err(
-					crate::fdb::error!(process = %arg.process, "cannot add a missing process to a usage account"),
+					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
 				);
 			}
-			return Ok(false);
+			return Ok(ControlFlow::Break(false));
 		}
 		let entry = crate::usage::storage::Entry {
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
-		let value = entry.serialize().map_err(crate::fdb::custom_error)?;
+		let value = entry.serialize()?;
 		txn.set(&entry_key, &value);
 
 		let reverse_key = Key::Usage(crate::fdb::usage::Key::ProcessAccount {
@@ -379,7 +394,7 @@ impl Index {
 			version,
 		);
 
-		Ok(true)
+		Ok(ControlFlow::Break(true))
 	}
 
 	fn put_account_object_clean_key(

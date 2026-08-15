@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -41,28 +42,25 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::put::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key =
 				Key::Organization(crate::fdb::organization::Key::Organization(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = match arg.billing {
-				Some(billing) => billing,
-				None => txn
-					.get(&key, false)
-					.await?
-					.map_or(Ok(false), |bytes| {
-						crate::organization::Organization::deserialize(&bytes)
-							.map(|organization| organization.billing)
-					})
-					.map_err(crate::fdb::custom_error)?,
+			let billing = if let Some(billing) = arg.billing {
+				billing
+			} else {
+				let result = txn.get(&key, false).await;
+				crate::fdb::retry!(result).map_or(Ok(false), |bytes| {
+					crate::organization::Organization::deserialize(&bytes)
+						.map(|organization| organization.billing)
+				})?
 			};
 			let value = crate::organization::Organization {
 				billing,
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()
-			.map_err(crate::fdb::custom_error)?;
+			.serialize()?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -70,14 +68,14 @@ impl Index {
 			let value = tg::Id::from(arg.id.clone()).to_bytes();
 			txn.set(&key, value.as_ref());
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) fn put_organization_members_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::put::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::Organization(crate::fdb::organization::Key::OrganizationMember {
 				organization: arg.organization.clone(),
@@ -93,6 +91,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

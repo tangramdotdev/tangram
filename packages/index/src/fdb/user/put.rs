@@ -3,6 +3,7 @@
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
@@ -23,26 +24,23 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::user::put::Arg],
-	) -> crate::fdb::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
 			let key = Key::User(crate::fdb::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = match arg.billing {
-				Some(billing) => billing,
-				None => txn
-					.get(&key, false)
-					.await?
-					.map_or(Ok(false), |bytes| {
-						crate::user::User::deserialize(&bytes).map(|user| user.billing)
-					})
-					.map_err(crate::fdb::custom_error)?,
+			let billing = if let Some(billing) = arg.billing {
+				billing
+			} else {
+				let result = txn.get(&key, false).await;
+				crate::fdb::retry!(result).map_or(Ok(false), |bytes| {
+					crate::user::User::deserialize(&bytes).map(|user| user.billing)
+				})?
 			};
 			let value = crate::user::User {
 				billing,
 				specifier: arg.specifier.clone(),
 			}
-			.serialize()
-			.map_err(crate::fdb::custom_error)?;
+			.serialize()?;
 			txn.set(&key, &value);
 
 			let key = Key::Node(crate::fdb::node::Key::Node(arg.specifier.clone()));
@@ -50,6 +48,6 @@ impl Index {
 			let value = tg::Id::from(arg.id.clone()).to_bytes();
 			txn.set(&key, value.as_ref());
 		}
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }
