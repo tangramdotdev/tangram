@@ -36,10 +36,10 @@ impl Index {
 			}
 		});
 
-		let cache_entry = arg.cache_entry.clone().or_else(|| {
+		let checkout = arg.checkout.clone().or_else(|| {
 			existing
 				.as_ref()
-				.and_then(|existing| existing.cache_entry.clone())
+				.and_then(|existing| existing.checkout.clone())
 		});
 
 		let stored = crate::object::Stored {
@@ -54,7 +54,7 @@ impl Index {
 			metadata.merge(&existing.metadata);
 		}
 		let changed = existing.as_ref().is_none_or(|existing| {
-			existing.cache_entry != cache_entry
+			existing.checkout != checkout
 				|| existing.metadata != metadata
 				|| existing.stored != stored
 		});
@@ -63,7 +63,7 @@ impl Index {
 		}
 
 		let value = crate::object::Object {
-			cache_entry,
+			checkout,
 			metadata,
 			reference_count: 0,
 			stored,
@@ -91,22 +91,22 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the child object"))?;
 		}
 
-		if changed && let Some(cache_entry) = &arg.cache_entry {
-			let key = Key::Object(crate::lmdb::object::Key::ObjectCacheEntry {
+		if changed && let Some(checkout) = &arg.checkout {
+			let key = Key::Object(crate::lmdb::object::Key::ObjectCheckout {
 				object: id.clone(),
-				cache_entry: cache_entry.clone(),
+				checkout: checkout.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the object cache entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the object checkout"))?;
 
-			let key = Key::Object(crate::lmdb::object::Key::CacheEntryObject {
-				cache_entry: cache_entry.clone(),
+			let key = Key::Object(crate::lmdb::object::Key::CheckoutObject {
+				checkout: checkout.clone(),
 				object: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the cache entry object"))?;
+				.map_err(|error| tg::error!(!error, "failed to put the checkout object"))?;
 		}
 
 		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Object {

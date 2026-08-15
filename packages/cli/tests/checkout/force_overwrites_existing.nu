@@ -11,8 +11,8 @@ let id = tg build $artifact | str trim
 
 let dir = mktemp --directory
 let path = $dir | path join "out"
-tg checkout $id $path
+tg checkout $id --path $path
 
-let output = tg checkout --force $id $path | complete
+let output = tg checkout --force $id --path $path | complete
 success $output
 assert ((open $path | str trim) == "Hello, World!") "the checked out file should contain the artifact contents"

@@ -2,7 +2,7 @@ use {
 	crate::{
 		Session,
 		checkin::{
-			Graph, GraphData, IndexCacheEntryArgs, IndexObjectArgs, StoreArgs,
+			Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
@@ -26,7 +26,7 @@ pub(super) struct CheckinCreateArtifactsArg<'a> {
 	pub next: usize,
 	pub store_args: &'a mut StoreArgs,
 	pub index_object_args: &'a mut IndexObjectArgs,
-	pub index_cache_entry_args: &'a mut IndexCacheEntryArgs,
+	pub index_checkout_args: &'a mut IndexCheckoutArgs,
 	pub graph_data: &'a mut GraphData,
 	pub root: &'a Path,
 	pub time_to_touch: std::time::Duration,
@@ -66,12 +66,12 @@ struct CheckinCreatePointerArtifactArg<'a> {
 	touched_at: i64,
 }
 
-struct CheckinUpdateBlobCachePointersArg<'a> {
+struct CheckinUpdateBlobCheckoutPointersArg<'a> {
 	arg: &'a tg::checkin::Arg,
 	graph: &'a Graph,
 	store_args: &'a mut StoreArgs,
 	index_object_args: &'a mut IndexObjectArgs,
-	index_cache_entry_args: &'a mut IndexCacheEntryArgs,
+	index_checkout_args: &'a mut IndexCheckoutArgs,
 	root: &'a Path,
 	sccs: &'a [Vec<usize>],
 	touched_at: i64,
@@ -88,7 +88,7 @@ impl Session {
 			next,
 			store_args,
 			index_object_args,
-			index_cache_entry_args,
+			index_checkout_args,
 			graph_data,
 			root,
 			time_to_touch,
@@ -138,18 +138,18 @@ impl Session {
 			}
 		}
 
-		// Update blob cache pointers now that artifact IDs are known.
-		let update_arg = CheckinUpdateBlobCachePointersArg {
+		// Update blob checkout pointers now that artifact IDs are known.
+		let update_arg = CheckinUpdateBlobCheckoutPointersArg {
 			arg,
 			graph,
 			store_args,
 			index_object_args,
-			index_cache_entry_args,
+			index_checkout_args,
 			root,
 			sccs: &sccs,
 			touched_at,
 		};
-		Self::checkin_update_blob_cache_pointers(update_arg);
+		Self::checkin_update_blob_checkout_pointers(update_arg);
 
 		// Create a reference artifact for the path if necessary.
 		let index = graph.paths.get(&arg.path).copied().unwrap();
@@ -783,7 +783,7 @@ impl Session {
 		// Create the store arg.
 		let store_arg = crate::object::store::PutArg {
 			bytes: Some(bytes),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
 			stored_at: touched_at,
@@ -791,7 +791,7 @@ impl Session {
 
 		// Create the index message.
 		let index_message = tangram_index::object::put::Arg {
-			cache_entry: None,
+			checkout: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
@@ -807,19 +807,19 @@ impl Session {
 		Ok((id, stored, metadata))
 	}
 
-	fn checkin_update_blob_cache_pointers(arg: CheckinUpdateBlobCachePointersArg<'_>) {
-		let CheckinUpdateBlobCachePointersArg {
+	fn checkin_update_blob_checkout_pointers(arg: CheckinUpdateBlobCheckoutPointersArg<'_>) {
+		let CheckinUpdateBlobCheckoutPointersArg {
 			arg,
 			graph,
 			store_args,
 			index_object_args,
-			index_cache_entry_args,
+			index_checkout_args,
 			root,
 			sccs,
 			touched_at,
 		} = arg;
-		// Skip if cache pointers are disabled.
-		if !arg.options.cache_pointers {
+		// Skip if checkout pointers are disabled.
+		if !arg.options.checkout_pointers {
 			return;
 		}
 
@@ -862,30 +862,30 @@ impl Session {
 					(id, None)
 				};
 
-				// Create a cache entry message for this artifact.
+				// Create a checkout message for this artifact.
 				if !arg.options.destructive {
-					let dependencies = Self::checkin_get_cache_entry_dependencies(graph, *index);
-					index_cache_entry_args.push(tangram_index::cache::put::Arg {
+					let dependencies = Self::checkin_get_checkout_dependencies(graph, *index);
+					index_checkout_args.push(tangram_index::checkout::put::Arg {
 						id: artifact.clone(),
 						touched_at,
 						dependencies,
 					});
 				}
 
-				// Update cache pointers for the blob and its children.
+				// Update checkout pointers for the blob and its children.
 				let mut stack = vec![output.as_ref()];
 				while let Some(output) = stack.pop() {
 					let id: tg::object::Id = output.id.clone().into();
 
-					// Create and set the cache pointer.
-					let cache_pointer = crate::object::store::CachePointer {
+					// Create and set the checkout pointer.
+					let checkout_pointer = crate::object::store::CheckoutPointer {
 						artifact: artifact.clone(),
 						length: output.length,
 						path: path.clone(),
 						position: output.position,
 					};
-					store_args.get_mut(&id).unwrap().cache_pointer = Some(cache_pointer);
-					index_object_args.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
+					store_args.get_mut(&id).unwrap().checkout_pointer = Some(checkout_pointer);
+					index_object_args.get_mut(&id).unwrap().checkout = Some(artifact.clone());
 
 					// Add children to the stack.
 					stack.extend(output.children.iter());
@@ -917,7 +917,7 @@ impl Session {
 		// Store the object.
 		let store_arg = crate::object::store::PutArg {
 			bytes: Some(bytes),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
 			stored_at: touched_at,
@@ -932,7 +932,7 @@ impl Session {
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
 		let put_object_arg = tangram_index::object::put::Arg {
-			cache_entry: None,
+			checkout: None,
 			children,
 			id: id.clone(),
 			metadata: node.metadata.clone().unwrap_or_default(),
@@ -1348,7 +1348,7 @@ impl Session {
 		// Create the store arg.
 		let store_arg = crate::object::store::PutArg {
 			bytes: Some(bytes),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
 			stored_at: touched_at,
@@ -1356,7 +1356,7 @@ impl Session {
 
 		// Create the index message.
 		let index_message = tangram_index::object::put::Arg {
-			cache_entry: None,
+			checkout: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata,
@@ -1372,7 +1372,7 @@ impl Session {
 		Ok(id.try_into().unwrap())
 	}
 
-	pub(super) fn checkin_get_cache_entry_dependencies(
+	pub(super) fn checkin_get_checkout_dependencies(
 		graph: &Graph,
 		root_index: usize,
 	) -> Vec<tg::artifact::Id> {

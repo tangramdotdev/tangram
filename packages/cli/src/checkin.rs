@@ -30,7 +30,7 @@ pub struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Options {
 	#[command(flatten)]
-	pub cache_pointers: CachePointers,
+	pub checkout_pointers: CheckoutPointers,
 
 	/// Check in the artifact more quickly by allowing it to be destroyed.
 	#[arg(id = "checkin.destructive", long = "destructive")]
@@ -252,38 +252,39 @@ impl UnsolvedDependencies {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct CachePointers {
-	/// Whether to create cache pointers.
+pub struct CheckoutPointers {
+	/// Whether to create checkout pointers.
 	#[arg(
 		default_missing_value = "true",
-		id = "checkin.cache_pointers.cache_pointers",
-		long = "cache-pointers",
+		id = "checkin.checkout_pointers.checkout_pointers",
+		long = "checkout-pointers",
 		num_args = 0..=1,
-		overrides_with = "checkin.cache_pointers.no_cache_pointers",
+		overrides_with = "checkin.checkout_pointers.no_checkout_pointers",
 		require_equals = true,
 	)]
-	cache_pointers: Option<bool>,
+	checkout_pointers: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
-		id = "checkin.cache_pointers.no_cache_pointers",
-		long = "no-cache-pointers",
+		id = "checkin.checkout_pointers.no_checkout_pointers",
+		long = "no-checkout-pointers",
 		num_args = 0..=1,
-		overrides_with = "checkin.cache_pointers.cache_pointers",
+		overrides_with = "checkin.checkout_pointers.checkout_pointers",
 		require_equals = true,
 	)]
-	no_cache_pointers: Option<bool>,
+	no_checkout_pointers: Option<bool>,
 }
 
-impl CachePointers {
+impl CheckoutPointers {
 	pub fn get(&self) -> bool {
-		self.cache_pointers
-			.or(self.no_cache_pointers.map(|v| !v))
+		self.checkout_pointers
+			.or(self.no_checkout_pointers.map(|v| !v))
 			.unwrap_or(true)
 	}
 
 	pub fn get_option(&self) -> Option<bool> {
-		self.cache_pointers.or(self.no_cache_pointers.map(|v| !v))
+		self.checkout_pointers
+			.or(self.no_checkout_pointers.map(|v| !v))
 	}
 }
 
@@ -321,7 +322,7 @@ impl Cli {
 impl Options {
 	pub fn to_options(&self) -> tg::checkin::Options {
 		tg::checkin::Options {
-			cache_pointers: self.cache_pointers.get(),
+			checkout_pointers: self.checkout_pointers.get(),
 			destructive: self.destructive,
 			deterministic: self.deterministic,
 			ignore: self.ignore.get(),

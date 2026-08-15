@@ -99,8 +99,8 @@ impl Index {
 						process,
 					)?;
 				},
-				crate::batch::Item::PutCacheEntry(arg) => {
-					Self::put_cache_entries_with_transaction(
+				crate::batch::Item::PutCheckout(arg) => {
+					Self::put_checkouts_with_transaction(
 						db,
 						subspace,
 						transaction,

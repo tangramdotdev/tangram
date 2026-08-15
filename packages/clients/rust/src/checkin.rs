@@ -27,7 +27,7 @@ pub struct Arg {
 pub struct Options {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub cache_pointers: bool,
+	pub checkout_pointers: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -188,7 +188,7 @@ impl tg::Session {
 impl Default for Options {
 	fn default() -> Self {
 		Self {
-			cache_pointers: true,
+			checkout_pointers: true,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

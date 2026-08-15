@@ -2413,7 +2413,7 @@ impl Provider {
 			if let Some(length) = object.length {
 				return Ok(length);
 			}
-			if let Some(length) = object.cache_pointer.map(|pointer| pointer.length) {
+			if let Some(length) = object.checkout_pointer.map(|pointer| pointer.length) {
 				return Ok(length);
 			}
 			let Some(bytes) = object.bytes else {
@@ -2521,8 +2521,8 @@ impl Provider {
 		if let Some(length) = object.length {
 			return Ok(length);
 		}
-		if let Some(cache_pointer) = object.cache_pointer {
-			return Ok(cache_pointer.length);
+		if let Some(checkout_pointer) = object.checkout_pointer {
+			return Ok(checkout_pointer.length);
 		}
 		let Some(bytes) = object.bytes else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
@@ -2626,18 +2626,18 @@ impl Provider {
 			}
 			return Ok(());
 		}
-		let Some(cache_pointer) = object.cache_pointer else {
+		let Some(checkout_pointer) = object.checkout_pointer else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
-		if position >= cache_pointer.length {
+		if position >= checkout_pointer.length {
 			return Ok(());
 		}
-		let read_length = std::cmp::min(length, cache_pointer.length - position);
+		let read_length = std::cmp::min(length, checkout_pointer.length - position);
 		let mut path = self
 			.server
-			.cache_path()
-			.join(cache_pointer.artifact.to_string());
-		if let Some(path_) = cache_pointer.path {
+			.checkout_path()
+			.join(checkout_pointer.artifact.to_string());
+		if let Some(path_) = checkout_pointer.path {
 			path.push(path_);
 		}
 		let file = match std::fs::File::open(&path) {
@@ -2646,11 +2646,11 @@ impl Provider {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 			},
 			Err(error) => {
-				tracing::error!(%error, path = %path.display(), "failed to open cache file");
+				tracing::error!(%error, path = %path.display(), "failed to open a checkout file");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			},
 		};
-		let file_position = cache_pointer
+		let file_position = checkout_pointer
 			.position
 			.checked_add(position)
 			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?;
@@ -2891,24 +2891,24 @@ impl Provider {
 		let Some(object) = self.try_get_object(&id, transaction)? else {
 			return Ok(None);
 		};
-		let Some(cache_pointer) = object.cache_pointer else {
+		let Some(checkout_pointer) = object.checkout_pointer else {
 			return Ok(None);
 		};
-		if cache_pointer.position != 0 {
+		if checkout_pointer.position != 0 {
 			return Ok(None);
 		}
 		let mut path = self
 			.server
-			.cache_path()
-			.join(cache_pointer.artifact.to_string());
-		if let Some(path_) = cache_pointer.path {
+			.checkout_path()
+			.join(checkout_pointer.artifact.to_string());
+		if let Some(path_) = checkout_pointer.path {
 			path.push(path_);
 		}
 		match std::fs::File::open(&path) {
 			Ok(file) => Ok(Some(file.into())),
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
 			Err(error) => {
-				tracing::error!(%error, path = %path.display(), "failed to open cache file");
+				tracing::error!(%error, path = %path.display(), "failed to open a checkout file");
 				Err(std::io::Error::from_raw_os_error(libc::EIO))
 			},
 		}

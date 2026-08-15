@@ -28,7 +28,7 @@ let artifact = artifact {
 let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
-tg checkout --lock=attr --dependencies=false $id $path
+tg checkout --lock=attr --dependencies=false $id --path $path
 
 # The sibling lockfile should not exist.
 let lockfile_path = $path | path parse | update extension "lock" | path join

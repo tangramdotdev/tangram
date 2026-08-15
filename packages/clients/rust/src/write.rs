@@ -11,7 +11,7 @@ use {
 pub struct Arg {
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cache_pointers: Option<bool>,
+	pub checkout_pointers: Option<bool>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

@@ -608,11 +608,11 @@ impl Session {
 		};
 
 		// Check for an artifact symlink.
-		let cache_path = self.server.cache_path();
+		let checkout_path = self.server.checkout_path();
 		let store_path = self.server.store_path();
 		let target_in_artifact_path = absolute_target
-			.strip_prefix(&cache_path)
-			.map(|path| (&cache_path, path))
+			.strip_prefix(&checkout_path)
+			.map(|path| (&checkout_path, path))
 			.or_else(|_| {
 				absolute_target
 					.strip_prefix(&store_path)

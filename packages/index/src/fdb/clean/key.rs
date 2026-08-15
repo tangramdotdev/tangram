@@ -5,7 +5,7 @@ use tangram_client::prelude::*;
 pub enum ItemKind {
 	AccountObject = 4,
 	AccountProcess = 5,
-	CacheEntry = 0,
+	Checkout = 0,
 	Object = 1,
 	Process = 2,
 	Sandbox = 3,
@@ -25,7 +25,7 @@ pub enum Key {
 		process: tg::process::Id,
 		touched_at: i64,
 	},
-	CacheEntry {
+	Checkout {
 		id: tg::artifact::Id,
 		partition: u64,
 		touched_at: i64,
@@ -78,7 +78,7 @@ mod tests {
 				process: process.clone(),
 				touched_at: 2,
 			},
-			Key::CacheEntry {
+			Key::Checkout {
 				id: artifact,
 				partition: 1,
 				touched_at: 2,

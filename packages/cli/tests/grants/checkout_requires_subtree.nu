@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Checking out an artifact to a path must require its subtree: a principal without an artifact's subtree must not be able to materialize it to disk. Otherwise checkout to a path is an exfiltration channel that bypasses the subtree check that cache enforces.
+# Checking out an artifact to a path must require its subtree: a principal without an artifact's subtree must not be able to materialize it to disk. Otherwise external checkout is an exfiltration channel that bypasses the subtree check that internal checkout enforces.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
@@ -14,7 +14,7 @@ let file = (tg --token $alice.token wait $process | from json).output.value | sp
 # Alice can check out her own artifact.
 let alice_dir = mktemp --directory
 let alice_out = $alice_dir | path join "out"
-let alice_checkout = tg --token $alice.token checkout $file $alice_out | complete
+let alice_checkout = tg --token $alice.token checkout $file --path $alice_out | complete
 success $alice_checkout "Alice should be able to check out her own artifact."
 
 # Eve does not have the subtree for Alice's private artifact.
@@ -24,5 +24,5 @@ failure $denied "Eve should not have the subtree for Alice's private artifact."
 # Eve must not be able to check out an artifact whose subtree she does not have.
 let dir = mktemp --directory
 let out = $dir | path join "out"
-let checked_out = tg --token $eve.token checkout $file $out | complete
+let checked_out = tg --token $eve.token checkout $file --path $out | complete
 failure $checked_out "Eve must not check out an artifact whose subtree she does not have."

@@ -85,7 +85,7 @@ impl Session {
 			.iter()
 			.map(|tag| tag.specifier.clone())
 			.collect::<Vec<_>>();
-		self.invalidate_tag_cache_entries(&specifiers).await?;
+		self.invalidate_tag_store_entries(&specifiers).await?;
 
 		Ok(output)
 	}

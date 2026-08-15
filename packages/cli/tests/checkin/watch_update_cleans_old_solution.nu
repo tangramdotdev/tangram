@@ -22,9 +22,9 @@ def checkin_background [path: path, update?: string] {
 		let job_id = job id
 		let update = $update
 		let output = if $update == null {
-			tg checkin $path --watch --no-cache-pointers --no-lock | complete
+			tg checkin $path --watch --no-checkout-pointers --no-lock | complete
 		} else {
-			tg checkin $path --watch --no-cache-pointers --no-lock --update $update | complete
+			tg checkin $path --watch --no-checkout-pointers --no-lock --update $update | complete
 		}
 		$output | job send --tag $job_id 0
 	}
@@ -64,7 +64,7 @@ success $update_output
 let update_id = $update_output.stdout | str trim
 
 # The watched update must produce the same result as a cold checkin.
-let cold_id = tg checkin $path --no-cache-pointers --no-lock
+let cold_id = tg checkin $path --no-checkout-pointers --no-lock
 assert ($update_id != $initial_id) "updating the dependency should change the artifact id"
 assert ($update_id == $cold_id) "the watched update should match a cold checkin"
 

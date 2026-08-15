@@ -61,7 +61,7 @@ impl Session {
 
 		let put_arg = crate::object::store::PutArg {
 			bytes: Some(arg.bytes.clone()),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length,
 			stored_at: now,
@@ -121,7 +121,7 @@ impl Session {
 			}
 		};
 		let arg = tangram_index::object::put::Arg {
-			cache_entry: None,
+			checkout: None,
 			children,
 			id: id.clone(),
 			metadata,

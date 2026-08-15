@@ -121,7 +121,7 @@ mod tests {
 		let store = Store::default();
 		let first_bytes = Bytes::from_static(b"first");
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &first_bytes);
-		let cache_pointer = crate::CachePointer {
+		let checkout_pointer = crate::CheckoutPointer {
 			artifact: tg::file::Id::new(b"first").into(),
 			length: 5,
 			path: Some(PathBuf::from("first")),
@@ -129,7 +129,7 @@ mod tests {
 		};
 		store.put(crate::PutArg {
 			bytes: Some(first_bytes),
-			cache_pointer: Some(cache_pointer),
+			checkout_pointer: Some(checkout_pointer),
 			id: id.clone(),
 			length: Some(5),
 			stored_at: 1,
@@ -138,7 +138,7 @@ mod tests {
 		let second_bytes = Bytes::from_static(b"second");
 		store.put_batch(vec![crate::PutArg {
 			bytes: Some(second_bytes.clone()),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
 			stored_at: 2,
@@ -146,7 +146,7 @@ mod tests {
 
 		let object = store.try_get_sync(&crate::TryGetArg { id }).object.unwrap();
 		assert_eq!(object.bytes, Some(Cow::Owned(second_bytes.to_vec())));
-		assert!(object.cache_pointer.is_none());
+		assert!(object.checkout_pointer.is_none());
 		assert!(object.length.is_none());
 		assert_eq!(object.stored_at, 2);
 	}
@@ -164,7 +164,7 @@ mod tests {
 
 		store.put(crate::PutArg {
 			bytes: Some(bytes.clone()),
-			cache_pointer: None,
+			checkout_pointer: None,
 			id: id.clone(),
 			length: Some(content.len().to_u64().unwrap()),
 			stored_at: 10,

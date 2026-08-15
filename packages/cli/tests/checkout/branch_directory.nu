@@ -26,7 +26,7 @@ let id = tg checkin $path
 
 # Checkout the branch directory.
 let checkout_path = mktemp --directory | path join 'checkout'
-tg checkout $id $checkout_path
+tg checkout $id --path $checkout_path
 
 # Verify all files are present and have correct contents.
 snapshot --path $checkout_path

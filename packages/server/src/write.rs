@@ -58,12 +58,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to write the blob"))?;
 		let blob = Arc::new(blob);
 
-		// Rename the temp file to the cache directory if necessary.
-		let cache_pointers = arg
-			.cache_pointers
-			.unwrap_or(self.server.config.write.cache_pointers);
-		let cache_pointer = if let Destination::Temp(temp) = destination
-			&& cache_pointers
+		// Rename the temp file to the checkouts directory if necessary.
+		let checkout_pointers = arg
+			.checkout_pointers
+			.unwrap_or(self.server.config.write.checkout_pointers);
+		let checkout_pointer = if let Destination::Temp(temp) = destination
+			&& checkout_pointers
 		{
 			let data = tg::file::Data::Node(tg::file::data::Node {
 				contents: Some(blob.id.clone()),
@@ -72,7 +72,7 @@ impl Session {
 				module: None,
 			});
 			let id = tg::file::Id::new(&data.serialize()?);
-			let path = self.server.cache_path().join(id.to_string());
+			let path = self.server.checkout_path().join(id.to_string());
 			match tangram_util::fs::rename_noreplace(temp.path(), path).await {
 				Ok(()) => (),
 				Err(error)
@@ -95,12 +95,12 @@ impl Session {
 		};
 
 		// Store.
-		self.write_store(&blob, cache_pointer.clone(), touched_at)
+		self.write_store(&blob, checkout_pointer.clone(), touched_at)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the blob"))?;
 
 		// Publish index messages.
-		self.write_index(&blob, cache_pointer.clone(), touched_at)
+		self.write_index(&blob, checkout_pointer.clone(), touched_at)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
 
@@ -164,7 +164,7 @@ impl Session {
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
-						cache_pointer: None,
+						checkout_pointer: None,
 						id: blob.id.clone().into(),
 						length: Some(blob.length),
 						stored_at: *stored_at,
@@ -261,7 +261,7 @@ impl Session {
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
-						cache_pointer: None,
+						checkout_pointer: None,
 						id: blob.id.clone().into(),
 						length: Some(blob.length),
 						stored_at: *stored_at,
@@ -437,10 +437,10 @@ impl Session {
 	async fn write_store(
 		&self,
 		blob: &Output,
-		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
 	) -> tg::Result<()> {
-		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), stored_at);
+		let arg = Self::write_store_args(blob, checkout_pointer.as_ref(), stored_at);
 		self.server
 			.object_store
 			.put_batch(arg)
@@ -451,28 +451,27 @@ impl Session {
 
 	pub(crate) fn write_store_args(
 		blob: &Output,
-		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
 	) -> Vec<crate::object::store::PutArg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			if blob.bytes.is_none() && cache_pointer.is_none() {
+			if blob.bytes.is_none() && checkout_pointer.is_none() {
 				stack.extend(&blob.children);
 				continue;
 			}
-			let cache_pointer =
-				cache_pointer
-					.as_ref()
-					.map(|(artifact, path)| crate::object::store::CachePointer {
-						artifact: artifact.clone(),
-						length: blob.length,
-						path: path.clone(),
-						position: blob.position,
-					});
+			let checkout_pointer = checkout_pointer.as_ref().map(|(artifact, path)| {
+				crate::object::store::CheckoutPointer {
+					artifact: artifact.clone(),
+					length: blob.length,
+					path: path.clone(),
+					position: blob.position,
+				}
+			});
 			args.push(crate::object::store::PutArg {
 				bytes: blob.bytes.clone(),
-				cache_pointer,
+				checkout_pointer,
 				id: blob.id.clone().into(),
 				length: Some(blob.length),
 				stored_at,
@@ -485,7 +484,7 @@ impl Session {
 	async fn write_index(
 		&self,
 		blob: &Output,
-		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let grant_expires_at = touched_at
@@ -497,9 +496,9 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let (put_cache_entry_args, put_object_args, put_grant_args) = Self::write_index_args(
+		let (put_checkout_args, put_object_args, put_grant_args) = Self::write_index_args(
 			blob,
-			cache_pointer,
+			checkout_pointer,
 			touched_at,
 			(!matches!(
 				self.context.principal,
@@ -513,9 +512,9 @@ impl Session {
 		let account = self.usage_account(&self.context.principal).await?;
 		let root_object = tg::object::Id::from(blob.id.clone());
 		let arg = tangram_index::batch::Arg {
-			items: put_cache_entry_args
+			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCacheEntry)
+				.map(tangram_index::batch::Item::PutCheckout)
 				.chain(
 					put_object_args
 						.into_iter()
@@ -547,14 +546,14 @@ impl Session {
 
 	pub(crate) fn write_index_args(
 		blob: &Output,
-		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 		principal: Option<&tg::Principal>,
 		grant_expires_at: i64,
 		grant_time_to_touch: std::time::Duration,
 		time_to_touch: std::time::Duration,
 	) -> (
-		Vec<tangram_index::cache::put::Arg>,
+		Vec<tangram_index::checkout::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
 		Vec<tangram_index::grant::put::Arg>,
 	) {
@@ -569,14 +568,16 @@ impl Session {
 		// Create put object args in reverse topological order.
 		let mut put_object_args = Vec::with_capacity(blobs.len());
 		for blob in blobs.into_iter().rev() {
-			let cache_entry = cache_pointer.as_ref().map(|(artifact, _)| artifact.clone());
+			let checkout = checkout_pointer
+				.as_ref()
+				.map(|(artifact, _)| artifact.clone());
 			let mut children = BTreeSet::new();
 			if let Some(data) = &blob.data {
 				data.children(&mut children);
 			}
 			let id = blob.id.clone().into();
 			let arg = tangram_index::object::put::Arg {
-				cache_entry,
+				checkout,
 				children,
 				id,
 				metadata: blob.metadata.clone(),
@@ -587,9 +588,9 @@ impl Session {
 			put_object_args.push(arg);
 		}
 
-		// Create a cache entry arg if necessary.
-		let put_cache_entry_args = if let Some((artifact, _)) = cache_pointer {
-			vec![tangram_index::cache::put::Arg {
+		// Create a checkout arg if necessary.
+		let put_checkout_args = if let Some((artifact, _)) = checkout_pointer {
+			vec![tangram_index::checkout::put::Arg {
 				id: artifact,
 				touched_at,
 				dependencies: Vec::new(),
@@ -617,7 +618,7 @@ impl Session {
 			.into_iter()
 			.collect();
 
-		(put_cache_entry_args, put_object_args, put_grant_args)
+		(put_checkout_args, put_object_args, put_grant_args)
 	}
 
 	pub(crate) async fn write_request(

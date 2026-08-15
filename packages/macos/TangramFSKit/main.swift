@@ -293,7 +293,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 
 	func activate(options: FSTaskOptions, replyHandler reply: @escaping (FSItem?, Error?) -> Void) {
 		// The resource is the server's data directory. Pass it to the provider so
-		// that the fast path can read the object store and the cache directory
+		// that the fast path can read the object store and the checkouts directory
 		// directly instead of sending every request over the socket. The security
 		// scoped resource is held open by the volume for as long as the provider
 		// lives.

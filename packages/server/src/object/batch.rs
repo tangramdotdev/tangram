@@ -80,7 +80,7 @@ impl Session {
 			};
 			put_args.push(crate::object::store::PutArg {
 				bytes: Some(object.bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: object.id.clone(),
 				length,
 				stored_at: now,
@@ -103,7 +103,7 @@ impl Session {
 
 			// Create the arg.
 			let arg = tangram_index::object::put::Arg {
-				cache_entry: None,
+				checkout: None,
 				children,
 				id: object.id.clone(),
 				metadata,

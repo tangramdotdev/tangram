@@ -19,7 +19,7 @@ let id = tg build $artifact
 
 let tmp = mktemp --directory
 let path = $tmp | path join "checkout"
-tg checkout --dependencies=true $id $path
+tg checkout --dependencies=true $id --path $path
 
 tg clean
 

@@ -21,7 +21,7 @@ pub mod prelude {
 #[derive(Clone, Debug)]
 pub struct PutArg {
 	pub bytes: Option<Bytes>,
-	pub cache_pointer: Option<CachePointer>,
+	pub checkout_pointer: Option<CheckoutPointer>,
 	pub id: tg::object::Id,
 	pub length: Option<u64>,
 	pub stored_at: i64,
@@ -55,7 +55,7 @@ pub struct Object<'a> {
 	pub bytes: Option<Cow<'a, [u8]>>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub cache_pointer: Option<CachePointer>,
+	pub checkout_pointer: Option<CheckoutPointer>,
 
 	/// The length of the blob, if the object is a blob. It lets the length be read without deserializing the bytes.
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
@@ -73,7 +73,7 @@ pub struct Object<'a> {
 	tangram_serialize::Serialize,
 	tangram_serialize::Deserialize,
 )]
-pub struct CachePointer {
+pub struct CheckoutPointer {
 	#[tangram_serialize(id = 0)]
 	pub artifact: tg::artifact::Id,
 
@@ -172,19 +172,19 @@ impl Object<'_> {
 	pub fn into_static(self) -> Object<'static> {
 		Object {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
-			cache_pointer: self.cache_pointer,
+			checkout_pointer: self.checkout_pointer,
 			length: self.length,
 			stored_at: self.stored_at,
 		}
 	}
 }
 
-impl CachePointer {
+impl CheckoutPointer {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the cache pointer"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the checkout pointer"))?;
 		Ok(bytes.into())
 	}
 
@@ -192,15 +192,15 @@ impl CachePointer {
 		let bytes = bytes.into();
 		let bytes = bytes.as_ref();
 		if bytes.is_empty() {
-			return Err(tg::error!("empty cache pointer data"));
+			return Err(tg::error!("empty checkout pointer data"));
 		}
 		let format = bytes[0];
 		match format {
 			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|error| tg::error!(!error, "failed to deserialize the cache pointer")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the checkout pointer")),
 			b'{' => serde_json::from_slice(bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the cache pointer")),
-			_ => Err(tg::error!("invalid cache pointer format")),
+				.map_err(|error| tg::error!(!error, "failed to deserialize the checkout pointer")),
+			_ => Err(tg::error!("invalid checkout pointer format")),
 		}
 	}
 }

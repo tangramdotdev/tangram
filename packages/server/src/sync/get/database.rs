@@ -91,7 +91,7 @@ impl Session {
 			})
 			.await?;
 		let invalidated_specifiers = invalidated_specifiers.into_iter().collect::<Vec<_>>();
-		self.invalidate_tag_cache_entries(&invalidated_specifiers)
+		self.invalidate_tag_store_entries(&invalidated_specifiers)
 			.await?;
 
 		Ok(())

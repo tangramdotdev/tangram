@@ -66,7 +66,7 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		self.invalidate_tag_cache_entries(std::slice::from_ref(&specifier))
+		self.invalidate_tag_store_entries(std::slice::from_ref(&specifier))
 			.await?;
 		Ok(())
 	}

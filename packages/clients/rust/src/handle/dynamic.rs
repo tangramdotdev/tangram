@@ -33,17 +33,6 @@ impl tg::Handle for Handle {
 		self.0.arg()
 	}
 
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.0.cache(arg)
-	}
-
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		self.0.check(arg)
 	}

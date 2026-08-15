@@ -6,7 +6,7 @@ let server = spawn
 
 let path = ($env.TMPDIR? | default '/tmp') | path join 'checkout_nonexistent'
 
-let output = tg checkout dir_0000000000000000000000000000 $path | complete
+let output = tg checkout dir_0000000000000000000000000000 --path $path | complete
 failure $output
 snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred

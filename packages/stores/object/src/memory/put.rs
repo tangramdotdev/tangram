@@ -9,7 +9,7 @@ impl Store {
 		let mut state = self.state();
 		let object = Object {
 			bytes: arg.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
-			cache_pointer: arg.cache_pointer,
+			checkout_pointer: arg.checkout_pointer,
 			length: arg.length,
 			stored_at: arg.stored_at,
 		};
@@ -21,7 +21,7 @@ impl Store {
 		for arg in args {
 			let object = Object {
 				bytes: arg.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
-				cache_pointer: arg.cache_pointer,
+				checkout_pointer: arg.checkout_pointer,
 				length: arg.length,
 				stored_at: arg.stored_at,
 			};

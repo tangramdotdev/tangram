@@ -10,7 +10,6 @@ mod archive;
 mod browser;
 mod builtin;
 mod bundle;
-mod cache;
 mod check;
 mod checkin;
 mod checkout;
@@ -250,8 +249,6 @@ enum Command {
 	Builtin(self::builtin::Args),
 
 	Bundle(self::bundle::Args),
-
-	Cache(self::cache::Args),
 
 	Cancel(self::process::cancel::Args),
 
@@ -642,7 +639,6 @@ impl Cli {
 			Command::Build(args) => self.command_build(args).boxed_local(),
 			Command::Builtin(args) => self.command_builtin(args).boxed_local(),
 			Command::Bundle(args) => self.command_bundle(args).boxed_local(),
-			Command::Cache(args) => self.command_cache(args).boxed_local(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed_local(),
 			Command::Check(args) => self.command_check(args).boxed_local(),
 			Command::Checkpoint(args) => self.command_checkpoint(args).boxed_local(),

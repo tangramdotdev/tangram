@@ -22,8 +22,8 @@ use {
 	tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _},
 };
 
-/// The name of the cache directory within the data directory. The server uses this name only while a vfs is mounted, which is the only circumstance in which this provider runs.
-const CACHE_DIRECTORY_NAME: &str = "cache";
+/// The name of the checkouts directory within the data directory. The server uses this name only while a vfs is mounted, which is the only circumstance in which this provider runs.
+const CHECKOUTS_DIRECTORY_NAME: &str = "checkouts";
 
 /// The default interval at which expired cache-only nodes are swept.
 const DEFAULT_NODE_EVICTION_INTERVAL: Duration = Duration::from_secs(30);
@@ -43,7 +43,7 @@ const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 /// The configuration for a provider.
 #[derive(Clone)]
 pub struct Config {
-	/// The server's data directory, which the fast path reads the object store and the cache directory from. If it is `None`, then the provider uses the client for every request.
+	/// The server's data directory, which the fast path reads the object store and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
 	pub data_directory: Option<PathBuf>,
 
 	/// The interval at which expired cache-only nodes are swept.
@@ -83,9 +83,9 @@ struct Inner {
 	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
-/// The state the fast path requires. It reads the object store and the cache directory directly instead of sending a request to the server.
+/// The state the fast path requires. It reads the object store and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
-	cache_path: PathBuf,
+	checkout_path: PathBuf,
 	store: object_store::lmdb::Store,
 }
 
@@ -1126,7 +1126,7 @@ impl Inner {
 }
 
 impl Fast {
-	/// Opens the object store read only and locates the cache directory. Returns `None` if the object store cannot be opened, in which case the provider uses the client for every request.
+	/// Opens the object store read only and locates the checkouts directory. Returns `None` if the object store cannot be opened, in which case the provider uses the client for every request.
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
 		// Open the object store.
 		let path = data_directory.join(&config.object_store_path);
@@ -1149,10 +1149,13 @@ impl Fast {
 			Ok(store) => store,
 		};
 
-		// Locate the cache directory.
-		let cache_path = data_directory.join(CACHE_DIRECTORY_NAME);
-		tracing::info!(cache_path = %cache_path.display(), "enabled the fast path");
-		let fast = Self { cache_path, store };
+		// Locate the checkouts directory.
+		let checkout_path = data_directory.join(CHECKOUTS_DIRECTORY_NAME);
+		tracing::info!(checkout_path = %checkout_path.display(), "enabled the fast path");
+		let fast = Self {
+			checkout_path,
+			store,
+		};
 
 		Some(fast)
 	}
@@ -1515,8 +1518,8 @@ impl Fast {
 		if let Some(length) = object.length {
 			return Ok(length);
 		}
-		if let Some(cache_pointer) = object.cache_pointer {
-			return Ok(cache_pointer.length);
+		if let Some(checkout_pointer) = object.checkout_pointer {
+			return Ok(checkout_pointer.length);
 		}
 		let Some(bytes) = object.bytes else {
 			return Err(fallback());
@@ -1608,16 +1611,18 @@ impl Fast {
 			return Ok(());
 		}
 
-		// Otherwise, read the blob from the cache directory.
-		let Some(cache_pointer) = object.cache_pointer else {
+		// Otherwise, read the blob from the checkouts directory.
+		let Some(checkout_pointer) = object.checkout_pointer else {
 			return Err(fallback());
 		};
-		if position >= cache_pointer.length {
+		if position >= checkout_pointer.length {
 			return Ok(());
 		}
-		let read_length = std::cmp::min(length, cache_pointer.length - position);
-		let mut path = self.cache_path.join(cache_pointer.artifact.to_string());
-		if let Some(path_) = cache_pointer.path {
+		let read_length = std::cmp::min(length, checkout_pointer.length - position);
+		let mut path = self
+			.checkout_path
+			.join(checkout_pointer.artifact.to_string());
+		if let Some(path_) = checkout_pointer.path {
 			path.push(path_);
 		}
 		let mut file = match std::fs::File::open(&path) {
@@ -1625,12 +1630,12 @@ impl Fast {
 				return Err(fallback());
 			},
 			Err(error) => {
-				tracing::error!(%error, path = %path.display(), "failed to open the cache file");
+				tracing::error!(%error, path = %path.display(), "failed to open the checkout file");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			},
 			Ok(file) => file,
 		};
-		file.seek(SeekFrom::Start(cache_pointer.position + position))
+		file.seek(SeekFrom::Start(checkout_pointer.position + position))
 			.map_err(|error| {
 				tracing::error!(%error, path = %path.display(), "failed to seek while reading");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -2137,7 +2142,7 @@ fn init_logging() {
 	});
 }
 
-/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local store or is not cached. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
+/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local store or is not checked out. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
 fn fallback() -> std::io::Error {
 	std::io::Error::from_raw_os_error(libc::ENOSYS)
 }
@@ -2231,7 +2236,7 @@ mod tests {
 		store
 			.put_sync(object_store::PutArg {
 				bytes: Some(bytes),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
 				length: None,
 				stored_at: 0,

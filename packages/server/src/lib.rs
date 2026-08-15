@@ -31,7 +31,6 @@ use {
 mod authentication;
 mod authorization;
 mod billing;
-mod cache;
 mod check;
 mod checkin;
 mod checkout;
@@ -105,8 +104,8 @@ pub struct Server(Arc<State>);
 pub struct State {
 	authentication_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
-	cache_graph_tasks: self::cache::GraphTasks,
-	cache_tasks: self::cache::Tasks,
+	checkout_graph_tasks: self::checkout::internal::GraphTasks,
+	checkout_tasks: self::checkout::internal::Tasks,
 	checkin_tasks: self::checkin::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
 	clock: self::clock::Clock,
@@ -142,7 +141,7 @@ pub struct State {
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	runner: self::runner::Runner,
 	tangram_path: PathBuf,
-	tag_cache_entry_lock: tokio::sync::Mutex<()>,
+	tag_store_entry_lock: tokio::sync::Mutex<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -254,11 +253,11 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the cache graph tasks.
-		let cache_graph_tasks = tangram_futures::task::Map::default();
+		// Create the checkout graph tasks.
+		let checkout_graph_tasks = tangram_futures::task::Map::default();
 
-		// Create the cache tasks.
-		let cache_tasks = tangram_futures::task::Map::default();
+		// Create the checkout tasks.
+		let checkout_tasks = tangram_futures::task::Map::default();
 
 		// Create the checkin tasks.
 		let checkin_tasks = tangram_futures::task::Map::default();
@@ -866,8 +865,8 @@ impl Server {
 		let server = Self(Arc::new(State {
 			authentication_tokens,
 			billing,
-			cache_graph_tasks,
-			cache_tasks,
+			checkout_graph_tasks,
+			checkout_tasks,
 			checkin_tasks,
 			checkpoints,
 			clock,
@@ -903,7 +902,7 @@ impl Server {
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			runner,
 			tangram_path,
-			tag_cache_entry_lock: tokio::sync::Mutex::new(()),
+			tag_store_entry_lock: tokio::sync::Mutex::new(()),
 			temps,
 			version,
 			vfs,
@@ -1004,7 +1003,7 @@ impl Server {
 
 		// Start the VFS if enabled.
 		let store_path = server.store_path();
-		let cache_path = server.path.join("cache");
+		let checkout_path = server.path.join("checkouts");
 		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
 			config::VfsKind::Auto => {
 				if cfg!(target_os = "macos")
@@ -1033,26 +1032,26 @@ impl Server {
 				return Err(tg::error!(!error, "failed to stat the path"));
 			},
 		};
-		let cache_exists = tokio::fs::try_exists(&cache_path)
+		let checkout_exists = tokio::fs::try_exists(&checkout_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
 		if let Some(options) = server.config.vfs.clone() {
-			if store_exists && !cache_exists {
-				tokio::fs::rename(&store_path, &cache_path)
+			if store_exists && !checkout_exists {
+				tokio::fs::rename(&store_path, &checkout_path)
 					.await
 					.map_err(|error| {
 						tg::error!(
 							!error,
-							"failed to move the store directory to the cache path"
+							"failed to move the store directory to the checkouts path"
 						)
 					})?;
 			}
 			tokio::fs::create_dir_all(&store_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			tokio::fs::create_dir_all(&cache_path)
+			tokio::fs::create_dir_all(&checkout_path)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
+				.map_err(|error| tg::error!(!error, "failed to create the checkouts directory"))?;
 			let vfs = self::vfs::Server::start(
 				&server,
 				vfs_kind,
@@ -1066,13 +1065,13 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
 			server.vfs.lock().unwrap().replace(vfs);
 		} else {
-			if cache_exists {
-				tokio::fs::rename(&cache_path, &store_path)
+			if checkout_exists {
+				tokio::fs::rename(&checkout_path, &store_path)
 					.await
 					.map_err(|error| {
 						tg::error!(
 							!error,
-							"failed to move the cache directory to the store path"
+							"failed to move the checkouts directory to the store path"
 						)
 					})?;
 			}
@@ -1280,29 +1279,29 @@ impl Server {
 				}
 				tracing::trace!("checkin tasks");
 
-				// Abort the cache graph tasks.
-				server.cache_graph_tasks.abort_all();
-				let results = server.cache_graph_tasks.wait().await;
+				// Abort the checkout graph tasks.
+				server.checkout_graph_tasks.abort_all();
+				let results = server.checkout_graph_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a cache graph task failed");
+						tracing::error!(?error, "a checkout graph task failed");
 					}
 				}
-				tracing::trace!("cache graph tasks");
+				tracing::trace!("checkout graph tasks");
 
-				// Abort the cache tasks.
-				server.cache_tasks.abort_all();
-				let results = server.cache_tasks.wait().await;
+				// Abort the checkout tasks.
+				server.checkout_tasks.abort_all();
+				let results = server.checkout_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a cache task panicked");
+						tracing::error!(?error, "a checkout task panicked");
 					}
 				}
-				tracing::trace!("cache tasks");
+				tracing::trace!("checkout tasks");
 
 				// Abort the object get tasks.
 				server.object_get_tasks.abort_all();
@@ -1528,9 +1527,9 @@ impl Server {
 	}
 
 	#[must_use]
-	fn cache_path(&self) -> PathBuf {
+	fn checkout_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
-			self.path.join("cache")
+			self.path.join("checkouts")
 		} else {
 			self.store_path()
 		}
@@ -1590,8 +1589,8 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		self.cache_graph_tasks.abort_all();
-		self.cache_tasks.abort_all();
+		self.checkout_graph_tasks.abort_all();
+		self.checkout_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
 		self.object_get_tasks.abort_all();

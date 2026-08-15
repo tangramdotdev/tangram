@@ -46,7 +46,7 @@ pub(crate) enum Request {
 	TryGetAncestors {
 		id: tg::Id,
 	},
-	TryGetCacheEntries {
+	TryGetCheckouts {
 		ids: Vec<tg::artifact::Id>,
 	},
 	TryGetCachedProcesses {
@@ -102,7 +102,7 @@ pub(crate) enum Response {
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),
 	TryGetAncestors(Option<Vec<tg::Id>>),
-	TryGetCacheEntries(Vec<Option<crate::cache::Entry>>),
+	TryGetCheckouts(Vec<Option<crate::checkout::Checkout>>),
 	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	TryGetGroups(Vec<Option<crate::group::Group>>),
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),

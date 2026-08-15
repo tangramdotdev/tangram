@@ -895,10 +895,10 @@ where
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
 		let referent = tg::Referent::with_node_and_tokens(artifact.clone(), tokens.clone());
-		let path = tg::checkout::checkout_with_handle(
+		let path = tg::checkout::checkout_one_with_handle(
 			handle,
 			tg::checkout::Arg {
-				artifact: referent,
+				artifacts: vec![referent],
 				dependencies: true,
 				extension: None,
 				force: false,

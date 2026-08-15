@@ -28,7 +28,7 @@ pub(super) enum Request {
 		now: jiff::Timestamp,
 		period: crate::usage::Period,
 	},
-	PutCacheEntries(Vec<crate::cache::put::Arg>),
+	PutCheckouts(Vec<crate::checkout::put::Arg>),
 	PutGrants(Vec<crate::grant::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
 	PutGroups(Vec<crate::group::put::Arg>),
@@ -39,7 +39,7 @@ pub(super) enum Request {
 	PutSandboxes(Vec<crate::sandbox::put::Arg>),
 	PutTags(Vec<crate::tag::put::Arg>),
 	PutUsers(Vec<crate::user::put::Arg>),
-	TouchCacheEntries(TouchCacheEntries),
+	TouchCheckouts(TouchCheckouts),
 	TouchObjects(TouchObjects),
 	TouchProcesses(TouchProcesses),
 	Update(Update),
@@ -55,7 +55,7 @@ pub(super) struct Clean {
 }
 
 #[derive(Clone)]
-pub(super) struct TouchCacheEntries {
+pub(super) struct TouchCheckouts {
 	pub ids: Vec<tg::artifact::Id>,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
@@ -99,7 +99,7 @@ pub(super) enum Item {
 	DeleteUser(tg::user::Id),
 	EnqueueLogCompaction(tg::process::Id),
 	GetUsage,
-	PutCacheEntry(crate::cache::put::Arg),
+	PutCheckout(crate::checkout::put::Arg),
 	PutGrant(crate::grant::put::Arg),
 	PutGroup(crate::group::put::Arg),
 	PutGroupMember(crate::group::member::put::Arg),
@@ -110,7 +110,7 @@ pub(super) enum Item {
 	PutSandbox(crate::sandbox::put::Arg),
 	PutTag(crate::tag::put::Arg),
 	PutUser(crate::user::put::Arg),
-	TouchCacheEntry(tg::artifact::Id),
+	TouchCheckout(tg::artifact::Id),
 	TouchObject(tg::object::Id),
 	TouchProcess(tg::process::Id),
 	Update,
@@ -140,7 +140,7 @@ pub(super) enum Kind {
 		now: jiff::Timestamp,
 		period: crate::usage::Period,
 	},
-	PutCacheEntries,
+	PutCheckouts,
 	PutGrants,
 	PutGroupMembers,
 	PutGroups,
@@ -151,7 +151,7 @@ pub(super) enum Kind {
 	PutSandboxes,
 	PutTags,
 	PutUsers,
-	TouchCacheEntries {
+	TouchCheckouts {
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
@@ -178,7 +178,7 @@ impl Request {
 			Self::Batch(_)
 			| Self::CompleteLogCompaction(_)
 			| Self::EnqueueLogCompaction(_)
-			| Self::PutCacheEntries(_)
+			| Self::PutCheckouts(_)
 			| Self::PutGrants(_)
 			| Self::PutGroupMembers(_)
 			| Self::PutGroups(_)
@@ -201,7 +201,7 @@ impl Request {
 			| Self::DeleteUsers(_)
 			| Self::GetUsage { .. }
 			| Self::PutTags(_)
-			| Self::TouchCacheEntries(_)
+			| Self::TouchCheckouts(_)
 			| Self::TouchObjects(_)
 			| Self::TouchProcesses(_) => Priority::High,
 		}

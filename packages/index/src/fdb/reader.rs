@@ -306,11 +306,11 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetAncestors(output)
 			},
-			crate::read::Request::TryGetCacheEntries { ids } => {
+			crate::read::Request::TryGetCheckouts { ids } => {
 				let result =
-					Self::try_get_cache_entries_with_transaction(transaction, subspace, ids).await;
+					Self::try_get_checkouts_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);
-				crate::read::Response::TryGetCacheEntries(output)
+				crate::read::Response::TryGetCheckouts(output)
 			},
 			crate::read::Request::TryGetCachedProcesses { command } => {
 				let result =

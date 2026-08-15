@@ -11,14 +11,14 @@ let server = spawn --config {
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --no-cache-pointers --no-lock | complete
+		let output = tg checkin $path --watch --no-checkout-pointers --no-lock | complete
 		$output | job send --tag $job_id 0
 	}
 }
 
 def check_event [kind: string] {
 	let path = artifact 'alpha'
-	tg checkin $path --watch --no-cache-pointers --no-lock | ignore
+	tg checkin $path --watch --no-checkout-pointers --no-lock | ignore
 
 	# Hold an incremental checkin after it snapshots the watched file.
 	let snapshot_watch = (

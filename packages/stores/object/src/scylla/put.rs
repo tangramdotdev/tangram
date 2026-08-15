@@ -3,10 +3,10 @@ use {super::Store, crate::PutArg, tangram_client::prelude::*};
 impl Store {
 	pub(super) async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = &arg.id;
-		if arg.cache_pointer.is_some() {
+		if arg.checkout_pointer.is_some() {
 			return Err(tg::error!(
 				%id,
-				"cache pointers are not supported by the scylla object store"
+				"checkout pointers are not supported by the scylla object store"
 			));
 		}
 		let bytes = arg.bytes;
@@ -24,10 +24,10 @@ impl Store {
 		if args.is_empty() {
 			return Ok(());
 		}
-		if let Some(arg) = args.iter().find(|arg| arg.cache_pointer.is_some()) {
+		if let Some(arg) = args.iter().find(|arg| arg.checkout_pointer.is_some()) {
 			return Err(tg::error!(
 				id = %arg.id,
-				"cache pointers are not supported by the scylla object store"
+				"checkout pointers are not supported by the scylla object store"
 			));
 		}
 		let mut batch =

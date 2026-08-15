@@ -26,7 +26,7 @@ pub(crate) type Tasks = tangram_futures::task::Map<
 	fnv::FnvBuildHasher,
 >;
 
-pub(crate) struct CacheFile {
+pub(crate) struct CheckoutFile {
 	pub artifact: tg::artifact::Id,
 	pub path: Option<PathBuf>,
 	pub file: std::fs::File,
@@ -594,7 +594,7 @@ impl Server {
 	pub(crate) fn try_get_object_sync(
 		&self,
 		id: &tg::object::Id,
-		cache_file: &mut Option<CacheFile>,
+		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let arg = crate::object::store::TryGetArg { id: id.clone() };
 		let output = self.object_store.try_get_sync(&arg)?;
@@ -604,8 +604,10 @@ impl Server {
 		};
 		let bytes = if let Some(bytes) = object.bytes {
 			bytes.into_owned().into()
-		} else if let Some(cache_pointer) = object.cache_pointer {
-			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, cache_file)? else {
+		} else if let Some(checkout_pointer) = object.checkout_pointer {
+			let Some(bytes) =
+				self.try_read_checkout_pointer_sync(&checkout_pointer, checkout_file)?
+			else {
 				return Ok(None);
 			};
 			bytes
@@ -683,8 +685,8 @@ impl Server {
 				if let Some(bytes) = object.bytes {
 					return Ok(Some(bytes.into_owned().into()));
 				}
-				if let Some(cache_pointer) = object.cache_pointer {
-					return self.try_read_cache_pointer(&cache_pointer).await;
+				if let Some(checkout_pointer) = object.checkout_pointer {
+					return self.try_read_checkout_pointer(&checkout_pointer).await;
 				}
 				Ok(None)
 			})
@@ -708,19 +710,21 @@ impl Server {
 		if let Some(bytes) = object.bytes {
 			return Ok(Some(bytes.into_owned().into()));
 		}
-		if let Some(cache_pointer) = object.cache_pointer {
-			return self.try_read_cache_pointer(&cache_pointer).await;
+		if let Some(checkout_pointer) = object.checkout_pointer {
+			return self.try_read_checkout_pointer(&checkout_pointer).await;
 		}
 		Ok(None)
 	}
 
-	async fn try_read_cache_pointer(
+	async fn try_read_checkout_pointer(
 		&self,
-		cache_pointer: &tangram_object_store::CachePointer,
+		checkout_pointer: &tangram_object_store::CheckoutPointer,
 	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
-		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
-		if let Some(path_) = &cache_pointer.path {
+		let mut path = self
+			.checkout_path()
+			.join(checkout_pointer.artifact.to_string());
+		if let Some(path_) = &checkout_pointer.path {
 			path.push(path_);
 		}
 		let mut file = match tokio::fs::File::open(path).await {
@@ -731,18 +735,18 @@ impl Server {
 			Err(error) => {
 				return Err(tg::error!(
 					!error,
-					"failed to open the entry in the cache directory"
+					"failed to open the entry in the checkouts directory"
 				));
 			},
 		};
 
 		// Seek.
-		file.seek(std::io::SeekFrom::Start(cache_pointer.position))
+		file.seek(std::io::SeekFrom::Start(checkout_pointer.position))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to seek in the file"))?;
 
 		// Read.
-		let mut buffer = vec![0; 1 + cache_pointer.length.to_usize().unwrap()];
+		let mut buffer = vec![0; 1 + checkout_pointer.length.to_usize().unwrap()];
 		file.read_exact(&mut buffer[1..])
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the leaf from the file"))?;
@@ -750,43 +754,45 @@ impl Server {
 		Ok(Some(buffer.into()))
 	}
 
-	fn try_read_cache_pointer_sync(
+	fn try_read_checkout_pointer_sync(
 		&self,
-		cache_pointer: &tangram_object_store::CachePointer,
-		cache_file: &mut Option<CacheFile>,
+		checkout_pointer: &tangram_object_store::CheckoutPointer,
+		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<Bytes>> {
 		// Replace the file if necessary.
-		match cache_file {
-			Some(CacheFile { artifact, path, .. })
-				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
+		match checkout_file {
+			Some(CheckoutFile { artifact, path, .. })
+				if artifact == &checkout_pointer.artifact && path == &checkout_pointer.path => {},
 			_ => {
-				drop(cache_file.take());
-				let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
-				if let Some(path_) = &cache_pointer.path {
+				drop(checkout_file.take());
+				let mut path = self
+					.checkout_path()
+					.join(checkout_pointer.artifact.to_string());
+				if let Some(path_) = &checkout_pointer.path {
 					path = path.join(path_);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
 					|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 				)?;
-				cache_file.replace(CacheFile {
-					artifact: cache_pointer.artifact.clone(),
-					path: cache_pointer.path.clone(),
+				checkout_file.replace(CheckoutFile {
+					artifact: checkout_pointer.artifact.clone(),
+					path: checkout_pointer.path.clone(),
 					file: file_,
 				});
 			},
 		}
 
 		// Seek.
-		let file_handle = &mut cache_file.as_mut().unwrap().file;
+		let file_handle = &mut checkout_file.as_mut().unwrap().file;
 		file_handle
-			.seek(std::io::SeekFrom::Start(cache_pointer.position))
-			.map_err(|error| tg::error!(!error, "failed to seek the cache file"))?;
+			.seek(std::io::SeekFrom::Start(checkout_pointer.position))
+			.map_err(|error| tg::error!(!error, "failed to seek the checkout file"))?;
 
 		// Read.
-		let mut buffer = vec![0u8; 1 + cache_pointer.length.to_usize().unwrap()];
+		let mut buffer = vec![0u8; 1 + checkout_pointer.length.to_usize().unwrap()];
 		file_handle
 			.read_exact(&mut buffer[1..])
-			.map_err(|error| tg::error!(!error, "failed to read from the cache file"))?;
+			.map_err(|error| tg::error!(!error, "failed to read from the checkout file"))?;
 
 		Ok(Some(buffer.into()))
 	}

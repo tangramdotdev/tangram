@@ -14,7 +14,7 @@ fn object_arg(
 	size: u64,
 ) -> crate::object::put::Arg {
 	crate::object::put::Arg {
-		cache_entry: None,
+		checkout: None,
 		children: children.into_iter().collect::<BTreeSet<_>>(),
 		id,
 		metadata: tg::object::Metadata {

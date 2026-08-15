@@ -44,7 +44,7 @@ stop $server
 
 let server = spawn --directory $server_path --config { vfs: true }
 tg tag delete dep | ignore
-assert (not (($server_path | path join 'cache/dep') | path exists)) 'expected the backing tag alias to be removed'
+assert (not (($server_path | path join 'checkouts/dep') | path exists)) 'expected the backing tag alias to be removed'
 stop $server
 
 spawn --directory $server_path | ignore

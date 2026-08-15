@@ -1,0 +1,29 @@
+use ../../../test.nu *
+
+# Checking out a graph pointer reference fails with an error reporting that an object was expected.
+
+let server = spawn
+
+# Put a graph and capture its id.
+let value = '
+	tg.graph({
+		"nodes": [
+			{
+				"kind": "directory",
+				"entries": {
+					"hello.txt": tg.file("Hello, World!")
+				}
+			}
+		]
+	})
+'
+let graph_id = tg put $value
+
+# Build a graph pointer reference and attempt to check it out.
+let reference = $"graph=($graph_id)&index=0&kind=directory"
+let output = tg checkout $reference | complete
+
+# The command should fail with the expected message.
+failure $output
+let stderr = $output.stderr | lines | last
+snapshot $stderr '-> expected an object'

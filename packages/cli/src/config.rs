@@ -355,7 +355,7 @@ pub struct Checkin {
 	pub blob: Option<CheckinBlob>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cache: Option<CheckinCache>,
+	pub checkout: Option<CheckinCheckout>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<CheckinDirectory>,
@@ -372,7 +372,7 @@ pub struct CheckinBlob {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CheckinCache {
+pub struct CheckinCheckout {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -1643,7 +1643,7 @@ pub struct Write {
 	pub avg_leaf_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cache_pointers: Option<bool>,
+	pub checkout_pointers: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_branch_children: Option<usize>,
@@ -2240,8 +2240,8 @@ fn resolve_checkin(source: Checkin) -> server::Checkin {
 	if let Some(source) = source.blob {
 		target.blob = resolve_checkin_blob(source);
 	}
-	if let Some(source) = source.cache {
-		target.cache = resolve_checkin_cache(source);
+	if let Some(source) = source.checkout {
+		target.checkout = resolve_checkin_checkout(source);
 	}
 	if let Some(source) = source.directory {
 		target.directory = resolve_checkin_directory(source);
@@ -2257,8 +2257,8 @@ fn resolve_checkin_blob(source: CheckinBlob) -> server::CheckinBlob {
 	target
 }
 
-fn resolve_checkin_cache(source: CheckinCache) -> server::CheckinCache {
-	let mut target = server::CheckinCache::default();
+fn resolve_checkin_checkout(source: CheckinCheckout) -> server::CheckinCheckout {
+	let mut target = server::CheckinCheckout::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
@@ -3494,8 +3494,8 @@ fn resolve_write(source: Write) -> server::Write {
 	if let Some(value) = source.avg_leaf_size {
 		target.avg_leaf_size = value;
 	}
-	if let Some(value) = source.cache_pointers {
-		target.cache_pointers = value;
+	if let Some(value) = source.checkout_pointers {
+		target.checkout_pointers = value;
 	}
 	if let Some(value) = source.max_branch_children {
 		target.max_branch_children = value;

@@ -17,15 +17,15 @@ pub struct Args {
 	pub lock: Lock,
 
 	/// The path to check out the artifact to.
-	#[arg(index = 2)]
+	#[arg(long)]
 	pub path: Option<PathBuf>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The artifact to check out.
-	#[arg(index = 1)]
-	pub reference: tg::Reference,
+	/// The artifacts to check out.
+	#[arg(required = true)]
+	pub references: Vec<tg::Reference>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -57,6 +57,10 @@ impl Dependencies {
 		self.dependencies
 			.or(self.no_dependencies.map(|v| !v))
 			.unwrap_or(true)
+	}
+
+	pub fn is_set(&self) -> bool {
+		self.dependencies.is_some() || self.no_dependencies.is_some()
 	}
 }
 
@@ -90,6 +94,10 @@ impl Lock {
 			self.lock.or(Some(tg::checkout::Lock::default()))
 		}
 	}
+
+	pub fn is_set(&self) -> bool {
+		self.lock.is_some() || self.no_lock
+	}
 }
 
 impl Cli {
@@ -105,42 +113,66 @@ impl Cli {
 		} else {
 			None
 		};
+		if path.is_none() && args.dependencies.is_set() {
+			return Err(tg::error!(
+				"the dependencies option cannot be set for an internal checkout"
+			));
+		}
+		if path.is_none() && args.lock.is_set() {
+			return Err(tg::error!(
+				"the lock option cannot be set for an internal checkout"
+			));
+		}
 
-		// Get the artifact.
-		let referent = self.resolve(&args.reference).await?;
-		let artifact = referent.into_graph_edge()?.try_map(|edge| {
-			let object = edge
-				.try_unwrap_object()
-				.map_err(|_| tg::error!("expected an object"))?;
-			let artifact = tg::Artifact::try_from(object)?;
-			Ok::<_, tg::Error>(artifact.id())
-		})?;
-		let id = artifact.node.clone();
-		let artifact = tg::Artifact::with_referent(artifact);
+		// Get the artifacts.
+		let referents = self.resolve_references(&args.references).await?;
+		let artifacts = referents
+			.into_iter()
+			.map(|referent| {
+				referent.into_graph_edge()?.try_map(|edge| {
+					let object = edge
+						.try_unwrap_object()
+						.map_err(|_| tg::error!("expected an object"))?;
+					let artifact = tg::Artifact::try_from(object)?;
+					Ok::<_, tg::Error>(artifact.id())
+				})
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let external_artifact = path
+			.as_ref()
+			.and_then(|_| (artifacts.len() == 1).then(|| artifacts[0].node.clone()));
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();
 		let force = args.force;
-		let lock = args.lock.get();
-		let options = tg::checkout::Options {
+		let lock = path.as_ref().and_then(|_| args.lock.get());
+		let arg = tg::checkout::Arg {
+			artifacts,
 			dependencies,
 			extension: None,
 			force,
 			lock,
 			path,
 		};
-		let stream = artifact
-			.checkout_with_handle(&client, options)
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
-			)?;
-		let output = self.render_progress_stream(stream).await.map_err(
-			|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
-		)?;
+		let stream = client.checkout(arg).await.map_err(|error| {
+			if let Some(artifact) = &external_artifact {
+				tg::error!(!error, %artifact, "failed to create the checkout stream")
+			} else {
+				tg::error!(!error, "failed to create the checkout stream")
+			}
+		})?;
+		let output = self.render_progress_stream(stream).await.map_err(|error| {
+			if let Some(artifact) = &external_artifact {
+				tg::error!(!error, %artifact, "failed to check out the artifact")
+			} else {
+				error
+			}
+		})?;
 
-		// Print the output.
-		Self::print_display(output.path.display());
+		// Print the outputs.
+		for path in output.paths {
+			Self::print_display(path.display());
+		}
 
 		Ok(())
 	}

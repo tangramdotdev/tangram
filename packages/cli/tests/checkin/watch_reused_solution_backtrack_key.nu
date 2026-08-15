@@ -17,7 +17,7 @@ for version in [1.0.0 2.0.0] {
 let path = artifact {
 	"z.tg.ts": 'import c from "c/^1";'
 }
-tg checkin $path --watch --no-cache-pointers --no-lock | ignore
+tg checkin $path --watch --no-checkout-pointers --no-lock | ignore
 
 # Solve d before encountering a new c constraint that conflicts with the saved solution.
 'import d from "d/*";' | save ($path | path join 'a.tg.ts')
@@ -25,5 +25,5 @@ tg checkin $path --watch --no-cache-pointers --no-lock | ignore
 tg watch touch $path $path
 
 # The c constraints are incompatible, so the checkin must fail rather than resolving c/^2 with a d candidate.
-let output = tg checkin $path --watch --no-cache-pointers --no-lock | complete
+let output = tg checkin $path --watch --no-checkout-pointers --no-lock | complete
 failure $output "the incompatible c constraints should fail"

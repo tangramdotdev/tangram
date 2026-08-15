@@ -59,17 +59,6 @@ impl tg::Handle for tg::Session {
 		self.arg()
 	}
 
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.cache(arg)
-	}
-
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		self.check(arg)
 	}

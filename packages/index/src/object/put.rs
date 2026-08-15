@@ -3,7 +3,7 @@ use {super::Stored, std::collections::BTreeSet, tangram_client::prelude::*};
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(id = 0)]
-	pub cache_entry: Option<tg::artifact::Id>,
+	pub checkout: Option<tg::artifact::Id>,
 	#[tangram_serialize(id = 1)]
 	pub children: BTreeSet<tg::object::Id>,
 	#[tangram_serialize(id = 2)]

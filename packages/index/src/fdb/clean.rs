@@ -27,7 +27,7 @@ enum Item {
 		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
-	CacheEntry(tg::artifact::Id),
+	Checkout(tg::artifact::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 	Sandbox(tg::sandbox::Id),
@@ -161,12 +161,12 @@ impl Index {
 						touched_at,
 						max_process_touched_at,
 					),
-					crate::fdb::clean::Key::CacheEntry {
+					crate::fdb::clean::Key::Checkout {
 						id,
 						partition,
 						touched_at,
 					} => (
-						Item::CacheEntry(id),
+						Item::Checkout(id),
 						partition,
 						touched_at,
 						max_object_touched_at,
@@ -249,7 +249,7 @@ impl Index {
 					);
 					continue;
 				},
-				Item::CacheEntry(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
+				Item::Checkout(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
 			}
 			let touched_at =
 				crate::fdb::propagate!(Self::get_touched_at(txn, subspace, &candidate.item).await);
@@ -260,9 +260,9 @@ impl Index {
 
 			let reference_count = match &candidate.item {
 				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-				Item::CacheEntry(id) => {
+				Item::Checkout(id) => {
 					crate::fdb::propagate!(
-						Self::compute_cache_entry_reference_count(txn, subspace, id).await
+						Self::compute_checkout_reference_count(txn, subspace, id).await
 					)
 				},
 				Item::Object(id) => crate::fdb::propagate!(
@@ -298,7 +298,7 @@ impl Index {
 			if let Some(item) = item {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-					Item::CacheEntry(id) => output.cache_entries.push(id),
+					Item::Checkout(id) => output.checkouts.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
 					Item::Sandbox(id) => output.sandboxes.push(id),
@@ -404,9 +404,9 @@ impl Index {
 	) -> tg::Result<ControlFlow<i64, fdb::FdbError>> {
 		let touched_at = match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => {
+			Item::Checkout(id) => {
 				let entry = crate::fdb::propagate!(
-					Self::try_get_cache_entry_with_transaction(txn, subspace, id).await
+					Self::try_get_checkout_with_transaction(txn, subspace, id).await
 				)
 				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing cache entry"))?;
 				entry.touched_at
@@ -455,7 +455,7 @@ impl Index {
 					touched_at: candidate.touched_at,
 				})
 			},
-			Item::CacheEntry(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::CacheEntry {
+			Item::Checkout(id) => crate::fdb::Key::Clean(crate::fdb::clean::Key::Checkout {
 				id: id.clone(),
 				partition: candidate.partition,
 				touched_at: candidate.touched_at,
@@ -480,23 +480,23 @@ impl Index {
 		txn.clear(&key);
 	}
 
-	async fn compute_cache_entry_reference_count(
+	async fn compute_checkout_reference_count(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let id = id.to_bytes();
 		let result = futures::try_join!(
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::CacheEntryObject, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::CheckoutObject, id.as_ref()),
 			Self::count_entries_for_kind_and_id(
 				txn,
 				subspace,
-				Kind::DependencyCacheEntry,
+				Kind::DependencyCheckout,
 				id.as_ref(),
 			),
 		);
-		let (cache_entry_object_count, dependency_cache_entry_count) = crate::fdb::retry!(result);
-		let count = cache_entry_object_count + dependency_cache_entry_count;
+		let (checkout_object_count, dependency_checkout_count) = crate::fdb::retry!(result);
+		let count = checkout_object_count + dependency_checkout_count;
 
 		Ok(ControlFlow::Break(count))
 	}
@@ -612,12 +612,13 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => {
-				let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
+			Item::Checkout(id) => {
+				let key =
+					crate::fdb::Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));
 				let key = Self::pack(subspace, &key);
 				let result = txn.get(&key, false).await;
 				if let Some(bytes) = crate::fdb::retry!(result) {
-					let mut entry = crate::cache::Entry::deserialize(&bytes)?;
+					let mut entry = crate::checkout::Checkout::deserialize(&bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
 					txn.set(&key, &bytes);
@@ -668,28 +669,26 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => {
-				Self::delete_cache_entry(txn, subspace, id, partition_total).await
-			},
+			Item::Checkout(id) => Self::delete_checkout(txn, subspace, id, partition_total).await,
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
 			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id),
 		}
 	}
 
-	async fn delete_cache_entry(
+	async fn delete_checkout(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
+		let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
 		let prefix = (
-			Kind::CacheEntryDependency.to_i32().unwrap(),
+			Kind::CheckoutDependency.to_i32().unwrap(),
 			id_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, &prefix);
@@ -704,7 +703,7 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntryDependency {
+				let crate::fdb::Key::Checkout(crate::fdb::checkout::Key::CheckoutDependency {
 					dependency,
 					..
 				}) = key
@@ -719,15 +718,15 @@ impl Index {
 		txn.clear_range(&begin, &end);
 
 		for dependency in dependencies {
-			let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::DependencyCacheEntry {
+			let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::DependencyCheckout {
 				dependency: dependency.clone(),
-				cache_entry: id.clone(),
+				checkout: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
 			crate::fdb::propagate!(
-				Self::decrement_cache_entry_reference_count(
+				Self::decrement_checkout_reference_count(
 					txn,
 					subspace,
 					&dependency,
@@ -760,9 +759,9 @@ impl Index {
 		let key = crate::fdb::Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
-		let cache_entry = crate::fdb::retry!(result)
+		let checkout = crate::fdb::retry!(result)
 			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
-			.and_then(|obj| obj.cache_entry);
+			.and_then(|obj| obj.checkout);
 
 		txn.clear(&key);
 
@@ -806,29 +805,24 @@ impl Index {
 			);
 		}
 
-		if let Some(cache_entry) = &cache_entry {
-			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ObjectCacheEntry {
+		if let Some(checkout) = &checkout {
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::ObjectCheckout {
 				object: id.clone(),
-				cache_entry: cache_entry.clone(),
+				checkout: checkout.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			let key = crate::fdb::Key::Object(crate::fdb::object::Key::CacheEntryObject {
-				cache_entry: cache_entry.clone(),
+			let key = crate::fdb::Key::Object(crate::fdb::object::Key::CheckoutObject {
+				checkout: checkout.clone(),
 				object: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
 			crate::fdb::propagate!(
-				Self::decrement_cache_entry_reference_count(
-					txn,
-					subspace,
-					cache_entry,
-					partition_total,
-				)
-				.await
+				Self::decrement_checkout_reference_count(txn, subspace, checkout, partition_total,)
+					.await
 			);
 		}
 
@@ -1051,19 +1045,19 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn decrement_cache_entry_reference_count(
+	async fn decrement_checkout_reference_count(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let key = crate::fdb::Key::Cache(crate::fdb::cache::Key::CacheEntry(id.clone()));
+		let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
 		let Some(bytes) = crate::fdb::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
-		let mut entry = crate::cache::Entry::deserialize(&bytes)?;
+		let mut entry = crate::checkout::Checkout::deserialize(&bytes)?;
 		let reference_count = entry.reference_count;
 		if reference_count > 1 {
 			entry.reference_count = reference_count - 1;
@@ -1076,7 +1070,7 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::CacheEntry {
+			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Checkout {
 				id: id.clone(),
 				partition,
 				touched_at: entry.touched_at,

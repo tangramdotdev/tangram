@@ -122,7 +122,7 @@ impl Session {
 			};
 			args.push(crate::object::store::PutArg {
 				bytes: Some(node.bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: node.id.clone(),
 				length,
 				stored_at: touched_at,

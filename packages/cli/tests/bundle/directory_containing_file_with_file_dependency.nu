@@ -31,7 +31,7 @@ let id = tg build $path
 # Checkout the artifact.
 let temp_dir = mktemp --directory
 let checkout_path = $temp_dir | path join "checkout"
-let output = tg checkout $id $checkout_path | complete
+let output = tg checkout $id --path $checkout_path | complete
 
 success $output
 

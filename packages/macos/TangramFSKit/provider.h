@@ -106,7 +106,7 @@ typedef struct {
 
 // The configuration for a provider. A zero field selects the default.
 typedef struct {
-	// The server's data directory, whose object store and cache directory the fast path reads directly. NULL disables the fast path.
+	// The server's data directory, whose object store and checkouts directory the fast path reads directly. NULL disables the fast path.
 	const char *data_directory;
 	// The sweep interval for expired cache-only nodes.
 	uint64_t node_eviction_interval_secs;

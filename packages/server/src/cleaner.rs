@@ -164,21 +164,21 @@ impl Server {
 			})
 			.await?;
 
-		// Delete cache entries.
+		// Delete checkouts.
 		tokio::task::spawn_blocking({
 			let server = self.clone();
-			let cache_entries = output.cache_entries.clone();
+			let checkouts = output.checkouts.clone();
 			move || {
 				let temp = Temp::new(&server);
-				let cache_path = server.cache_path();
-				for artifact in &cache_entries {
-					let path = cache_path.join(artifact.to_string());
+				let checkout_path = server.checkout_path();
+				for artifact in &checkouts {
+					let path = checkout_path.join(artifact.to_string());
 					let temp_path = temp.path().join(artifact.to_string());
 					std::fs::rename(&path, &temp_path).ok();
 					tangram_util::fs::remove_sync(&temp_path).ok();
 
 					for extension in [".tg.js", ".tg.ts"] {
-						let path = cache_path.join(format!("{artifact}{extension}"));
+						let path = checkout_path.join(format!("{artifact}{extension}"));
 						let temp_path = temp.path().join(format!("{artifact}{extension}"));
 						std::fs::rename(&path, &temp_path).ok();
 						tangram_util::fs::remove_sync(&temp_path).ok();

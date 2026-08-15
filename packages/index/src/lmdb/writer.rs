@@ -279,13 +279,10 @@ impl Index {
 						usage_partition_total,
 					)
 					.map(Response::Usage),
-					Request::PutCacheEntries(args) => Self::put_cache_entries_with_transaction(
-						db,
-						subspace,
-						&mut transaction,
-						&args,
-					)
-					.map(|()| Response::Unit),
+					Request::PutCheckouts(args) => {
+						Self::put_checkouts_with_transaction(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
 					Request::PutGrants(args) => {
 						Self::put_grants_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
@@ -341,11 +338,11 @@ impl Index {
 						Self::put_users_with_transaction(db, subspace, &mut transaction, &args)
 							.map(|()| Response::Unit)
 					},
-					Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
+					Request::TouchCheckouts(crate::lmdb::TouchCheckouts {
 						ids,
 						time_to_touch,
 						touched_at,
-					}) => Self::touch_cache_entries_with_transaction(
+					}) => Self::touch_checkouts_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
@@ -353,7 +350,7 @@ impl Index {
 						touched_at,
 						time_to_touch,
 					)
-					.map(Response::CacheEntries),
+					.map(Response::Checkouts),
 					Request::TouchObjects(crate::lmdb::TouchObjects {
 						account,
 						ids,
@@ -563,7 +560,7 @@ impl Index {
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
 			| Request::EnqueueLogCompaction(_)
-			| Request::PutCacheEntries(_)
+			| Request::PutCheckouts(_)
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
 			| Request::PutGroups(_)
@@ -575,7 +572,7 @@ impl Index {
 			| Request::PutTags(_)
 			| Request::PutUsers(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(crate::usage::Aggregate::default()),
-			Request::TouchCacheEntries(_) => Response::CacheEntries(Vec::new()),
+			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
 			Request::TouchProcesses(_) => Response::Processes(Vec::new()),
 			Request::Update(_) => Response::UpdateOutput(crate::update::Output::default()),
@@ -660,9 +657,9 @@ impl Index {
 					period,
 				},
 			),
-			Request::PutCacheEntries(args) => {
-				let items = args.into_iter().map(Item::PutCacheEntry).collect();
-				(items, Kind::PutCacheEntries)
+			Request::PutCheckouts(args) => {
+				let items = args.into_iter().map(Item::PutCheckout).collect();
+				(items, Kind::PutCheckouts)
 			},
 			Request::PutGrants(args) => {
 				let items = args.into_iter().map(Item::PutGrant).collect();
@@ -704,15 +701,15 @@ impl Index {
 				let items = args.into_iter().map(Item::PutUser).collect();
 				(items, Kind::PutUsers)
 			},
-			Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
+			Request::TouchCheckouts(crate::lmdb::TouchCheckouts {
 				ids,
 				time_to_touch,
 				touched_at,
 			}) => {
-				let items = ids.into_iter().map(Item::TouchCacheEntry).collect();
+				let items = ids.into_iter().map(Item::TouchCheckout).collect();
 				(
 					items,
-					Kind::TouchCacheEntries {
+					Kind::TouchCheckouts {
 						time_to_touch,
 						touched_at,
 					},
@@ -896,15 +893,15 @@ impl Index {
 					period: *period,
 				}
 			},
-			Kind::PutCacheEntries => {
+			Kind::PutCheckouts => {
 				let args = items
 					.into_iter()
 					.map(|item| match item {
-						Item::PutCacheEntry(arg) => arg,
+						Item::PutCheckout(arg) => arg,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::PutCacheEntries(args)
+				Request::PutCheckouts(args)
 			},
 			Kind::PutGrants => {
 				let args = items
@@ -1006,18 +1003,18 @@ impl Index {
 					.collect();
 				Request::PutUsers(args)
 			},
-			Kind::TouchCacheEntries {
+			Kind::TouchCheckouts {
 				time_to_touch,
 				touched_at,
 			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
-						Item::TouchCacheEntry(id) => id,
+						Item::TouchCheckout(id) => id,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::TouchCacheEntries(crate::lmdb::TouchCacheEntries {
+				Request::TouchCheckouts(crate::lmdb::TouchCheckouts {
 					ids,
 					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
@@ -1075,7 +1072,7 @@ impl Index {
 			return;
 		};
 		match (target, source) {
-			(Response::CacheEntries(existing), Response::CacheEntries(new)) => {
+			(Response::Checkouts(existing), Response::Checkouts(new)) => {
 				existing.extend(new);
 			},
 			(Response::Objects(existing), Response::Objects(new)) => {
@@ -1086,7 +1083,7 @@ impl Index {
 			},
 			(Response::CleanOutput(existing), Response::CleanOutput(new)) => {
 				existing.bytes += new.bytes;
-				existing.cache_entries.extend(new.cache_entries);
+				existing.checkouts.extend(new.checkouts);
 				existing.objects.extend(new.objects);
 				existing.processes.extend(new.processes);
 				existing.done = new.done;

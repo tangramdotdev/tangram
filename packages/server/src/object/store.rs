@@ -3,7 +3,7 @@ use std::path::Path;
 use {tangram_client::prelude::*, tangram_object_store as object_store};
 
 pub use object_store::{
-	CachePointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput, outbox,
+	CheckoutPointer, DeleteArg, PutArg, TryGetArg, TryGetBatchArg, TryGetOutput, outbox,
 };
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]

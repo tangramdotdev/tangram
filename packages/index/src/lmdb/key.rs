@@ -6,7 +6,7 @@ use {
 
 #[derive(Debug)]
 pub enum Key {
-	Cache(crate::lmdb::cache::Key),
+	Checkout(crate::lmdb::checkout::Key),
 	Clean(crate::lmdb::clean::Key),
 	Grant(crate::lmdb::grant::Key),
 	Group(crate::lmdb::group::Key),
@@ -26,16 +26,16 @@ pub enum Key {
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 pub enum Kind {
-	CacheEntry = 0,
+	Checkout = 0,
 	Object = 1,
 	Process = 2,
 	Tag = 3,
-	CacheEntryDependency = 4,
-	DependencyCacheEntry = 5,
+	CheckoutDependency = 4,
+	DependencyCheckout = 5,
 	ObjectChild = 6,
 	ChildObject = 7,
-	ObjectCacheEntry = 8,
-	CacheEntryObject = 9,
+	ObjectCheckout = 8,
+	CheckoutObject = 9,
 	ProcessChild = 10,
 	ChildProcess = 11,
 	ProcessObject = 12,
@@ -167,8 +167,8 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Cache(crate::lmdb::cache::Key::CacheEntry(id)) => {
-				(Kind::CacheEntry.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			Key::Checkout(crate::lmdb::checkout::Key::Checkout(id)) => {
+				(Kind::Checkout.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
 			Key::Object(crate::lmdb::object::Key::Object(id)) => {
@@ -229,23 +229,23 @@ impl fdbt::TuplePack for Key {
 				(Kind::Tag.to_i32().unwrap(), id.to_string()).pack(w, tuple_depth)
 			},
 
-			Key::Cache(crate::lmdb::cache::Key::CacheEntryDependency {
-				cache_entry,
+			Key::Checkout(crate::lmdb::checkout::Key::CheckoutDependency {
+				checkout,
 				dependency,
 			}) => (
-				Kind::CacheEntryDependency.to_i32().unwrap(),
-				cache_entry.to_bytes().as_ref(),
+				Kind::CheckoutDependency.to_i32().unwrap(),
+				checkout.to_bytes().as_ref(),
 				dependency.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Cache(crate::lmdb::cache::Key::DependencyCacheEntry {
+			Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
 				dependency,
-				cache_entry,
+				checkout,
 			}) => (
-				Kind::DependencyCacheEntry.to_i32().unwrap(),
+				Kind::DependencyCheckout.to_i32().unwrap(),
 				dependency.to_bytes().as_ref(),
-				cache_entry.to_bytes().as_ref(),
+				checkout.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -263,22 +263,16 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Object(crate::lmdb::object::Key::ObjectCacheEntry {
-				object,
-				cache_entry,
-			}) => (
-				Kind::ObjectCacheEntry.to_i32().unwrap(),
+			Key::Object(crate::lmdb::object::Key::ObjectCheckout { object, checkout }) => (
+				Kind::ObjectCheckout.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
-				cache_entry.to_bytes().as_ref(),
+				checkout.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Object(crate::lmdb::object::Key::CacheEntryObject {
-				cache_entry,
-				object,
-			}) => (
-				Kind::CacheEntryObject.to_i32().unwrap(),
-				cache_entry.to_bytes().as_ref(),
+			Key::Object(crate::lmdb::object::Key::CheckoutObject { checkout, object }) => (
+				Kind::CheckoutObject.to_i32().unwrap(),
+				checkout.to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
@@ -506,9 +500,9 @@ impl fdbt::TuplePack for Key {
 						process.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
-					crate::lmdb::clean::Key::CacheEntry { id, touched_at } => (
+					crate::lmdb::clean::Key::Checkout { id, touched_at } => (
 						touched_at,
-						crate::lmdb::clean::ItemKind::CacheEntry.to_i32().unwrap(),
+						crate::lmdb::clean::ItemKind::Checkout.to_i32().unwrap(),
 						id.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
@@ -722,12 +716,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::CacheEntry => {
+			Kind::Checkout => {
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::artifact::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				Ok((input, Key::Cache(crate::lmdb::cache::Key::CacheEntry(id))))
+				Ok((
+					input,
+					Key::Checkout(crate::lmdb::checkout::Key::Checkout(id)),
+				))
 			},
 
 			Kind::Object => {
@@ -842,34 +839,34 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Tag(crate::lmdb::tag::Key::Tag(id))))
 			},
 
-			Kind::CacheEntryDependency => {
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
+			Kind::CheckoutDependency => {
+				let (input, checkout_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, dependency_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
 				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::Cache(crate::lmdb::cache::Key::CacheEntryDependency {
-					cache_entry,
+				let key = Key::Checkout(crate::lmdb::checkout::Key::CheckoutDependency {
+					checkout,
 					dependency,
 				});
 				Ok((input, key))
 			},
 
-			Kind::DependencyCacheEntry => {
+			Kind::DependencyCheckout => {
 				let (input, dependency_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
+				let (input, checkout_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::Cache(crate::lmdb::cache::Key::DependencyCacheEntry {
+				let key = Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
 					dependency,
-					cache_entry,
+					checkout,
 				});
 				Ok((input, key))
 			},
@@ -904,35 +901,31 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
-			Kind::ObjectCacheEntry => {
+			Kind::ObjectCheckout => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
+				let (input, checkout_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let key = Key::Object(crate::lmdb::object::Key::ObjectCacheEntry {
-					object,
-					cache_entry,
-				});
+				let key =
+					Key::Object(crate::lmdb::object::Key::ObjectCheckout { object, checkout });
 				Ok((input, key))
 			},
 
-			Kind::CacheEntryObject => {
-				let (input, cache_entry_bytes): (_, Vec<u8>) =
+			Kind::CheckoutObject => {
+				let (input, checkout_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let key = Key::Object(crate::lmdb::object::Key::CacheEntryObject {
-					cache_entry,
-					object,
-				});
+				let key =
+					Key::Object(crate::lmdb::object::Key::CheckoutObject { checkout, object });
 				Ok((input, key))
 			},
 
@@ -1382,14 +1375,14 @@ impl fdbt::TupleUnpack<'_> for Key {
 						};
 						(input, key)
 					},
-					crate::lmdb::clean::ItemKind::CacheEntry => {
+					crate::lmdb::clean::ItemKind::Checkout => {
 						let (input, id): (_, Vec<u8>) =
 							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 						let id = tg::object::Id::from_slice(&id)
 							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 						let id = tg::artifact::Id::try_from(id)
 							.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-						let key = crate::lmdb::clean::Key::CacheEntry { id, touched_at };
+						let key = crate::lmdb::clean::Key::Checkout { id, touched_at };
 						(input, key)
 					},
 					crate::lmdb::clean::ItemKind::Object => {

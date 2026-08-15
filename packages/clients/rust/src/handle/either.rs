@@ -30,26 +30,6 @@ where
 		}
 	}
 
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		match self {
-			tg::Either::Left(s) => s
-				.cache(arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.cache(arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
 	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
 		match self {
 			tg::Either::Left(s) => s.check(arg).left_future(),

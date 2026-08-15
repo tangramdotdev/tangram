@@ -77,7 +77,7 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		self.invalidate_tag_cache_entries(&specifiers).await?;
+		self.invalidate_tag_store_entries(&specifiers).await?;
 		Ok(())
 	}
 

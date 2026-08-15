@@ -8,7 +8,7 @@ pub struct Args {
 	pub bytes: Option<String>,
 
 	#[command(flatten)]
-	pub cache_pointers: crate::checkin::CachePointers,
+	pub checkout_pointers: crate::checkin::CheckoutPointers,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -18,7 +18,7 @@ impl Cli {
 	pub async fn command_write(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::write::Arg {
-			cache_pointers: args.cache_pointers.get_option(),
+			checkout_pointers: args.checkout_pointers.get_option(),
 		};
 		let output = if let Some(bytes) = args.bytes {
 			let reader = std::io::Cursor::new(bytes);

@@ -25,7 +25,7 @@ let path = artifact {
 let id = tg build $path
 
 let path = $tmp | path join "checkout"
-let output = tg checkout $id $path | complete
+let output = tg checkout $id --path $path | complete
 
 failure $output
 let stderr = $output.stderr | lines | last

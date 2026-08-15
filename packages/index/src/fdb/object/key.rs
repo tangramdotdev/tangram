@@ -11,12 +11,12 @@ pub enum Key {
 		child: tg::object::Id,
 		object: tg::object::Id,
 	},
-	ObjectCacheEntry {
+	ObjectCheckout {
 		object: tg::object::Id,
-		cache_entry: tg::artifact::Id,
+		checkout: tg::artifact::Id,
 	},
-	CacheEntryObject {
-		cache_entry: tg::artifact::Id,
+	CheckoutObject {
+		checkout: tg::artifact::Id,
 		object: tg::object::Id,
 	},
 	ObjectProcess {

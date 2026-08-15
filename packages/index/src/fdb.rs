@@ -1,6 +1,6 @@
 use {
 	self::{
-		request::{Clean, Request, TouchCacheEntries, TouchObjects, TouchProcesses, Update},
+		request::{Clean, Request, TouchCheckouts, TouchObjects, TouchProcesses, Update},
 		response::Response,
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
@@ -11,7 +11,7 @@ use {
 mod ancestor;
 mod authorize;
 mod batch;
-mod cache;
+mod checkout;
 mod clean;
 mod error;
 mod grant;
@@ -300,11 +300,11 @@ impl crate::Index for Index {
 		self.try_get_ancestors(id).await
 	}
 
-	async fn try_get_cache_entries(
+	async fn try_get_checkouts(
 		&self,
 		ids: &[tg::artifact::Id],
-	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
-		self.try_get_cache_entries(ids).await
+	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
+		self.try_get_checkouts(ids).await
 	}
 
 	async fn try_get_groups(
@@ -328,14 +328,13 @@ impl crate::Index for Index {
 		self.try_get_organizations(ids).await
 	}
 
-	async fn touch_cache_entries(
+	async fn touch_checkouts(
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<crate::cache::Entry>>> {
-		self.touch_cache_entries(ids, touched_at, time_to_touch)
-			.await
+	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
+		self.touch_checkouts(ids, touched_at, time_to_touch).await
 	}
 
 	async fn try_get_objects(

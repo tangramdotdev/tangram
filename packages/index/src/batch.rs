@@ -37,7 +37,7 @@ pub enum Item {
 	EnqueueLogCompaction(tg::process::Id),
 
 	#[tangram_serialize(id = 8)]
-	PutCacheEntry(crate::cache::put::Arg),
+	PutCheckout(crate::checkout::put::Arg),
 
 	#[tangram_serialize(id = 9)]
 	PutGrant(crate::grant::put::Arg),

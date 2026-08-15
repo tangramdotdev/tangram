@@ -1162,14 +1162,14 @@ impl Compiler {
 						},
 					);
 					let arg = tg::checkout::Arg {
-						artifact,
+						artifacts: vec![artifact],
 						dependencies: true,
 						extension: extension.clone(),
 						force: false,
 						lock: None,
 						path: None,
 					};
-					let path = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
+					let path = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
 
 					if let Some(path_) = &options.path {
 						path.join(path_)
@@ -1185,14 +1185,14 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifact,
+						artifacts: vec![artifact],
 						dependencies: true,
 						extension: None,
 						force: false,
 						lock: None,
 						path: None,
 					};
-					let output = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
+					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
 					output.join(path)
 				} else {
 					let extension = match kind {
@@ -1207,14 +1207,14 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifact,
+						artifacts: vec![artifact],
 						dependencies: true,
 						extension,
 						force: false,
 						lock: None,
 						path: None,
 					};
-					tg::checkout::checkout_with_handle(&self.handle, arg).await?
+					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();

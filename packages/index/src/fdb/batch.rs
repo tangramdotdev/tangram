@@ -112,8 +112,8 @@ impl Index {
 						.await
 					);
 				},
-				crate::batch::Item::PutCacheEntry(arg) => {
-					crate::fdb::propagate!(Self::put_cache_entries_with_transaction(
+				crate::batch::Item::PutCheckout(arg) => {
+					crate::fdb::propagate!(Self::put_checkouts_with_transaction(
 						txn,
 						subspace,
 						std::slice::from_ref(arg),

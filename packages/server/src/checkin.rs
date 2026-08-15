@@ -18,7 +18,7 @@ use {
 
 mod artifact;
 mod blob;
-mod cache;
+mod checkout;
 mod fixup;
 mod graph;
 mod index;
@@ -54,7 +54,7 @@ pub struct TaskOutput {
 type IndexObjectArgs =
 	IndexMap<tg::object::Id, tangram_index::object::put::Arg, tg::id::BuildHasher>;
 
-type IndexCacheEntryArgs = Vec<tangram_index::cache::put::Arg>;
+type IndexCheckoutArgs = Vec<tangram_index::checkout::put::Arg>;
 
 type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::BuildHasher>;
 
@@ -97,13 +97,13 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
 
-		// Handle paths in the cache directory.
-		if let Ok(path) = arg.path.strip_prefix(self.server.cache_path()) {
+		// Handle paths in the checkouts directory.
+		if let Ok(path) = arg.path.strip_prefix(self.server.checkout_path()) {
 			let progress = crate::progress::Handle::new();
 			let output = self
-				.checkin_cache_path(path)
+				.checkin_checkout_path(path)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to check in the cache path"))?;
+				.map_err(|error| tg::error!(!error, "failed to check in the store path"))?;
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
 		}
@@ -277,7 +277,7 @@ impl Session {
 		Ok(stream)
 	}
 
-	async fn checkin_cache_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
+	async fn checkin_checkout_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
 		let id = path
 			.components()
 			.next()
@@ -287,7 +287,7 @@ impl Session {
 				};
 				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
 			})
-			.ok_or_else(|| tg::error!("cannot check in the cache directory"))??
+			.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))??
 			.parse::<tg::artifact::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
 
@@ -544,7 +544,7 @@ impl Session {
 		// Create the output collections.
 		let mut store_args = IndexMap::default();
 		let mut index_object_args = IndexMap::default();
-		let mut index_cache_entry_args = Vec::new();
+		let mut index_checkout_args = Vec::new();
 		let mut graph_data = IndexMap::default();
 
 		// Create blobs.
@@ -570,7 +570,7 @@ impl Session {
 			next,
 			store_args: &mut store_args,
 			index_object_args: &mut index_object_args,
-			index_cache_entry_args: &mut index_cache_entry_args,
+			index_checkout_args: &mut index_checkout_args,
 			graph_data: &mut graph_data,
 			root,
 			time_to_touch: self.server.config.object.time_to_touch,
@@ -578,24 +578,24 @@ impl Session {
 		};
 		Self::checkin_create_artifacts(create_artifacts_arg)?;
 
-		// Cache.
-		if arg.options.cache_pointers {
+		// Check out.
+		if arg.options.checkout_pointers {
 			if let Some(task) = fixup_task {
 				task.await
 					.map_err(|error| tg::error!(!error, "failed to run the fixup task"))?;
 			}
-			let cache_arg = cache::CheckinCacheArg {
+			let checkout_arg = checkout::CheckinCheckoutArg {
 				arg: &arg,
 				graph: &graph,
 				next,
 				root,
-				index_cache_entry_args: &index_cache_entry_args,
+				index_checkout_args: &index_checkout_args,
 				graph_data: &mut graph_data,
 				progress,
 			};
-			self.checkin_cache(cache_arg)
+			self.checkin_checkout(checkout_arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to cache"))?;
+				.map_err(|error| tg::error!(!error, "failed to check out"))?;
 		}
 
 		// Store.
@@ -634,7 +634,7 @@ impl Session {
 			&arg,
 			&graph,
 			index_object_args,
-			index_cache_entry_args,
+			index_checkout_args,
 			root,
 			touched_at,
 		)?;
