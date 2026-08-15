@@ -70,45 +70,82 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		requests: Vec<(crate::read::Request, crate::read::ResponseSender)>,
 	) {
-		let requests = requests
+		// Remove the closed requests.
+		let mut requests = requests
 			.into_iter()
 			.filter(|(_, sender)| !sender.is_closed())
 			.collect::<Vec<_>>();
 		if requests.is_empty() {
 			return;
 		}
-		let read_requests = requests
-			.iter()
-			.map(|(request, _)| request.clone())
-			.collect::<Vec<_>>();
-		let subspace = subspace.clone();
-		let result = crate::fdb::run_read(database, |transaction| {
-			let requests = read_requests.clone();
-			let subspace = subspace.clone();
-			async move {
-				Self::execute_read_requests_with_transaction(
-					authorize,
-					partition_total,
-					&transaction,
-					&subspace,
-					requests,
-				)
-				.await
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to execute a read batch"));
-		match result {
-			Ok(responses) => {
-				for (response, (_, sender)) in std::iter::zip(responses, requests) {
-					sender.send(response).ok();
-				}
-			},
+
+		// Create the transaction.
+		let mut transaction = match database.create_trx() {
 			Err(error) => {
+				let error = tg::error!(!error, "failed to create a read transaction");
 				for (_, sender) in requests {
 					sender.send(Err(error.clone())).ok();
 				}
+
+				return;
 			},
+			Ok(transaction) => transaction,
+		};
+		loop {
+			// Execute the pending requests.
+			let read_requests = requests
+				.iter()
+				.map(|(request, _)| request.clone())
+				.collect::<Vec<_>>();
+			let results = Self::execute_read_requests_with_transaction(
+				authorize,
+				partition_total,
+				&transaction,
+				subspace,
+				read_requests,
+			)
+			.await;
+
+			// Send the completed responses and collect the retryable requests.
+			let mut retry_error = None;
+			let mut retry_requests = Vec::new();
+			for (result, (request, sender)) in std::iter::zip(results, requests) {
+				match result {
+					Err(error) => {
+						sender.send(Err(error)).ok();
+					},
+					Ok(ControlFlow::Break(response)) => {
+						sender.send(Ok(response)).ok();
+					},
+					Ok(ControlFlow::Continue(error)) if error.is_retryable() => {
+						if !sender.is_closed() {
+							retry_error.get_or_insert(error);
+							retry_requests.push((request, sender));
+						}
+					},
+					Ok(ControlFlow::Continue(error)) => {
+						let error = tg::error!(!error, "failed to execute a read request");
+						sender.send(Err(error)).ok();
+					},
+				}
+			}
+			let Some(error) = retry_error else {
+				return;
+			};
+
+			// Reset the transaction for the retryable requests.
+			transaction = match transaction.on_error(error).await {
+				Err(error) => {
+					let error = tg::error!(!error, "failed to retry a read transaction");
+					for (_, sender) in retry_requests {
+						sender.send(Err(error.clone())).ok();
+					}
+
+					return;
+				},
+				Ok(transaction) => transaction,
+			};
+			requests = retry_requests;
 		}
 	}
 
@@ -118,23 +155,11 @@ impl Index {
 		transaction: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		requests: Vec<crate::read::Request>,
-	) -> tg::Result<ControlFlow<Vec<tg::Result<crate::read::Response>>, fdb::FdbError>> {
-		let results = future::join_all(requests.into_iter().map(|request| {
+	) -> Vec<tg::Result<ControlFlow<crate::read::Response, fdb::FdbError>>> {
+		future::join_all(requests.into_iter().map(|request| {
 			Self::execute_read_request(authorize, partition_total, transaction, subspace, request)
 		}))
-		.await;
-		let mut responses = Vec::with_capacity(results.len());
-		for result in results {
-			match result {
-				Ok(ControlFlow::Break(response)) => responses.push(Ok(response)),
-				Ok(ControlFlow::Continue(error)) => {
-					return Ok(ControlFlow::Continue(error));
-				},
-				Err(error) => responses.push(Err(error)),
-			}
-		}
-
-		Ok(ControlFlow::Break(responses))
+		.await
 	}
 
 	async fn execute_read_request(

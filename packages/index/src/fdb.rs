@@ -36,7 +36,7 @@ mod visible;
 mod writer;
 
 pub(crate) use error::{propagate, retry};
-pub(crate) use transaction::{run, run_read};
+pub(crate) use transaction::run;
 pub(super) use {
 	key::{Key, Kind},
 	transaction::Transaction,
