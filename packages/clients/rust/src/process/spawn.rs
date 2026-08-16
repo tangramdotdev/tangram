@@ -898,11 +898,11 @@ where
 		let path = tg::checkout::checkout_one_with_handle(
 			handle,
 			tg::checkout::Arg {
-				artifacts: vec![referent],
 				dependencies: true,
 				extension: None,
 				force: false,
 				lock: None,
+				nodes: vec![referent.map(Into::into)],
 				path: None,
 			},
 		)

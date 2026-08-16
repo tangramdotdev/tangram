@@ -8,6 +8,47 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_tags(
+		&self,
+		ids: &[tg::tag::Id],
+	) -> tg::Result<Vec<Option<crate::tag::Tag>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetTags {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetTags(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_tags_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::tag::Id],
+	) -> tg::Result<ControlFlow<Vec<Option<crate::tag::Tag>>, fdb::FdbError>> {
+		let result = futures::future::try_join_all(
+			ids.iter()
+				.map(|id| Self::try_get_tag_with_transaction(txn, subspace, id)),
+		)
+		.await;
+		let results = result?;
+		let mut tags = Vec::with_capacity(results.len());
+		for result in results {
+			let tag = match result {
+				ControlFlow::Break(tag) => tag,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			tags.push(tag);
+		}
+
+		Ok(ControlFlow::Break(tags))
+	}
+
 	pub(crate) async fn try_get_tag_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,

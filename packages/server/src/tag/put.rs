@@ -44,7 +44,6 @@ impl Session {
 		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
 			.await?;
 		let permissions = self.recorded_tag_target_permissions(&arg.target).await?;
-		let specifier = arg.specifier.clone();
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let session = self.clone();
 		self.server
@@ -63,8 +62,7 @@ impl Session {
 			.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
-		self.invalidate_tag_store_entries(std::slice::from_ref(&specifier))
-			.await?;
+		self.checkout_index_barrier().await?;
 		Ok(())
 	}
 

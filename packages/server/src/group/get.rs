@@ -48,7 +48,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_group_local(
+	pub(crate) async fn try_get_group_local(
 		&self,
 		id: &tg::group::Id,
 		tokens: tg::authorization::Tokens,

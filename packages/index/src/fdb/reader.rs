@@ -387,6 +387,11 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetSpecifiersForIds(output)
 			},
+			crate::read::Request::TryGetTags { ids } => {
+				let result = Self::try_get_tags_with_transaction(transaction, subspace, ids).await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::TryGetTags(output)
+			},
 			crate::read::Request::TryGetUsers { ids } => {
 				let result = Self::try_get_users_with_transaction(transaction, subspace, ids).await;
 				let output = crate::fdb::propagate!(result);

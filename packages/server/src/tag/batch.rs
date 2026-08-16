@@ -52,11 +52,6 @@ impl Session {
 			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let specifiers = arg
-			.tags
-			.iter()
-			.map(|tag| tag.specifier.clone())
-			.collect::<Vec<_>>();
 		let session = self.clone();
 		self.server
 			.database
@@ -79,7 +74,7 @@ impl Session {
 			.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
-		self.invalidate_tag_store_entries(&specifiers).await?;
+		self.checkout_index_barrier().await?;
 		Ok(())
 	}
 

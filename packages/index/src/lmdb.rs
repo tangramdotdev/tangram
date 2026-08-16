@@ -319,7 +319,7 @@ impl crate::Index for Index {
 
 	async fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
 		self.try_get_checkouts(ids).await
 	}
@@ -347,7 +347,7 @@ impl crate::Index for Index {
 
 	async fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
@@ -494,6 +494,10 @@ impl crate::Index for Index {
 		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<tg::Specifier>>> {
 		self.try_get_specifiers_for_ids(ids).await
+	}
+
+	async fn try_get_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<Vec<Option<crate::tag::Tag>>> {
+		self.try_get_tags(ids).await
 	}
 
 	async fn try_get_users(

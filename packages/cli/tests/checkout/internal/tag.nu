@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# An internal checkout creates a tag store entry, while tag mutations only invalidate it.
+# An internal checkout creates a tag checkout entry, while tag mutations only invalidate it.
 
 let server = spawn
 let tag_path = $server.directory | path join store dep
@@ -11,7 +11,7 @@ assert (not ($tag_path | path exists --no-symlink)) "expected putting a new tag 
 
 let path = tg checkout dep | str trim
 assert equal $path $tag_path "expected checkout to return the tag path"
-assert (($tag_path | path exists --no-symlink)) "expected checkout to create the tag store entry"
+assert (($tag_path | path exists --no-symlink)) "expected checkout to create the tag checkout entry"
 assert equal (open $tag_path) 'first' "expected the tag path to contain the first artifact"
 
 let second = artifact 'second'
@@ -20,7 +20,7 @@ assert (not ($tag_path | path exists --no-symlink)) "expected replacing the tag 
 
 let path = tg checkout dep | str trim
 assert equal $path $tag_path "expected checkout to return the tag path"
-assert (($tag_path | path exists --no-symlink)) "expected checkout to recreate the tag store entry"
+assert (($tag_path | path exists --no-symlink)) "expected checkout to recreate the tag checkout entry"
 assert equal (open $tag_path) 'second' "expected the tag path to contain the second artifact"
 
 tg tag delete dep | ignore

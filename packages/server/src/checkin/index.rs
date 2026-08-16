@@ -25,7 +25,7 @@ impl Session {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
 				let dependencies = Self::checkin_get_checkout_dependencies(graph, *index);
-				let id = graph
+				let id: tg::artifact::Id = graph
 					.nodes
 					.get(index)
 					.unwrap()
@@ -36,17 +36,17 @@ impl Session {
 					.try_into()
 					.unwrap();
 				put_index_checkout_args.push(tangram_index::checkout::put::Arg {
-					id,
-					touched_at,
 					dependencies,
+					id: id.into(),
+					touched_at,
 				});
 			} else {
 				// Add checkout args.
 				for arg in index_checkout_args {
 					put_index_checkout_args.push(tangram_index::checkout::put::Arg {
+						dependencies: arg.dependencies,
 						id: arg.id,
 						touched_at: arg.touched_at,
-						dependencies: arg.dependencies,
 					});
 				}
 			}

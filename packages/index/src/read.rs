@@ -47,7 +47,7 @@ pub(crate) enum Request {
 		id: tg::Id,
 	},
 	TryGetCheckouts {
-		ids: Vec<tg::artifact::Id>,
+		ids: Vec<tg::Id>,
 	},
 	TryGetCachedProcesses {
 		command: tg::object::Id,
@@ -82,6 +82,9 @@ pub(crate) enum Request {
 	TryGetSpecifiersForIds {
 		ids: Vec<tg::Id>,
 	},
+	TryGetTags {
+		ids: Vec<tg::tag::Id>,
+	},
 	TryGetUsers {
 		ids: Vec<tg::user::Id>,
 	},
@@ -114,6 +117,7 @@ pub(crate) enum Response {
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
 	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
+	TryGetTags(Vec<Option<crate::tag::Tag>>),
 	TryGetUsers(Vec<Option<crate::user::User>>),
 	Visible(Vec<bool>),
 }

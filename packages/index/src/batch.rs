@@ -9,6 +9,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum Item {
+	#[tangram_serialize(id = 22)]
+	DeleteCheckout(tg::Id),
+
 	#[tangram_serialize(id = 0)]
 	DeleteGrant(crate::grant::delete::Arg),
 
@@ -128,6 +131,7 @@ mod tests {
 		};
 		let arg = Arg {
 			items: vec![
+				Item::DeleteCheckout(tag.clone().into()),
 				Item::DeleteGrant(crate::grant::delete::Arg {
 					creator: Some(tg::Principal::Root),
 					expires_at: None,
@@ -173,18 +177,18 @@ mod tests {
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert_eq!(arg.items.len(), 10);
-		assert!(matches!(&arg.items[5], Item::EnqueueLogCompaction(_)));
-		let Item::PutGrant(grant_arg) = &arg.items[6] else {
+		assert_eq!(arg.items.len(), 11);
+		assert!(matches!(&arg.items[6], Item::EnqueueLogCompaction(_)));
+		let Item::PutGrant(grant_arg) = &arg.items[7] else {
 			panic!();
 		};
 		assert_eq!(
 			grant_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
-		assert!(matches!(&arg.items[7], Item::PutGroupMember(_)));
-		assert!(matches!(&arg.items[8], Item::PutOrganizationMember(_)));
-		let Item::PutSandbox(sandbox_arg) = &arg.items[9] else {
+		assert!(matches!(&arg.items[8], Item::PutGroupMember(_)));
+		assert!(matches!(&arg.items[9], Item::PutOrganizationMember(_)));
+		let Item::PutSandbox(sandbox_arg) = &arg.items[10] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();

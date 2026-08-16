@@ -28,6 +28,11 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for item in &arg.items {
 			match item {
+				crate::batch::Item::DeleteCheckout(id) => {
+					crate::fdb::propagate!(
+						Self::delete_checkout(txn, subspace, id, partition_total).await
+					);
+				},
 				crate::batch::Item::DeleteGrant(arg) => {
 					crate::fdb::propagate!(
 						Self::delete_grants_with_transaction(

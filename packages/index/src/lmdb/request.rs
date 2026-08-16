@@ -56,7 +56,7 @@ pub(super) struct Clean {
 
 #[derive(Clone)]
 pub(super) struct TouchCheckouts {
-	pub ids: Vec<tg::artifact::Id>,
+	pub ids: Vec<tg::Id>,
 	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
@@ -110,7 +110,7 @@ pub(super) enum Item {
 	PutSandbox(crate::sandbox::put::Arg),
 	PutTag(crate::tag::put::Arg),
 	PutUser(crate::user::put::Arg),
-	TouchCheckout(tg::artifact::Id),
+	TouchCheckout(tg::Id),
 	TouchObject(tg::object::Id),
 	TouchProcess(tg::process::Id),
 	Update,

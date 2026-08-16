@@ -103,17 +103,18 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	authentication_tokens: Tokens,
+	authorization_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
-	checkout_graph_tasks: self::checkout::internal::GraphTasks,
-	checkout_tasks: self::checkout::internal::Tasks,
 	checkin_tasks: self::checkin::Tasks,
+	checkout_graph_tasks: self::checkout::internal::GraphTasks,
+	checkout_lock: tokio::sync::Mutex<()>,
+	checkout_tasks: self::checkout::internal::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
 	clock: self::clock::Clock,
 	config: Config,
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	authorization_tokens: Tokens,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	#[cfg(target_os = "linux")]
@@ -127,10 +128,11 @@ pub struct State {
 	object_store: self::object::Store,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+	remote_list_tasks: self::list::remote::Tasks,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_process_put_tasks: tangram_futures::task::Set<()>,
-	remote_list_tasks: self::list::remote::Tasks,
-	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+	runner: self::runner::Runner,
 	sandbox_container_root: PathBuf,
 	sandbox_seatbelt_root: PathBuf,
 	sandbox_tasks: self::sandbox::Tasks,
@@ -139,9 +141,7 @@ pub struct State {
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
-	runner: self::runner::Runner,
 	tangram_path: PathBuf,
-	tag_store_entry_lock: tokio::sync::Mutex<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -854,17 +854,18 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			authentication_tokens,
+			authorization_tokens,
 			billing,
-			checkout_graph_tasks,
-			checkout_tasks,
 			checkin_tasks,
+			checkout_graph_tasks,
+			checkout_lock: tokio::sync::Mutex::new(()),
+			checkout_tasks,
 			checkpoints,
 			clock,
 			config,
 			context,
 			database,
 			diagnostics,
-			authorization_tokens,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -878,10 +879,11 @@ impl Server {
 			object_store,
 			path,
 			regions,
+			remote_clients,
+			remote_list_tasks,
 			remote_object_put_tasks,
 			remote_process_put_tasks,
-			remote_list_tasks,
-			remote_clients,
+			runner,
 			sandbox_container_root,
 			sandbox_seatbelt_root,
 			sandbox_tasks,
@@ -890,9 +892,7 @@ impl Server {
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
-			runner,
 			tangram_path,
-			tag_store_entry_lock: tokio::sync::Mutex::new(()),
 			temps,
 			version,
 			vfs,
@@ -1064,6 +1064,11 @@ impl Server {
 							"failed to move the checkouts directory to the store path"
 						)
 					})?;
+				// Remove named checkout entries before exposing the physical store.
+				let guard = server.checkout_lock.lock().await;
+				server
+					.remove_all_named_checkout_entries_with_lock(&guard)
+					.await?;
 			}
 			tokio::fs::create_dir_all(&store_path)
 				.await

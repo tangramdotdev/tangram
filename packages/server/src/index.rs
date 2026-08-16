@@ -108,7 +108,7 @@ impl index::Index for Index {
 
 	async fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -179,7 +179,7 @@ impl index::Index for Index {
 
 	async fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
@@ -441,6 +441,15 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_specifiers_for_ids(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_specifiers_for_ids(ids).await,
+		}
+	}
+
+	async fn try_get_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<Vec<Option<index::tag::Tag>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_tags(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_tags(ids).await,
 		}
 	}
 

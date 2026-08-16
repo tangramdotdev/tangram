@@ -1,7 +1,7 @@
 use ../../test.nu *
 use ../lib/lsp.nu
 
-# Deleting a tag while the VFS is enabled also removes a physical alias left by an earlier non-VFS run.
+# A physical tag checkout left by a non-VFS run is removed when returning from the VFS to the physical store.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -44,7 +44,7 @@ stop $server
 
 let server = spawn --directory $server_path --config { vfs: true }
 tg tag delete dep | ignore
-assert (not (($server_path | path join 'checkouts/dep') | path exists)) 'expected the backing tag alias to be removed'
+assert (($server_path | path join 'checkouts/dep') | path exists --no-symlink) 'expected the VFS not to maintain the backing tag checkout'
 stop $server
 
 spawn --directory $server_path | ignore

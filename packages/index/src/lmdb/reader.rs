@@ -308,6 +308,10 @@ impl Index {
 				)?;
 				crate::read::Response::TryGetSpecifiersForIds(output)
 			},
+			crate::read::Request::TryGetTags { ids } => {
+				let output = Self::try_get_tags_with_transaction(db, subspace, transaction, &ids)?;
+				crate::read::Response::TryGetTags(output)
+			},
 			crate::read::Request::TryGetUsers { ids } => {
 				let output = Self::try_get_users_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::TryGetUsers(output)

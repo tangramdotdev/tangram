@@ -68,7 +68,7 @@ impl Session {
 
 		// Write all of the nodes and enqueue their index mutations atomically.
 		let session = self.clone();
-		let invalidated_specifiers = self
+		let _invalidated_specifiers = self
 			.server
 			.database
 			.run(|transaction| {
@@ -92,9 +92,7 @@ impl Session {
 			.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
-		let invalidated_specifiers = invalidated_specifiers.into_iter().collect::<Vec<_>>();
-		self.invalidate_tag_store_entries(&invalidated_specifiers)
-			.await?;
+		self.checkout_index_barrier().await?;
 
 		Ok(())
 	}

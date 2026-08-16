@@ -79,12 +79,7 @@ impl Session {
 			.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
-		let specifiers = output
-			.deleted
-			.iter()
-			.map(|tag| tag.specifier.clone())
-			.collect::<Vec<_>>();
-		self.invalidate_tag_store_entries(&specifiers).await?;
+		self.checkout_index_barrier().await?;
 
 		Ok(output)
 	}

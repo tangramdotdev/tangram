@@ -8,7 +8,7 @@ use {
 impl Index {
 	pub async fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
@@ -31,7 +31,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {

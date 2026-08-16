@@ -7,7 +7,7 @@ use {
 impl Index {
 	pub async fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -27,7 +27,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
 		ids.iter()
 			.map(|id| Self::try_get_checkout_with_transaction(db, subspace, transaction, id))
@@ -38,7 +38,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<Option<crate::checkout::Checkout>> {
 		let key = Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);

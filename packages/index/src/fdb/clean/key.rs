@@ -26,7 +26,7 @@ pub enum Key {
 		touched_at: i64,
 	},
 	Checkout {
-		id: tg::artifact::Id,
+		id: tg::Id,
 		partition: u64,
 		touched_at: i64,
 	},
@@ -61,10 +61,12 @@ mod tests {
 	fn roundtrips_centralized_clean_keys() {
 		let subspace = fdbt::Subspace::all();
 		let account = crate::usage::Account::User(tg::user::Id::new());
-		let artifact = tg::artifact::Id::new(tg::artifact::Kind::Directory, &vec![0].into());
+		let artifact: tg::Id =
+			tg::artifact::Id::new(tg::artifact::Kind::Directory, &vec![0].into()).into();
 		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
+		let tag: tg::Id = tg::tag::Id::new().into();
 		let keys = [
 			Key::AccountObject {
 				account: account.clone(),
@@ -80,6 +82,11 @@ mod tests {
 			},
 			Key::Checkout {
 				id: artifact,
+				partition: 1,
+				touched_at: 2,
+			},
+			Key::Checkout {
+				id: tag,
 				partition: 1,
 				touched_at: 2,
 			},

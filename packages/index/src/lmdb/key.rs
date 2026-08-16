@@ -719,8 +719,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::Checkout => {
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::artifact::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
 				Ok((
 					input,
 					Key::Checkout(crate::lmdb::checkout::Key::Checkout(id)),
@@ -844,10 +844,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, dependency_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let checkout = tg::Id::from_slice(&checkout_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let dependency = tg::Id::from_slice(&dependency_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
 				let key = Key::Checkout(crate::lmdb::checkout::Key::CheckoutDependency {
 					checkout,
 					dependency,
@@ -860,10 +860,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, checkout_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				let checkout = tg::artifact::Id::from_slice(&checkout_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let dependency = tg::Id::from_slice(&dependency_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let checkout = tg::Id::from_slice(&checkout_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
 				let key = Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
 					dependency,
 					checkout,
@@ -1378,10 +1378,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 					crate::lmdb::clean::ItemKind::Checkout => {
 						let (input, id): (_, Vec<u8>) =
 							fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-						let id = tg::object::Id::from_slice(&id)
-							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-						let id = tg::artifact::Id::try_from(id)
-							.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+						let id = tg::Id::from_slice(&id)
+							.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
 						let key = crate::lmdb::clean::Key::Checkout { id, touched_at };
 						(input, key)
 					},

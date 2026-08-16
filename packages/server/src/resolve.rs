@@ -243,7 +243,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn create_tag_target_token(
+	pub(crate) async fn create_tag_target_token(
 		&self,
 		id: &tg::tag::Id,
 		target: &tg::Id,

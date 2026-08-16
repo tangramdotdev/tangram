@@ -86,12 +86,12 @@ pub trait Index {
 
 	fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
 
 	fn try_get_checkout(
 		&self,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
 		self.try_get_checkouts(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
@@ -147,14 +147,14 @@ pub trait Index {
 
 	fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
 
 	fn touch_checkout(
 		&self,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
@@ -301,6 +301,19 @@ pub trait Index {
 		&self,
 		ids: &[tg::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<tg::Specifier>>>> + Send;
+
+	fn try_get_tags(
+		&self,
+		ids: &[tg::tag::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::tag::Tag>>>> + Send;
+
+	fn try_get_tag(
+		&self,
+		id: &tg::tag::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::tag::Tag>>> + Send {
+		self.try_get_tags(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
 
 	fn try_get_users(
 		&self,

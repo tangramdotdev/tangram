@@ -1,5 +1,5 @@
 use {
-	crate::{Session, temp::Temp},
+	crate::{Server, Session, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
@@ -11,7 +11,10 @@ use {
 		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_index::prelude::*,
 	tangram_util::read::InspectReader,
 };
@@ -131,193 +134,169 @@ impl Session {
 		Ok(stream)
 	}
 
-	pub(super) async fn materialize_tag_store_entry(
-		&self,
-		specifier: &tg::Specifier,
-		artifact: &tg::artifact::Id,
-		suffix: Option<&str>,
-	) -> tg::Result<PathBuf> {
-		let relative_path = Self::tag_store_entry_relative_path(specifier, suffix);
-		let path = self.server.store_path().join(&relative_path);
+	pub(crate) async fn checkout_index_barrier(&self) -> tg::Result<()> {
 		if self.server.vfs.lock().unwrap().is_some() {
-			return Ok(path);
+			return Ok(());
 		}
-
-		let _guard = self.server.tag_store_entry_lock.lock().await;
-
-		// Ensure that the tag did not change while its store entry was materialized.
-		let selector = tg::tag::Selector::Specifier(specifier.clone());
-		let arg = tg::tag::get::Arg {
-			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-			..Default::default()
-		};
-		let target =
-			self.try_get_tag(&selector, arg)
-				.await?
-				.and_then(|output| match output.data.target {
-					tg::tag::data::Target::Object(id) => tg::artifact::Id::try_from(id).ok(),
-					tg::tag::data::Target::Process(_) => None,
-				});
-		if target.as_ref() != Some(artifact) {
-			return Err(
-				tg::error!(%specifier, "the tag changed while its store entry was materialized"),
-			);
-		}
-
-		// Create the ancestor entries.
-		let root = self.server.checkout_path();
-		let mut parent = root.clone();
-		let components = specifier.components().collect::<Vec<_>>();
-		for component in components.iter().take(components.len().saturating_sub(1)) {
-			parent.push(component);
-			match tokio::fs::symlink_metadata(&parent).await {
-				Ok(metadata) if metadata.is_dir() => (),
-				Ok(_) => {
-					tokio::fs::remove_file(&parent).await.map_err(|error| {
-						tg::error!(!error, "failed to remove a tag store entry")
-					})?;
-					tokio::fs::create_dir(&parent).await.map_err(|error| {
-						tg::error!(!error, "failed to create a tag store directory")
-					})?;
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-					tokio::fs::create_dir(&parent).await.map_err(|error| {
-						tg::error!(!error, "failed to create a tag store directory")
-					})?;
-				},
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to inspect a tag store entry"));
-				},
-			}
-		}
-
-		// Replace the tag entry.
-		let entry = root.join(&relative_path);
-		match tokio::fs::symlink_metadata(&entry).await {
-			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir_all(&entry)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove a tag store entry"))?,
-			Ok(_) => tokio::fs::remove_file(&entry)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove a tag store entry"))?,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to inspect a tag store entry"));
-			},
-		}
-		let mut target = PathBuf::new();
-		for _ in 1..components.len() {
-			target.push("..");
-		}
-		let suffix = suffix.unwrap_or_default();
-		target.push(format!("{artifact}{suffix}"));
-		tokio::fs::symlink(&target, &entry)
+		self.index()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to create a tag store entry"))?;
-
-		Ok(path)
-	}
-
-	pub(crate) async fn invalidate_tag_store_entries(
-		&self,
-		specifiers: &[tg::Specifier],
-	) -> tg::Result<()> {
-		let _guard = self.server.tag_store_entry_lock.lock().await;
-		let checkout_path = self.server.checkout_path();
-		for specifier in specifiers {
-			let path = specifier
-				.components()
-				.fold(checkout_path.clone(), |path, component| {
-					path.join(component)
-				});
-			Self::remove_tag_store_symlink(&path).await?;
-			let parent = path.parent().unwrap();
-			let prefix = format!("{}@module.", specifier.name());
-			match tokio::fs::read_dir(parent).await {
-				Ok(mut entries) => {
-					while let Some(entry) = entries
-						.next_entry()
-						.await
-						.map_err(|error| tg::error!(!error, "failed to read the store directory"))?
-					{
-						let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
-							continue;
-						};
-						if name.starts_with(&prefix) {
-							Self::remove_tag_store_symlink(&entry.path()).await?;
-						}
-					}
-				},
-				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to read the store directory"));
-				},
-			}
-			Self::prune_tag_store_directories(parent, &checkout_path).await?;
-		}
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
 
 		Ok(())
 	}
 
-	pub(super) fn tag_store_entry_path(
+	pub(super) async fn checkout_named_nodes(
 		&self,
-		specifier: &tg::Specifier,
+		id: &tg::Id,
+	) -> tg::Result<Vec<super::NamedNode>> {
+		let mut current = Some(id.clone());
+		let mut ids = HashSet::with_hasher(tg::id::BuildHasher);
+		let mut nodes = Vec::new();
+		while let Some(id) = current {
+			if !ids.insert(id.clone()) {
+				return Err(tg::error!(%id, "the named node hierarchy contains a cycle"));
+			}
+			let node =
+				match id.kind() {
+					tg::id::Kind::Group => {
+						let id = tg::group::Id::try_from(id)?;
+						let group = self.server.index.try_get_group(&id).await?.ok_or_else(
+							|| tg::error!(%id, "the group was not found in the index"),
+						)?;
+						super::NamedNode {
+							id: id.into(),
+							parent: group.parent,
+							specifier: group.specifier,
+							target: None,
+						}
+					},
+					tg::id::Kind::Organization => {
+						let id = tg::organization::Id::try_from(id)?;
+						let organization = self
+							.server
+							.index
+							.try_get_organization(&id)
+							.await?
+							.ok_or_else(
+								|| tg::error!(%id, "the organization was not found in the index"),
+							)?;
+						super::NamedNode {
+							id: id.into(),
+							parent: None,
+							specifier: organization.specifier,
+							target: None,
+						}
+					},
+					tg::id::Kind::Tag => {
+						let id = tg::tag::Id::try_from(id)?;
+						let tag =
+							self.server.index.try_get_tag(&id).await?.ok_or_else(
+								|| tg::error!(%id, "the tag was not found in the index"),
+							)?;
+						super::NamedNode {
+							id: id.into(),
+							parent: tag.parent,
+							specifier: tag.specifier,
+							target: Some(tag.target),
+						}
+					},
+					tg::id::Kind::User => {
+						let id = tg::user::Id::try_from(id)?;
+						let user = self.server.index.try_get_user(&id).await?.ok_or_else(
+							|| tg::error!(%id, "the user was not found in the index"),
+						)?;
+						super::NamedNode {
+							id: id.into(),
+							parent: None,
+							specifier: user.specifier,
+							target: None,
+						}
+					},
+					_ => return Err(tg::error!(%id, "the node is not named")),
+				};
+			current = node.parent.clone();
+			nodes.push(node);
+		}
+		nodes.reverse();
+
+		Ok(nodes)
+	}
+
+	pub(super) fn named_checkout_path(
+		&self,
+		node: &super::NamedNode,
 		suffix: Option<&str>,
 	) -> PathBuf {
-		let relative_path = Self::tag_store_entry_relative_path(specifier, suffix);
-
-		self.server.store_path().join(relative_path)
+		self.server
+			.store_path()
+			.join(Server::named_checkout_relative_path(node, suffix))
 	}
 
-	fn tag_store_entry_relative_path(specifier: &tg::Specifier, suffix: Option<&str>) -> PathBuf {
-		let mut path = specifier
-			.components()
-			.map(String::from)
-			.collect::<PathBuf>();
-		if let Some(suffix) = suffix {
-			let name = tg::store::path::module_component(specifier.name(), suffix);
-			path.set_file_name(name);
+	pub(super) async fn materialize_named_checkout(
+		&self,
+		expected: &[super::NamedNode],
+		artifact: Option<&tg::artifact::Id>,
+		suffix: Option<&str>,
+	) -> tg::Result<()> {
+		if self.server.vfs.lock().unwrap().is_some() {
+			return Ok(());
 		}
-		path
-	}
-
-	async fn remove_tag_store_symlink(path: &Path) -> tg::Result<()> {
-		match tokio::fs::symlink_metadata(path).await {
-			Ok(metadata) if metadata.is_symlink() => tokio::fs::remove_file(path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove the tag store entry"))?,
-			Ok(_) => (),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to inspect the tag store entry"));
-			},
-		}
-		Ok(())
-	}
-
-	async fn prune_tag_store_directories(path: &Path, root: &Path) -> tg::Result<()> {
-		let mut path = path.to_owned();
-		while path != root {
-			match tokio::fs::remove_dir(&path).await {
-				Ok(()) => (),
-				Err(error)
-					if matches!(
-						error.kind(),
-						std::io::ErrorKind::DirectoryNotEmpty | std::io::ErrorKind::NotFound
-					) =>
-				{
-					break;
-				},
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to remove a tag store directory"));
-				},
+		for attempt in 0..2 {
+			let guard = self.server.checkout_lock.lock().await;
+			if self.server.vfs.lock().unwrap().is_some() {
+				return Ok(());
 			}
-			let Some(parent) = path.parent() else {
-				break;
-			};
-			path = parent.to_owned();
+			let actual = self
+				.checkout_named_nodes(&expected.last().unwrap().id)
+				.await?;
+			if actual == expected {
+				let touched_at = self.server.clock.unix_timestamp()?;
+				let mut batch = tangram_index::batch::Arg::default();
+				for node in expected {
+					if node.id.kind() == tg::id::Kind::Tag {
+						// Replace the tag checkout so a changed target does not retain its old dependency.
+						batch
+							.items
+							.push(tangram_index::batch::Item::DeleteCheckout(node.id.clone()));
+					}
+					let mut dependencies = node.parent.iter().cloned().collect::<Vec<_>>();
+					if node.id.kind() == tg::id::Kind::Tag {
+						let artifact = artifact.ok_or_else(
+							|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
+						)?;
+						dependencies.push(artifact.clone().into());
+					}
+					batch.items.push(tangram_index::batch::Item::PutCheckout(
+						tangram_index::checkout::put::Arg {
+							dependencies,
+							id: node.id.clone(),
+							touched_at,
+						},
+					));
+				}
+				self.server.index.batch(batch).await?;
+				self.server
+					.materialize_named_checkout_entries_with_lock(
+						&guard, expected, artifact, suffix,
+					)
+					.await?;
+				drop(guard);
+
+				return Ok(());
+			}
+			drop(guard);
+			if attempt == 0 {
+				self.checkout_index_barrier().await?;
+			}
 		}
-		Ok(())
+
+		Err(tg::error!(
+			id = %expected.last().unwrap().id,
+			"the named node changed while it was checked out"
+		))
 	}
 
 	async fn checkout_internal_ensure_stored_and_authorized(
@@ -1231,9 +1210,9 @@ impl Session {
 		// Index the checkout.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let arg = tangram_index::checkout::put::Arg {
-			id: item.id,
+			dependencies: dependencies.iter().cloned().map(Into::into).collect(),
+			id: item.id.into(),
 			touched_at,
-			dependencies: dependencies.to_vec(),
 		};
 
 		Ok(arg)
@@ -1431,5 +1410,220 @@ impl Session {
 		}
 
 		Ok(items)
+	}
+}
+
+impl Server {
+	pub(crate) async fn remove_all_named_checkout_entries_with_lock(
+		&self,
+		_guard: &tokio::sync::MutexGuard<'_, ()>,
+	) -> tg::Result<()> {
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+
+		// Discard named entries before the backing directory becomes the physical store.
+		let path = self.store_path();
+		let mut entries = tokio::fs::read_dir(path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the store directory"))?;
+		while let Some(entry) = entries
+			.next_entry()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the store directory"))?
+		{
+			let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+				continue;
+			};
+			if !matches!(
+				tg::store::path::parse_component(&name),
+				Ok(tg::store::path::Component::Tag { .. })
+			) {
+				continue;
+			}
+			tangram_util::fs::remove(entry.path())
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?;
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn materialize_named_checkout_entries_with_lock(
+		&self,
+		_guard: &tokio::sync::MutexGuard<'_, ()>,
+		nodes: &[super::NamedNode],
+		artifact: Option<&tg::artifact::Id>,
+		suffix: Option<&str>,
+	) -> tg::Result<()> {
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+		for (index, node) in nodes.iter().enumerate() {
+			let is_last = index + 1 == nodes.len();
+			let suffix = is_last.then_some(suffix).flatten();
+			let path = self
+				.store_path()
+				.join(Self::named_checkout_relative_path(node, suffix));
+			if node.id.kind() == tg::id::Kind::Tag {
+				let artifact = artifact.ok_or_else(
+					|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
+				)?;
+				Self::materialize_tag_checkout_entry(&path, &node.specifier, artifact, suffix)
+					.await?;
+			} else {
+				Self::materialize_named_checkout_directory(&path).await?;
+			}
+		}
+
+		Ok(())
+	}
+
+	pub(crate) async fn remove_named_checkout_entry_with_lock(
+		&self,
+		_guard: &tokio::sync::MutexGuard<'_, ()>,
+		id: &tg::Id,
+		specifier: &tg::Specifier,
+	) -> tg::Result<()> {
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+		let node = super::NamedNode {
+			id: id.clone(),
+			parent: None,
+			specifier: specifier.clone(),
+			target: None,
+		};
+		let path = self
+			.store_path()
+			.join(Self::named_checkout_relative_path(&node, None));
+		if id.kind() != tg::id::Kind::Tag {
+			return Self::remove_named_checkout_directory(&path).await;
+		}
+
+		Self::remove_tag_checkout_symlink(&path).await?;
+		let parent = path.parent().unwrap();
+		let prefix = format!("{}@module.", specifier.name());
+		match tokio::fs::read_dir(parent).await {
+			Ok(mut entries) => {
+				while let Some(entry) = entries
+					.next_entry()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read the store directory"))?
+				{
+					let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+						continue;
+					};
+					if name.starts_with(&prefix) {
+						Self::remove_tag_checkout_symlink(&entry.path()).await?;
+					}
+				}
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read the store directory"));
+			},
+		}
+
+		Ok(())
+	}
+
+	fn named_checkout_relative_path(node: &super::NamedNode, suffix: Option<&str>) -> PathBuf {
+		let mut path = node
+			.specifier
+			.components()
+			.map(String::from)
+			.collect::<PathBuf>();
+		if let Some(suffix) = suffix {
+			let name = tg::store::path::module_component(node.specifier.name(), suffix);
+			path.set_file_name(name);
+		}
+		path
+	}
+
+	async fn materialize_named_checkout_directory(path: &Path) -> tg::Result<()> {
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_dir() => return Ok(()),
+			Ok(_) => tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
+			},
+		}
+		tokio::fs::create_dir(path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create a checkout directory"))?;
+
+		Ok(())
+	}
+
+	async fn materialize_tag_checkout_entry(
+		path: &Path,
+		specifier: &tg::Specifier,
+		artifact: &tg::artifact::Id,
+		suffix: Option<&str>,
+	) -> tg::Result<()> {
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout directory"))?,
+			Ok(_) => tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
+			},
+		}
+		let mut target = PathBuf::new();
+		for _ in 1..specifier.components().count() {
+			target.push("..");
+		}
+		let suffix = suffix.unwrap_or_default();
+		target.push(format!("{artifact}{suffix}"));
+		tokio::fs::symlink(&target, path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create a checkout entry"))?;
+
+		Ok(())
+	}
+
+	async fn remove_named_checkout_directory(path: &Path) -> tg::Result<()> {
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout directory"))?,
+			Ok(metadata) if metadata.is_symlink() => tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?,
+			Ok(_) => {
+				return Err(
+					tg::error!(path = %path.display(), "the checkout entry is not a directory"),
+				);
+			},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
+			},
+		}
+
+		Ok(())
+	}
+
+	async fn remove_tag_checkout_symlink(path: &Path) -> tg::Result<()> {
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_symlink() => tokio::fs::remove_file(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?,
+			Ok(_) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
+			},
+		}
+
+		Ok(())
 	}
 }

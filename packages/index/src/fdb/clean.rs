@@ -27,7 +27,7 @@ enum Item {
 		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
-	Checkout(tg::artifact::Id),
+	Checkout(tg::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 	Sandbox(tg::sandbox::Id),
@@ -253,7 +253,7 @@ impl Index {
 			}
 			let touched_at =
 				crate::fdb::propagate!(Self::get_touched_at(txn, subspace, &candidate.item).await);
-			if touched_at != candidate.touched_at {
+			if touched_at != Some(candidate.touched_at) {
 				Self::delete_clean_key(txn, subspace, candidate);
 				continue;
 			}
@@ -401,36 +401,35 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
-	) -> tg::Result<ControlFlow<i64, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
 		let touched_at = match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::Checkout(id) => {
 				let entry = crate::fdb::propagate!(
 					Self::try_get_checkout_with_transaction(txn, subspace, id).await
-				)
-				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing cache entry"))?;
-				entry.touched_at
+				);
+				entry.map(|entry| entry.touched_at)
 			},
 			Item::Object(id) => {
 				let object = crate::fdb::propagate!(
 					Self::try_get_object_with_transaction(txn, subspace, id).await
 				)
 				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
-				object.touched_at
+				Some(object.touched_at)
 			},
 			Item::Process(id) => {
 				let process = crate::fdb::propagate!(
 					Self::try_get_process_with_transaction(txn, subspace, id).await
 				)
 				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
-				process.touched_at
+				Some(process.touched_at)
 			},
 			Item::Sandbox(id) => {
 				let sandbox = crate::fdb::propagate!(
 					Self::try_get_sandbox_with_transaction(txn, subspace, id).await
 				)
 				.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing sandbox"))?;
-				sandbox.touched_at
+				Some(sandbox.touched_at)
 			},
 		};
 
@@ -483,7 +482,7 @@ impl Index {
 	async fn compute_checkout_reference_count(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let id = id.to_bytes();
 		let result = futures::try_join!(
@@ -676,10 +675,10 @@ impl Index {
 		}
 	}
 
-	async fn delete_checkout(
+	pub(crate) async fn delete_checkout(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));
@@ -708,7 +707,7 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected cache entry dependency key"));
+					return Err(tg::error!("expected a checkout dependency key"));
 				};
 				Ok(dependency)
 			})
@@ -1048,7 +1047,7 @@ impl Index {
 	async fn decrement_checkout_reference_count(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));

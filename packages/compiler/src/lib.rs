@@ -1151,22 +1151,34 @@ impl Compiler {
 						_ => None,
 					};
 					let extension = options.path.is_none().then_some(extension).flatten();
-					let artifact = id.clone().try_into()?;
-					let artifact = tg::Referent::new(
-						artifact,
+					let artifact: tg::artifact::Id = id.clone().try_into()?;
+					let tag_output = self
+						.handle
+						.try_get_tag(
+							&tg::tag::Selector::Specifier(tag.clone()),
+							tg::tag::get::Arg {
+								location: options.location.clone().map(Into::into),
+								..Default::default()
+							},
+						)
+						.await?
+						.ok_or_else(|| tg::error!(%tag, "the tag was not found"))?;
+					let node = tg::Referent::new(
+						tag_output.data.id.into(),
 						tg::referent::Options {
-							location: options.location.clone(),
-							tag: Some(tag.clone()),
-							tokens: options.tokens.clone(),
+							artifact: Some(artifact),
+							id: options.id.clone(),
+							location: tag_output.location,
+							tokens: tag_output.tokens,
 							..Default::default()
 						},
 					);
 					let arg = tg::checkout::Arg {
-						artifacts: vec![artifact],
 						dependencies: true,
 						extension: extension.clone(),
 						force: false,
 						lock: None,
+						nodes: vec![node],
 						path: None,
 					};
 					let path = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
@@ -1177,7 +1189,7 @@ impl Compiler {
 						path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
-					let artifact = id.clone().try_into()?;
+					let artifact: tg::artifact::Id = id.clone().try_into()?;
 					let referent_options = tg::referent::Options {
 						location: options.location.clone(),
 						tokens: options.tokens.clone(),
@@ -1185,11 +1197,11 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifacts: vec![artifact],
 						dependencies: true,
 						extension: None,
 						force: false,
 						lock: None,
+						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
 					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
@@ -1207,11 +1219,11 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifacts: vec![artifact],
 						dependencies: true,
 						extension,
 						force: false,
 						lock: None,
+						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
 					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?

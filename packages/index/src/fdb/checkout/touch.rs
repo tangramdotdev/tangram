@@ -10,7 +10,7 @@ use {
 impl Index {
 	pub async fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
@@ -32,7 +32,7 @@ impl Index {
 	pub(crate) async fn touch_checkouts_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
@@ -71,7 +71,7 @@ impl Index {
 	async fn touch_checkout_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 		touched_at: i64,
 		time_to_touch: Duration,
 		partition_total: u64,
@@ -100,7 +100,7 @@ impl Index {
 		checkout.touched_at = checkout.touched_at.max(touched_at);
 		let value = checkout
 			.serialize()
-			.map_err(|error| tg::error!(!error, "failed to serialize the cache entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to serialize the checkout"))?;
 		txn.set(&key, &value);
 		if checkout.reference_count == 0 {
 			let id_bytes = id.to_bytes();

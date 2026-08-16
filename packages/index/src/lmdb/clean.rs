@@ -23,7 +23,7 @@ enum Item {
 		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
-	Checkout(tg::artifact::Id),
+	Checkout(tg::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 	Sandbox(tg::sandbox::Id),
@@ -172,7 +172,7 @@ impl Index {
 				Item::Checkout(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
 			}
 			let touched_at = Self::get_touched_at(db, subspace, transaction, &candidate.item)?;
-			if touched_at != candidate.touched_at {
+			if touched_at != Some(candidate.touched_at) {
 				Self::delete_clean_key(db, subspace, transaction, candidate)?;
 				continue;
 			}
@@ -303,20 +303,18 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		item: &Item,
-	) -> tg::Result<i64> {
+	) -> tg::Result<Option<i64>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 			Item::Checkout(id) => {
 				let entry = Self::try_get_checkout_with_transaction(db, subspace, transaction, id)?
-					.ok_or_else(
-						|| tg::error!(%id, "the clean key referenced a missing checkout"),
-					)?;
-				Ok(entry.touched_at)
+					.map(|entry| entry.touched_at);
+				Ok(entry)
 			},
 			Item::Object(id) => {
 				let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?
 					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
-				Ok(object.touched_at)
+				Ok(Some(object.touched_at))
 			},
 			Item::Process(id) => {
 				let process =
@@ -324,7 +322,7 @@ impl Index {
 						.ok_or_else(
 							|| tg::error!(%id, "the clean key referenced a missing process"),
 						)?;
-				Ok(process.touched_at)
+				Ok(Some(process.touched_at))
 			},
 			Item::Sandbox(id) => {
 				let sandbox =
@@ -332,7 +330,7 @@ impl Index {
 						.ok_or_else(
 							|| tg::error!(%id, "the clean key referenced a missing sandbox"),
 						)?;
-				Ok(sandbox.touched_at)
+				Ok(Some(sandbox.touched_at))
 			},
 		}
 	}
@@ -385,7 +383,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<u64> {
 		let checkout_object_prefix = Self::pack(
 			subspace,
@@ -603,11 +601,11 @@ impl Index {
 		}
 	}
 
-	fn delete_checkout(
+	pub(crate) fn delete_checkout(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<()> {
 		let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -944,7 +942,7 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<()> {
 		let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);

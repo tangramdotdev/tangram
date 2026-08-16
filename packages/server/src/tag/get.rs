@@ -48,7 +48,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_tag_local(
+	pub(crate) async fn try_get_tag_local(
 		&self,
 		id: &tg::tag::Id,
 		tokens: tg::authorization::Tokens,

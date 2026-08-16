@@ -9,7 +9,7 @@ use {
 impl Index {
 	pub async fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<crate::checkout::Checkout>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -28,7 +28,7 @@ impl Index {
 	pub(crate) async fn try_get_checkouts_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::checkout::Checkout>>, fdb::FdbError>> {
 		let entries = {
 			let result = futures::future::try_join_all(
@@ -54,7 +54,7 @@ impl Index {
 	pub(crate) async fn try_get_checkout_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<crate::checkout::Checkout>, fdb::FdbError>> {
 		let key = Key::Checkout(crate::fdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);

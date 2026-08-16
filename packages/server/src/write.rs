@@ -591,9 +591,9 @@ impl Session {
 		// Create a checkout arg if necessary.
 		let put_checkout_args = if let Some((artifact, _)) = checkout_pointer {
 			vec![tangram_index::checkout::put::Arg {
-				id: artifact,
-				touched_at,
 				dependencies: Vec::new(),
+				id: artifact.into(),
+				touched_at,
 			}]
 		} else {
 			vec![]

@@ -13,9 +13,6 @@ pub use crate::checkin::Lock;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub artifacts: Vec<tg::Referent<tg::artifact::Id>>,
-
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 
@@ -30,6 +27,9 @@ pub struct Arg {
 		skip_serializing_if = "tg::checkin::is_default_lock"
 	)]
 	pub lock: Option<Lock>,
+
+	#[serde_as(as = "Vec<DisplayFromStr>")]
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -96,11 +96,11 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let arg = tg::checkout::Arg {
-			artifacts: vec![self.to_referent()],
 			dependencies: options.dependencies,
 			extension: options.extension,
 			force: options.force,
 			lock: options.lock,
+			nodes: vec![self.to_referent().map(Into::into)],
 			path: options.path,
 		};
 		let stream = handle.checkout(arg).await?.boxed();

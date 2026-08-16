@@ -704,9 +704,9 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifacts: [tg.Referent.withNodeAndTokens(artifact, tokens)],
 			dependencies: true,
 			force: false,
+			nodes: [tg.Referent.withNodeAndTokens(artifact, tokens)],
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === null) {

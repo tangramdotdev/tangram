@@ -4,19 +4,19 @@ import type { Client } from "../client.ts";
 
 export namespace Checkout {
 	export type Arg = {
-		artifacts: Array<tg.Referent<tg.Artifact.Id>>;
 		dependencies?: boolean;
 		extension?: string | null;
 		force?: boolean;
 		lock?: "auto" | "attr" | "file" | null;
+		nodes: Array<tg.Referent<string>>;
 		path?: string | null;
 	};
 
 	export namespace Arg {
 		export let toJson = (arg: tg.Checkout.Arg): unknown => {
 			let output: { [key: string]: unknown } = {
-				artifacts: arg.artifacts.map((artifact) =>
-					tg.Referent.toDataString(artifact, (id) => id),
+				nodes: arg.nodes.map((node) =>
+					tg.Referent.toDataString(node, (id) => id),
 				),
 			};
 			if (arg.dependencies !== undefined && !arg.dependencies) {

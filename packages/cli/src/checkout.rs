@@ -1,6 +1,6 @@
 use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
-/// Check out an artifact.
+/// Check out nodes.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -23,7 +23,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The artifacts to check out.
+	/// The nodes to check out.
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
 }
@@ -124,34 +124,73 @@ impl Cli {
 			));
 		}
 
-		// Get the artifacts.
+		// Get the nodes.
 		let referents = self.resolve_references(&args.references).await?;
-		let artifacts = referents
-			.into_iter()
-			.map(|referent| {
-				referent.into_graph_edge()?.try_map(|edge| {
-					let object = edge
-						.try_unwrap_object()
-						.map_err(|_| tg::error!("expected an object"))?;
-					let artifact = tg::Artifact::try_from(object)?;
-					Ok::<_, tg::Error>(artifact.id())
-				})
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-		let external_artifact = path
-			.as_ref()
-			.and_then(|_| (artifacts.len() == 1).then(|| artifacts[0].node.clone()));
+		let mut artifacts = Vec::with_capacity(referents.len());
+		let mut nodes = Vec::with_capacity(referents.len());
+		for referent in referents {
+			if let tg::get::Node::Id(id) = &referent.node
+				&& matches!(
+					id.kind(),
+					tg::id::Kind::Group
+						| tg::id::Kind::Organization
+						| tg::id::Kind::Tag
+						| tg::id::Kind::User
+				) && referent.options.tag.is_none()
+			{
+				artifacts.push(None);
+				nodes.push(tg::Referent::new(id.clone(), referent.options));
+				continue;
+			}
+			let artifact = referent.into_graph_edge()?.try_map(|edge| {
+				let object = edge
+					.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?;
+				let artifact = tg::Artifact::try_from(object)?;
+				Ok::<_, tg::Error>(artifact.id())
+			})?;
+			artifacts.push(Some(artifact.node.clone()));
+			let Some(tag) = artifact.options.tag.clone() else {
+				nodes.push(artifact.map(Into::into));
+				continue;
+			};
+			let output = client
+				.try_get_tag(
+					&tg::tag::Selector::Specifier(tag.clone()),
+					tg::tag::get::Arg {
+						location: artifact.options.location.clone().map(Into::into),
+						..Default::default()
+					},
+				)
+				.await?
+				.ok_or_else(|| tg::error!(%tag, "the tag was not found"))?;
+			let options = tg::referent::Options {
+				artifact: Some(artifact.node),
+				id: artifact.options.id,
+				location: output.location,
+				name: artifact.options.name,
+				path: artifact.options.path,
+				tokens: output.tokens,
+				..Default::default()
+			};
+			nodes.push(tg::Referent::new(output.data.id.into(), options));
+		}
+		let external_artifact = path.as_ref().and_then(|_| {
+			(nodes.len() == 1)
+				.then(|| artifacts.pop().unwrap())
+				.flatten()
+		});
 
 		// Check out the artifact.
 		let dependencies = args.dependencies.get();
 		let force = args.force;
 		let lock = path.as_ref().and_then(|_| args.lock.get());
 		let arg = tg::checkout::Arg {
-			artifacts,
 			dependencies,
 			extension: None,
 			force,
 			lock,
+			nodes,
 			path,
 		};
 		let stream = client.checkout(arg).await.map_err(|error| {

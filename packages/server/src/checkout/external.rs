@@ -41,6 +41,7 @@ impl Session {
 	pub(crate) async fn checkout_external(
 		&self,
 		mut arg: tg::checkout::Arg,
+		artifact: tg::Referent<tg::artifact::Id>,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
@@ -53,7 +54,6 @@ impl Session {
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let session = self.clone();
-			let artifact = arg.artifacts.first().unwrap().clone();
 			let artifact_id = artifact.node.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();

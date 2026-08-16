@@ -2,13 +2,13 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum Key {
-	Checkout(tg::artifact::Id),
+	Checkout(tg::Id),
 	CheckoutDependency {
-		checkout: tg::artifact::Id,
-		dependency: tg::artifact::Id,
+		checkout: tg::Id,
+		dependency: tg::Id,
 	},
 	DependencyCheckout {
-		dependency: tg::artifact::Id,
-		checkout: tg::artifact::Id,
+		dependency: tg::Id,
+		checkout: tg::Id,
 	},
 }

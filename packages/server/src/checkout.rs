@@ -11,10 +11,24 @@ pub(super) mod internal;
 
 struct InternalOutput {
 	artifact_paths: Vec<PathBuf>,
-	artifacts: Vec<tg::Referent<tg::artifact::Id>>,
 	extension: Option<String>,
 	id_paths: Vec<PathBuf>,
+	nodes: Vec<Node>,
 	paths: Vec<PathBuf>,
+}
+
+#[derive(Clone)]
+struct Node {
+	artifact: Option<tg::Referent<tg::artifact::Id>>,
+	named: Option<Vec<NamedNode>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct NamedNode {
+	pub id: tg::Id,
+	pub parent: Option<tg::Id>,
+	pub specifier: tg::Specifier,
+	pub target: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
 impl Session {
@@ -23,12 +37,23 @@ impl Session {
 		arg: tg::checkout::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>> {
 		if arg.path.is_some() {
-			if arg.artifacts.len() != 1 {
-				return Err(tg::error!(
-					"an external checkout requires exactly one artifact"
-				));
+			if arg.nodes.len() != 1 {
+				return Err(tg::error!("an external checkout requires exactly one node"));
 			}
-			let stream = self.checkout_external(arg).await?.boxed();
+			if matches!(
+				arg.nodes[0].node.kind(),
+				tg::id::Kind::Group
+					| tg::id::Kind::Organization
+					| tg::id::Kind::Tag
+					| tg::id::Kind::User
+			) {
+				self.checkout_index_barrier().await?;
+			}
+			let node = self.resolve_checkout_node(arg.nodes[0].clone()).await?;
+			let artifact = node
+				.artifact
+				.ok_or_else(|| tg::error!("an external checkout requires an artifact"))?;
+			let stream = self.checkout_external(arg, artifact).await?.boxed();
 
 			return Ok(stream);
 		}
@@ -51,23 +76,50 @@ impl Session {
 			));
 		}
 
-		let artifacts = arg.artifacts;
+		let vfs_enabled = self.server.vfs.lock().unwrap().is_some();
+		if !vfs_enabled
+			&& arg.nodes.iter().any(|node| {
+				matches!(
+					node.node.kind(),
+					tg::id::Kind::Group
+						| tg::id::Kind::Organization
+						| tg::id::Kind::Tag
+						| tg::id::Kind::User
+				)
+			}) {
+			self.checkout_index_barrier().await?;
+		}
+		let mut nodes = Vec::with_capacity(arg.nodes.len());
+		for node in arg.nodes {
+			nodes.push(self.resolve_checkout_node(node).await?);
+		}
 		let extension = arg.extension;
+		if extension.is_some() && nodes.iter().any(|node| node.artifact.is_none()) {
+			return Err(tg::error!(
+				"the extension option requires every node to resolve to an artifact"
+			));
+		}
+		let artifacts = nodes
+			.iter()
+			.filter_map(|node| node.artifact.clone())
+			.collect::<Vec<_>>();
 		let artifact_paths = artifacts
 			.iter()
 			.map(|artifact| self.checkout_internal_path(&artifact.node, extension.as_deref()))
 			.collect::<Vec<_>>();
-		let paths = artifacts
+		let paths = nodes
 			.iter()
-			.zip(&artifact_paths)
-			.map(|(artifact, artifact_path)| {
-				artifact.options.tag.as_ref().map_or_else(
-					|| artifact_path.clone(),
-					|tag| self.tag_store_entry_path(tag, extension.as_deref()),
-				)
+			.map(|node| {
+				if let Some(named) = &node.named {
+					let named = named.last().unwrap();
+					self.named_checkout_path(named, extension.as_deref())
+				} else {
+					let artifact = node.artifact.as_ref().unwrap();
+					self.checkout_internal_path(&artifact.node, extension.as_deref())
+				}
 			})
 			.collect::<Vec<_>>();
-		if self.server.vfs.lock().unwrap().is_some() {
+		if vfs_enabled {
 			let paths = paths
 				.into_iter()
 				.map(|path| self.guest_path_for_host_path(&path))
@@ -84,9 +136,9 @@ impl Session {
 			.collect::<Vec<_>>();
 		let internal_output = Arc::new(InternalOutput {
 			artifact_paths,
-			artifacts: artifacts.clone(),
 			extension,
 			id_paths,
+			nodes,
 			paths,
 		});
 
@@ -111,16 +163,17 @@ impl Session {
 										std::fs::hard_link(id_path, artifact_path).ok();
 									}
 								}
-								for artifact in &internal_output.artifacts {
-									if let Some(tag) = &artifact.options.tag {
-										session
-											.materialize_tag_store_entry(
-												tag,
-												&artifact.node,
-												internal_output.extension.as_deref(),
-											)
-											.await?;
-									}
+								for node in &internal_output.nodes {
+									let Some(named) = &node.named else {
+										continue;
+									};
+									session
+										.materialize_named_checkout(
+											named,
+											node.artifact.as_ref().map(|artifact| &artifact.node),
+											internal_output.extension.as_deref(),
+										)
+										.await?;
 								}
 								let paths = internal_output
 									.paths
@@ -140,6 +193,166 @@ impl Session {
 			.boxed();
 
 		Ok(stream)
+	}
+
+	async fn resolve_checkout_node(&self, node: tg::Referent<tg::Id>) -> tg::Result<Node> {
+		if let Ok(id) = tg::artifact::Id::try_from(node.node.clone()) {
+			let artifact = Some(node.map(|_| id));
+			return Ok(Node {
+				artifact,
+				named: None,
+			});
+		}
+		if !matches!(
+			node.node.kind(),
+			tg::id::Kind::Group
+				| tg::id::Kind::Organization
+				| tg::id::Kind::Tag
+				| tg::id::Kind::User
+		) {
+			return Err(tg::error!(id = %node.node, "the node cannot be checked out"));
+		}
+
+		let permission = Self::named_checkout_permission(&node.node)?;
+		let resource = tg::Referent::with_node_and_tokens(
+			tg::Selector::Id(node.node.clone()),
+			node.options.tokens.clone(),
+		);
+		let authorized = self.authorize(resource, permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!(id = %node.node, "unauthorized"));
+		}
+
+		let named = if self.server.vfs.lock().unwrap().is_some() {
+			vec![
+				self.checkout_named_node_local(&node.node, node.options.tokens.clone())
+					.await?,
+			]
+		} else {
+			self.checkout_named_nodes(&node.node).await?
+		};
+		let last = named.last().unwrap();
+		let artifact = if let Some(target) = &last.target {
+			let tg::Either::Left(target) = target else {
+				return Err(tg::error!(id = %node.node, "the tag target is not an artifact"));
+			};
+			let artifact = match node.options.artifact.clone() {
+				Some(artifact) => artifact,
+				None => target.clone().try_into().map_err(
+					|_| tg::error!(id = %node.node, "the tag target is not an artifact"),
+				)?,
+			};
+			let artifact_object = tg::object::Id::from(artifact.clone());
+			if artifact_object != *target && node.options.id.as_ref() != Some(target) {
+				return Err(
+					tg::error!(id = %node.node, "the artifact does not belong to the tag target"),
+				);
+			}
+			let tag = tg::tag::Id::try_from(node.node.clone())?;
+			let target_id = tg::Id::from(target.clone());
+			let token = self.create_tag_target_token(&tag, &target_id).await?;
+			let options = tg::referent::Options {
+				location: node.options.location,
+				tokens: tg::authorization::Tokens::with_local(token),
+				..Default::default()
+			};
+			Some(tg::Referent::new(artifact, options))
+		} else {
+			None
+		};
+
+		Ok(Node {
+			artifact,
+			named: Some(named),
+		})
+	}
+
+	async fn checkout_named_node_local(
+		&self,
+		id: &tg::Id,
+		tokens: tg::authorization::Tokens,
+	) -> tg::Result<NamedNode> {
+		let node = match id.kind() {
+			tg::id::Kind::Group => {
+				let id = tg::group::Id::try_from(id.clone())?;
+				let group = self
+					.try_get_group_local(&id, tokens)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the group was not found"))?;
+				NamedNode {
+					id: id.into(),
+					parent: group.parent,
+					specifier: group.specifier,
+					target: None,
+				}
+			},
+			tg::id::Kind::Organization => {
+				let id = tg::organization::Id::try_from(id.clone())?;
+				let organization = self
+					.try_get_organization_local(&id, tokens)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the organization was not found"))?;
+				NamedNode {
+					id: id.into(),
+					parent: None,
+					specifier: organization.specifier,
+					target: None,
+				}
+			},
+			tg::id::Kind::Tag => {
+				let id = tg::tag::Id::try_from(id.clone())?;
+				let tag = self
+					.try_get_tag_local(&id, tokens)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the tag was not found"))?;
+				let target = match tag.data.target {
+					tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+					tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+				};
+				NamedNode {
+					id: id.into(),
+					parent: tag.data.parent,
+					specifier: tag.data.specifier,
+					target: Some(target),
+				}
+			},
+			tg::id::Kind::User => {
+				let id = tg::user::Id::try_from(id.clone())?;
+				let user = self
+					.try_get_user_local(&id, tokens)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the user was not found"))?;
+				NamedNode {
+					id: id.into(),
+					parent: None,
+					specifier: user.specifier,
+					target: None,
+				}
+			},
+			_ => return Err(tg::error!(%id, "the node is not named")),
+		};
+
+		Ok(node)
+	}
+
+	fn named_checkout_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			_ => return Err(tg::error!(%id, "the node is not named")),
+		};
+
+		Ok(permission)
 	}
 
 	fn checkout_internal_path(

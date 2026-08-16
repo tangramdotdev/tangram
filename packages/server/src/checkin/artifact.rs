@@ -866,9 +866,9 @@ impl Session {
 				if !arg.options.destructive {
 					let dependencies = Self::checkin_get_checkout_dependencies(graph, *index);
 					index_checkout_args.push(tangram_index::checkout::put::Arg {
-						id: artifact.clone(),
-						touched_at,
 						dependencies,
+						id: artifact.clone().into(),
+						touched_at,
 					});
 				}
 
@@ -1375,7 +1375,7 @@ impl Session {
 	pub(super) fn checkin_get_checkout_dependencies(
 		graph: &Graph,
 		root_index: usize,
-	) -> Vec<tg::artifact::Id> {
+	) -> Vec<tg::Id> {
 		let mut dependencies = Vec::new();
 		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
 		let mut stack = vec![root_index];
@@ -1410,8 +1410,9 @@ impl Session {
 						if let Some(edge) = &dependency.node {
 							match edge {
 								tg::graph::data::Edge::Object(id) => {
-									if let Ok(artifact_id) = id.clone().try_into() {
-										dependencies.push(artifact_id);
+									if let Ok(artifact_id) = tg::artifact::Id::try_from(id.clone())
+									{
+										dependencies.push(artifact_id.into());
 									}
 								},
 								tg::graph::data::Edge::Pointer(pointer)
@@ -1420,7 +1421,7 @@ impl Session {
 									if let Some(dependency_node) = graph.nodes.get(&pointer.index)
 										&& let Some(id) = &dependency_node.artifact
 									{
-										dependencies.push(id.clone());
+										dependencies.push(id.clone().into());
 									}
 								},
 								tg::graph::data::Edge::Pointer(_) => {},
@@ -1432,13 +1433,13 @@ impl Session {
 					if let Some(edge) = &symlink.artifact {
 						match edge {
 							tg::graph::data::Edge::Object(id) => {
-								dependencies.push(id.clone());
+								dependencies.push(id.clone().into());
 							},
 							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
 								if let Some(dependency_node) = graph.nodes.get(&pointer.index)
 									&& let Some(id) = &dependency_node.artifact
 								{
-									dependencies.push(id.clone());
+									dependencies.push(id.clone().into());
 								}
 							},
 							tg::graph::data::Edge::Pointer(_) => {},
@@ -1455,6 +1456,7 @@ impl Session {
 		dependencies.sort();
 		dependencies.dedup();
 		if let Some(root_artifact) = root_artifact {
+			let root_artifact = tg::Id::from(root_artifact);
 			dependencies.retain(|id| id != &root_artifact);
 		}
 
