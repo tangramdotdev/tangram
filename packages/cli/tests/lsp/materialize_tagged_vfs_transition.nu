@@ -30,7 +30,7 @@ let path = artifact {
 let module_path = $path | path join 'tangram.ts'
 let module_uri = lsp uri $module_path
 let source = open $module_path
-let responses = lsp run [
+let responses = lsp exchange [
 	(lsp initialize 1)
 	(lsp initialized)
 	(lsp did_open $module_uri $source)
