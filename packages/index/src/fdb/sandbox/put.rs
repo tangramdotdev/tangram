@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_sandboxes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::sandbox::put::Arg],
 		partition_total: u64,

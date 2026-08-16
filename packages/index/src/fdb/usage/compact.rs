@@ -31,7 +31,7 @@ impl Index {
 	}
 
 	pub(crate) async fn compact_usage_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::compact::Arg,
 	) -> tg::Result<ControlFlow<crate::usage::compact::Output, fdb::FdbError>> {
@@ -101,7 +101,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn aggregate_usage_compactions_for_account_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -135,7 +135,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn aggregate_usage_hour_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
@@ -220,7 +220,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn aggregate_usage_day_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -270,7 +270,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn aggregate_usage_parent_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -288,7 +288,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn try_get_usage_aggregate_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -309,7 +309,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn contains_usage_compaction_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
@@ -328,7 +328,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) fn put_usage_aggregate_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -346,7 +346,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) fn put_usage_compaction_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
@@ -362,7 +362,7 @@ impl Index {
 	}
 
 	fn clear_usage_compaction_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
@@ -378,7 +378,7 @@ impl Index {
 	}
 
 	async fn get_usage_deltas_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
@@ -434,7 +434,7 @@ impl Index {
 	}
 
 	async fn try_get_usage_compaction_for_account_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,
@@ -475,7 +475,7 @@ impl Index {
 	}
 
 	async fn sum_usage_children_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		partition: u64,

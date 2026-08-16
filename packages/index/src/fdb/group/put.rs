@@ -36,7 +36,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_groups_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -59,7 +59,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_group_members_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::group::member::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

@@ -19,7 +19,7 @@ impl Index {
 	}
 
 	async fn start_usage_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		at: jiff::Timestamp,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -35,7 +35,7 @@ impl Index {
 	}
 
 	async fn usage_started_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let key = Self::pack(subspace, &Key::Usage(crate::fdb::usage::Key::Started));
@@ -47,7 +47,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn try_get_usage_started_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
 		let key = Self::pack(subspace, &Key::Usage(crate::fdb::usage::Key::Started));
@@ -60,7 +60,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn try_get_usage_unavailable_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		kind: crate::usage::PeriodKind,
@@ -81,7 +81,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) fn mark_usage_unavailable_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		kind: crate::usage::PeriodKind,

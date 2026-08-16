@@ -66,7 +66,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn touch_processes_with_account_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		arg: &crate::fdb::TouchProcesses,
 		partition_total: u64,
@@ -147,7 +147,7 @@ impl Index {
 	}
 
 	pub(crate) async fn touch_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
 		touched_at: i64,
@@ -186,7 +186,7 @@ impl Index {
 	}
 
 	async fn touch_process_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		touched_at: i64,

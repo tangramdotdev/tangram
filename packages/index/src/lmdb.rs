@@ -43,10 +43,10 @@ pub struct Config {
 	pub map_size: usize,
 	pub max_process_depth: Option<u64>,
 	pub path: PathBuf,
-	pub read_batch_size: usize,
-	pub read_concurrency: usize,
+	pub read_request_batch_size: usize,
+	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
-	pub write_batch_size: usize,
+	pub write_operation_batch_size: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -120,19 +120,19 @@ impl Index {
 		let (reader_sender, reader_receiver) =
 			tokio::sync::mpsc::channel(crate::read::CHANNEL_CAPACITY);
 		let reader_receiver = Arc::new(std::sync::Mutex::new(reader_receiver));
-		let reader_handles = (0..config.read_concurrency)
+		let reader_handles = (0..config.read_transaction_concurrency)
 			.map(|_| {
 				let env = env.clone();
 				let reader_receiver = reader_receiver.clone();
 				let subspace = subspace.clone();
 				let authorize = config.authorize;
-				let read_batch_size = config.read_batch_size;
+				let read_request_batch_size = config.read_request_batch_size;
 				std::thread::spawn(move || {
 					Self::reader_task(&reader::Arg {
 						authorize,
 						db,
 						env,
-						read_batch_size,
+						read_request_batch_size,
 						receiver: reader_receiver,
 						subspace,
 						#[cfg(test)]
@@ -147,8 +147,8 @@ impl Index {
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
-			let write_batch_size = config.write_batch_size;
 			let usage_partition_total = config.usage_partition_total;
+			let write_operation_batch_size = config.write_operation_batch_size;
 			move || {
 				Self::writer_task(writer::Arg {
 					db: &db,
@@ -159,7 +159,7 @@ impl Index {
 					receiver_medium: &writer_receiver_medium,
 					subspace: &subspace,
 					usage_partition_total,
-					write_batch_size,
+					write_operation_batch_size,
 				});
 			}
 		});
@@ -179,14 +179,14 @@ impl Index {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
-		if config.read_batch_size == 0 {
+		if config.read_request_batch_size == 0 {
 			return Err(tg::error!(
-				"the LMDB index read batch size must be greater than zero"
+				"the LMDB index read request batch size must be greater than zero"
 			));
 		}
-		if config.read_concurrency == 0 {
+		if config.read_transaction_concurrency == 0 {
 			return Err(tg::error!(
-				"the LMDB index read concurrency must be greater than zero"
+				"the LMDB index read transaction concurrency must be greater than zero"
 			));
 		}
 		if config.usage_partition_total == 0 {
@@ -194,9 +194,9 @@ impl Index {
 				"the LMDB index usage partition total must be greater than zero"
 			));
 		}
-		if config.write_batch_size == 0 {
+		if config.write_operation_batch_size == 0 {
 			return Err(tg::error!(
-				"the LMDB index write batch size must be greater than zero"
+				"the LMDB index write operation batch size must be greater than zero"
 			));
 		}
 

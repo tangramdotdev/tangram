@@ -44,7 +44,7 @@ pub(super) struct TransactionArg<'a> {
 	pub partition_total: u64,
 	pub subspace: &'a Subspace,
 	pub usage_partition_total: u64,
-	pub txn: &'a fdb::Transaction,
+	pub txn: &'a crate::fdb::Transaction,
 }
 
 impl Index {
@@ -312,7 +312,7 @@ impl Index {
 	}
 
 	async fn delete_expired_grants(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		now: i64,
 		batch_size: usize,
@@ -398,7 +398,7 @@ impl Index {
 	}
 
 	async fn get_touched_at(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 	) -> tg::Result<ControlFlow<i64, fdb::FdbError>> {
@@ -437,7 +437,7 @@ impl Index {
 		Ok(ControlFlow::Break(touched_at))
 	}
 
-	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
+	fn delete_clean_key(txn: &crate::fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
 		let key = match &candidate.item {
 			Item::AccountObject { account, object } => {
 				crate::fdb::Key::Clean(crate::fdb::clean::Key::AccountObject {
@@ -481,52 +481,20 @@ impl Index {
 	}
 
 	async fn compute_cache_entry_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let id_bytes = id.to_bytes();
-
-		let cache_entry_object_future = async {
-			let prefix = (Kind::CacheEntryObject.to_i32().unwrap(), id_bytes.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-
-		let dependency_cache_entry_future = async {
-			let prefix = (
-				Kind::DependencyCacheEntry.to_i32().unwrap(),
-				id_bytes.as_ref(),
-			);
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-
-		let result =
-			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future)
-				.await;
+		let id = id.to_bytes();
+		let result = futures::try_join!(
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::CacheEntryObject, id.as_ref()),
+			Self::count_entries_for_kind_and_id(
+				txn,
+				subspace,
+				Kind::DependencyCacheEntry,
+				id.as_ref(),
+			),
+		);
 		let (cache_entry_object_count, dependency_cache_entry_count) = crate::fdb::retry!(result);
 		let count = cache_entry_object_count + dependency_cache_entry_count;
 
@@ -534,218 +502,110 @@ impl Index {
 	}
 
 	async fn compute_object_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let child_object_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let object_process_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::ObjectProcess.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let target_tag_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::TargetTag.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let result = futures::future::try_join3(
-			child_object_future,
-			object_process_future,
-			target_tag_future,
-		)
-		.await;
-		let (child_object_count, object_process_count, target_tag_count) =
-			crate::fdb::retry!(result);
-		let object_account_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::ObjectAccount.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let update_future = async {
-			let id = id.to_bytes();
-			let mut count = 0;
-			for kind in [Kind::GrantUpdate, Kind::NodeUpdate, Kind::StorageUpdate] {
-				let prefix = (kind.to_i32().unwrap(), id.as_ref());
-				let prefix = Self::pack(subspace, &prefix);
-				let range = fdb::RangeOption {
-					mode: fdb::options::StreamingMode::WantAll,
-					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-				};
-				count += txn
-					.get_range(&range, 1, false)
-					.await?
-					.len()
-					.to_u64()
-					.unwrap();
-			}
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let result = futures::future::try_join(object_account_future, update_future).await;
-		let (object_account_count, update_count) = crate::fdb::retry!(result);
+		let id = id.to_bytes();
+		let result = futures::try_join!(
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildObject, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::NodeUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectAccount, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectProcess, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::StorageUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::TargetTag, id.as_ref()),
+		);
+		let (
+			child_object_count,
+			grant_update_count,
+			node_update_count,
+			object_account_count,
+			object_process_count,
+			storage_update_count,
+			target_tag_count,
+		) = crate::fdb::retry!(result);
 		let count = child_object_count
+			+ grant_update_count
+			+ node_update_count
 			+ object_account_count
 			+ object_process_count
-			+ target_tag_count
-			+ update_count;
+			+ storage_update_count
+			+ target_tag_count;
+
 		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_process_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let child_process_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let target_tag_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::TargetTag.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range_subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&range_subspace)
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let result = futures::future::try_join(child_process_future, target_tag_future).await;
-		let (child_process_count, target_tag_count) = crate::fdb::retry!(result);
-		let process_account_future = async {
-			let id = id.to_bytes();
-			let prefix = (Kind::ProcessAccount.to_i32().unwrap(), id.as_ref());
-			let prefix = Self::pack(subspace, &prefix);
-			let range = fdb::RangeOption {
-				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-			};
-			let count = txn
-				.get_range(&range, 1, false)
-				.await?
-				.len()
-				.to_u64()
-				.unwrap();
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let update_future = async {
-			let id = id.to_bytes();
-			let mut count = 0;
-			for kind in [Kind::GrantUpdate, Kind::NodeUpdate, Kind::StorageUpdate] {
-				let prefix = (kind.to_i32().unwrap(), id.as_ref());
-				let prefix = Self::pack(subspace, &prefix);
-				let range = fdb::RangeOption {
-					mode: fdb::options::StreamingMode::WantAll,
-					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-				};
-				count += txn
-					.get_range(&range, 1, false)
-					.await?
-					.len()
-					.to_u64()
-					.unwrap();
-			}
-			Ok::<_, fdb::FdbError>(count)
-		};
-		let result = futures::future::try_join(process_account_future, update_future).await;
-		let (process_account_count, update_count) = crate::fdb::retry!(result);
-		let count = child_process_count + process_account_count + target_tag_count + update_count;
+		let id = id.to_bytes();
+		let result = futures::try_join!(
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildProcess, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::NodeUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessAccount, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::StorageUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::TargetTag, id.as_ref()),
+		);
+		let (
+			child_process_count,
+			grant_update_count,
+			node_update_count,
+			process_account_count,
+			storage_update_count,
+			target_tag_count,
+		) = crate::fdb::retry!(result);
+		let count = child_process_count
+			+ grant_update_count
+			+ node_update_count
+			+ process_account_count
+			+ storage_update_count
+			+ target_tag_count;
 
 		Ok(ControlFlow::Break(count))
 	}
 
 	async fn compute_sandbox_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
 		let id = id.to_bytes();
-		let prefix = (Kind::SandboxProcess.to_i32().unwrap(), id.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-		let result = txn.get_range(&range, 1, false).await;
-		let count = crate::fdb::retry!(result).len().to_u64().unwrap();
+		let result =
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::SandboxProcess, id.as_ref())
+				.await;
+		let count = crate::fdb::retry!(result);
 
 		Ok(ControlFlow::Break(count))
 	}
 
+	async fn count_entries_for_kind_and_id(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		kind: Kind,
+		id: &[u8],
+	) -> Result<u64, fdb::FdbError> {
+		let prefix = (kind.to_i32().unwrap(), id);
+		let prefix = Self::pack(subspace, &prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let count = txn
+			.get_range(&range, 1, false)
+			.await?
+			.len()
+			.to_u64()
+			.unwrap();
+
+		Ok(count)
+	}
+
 	async fn set_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 		reference_count: u64,
@@ -801,7 +661,7 @@ impl Index {
 	}
 
 	async fn delete_item(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 		partition_total: u64,
@@ -818,7 +678,7 @@ impl Index {
 	}
 
 	async fn delete_cache_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
@@ -881,7 +741,7 @@ impl Index {
 	}
 
 	async fn delete_object(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
@@ -976,7 +836,7 @@ impl Index {
 	}
 
 	async fn delete_process(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
@@ -1117,7 +977,7 @@ impl Index {
 	}
 
 	fn delete_sandbox(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -1125,7 +985,7 @@ impl Index {
 	}
 
 	async fn delete_materialized_grants_for_resource(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		partition_total: u64,
@@ -1192,7 +1052,7 @@ impl Index {
 	}
 
 	async fn decrement_cache_entry_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		partition_total: u64,
@@ -1228,7 +1088,7 @@ impl Index {
 	}
 
 	pub(super) async fn decrement_object_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		partition_total: u64,
@@ -1264,7 +1124,7 @@ impl Index {
 	}
 
 	pub(super) async fn decrement_process_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		partition_total: u64,
@@ -1300,7 +1160,7 @@ impl Index {
 	}
 
 	pub(super) async fn decrement_sandbox_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 		partition_total: u64,

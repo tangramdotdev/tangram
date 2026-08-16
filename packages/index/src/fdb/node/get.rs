@@ -23,7 +23,7 @@ impl Index {
 	}
 
 	pub(crate) async fn contains_ids_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 	) -> tg::Result<ControlFlow<Vec<bool>, fdb::FdbError>> {
@@ -68,7 +68,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_ids_for_specifiers_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		specifiers: &[tg::Specifier],
 	) -> tg::Result<ControlFlow<Vec<Option<tg::Id>>, fdb::FdbError>> {
@@ -112,7 +112,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_specifiers_for_ids_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<tg::Specifier>>, fdb::FdbError>> {
@@ -173,7 +173,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_resolve_resource_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Selector<tg::Id>,
 	) -> tg::Result<ControlFlow<Option<(tg::Id, bool)>, fdb::FdbError>> {
@@ -203,7 +203,7 @@ impl Index {
 	}
 
 	async fn try_resolve_id_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<tg::Id>, fdb::FdbError>> {
@@ -238,7 +238,7 @@ impl Index {
 	}
 
 	pub(crate) async fn ancestor_ids_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::Id>, fdb::FdbError>> {
@@ -281,7 +281,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_node_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		specifier: &tg::Specifier,
 	) -> tg::Result<ControlFlow<Option<tg::Id>, fdb::FdbError>> {

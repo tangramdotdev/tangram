@@ -20,7 +20,7 @@ impl Index {
 	}
 
 	pub(crate) async fn batch_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
 		partition_total: u64,

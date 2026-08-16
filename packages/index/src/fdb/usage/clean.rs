@@ -21,7 +21,7 @@ impl Index {
 	}
 
 	pub(crate) async fn clean_usage_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
 		partition_total: u64,
@@ -65,7 +65,7 @@ impl Index {
 	}
 
 	async fn find_usage_delta_candidates(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
 		keys: &mut Vec<Vec<u8>>,
@@ -133,7 +133,7 @@ impl Index {
 	}
 
 	async fn find_usage_aggregate_candidates(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::clean::Arg,
 		keys: &mut Vec<Vec<u8>>,

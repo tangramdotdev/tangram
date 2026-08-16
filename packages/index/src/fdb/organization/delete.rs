@@ -36,7 +36,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_organizations_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::organization::Id],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -58,7 +58,7 @@ impl Index {
 	}
 
 	pub(crate) fn delete_organization_members_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::delete::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

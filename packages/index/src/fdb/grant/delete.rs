@@ -22,7 +22,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_grants_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::delete::Arg],
 		partition_total: u64,
@@ -66,7 +66,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_grant_index_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,

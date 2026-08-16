@@ -18,7 +18,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_ancestors_with_transaction(
-		transaction: &fdb::Transaction,
+		transaction: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<Vec<tg::Id>>, fdb::FdbError>> {

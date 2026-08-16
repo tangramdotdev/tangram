@@ -35,8 +35,8 @@ pub(super) struct Arg {
 	pub receiver_medium: RequestReceiver,
 	pub subspace: fdbt::Subspace,
 	pub usage_partition_total: u64,
-	pub write_batch_size: usize,
-	pub write_concurrency: usize,
+	pub write_operation_batch_size: usize,
+	pub write_transaction_concurrency: usize,
 }
 
 struct RequestTracker {
@@ -67,8 +67,8 @@ impl Index {
 			mut receiver_medium,
 			subspace,
 			usage_partition_total,
-			write_batch_size,
-			write_concurrency,
+			write_operation_batch_size,
+			write_transaction_concurrency,
 		} = arg;
 		stream::unfold(
 			(&mut receiver_high, &mut receiver_medium, &mut receiver_low),
@@ -121,18 +121,27 @@ impl Index {
 
 				// Create batches with priority ordering: high first, then medium, then low.
 				let mut batches = Vec::new();
-				batches.extend(Self::create_batches(requests_high, write_batch_size));
-				batches.extend(Self::create_batches(requests_medium, write_batch_size));
-				batches.extend(Self::create_batches(requests_low, write_batch_size));
+				batches.extend(Self::create_batches(
+					requests_high,
+					write_operation_batch_size,
+				));
+				batches.extend(Self::create_batches(
+					requests_medium,
+					write_operation_batch_size,
+				));
+				batches.extend(Self::create_batches(
+					requests_low,
+					write_operation_batch_size,
+				));
 
 				Some((batches, (rh, rm, rl)))
 			},
 		)
 		.flat_map(stream::iter)
-		.for_each_concurrent(write_concurrency, |batch| {
+		.for_each_concurrent(write_transaction_concurrency, |batch| {
 			let database = database.clone();
-			let subspace = subspace.clone();
 			let metrics = metrics.clone();
+			let subspace = subspace.clone();
 			async move {
 				Self::execute_batch(
 					&database,
@@ -1055,7 +1064,7 @@ impl Index {
 		let result = match transaction {
 			Err(error) => Err(TransactionError::FoundationDb(error)),
 			Ok(transaction) => {
-				let mut transaction = transaction;
+				let mut transaction = crate::fdb::Transaction::new(transaction);
 				loop {
 					attempt_count += 1;
 					let result = Self::execute_requests_with_transaction(
@@ -1072,19 +1081,29 @@ impl Index {
 						Err(error) => break Err(TransactionError::Tangram(error)),
 						Ok(ControlFlow::Break(responses)) => responses,
 						Ok(ControlFlow::Continue(error)) => {
-							match transaction.on_error(error).await {
+							let inner = match transaction.take() {
+								Err(error) => break Err(TransactionError::Tangram(error)),
+								Ok(transaction) => transaction,
+							};
+							match inner.on_error(error).await {
 								Ok(value) => {
-									transaction = value;
+									transaction = crate::fdb::Transaction::new(value);
 									continue;
 								},
 								Err(error) => break Err(TransactionError::FoundationDb(error)),
 							}
 						},
 					};
-					match transaction.commit().await {
+					let inner = match transaction.take() {
+						Err(error) => break Err(TransactionError::Tangram(error)),
+						Ok(transaction) => transaction,
+					};
+					match inner.commit().await {
 						Ok(_) => break Ok(responses),
 						Err(error) => match error.on_error().await {
-							Ok(value) => transaction = value,
+							Ok(value) => {
+								transaction = crate::fdb::Transaction::new(value);
+							},
 							Err(error) => break Err(TransactionError::FoundationDb(error)),
 						},
 					}
@@ -1112,7 +1131,7 @@ impl Index {
 	}
 
 	async fn execute_requests_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
 		max_process_depth: Option<u64>,
@@ -1143,7 +1162,7 @@ impl Index {
 	}
 
 	async fn execute_request(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &Request,
 		max_process_depth: Option<u64>,

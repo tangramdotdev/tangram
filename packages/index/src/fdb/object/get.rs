@@ -27,7 +27,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_objects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::object::Object>>, fdb::FdbError>> {
@@ -53,7 +53,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_object_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Option<crate::object::Object>, fdb::FdbError>> {
@@ -70,7 +70,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_children_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::object::Id>, fdb::FdbError>> {
@@ -101,7 +101,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_parents_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::object::Id>, fdb::FdbError>> {
@@ -132,7 +132,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_object_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::object::Kind)>, fdb::FdbError>>

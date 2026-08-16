@@ -24,7 +24,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_sandbox_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::Process)>, fdb::FdbError>> {
@@ -56,14 +56,29 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
-		let mut output = Vec::with_capacity(processes.len());
-		for process in processes {
-			let data = crate::fdb::propagate!(
-				Self::try_get_process_with_transaction(txn, subspace, &process).await
-			)
-			.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
-			output.push((process, data));
-		}
+		let output = {
+			let result =
+				futures::future::try_join_all(processes.into_iter().map(|process| async move {
+					let data = crate::fdb::propagate!(
+						Self::try_get_process_with_transaction(txn, subspace, &process).await
+					)
+					.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
+
+					Ok::<_, tg::Error>(ControlFlow::Break((process, data)))
+				}))
+				.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
 		Ok(ControlFlow::Break(output))
 	}
 
@@ -83,7 +98,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_sandboxes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::sandbox::Sandbox>>, fdb::FdbError>> {
@@ -109,7 +124,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_sandbox_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &foundationdb_tuple::Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Option<crate::sandbox::Sandbox>, fdb::FdbError>> {

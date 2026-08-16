@@ -2,10 +2,7 @@ use {
 	crate::fdb::Index,
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	std::{
-		collections::{HashSet, VecDeque},
-		ops::ControlFlow,
-	},
+	std::{collections::HashSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -46,7 +43,7 @@ impl Index {
 	}
 
 	pub(crate) async fn visible_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::Id],
 		principal: &tg::Principal,
@@ -57,24 +54,42 @@ impl Index {
 		let subjects = crate::fdb::propagate!(
 			Self::requester_subjects_with_transaction(txn, subspace, principal).await
 		);
-		let mut output = Vec::with_capacity(ids.len());
-		for id in ids {
-			let mut visible = false;
-			for subject in &subjects {
-				if crate::fdb::propagate!(
-					Self::try_get_visibility_with_transaction(txn, subspace, id, subject).await
-				) {
-					visible = true;
-					break;
+		let output = {
+			let results = futures::future::try_join_all(ids.iter().cloned().map(|id| {
+				let subjects = &subjects;
+				async move {
+					let mut visible = false;
+					for subject in subjects {
+						if crate::fdb::propagate!(
+							Self::try_get_visibility_with_transaction(txn, subspace, &id, subject,)
+								.await
+						) {
+							visible = true;
+							break;
+						}
+					}
+
+					Ok::<_, tg::Error>(ControlFlow::Break(visible))
 				}
+			}))
+			.await?;
+			let mut output = Vec::with_capacity(results.len());
+			for result in results {
+				let visible = match result {
+					ControlFlow::Break(visible) => visible,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				output.push(visible);
 			}
-			output.push(visible);
-		}
+
+			output
+		};
+
 		Ok(ControlFlow::Break(output))
 	}
 
 	pub(crate) async fn requester_subjects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<Vec<tg::authorization::Subject>, fdb::FdbError>> {
@@ -93,31 +108,53 @@ impl Index {
 			| tg::Principal::Sandbox(_) => None,
 		};
 		if let Some(id) = id {
-			let mut queue = VecDeque::from([id.clone()]);
+			let mut frontier = vec![id.clone()];
 			let mut visited = HashSet::from([id]);
-			while let Some(id) = queue.pop_front() {
-				let groups = crate::fdb::propagate!(
-					Self::get_member_groups_with_transaction(txn, subspace, &id).await
-				);
-				for group in groups {
-					let id = tg::Id::from(group.clone());
-					if visited.insert(id.clone()) {
-						subjects.push(tg::authorization::Subject::Group(group));
-						queue.push_back(id);
+			while !frontier.is_empty() {
+				let relations = {
+					let results =
+						futures::future::try_join_all(frontier.into_iter().map(|id| async move {
+							Self::get_member_groups_and_organizations_with_transaction(
+								txn, subspace, &id,
+							)
+							.await
+						}))
+						.await?;
+					let mut relations = Vec::with_capacity(results.len());
+					for result in results {
+						let relation = match result {
+							ControlFlow::Break(relation) => relation,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						};
+						relations.push(relation);
+					}
+
+					relations
+				};
+
+				let mut next = Vec::new();
+				for (groups, organizations) in relations {
+					for group in groups {
+						let id = tg::Id::from(group.clone());
+						if visited.insert(id.clone()) {
+							subjects.push(tg::authorization::Subject::Group(group));
+							next.push(id);
+						}
+					}
+					for organization in organizations {
+						let id = tg::Id::from(organization.clone());
+						if visited.insert(id.clone()) {
+							subjects.push(tg::authorization::Subject::Organization(organization));
+							next.push(id);
+						}
 					}
 				}
-				let organizations = crate::fdb::propagate!(
-					Self::get_member_organizations_with_transaction(txn, subspace, &id).await
-				);
-				for organization in organizations {
-					let id = tg::Id::from(organization.clone());
-					if visited.insert(id.clone()) {
-						subjects.push(tg::authorization::Subject::Organization(organization));
-						queue.push_back(id);
-					}
-				}
+				frontier = next;
 			}
 		}
+
 		Ok(ControlFlow::Break(subjects))
 	}
 }

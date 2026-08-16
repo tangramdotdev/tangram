@@ -21,7 +21,7 @@ impl Index {
 	}
 
 	pub(crate) fn delete_sandboxes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

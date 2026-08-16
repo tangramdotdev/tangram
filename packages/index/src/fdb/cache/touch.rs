@@ -30,7 +30,7 @@ impl Index {
 	}
 
 	pub(crate) async fn touch_cache_entries_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
@@ -69,7 +69,7 @@ impl Index {
 	}
 
 	async fn touch_cache_entry_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		touched_at: i64,

@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_process(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::put::Arg,
 		partition_total: u64,
@@ -368,7 +368,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::process::put::Arg],
 		partition_total: u64,

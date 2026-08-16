@@ -13,8 +13,8 @@ pub(super) struct Arg {
 	pub authorize: super::AuthorizeConfig,
 	pub database: Arc<fdb::Database>,
 	pub partition_total: u64,
-	pub read_batch_size: usize,
-	pub read_concurrency: usize,
+	pub read_request_batch_size: usize,
+	pub read_transaction_concurrency: usize,
 	pub receiver: crate::read::Receiver,
 	pub subspace: fdbt::Subspace,
 }
@@ -25,17 +25,17 @@ impl Index {
 			authorize,
 			database,
 			partition_total,
-			read_batch_size,
-			read_concurrency,
+			read_request_batch_size,
+			read_transaction_concurrency,
 			receiver,
 			subspace,
 		} = arg;
 		stream::unfold(receiver, |mut receiver| async move {
 			// Freeze the batch before opening its transaction.
 			let request = receiver.recv().await?;
-			let mut requests = Vec::with_capacity(read_batch_size);
+			let mut requests = Vec::with_capacity(read_request_batch_size);
 			requests.push(request);
-			while requests.len() < read_batch_size {
+			while requests.len() < read_request_batch_size {
 				let Ok(request) = receiver.try_recv() else {
 					break;
 				};
@@ -44,7 +44,7 @@ impl Index {
 
 			Some((requests, receiver))
 		})
-		.for_each_concurrent(read_concurrency, |requests| {
+		.for_each_concurrent(read_transaction_concurrency, |requests| {
 			Self::execute_read_batch(authorize, &database, partition_total, &subspace, requests)
 		})
 		.await;
@@ -83,7 +83,7 @@ impl Index {
 		}
 
 		// Create the transaction.
-		let mut transaction = match database.create_trx() {
+		let transaction = match database.create_trx() {
 			Err(error) => {
 				let error = tg::error!(!error, "failed to create a read transaction");
 				for (_, sender) in requests {
@@ -94,6 +94,7 @@ impl Index {
 			},
 			Ok(transaction) => transaction,
 		};
+		let mut transaction = crate::fdb::Transaction::new(transaction);
 		loop {
 			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
@@ -150,9 +151,8 @@ impl Index {
 			}
 
 			// Reset the transaction for the retryable requests.
-			transaction = match transaction.on_error(error).await {
+			let inner = match transaction.take() {
 				Err(error) => {
-					let error = tg::error!(!error, "failed to retry a read transaction");
 					for (_, sender) in retry_requests {
 						sender.send(Err(error.clone())).ok();
 					}
@@ -161,6 +161,17 @@ impl Index {
 				},
 				Ok(transaction) => transaction,
 			};
+			transaction = match inner.on_error(error).await {
+				Err(error) => {
+					let error = tg::error!(!error, "failed to retry a read transaction");
+					for (_, sender) in retry_requests {
+						sender.send(Err(error.clone())).ok();
+					}
+
+					return;
+				},
+				Ok(transaction) => crate::fdb::Transaction::new(transaction),
+			};
 			requests = retry_requests;
 		}
 	}
@@ -168,7 +179,7 @@ impl Index {
 	async fn execute_read_request(
 		authorize: super::AuthorizeConfig,
 		partition_total: u64,
-		transaction: &fdb::Transaction,
+		transaction: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &crate::read::Request,
 	) -> tg::Result<ControlFlow<crate::read::Response, fdb::FdbError>> {

@@ -162,7 +162,7 @@ impl StorageUpdate {
 
 impl Index {
 	pub(super) fn enqueue_update(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
@@ -178,7 +178,7 @@ impl Index {
 	}
 
 	pub(super) fn enqueue_update_with_kind(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -197,7 +197,7 @@ impl Index {
 	}
 
 	pub(super) fn enqueue_update_with_kind_at_version(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -210,7 +210,7 @@ impl Index {
 	}
 
 	fn enqueue_update_value(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -273,7 +273,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_oldest_update_transaction_id_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		kind: crate::update::Kind,
 		partition_total: u64,
@@ -350,7 +350,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn update_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
 		kind: crate::update::Kind,
@@ -600,7 +600,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	async fn propagate_storage_relationships(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
@@ -636,7 +636,7 @@ impl Index {
 	}
 
 	async fn propagate_storage_clean(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
@@ -686,7 +686,7 @@ impl Index {
 	}
 
 	async fn propagate_storage_accounts_clean(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
@@ -734,7 +734,7 @@ impl Index {
 	}
 
 	async fn get_storage_relationships_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
@@ -773,7 +773,7 @@ impl Index {
 	}
 
 	async fn get_storage_accounts_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
@@ -849,7 +849,7 @@ impl Index {
 	}
 
 	async fn get_storage_object_relationships_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
@@ -905,7 +905,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_relationships_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cursor: Option<&StorageCursor>,
@@ -969,7 +969,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_children_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<i64>,
@@ -1029,7 +1029,7 @@ impl Index {
 	}
 
 	async fn get_storage_process_objects_page(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		after: Option<&ProcessObjectCursor>,
@@ -1083,7 +1083,7 @@ impl Index {
 	}
 
 	async fn schedule_update_item_clean(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		partition_total: u64,
@@ -1123,7 +1123,7 @@ impl Index {
 	}
 
 	async fn update_object(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
@@ -1263,22 +1263,27 @@ impl Index {
 	}
 
 	async fn update_object_grants_for_subject(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
-		let children = crate::fdb::propagate!(
-			Self::get_object_children_with_transaction(txn, subspace, id).await
-		);
-		let entries = crate::fdb::propagate!(
+		let (children, entries) = futures::try_join!(
+			Self::get_object_children_with_transaction(txn, subspace, id),
 			Self::get_resource_grant_entries_for_subject_with_transaction(
 				txn, subspace, &resource, subject,
-			)
-			.await
-		);
+			),
+		)?;
+		let children = match children {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let child_entries = {
 			let result = future::try_join_all(children.iter().map(|child| {
 				let resource = tg::Id::from(child.clone());
@@ -1339,7 +1344,7 @@ impl Index {
 	}
 
 	async fn reconcile_materialized_grants(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		entries: &[crate::fdb::grant::GrantEntry],
@@ -1406,7 +1411,7 @@ impl Index {
 	}
 
 	async fn update_process_grants(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		input: &ProcessGrantInputs<'_>,
 		partition_total: u64,
@@ -1559,7 +1564,7 @@ impl Index {
 	}
 
 	async fn update_process_grants_for_subject(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		subject: &tg::authorization::Subject,
@@ -1574,67 +1579,99 @@ impl Index {
 		};
 		let process = crate::process::Process::deserialize(&bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = crate::fdb::propagate!(
-			Self::get_resource_grant_entries_for_subject_with_transaction(
-				txn, subspace, &resource, subject,
-			)
-			.await
+		let entries_future = Self::get_resource_grant_entries_for_subject_with_transaction(
+			txn, subspace, &resource, subject,
 		);
-		let children = crate::fdb::propagate!(
-			Self::get_process_children_with_transaction(txn, subspace, id).await
-		);
-		let child_entries = {
-			let result = future::try_join_all(children.iter().map(|child| {
-				let resource = tg::Id::from(child.clone());
-				async move {
+		let child_entries_future = async {
+			let children = crate::fdb::propagate!(
+				Self::get_process_children_with_transaction(txn, subspace, id).await
+			);
+			let child_entries = {
+				let result = future::try_join_all(children.iter().map(|child| {
+					let resource = tg::Id::from(child.clone());
+					async move {
+						Self::get_resource_grant_entries_for_subject_with_transaction(
+							txn, subspace, &resource, subject,
+						)
+						.await
+					}
+				}))
+				.await;
+				let results = result?;
+				let mut values = Vec::with_capacity(results.len());
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					};
+					values.push(value);
+				}
+				values
+			};
+
+			Ok::<_, tg::Error>(ControlFlow::Break(child_entries))
+		};
+		let object_entries_future = async {
+			let objects = crate::fdb::propagate!(
+				Self::get_process_objects_with_transaction(txn, subspace, id).await
+			);
+			let mut command_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
+			let mut error_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
+			let mut log_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
+			let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
+			for (object, kind) in objects {
+				let resource = tg::Id::from(object);
+				let entries = crate::fdb::propagate!(
 					Self::get_resource_grant_entries_for_subject_with_transaction(
 						txn, subspace, &resource, subject,
 					)
 					.await
+				);
+				match kind {
+					crate::process::object::Kind::Command => {
+						command_object_entries = Some(entries);
+					},
+					crate::process::object::Kind::Error => {
+						error_object_entries.push(entries);
+					},
+					crate::process::object::Kind::Log => {
+						log_object_entries = Some(entries);
+					},
+					crate::process::object::Kind::Output => {
+						output_object_entries.push(entries);
+					},
 				}
-			}))
-			.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
-			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				values.push(value);
 			}
-			values
+
+			Ok::<_, tg::Error>(ControlFlow::Break((
+				command_object_entries,
+				error_object_entries,
+				log_object_entries,
+				output_object_entries,
+			)))
 		};
-		let objects = crate::fdb::propagate!(
-			Self::get_process_objects_with_transaction(txn, subspace, id).await
-		);
-		let mut command_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
-		let mut error_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
-		let mut log_object_entries: Option<Vec<crate::fdb::grant::GrantEntry>> = None;
-		let mut output_object_entries: Vec<Vec<crate::fdb::grant::GrantEntry>> = Vec::new();
-		for (object, kind) in objects {
-			let resource = tg::Id::from(object);
-			let entries = crate::fdb::propagate!(
-				Self::get_resource_grant_entries_for_subject_with_transaction(
-					txn, subspace, &resource, subject,
-				)
-				.await
-			);
-			match kind {
-				crate::process::object::Kind::Command => {
-					command_object_entries = Some(entries);
-				},
-				crate::process::object::Kind::Error => {
-					error_object_entries.push(entries);
-				},
-				crate::process::object::Kind::Log => {
-					log_object_entries = Some(entries);
-				},
-				crate::process::object::Kind::Output => {
-					output_object_entries.push(entries);
-				},
-			}
-		}
+		let (entries, child_entries, object_entries) =
+			futures::try_join!(entries_future, child_entries_future, object_entries_future)?;
+		let entries = match entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let child_entries = match child_entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let object_entries = match object_entries {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let (
+			command_object_entries,
+			error_object_entries,
+			log_object_entries,
+			output_object_entries,
+		) = object_entries;
 		Self::update_process_grants(
 			txn,
 			subspace,
@@ -1741,7 +1778,7 @@ impl Index {
 	}
 
 	async fn update_process(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		max_process_depth: Option<u64>,
@@ -1759,54 +1796,79 @@ impl Index {
 		};
 		let mut process = crate::process::Process::deserialize(&bytes)?;
 
-		let children = crate::fdb::propagate!(
-			Self::get_process_children_with_transaction(txn, subspace, id).await
-		);
-		let children = {
-			let result = future::try_join_all(
-				children
-					.iter()
-					.map(|child| Self::try_get_process_with_transaction(txn, subspace, child)),
-			)
-			.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
-			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				values.push(value);
-			}
-			values
+		let children_future = async {
+			let children = crate::fdb::propagate!(
+				Self::get_process_children_with_transaction(txn, subspace, id).await
+			);
+			let children = {
+				let result = future::try_join_all(
+					children
+						.iter()
+						.map(|child| Self::try_get_process_with_transaction(txn, subspace, child)),
+				)
+				.await;
+				let results = result?;
+				let mut values = Vec::with_capacity(results.len());
+				for result in results {
+					let value = match result {
+						ControlFlow::Break(value) => value,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					};
+					values.push(value);
+				}
+				values
+			};
+
+			Ok::<_, tg::Error>(ControlFlow::Break(children))
 		};
 
-		let objects = crate::fdb::propagate!(
-			Self::get_process_objects_with_transaction(txn, subspace, id).await
-		);
-		let mut command_object: Option<crate::object::Object> = None;
-		let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
-		let mut log_object: Option<Option<crate::object::Object>> = None;
-		let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
-		for (object_id, kind) in &objects {
-			let object = crate::fdb::propagate!(
-				Self::try_get_object_with_transaction(txn, subspace, object_id).await
+		let objects_future = async {
+			let objects = crate::fdb::propagate!(
+				Self::get_process_objects_with_transaction(txn, subspace, id).await
 			);
-			match kind {
-				crate::process::object::Kind::Command => {
-					command_object = object;
-				},
-				crate::process::object::Kind::Error => {
-					error_objects.push(object);
-				},
-				crate::process::object::Kind::Log => {
-					log_object = Some(object);
-				},
-				crate::process::object::Kind::Output => {
-					output_objects.push(object);
-				},
+			let mut command_object: Option<crate::object::Object> = None;
+			let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
+			let mut log_object: Option<Option<crate::object::Object>> = None;
+			let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
+			for (object_id, kind) in &objects {
+				let object = crate::fdb::propagate!(
+					Self::try_get_object_with_transaction(txn, subspace, object_id).await
+				);
+				match kind {
+					crate::process::object::Kind::Command => {
+						command_object = object;
+					},
+					crate::process::object::Kind::Error => {
+						error_objects.push(object);
+					},
+					crate::process::object::Kind::Log => {
+						log_object = Some(object);
+					},
+					crate::process::object::Kind::Output => {
+						output_objects.push(object);
+					},
+				}
 			}
-		}
+
+			Ok::<_, tg::Error>(ControlFlow::Break((
+				command_object,
+				error_objects,
+				log_object,
+				output_objects,
+			)))
+		};
+		let (children, objects) = futures::try_join!(children_future, objects_future)?;
+		let children = match children {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let objects = match objects {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let (command_object, error_objects, log_object, output_objects) = objects;
 
 		let mut changed = false;
 
@@ -2557,7 +2619,7 @@ impl Index {
 	}
 
 	async fn enqueue_parents(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -2622,7 +2684,7 @@ impl Index {
 	}
 
 	async fn enqueue_update_propagate(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
@@ -2663,7 +2725,7 @@ impl Index {
 	}
 
 	fn clear_update_version(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,

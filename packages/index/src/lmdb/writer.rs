@@ -24,7 +24,7 @@ pub(super) struct Arg<'a> {
 	pub receiver_medium: &'a RequestReceiver,
 	pub subspace: &'a fdbt::Subspace,
 	pub usage_partition_total: u64,
-	pub write_batch_size: usize,
+	pub write_operation_batch_size: usize,
 }
 
 struct RequestTracker {
@@ -49,7 +49,7 @@ impl Index {
 			receiver_medium,
 			subspace,
 			usage_partition_total,
-			write_batch_size,
+			write_operation_batch_size,
 		} = arg;
 		let mut trackers: Vec<RequestTracker> = Vec::new();
 		let mut queue_high: VecDeque<Batch> = VecDeque::new();
@@ -61,14 +61,14 @@ impl Index {
 			queue_high.extend(Self::create_batches(
 				Self::drain_receiver(receiver_high),
 				&mut trackers,
-				write_batch_size,
+				write_operation_batch_size,
 			));
 
 			// Drain medium-priority requests.
 			queue_medium.extend(Self::create_batches(
 				Self::drain_receiver(receiver_medium),
 				&mut trackers,
-				write_batch_size,
+				write_operation_batch_size,
 			));
 
 			// If all queues are empty, try low-priority requests.
@@ -76,7 +76,7 @@ impl Index {
 				queue_low.extend(Self::create_batches(
 					Self::drain_receiver(receiver_low),
 					&mut trackers,
-					write_batch_size,
+					write_operation_batch_size,
 				));
 			}
 
@@ -88,7 +88,7 @@ impl Index {
 							queue_high.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								write_batch_size,
+								write_operation_batch_size,
 							));
 						}
 					},
@@ -97,7 +97,7 @@ impl Index {
 							queue_medium.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								write_batch_size,
+								write_operation_batch_size,
 							));
 						}
 					},
@@ -106,7 +106,7 @@ impl Index {
 							queue_low.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
-								write_batch_size,
+								write_operation_batch_size,
 							));
 						}
 					},
@@ -116,17 +116,17 @@ impl Index {
 				queue_high.extend(Self::create_batches(
 					Self::drain_receiver(receiver_high),
 					&mut trackers,
-					write_batch_size,
+					write_operation_batch_size,
 				));
 				queue_medium.extend(Self::create_batches(
 					Self::drain_receiver(receiver_medium),
 					&mut trackers,
-					write_batch_size,
+					write_operation_batch_size,
 				));
 				queue_low.extend(Self::create_batches(
 					Self::drain_receiver(receiver_low),
 					&mut trackers,
-					write_batch_size,
+					write_operation_batch_size,
 				));
 			}
 

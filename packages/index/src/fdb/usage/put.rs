@@ -5,7 +5,7 @@ use {
 
 impl Index {
 	pub(crate) fn add_usage_delta(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		at: i64,

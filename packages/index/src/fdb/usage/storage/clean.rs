@@ -22,7 +22,7 @@ enum Candidate {
 
 impl Index {
 	pub(crate) async fn schedule_object_accounts_for_cleaning(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		object: &tg::object::Id,
 		partition_total: u64,
@@ -40,7 +40,7 @@ impl Index {
 	}
 
 	pub(crate) async fn schedule_process_accounts_for_cleaning(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
@@ -59,7 +59,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	pub(in crate::fdb) async fn clean_account_object_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
@@ -88,7 +88,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	pub(in crate::fdb) async fn clean_account_process_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
@@ -116,7 +116,7 @@ impl Index {
 	}
 
 	async fn clean_account_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		candidate: &Candidate,
 		now: i64,
@@ -237,7 +237,7 @@ impl Index {
 	}
 
 	async fn compute_account_object_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
@@ -299,7 +299,7 @@ impl Index {
 	}
 
 	async fn compute_account_process_reference_count(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
@@ -345,7 +345,7 @@ impl Index {
 	}
 
 	async fn count_account_tags(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		target: &[u8],
@@ -381,7 +381,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	async fn delete_account_object(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
@@ -447,7 +447,7 @@ impl Index {
 
 	#[allow(clippy::too_many_arguments)]
 	async fn delete_account_process(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
@@ -501,7 +501,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn schedule_account_object_for_cleaning(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
@@ -529,7 +529,7 @@ impl Index {
 	}
 
 	pub(in crate::fdb) async fn schedule_account_process_for_cleaning(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,

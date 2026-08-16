@@ -44,7 +44,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_cached_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		command: &tg::object::Id,
 	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::Process)>, fdb::FdbError>> {
@@ -75,18 +75,34 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
-		let mut output = Vec::new();
-		for process in processes {
-			let Some(data) = crate::fdb::propagate!(
-				Self::try_get_process_with_transaction(txn, subspace, &process).await
-			) else {
-				continue;
-			};
-			if data.data.is_none() {
-				continue;
+		let processes = {
+			let result =
+				futures::future::try_join_all(processes.into_iter().map(|process| async move {
+					let data = crate::fdb::propagate!(
+						Self::try_get_process_with_transaction(txn, subspace, &process).await
+					);
+
+					Ok::<_, tg::Error>(ControlFlow::Break((process, data)))
+				}))
+				.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
 			}
-			output.push((process, data));
-		}
+			values
+		};
+		let mut output = processes
+			.into_iter()
+			.filter_map(|(process, data)| {
+				data.filter(|data| data.data.is_some())
+					.map(|data| (process, data))
+			})
+			.collect::<Vec<_>>();
 		output.sort_unstable_by(|(a_id, a), (b_id, b)| {
 			let a_created_at = a.data.as_ref().unwrap().created_at;
 			let b_created_at = b.data.as_ref().unwrap().created_at;
@@ -116,7 +132,7 @@ impl Index {
 	}
 
 	pub(crate) async fn process_has_ancestor_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		ancestor: &tg::process::Id,
@@ -172,7 +188,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_processes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::process::Process>>, fdb::FdbError>> {
@@ -198,7 +214,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Option<crate::process::Process>, fdb::FdbError>> {
@@ -215,7 +231,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_children_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
@@ -249,7 +265,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_process_children_page_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		position: std::io::SeekFrom,
@@ -360,7 +376,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_parents_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::process::Id>, fdb::FdbError>> {
@@ -392,7 +408,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_process_objects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<ControlFlow<Vec<(tg::object::Id, crate::process::object::Kind)>, fdb::FdbError>>

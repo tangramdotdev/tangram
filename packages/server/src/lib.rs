@@ -623,11 +623,11 @@ impl Server {
 							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
 						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
-						read_batch_size: options.read_batch_size,
-						read_concurrency: options.read_concurrency,
+						read_request_batch_size: options.read_request_batch_size,
+						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_partition_total: options.usage_partition_total,
-						write_batch_size: options.write_batch_size,
-						write_concurrency: options.write_concurrency,
+						write_operation_batch_size: options.write_operation_batch_size,
+						write_transaction_concurrency: options.write_transaction_concurrency,
 					};
 					Index::new_fdb(&options)
 						.map_err(|error| tg::error!(!error, "failed to create the index"))?
@@ -662,10 +662,10 @@ impl Server {
 							.contains(&self::config::Role::Indexer)
 							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
 						path,
-						read_batch_size: options.read_batch_size,
-						read_concurrency: options.read_concurrency,
+						read_request_batch_size: options.read_request_batch_size,
+						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_partition_total: options.usage_partition_total,
-						write_batch_size: options.write_batch_size,
+						write_operation_batch_size: options.write_operation_batch_size,
 					};
 					Index::new_lmdb(&config)
 						.map_err(|error| tg::error!(!error, "failed to create the index"))?

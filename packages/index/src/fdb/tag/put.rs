@@ -19,7 +19,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_tags_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::tag::put::Arg],
 		partition_total: u64,
@@ -31,7 +31,7 @@ impl Index {
 	}
 
 	async fn put_tag(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::tag::put::Arg,
 		partition_total: u64,

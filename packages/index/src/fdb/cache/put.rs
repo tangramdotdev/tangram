@@ -7,7 +7,7 @@ use {
 
 impl Index {
 	pub(crate) fn put_cache_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::cache::put::Arg,
 		partition_total: u64,
@@ -61,7 +61,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_cache_entries_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::cache::put::Arg],
 		partition_total: u64,

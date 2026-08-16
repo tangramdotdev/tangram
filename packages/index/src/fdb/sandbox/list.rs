@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn list_sandboxes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(Kind::Sandbox.to_i32().unwrap(),));
@@ -83,7 +83,7 @@ impl Index {
 	}
 
 	pub(crate) async fn list_sandboxes_for_principal_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		principal: &tg::Principal,
 		kind: Kind,
@@ -118,14 +118,29 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		drop(entries);
-		let mut output = Vec::with_capacity(sandboxes.len());
-		for sandbox in sandboxes {
-			let data = crate::fdb::propagate!(
-				Self::try_get_sandbox_with_transaction(txn, subspace, &sandbox).await
-			)
-			.ok_or_else(|| tg::error!(%sandbox, "failed to find the principal sandbox"))?;
-			output.push((sandbox, data));
-		}
+		let output = {
+			let result =
+				futures::future::try_join_all(sandboxes.into_iter().map(|sandbox| async move {
+					let data = crate::fdb::propagate!(
+						Self::try_get_sandbox_with_transaction(txn, subspace, &sandbox).await
+					)
+					.ok_or_else(|| tg::error!(%sandbox, "failed to find the principal sandbox"))?;
+
+					Ok::<_, tg::Error>(ControlFlow::Break((sandbox, data)))
+				}))
+				.await;
+			let results = result?;
+			let mut values = Vec::with_capacity(results.len());
+			for result in results {
+				let value = match result {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				values.push(value);
+			}
+			values
+		};
+
 		Ok(ControlFlow::Break(output))
 	}
 }

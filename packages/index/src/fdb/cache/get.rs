@@ -26,7 +26,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_cache_entries_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::artifact::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::cache::Entry>>, fdb::FdbError>> {
@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_cache_entry_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<ControlFlow<Option<crate::cache::Entry>, fdb::FdbError>> {

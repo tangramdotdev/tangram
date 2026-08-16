@@ -26,7 +26,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_users_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::user::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::user::User>>, fdb::FdbError>> {
@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_user_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::user::Id,
 	) -> tg::Result<ControlFlow<Option<crate::user::User>, fdb::FdbError>> {

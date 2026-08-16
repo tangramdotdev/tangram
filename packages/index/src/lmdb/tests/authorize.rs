@@ -201,10 +201,10 @@ fn new_index() -> (tempfile::TempDir, Index) {
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),
-		read_batch_size: 64,
-		read_concurrency: 4,
+		read_request_batch_size: 64,
+		read_transaction_concurrency: 4,
 		usage_partition_total: 1,
-		write_batch_size: 100_000,
+		write_operation_batch_size: 100_000,
 	})
 	.unwrap();
 	(dir, index)

@@ -24,7 +24,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_runner_sandboxes_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		runner: &tg::runner::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::sandbox::Id>, fdb::FdbError>> {

@@ -39,7 +39,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_organizations_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -72,7 +72,7 @@ impl Index {
 	}
 
 	pub(crate) fn put_organization_members_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::organization::member::put::Arg],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {

@@ -601,19 +601,19 @@ pub struct FdbIndex {
 	pub prefix: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub read_batch_size: Option<usize>,
+	pub read_request_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub read_concurrency: Option<usize>,
+	pub read_transaction_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_batch_size: Option<usize>,
+	pub write_operation_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_concurrency: Option<usize>,
+	pub write_transaction_concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -630,16 +630,16 @@ pub struct LmdbIndex {
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub read_batch_size: Option<usize>,
+	pub read_request_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub read_concurrency: Option<usize>,
+	pub read_transaction_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub write_batch_size: Option<usize>,
+	pub write_operation_batch_size: Option<usize>,
 }
 
 #[serde_as]
@@ -2429,20 +2429,20 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
 	}
-	if let Some(value) = source.read_batch_size {
-		target.read_batch_size = value;
+	if let Some(value) = source.read_request_batch_size {
+		target.read_request_batch_size = value;
 	}
-	if let Some(value) = source.read_concurrency {
-		target.read_concurrency = value;
+	if let Some(value) = source.read_transaction_concurrency {
+		target.read_transaction_concurrency = value;
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
 	}
-	if let Some(value) = source.write_batch_size {
-		target.write_batch_size = value;
+	if let Some(value) = source.write_operation_batch_size {
+		target.write_operation_batch_size = value;
 	}
-	if let Some(value) = source.write_concurrency {
-		target.write_concurrency = value;
+	if let Some(value) = source.write_transaction_concurrency {
+		target.write_transaction_concurrency = value;
 	}
 	if let Some(value) = source.prefix {
 		target.prefix = Some(value);
@@ -2452,14 +2452,14 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 
 fn resolve_fdb_index_authorize(source: FdbIndexAuthorize) -> server::FdbIndexAuthorize {
 	let mut target = server::FdbIndexAuthorize::default();
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
 	if let Some(source) = source.object_subtree {
 		target.object_subtree = resolve_index_authorize_object_subtree(source);
 	}
 	if let Some(source) = source.process_subtree {
 		target.process_subtree = resolve_index_authorize_process_subtree(source);
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
 	}
 	target
 }
@@ -2475,17 +2475,17 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	if let Some(value) = source.path {
 		target.path = value;
 	}
-	if let Some(value) = source.read_batch_size {
-		target.read_batch_size = value;
+	if let Some(value) = source.read_request_batch_size {
+		target.read_request_batch_size = value;
 	}
-	if let Some(value) = source.read_concurrency {
-		target.read_concurrency = value;
+	if let Some(value) = source.read_transaction_concurrency {
+		target.read_transaction_concurrency = value;
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
 	}
-	if let Some(value) = source.write_batch_size {
-		target.write_batch_size = value;
+	if let Some(value) = source.write_operation_batch_size {
+		target.write_operation_batch_size = value;
 	}
 	target
 }

@@ -396,15 +396,15 @@ pub struct FdbIndex {
 
 	pub prefix: Option<String>,
 
-	pub read_batch_size: usize,
+	pub read_request_batch_size: usize,
 
-	pub read_concurrency: usize,
+	pub read_transaction_concurrency: usize,
 
 	pub usage_partition_total: u64,
 
-	pub write_batch_size: usize,
+	pub write_operation_batch_size: usize,
 
-	pub write_concurrency: usize,
+	pub write_transaction_concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -415,13 +415,13 @@ pub struct LmdbIndex {
 
 	pub path: PathBuf,
 
-	pub read_batch_size: usize,
+	pub read_request_batch_size: usize,
 
-	pub read_concurrency: usize,
+	pub read_transaction_concurrency: usize,
 
 	pub usage_partition_total: u64,
 
-	pub write_batch_size: usize,
+	pub write_operation_batch_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1292,11 +1292,11 @@ impl Default for FdbIndex {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			partition_total: 1,
 			prefix: None,
-			read_batch_size: 64,
-			read_concurrency: 64,
+			read_request_batch_size: 64,
+			read_transaction_concurrency: 64,
 			usage_partition_total: 1,
-			write_batch_size: 8_000,
-			write_concurrency: 256,
+			write_operation_batch_size: 8_000,
+			write_transaction_concurrency: 256,
 		}
 	}
 }
@@ -1307,10 +1307,10 @@ impl Default for LmdbIndex {
 			authorize: LmdbIndexAuthorize::default(),
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("index"),
-			read_batch_size: 64,
-			read_concurrency: 4,
+			read_request_batch_size: 64,
+			read_transaction_concurrency: 4,
 			usage_partition_total: 1,
-			write_batch_size: 8_000,
+			write_operation_batch_size: 8_000,
 		}
 	}
 }

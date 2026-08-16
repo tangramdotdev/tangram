@@ -27,7 +27,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_groups_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::group::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::group::Group>>, fdb::FdbError>> {
@@ -53,7 +53,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_group_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::group::Id,
 	) -> tg::Result<ControlFlow<Option<crate::group::Group>, fdb::FdbError>> {
@@ -69,8 +69,29 @@ impl Index {
 		Ok(ControlFlow::Break(group))
 	}
 
+	pub(crate) async fn get_member_groups_and_organizations_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		member: &tg::Id,
+	) -> tg::Result<ControlFlow<(Vec<tg::group::Id>, Vec<tg::organization::Id>), fdb::FdbError>> {
+		let (groups, organizations) = futures::try_join!(
+			Self::get_member_groups_with_transaction(txn, subspace, member),
+			Self::get_member_organizations_with_transaction(txn, subspace, member),
+		)?;
+		let groups = match groups {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let organizations = match organizations {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		Ok(ControlFlow::Break((groups, organizations)))
+	}
+
 	pub(crate) async fn get_group_members_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		group: &tg::group::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::group::Member>, fdb::FdbError>> {
@@ -101,7 +122,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_groups_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::group::Id>, fdb::FdbError>> {

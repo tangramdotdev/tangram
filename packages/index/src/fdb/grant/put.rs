@@ -22,7 +22,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_grants_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::put::Arg],
 		partition_total: u64,
@@ -67,7 +67,7 @@ impl Index {
 	}
 
 	pub(crate) async fn put_grant_index_entry(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
@@ -140,7 +140,7 @@ impl Index {
 	}
 
 	pub(crate) fn update_grant_expiration(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		entry: &GrantIndexEntry<'_>,
 		source: GrantSource,
@@ -178,7 +178,7 @@ impl Index {
 	}
 
 	pub(crate) fn enqueue_grant_update(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,

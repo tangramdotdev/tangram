@@ -9,7 +9,7 @@ use {
 
 impl Index {
 	pub(crate) async fn get_resource_grants_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 	) -> tg::Result<
@@ -50,7 +50,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_resource_grant_entries_for_subject_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
@@ -98,7 +98,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_visibility_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,

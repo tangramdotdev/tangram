@@ -2,13 +2,14 @@ use {
 	crate::fdb::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	futures::{StreamExt as _, TryStreamExt as _, stream},
 	num_traits::ToPrimitive as _,
 	std::{
 		collections::{HashMap, HashSet, VecDeque},
 		ops::ControlFlow,
+		sync::Arc,
 	},
 	tangram_client::prelude::*,
+	tokio::sync::Semaphore,
 };
 
 const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
@@ -62,7 +63,7 @@ struct AuthorizationNodeEvaluation {
 
 #[derive(Clone, Copy)]
 struct AuthorizationContext<'a> {
-	txn: &'a fdb::Transaction,
+	txn: &'a crate::fdb::Transaction,
 	subspace: &'a Subspace,
 	config: crate::fdb::AuthorizeConfig,
 	requester: &'a Requester<'a>,
@@ -247,7 +248,7 @@ impl Index {
 
 	pub(crate) async fn authorize_batch_with_transaction(
 		config: crate::fdb::AuthorizeConfig,
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		args: &[crate::authorize::Arg],
 		principal: &tg::Principal,
@@ -266,16 +267,12 @@ impl Index {
 				.collect();
 			return Ok(ControlFlow::Break(outputs));
 		}
+		let transaction = txn.with_read_semaphore(Arc::new(Semaphore::new(config.concurrency)));
+		let txn = &transaction;
 		let mut requester = Requester::new(principal);
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
 			crate::fdb::propagate!(
-				Self::load_requester_subjects_with_transaction(
-					txn,
-					subspace,
-					config.concurrency,
-					&mut requester,
-				)
-				.await
+				Self::load_requester_subjects_with_transaction(txn, subspace, &mut requester).await
 			);
 		}
 		let resource_requests = args
@@ -283,23 +280,22 @@ impl Index {
 			.map(|arg| arg.resource.clone())
 			.collect::<Vec<_>>();
 		let resources = {
-			let result = stream::iter(resource_requests)
-				.map(|resource| async move {
+			let results = futures::future::try_join_all(resource_requests.into_iter().map(
+				|resource| async move {
 					Self::try_resolve_resource_with_transaction(txn, subspace, &resource).await
-				})
-				.buffered(config.concurrency)
-				.try_collect::<Vec<_>>()
-				.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
+				},
+			))
+			.await?;
+			let mut resources = Vec::with_capacity(results.len());
 			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
+				let resource = match result {
+					ControlFlow::Break(resource) => resource,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
-				values.push(value);
+				resources.push(resource);
 			}
-			values
+
+			resources
 		};
 		let permissions = std::iter::zip(args, &resources)
 			.map(|(arg, resource)| {
@@ -318,6 +314,45 @@ impl Index {
 			.collect::<Vec<_>>();
 		let mut cache = Cache::default();
 		let mut authorization = HashMap::new();
+		let mut ordinary_roots = Vec::new();
+		for (index, (arg, resource)) in std::iter::zip(args, &resources).enumerate() {
+			let Some((id, _)) = resource else {
+				continue;
+			};
+			let Some(permissions) = permissions[index] else {
+				continue;
+			};
+			if arg.token.is_some() || crate::authorize::validate(id, permissions).is_err() {
+				continue;
+			}
+			if matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *id)
+			{
+				continue;
+			}
+			ordinary_roots.extend(
+				permissions
+					.iter()
+					.map(|permission| (id.clone(), permission)),
+			);
+		}
+		let context = AuthorizationContext {
+			config,
+			requester: &requester,
+			subspace,
+			token: None,
+			txn,
+		};
+		if !ordinary_roots.is_empty() {
+			crate::fdb::propagate!(
+				Self::authorize_permissions_ordinary_with_transaction(
+					context,
+					&ordinary_roots,
+					&mut authorization,
+					&mut cache,
+				)
+				.await
+			);
+		}
 		let mut outputs = Vec::with_capacity(args.len());
 		for (index, (arg, resource)) in std::iter::zip(args, resources).enumerate() {
 			let Some((id, _)) = resource else {
@@ -377,9 +412,8 @@ impl Index {
 	}
 
 	async fn load_requester_subjects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		concurrency: usize,
 		requester: &mut Requester<'_>,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let Some(id) = requester.id.clone() else {
@@ -395,47 +429,27 @@ impl Index {
 				.into_iter()
 				.filter(|member| visited.insert(member.clone()))
 				.collect::<Vec<_>>();
-			let relations = stream::iter(members)
-				.map(|member| async move {
-					let (groups, organizations) = futures::try_join!(
-						Self::get_member_groups_with_transaction(txn, subspace, &member),
-						Self::get_member_organizations_with_transaction(txn, subspace, &member),
-					)?;
-					let groups = {
-						let result = groups;
-						match result {
-							ControlFlow::Break(value) => value,
-							ControlFlow::Continue(error) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-						}
-					};
-					let organizations = {
-						let result = organizations;
-						match result {
-							ControlFlow::Break(value) => value,
-							ControlFlow::Continue(error) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-						}
-					};
-
-					Ok::<_, tg::Error>(ControlFlow::Break((groups, organizations)))
-				})
-				.buffer_unordered(concurrency)
-				.try_collect::<Vec<_>>()
-				.await?;
 			let relations = {
-				let results = relations;
-				let mut values = Vec::with_capacity(results.len());
+				let results =
+					futures::future::try_join_all(members.into_iter().map(|member| async move {
+						Self::get_member_groups_and_organizations_with_transaction(
+							txn, subspace, &member,
+						)
+						.await
+					}))
+					.await?;
+				let mut relations = Vec::with_capacity(results.len());
 				for result in results {
-					let value = match result {
-						ControlFlow::Break(value) => value,
-						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					let relation = match result {
+						ControlFlow::Break(relation) => relation,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
 					};
-					values.push(value);
+					relations.push(relation);
 				}
-				values
+
+				relations
 			};
 			let mut next = Vec::new();
 			for (groups, organizations) in relations {
@@ -561,9 +575,7 @@ impl Index {
 		}
 		while !queue.is_empty() {
 			let mut requests = Vec::new();
-			while requests.len() < context.config.concurrency
-				&& let Some(node_id) = queue.pop_front()
-			{
+			while let Some(node_id) = queue.pop_front() {
 				if nodes[node_id].authorized {
 					continue;
 				}
@@ -586,57 +598,67 @@ impl Index {
 			{
 				return Ok(ControlFlow::Break(()));
 			}
-			let dependency_concurrency = context.config.concurrency.div_ceil(requests.len().max(1));
-
-			let evaluations = stream::iter(requests)
-				.map(
-					|(node_id, resource, permission, mut direct_cache, mut dependency_cache)| async move {
-						let directly_authorized = Self::is_directly_authorized_with_transaction(
-							context,
-							&resource,
-							permission,
-							&mut direct_cache,
+			let evaluations = futures::future::try_join_all(requests.into_iter().map(
+				|(node_id, resource, permission, mut direct_cache, mut dependency_cache)| async move {
+					if !direct_cache.resource_grants.contains_key(&resource) {
+						let grants = crate::fdb::propagate!(
+							Self::get_resource_grants_with_transaction(
+								context.txn,
+								context.subspace,
+								&resource,
+							)
+							.await
 						);
-						let dependencies = Self::get_authorization_dependencies_with_transaction(
-							context.txn,
-							context.subspace,
-							dependency_concurrency,
-							&resource,
-							permission,
-							&mut dependency_cache,
-						);
-						let (directly_authorized, dependencies) =
-							futures::try_join!(directly_authorized, dependencies)?;
-						let directly_authorized = {
-							let result = directly_authorized;
-							match result {
-								ControlFlow::Break(value) => value,
-								ControlFlow::Continue(error) => {
-									return Ok(ControlFlow::Continue(error));
-								},
-							}
-						};
-						let dependencies = {
-							let result = dependencies;
-							match result {
-								ControlFlow::Break(value) => value,
-								ControlFlow::Continue(error) => {
-									return Ok(ControlFlow::Continue(error));
-								},
-							}
-						};
-						direct_cache.merge(dependency_cache);
-						Ok::<_, tg::Error>(ControlFlow::Break(AuthorizationNodeEvaluation {
-							node_id,
-							directly_authorized,
-							dependencies,
-							cache: direct_cache,
-						}))
-					},
-				)
-				.buffer_unordered(context.config.concurrency)
-				.try_collect::<Vec<_>>()
-				.await?;
+						direct_cache
+							.resource_grants
+							.insert(resource.clone(), grants.clone());
+						dependency_cache
+							.resource_grants
+							.insert(resource.clone(), grants);
+					}
+					let directly_authorized = Self::is_directly_authorized_with_transaction(
+						context,
+						&resource,
+						permission,
+						&mut direct_cache,
+					);
+					let dependencies = Self::get_authorization_dependencies_with_transaction(
+						context.txn,
+						context.subspace,
+						&resource,
+						permission,
+						&mut dependency_cache,
+					);
+					let (directly_authorized, dependencies) =
+						futures::try_join!(directly_authorized, dependencies)?;
+					let directly_authorized = {
+						let result = directly_authorized;
+						match result {
+							ControlFlow::Break(value) => value,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						}
+					};
+					let dependencies = {
+						let result = dependencies;
+						match result {
+							ControlFlow::Break(value) => value,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						}
+					};
+					direct_cache.merge(dependency_cache);
+					Ok::<_, tg::Error>(ControlFlow::Break(AuthorizationNodeEvaluation {
+						node_id,
+						directly_authorized,
+						dependencies,
+						cache: direct_cache,
+					}))
+				},
+			))
+			.await?;
 			let evaluations = {
 				let results = evaluations;
 				let mut values = Vec::with_capacity(results.len());
@@ -902,8 +924,8 @@ impl Index {
 				.map(|object| (object.clone(), cache.clone_for_object_children(&object)))
 				.collect::<Vec<_>>();
 			let children = {
-				let result = stream::iter(requests)
-					.map(|(object, mut cache)| async move {
+				let result = futures::future::try_join_all(requests.into_iter().map(
+					|(object, mut cache)| async move {
 						let children = crate::fdb::propagate!(
 							Self::get_cached_object_children_limited_with_transaction(
 								context.txn,
@@ -915,10 +937,9 @@ impl Index {
 							.await
 						);
 						Ok::<_, tg::Error>(ControlFlow::Break((children, cache)))
-					})
-					.buffer_unordered(context.config.concurrency)
-					.try_collect::<Vec<_>>()
-					.await;
+					},
+				))
+				.await;
 				let results = result?;
 				let mut values = Vec::with_capacity(results.len());
 				for result in results {
@@ -1062,8 +1083,8 @@ impl Index {
 				.map(|process| (process.clone(), cache.clone_for_process_children(&process)))
 				.collect::<Vec<_>>();
 			let children = {
-				let result = stream::iter(requests)
-					.map(|(process, mut cache)| async move {
+				let result = futures::future::try_join_all(requests.into_iter().map(
+					|(process, mut cache)| async move {
 						let children = crate::fdb::propagate!(
 							Self::get_cached_process_children_limited_with_transaction(
 								context.txn,
@@ -1075,10 +1096,9 @@ impl Index {
 							.await
 						);
 						Ok::<_, tg::Error>(ControlFlow::Break((children, cache)))
-					})
-					.buffer_unordered(context.config.concurrency)
-					.try_collect::<Vec<_>>()
-					.await;
+					},
+				))
+				.await;
 				let results = result?;
 				let mut values = Vec::with_capacity(results.len());
 				for result in results {
@@ -1213,9 +1233,8 @@ impl Index {
 	}
 
 	async fn get_authorization_dependencies_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		concurrency: usize,
 		resource: &tg::Id,
 		permission: tg::authorization::Permission,
 		cache: &mut Cache,
@@ -1271,7 +1290,6 @@ impl Index {
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
-							concurrency,
 							resource,
 							permission,
 							&mut tag_cache,
@@ -1360,7 +1378,6 @@ impl Index {
 						Self::get_cached_target_tags_with_transaction(
 							txn,
 							subspace,
-							concurrency,
 							resource,
 							permission,
 							&mut tag_cache,
@@ -1460,7 +1477,7 @@ impl Index {
 	}
 
 	async fn subject_contains_requester_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		requester: &Requester<'_>,
@@ -1514,7 +1531,7 @@ impl Index {
 	}
 
 	async fn group_contains_requester_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		group: &tg::group::Id,
 		requester: &Requester<'_>,
@@ -1592,7 +1609,7 @@ impl Index {
 	}
 
 	async fn organization_contains_requester_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
 		requester: &Requester<'_>,
@@ -1666,7 +1683,7 @@ impl Index {
 	}
 
 	async fn get_cached_resource_grants_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		cache: &mut Cache,
@@ -1689,7 +1706,7 @@ impl Index {
 	}
 
 	async fn get_cached_resource_parent_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		cache: &mut Cache,
@@ -1717,9 +1734,8 @@ impl Index {
 	}
 
 	async fn get_cached_target_tags_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
-		concurrency: usize,
 		node: &tg::Id,
 		permission: tg::authorization::Permission,
 		cache: &mut Cache,
@@ -1733,26 +1749,23 @@ impl Index {
 			Self::get_target_tags_with_transaction(txn, subspace, target_bytes.as_ref()).await
 		);
 		let tags = {
-			let result = stream::iter(tags)
-				.map(|tag| async move {
-					let value = crate::fdb::propagate!(
-						Self::try_get_tag_with_transaction(txn, subspace, &tag).await
-					);
-					Ok::<_, tg::Error>(ControlFlow::Break((tag, value)))
-				})
-				.buffered(concurrency)
-				.try_collect::<Vec<_>>()
-				.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
+			let results = futures::future::try_join_all(tags.into_iter().map(|tag| async move {
+				let value = crate::fdb::propagate!(
+					Self::try_get_tag_with_transaction(txn, subspace, &tag).await
+				);
+				Ok::<_, tg::Error>(ControlFlow::Break((tag, value)))
+			}))
+			.await?;
+			let mut tags = Vec::with_capacity(results.len());
 			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
+				let tag = match result {
+					ControlFlow::Break(tag) => tag,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
-				values.push(value);
+				tags.push(tag);
 			}
-			values
+
+			tags
 		};
 		let mut parents = Vec::new();
 		for (tag, value) in tags {
@@ -1777,7 +1790,7 @@ impl Index {
 	}
 
 	async fn get_cached_object_children_limited_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		limit: usize,
@@ -1818,7 +1831,7 @@ impl Index {
 	}
 
 	async fn get_cached_process_children_limited_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		limit: usize,
@@ -1860,7 +1873,7 @@ impl Index {
 	}
 
 	async fn get_cached_process_objects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		cache: &mut Cache,
@@ -1899,7 +1912,7 @@ impl Index {
 	}
 
 	async fn get_cached_sandbox_owner_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
 		cache: &mut Cache,

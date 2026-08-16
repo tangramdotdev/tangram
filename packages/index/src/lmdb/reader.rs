@@ -16,7 +16,7 @@ pub(super) struct Arg {
 	pub authorize: super::AuthorizeConfig,
 	pub db: Db,
 	pub env: lmdb::Env,
-	pub read_batch_size: usize,
+	pub read_request_batch_size: usize,
 	pub receiver: Arc<Mutex<crate::read::Receiver>>,
 	pub subspace: fdbt::Subspace,
 	#[cfg(test)]
@@ -27,7 +27,8 @@ impl Index {
 	pub(super) fn reader_task(arg: &Arg) {
 		loop {
 			// Freeze the batch before opening its transaction.
-			let Some(requests) = Self::receive_read_batch(&arg.receiver, arg.read_batch_size)
+			let Some(requests) =
+				Self::receive_read_batch(&arg.receiver, arg.read_request_batch_size)
 			else {
 				break;
 			};
@@ -98,13 +99,13 @@ impl Index {
 
 	fn receive_read_batch(
 		receiver: &Mutex<crate::read::Receiver>,
-		read_batch_size: usize,
+		read_request_batch_size: usize,
 	) -> Option<Vec<(crate::read::Request, crate::read::ResponseSender)>> {
 		let mut receiver = receiver.lock().unwrap();
 		let request = receiver.blocking_recv()?;
-		let mut requests = Vec::with_capacity(read_batch_size);
+		let mut requests = Vec::with_capacity(read_request_batch_size);
 		requests.push(request);
-		while requests.len() < read_batch_size {
+		while requests.len() < read_request_batch_size {
 			let Ok(request) = receiver.try_recv() else {
 				break;
 			};

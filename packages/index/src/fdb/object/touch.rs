@@ -42,7 +42,7 @@ impl Index {
 	}
 
 	pub(crate) async fn touch_objects_with_account_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 		account: Option<&crate::usage::Account>,
@@ -99,7 +99,7 @@ impl Index {
 	}
 
 	pub(crate) async fn touch_objects_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 		touched_at: i64,
@@ -138,7 +138,7 @@ impl Index {
 	}
 
 	async fn touch_object_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		touched_at: i64,

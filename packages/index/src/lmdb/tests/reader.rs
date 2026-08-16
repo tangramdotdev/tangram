@@ -71,7 +71,7 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 				},
 				db,
 				env,
-				read_batch_size: 8,
+				read_request_batch_size: 8,
 				receiver: Arc::new(Mutex::new(receiver)),
 				subspace: fdbt::Subspace::all(),
 				test_hook: Some(reader::TestHook {

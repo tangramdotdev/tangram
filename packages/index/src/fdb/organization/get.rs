@@ -27,7 +27,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_organizations_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		ids: &[tg::organization::Id],
 	) -> tg::Result<ControlFlow<Vec<Option<crate::organization::Organization>>, fdb::FdbError>> {
@@ -53,7 +53,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_organization_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::organization::Id,
 	) -> tg::Result<ControlFlow<Option<crate::organization::Organization>, fdb::FdbError>> {
@@ -70,7 +70,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_organization_members_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		organization: &tg::organization::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::organization::Member>, fdb::FdbError>> {
@@ -105,7 +105,7 @@ impl Index {
 	}
 
 	pub(crate) async fn get_member_organizations_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		member: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::organization::Id>, fdb::FdbError>> {

@@ -19,7 +19,7 @@ impl Index {
 	}
 
 	pub(crate) async fn delete_tags_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::tag::Id],
 		partition_total: u64,
@@ -31,7 +31,7 @@ impl Index {
 	}
 
 	async fn delete_tag(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::tag::Id,
 		partition_total: u64,

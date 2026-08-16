@@ -36,7 +36,7 @@ mod visible;
 mod writer;
 
 pub(crate) use error::{propagate, retry};
-pub(crate) use transaction::run;
+pub(crate) use transaction::{Transaction, run};
 pub(super) use {
 	key::{Key, Kind},
 	writer::Metrics,
@@ -59,11 +59,11 @@ pub struct Options {
 	pub max_process_depth: Option<u64>,
 	pub partition_total: u64,
 	pub prefix: Option<String>,
-	pub read_batch_size: usize,
-	pub read_concurrency: usize,
+	pub read_request_batch_size: usize,
+	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
-	pub write_batch_size: usize,
-	pub write_concurrency: usize,
+	pub write_operation_batch_size: usize,
+	pub write_transaction_concurrency: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,11 +88,6 @@ impl Index {
 
 		let partition_total = options.partition_total;
 		let usage_partition_total = options.usage_partition_total;
-		let config = AuthorizeConfig {
-			concurrency: options.authorize.concurrency,
-			object_subtree: options.authorize.object_subtree,
-			process_subtree: options.authorize.process_subtree,
-		};
 
 		let metrics = Metrics::new();
 
@@ -106,16 +101,16 @@ impl Index {
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
-			let authorize = config;
-			let read_batch_size = options.read_batch_size;
-			let read_concurrency = options.read_concurrency;
+			let authorize = options.authorize;
+			let read_request_batch_size = options.read_request_batch_size;
+			let read_transaction_concurrency = options.read_transaction_concurrency;
 			async move {
 				Self::reader_task(reader::Arg {
 					authorize,
 					database,
 					partition_total,
-					read_batch_size,
-					read_concurrency,
+					read_request_batch_size,
+					read_transaction_concurrency,
 					receiver: reader_receiver,
 					subspace,
 				})
@@ -125,12 +120,12 @@ impl Index {
 
 		// Spawn the writer task.
 		let max_process_depth = options.max_process_depth;
-		let write_batch_size = options.write_batch_size;
-		let write_concurrency = options.write_concurrency;
+		let write_operation_batch_size = options.write_operation_batch_size;
+		let write_transaction_concurrency = options.write_transaction_concurrency;
 		tokio::spawn({
 			let database = database.clone();
-			let subspace = subspace.clone();
 			let metrics = metrics.clone();
+			let subspace = subspace.clone();
 			async move {
 				let arg = writer::Arg {
 					database,
@@ -142,8 +137,8 @@ impl Index {
 					receiver_medium: writer_receiver_medium,
 					subspace,
 					usage_partition_total,
-					write_batch_size,
-					write_concurrency,
+					write_operation_batch_size,
+					write_transaction_concurrency,
 				};
 				Self::writer_task(arg).await;
 			}
@@ -174,14 +169,14 @@ impl Index {
 				"the FDB index partition total must be greater than zero"
 			));
 		}
-		if options.read_batch_size == 0 {
+		if options.read_request_batch_size == 0 {
 			return Err(tg::error!(
-				"the FDB index read batch size must be greater than zero"
+				"the FDB index read request batch size must be greater than zero"
 			));
 		}
-		if options.read_concurrency == 0 {
+		if options.read_transaction_concurrency == 0 {
 			return Err(tg::error!(
-				"the FDB index read concurrency must be greater than zero"
+				"the FDB index read transaction concurrency must be greater than zero"
 			));
 		}
 		if options.usage_partition_total == 0 {
@@ -189,14 +184,14 @@ impl Index {
 				"the FDB index usage partition total must be greater than zero"
 			));
 		}
-		if options.write_batch_size == 0 {
+		if options.write_operation_batch_size == 0 {
 			return Err(tg::error!(
-				"the FDB index write batch size must be greater than zero"
+				"the FDB index write operation batch size must be greater than zero"
 			));
 		}
-		if options.write_concurrency == 0 {
+		if options.write_transaction_concurrency == 0 {
 			return Err(tg::error!(
-				"the FDB index write concurrency must be greater than zero"
+				"the FDB index write transaction concurrency must be greater than zero"
 			));
 		}
 

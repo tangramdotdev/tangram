@@ -52,7 +52,7 @@ impl Index {
 	}
 
 	pub(crate) async fn log_compaction_batch_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
 		partition_start: u64,
@@ -108,7 +108,7 @@ impl Index {
 	}
 
 	pub(crate) async fn try_get_oldest_log_compaction_transaction_id_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
@@ -159,7 +159,7 @@ impl Index {
 	}
 
 	pub(super) async fn complete_log_compaction_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		entry: &crate::log::Entry,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
@@ -193,7 +193,7 @@ impl Index {
 	}
 
 	pub(super) async fn enqueue_log_compaction_with_transaction(
-		txn: &fdb::Transaction,
+		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
 		partition_total: u64,
