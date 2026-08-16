@@ -424,9 +424,6 @@ pub enum Database {
 pub struct DatabaseOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_total: Option<u64>,
 }
 
 #[serde_as]
@@ -2359,9 +2356,6 @@ fn resolve_database_outbox(source: DatabaseOutbox) -> server::DatabaseOutbox {
 	let mut target = server::DatabaseOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
-	}
-	if let Some(value) = source.partition_total {
-		target.partition_total = value;
 	}
 	target
 }

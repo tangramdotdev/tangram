@@ -31,22 +31,20 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let user = self
 			.server
-			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
+			.database
+			.run(|transaction| {
 				let arg = arg.clone();
 				let current = current.clone();
 				async move {
 					current
-						.finish_login_with_transaction(
-							transaction,
-							&arg,
-							now,
-							database_outbox_partition,
-						)
+						.finish_login_with_transaction(transaction, &arg, now)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
 
 		Ok(user)
 	}
@@ -56,7 +54,6 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: &FinishLoginArg,
 		now: i64,
-		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<tg::User, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let user = match self
@@ -120,11 +117,7 @@ impl Session {
 		.ok_or_else(|| tg::error!("failed to find the user"))?;
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(
-				transaction,
-				database_outbox_partition,
-				&batch,
-			)
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

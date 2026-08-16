@@ -14,6 +14,7 @@ let regions = [
 ]
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
+	indexer: { database_outbox_wakeup_interval: 0.01 },
 	regions: $regions,
 }
 let east = spawn --name east --directory $east_directory --url $east_url --config ($common | merge { region: 'east' })

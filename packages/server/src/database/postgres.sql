@@ -181,10 +181,15 @@ create table remotes (
 
 create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);
 
+create table outbox_batch (
+	next int8 not null
+);
+
+insert into outbox_batch (next) values (0);
+
 create table outbox (
 	region text not null,
-	partition int8 not null,
-	id bytea not null,
+	batch int8 not null,
 	payload bytea not null,
-	primary key (region, partition, id)
+	primary key (region, batch)
 );

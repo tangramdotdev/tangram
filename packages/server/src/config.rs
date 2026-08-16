@@ -282,8 +282,6 @@ pub enum Database {
 #[derive(Clone, Debug)]
 pub struct DatabaseOutbox {
 	pub batch_size: usize,
-
-	pub partition_total: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1202,10 +1200,7 @@ impl Database {
 
 impl Default for DatabaseOutbox {
 	fn default() -> Self {
-		Self {
-			batch_size: 1024,
-			partition_total: 1,
-		}
+		Self { batch_size: 1024 }
 	}
 }
 

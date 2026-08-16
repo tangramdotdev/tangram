@@ -344,11 +344,6 @@ impl Server {
 					"the indexer partition end must be greater than the partition start"
 				));
 			}
-			if indexer.partition_end > config.database.outbox().partition_total {
-				return Err(tg::error!(
-					"the indexer partition range exceeds the database outbox partition total"
-				));
-			}
 			if !config.advanced.single_process
 				&& indexer.partition_end > config.object.outbox.partition_total
 			{
@@ -368,11 +363,6 @@ impl Server {
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
 				"the database outbox batch size must be greater than zero"
-			));
-		}
-		if outbox.partition_total == 0 {
-			return Err(tg::error!(
-				"the database outbox partition total must be greater than zero"
 			));
 		}
 
