@@ -19,12 +19,12 @@ let path = artifact {
 		import b from "b/*";
 	'
 }
-tg checkin $path --watch --no-cache-pointers --no-lock | ignore
+tg checkin $path --watch --no-checkout-pointers --no-lock | ignore
 
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --no-cache-pointers --no-lock --update a | complete
+		let output = tg checkin $path --watch --no-checkout-pointers --no-lock --update a | complete
 		$output | job send --tag $job_id 0
 	}
 }
@@ -37,7 +37,7 @@ let snapshot_watch = (
 )
 let update_a = checkin_background $path
 tg checkpoint wait checkin.watch.snapshot $snapshot_watch 0 | ignore
-tg checkin $path --watch --no-cache-pointers --no-lock --update b | ignore
+tg checkin $path --watch --no-checkout-pointers --no-lock --update b | ignore
 
 # The stale update must fail rather than overwrite the newer watcher revision.
 tg checkpoint continue checkin.watch.snapshot $snapshot_watch 0

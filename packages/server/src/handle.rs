@@ -24,13 +24,6 @@ impl tg::Handle for Server {
 		self.arg()
 	}
 
-	async fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.session(&self.context).cache(arg).await
-	}
-
 	async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		self.session(&self.context).check(arg).await
 	}

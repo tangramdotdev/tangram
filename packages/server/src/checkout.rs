@@ -1,993 +1,368 @@
 use {
 	crate::Session,
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
-	num::ToPrimitive as _,
-	reflink_copy::reflink,
+	futures::{StreamExt as _, stream, stream::BoxStream},
 	std::{
-		collections::HashSet,
-		os::unix::fs::PermissionsExt as _,
-		panic::AssertUnwindSafe,
+		fs::File,
+		os::fd::AsRawFd as _,
 		path::{Path, PathBuf},
-		pin::pin,
+		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
-	tangram_util::read::InspectReader,
 };
 
-mod lock;
+mod external;
+pub(super) mod internal;
 
-struct State {
-	arg: tg::checkout::Arg,
-	artifact: tg::artifact::Id,
-	store_path: Option<PathBuf>,
-	store_path_created: bool,
-	path: PathBuf,
-	progress: crate::progress::Handle<tg::checkout::Output>,
-	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
-	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
-	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+pub(super) enum Lock {
+	File {
+		mutex: tokio::sync::Mutex<()>,
+		path: PathBuf,
+	},
+	Mutex(tokio::sync::Mutex<()>),
+}
+
+pub(super) enum Guard<'a> {
+	File {
+		_file: File,
+		_guard: tokio::sync::MutexGuard<'a, ()>,
+	},
+	Mutex {
+		_guard: tokio::sync::MutexGuard<'a, ()>,
+	},
+}
+
+struct InternalOutput {
+	artifact_paths: Vec<PathBuf>,
+	extension: Option<String>,
+	id_paths: Vec<PathBuf>,
+	named_checkouts: Vec<NamedCheckout>,
+	paths: Vec<PathBuf>,
 }
 
 #[derive(Clone)]
-pub struct Item {
-	pub id: tg::artifact::Id,
-	pub node: tg::graph::data::Node,
-	pub graph: Option<tg::graph::Id>,
+struct Node {
+	artifact: Option<tg::Referent<tg::artifact::Id>>,
+	named: Option<Vec<NamedNode>>,
+}
+
+struct NamedCheckout {
+	artifact: Option<tg::artifact::Id>,
+	nodes: Vec<NamedNode>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct NamedNode {
+	pub id: tg::Id,
+	pub parent: Option<tg::Id>,
+	pub permissions: Vec<tg::authorization::Permission>,
+	pub specifier: tg::Specifier,
+	pub target: Option<tg::Either<tg::object::Id, tg::process::Id>>,
+}
+
+impl Lock {
+	#[must_use]
+	pub fn new(path: &Path, single_process: bool) -> Self {
+		if single_process {
+			Self::Mutex(tokio::sync::Mutex::new(()))
+		} else {
+			Self::File {
+				mutex: tokio::sync::Mutex::new(()),
+				path: path.to_owned(),
+			}
+		}
+	}
+
+	pub async fn acquire(&self) -> tg::Result<Guard<'_>> {
+		match self {
+			Self::File { mutex, path } => {
+				let guard = mutex.lock().await;
+				let path = path.clone();
+				let file = tokio::task::spawn_blocking(move || {
+					let file = std::fs::OpenOptions::new()
+						.create(true)
+						.read(true)
+						.truncate(false)
+						.write(true)
+						.open(path)?;
+					// SAFETY: The file descriptor is valid and remains open for the duration of the lock.
+					let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+					if result != 0 {
+						return Err(std::io::Error::last_os_error());
+					}
+
+					Ok::<_, std::io::Error>(file)
+				})
+				.await
+				.map_err(|error| tg::error!(!error, "the checkout lock task panicked"))?
+				.map_err(|error| tg::error!(!error, "failed to acquire the checkout lock file"))?;
+
+				Ok(Guard::File {
+					_file: file,
+					_guard: guard,
+				})
+			},
+			Self::Mutex(mutex) => {
+				let guard = mutex.lock().await;
+
+				Ok(Guard::Mutex { _guard: guard })
+			},
+		}
+	}
 }
 
 impl Session {
 	pub(crate) async fn checkout(
 		&self,
-		mut arg: tg::checkout::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
-	> {
-		if let Some(path) = &mut arg.path {
-			*path = self.host_path_for_guest_path(path)?;
-		}
-		let artifact = arg.artifact.node.clone();
-
-		// If the path is not provided, then cache.
-		if arg.path.is_none() {
-			let path = self.server.store_path().join(artifact.to_string());
-			if self.server.vfs.lock().unwrap().is_none() {
-				let cache_arg = tg::cache::Arg {
-					artifacts: vec![arg.artifact.clone()],
-				};
-				let stream = self
-					.cache(cache_arg)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to cache the artifact"))?;
-				let extension = arg.extension.clone();
-				let tag = arg.artifact.options.tag.clone();
-				let stream = stream
-					.boxed()
-					.and_then({
-						let session = self.clone();
-						move |event| {
-							let artifact = artifact.clone();
-							let extension = extension.clone();
-							let session = session.clone();
-							let tag = tag.clone();
-							async move {
-								match event {
-									tg::progress::Event::Output(()) => {
-										let path =
-											session.server.store_path().join(artifact.to_string());
-
-										// Add an extension if necessary.
-										let artifact_path = if let Some(extension) = &extension {
-											let path_with_extension = session
-												.server
-												.store_path()
-												.join(format!("{artifact}{extension}"));
-											std::fs::hard_link(&path, &path_with_extension).ok();
-											path_with_extension
-										} else {
-											path
-										};
-										let path = if let Some(tag) = &tag {
-											session
-												.cache_tag_entry(
-													tag,
-													&artifact,
-													extension.as_deref(),
-												)
-												.await?
-										} else {
-											artifact_path
-										};
-
-										// Map the path if necessary.
-										let path = session.guest_path_for_host_path(&path)?;
-
-										let output =
-											tg::progress::Event::Output(tg::checkout::Output {
-												path,
-											});
-
-										Ok(output)
-									},
-									event => Ok(event.map_output(|()| unreachable!())),
-								}
-							}
-						}
-					})
-					.left_stream()
-					.left_stream();
-				return Ok(stream);
+		arg: tg::checkout::Arg,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>> {
+		if arg.path.is_some() {
+			if arg.nodes.len() != 1 {
+				return Err(tg::error!("an external checkout requires exactly one node"));
 			}
-
-			let path = if let Some(tag) = &arg.artifact.options.tag {
-				self.cache_tag_entry(tag, &artifact, arg.extension.as_deref())
-					.await?
-			} else if let Some(ext) = &arg.extension {
-				self.server.store_path().join(format!("{artifact}{ext}"))
-			} else {
-				path
-			};
-
-			let path = self.guest_path_for_host_path(&path)?;
-
-			let output = tg::checkout::Output { path };
-			let event = tg::progress::Event::Output(output);
-			let stream = stream::once(future::ok(event));
-			let stream = stream.right_stream().left_stream();
+			let node = self
+				.resolve_checkout_node(arg.nodes[0].clone(), false)
+				.await?;
+			let artifact = node
+				.artifact
+				.ok_or_else(|| tg::error!("an external checkout requires an artifact"))?;
+			let stream = self.checkout_external(arg, artifact).await?.boxed();
 
 			return Ok(stream);
 		}
+		if !arg.dependencies {
+			return Err(tg::error!(
+				"the dependencies option cannot be disabled for an internal checkout"
+			));
+		}
+		if arg.force {
+			return Err(tg::error!(
+				"the force option cannot be set for an internal checkout"
+			));
+		}
+		if matches!(
+			arg.lock,
+			Some(tg::checkout::Lock::Attr | tg::checkout::Lock::File)
+		) {
+			return Err(tg::error!(
+				"the lock option cannot be set for an internal checkout"
+			));
+		}
 
-		let progress = crate::progress::Handle::new();
-		let task = Task::spawn({
-			let session = self.clone();
-			let artifact = arg.artifact.clone();
-			let artifact_id = artifact.node.clone();
-			let arg = arg.clone();
-			let progress = progress.clone();
-			move |_| async move {
-				// Ensure the artifact is stored and authorized.
-				let result = session
-					.checkout_ensure_stored_and_authorized(&artifact, &progress)
-					.await
-					.map_err(
-						|error| tg::error!(!error, artifact = %artifact_id, "failed to ensure the artifact is stored and authorized"),
-					);
-				if let Err(error) = result {
-					tracing::warn!(error = %error.trace());
-					progress.error(error);
-					return;
+		let vfs_enabled = self.server.vfs.lock().unwrap().is_some();
+		let mut nodes = Vec::with_capacity(arg.nodes.len());
+		for node in arg.nodes {
+			nodes.push(self.resolve_checkout_node(node, !vfs_enabled).await?);
+		}
+		let extension = arg.extension;
+		if extension.is_some() && nodes.iter().any(|node| node.artifact.is_none()) {
+			return Err(tg::error!(
+				"the extension option requires every node to resolve to an artifact"
+			));
+		}
+		let artifacts = nodes
+			.iter()
+			.filter_map(|node| node.artifact.clone())
+			.collect::<Vec<_>>();
+		let artifact_paths = artifacts
+			.iter()
+			.map(|artifact| self.checkout_internal_path(&artifact.node, extension.as_deref()))
+			.collect::<Vec<_>>();
+		let paths = nodes
+			.iter()
+			.map(|node| {
+				if let Some(named) = &node.named {
+					let named = named.last().unwrap();
+					self.named_checkout_path(named, extension.as_deref())
+				} else {
+					let artifact = node.artifact.as_ref().unwrap();
+					self.checkout_internal_path(&artifact.node, extension.as_deref())
 				}
+			})
+			.collect::<Vec<_>>();
+		if vfs_enabled {
+			let paths = paths
+				.into_iter()
+				.map(|path| self.guest_path_for_host_path(&path))
+				.collect::<tg::Result<Vec<_>>>()?;
+			let output = tg::checkout::Output { paths };
+			let event = tg::progress::Event::Output(output);
+			let stream = stream::once(async move { Ok(event) }).boxed();
 
-				progress.spinner("checkout", "checkout");
-				progress.start(
-					"artifacts".to_owned(),
-					"artifacts".to_owned(),
-					tg::progress::IndicatorFormat::Normal,
-					Some(0),
-					None,
-				);
-				progress.start(
-					"bytes".to_owned(),
-					"bytes".to_owned(),
-					tg::progress::IndicatorFormat::Bytes,
-					Some(0),
-					None,
-				);
+			return Ok(stream);
+		}
+		let id_paths = artifacts
+			.iter()
+			.map(|artifact| self.checkout_internal_path(&artifact.node, None))
+			.collect::<Vec<_>>();
+		let named_checkouts = nodes
+			.into_iter()
+			.filter_map(|node| {
+				let nodes = node.named?;
+				let artifact = node.artifact.map(|artifact| artifact.node);
 
-				let result = AssertUnwindSafe(session.checkout_task(artifact_id, arg, &progress))
-					.catch_unwind()
-					.await;
-
-				progress.finish_all();
-
-				match result {
-					Ok(Ok(output)) => {
-						progress.output(output);
-					},
-					Ok(Err(error)) => {
-						progress.error(error);
-					},
-					Err(payload) => {
-						let message = payload
-							.downcast_ref::<String>()
-							.map(String::as_str)
-							.or(payload.downcast_ref::<&str>().copied());
-						progress.error(tg::error!(?message, "the task panicked"));
-					},
-				}
-			}
+				Some(NamedCheckout { artifact, nodes })
+			})
+			.collect();
+		let internal_output = Arc::new(InternalOutput {
+			artifact_paths,
+			extension,
+			id_paths,
+			named_checkouts,
+			paths,
 		});
 
-		let stream = progress
-			.stream()
-			.and_then({
+		let stream = self
+			.checkout_internal(artifacts)
+			.await?
+			.then({
+				let internal_output = internal_output.clone();
 				let session = self.clone();
 				move |event| {
+					let internal_output = internal_output.clone();
 					let session = session.clone();
 					async move {
-						if let tg::progress::Event::Output(mut output) = event {
-							output.path = session.host_path_for_guest_path(&output.path)?;
-							Ok(tg::progress::Event::Output(output))
-						} else {
-							Ok(event)
-						}
+						let event = event?;
+						let event = match event {
+							tg::progress::Event::Output(()) => {
+								if internal_output.extension.is_some() {
+									for (id_path, artifact_path) in std::iter::zip(
+										&internal_output.id_paths,
+										&internal_output.artifact_paths,
+									) {
+										std::fs::hard_link(id_path, artifact_path).ok();
+									}
+								}
+								session
+									.materialize_named_checkouts(
+										&internal_output.named_checkouts,
+										internal_output.extension.as_deref(),
+									)
+									.await?;
+								let paths = internal_output
+									.paths
+									.iter()
+									.map(|path| session.guest_path_for_host_path(path))
+									.collect::<tg::Result<Vec<_>>>()?;
+								let output = tg::checkout::Output { paths };
+								tg::progress::Event::Output(output)
+							},
+							event => event.map_output(|()| unreachable!()),
+						};
+
+						Ok(event)
 					}
 				}
 			})
-			.attach(task)
-			.right_stream();
+			.boxed();
 
 		Ok(stream)
 	}
 
-	pub(crate) async fn checkout_ensure_stored_and_authorized(
+	async fn resolve_checkout_node(
 		&self,
-		artifact: &tg::Referent<tg::artifact::Id>,
-		progress: &crate::progress::Handle<tg::checkout::Output>,
-	) -> tg::Result<()> {
-		let id = &artifact.node;
-		let stored = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
-			)?
-			.map(|object| object.stored)
-			.unwrap_or_default();
-		if stored.subtree {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-				return Ok(());
+		node: tg::Referent<tg::Selector<tg::Id>>,
+		include_hierarchy: bool,
+	) -> tg::Result<Node> {
+		let artifact = match &node.node {
+			tg::Selector::Id(id) => tg::artifact::Id::try_from(id.clone()).ok(),
+			tg::Selector::Specifier(_) => None,
+		};
+		if let Some(id) = artifact {
+			let artifact = Some(node.map(|_| id));
+			return Ok(Node {
+				artifact,
+				named: None,
+			});
+		}
+		if matches!(&node.options.location, Some(tg::Location::Remote(_))) {
+			return Err(tg::error!(
+				selector = %node.node,
+				"a named node checkout must be local"
+			));
+		}
+
+		let named = self
+			.checkout_named_nodes_local(&node.node, include_hierarchy)
+			.await?;
+		let last = named.last().unwrap();
+		let permission = Self::named_checkout_permission(&last.id)?;
+		let resource = tg::Referent::with_node_and_tokens(
+			tg::Selector::Id(last.id.clone()),
+			node.options.tokens.clone(),
+		);
+		let authorized = self.authorize(resource, permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!(id = %last.id, "unauthorized"));
+		}
+
+		let artifact = if let Some(target) = &last.target {
+			let tg::Either::Left(target) = target else {
+				return Err(tg::error!(id = %last.id, "the tag target is not an artifact"));
+			};
+			let artifact = match node.options.artifact.clone() {
+				Some(artifact) => artifact,
+				None => target
+					.clone()
+					.try_into()
+					.map_err(|_| tg::error!(id = %last.id, "the tag target is not an artifact"))?,
+			};
+			let artifact_object = tg::object::Id::from(artifact.clone());
+			if artifact_object != *target && node.options.id.as_ref() != Some(target) {
+				return Err(
+					tg::error!(id = %last.id, "the artifact does not belong to the tag target"),
+				);
 			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
-		{
-			progress.forward(Ok(event));
-		}
-
-		let stored = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
-			)?
-			.map(|object| object.stored)
-			.unwrap_or_default();
-		if stored.subtree {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-				return Ok(());
-			}
-		}
-
-		// Pull.
-		let stream = self
-			.pull(tg::pull::Arg {
-				nodes: vec![artifact.clone().map(tg::Id::from)],
+			let target_id = tg::Id::from(target.clone());
+			let token = self
+				.create_tag_target_token_with_permissions(&target_id, last.permissions.clone())?;
+			let options = tg::referent::Options {
+				location: node.options.location,
+				tokens: tg::authorization::Tokens::with_local(token),
 				..Default::default()
-			})
-			.await
-			.ok();
-		if let Some(stream) = stream {
-			progress.spinner("pull", "pull");
-			let mut stream = pin!(stream);
-			while let Some(event) = stream.try_next().await.ok().flatten() {
-				progress.forward(Ok(event));
-			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
-		{
-			progress.forward(Ok(event));
-		}
-
-		let stored = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is stored and authorized"),
-			)?
-			.map(|object| object.stored)
-			.unwrap_or_default();
-		if stored.subtree {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
-				progress.finish_all();
-				return Ok(());
-			}
-		}
-
-		progress.finish_all();
-
-		Err(tg::error!("failed to find the artifact"))
-	}
-
-	async fn checkout_task(
-		&self,
-		artifact: tg::artifact::Id,
-		arg: tg::checkout::Arg,
-		progress: &crate::progress::Handle<tg::checkout::Output>,
-	) -> tg::Result<tg::checkout::Output> {
-		// Get the path.
-		let path = arg
-			.path
-			.clone()
-			.ok_or_else(|| tg::error!("expected the path to be set"))?;
-
-		// Canonicalize the path's parent.
-		if !path.is_absolute() {
-			return Err(tg::error!(?path, "the path must be absolute"));
-		}
-		let path = tangram_util::fs::canonicalize_parent(path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to canonicalize the path's parent"))?;
-
-		// Determine the store path.
-		let store_path: Option<PathBuf> = if artifact.is_directory() {
-			Some(path.join(".tangram/store"))
+			};
+			Some(tg::Referent::new(artifact, options))
 		} else {
 			None
 		};
 
-		// Check if an artifact exists at the path.
-		let exists = tokio::fs::try_exists(&path).await.unwrap_or(false);
-
-		// If an artifact exists, and this is not a forced checkout, then return an error.
-		if exists && !arg.force {
-			return Err(tg::error!(
-				"there is an existing file system object at the path"
-			));
-		}
-
-		// If an artifact exists, and this is a forced checkout, then return an error.
-		if exists && arg.force {
-			tangram_util::fs::remove(&path).await.ok();
-		}
-
-		// Checkout.
-		let result = Task::spawn_blocking({
-			let session = self.clone();
-			let path = path.clone();
-			let progress = progress.clone();
-			move |_| {
-				// Create the state.
-				let mut state = State {
-					arg,
-					artifact,
-					store_path,
-					store_path_created: false,
-					path,
-					progress,
-					visited: HashSet::default(),
-					visited_graphs: HashSet::default(),
-					visiting: HashSet::default(),
-				};
-
-				// Get the item.
-				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
-				let item = session
-					.checkout_get_item(edge)
-					.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-
-				// Check out the artifact.
-				let path = state.path.clone();
-				session
-					.checkout_artifact(&mut state, &path, &item)
-					.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
-
-				// Write the lock if necessary.
-				session
-					.checkout_write_lock(&mut state)
-					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
-
-				Ok::<_, tg::Error>(())
-			}
+		Ok(Node {
+			artifact,
+			named: Some(named),
 		})
-		.wait()
-		.await
-		.map_err(|error| tg::error!(!error, "the checkout task panicked"))?;
-
-		// Remove the output if checkout failed.
-		if let Err(error) = result {
-			tangram_util::fs::remove(&path).await.ok();
-			return Err(error);
-		}
-
-		let output = tg::checkout::Output { path };
-
-		Ok(output)
 	}
 
-	fn checkout_dependency(&self, state: &mut State, item: &Item) -> tg::Result<()> {
-		if !state.arg.dependencies {
-			return Ok(());
-		}
-
-		// If the item is in a graph, then check out the graph.
-		if let Some(graph_id) = &item.graph {
-			self.checkout_graph(state, graph_id)?;
-			return Ok(());
-		}
-
-		if !state.visited.insert(item.id.clone()) {
-			return Ok(());
-		}
-		let store_path = state
-			.store_path
-			.as_ref()
-			.ok_or_else(|| tg::error!("cannot check out a dependency without an store path"))?;
-		if !state.store_path_created {
-			std::fs::create_dir_all(store_path)
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			state.store_path_created = true;
-		}
-		let path = store_path.join(item.id.to_string());
-
-		// Save and clear the visiting set for the dependency checkout. Dependencies are checked out to a separate location and should have their own cycle detection.
-		let visiting = std::mem::take(&mut state.visiting);
-		let result = self.checkout_artifact(state, &path, item);
-		state.visiting = visiting;
-
-		result
-	}
-
-	fn checkout_graph(&self, state: &mut State, graph_id: &tg::graph::Id) -> tg::Result<()> {
-		if !state.visited_graphs.insert(graph_id.clone()) {
-			return Ok(());
-		}
-
-		// Load the graph data.
-		let (_size, data) = self
-			.server
-			.object_store
-			.try_get_data_sync(&graph_id.clone().into())
-			.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-			.ok_or_else(|| tg::error!("failed to load the graph"))?;
-		let graph_data: tg::graph::Data = data
-			.try_into()
-			.map_err(|_| tg::error!("expected graph data"))?;
-
-		// Get all items that need store path entries.
-		let items = Self::checkout_entry_items_for_graph(graph_id, &graph_data)?;
-
-		// Ensure the store path exists.
-		let store_path = state
-			.store_path
-			.clone()
-			.ok_or_else(|| tg::error!("cannot check out a dependency without an store path"))?;
-		if !state.store_path_created {
-			std::fs::create_dir_all(&store_path)
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			state.store_path_created = true;
-		}
-
-		// Check out all the items in the graph.
-		for item in items {
-			// Skip if already visited.
-			if !state.visited.insert(item.id.clone()) {
-				continue;
-			}
-
-			let path = store_path.join(item.id.to_string());
-
-			// Save and clear the visiting set for the dependency checkout.
-			let visiting = std::mem::take(&mut state.visiting);
-			let result = self.checkout_artifact(state, &path, &item);
-			state.visiting = visiting;
-
-			result?;
-		}
-
-		Ok(())
-	}
-
-	fn checkout_entry_items_for_graph(
-		graph_id: &tg::graph::Id,
-		graph_data: &tg::graph::Data,
-	) -> tg::Result<Vec<Item>> {
-		// Collect node indices which have incoming file dependency or symlink artifact edges in the graph.
-		let mut marks = HashSet::<usize, fnv::FnvBuildHasher>::default();
-		for node in &graph_data.nodes {
-			match node {
-				tg::graph::data::Node::File(file) => {
-					for dependency in file.dependencies.values().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.node
-							&& pointer.graph.is_none()
-						{
-							marks.insert(pointer.index);
-						}
-					}
-				},
-				tg::graph::data::Node::Symlink(symlink) => {
-					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
-						&& pointer.graph.is_none()
-					{
-						marks.insert(pointer.index);
-					}
-				},
-				tg::graph::data::Node::Directory(_) => {},
-			}
-		}
-
-		// Create items for nodes with incoming dependency edges.
-		let mut items = Vec::new();
-		for index in marks {
-			let node = graph_data
-				.nodes
-				.get(index)
-				.ok_or_else(|| tg::error!("invalid graph node index"))?
-				.clone();
-
-			let pointer = tg::graph::data::Pointer {
-				graph: Some(graph_id.clone()),
-				index,
-				kind: node.kind(),
-			};
-
-			// Compute the artifact ID.
-			let data: tg::artifact::data::Artifact = match node.kind() {
-				tg::artifact::Kind::Directory => {
-					tg::directory::Data::Pointer(pointer.clone()).into()
-				},
-				tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
-				tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer.clone()).into(),
-			};
-			let bytes = data.serialize()?;
-			let id = tg::artifact::Id::new(node.kind(), &bytes);
-
-			items.push(Item {
-				id,
-				node,
-				graph: Some(graph_id.clone()),
-			});
-		}
-
-		Ok(items)
-	}
-
-	fn checkout_artifact(&self, state: &mut State, path: &Path, item: &Item) -> tg::Result<()> {
-		// Checkout the artifact.
-		match &item.node {
-			tg::graph::data::Node::Directory(node) => {
-				self.checkout_directory(state, path, item, node)?;
-			},
-			tg::graph::data::Node::File(node) => {
-				self.checkout_file(state, path, item, node)?;
-			},
-			tg::graph::data::Node::Symlink(node) => {
-				self.checkout_symlink(state, path, item, node)?;
-			},
-		}
-
-		Ok(())
-	}
-
-	fn checkout_directory(
-		&self,
-		state: &mut State,
-		path: &Path,
-		item: &Item,
-		node: &tg::graph::data::Directory,
-	) -> tg::Result<()> {
-		let Item { id, graph, .. } = item;
-
-		// Add to visiting set to detect cycles.
-		state.visiting.insert(id.clone());
-
-		// Create the directory.
-		std::fs::create_dir_all(path).map_err(
-			|error| tg::error!(!error, path = %path.display(), "failed to create the directory"),
-		)?;
-
-		// Collect all entries, recursively flattening branches.
-		let entries = crate::directory::collect_directory_entries(
-			&self.server.object_store,
-			node,
-			graph.as_ref(),
-		)?;
-
-		// Recurse into the entries.
-		for (name, mut edge) in entries {
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
-			let path = path.join(&name);
-			let item = self
-				.checkout_get_item(edge)
-				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-
-			// Check for a cycle.
-			if state.visiting.contains(&item.id) {
-				return Err(tg::error!("detected a directory cycle"));
-			}
-
-			self.checkout_artifact(state, &path, &item)
-				.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
-		}
-
-		// Remove from visiting set.
-		state.visiting.remove(id);
-
-		// Increment the progress.
-		state.progress.increment("artifacts", 1);
-
-		Ok(())
-	}
-
-	fn checkout_file(
-		&self,
-		state: &mut State,
-		path: &Path,
-		item: &Item,
-		node: &tg::graph::data::File,
-	) -> tg::Result<()> {
-		let Item { id, graph, .. } = item;
-
-		// Check out the dependencies.
-		for dependency in node.dependencies.values() {
-			let Some(dependency) = dependency else {
-				continue;
-			};
-			let mut edge = match dependency.node.clone() {
-				Some(tg::graph::data::Edge::Pointer(graph)) => {
-					tg::graph::data::Edge::Pointer(graph)
-				},
-				Some(tg::graph::data::Edge::Object(id)) => match id.try_into() {
-					Ok(id) => tg::graph::data::Edge::Object(id),
-					Err(_) => continue,
-				},
-				None => continue,
-			};
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
-			let item = self
-				.checkout_get_item(edge)
-				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-			if item.id != state.artifact {
-				self.checkout_dependency(state, &item)
-					.map_err(|error| tg::error!(!error, "failed to check out the dependency"))?;
-			}
-		}
-
-		let mut done = false;
-		let contents = node
-			.contents
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing contents"))?;
-
-		let src = &self.server.cache_path().join(id.to_string());
-		let dst = path;
-
-		// Attempt to reflink the file.
-		let result = reflink(src, dst);
-		if result.is_ok() {
-			let len = std::fs::symlink_metadata(dst)
-				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?
-				.len();
-			state.progress.increment("bytes", len);
-
-			// Set the permissions.
-			let permissions = std::fs::Permissions::from_mode(0o644);
-			std::fs::set_permissions(dst, permissions)
-				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-
-			if cfg!(target_os = "linux") {
-				// Set the dependencies attr.
-				let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
-				if !dependencies.is_empty() {
-					let dependencies = serde_json::to_vec(&dependencies).map_err(|error| {
-						tg::error!(!error, "failed to serialize the dependencies")
-					})?;
-					xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
-						|error| tg::error!(!error, "failed to write the dependencies attr"),
-					)?;
-				}
-
-				// Set the module xattr.
-				if let Some(module) = &node.module {
-					let module = module.to_string();
-					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-						.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
-				}
-
-				// Set the permissions.
-				if node.executable {
-					let permissions = std::fs::Permissions::from_mode(0o755);
-					std::fs::set_permissions(dst, permissions)
-						.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-				}
-			}
-
-			done = true;
-		}
-
-		// Otherwise, write the file.
-		if !done {
-			let mut reader =
-				crate::read::Reader::new_sync(self, tg::Blob::with_id(contents.clone()))
-					.map_err(|error| tg::error!(!error, "failed to create the reader"))?;
-			let mut reader = InspectReader::new(&mut reader, {
-				|buffer| {
-					let len = buffer.len().to_u64().unwrap();
-					state.progress.increment("bytes", len);
-				}
-			});
-			let mut file = std::fs::File::create(path)
-				.map_err(|error| tg::error!(!error, ?path, "failed to create the file"))?;
-			std::io::copy(&mut reader, &mut file)
-				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
-
-			// Set the dependencies attr.
-			let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
-			if !dependencies.is_empty() {
-				let dependencies = serde_json::to_vec(&dependencies)
-					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
-					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
-			}
-
-			// Set the module xattr.
-			if let Some(module) = &node.module {
-				let module = module.to_string();
-				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
-			}
-
-			// Set the permissions.
-			if node.executable {
-				let permissions = std::fs::Permissions::from_mode(0o755);
-				std::fs::set_permissions(path, permissions)
-					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-			}
-		}
-
-		// Increment the progress.
-		state.progress.increment("artifacts", 1);
-
-		Ok(())
-	}
-
-	fn checkout_symlink(
-		&self,
-		state: &mut State,
-		path: &Path,
-		item: &Item,
-		node: &tg::graph::data::Symlink,
-	) -> tg::Result<()> {
-		let Item { graph, .. } = item;
-
-		// Render the target.
-		let target = if let Some(mut edge) = node.artifact.clone() {
-			let mut target = PathBuf::new();
-
-			// Set the graph if necessary.
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
-
-			// Get the dependency node.
-			let dependency_item = self
-				.checkout_get_item(edge)
-				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-
-			if dependency_item.id == state.artifact {
-				// If the symlink's artifact is the root artifact, then use the root path.
-				target.push(&state.path);
-			} else {
-				// If the symlink's artifact is another artifact, then check it out and use the artifact's path.
-				let dependency_id = dependency_item.id.clone();
-				self.checkout_dependency(state, &dependency_item)?;
-
-				// Update the target.
-				let store_path = state
-					.store_path
-					.as_ref()
-					.ok_or_else(|| tg::error!("expected there to be an store path"))?;
-				target.push(store_path.join(dependency_id.to_string()));
-			}
-
-			// Add the path if it is set.
-			if let Some(path) = &node.path {
-				target.push(path);
-			}
-
-			// Diff the path.
-			let src = path
-				.parent()
-				.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
-			let dst = &target;
-			tangram_util::path::diff(src, dst)
-				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
-				.ok_or_else(|| tg::error!("expected the paths to differ"))?
-		} else if let Some(path) = node.path.clone() {
-			path
-		} else {
-			return Err(tg::error!("invalid symlink"));
+	fn named_checkout_permission(id: &tg::Id) -> tg::Result<tg::authorization::Permission> {
+		let permission = match id.kind() {
+			tg::id::Kind::Group => tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::id::Kind::Organization => tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::id::Kind::Tag => tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::id::Kind::User => tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			_ => return Err(tg::error!(%id, "the node is not named")),
 		};
 
-		// Create the symlink.
-		std::os::unix::fs::symlink(target, path)
-			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
-
-		// Increment the progress.
-		state.progress.increment("artifacts", 1);
-
-		Ok(())
+		Ok(permission)
 	}
 
-	fn checkout_get_item(&self, edge: tg::graph::data::Edge<tg::artifact::Id>) -> tg::Result<Item> {
-		match edge {
-			tg::graph::data::Edge::Pointer(pointer) => {
-				// Load the graph.
-				let graph_id = pointer
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing graph"))?
-					.clone();
-				let (_size, data) = self
-					.server
-					.object_store
-					.try_get_data_sync(&graph_id.clone().into())
-					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-					.ok_or_else(|| tg::error!("failed to load the graph"))?;
-				let graph_data: tg::graph::Data = data
-					.try_into()
-					.map_err(|_| tg::error!("expected graph data"))?;
+	fn checkout_internal_path(
+		&self,
+		artifact: &tg::artifact::Id,
+		extension: Option<&str>,
+	) -> PathBuf {
+		let name = extension.map_or_else(
+			|| artifact.to_string(),
+			|extension| format!("{artifact}{extension}"),
+		);
 
-				// Get the node.
-				let node = graph_data
-					.nodes
-					.get(pointer.index)
-					.ok_or_else(|| tg::error!("invalid graph node"))?
-					.clone();
-
-				// Compute the id.
-				let data: tg::artifact::data::Artifact = match node.kind() {
-					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Pointer(pointer.clone()).into()
-					},
-					tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
-					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Pointer(pointer.clone()).into()
-					},
-				};
-				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
-
-				Ok(Item {
-					id,
-					node,
-					graph: Some(graph_id),
-				})
-			},
-
-			tg::graph::data::Edge::Object(id) => {
-				// Load the object.
-				let (_size, data) = self
-					.server
-					.object_store
-					.try_get_data_sync(&id.clone().into())
-					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
-					.ok_or_else(|| tg::error!("failed to load the object"))?;
-				let data = data
-					.try_into()
-					.map_err(|_| tg::error!("expected artifact data"))?;
-
-				match data {
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Pointer(
-						pointer,
-					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
-						// Load the graph.
-						let graph_id = pointer
-							.graph
-							.as_ref()
-							.ok_or_else(|| tg::error!("missing graph"))?
-							.clone();
-						let (_size, data) = self
-							.server
-							.object_store
-							.try_get_data_sync(&graph_id.clone().into())
-							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-							.ok_or_else(|| tg::error!("failed to load the graph"))?;
-						let graph_data: tg::graph::Data = data
-							.try_into()
-							.map_err(|_| tg::error!("expected graph data"))?;
-
-						// Get the node.
-						let node = graph_data
-							.nodes
-							.get(pointer.index)
-							.ok_or_else(|| tg::error!("invalid graph node"))?
-							.clone();
-
-						Ok(Item {
-							id: id.clone(),
-							node,
-							graph: Some(graph_id),
-						})
-					},
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
-						Ok(Item {
-							id: id.clone(),
-							node: tg::graph::data::Node::Directory(node),
-							graph: None,
-						})
-					},
-					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => Ok(Item {
-						id: id.clone(),
-						node: tg::graph::data::Node::File(node),
-						graph: None,
-					}),
-					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
-						Ok(Item {
-							id: id.clone(),
-							node: tg::graph::data::Node::Symlink(node),
-							graph: None,
-						})
-					},
-				}
-			},
-		}
+		self.server.store_path().join(name)
 	}
 
 	pub(crate) async fn checkout_request(

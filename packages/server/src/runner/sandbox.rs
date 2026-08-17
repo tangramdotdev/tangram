@@ -614,7 +614,6 @@ impl Session {
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
-			store_path: store_source,
 			cpu: arg.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
@@ -638,6 +637,7 @@ impl Session {
 			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
 			rootfs_path,
+			store_path: store_source,
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 		};

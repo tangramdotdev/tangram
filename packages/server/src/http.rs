@@ -533,7 +533,6 @@ impl Server {
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["cache"]) => session.cache_request(request).boxed(),
 			(http::Method::POST, ["check"]) => session.check_request(request).boxed(),
 			(http::Method::POST, ["checkin"]) => session.checkin_request(request).boxed(),
 			(http::Method::POST, ["checkout"]) => session.checkout_request(request).boxed(),

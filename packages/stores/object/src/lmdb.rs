@@ -347,7 +347,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
@@ -391,7 +391,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: None,
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
 				stored_at: 12345,
@@ -414,7 +414,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12346,
@@ -459,7 +459,7 @@ mod tests {
 		store
 			.put_sync(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
@@ -507,14 +507,14 @@ mod tests {
 			.put_batch(vec![
 				crate::PutArg {
 					bytes: Some(bytes.clone()),
-					cache_pointer: None,
+					checkout_pointer: None,
 					id: id.clone(),
 					length: Some(content.len().to_u64().unwrap()),
 					stored_at: 12345,
 				},
 				crate::PutArg {
 					bytes: Some(other_bytes.clone()),
-					cache_pointer: None,
+					checkout_pointer: None,
 					id: other_id.clone(),
 					length: Some(other_content.len().to_u64().unwrap()),
 					stored_at: 12345,
@@ -563,7 +563,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 12345,
@@ -582,7 +582,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
 				stored_at: 12346,
@@ -602,7 +602,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: other.clone(),
 				length: None,
 				stored_at: 12345,
@@ -651,7 +651,7 @@ mod tests {
 		store
 			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
 				stored_at: 10,

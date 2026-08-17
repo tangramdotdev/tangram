@@ -1,0 +1,30 @@
+use ../../../test.nu *
+
+# Checking out a directory whose graph forms a cycle fails with an error reporting a detected directory cycle.
+
+let server = spawn --config { write: { checkout_pointers: false } }
+
+let path = artifact {
+	tangram.ts: r#'
+		export default function () {
+			return tg.directory({
+				graph: tg.graph({
+					nodes: [
+						{ kind: "directory", entries: { "bar": 1 } },
+						{ kind: "directory", entries: { "foo": 0 } },
+					]
+				}),
+				index: 0,
+				kind: "directory",
+			})
+		}
+	'#
+}
+let id = tg build $path
+
+# Check out.
+let output = tg checkout $id | complete
+failure $output
+
+let stderr = $output.stderr | lines | last
+snapshot $stderr '-> detected a directory cycle'

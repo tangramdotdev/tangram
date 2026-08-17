@@ -27,6 +27,9 @@ impl Index {
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
+				crate::batch::Item::DeleteCheckout(id) => {
+					Self::delete_checkout(db, subspace, transaction, id)?;
+				},
 				crate::batch::Item::DeleteGrant(arg) => {
 					Self::delete_grants_with_transaction(
 						db,
@@ -99,8 +102,8 @@ impl Index {
 						process,
 					)?;
 				},
-				crate::batch::Item::PutCacheEntry(arg) => {
-					Self::put_cache_entries_with_transaction(
+				crate::batch::Item::PutCheckout(arg) => {
+					Self::put_checkouts_with_transaction(
 						db,
 						subspace,
 						transaction,

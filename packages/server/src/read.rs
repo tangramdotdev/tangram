@@ -43,7 +43,7 @@ pub struct Object {
 	read: Option<SyncWrapper<ReadFuture>>,
 	session: Session,
 	length: u64,
-	cache_file: Option<crate::object::get::CacheFile>,
+	checkout_file: Option<crate::object::get::CheckoutFile>,
 }
 
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
@@ -251,7 +251,7 @@ impl Reader {
 			.authorize(resource, permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
-		let cache_pointer = if authorized {
+		let checkout_pointer = if authorized {
 			let arg = crate::object::store::TryGetArg {
 				id: id.clone().into(),
 			};
@@ -262,22 +262,22 @@ impl Reader {
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				.object
-				.and_then(|object| object.cache_pointer)
+				.and_then(|object| object.checkout_pointer)
 		} else {
 			None
 		};
-		let reader = if let Some(cache_pointer) = cache_pointer {
+		let reader = if let Some(checkout_pointer) = checkout_pointer {
 			let mut path = session
 				.server
-				.cache_path()
-				.join(cache_pointer.artifact.to_string());
-			if let Some(path_) = &cache_pointer.path {
+				.checkout_path()
+				.join(checkout_pointer.artifact.to_string());
+			if let Some(path_) = &checkout_pointer.path {
 				path.push(path_);
 			}
 			let file = tokio::fs::File::open(&path).await.map_err(
 				|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 			)?;
-			let reader = File::new(file, cache_pointer.position, cache_pointer.length)
+			let reader = File::new(file, checkout_pointer.position, checkout_pointer.length)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to create the file reader"))?;
 			Self::File(reader)
@@ -300,20 +300,21 @@ impl Reader {
 			.object_store
 			.try_get_sync(&arg)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let cache_pointer = object.object.and_then(|object| object.cache_pointer);
-		let reader = if let Some(cache_pointer) = cache_pointer {
+		let checkout_pointer = object.object.and_then(|object| object.checkout_pointer);
+		let reader = if let Some(checkout_pointer) = checkout_pointer {
 			let mut path = session
 				.server
-				.cache_path()
-				.join(cache_pointer.artifact.to_string());
-			if let Some(path_) = &cache_pointer.path {
+				.checkout_path()
+				.join(checkout_pointer.artifact.to_string());
+			if let Some(path_) = &checkout_pointer.path {
 				path.push(path_);
 			}
 			let file = std::fs::File::open(&path).map_err(
 				|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 			)?;
-			let reader = File::new_sync(file, cache_pointer.position, cache_pointer.length)
-				.map_err(|error| tg::error!(!error, %id, "failed to create the file reader"))?;
+			let reader =
+				File::new_sync(file, checkout_pointer.position, checkout_pointer.length)
+					.map_err(|error| tg::error!(!error, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
 			let mut file = None;
@@ -620,7 +621,7 @@ impl Object {
 			read,
 			session,
 			length: size,
-			cache_file: None,
+			checkout_file: None,
 		})
 	}
 
@@ -636,7 +637,7 @@ impl Object {
 			read,
 			session,
 			length,
-			cache_file: None,
+			checkout_file: None,
 		}
 	}
 }
@@ -802,7 +803,7 @@ impl Read for Object {
 				&self.session,
 				&self.blob,
 				self.position,
-				&mut self.cache_file,
+				&mut self.checkout_file,
 			)
 			.map_err(std::io::Error::other)?;
 			if let Some(cursor) = cursor {
@@ -840,7 +841,7 @@ impl BufRead for Object {
 				&self.session,
 				&self.blob,
 				self.position,
-				&mut self.cache_file,
+				&mut self.checkout_file,
 			)
 			.map_err(std::io::Error::other)?;
 			if let Some(cursor) = cursor {
@@ -960,7 +961,7 @@ fn read_inner_sync(
 	session: &Session,
 	blob: &tg::Blob,
 	position: u64,
-	cache_file: &mut Option<crate::object::get::CacheFile>,
+	checkout_file: &mut Option<crate::object::get::CheckoutFile>,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
@@ -975,7 +976,7 @@ fn read_inner_sync(
 		} else {
 			let Some(output) = session
 				.server
-				.try_get_object_sync(&id.unwrap(), cache_file)
+				.try_get_object_sync(&id.unwrap(), checkout_file)
 				.map_err(|error| tg::error!(!error, "failed to get the object"))?
 			else {
 				return Err(tg::error!("failed to get the blob object"));

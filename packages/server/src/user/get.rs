@@ -50,7 +50,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_user_local(
+	pub(crate) async fn try_get_user_local(
 		&self,
 		id: &tg::user::Id,
 		tokens: tg::authorization::Tokens,

@@ -70,9 +70,9 @@ impl Session {
 		let tag = data.into_iter().find_map(|entry| {
 			let tg::match_::Entry::Tag {
 				id,
-				target,
 				location,
 				specifier,
+				target,
 				..
 			} = entry
 			else {
@@ -82,7 +82,7 @@ impl Session {
 		});
 		let output = if let Some((id, target, location, specifier)) = tag {
 			let output = self
-				.try_resolve_tag(id, target, location, specifier, arg.cached, arg.ttl)
+				.try_resolve_tag(id, target.node, location, specifier, arg.cached, arg.ttl)
 				.await?;
 			match output {
 				None => None,
@@ -243,7 +243,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn create_tag_target_token(
+	pub(crate) async fn create_tag_target_token(
 		&self,
 		id: &tg::tag::Id,
 		target: &tg::Id,
@@ -286,7 +286,16 @@ impl Session {
 			return Err(tg::error!("the tag target does not match"));
 		}
 
-		// Create the token.
+		let token = self.create_tag_target_token_with_permissions(target, data.permissions)?;
+
+		Ok(ControlFlow::Break(token))
+	}
+
+	pub(crate) fn create_tag_target_token_with_permissions(
+		&self,
+		target: &tg::Id,
+		permissions: Vec<tg::authorization::Permission>,
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let time_to_live = if target.kind().is_object() {
 			self.server.config.object.grant_time_to_live
 		} else if target.kind() == tg::id::Kind::Process {
@@ -296,9 +305,9 @@ impl Session {
 		};
 		let expires_at =
 			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
-		let token = self.create_token(target.clone(), data.permissions, expires_at)?;
+		let token = self.create_token(target.clone(), permissions, expires_at)?;
 
-		Ok(ControlFlow::Break(token))
+		Ok(token)
 	}
 
 	pub(super) async fn match_tags_for_resolve(
@@ -354,13 +363,21 @@ impl Session {
 							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 						};
+						let target = tg::Referent::new(
+							target,
+							tg::referent::Options {
+								location: location.clone(),
+								tokens: tokens.clone(),
+								..Default::default()
+							},
+						);
 						let entry = tg::list::Entry::Tag {
 							id: data.id,
-							target,
 							location,
 							name: data.name,
 							parent: data.parent,
 							specifier: data.specifier,
+							target,
 							tokens,
 						};
 						return Ok(tg::match_::Output { data: vec![entry] });

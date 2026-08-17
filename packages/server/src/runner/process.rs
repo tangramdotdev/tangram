@@ -1101,7 +1101,7 @@ impl Session {
 				&state.stderr,
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to cache the children"))?;
+			.map_err(|error| tg::error!(!error, "failed to check out the children"))?;
 
 			let sandbox_process = sandbox.create_process();
 			let guest_store_path = sandbox.guest_store_path();
@@ -1440,11 +1440,10 @@ impl Session {
 		}
 
 		// Check out the artifacts.
-		let arg = tg::cache::Arg { artifacts };
 		let stream = self
-			.cache(arg)
+			.checkout_internal(artifacts)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to cache the artifacts"))?;
+			.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
 
 		// Write progress.
 		self.write_progress_stream(command, progress, stderr, stream)

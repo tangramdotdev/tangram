@@ -48,7 +48,7 @@ impl Store {
 			.map(|id| {
 				let object = objects.get(id).cloned().map(|bytes| crate::Object {
 					bytes: Some(Cow::Owned(bytes.to_vec())),
-					cache_pointer: None,
+					checkout_pointer: None,
 					length: None,
 					stored_at: 0,
 				});
@@ -89,7 +89,7 @@ impl Store {
 		let bytes = Cow::Owned(Bytes::copy_from_slice(bytes).to_vec());
 		Ok(Some(crate::Object {
 			bytes: Some(bytes),
-			cache_pointer: None,
+			checkout_pointer: None,
 			length: None,
 			stored_at: 0,
 		}))

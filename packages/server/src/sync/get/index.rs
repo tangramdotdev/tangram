@@ -1286,7 +1286,7 @@ impl Session {
 						let metadata = node.metadata.clone().unwrap();
 						let stored = node.local_stored.clone().unwrap();
 						let arg = tangram_index::object::put::Arg {
-							cache_entry: None,
+							checkout: None,
 							children,
 							id,
 							metadata,

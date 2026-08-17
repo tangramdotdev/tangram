@@ -106,15 +106,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn try_get_cache_entries(
+	async fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
-	) -> tg::Result<Vec<Option<index::cache::Entry>>> {
+		ids: &[tg::Id],
+	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_cache_entries(ids).await,
+			Self::Fdb(index) => index.try_get_checkouts(ids).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_cache_entries(ids).await,
+			Self::Lmdb(index) => index.try_get_checkouts(ids).await,
 		}
 	}
 
@@ -177,25 +177,17 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn touch_cache_entries(
+	async fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::cache::Entry>>> {
+	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.touch_cache_entries(ids, touched_at, time_to_touch)
-					.await
-			},
+			Self::Fdb(index) => index.touch_checkouts(ids, touched_at, time_to_touch).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.touch_cache_entries(ids, touched_at, time_to_touch)
-					.await
-			},
+			Self::Lmdb(index) => index.touch_checkouts(ids, touched_at, time_to_touch).await,
 		}
 	}
 
@@ -449,6 +441,15 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_specifiers_for_ids(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_specifiers_for_ids(ids).await,
+		}
+	}
+
+	async fn try_get_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<Vec<Option<index::tag::Tag>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_tags(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_tags(ids).await,
 		}
 	}
 

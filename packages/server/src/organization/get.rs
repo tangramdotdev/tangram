@@ -49,7 +49,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_organization_local(
+	pub(crate) async fn try_get_organization_local(
 		&self,
 		id: &tg::organization::Id,
 		tokens: tg::authorization::Tokens,

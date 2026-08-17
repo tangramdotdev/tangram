@@ -150,7 +150,7 @@ pub struct TgDirEntryPlus {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TgConfig {
-	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the object store and the cache directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
+	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the object store and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
 	pub data_directory: *const c_char,
 	/// The interval in seconds at which expired cache-only nodes are swept.
 	pub node_eviction_interval_secs: u64,

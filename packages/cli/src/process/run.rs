@@ -348,10 +348,11 @@ impl Cli {
 				.map_err(
 					|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),
 				)?;
-			let tg::checkout::Output { path, .. } =
+			let tg::checkout::Output { mut paths } =
 				self.render_progress_stream(stream).await.map_err(
 					|error| tg::error!(!error, artifact = %id, "failed to check out the artifact"),
 				)?;
+			let path = paths.pop().unwrap();
 			let value = path.display().to_string().into();
 			return Ok(value);
 		}

@@ -235,7 +235,7 @@ impl Default for TokenKeys {
 pub struct Checkin {
 	pub blob: CheckinBlob,
 
-	pub cache: CheckinCache,
+	pub checkout: CheckinCheckout,
 
 	pub directory: CheckinDirectory,
 }
@@ -246,7 +246,7 @@ pub struct CheckinBlob {
 }
 
 #[derive(Clone, Debug)]
-pub struct CheckinCache {
+pub struct CheckinCheckout {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
@@ -282,8 +282,6 @@ pub enum Database {
 #[derive(Clone, Debug)]
 pub struct DatabaseOutbox {
 	pub batch_size: usize,
-
-	pub partition_total: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1069,7 +1067,7 @@ pub struct Watch {
 pub struct Write {
 	pub avg_leaf_size: usize,
 
-	pub cache_pointers: bool,
+	pub checkout_pointers: bool,
 
 	pub max_branch_children: usize,
 
@@ -1154,7 +1152,7 @@ impl Default for CheckinBlob {
 	}
 }
 
-impl Default for CheckinCache {
+impl Default for CheckinCheckout {
 	fn default() -> Self {
 		Self {
 			batch_size: 128,
@@ -1202,10 +1200,7 @@ impl Database {
 
 impl Default for DatabaseOutbox {
 	fn default() -> Self {
-		Self {
-			batch_size: 1024,
-			partition_total: 1,
-		}
+		Self { batch_size: 1024 }
 	}
 }
 
@@ -1768,7 +1763,7 @@ impl Default for Write {
 	fn default() -> Self {
 		Self {
 			avg_leaf_size: 65_536,
-			cache_pointers: true,
+			checkout_pointers: true,
 			max_branch_children: 1_024,
 			max_leaf_size: 131_072,
 			min_leaf_size: 4_096,

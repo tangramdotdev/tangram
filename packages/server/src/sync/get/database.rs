@@ -68,9 +68,10 @@ impl Session {
 
 		// Write all of the nodes and enqueue their index mutations atomically.
 		let session = self.clone();
-		let invalidated_specifiers = self
+		let _invalidated_specifiers = self
 			.server
-			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
+			.database
+			.run(|transaction| {
 				let nodes = nodes.clone();
 				let replacement_ids = replacement_ids.clone();
 				let session = session.clone();
@@ -83,16 +84,15 @@ impl Session {
 							&replacement_ids,
 							&tag_permissions,
 							touched_at,
-							database_outbox_partition,
 						)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
-		let invalidated_specifiers = invalidated_specifiers.into_iter().collect::<Vec<_>>();
-		self.invalidate_tag_cache_entries(&invalidated_specifiers)
-			.await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
 
 		Ok(())
 	}
@@ -104,7 +104,6 @@ impl Session {
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
-		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let mut tag_accounts = BTreeMap::new();
@@ -196,11 +195,7 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(
-				transaction,
-				database_outbox_partition,
-				&batch,
-			)
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

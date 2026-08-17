@@ -13,10 +13,10 @@ export namespace Checkin {
 		export let toJson = (arg: tg.Checkin.Arg): unknown => {
 			let options: { [key: string]: unknown } = {};
 			if (
-				arg.options.cachePointers !== undefined &&
-				!arg.options.cachePointers
+				arg.options.checkoutPointers !== undefined &&
+				!arg.options.checkoutPointers
 			) {
-				options.cache_pointers = arg.options.cachePointers;
+				options.checkout_pointers = arg.options.checkoutPointers;
 			}
 			if (arg.options.destructive) {
 				options.destructive = arg.options.destructive;
@@ -75,7 +75,7 @@ export namespace Checkin {
 	};
 
 	export type Options = {
-		cachePointers?: boolean;
+		checkoutPointers?: boolean;
 		destructive?: boolean;
 		deterministic?: boolean;
 		root?: boolean;

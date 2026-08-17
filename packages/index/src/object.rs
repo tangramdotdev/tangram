@@ -9,7 +9,7 @@ pub mod put;
 )]
 pub struct Object {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
-	pub cache_entry: Option<tg::artifact::Id>,
+	pub checkout: Option<tg::artifact::Id>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub metadata: tg::object::Metadata,

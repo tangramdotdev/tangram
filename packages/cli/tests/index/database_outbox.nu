@@ -1,6 +1,12 @@
 use ../../test.nu *
 
-# A database index batch is committed durably and serviced by a later indexer.
+# Database index batches follow commit order and are serviced by a later indexer.
+
+def latest_batch [directory: string] {
+	open ($directory | path join database)
+	| query db 'select max(batch) as batch from outbox'
+	| get batch.0
+}
 
 def stop [server: record] {
 	let pid = open ($server.directory | path join 'lock') | into int
@@ -12,17 +18,37 @@ def stop [server: record] {
 	}
 }
 
+let config = {
+	authentication: { users: { providers: { insecure: true } } }
+}
 let directory = mktemp -d
 
-# Commit a database mutation with the indexer disabled.
-let producer = spawn --name producer --directory $directory --config {
-	roles: [cleaner http runner scheduler]
-}
-let group = tg --url $producer.url group create project | from json
+# Seed the index so authorization does not depend on the mutations under test.
+let seed = spawn --name seed --directory $directory --config $config
+let alice = tg --url $seed.url login --verbose --name alice | from json
+let bob = tg --url $seed.url login --verbose --name bob | from json
+tg --url $seed.url --token $alice.token group create project | ignore
+tg --url $seed.url index
+stop $seed
+
+# Commit an update followed by a delete with the indexer disabled.
+let producer_config = $config | merge { roles: [cleaner http runner scheduler] }
+let producer = spawn --name producer --directory $directory --config $producer_config
+tg --url $producer.url --token $alice.token grant $bob.user.id read project | ignore
+let put_batch = latest_batch $directory
+tg --url $producer.url --token $alice.token revoke $bob.user.id read project | ignore
+let delete_batch = latest_batch $directory
+
+assert equal $delete_batch ($put_batch + 1)
+let next = (
+	open ($directory | path join database)
+	| query db 'select next from outbox_batch'
+	| get next.0
+)
+assert equal $next $delete_batch
 stop $producer
 
-# A later indexer services the durable intent, and tg index waits for it.
-let indexer = spawn --name indexer --directory $directory
+# A later indexer applies the update before the delete.
+let indexer = spawn --name indexer --directory $directory --config $config
 tg --url $indexer.url index
-let indexed = tg --url $indexer.url group get project | from json
-assert equal $indexed.id $group.id
+failure (tg --url $indexer.url --token $bob.token group get project | complete)

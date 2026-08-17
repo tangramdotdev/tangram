@@ -234,10 +234,10 @@ impl Index {
 					Self::try_get_ancestors_with_transaction(db, subspace, transaction, &id)?;
 				crate::read::Response::TryGetAncestors(output)
 			},
-			crate::read::Request::TryGetCacheEntries { ids } => {
+			crate::read::Request::TryGetCheckouts { ids } => {
 				let output =
-					Self::try_get_cache_entries_with_transaction(db, subspace, transaction, &ids)?;
-				crate::read::Response::TryGetCacheEntries(output)
+					Self::try_get_checkouts_with_transaction(db, subspace, transaction, &ids)?;
+				crate::read::Response::TryGetCheckouts(output)
 			},
 			crate::read::Request::TryGetCachedProcesses { command } => {
 				let output = Self::try_get_cached_processes_with_transaction(
@@ -307,6 +307,10 @@ impl Index {
 					&ids,
 				)?;
 				crate::read::Response::TryGetSpecifiersForIds(output)
+			},
+			crate::read::Request::TryGetTags { ids } => {
+				let output = Self::try_get_tags_with_transaction(db, subspace, transaction, &ids)?;
+				crate::read::Response::TryGetTags(output)
 			},
 			crate::read::Request::TryGetUsers { ids } => {
 				let output = Self::try_get_users_with_transaction(db, subspace, transaction, &ids)?;

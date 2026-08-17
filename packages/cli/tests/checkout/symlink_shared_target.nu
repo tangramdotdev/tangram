@@ -20,5 +20,5 @@ let artifact = artifact {
 let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
-tg checkout $id $path
+tg checkout $id --path $path
 snapshot --path $path

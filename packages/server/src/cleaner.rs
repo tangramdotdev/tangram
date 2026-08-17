@@ -164,21 +164,25 @@ impl Server {
 			})
 			.await?;
 
-		// Delete cache entries.
+		// Delete artifact checkouts.
+		let (artifacts, named): (Vec<_>, Vec<_>) = output
+			.checkouts
+			.iter()
+			.cloned()
+			.partition(|id| tg::artifact::Id::try_from(id.clone()).is_ok());
 		tokio::task::spawn_blocking({
 			let server = self.clone();
-			let cache_entries = output.cache_entries.clone();
 			move || {
 				let temp = Temp::new(&server);
-				let cache_path = server.cache_path();
-				for artifact in &cache_entries {
-					let path = cache_path.join(artifact.to_string());
+				let checkout_path = server.checkout_path();
+				for artifact in artifacts {
+					let path = checkout_path.join(artifact.to_string());
 					let temp_path = temp.path().join(artifact.to_string());
 					std::fs::rename(&path, &temp_path).ok();
 					tangram_util::fs::remove_sync(&temp_path).ok();
 
 					for extension in [".tg.js", ".tg.ts"] {
-						let path = cache_path.join(format!("{artifact}{extension}"));
+						let path = checkout_path.join(format!("{artifact}{extension}"));
 						let temp_path = temp.path().join(format!("{artifact}{extension}"));
 						std::fs::rename(&path, &temp_path).ok();
 						tangram_util::fs::remove_sync(&temp_path).ok();
@@ -189,6 +193,27 @@ impl Server {
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "the clean task panicked"))??;
+
+		// Delete named checkouts.
+		if !named.is_empty() && self.vfs.lock().unwrap().is_none() {
+			let guard = self.checkout_lock.acquire().await?;
+			if self.vfs.lock().unwrap().is_none() {
+				let checkouts = self.index.try_get_checkouts(&named).await?;
+				let specifiers = self.index.try_get_specifiers_for_ids(&named).await?;
+				let mut entries = std::iter::zip(named, std::iter::zip(checkouts, specifiers))
+					.filter_map(|(id, (checkout, specifier))| {
+						(checkout.is_none()).then_some((id, specifier?))
+					})
+					.collect::<Vec<_>>();
+				entries.sort_by_key(|(_, specifier)| {
+					std::cmp::Reverse(specifier.components().count())
+				});
+				for (id, specifier) in entries {
+					self.remove_named_checkout_entry_with_lock(&guard, &id, &specifier)
+						.await?;
+				}
+			}
+		}
 
 		// Delete objects.
 		let ttl = object_time_to_live.as_secs();

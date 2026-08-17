@@ -1265,10 +1265,10 @@ export def --env spawn [
 	}
 
 	let vfs = $config | get --optional vfs
-	let cache_directory_name = if $vfs == null or $vfs == false { 'store' } else { 'cache' }
-	let cache_directory = $directory_path | path join $cache_directory_name
+	let checkout_directory_name = if $vfs == null or $vfs == false { 'store' } else { 'checkouts' }
+	let checkout_directory = $directory_path | path join $checkout_directory_name
 
-	{ cache_directory: $cache_directory, clock: $clock_path, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
+	{ checkout_directory: $checkout_directory, clock: $clock_path, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
 }
 
 # Set a server's simulated wall clock.

@@ -38,5 +38,5 @@ tg remote put default $remote.url
 
 # Check out the artifact, confirming it is pulled from the remote.
 let path = $tmp | path join "output"
-tg checkout $id $path
+tg checkout $id --path $path
 snapshot --name checkout --path $path

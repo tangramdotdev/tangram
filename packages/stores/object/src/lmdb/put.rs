@@ -1,6 +1,6 @@
 use {
 	super::{Db, Key, Store},
-	crate::{CachePointer, Object, PutArg},
+	crate::{CheckoutPointer, Object, PutArg},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -10,7 +10,7 @@ use {
 
 pub(super) struct Request {
 	pub bytes: Option<Bytes>,
-	pub cache_pointer: Option<CachePointer>,
+	pub checkout_pointer: Option<CheckoutPointer>,
 	pub id: tg::object::Id,
 	pub length: Option<u64>,
 	pub stored_at: i64,
@@ -20,7 +20,7 @@ impl Store {
 	pub(super) async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let request = super::request::Request::Put(Request {
 			bytes: arg.bytes,
-			cache_pointer: arg.cache_pointer,
+			checkout_pointer: arg.checkout_pointer,
 			id: arg.id,
 			length: arg.length,
 			stored_at: arg.stored_at,
@@ -37,7 +37,7 @@ impl Store {
 			args.into_iter()
 				.map(|arg| Request {
 					bytes: arg.bytes,
-					cache_pointer: arg.cache_pointer,
+					checkout_pointer: arg.checkout_pointer,
 					id: arg.id,
 					length: arg.length,
 					stored_at: arg.stored_at,
@@ -55,7 +55,7 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let request = Request {
 			bytes: arg.bytes,
-			cache_pointer: arg.cache_pointer,
+			checkout_pointer: arg.checkout_pointer,
 			id: arg.id,
 			length: arg.length,
 			stored_at: arg.stored_at,
@@ -78,7 +78,7 @@ impl Store {
 		for arg in args {
 			let request = Request {
 				bytes: arg.bytes,
-				cache_pointer: arg.cache_pointer,
+				checkout_pointer: arg.checkout_pointer,
 				id: arg.id,
 				length: arg.length,
 				stored_at: arg.stored_at,
@@ -102,7 +102,7 @@ impl Store {
 
 		let value = Object {
 			bytes: request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
-			cache_pointer: request.cache_pointer,
+			checkout_pointer: request.checkout_pointer,
 			length: request.length,
 			stored_at: request.stored_at,
 		};

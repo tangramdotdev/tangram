@@ -23,7 +23,7 @@ enum Item {
 		account: crate::usage::Account,
 		process: tg::process::Id,
 	},
-	CacheEntry(tg::artifact::Id),
+	Checkout(tg::Id),
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 	Sandbox(tg::sandbox::Id),
@@ -122,8 +122,8 @@ impl Index {
 					touched_at,
 					max_process_touched_at,
 				),
-				crate::lmdb::clean::Key::CacheEntry { id, touched_at } => {
-					(Item::CacheEntry(id), touched_at, max_object_touched_at)
+				crate::lmdb::clean::Key::Checkout { id, touched_at } => {
+					(Item::Checkout(id), touched_at, max_object_touched_at)
 				},
 				crate::lmdb::clean::Key::Object { id, touched_at } => {
 					(Item::Object(id), touched_at, max_object_touched_at)
@@ -169,18 +169,18 @@ impl Index {
 					)?;
 					continue;
 				},
-				Item::CacheEntry(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
+				Item::Checkout(_) | Item::Object(_) | Item::Process(_) | Item::Sandbox(_) => {},
 			}
 			let touched_at = Self::get_touched_at(db, subspace, transaction, &candidate.item)?;
-			if touched_at != candidate.touched_at {
+			if touched_at != Some(candidate.touched_at) {
 				Self::delete_clean_key(db, subspace, transaction, candidate)?;
 				continue;
 			}
 
 			let reference_count = match &candidate.item {
 				Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-				Item::CacheEntry(id) => {
-					Self::compute_cache_entry_reference_count(db, subspace, transaction, id)?
+				Item::Checkout(id) => {
+					Self::compute_checkout_reference_count(db, subspace, transaction, id)?
 				},
 				Item::Object(id) => {
 					Self::compute_object_reference_count(db, subspace, transaction, id)?
@@ -212,7 +212,7 @@ impl Index {
 			if let Some(item) = item {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-					Item::CacheEntry(id) => output.cache_entries.push(id),
+					Item::Checkout(id) => output.checkouts.push(id),
 					Item::Object(id) => output.objects.push(id),
 					Item::Process(id) => output.processes.push(id),
 					Item::Sandbox(id) => output.sandboxes.push(id),
@@ -303,21 +303,18 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		item: &Item,
-	) -> tg::Result<i64> {
+	) -> tg::Result<Option<i64>> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => {
-				let entry =
-					Self::try_get_cache_entry_with_transaction(db, subspace, transaction, id)?
-						.ok_or_else(
-							|| tg::error!(%id, "the clean key referenced a missing cache entry"),
-						)?;
-				Ok(entry.touched_at)
+			Item::Checkout(id) => {
+				let entry = Self::try_get_checkout_with_transaction(db, subspace, transaction, id)?
+					.map(|entry| entry.touched_at);
+				Ok(entry)
 			},
 			Item::Object(id) => {
 				let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?
 					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
-				Ok(object.touched_at)
+				Ok(Some(object.touched_at))
 			},
 			Item::Process(id) => {
 				let process =
@@ -325,7 +322,7 @@ impl Index {
 						.ok_or_else(
 							|| tg::error!(%id, "the clean key referenced a missing process"),
 						)?;
-				Ok(process.touched_at)
+				Ok(Some(process.touched_at))
 			},
 			Item::Sandbox(id) => {
 				let sandbox =
@@ -333,7 +330,7 @@ impl Index {
 						.ok_or_else(
 							|| tg::error!(%id, "the clean key referenced a missing sandbox"),
 						)?;
-				Ok(sandbox.touched_at)
+				Ok(Some(sandbox.touched_at))
 			},
 		}
 	}
@@ -359,7 +356,7 @@ impl Index {
 					touched_at: candidate.touched_at,
 				})
 			},
-			Item::CacheEntry(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+			Item::Checkout(id) => crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Checkout {
 				id: id.clone(),
 				touched_at: candidate.touched_at,
 			}),
@@ -382,33 +379,33 @@ impl Index {
 		Ok(())
 	}
 
-	fn compute_cache_entry_reference_count(
+	fn compute_checkout_reference_count(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<u64> {
-		let cache_entry_object_prefix = Self::pack(
+		let checkout_object_prefix = Self::pack(
 			subspace,
 			&(
-				Kind::CacheEntryObject.to_i32().unwrap(),
+				Kind::CheckoutObject.to_i32().unwrap(),
 				id.to_bytes().as_ref(),
 			),
 		);
-		let cache_entry_object_count =
-			Self::count_keys_with_prefix(db, transaction, &cache_entry_object_prefix)?;
+		let checkout_object_count =
+			Self::count_keys_with_prefix(db, transaction, &checkout_object_prefix)?;
 
-		let dependency_cache_entry_prefix = Self::pack(
+		let dependency_checkout_prefix = Self::pack(
 			subspace,
 			&(
-				Kind::DependencyCacheEntry.to_i32().unwrap(),
+				Kind::DependencyCheckout.to_i32().unwrap(),
 				id.to_bytes().as_ref(),
 			),
 		);
-		let dependency_cache_entry_count =
-			Self::count_keys_with_prefix(db, transaction, &dependency_cache_entry_prefix)?;
+		let dependency_checkout_count =
+			Self::count_keys_with_prefix(db, transaction, &dependency_checkout_prefix)?;
 
-		Ok(cache_entry_object_count + dependency_cache_entry_count)
+		Ok(checkout_object_count + dependency_checkout_count)
 	}
 
 	fn compute_object_reference_count(
@@ -528,18 +525,19 @@ impl Index {
 	) -> tg::Result<()> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => {
-				let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
+			Item::Checkout(id) => {
+				let key =
+					crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 				let key = Self::pack(subspace, &key);
 				if let Some(bytes) = db
 					.get(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
+					.map_err(|error| tg::error!(!error, "failed to get checkout"))?
 				{
-					let mut entry = crate::cache::Entry::deserialize(bytes)?;
+					let mut entry = crate::checkout::Checkout::deserialize(bytes)?;
 					entry.reference_count = reference_count;
 					let bytes = entry.serialize()?;
 					db.put(transaction, &key, &bytes)
-						.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
+						.map_err(|error| tg::error!(!error, "failed to put checkout"))?;
 				}
 			},
 			Item::Object(id) => {
@@ -596,66 +594,64 @@ impl Index {
 	) -> tg::Result<()> {
 		match item {
 			Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
-			Item::CacheEntry(id) => Self::delete_cache_entry(db, subspace, transaction, id),
+			Item::Checkout(id) => Self::delete_checkout(db, subspace, transaction, id),
 			Item::Object(id) => Self::delete_object(db, subspace, transaction, id),
 			Item::Process(id) => Self::delete_process(db, subspace, transaction, id),
 			Item::Sandbox(id) => Self::delete_sandbox(db, subspace, transaction, id),
 		}
 	}
 
-	fn delete_cache_entry(
+	pub(crate) fn delete_checkout(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<()> {
-		let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
+		let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to delete cache entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete checkout"))?;
 
 		let id_bytes = id.to_bytes();
 		let prefix = &(
-			Kind::CacheEntryDependency.to_i32().unwrap(),
+			Kind::CheckoutDependency.to_i32().unwrap(),
 			id_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate cache entry dependency keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate checkout dependency keys"))?;
 		let mut entries = Vec::new();
 		for result in iter {
 			let (key, _) = result
-				.map_err(|error| tg::error!(!error, "failed to read cache entry dependency key"))?;
+				.map_err(|error| tg::error!(!error, "failed to read checkout dependency key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntryDependency {
+			let crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::CheckoutDependency {
 				dependency,
 				..
 			}) = &key
 			else {
-				return Err(tg::error!("expected cache entry dependency key"));
+				return Err(tg::error!("expected checkout dependency key"));
 			};
 			let packed = Self::pack(subspace, &key);
 			entries.push((packed, dependency.clone()));
 		}
 
 		for (key, _) in &entries {
-			db.delete(transaction, key).map_err(|error| {
-				tg::error!(!error, "failed to delete cache entry dependency key")
-			})?;
+			db.delete(transaction, key)
+				.map_err(|error| tg::error!(!error, "failed to delete checkout dependency key"))?;
 		}
 
 		for (_, dependency) in entries {
-			let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::DependencyCacheEntry {
+			let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
+				checkout: id.clone(),
 				dependency: dependency.clone(),
-				cache_entry: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key).map_err(|error| {
-				tg::error!(!error, "failed to delete dependency cache entry key")
-			})?;
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete dependency checkout key"))?;
 
-			Self::decrement_cache_entry_reference_count(db, subspace, transaction, &dependency)?;
+			Self::decrement_checkout_reference_count(db, subspace, transaction, &dependency)?;
 		}
 
 		Ok(())
@@ -672,11 +668,11 @@ impl Index {
 
 		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let cache_entry = db
+		let checkout = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get object"))?
 			.and_then(|bytes| crate::object::Object::deserialize(bytes).ok())
-			.and_then(|obj| obj.cache_entry);
+			.and_then(|obj| obj.checkout);
 
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete object"))?;
@@ -718,24 +714,24 @@ impl Index {
 			Self::decrement_object_reference_count(db, subspace, transaction, &child)?;
 		}
 
-		if let Some(cache_entry) = &cache_entry {
-			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectCacheEntry {
+		if let Some(checkout) = &checkout {
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectCheckout {
 				object: id.clone(),
-				cache_entry: cache_entry.clone(),
+				checkout: checkout.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete object cache entry"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete object checkout"))?;
 
-			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::CacheEntryObject {
-				cache_entry: cache_entry.clone(),
+			let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::CheckoutObject {
+				checkout: checkout.clone(),
 				object: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete cache entry object"))?;
+				.map_err(|error| tg::error!(!error, "failed to delete checkout object"))?;
 
-			Self::decrement_cache_entry_reference_count(db, subspace, transaction, cache_entry)?;
+			Self::decrement_checkout_reference_count(db, subspace, transaction, checkout)?;
 		}
 
 		Ok(())
@@ -942,32 +938,32 @@ impl Index {
 		Ok(())
 	}
 
-	fn decrement_cache_entry_reference_count(
+	fn decrement_checkout_reference_count(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 	) -> tg::Result<()> {
-		let key = crate::lmdb::Key::Cache(crate::lmdb::cache::Key::CacheEntry(id.clone()));
+		let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::Checkout(id.clone()));
 		let key = Self::pack(subspace, &key);
 		if let Some(bytes) = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get cache entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get checkout"))?
 		{
-			let mut entry = crate::cache::Entry::deserialize(bytes)?;
+			let mut entry = crate::checkout::Checkout::deserialize(bytes)?;
 			let reference_count = entry.reference_count;
 			if reference_count > 1 {
 				entry.reference_count = reference_count - 1;
 				let bytes = entry.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to put checkout"))?;
 			} else {
 				entry.reference_count = 0;
 				let bytes = entry.serialize()?;
 				db.put(transaction, &key, &bytes)
-					.map_err(|error| tg::error!(!error, "failed to put cache entry"))?;
+					.map_err(|error| tg::error!(!error, "failed to put checkout"))?;
 
-				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::CacheEntry {
+				let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Checkout {
 					id: id.clone(),
 					touched_at: entry.touched_at,
 				});

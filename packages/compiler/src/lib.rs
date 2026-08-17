@@ -66,9 +66,6 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
-	/// The store path.
-	store_path: PathBuf,
-
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -96,6 +93,9 @@ pub struct State {
 
 	/// The serve task.
 	serve_task: Mutex<Option<tangram_futures::task::Shared<()>>>,
+
+	/// The store path.
+	store_path: PathBuf,
 
 	/// The typescript service.
 	#[cfg(feature = "typescript")]
@@ -203,7 +203,6 @@ impl Compiler {
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
-			store_path,
 			documents,
 			handle,
 			library_path,
@@ -213,6 +212,7 @@ impl Compiler {
 			requests,
 			sender,
 			serve_task,
+			store_path,
 			#[cfg(feature = "typescript")]
 			typescript,
 			version,
@@ -1151,25 +1151,25 @@ impl Compiler {
 						_ => None,
 					};
 					let extension = options.path.is_none().then_some(extension).flatten();
-					let artifact = id.clone().try_into()?;
-					let artifact = tg::Referent::new(
-						artifact,
+					let artifact: tg::artifact::Id = id.clone().try_into()?;
+					let node = tg::Referent::new(
+						tg::Selector::Specifier(tag.clone()),
 						tg::referent::Options {
+							artifact: Some(artifact),
+							id: options.id.clone(),
 							location: options.location.clone(),
-							tag: Some(tag.clone()),
-							tokens: options.tokens.clone(),
 							..Default::default()
 						},
 					);
 					let arg = tg::checkout::Arg {
-						artifact,
 						dependencies: true,
 						extension: extension.clone(),
 						force: false,
 						lock: None,
+						nodes: vec![node],
 						path: None,
 					};
-					let path = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
+					let path = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
 
 					if let Some(path_) = &options.path {
 						path.join(path_)
@@ -1177,7 +1177,7 @@ impl Compiler {
 						path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
-					let artifact = id.clone().try_into()?;
+					let artifact: tg::artifact::Id = id.clone().try_into()?;
 					let referent_options = tg::referent::Options {
 						location: options.location.clone(),
 						tokens: options.tokens.clone(),
@@ -1185,14 +1185,14 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifact,
 						dependencies: true,
 						extension: None,
 						force: false,
 						lock: None,
+						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
 						path: None,
 					};
-					let output = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
+					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
 					output.join(path)
 				} else {
 					let extension = match kind {
@@ -1207,14 +1207,14 @@ impl Compiler {
 					};
 					let artifact = tg::Referent::new(artifact, referent_options);
 					let arg = tg::checkout::Arg {
-						artifact,
 						dependencies: true,
 						extension,
 						force: false,
 						lock: None,
+						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
 						path: None,
 					};
-					tg::checkout::checkout_with_handle(&self.handle, arg).await?
+					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();

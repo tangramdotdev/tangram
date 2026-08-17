@@ -64,7 +64,16 @@ impl Session {
 				_ => unreachable!(),
 			};
 			let valid = entries.iter().all(|entry| {
-				crate::remote::cache::token_valid(entry.tokens().local(), &self.server.clock)
+				let entry_valid =
+					crate::remote::cache::token_valid(entry.tokens().local(), &self.server.clock);
+				let target_valid = match entry {
+					tg::list::Entry::Tag { target, .. } => crate::remote::cache::token_valid(
+						target.options.tokens.local(),
+						&self.server.clock,
+					),
+					_ => true,
+				};
+				entry_valid && target_valid
 			});
 			if valid || cached {
 				for entry in &mut entries {
@@ -73,6 +82,13 @@ impl Session {
 						&self.server.clock,
 					) {
 						entry.set_tokens(tg::authorization::Tokens::default());
+					}
+					if let tg::list::Entry::Tag { target, .. } = entry
+						&& !crate::remote::cache::token_valid(
+							target.options.tokens.local(),
+							&self.server.clock,
+						) {
+						target.options.tokens = tg::authorization::Tokens::default();
 					}
 					self.set_remote_entry_location(entry, &remote.name)?;
 				}
@@ -141,6 +157,9 @@ impl Session {
 		let mut tokens = entry.tokens().clone();
 		self.update_tokens_for_location(&mut tokens, &location)?;
 		entry.set_tokens(tokens);
+		if let tg::list::Entry::Tag { target, .. } = entry {
+			self.update_referent_options_for_location(&mut target.options, &location)?;
+		}
 		match entry {
 			tg::list::Entry::Group {
 				location: entry_location,

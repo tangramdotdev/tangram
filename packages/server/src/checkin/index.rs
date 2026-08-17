@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		checkin::{Graph, IndexCacheEntryArgs, IndexObjectArgs},
+		checkin::{Graph, IndexCheckoutArgs, IndexObjectArgs},
 	},
 	num::ToPrimitive as _,
 	std::path::Path,
@@ -15,17 +15,17 @@ impl Session {
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		index_object_args: IndexObjectArgs,
-		index_cache_entry_args: IndexCacheEntryArgs,
+		index_checkout_args: IndexCheckoutArgs,
 		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<tangram_index::batch::Arg> {
-		// Create put cache entry args.
-		let mut put_index_cache_entry_args = Vec::new();
-		if arg.options.cache_pointers {
+		// Create put checkout args.
+		let mut put_index_checkout_args = Vec::new();
+		if arg.options.checkout_pointers {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
-				let dependencies = Self::checkin_get_cache_entry_dependencies(graph, *index);
-				let id = graph
+				let dependencies = Self::checkin_get_checkout_dependencies(graph, *index);
+				let id: tg::artifact::Id = graph
 					.nodes
 					.get(index)
 					.unwrap()
@@ -35,18 +35,18 @@ impl Session {
 					.clone()
 					.try_into()
 					.unwrap();
-				put_index_cache_entry_args.push(tangram_index::cache::put::Arg {
-					id,
-					touched_at,
+				put_index_checkout_args.push(tangram_index::checkout::put::Arg {
 					dependencies,
+					id: id.into(),
+					touched_at,
 				});
 			} else {
-				// Add cache entry args.
-				for arg in index_cache_entry_args {
-					put_index_cache_entry_args.push(tangram_index::cache::put::Arg {
+				// Add checkout args.
+				for arg in index_checkout_args {
+					put_index_checkout_args.push(tangram_index::checkout::put::Arg {
+						dependencies: arg.dependencies,
 						id: arg.id,
 						touched_at: arg.touched_at,
-						dependencies: arg.dependencies,
 					});
 				}
 			}
@@ -88,9 +88,9 @@ impl Session {
 		});
 		// Create the index batch.
 		let arg = tangram_index::batch::Arg {
-			items: put_index_cache_entry_args
+			items: put_index_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutCacheEntry)
+				.map(tangram_index::batch::Item::PutCheckout)
 				.chain(
 					put_index_object_args
 						.into_iter()

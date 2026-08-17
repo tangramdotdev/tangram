@@ -383,7 +383,7 @@ export let waitUnsandboxed = async (
 			if (wait_.output === undefined) {
 				let stream = await tg.client.checkin({
 					options: {
-						cachePointers: true,
+						checkoutPointers: true,
 						destructive: true,
 						deterministic: true,
 						ignore: false,
@@ -704,15 +704,19 @@ async function checkoutArtifacts(
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {
 		let stream = await tg.client.checkout({
-			artifact: tg.Referent.withNodeAndTokens(artifact, tokens),
 			dependencies: true,
 			force: false,
+			nodes: [tg.Referent.withNodeAndTokens(artifact, tokens)],
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === null) {
 			throw new Error("stream ended without output");
 		}
-		output.set(artifact, event.path);
+		let path = event.paths[0];
+		if (path === undefined) {
+			throw new Error("checkout returned no paths");
+		}
+		output.set(artifact, path);
 	}
 	return output;
 }

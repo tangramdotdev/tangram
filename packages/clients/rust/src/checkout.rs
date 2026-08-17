@@ -13,9 +13,6 @@ pub use crate::checkin::Lock;
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde_as(as = "DisplayFromStr")]
-	pub artifact: tg::Referent<tg::artifact::Id>,
-
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 
@@ -31,13 +28,16 @@ pub struct Arg {
 	)]
 	pub lock: Option<Lock>,
 
+	#[serde_as(as = "Vec<DisplayFromStr>")]
+	pub nodes: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub path: PathBuf,
+	pub paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,12 +49,12 @@ pub struct Options {
 	pub path: Option<PathBuf>,
 }
 
-pub async fn checkout(arg: Arg) -> tg::Result<PathBuf> {
+pub async fn checkout(arg: Arg) -> tg::Result<Vec<PathBuf>> {
 	let handle = tg::handle()?;
 	checkout_with_handle(handle, arg).await
 }
 
-pub async fn checkout_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<PathBuf>
+pub async fn checkout_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<Vec<PathBuf>>
 where
 	H: tg::Handle,
 {
@@ -64,7 +64,18 @@ where
 		.await?
 		.and_then(|event| event.try_unwrap_output().ok())
 		.ok_or_else(|| tg::error!("stream ended without output"))?;
-	Ok(output.path)
+	Ok(output.paths)
+}
+
+pub async fn checkout_one_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<PathBuf>
+where
+	H: tg::Handle,
+{
+	let mut paths = checkout_with_handle(handle, arg).await?;
+	if paths.len() != 1 {
+		return Err(tg::error!("expected exactly one checkout path"));
+	}
+	Ok(paths.pop().unwrap())
 }
 
 impl tg::Artifact {
@@ -85,11 +96,11 @@ impl tg::Artifact {
 		H: tg::Handle,
 	{
 		let arg = tg::checkout::Arg {
-			artifact: self.to_referent(),
 			dependencies: options.dependencies,
 			extension: options.extension,
 			force: options.force,
 			lock: options.lock,
+			nodes: vec![self.to_referent().map(|id| tg::Selector::Id(id.into()))],
 			path: options.path,
 		};
 		let stream = handle.checkout(arg).await?.boxed();

@@ -58,7 +58,7 @@ impl Session {
 			Some(total),
 		);
 
-		let cache_pointers = arg.options.cache_pointers;
+		let checkout_pointers = arg.options.checkout_pointers;
 		let blobs = stream::iter(nodes)
 			.map(|(index, path, _)| {
 				let progress = progress.clone();
@@ -70,7 +70,7 @@ impl Session {
 							let file = std::fs::File::open(&path).map_err(
 								|error| tg::error!(!error, path = %path.display(), "failed to open the file"),
 							)?;
-							let destination = if cache_pointers {
+							let destination = if checkout_pointers {
 								None
 							} else {
 								Some(Destination::Store {
@@ -113,10 +113,10 @@ impl Session {
 				}
 
 				// Create the store arg only if needed.
-				let store_arg = if cache_pointers || bytes.is_some() {
+				let store_arg = if checkout_pointers || bytes.is_some() {
 					Some(crate::object::store::PutArg {
 						bytes,
-						cache_pointer: None,
+						checkout_pointer: None,
 						id: id.clone(),
 						length: Some(output.length),
 						stored_at: touched_at,
@@ -127,7 +127,7 @@ impl Session {
 
 				// Create the index message.
 				let index_message = tangram_index::object::put::Arg {
-					cache_entry: None,
+					checkout: None,
 					children,
 					id: id.clone(),
 					metadata,

@@ -22,8 +22,8 @@ use {
 	tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _},
 };
 
-/// The name of the cache directory within the data directory. The server uses this name only while a vfs is mounted, which is the only circumstance in which this provider runs.
-const CACHE_DIRECTORY_NAME: &str = "cache";
+/// The name of the checkouts directory within the data directory. The server uses this name only while a vfs is mounted, which is the only circumstance in which this provider runs.
+const CHECKOUTS_DIRECTORY_NAME: &str = "checkouts";
 
 /// The default interval at which expired cache-only nodes are swept.
 const DEFAULT_NODE_EVICTION_INTERVAL: Duration = Duration::from_secs(30);
@@ -43,7 +43,7 @@ const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 /// The configuration for a provider.
 #[derive(Clone)]
 pub struct Config {
-	/// The server's data directory, which the fast path reads the object store and the cache directory from. If it is `None`, then the provider uses the client for every request.
+	/// The server's data directory, which the fast path reads the object store and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
 	pub data_directory: Option<PathBuf>,
 
 	/// The interval at which expired cache-only nodes are swept.
@@ -74,6 +74,7 @@ pub struct Provider {
 }
 
 struct Inner {
+	artifact_tag_target_tokens: Mutex<BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>>,
 	client: tg::Client,
 	fast: Option<Fast>,
 	file_handle_count: AtomicU64,
@@ -83,9 +84,9 @@ struct Inner {
 	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
-/// The state the fast path requires. It reads the object store and the cache directory directly instead of sending a request to the server.
+/// The state the fast path requires. It reads the object store and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
-	cache_path: PathBuf,
+	checkout_path: PathBuf,
 	store: object_store::lmdb::Store,
 }
 
@@ -111,8 +112,8 @@ struct Node {
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
+	named: Option<NamedNodeInfo>,
 	parent: u64,
-	tag: Option<TagInfo>,
 }
 
 #[derive(Clone)]
@@ -120,25 +121,25 @@ struct NodeInfo {
 	artifact: Option<tg::artifact::Id>,
 	attrs: Option<vfs::Attrs>,
 	depth: u64,
+	named: Option<NamedNodeInfo>,
 	parent: u64,
-	tag: Option<TagInfo>,
 }
 
 #[derive(Clone)]
-struct TagInfo {
+struct NamedNodeInfo {
 	specifier: tg::Specifier,
 	suffix: Option<String>,
-	target: Option<tg::artifact::Id>,
+	target: Option<tg::Referent<tg::Id>>,
 }
 
-struct TagChild {
+struct NamedNodeChild {
 	name: tg::specifier::Component,
-	target: Option<tg::artifact::Id>,
+	target: Option<tg::Referent<tg::Id>>,
 }
 
-enum TagEntry {
+enum NamedNodeEntry {
 	Directory,
-	Symlink(tg::artifact::Id),
+	Symlink(tg::Referent<tg::Id>),
 }
 
 struct ReaddirPlusPage {
@@ -191,6 +192,7 @@ impl Provider {
 			tokens.entry(artifact).or_default().push(token.clone());
 		}
 		let inner = Arc::new(Inner {
+			artifact_tag_target_tokens: Mutex::new(BTreeMap::new()),
 			client,
 			fast,
 			file_handle_count: AtomicU64::new(1000),
@@ -438,12 +440,12 @@ impl Inner {
 			return Ok(Some(id));
 		}
 
-		// Resolve root entries and tags using the flat store namespace.
+		// Resolve root entries and named nodes using the flat store namespace.
 		let parent_node = self.nodes.get(parent)?;
 		if parent == vfs::ROOT_NODE_ID {
 			match tg::store::path::parse_component(name) {
 				Ok(tg::store::path::Component::Id { id, .. }) => {
-					if !self.authorize(&id) {
+					if !self.authorize(&id).await {
 						return Ok(None);
 					}
 					let attrs = attrs_from_artifact(Some(&id));
@@ -454,14 +456,14 @@ impl Inner {
 				},
 				Ok(tg::store::path::Component::Tag { component, suffix }) => {
 					return self
-						.lookup_tag(parent, name, None, component, suffix, remember)
+						.lookup_named_node(parent, name, None, component, suffix, remember)
 						.await;
 				},
 				Err(_) => return Ok(None),
 			}
 		}
-		if let Some(tag) = &parent_node.tag {
-			if tag.target.is_some() {
+		if let Some(named_node) = &parent_node.named {
+			if named_node.target.is_some() {
 				return Ok(None);
 			}
 			let Ok(tg::store::path::Component::Tag { component, suffix }) =
@@ -470,10 +472,10 @@ impl Inner {
 				return Ok(None);
 			};
 			return self
-				.lookup_tag(
+				.lookup_named_node(
 					parent,
 					name,
-					Some(&tag.specifier),
+					Some(&named_node.specifier),
 					component,
 					suffix,
 					remember,
@@ -522,7 +524,7 @@ impl Inner {
 		Ok(Some(id))
 	}
 
-	async fn lookup_tag(
+	async fn lookup_named_node(
 		&self,
 		parent: u64,
 		name: &str,
@@ -535,21 +537,22 @@ impl Inner {
 			Some(parent) => format!("{parent}/{component}"),
 			None => component.to_string(),
 		};
-		let specifier: tg::Specifier = specifier
-			.parse()
-			.map_err(|error| std::io::Error::other(tg::error!(!error, "invalid tag")))?;
-		let Some(entry) = self.get_tag_entry(&specifier).await? else {
+		let specifier: tg::Specifier = specifier.parse().map_err(|error| {
+			std::io::Error::other(tg::error!(!error, "invalid named node specifier"))
+		})?;
+		let Some(entry) = self.get_named_node_entry(&specifier).await? else {
 			return Ok(None);
 		};
 		let depth = self.nodes.get(parent)?.depth + 1;
 		let (attrs, target) = match entry {
-			TagEntry::Directory if suffix.is_none() => (
+			NamedNodeEntry::Directory if suffix.is_none() => (
 				vfs::Attrs::new(vfs::AttrsInner::Directory).cacheable(false),
 				None,
 			),
-			TagEntry::Directory => return Ok(None),
-			TagEntry::Symlink(target) => {
-				let target_path = render_tag(depth, &target, suffix);
+			NamedNodeEntry::Directory => return Ok(None),
+			NamedNodeEntry::Symlink(target) => {
+				self.remember_artifact_tag_target_token(&target);
+				let target_path = render_tag(depth, &target.node, suffix);
 				let size = target_path.len().to_u64().unwrap();
 				(
 					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false),
@@ -557,94 +560,89 @@ impl Inner {
 				)
 			},
 		};
-		let tag = TagInfo {
+		let named_node = NamedNodeInfo {
 			specifier,
 			suffix: suffix.map(ToOwned::to_owned),
 			target,
 		};
 		let id = self
 			.nodes
-			.get_or_insert_tag_child(parent, name, depth, attrs, tag, remember)?;
+			.get_or_insert_named_node_child(parent, name, depth, attrs, named_node, remember)?;
 		Ok(Some(id))
 	}
 
-	async fn get_tag_entry(&self, specifier: &tg::Specifier) -> std::io::Result<Option<TagEntry>> {
+	async fn get_named_node_entry(
+		&self,
+		specifier: &tg::Specifier,
+	) -> std::io::Result<Option<NamedNodeEntry>> {
 		let session = self.client.session(self.client.context());
 		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
-		let selector = tg::tag::Selector::Specifier(specifier.clone());
+		let pattern = specifier
+			.to_string()
+			.parse()
+			.map_err(std::io::Error::other)?;
+		let reference = tg::Reference::with_node_and_options(
+			tg::reference::Node::Specifier(pattern),
+			tg::reference::Options {
+				location: location.clone(),
+				..Default::default()
+			},
+		);
+		let output = reference.try_get_with_handle(&session).await.map_err(eio)?;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		let tg::get::Node::Id(id) = output.node else {
+			return Ok(None);
+		};
+		if id.kind() != tg::id::Kind::Tag {
+			return Ok(matches!(
+				id.kind(),
+				tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User
+			)
+			.then_some(NamedNodeEntry::Directory));
+		}
+
+		let id = tg::tag::Id::try_from(id).map_err(std::io::Error::other)?;
+		let selector = tg::tag::Selector::Id(id);
 		let arg = tg::tag::get::Arg {
-			location: location.clone(),
-			..Default::default()
-		};
-		if let Some(output) = session.try_get_tag(&selector, arg).await.map_err(eio)? {
-			let tg::tag::data::Target::Object(target) = output.data.target else {
-				return Ok(None);
-			};
-			let Ok(target) = tg::artifact::Id::try_from(target) else {
-				return Ok(None);
-			};
-
-			return Ok(Some(TagEntry::Symlink(target)));
-		}
-
-		let selector = tg::group::Selector::Specifier(specifier.clone());
-		let arg = tg::group::get::Arg {
-			location: location.clone(),
-			..Default::default()
-		};
-		if session
-			.try_get_group(&selector, arg)
-			.await
-			.map_err(eio)?
-			.is_some()
-		{
-			return Ok(Some(TagEntry::Directory));
-		}
-
-		let selector = tg::organization::Selector::Specifier(specifier.clone());
-		let arg = tg::organization::get::Arg {
-			location: location.clone(),
-			..Default::default()
-		};
-		if session
-			.try_get_organization(&selector, arg)
-			.await
-			.map_err(eio)?
-			.is_some()
-		{
-			return Ok(Some(TagEntry::Directory));
-		}
-
-		let selector = tg::user::Selector::Specifier(specifier.clone());
-		let arg = tg::user::get::Arg {
 			location,
 			..Default::default()
 		};
-		if session
-			.try_get_user(&selector, arg)
-			.await
-			.map_err(eio)?
-			.is_some()
-		{
-			return Ok(Some(TagEntry::Directory));
-		}
+		let output = session.try_get_tag(&selector, arg).await.map_err(eio)?;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		let node = match output.data.target {
+			tg::tag::data::Target::Object(target) => target.into(),
+			tg::tag::data::Target::Process(target) => target.into(),
+		};
+		let options = tg::referent::Options {
+			location: output.location,
+			tokens: output.tokens,
+			..Default::default()
+		};
+		let target = tg::Referent::new(node, options);
 
-		Ok(None)
+		Ok(Some(NamedNodeEntry::Symlink(target)))
 	}
 
-	async fn list_tag_children(
+	async fn list_named_node_children(
 		&self,
 		parent: Option<tg::Specifier>,
-	) -> std::io::Result<Vec<TagChild>> {
+		position: u64,
+		length: u64,
+	) -> std::io::Result<Vec<NamedNodeChild>> {
 		let session = self.client.session(self.client.context());
 		let root = parent.is_none();
 		let arg = tg::list::Arg {
 			cached: false,
 			groups: true,
-			length: None,
+			length: Some(length),
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			organizations: root,
 			parent: parent.map(tg::Selector::Specifier),
+			position: Some(position),
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -658,30 +656,66 @@ impl Inner {
 			.filter_map(|entry| match entry {
 				tg::list::Entry::Group { name, .. }
 				| tg::list::Entry::Organization { name, .. }
-				| tg::list::Entry::User { name, .. } => Some(TagChild {
+				| tg::list::Entry::User { name, .. } => Some(NamedNodeChild {
 					name: name.parse().ok()?,
 					target: None,
 				}),
-				tg::list::Entry::Tag {
-					name,
-					target: tg::Either::Left(target),
-					..
-				} => Some(TagChild {
-					name: name.parse().ok()?,
-					target: Some(tg::artifact::Id::try_from(target).ok()?),
-				}),
-				tg::list::Entry::Tag {
-					target: tg::Either::Right(_),
-					..
-				} => None,
+				tg::list::Entry::Tag { name, target, .. } => {
+					let tg::Referent { node, options } = target;
+					let node = match node {
+						tg::Either::Left(target) => target.into(),
+						tg::Either::Right(target) => target.into(),
+					};
+					let target = tg::Referent::new(node, options);
+					Some(NamedNodeChild {
+						name: name.parse().ok()?,
+						target: Some(target),
+					})
+				},
 			})
 			.collect();
 
 		Ok(children)
 	}
 
+	fn remember_artifact_tag_target_token(&self, target: &tg::Referent<tg::Id>) {
+		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
+			return;
+		};
+		let Some(token) = target.options.tokens.local() else {
+			return;
+		};
+		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
+		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
+		if !tokens.contains(token) {
+			tokens.push(token.clone());
+		}
+	}
+
+	fn artifact_tag_target_tokens(
+		&self,
+		artifact: &tg::artifact::Id,
+	) -> Vec<tg::authorization::Token> {
+		let now = SystemTime::now()
+			.duration_since(UNIX_EPOCH)
+			.map_or(0, |duration| {
+				duration.as_secs().to_i64().unwrap_or(i64::MAX)
+			});
+		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
+		let Some(tokens) = artifact_tag_target_tokens.get_mut(artifact) else {
+			return Vec::new();
+		};
+		tokens.retain(|token| token.body.expires_at >= now);
+		let tokens = tokens.clone();
+		if tokens.is_empty() {
+			artifact_tag_target_tokens.remove(artifact);
+		}
+
+		tokens
+	}
+
 	// Authorize the artifact subtree for the mount's principal.
-	fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
+	async fn authorize(&self, artifact: &tg::artifact::Id) -> bool {
 		let Some(principal) = &self.principal else {
 			return true;
 		};
@@ -693,17 +727,45 @@ impl Inner {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 
-		// Check the locally held subtree tokens and deny access on a miss.
+		// Check the locally held subtree tokens.
 		let now = SystemTime::now()
 			.duration_since(UNIX_EPOCH)
 			.map_or(0, |duration| {
 				duration.as_secs().to_i64().unwrap_or(i64::MAX)
 			});
-		self.tokens.get(artifact).is_some_and(|tokens| {
+		let authorized = self.tokens.get(artifact).is_some_and(|tokens| {
 			tokens
 				.iter()
 				.any(|token| token.body.expires_at >= now && token.body.grants(permission))
-		})
+		});
+		if authorized {
+			return true;
+		}
+
+		// Try the target tokens returned by tags that point to this artifact.
+		let id: tg::object::Id = artifact.clone().into();
+		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let session = self.client.session(self.client.context());
+		for token in self.artifact_tag_target_tokens(artifact) {
+			let arg = tg::object::get::Arg {
+				location: location.clone(),
+				tokens: tg::authorization::Tokens::with_local(Some(token)),
+				..Default::default()
+			};
+			let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
+				continue;
+			};
+			let authorized = output.tokens.local().is_some_and(|token| {
+				token.body.resource == tg::Id::from(id.clone())
+					&& token.body.expires_at >= now
+					&& token.body.grants(permission)
+			});
+			if authorized {
+				return true;
+			}
+		}
+
+		false
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
@@ -802,8 +864,8 @@ impl Inner {
 		// Resolve the directory.
 		let NodeInfo {
 			artifact,
+			named: named_node,
 			parent,
-			tag,
 			..
 		} = self.nodes.get(id)?;
 		let directory = match artifact {
@@ -817,6 +879,7 @@ impl Inner {
 		let mut entries = Vec::new();
 		entries.push((".".to_owned(), id, vfs::EntryKind::Directory));
 		entries.push(("..".to_owned(), parent, vfs::EntryKind::Directory));
+		let mut page_offset = offset;
 		if let Some(directory) = directory {
 			let children = self.directory_entry_ids(&directory).await?;
 			for (name, artifact) in children {
@@ -827,9 +890,22 @@ impl Inner {
 				};
 				entries.push((name, 0, kind));
 			}
-		} else if id == vfs::ROOT_NODE_ID || tag.as_ref().is_some_and(|tag| tag.target.is_none()) {
-			let specifier = tag.map(|tag| tag.specifier);
-			let children = self.list_tag_children(specifier).await?;
+		} else if id == vfs::ROOT_NODE_ID
+			|| named_node
+				.as_ref()
+				.is_some_and(|named_node| named_node.target.is_none())
+		{
+			let specifier = named_node.map(|named_node| named_node.specifier);
+			let position = offset.saturating_sub(2);
+			let limit = length / FUSE_DIRENT_HEADER_SIZE.to_u64().unwrap();
+			let children = self
+				.list_named_node_children(specifier, position, limit)
+				.await?;
+			for child in &children {
+				if let Some(target) = &child.target {
+					self.remember_artifact_tag_target_token(target);
+				}
+			}
 			entries.extend(children.into_iter().map(|child| {
 				let kind = if child.target.is_some() {
 					vfs::EntryKind::Symlink
@@ -838,12 +914,13 @@ impl Inner {
 				};
 				(child.name.to_string(), 0, kind)
 			}));
+			page_offset = offset.min(2);
 		} else {
 			return Err(std::io::Error::other("expected a directory"));
 		}
 
 		// Select the requested page.
-		let offset = offset.to_usize().unwrap_or(usize::MAX);
+		let offset = page_offset.to_usize().unwrap_or(usize::MAX);
 		let length = length.to_usize().unwrap_or(usize::MAX);
 		let mut size = 0usize;
 		let entries = entries
@@ -872,8 +949,8 @@ impl Inner {
 		let NodeInfo {
 			artifact,
 			depth,
+			named: named_node,
 			parent,
-			tag,
 			..
 		} = self.nodes.get(id)?;
 		let directory = match artifact {
@@ -928,14 +1005,25 @@ impl Inner {
 				page.position += 1;
 				entries.push((name, node_id, attrs));
 			}
-		} else if id == vfs::ROOT_NODE_ID || tag.as_ref().is_some_and(|tag| tag.target.is_none()) {
-			let parent_specifier = tag.map(|tag| tag.specifier);
-			let children = self.list_tag_children(parent_specifier.clone()).await?;
+		} else if id == vfs::ROOT_NODE_ID
+			|| named_node
+				.as_ref()
+				.is_some_and(|named_node| named_node.target.is_none())
+		{
+			let parent_specifier = named_node.map(|named_node| named_node.specifier);
+			let position = page.offset.saturating_sub(page.position).to_u64().unwrap();
+			let length = page
+				.length
+				.saturating_sub(page.size)
+				.checked_div(ReaddirPlusPage::FUSE_DIRENT_PLUS_HEADER_SIZE)
+				.unwrap()
+				.to_u64()
+				.unwrap();
+			let children = self
+				.list_named_node_children(parent_specifier.clone(), position, length)
+				.await?;
+			page.position = page.position.max(page.offset);
 			for child in children {
-				if page.position < page.offset {
-					page.position += 1;
-					continue;
-				}
 				let name = child.name.to_string();
 				if ReaddirPlusPage::entry_size(name.len()) + page.size > page.length {
 					break;
@@ -948,20 +1036,26 @@ impl Inner {
 				.map_err(std::io::Error::other)?;
 				let target = child.target;
 				let attrs = if let Some(target) = &target {
-					let target_path = render_tag(depth + 1, target, None);
+					self.remember_artifact_tag_target_token(target);
+					let target_path = render_tag(depth + 1, &target.node, None);
 					let size = target_path.len().to_u64().unwrap();
 					vfs::Attrs::new(vfs::AttrsInner::Symlink { size }).cacheable(false)
 				} else {
 					vfs::Attrs::new(vfs::AttrsInner::Directory).cacheable(false)
 				};
-				let tag = TagInfo {
+				let named_node = NamedNodeInfo {
 					specifier,
 					suffix: None,
 					target,
 				};
-				let node =
-					self.nodes
-						.get_or_insert_tag_child(id, &name, depth + 1, attrs, tag, false)?;
+				let node = self.nodes.get_or_insert_named_node_child(
+					id,
+					&name,
+					depth + 1,
+					attrs,
+					named_node,
+					false,
+				)?;
 				page.size += ReaddirPlusPage::entry_size(name.len());
 				page.position += 1;
 				entries.push((name, node, attrs));
@@ -977,14 +1071,21 @@ impl Inner {
 		let NodeInfo {
 			artifact,
 			depth,
-			tag,
+			named: named_node,
 			..
 		} = self.nodes.get(id)?;
-		if let Some(tag) = tag {
-			let Some(TagEntry::Symlink(target)) = self.get_tag_entry(&tag.specifier).await? else {
+		if let Some(named_node) = named_node {
+			let Some(NamedNodeEntry::Symlink(target)) =
+				self.get_named_node_entry(&named_node.specifier).await?
+			else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
-			return Ok(render_tag(depth, &target, tag.suffix.as_deref()));
+			self.remember_artifact_tag_target_token(&target);
+			return Ok(render_tag(
+				depth,
+				&target.node,
+				named_node.suffix.as_deref(),
+			));
 		}
 		let Some(artifact) = artifact else {
 			return Err(std::io::Error::other("expected a symlink"));
@@ -1126,7 +1227,7 @@ impl Inner {
 }
 
 impl Fast {
-	/// Opens the object store read only and locates the cache directory. Returns `None` if the object store cannot be opened, in which case the provider uses the client for every request.
+	/// Opens the object store read only and locates the checkouts directory. Returns `None` if the object store cannot be opened, in which case the provider uses the client for every request.
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
 		// Open the object store.
 		let path = data_directory.join(&config.object_store_path);
@@ -1149,10 +1250,13 @@ impl Fast {
 			Ok(store) => store,
 		};
 
-		// Locate the cache directory.
-		let cache_path = data_directory.join(CACHE_DIRECTORY_NAME);
-		tracing::info!(cache_path = %cache_path.display(), "enabled the fast path");
-		let fast = Self { cache_path, store };
+		// Locate the checkouts directory.
+		let checkout_path = data_directory.join(CHECKOUTS_DIRECTORY_NAME);
+		tracing::info!(checkout_path = %checkout_path.display(), "enabled the fast path");
+		let fast = Self {
+			checkout_path,
+			store,
+		};
 
 		Some(fast)
 	}
@@ -1515,8 +1619,8 @@ impl Fast {
 		if let Some(length) = object.length {
 			return Ok(length);
 		}
-		if let Some(cache_pointer) = object.cache_pointer {
-			return Ok(cache_pointer.length);
+		if let Some(checkout_pointer) = object.checkout_pointer {
+			return Ok(checkout_pointer.length);
 		}
 		let Some(bytes) = object.bytes else {
 			return Err(fallback());
@@ -1608,16 +1712,18 @@ impl Fast {
 			return Ok(());
 		}
 
-		// Otherwise, read the blob from the cache directory.
-		let Some(cache_pointer) = object.cache_pointer else {
+		// Otherwise, read the blob from the checkouts directory.
+		let Some(checkout_pointer) = object.checkout_pointer else {
 			return Err(fallback());
 		};
-		if position >= cache_pointer.length {
+		if position >= checkout_pointer.length {
 			return Ok(());
 		}
-		let read_length = std::cmp::min(length, cache_pointer.length - position);
-		let mut path = self.cache_path.join(cache_pointer.artifact.to_string());
-		if let Some(path_) = cache_pointer.path {
+		let read_length = std::cmp::min(length, checkout_pointer.length - position);
+		let mut path = self
+			.checkout_path
+			.join(checkout_pointer.artifact.to_string());
+		if let Some(path_) = checkout_pointer.path {
 			path.push(path_);
 		}
 		let mut file = match std::fs::File::open(&path) {
@@ -1625,12 +1731,12 @@ impl Fast {
 				return Err(fallback());
 			},
 			Err(error) => {
-				tracing::error!(%error, path = %path.display(), "failed to open the cache file");
+				tracing::error!(%error, path = %path.display(), "failed to open the checkout file");
 				return Err(std::io::Error::from_raw_os_error(libc::EIO));
 			},
 			Ok(file) => file,
 		};
-		file.seek(SeekFrom::Start(cache_pointer.position + position))
+		file.seek(SeekFrom::Start(checkout_pointer.position + position))
 			.map_err(|error| {
 				tracing::error!(%error, path = %path.display(), "failed to seek while reading");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -1736,8 +1842,8 @@ impl Nodes {
 				depth: 0,
 				lookup_count: u64::MAX,
 				name: None,
+				named: None,
 				parent: vfs::ROOT_NODE_ID,
-				tag: None,
 			},
 		);
 		let state = Mutex::new(State { next: 1000, nodes });
@@ -1789,8 +1895,8 @@ impl Nodes {
 				artifact: node.artifact.clone(),
 				attrs: node.attrs,
 				depth: node.depth,
+				named: node.named.clone(),
 				parent: node.parent,
-				tag: node.tag.clone(),
 			})
 			.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOENT))
 	}
@@ -1923,8 +2029,8 @@ impl Nodes {
 				depth,
 				lookup_count: u64::from(remember),
 				name: Some(name.to_owned()),
+				named: None,
 				parent,
-				tag: None,
 			},
 		);
 		state
@@ -1936,13 +2042,13 @@ impl Nodes {
 		Ok(id)
 	}
 
-	fn get_or_insert_tag_child(
+	fn get_or_insert_named_node_child(
 		&self,
 		parent: u64,
 		name: &str,
 		depth: u64,
 		attrs: vfs::Attrs,
-		tag: TagInfo,
+		named_node: NamedNodeInfo,
 		remember: bool,
 	) -> std::io::Result<u64> {
 		let mut state = self.state.lock().unwrap();
@@ -1955,7 +2061,7 @@ impl Nodes {
 			node.accessed = Instant::now();
 			node.artifact = None;
 			node.attrs = Some(attrs);
-			node.tag = Some(tag);
+			node.named = Some(named_node);
 			if remember {
 				node.lookup_count = node.lookup_count.saturating_add(1);
 			}
@@ -1976,8 +2082,8 @@ impl Nodes {
 				depth,
 				lookup_count: u64::from(remember),
 				name: Some(name.to_owned()),
+				named: Some(named_node),
 				parent,
-				tag: Some(tag),
 			},
 		);
 		state
@@ -2113,13 +2219,13 @@ fn render_symlink(
 	Ok(target.as_os_str().as_bytes().to_vec().into())
 }
 
-fn render_tag(depth: u64, artifact: &tg::artifact::Id, suffix: Option<&str>) -> Bytes {
+fn render_tag(depth: u64, id: &tg::Id, suffix: Option<&str>) -> Bytes {
 	let mut target = PathBuf::new();
 	for _ in 0..depth.saturating_sub(1) {
 		target.push("..");
 	}
 	let suffix = suffix.unwrap_or_default();
-	target.push(format!("{artifact}{suffix}"));
+	target.push(format!("{id}{suffix}"));
 	target.as_os_str().as_bytes().to_vec().into()
 }
 
@@ -2137,7 +2243,7 @@ fn init_logging() {
 	});
 }
 
-/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local store or is not cached. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
+/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local store or is not checked out. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
 fn fallback() -> std::io::Error {
 	std::io::Error::from_raw_os_error(libc::ENOSYS)
 }
@@ -2204,6 +2310,21 @@ mod tests {
 		);
 	}
 
+	#[test]
+	fn renders_non_artifact_tag_targets() {
+		let blob: tg::Id = tg::blob::Id::new(b"blob").into();
+		let process: tg::Id = tg::process::Id::new().into();
+
+		assert_eq!(
+			render_tag(3, &blob, None),
+			Bytes::from(format!("../../{blob}"))
+		);
+		assert_eq!(
+			render_tag(2, &process, Some(".tg.ts")),
+			Bytes::from(format!("../{process}.tg.ts"))
+		);
+	}
+
 	fn fixture(authorized: bool) -> Fixture {
 		// Create a temporary object store containing a directory and one child.
 		let temp = Temp::new().unwrap();
@@ -2231,7 +2352,7 @@ mod tests {
 		store
 			.put_sync(object_store::PutArg {
 				bytes: Some(bytes),
-				cache_pointer: None,
+				checkout_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
 				length: None,
 				stored_at: 0,

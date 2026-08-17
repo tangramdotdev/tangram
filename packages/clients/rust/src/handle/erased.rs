@@ -44,11 +44,6 @@ pub trait Handle:
 {
 	fn arg(&self) -> tg::Arg;
 
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>>;
-
 	fn check(&self, arg: tg::check::Arg) -> BoxFuture<'_, tg::Result<tg::check::Output>>;
 
 	fn checkin(
@@ -154,13 +149,6 @@ where
 {
 	fn arg(&self) -> tg::Arg {
 		tg::handle::Handle::arg(self)
-	}
-
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> BoxFuture<'_, tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<()>>>>> {
-		self.cache(arg).map_ok(futures::StreamExt::boxed).boxed()
 	}
 
 	fn check(&self, arg: tg::check::Arg) -> BoxFuture<'_, tg::Result<tg::check::Output>> {

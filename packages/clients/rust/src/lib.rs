@@ -63,7 +63,6 @@ pub mod authorization;
 pub mod blob;
 pub mod builtin;
 pub mod bytes;
-pub mod cache;
 pub mod check;
 pub mod checkin;
 pub mod checkout;

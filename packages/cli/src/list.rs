@@ -11,11 +11,19 @@ pub struct Args {
 	#[command(flatten)]
 	pub entries: Entries,
 
+	/// The maximum number of entries to return.
+	#[arg(long)]
+	pub length: Option<u64>,
+
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub parent: Option<tg::Selector<tg::Id>>,
+
+	/// The position of the first entry to return.
+	#[arg(long)]
+	pub position: Option<u64>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -115,6 +123,7 @@ pub struct Ttl {
 }
 
 impl Entries {
+	#[must_use]
 	pub(crate) fn groups(&self) -> bool {
 		if self.no_groups {
 			false
@@ -123,6 +132,7 @@ impl Entries {
 		}
 	}
 
+	#[must_use]
 	pub(crate) fn organizations(&self) -> bool {
 		if self.no_organizations {
 			false
@@ -131,6 +141,7 @@ impl Entries {
 		}
 	}
 
+	#[must_use]
 	pub(crate) fn tags(&self) -> bool {
 		if self.no_tags {
 			false
@@ -139,6 +150,7 @@ impl Entries {
 		}
 	}
 
+	#[must_use]
 	pub(crate) fn users(&self) -> bool {
 		if self.no_users {
 			false
@@ -149,6 +161,7 @@ impl Entries {
 }
 
 impl Ttl {
+	#[must_use]
 	pub(crate) fn get(&self) -> tg::remote::cache::Ttl {
 		if self.no_ttl {
 			tg::remote::cache::Ttl::Infinite
@@ -165,11 +178,12 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::list::Arg {
 			cached: args.cached,
-			length: None,
-			location: args.locations.get(),
 			groups: args.entries.groups(),
+			length: args.length,
+			location: args.locations.get(),
 			organizations: args.entries.organizations(),
 			parent: args.parent.clone(),
+			position: args.position,
 			recursive: args.recursive,
 			reverse: args.reverse,
 			tags: args.entries.tags(),

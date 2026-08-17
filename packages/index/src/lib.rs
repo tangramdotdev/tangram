@@ -7,7 +7,7 @@ pub mod lmdb;
 
 pub mod authorize;
 pub mod batch;
-pub mod cache;
+pub mod checkout;
 pub mod clean;
 pub mod grant;
 pub mod group;
@@ -84,16 +84,16 @@ pub trait Index {
 		id: &tg::Id,
 	) -> impl Future<Output = tg::Result<Option<Vec<tg::Id>>>> + Send;
 
-	fn try_get_cache_entries(
+	fn try_get_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
-	) -> impl Future<Output = tg::Result<Vec<Option<crate::cache::Entry>>>> + Send;
+		ids: &[tg::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
 
-	fn try_get_cache_entry(
+	fn try_get_checkout(
 		&self,
-		id: &tg::artifact::Id,
-	) -> impl Future<Output = tg::Result<Option<crate::cache::Entry>>> + Send {
-		self.try_get_cache_entries(std::slice::from_ref(id))
+		id: &tg::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
+		self.try_get_checkouts(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -145,20 +145,20 @@ pub trait Index {
 
 	fn start_usage(&self, at: jiff::Timestamp) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn touch_cache_entries(
+	fn touch_checkouts(
 		&self,
-		ids: &[tg::artifact::Id],
+		ids: &[tg::Id],
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> impl Future<Output = tg::Result<Vec<Option<crate::cache::Entry>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
 
-	fn touch_cache_entry(
+	fn touch_checkout(
 		&self,
-		id: &tg::artifact::Id,
+		id: &tg::Id,
 		touched_at: i64,
 		time_to_touch: Duration,
-	) -> impl Future<Output = tg::Result<Option<crate::cache::Entry>>> + Send {
-		self.touch_cache_entries(std::slice::from_ref(id), touched_at, time_to_touch)
+	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
+		self.touch_checkouts(std::slice::from_ref(id), touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -301,6 +301,19 @@ pub trait Index {
 		&self,
 		ids: &[tg::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<tg::Specifier>>>> + Send;
+
+	fn try_get_tags(
+		&self,
+		ids: &[tg::tag::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::tag::Tag>>>> + Send;
+
+	fn try_get_tag(
+		&self,
+		id: &tg::tag::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::tag::Tag>>> + Send {
+		self.try_get_tags(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
 
 	fn try_get_users(
 		&self,

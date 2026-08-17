@@ -11,6 +11,8 @@ let dep_path = artifact {
 	'
 }
 tg tag dep $dep_path
+let tag_path = $server.directory | path join store dep
+assert (not ($tag_path | path exists --no-symlink)) "expected putting the tag not to create its store entry"
 
 let path = artifact {
 	tangram.ts: '
@@ -63,7 +65,6 @@ let diagnostics = $diagnostics_output.result
 assert (($diagnostics.items | length) == 0) "expected no diagnostics for the materialized definition"
 lsp stop $client
 
-let tag_path = $server.directory | path join store dep
-assert ($tag_path | path exists) "expected the tag cache entry to exist"
+assert ($tag_path | path exists) "expected the tag store entry to exist"
 tg tag delete dep | ignore
-assert (not ($tag_path | path exists)) "expected deleting the tag to remove its cache entry"
+assert (not ($tag_path | path exists)) "expected deleting the tag to remove its store entry"

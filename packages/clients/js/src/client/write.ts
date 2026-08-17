@@ -4,7 +4,7 @@ import type { Client } from "../client.ts";
 
 export namespace Write {
 	export type Arg = {
-		cachePointers?: boolean;
+		checkoutPointers?: boolean;
 	};
 
 	export type Output = {
@@ -33,10 +33,10 @@ export async function write(
 	let uri = new Uri({
 		path: "/write",
 		query: {
-			cache_pointers:
-				argOrBytes.cachePointers === undefined
+			checkout_pointers:
+				argOrBytes.checkoutPointers === undefined
 					? null
-					: argOrBytes.cachePointers.toString(),
+					: argOrBytes.checkoutPointers.toString(),
 		},
 	});
 	let headers = {

@@ -77,15 +77,6 @@ pub trait Handle:
 {
 	fn arg(&self) -> tg::Arg;
 
-	fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> + Send;
-
 	fn check(
 		&self,
 		arg: tg::check::Arg,
@@ -282,13 +273,6 @@ pub trait Handle:
 impl tg::Handle for tg::Client {
 	fn arg(&self) -> tg::Arg {
 		self.session(&self.context).arg()
-	}
-
-	async fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.session(&self.context).cache(arg).await
 	}
 
 	async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {

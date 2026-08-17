@@ -52,14 +52,10 @@ impl Session {
 			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let specifiers = arg
-			.tags
-			.iter()
-			.map(|tag| tag.specifier.clone())
-			.collect::<Vec<_>>();
 		let session = self.clone();
 		self.server
-			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
+			.database
+			.run(|transaction| {
 				let arg = arg.clone();
 				let permissions = permissions.clone();
 				let session = session.clone();
@@ -70,14 +66,15 @@ impl Session {
 							arg,
 							permissions,
 							touched_at,
-							database_outbox_partition,
 						)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
-		self.invalidate_tag_cache_entries(&specifiers).await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
 		Ok(())
 	}
 
@@ -87,7 +84,6 @@ impl Session {
 		arg: tg::tag::batch::Arg,
 		permissions: Vec<Vec<tg::authorization::Permission>>,
 		touched_at: i64,
-		database_outbox_partition: u64,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		for (item, permissions) in std::iter::zip(arg.tags, permissions) {
@@ -152,11 +148,7 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(
-				transaction,
-				database_outbox_partition,
-				&batch,
-			)
+			.enqueue_database_outbox_with_transaction(transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

@@ -13,13 +13,13 @@ use {
 
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
-	store_path: Option<&'a Path>,
 	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
 	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
+	store_path: Option<&'a Path>,
 }
 
 struct Item {
@@ -40,7 +40,6 @@ enum ParentVariant {
 
 pub(super) struct CheckinInputArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
-	pub store_path: Option<&'a Path>,
 	pub fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	pub graph: &'a mut Graph,
 	pub ignorer: Option<ignore::Ignorer>,
@@ -48,6 +47,7 @@ pub(super) struct CheckinInputArg<'a> {
 	pub next: usize,
 	pub progress: crate::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
+	pub store_path: Option<&'a Path>,
 }
 
 impl Session {
@@ -55,7 +55,6 @@ impl Session {
 	pub(super) fn checkin_input(&self, arg: CheckinInputArg<'_>) -> tg::Result<()> {
 		let CheckinInputArg {
 			arg,
-			store_path,
 			fixup_sender,
 			graph,
 			ignorer,
@@ -63,6 +62,7 @@ impl Session {
 			next,
 			progress,
 			root,
+			store_path,
 		} = arg;
 		// Start the progress indicators.
 		progress.spinner("traversing", "traversing");
@@ -84,13 +84,13 @@ impl Session {
 		// Create the state.
 		let mut state = State {
 			arg,
-			store_path,
 			fixup_sender,
 			graph,
 			ignorer,
 			lock,
 			progress,
 			root,
+			store_path,
 		};
 
 		// Add the root path to the stack.
@@ -608,11 +608,11 @@ impl Session {
 		};
 
 		// Check for an artifact symlink.
-		let cache_path = self.server.cache_path();
+		let checkout_path = self.server.checkout_path();
 		let store_path = self.server.store_path();
 		let target_in_artifact_path = absolute_target
-			.strip_prefix(&cache_path)
-			.map(|path| (&cache_path, path))
+			.strip_prefix(&checkout_path)
+			.map(|path| (&checkout_path, path))
 			.or_else(|_| {
 				absolute_target
 					.strip_prefix(&store_path)

@@ -11,9 +11,9 @@ let id = tg build $artifact | str trim
 
 let dir = mktemp --directory
 let path = $dir | path join "out"
-tg checkout $id $path
+tg checkout $id --path $path
 
-let output = tg checkout $id $path | complete
+let output = tg checkout $id --path $path | complete
 failure $output
 snapshot --normalize --redact [$path $dir] $output.stderr '
 	error an error occurred

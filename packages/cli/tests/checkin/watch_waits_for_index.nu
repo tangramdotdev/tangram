@@ -15,7 +15,7 @@ let path = artifact {
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --no-cache-pointers --no-lock | complete
+		let output = tg checkin $path --watch --no-checkout-pointers --no-lock | complete
 		$output | job send --tag $job_id 0
 	}
 }
@@ -23,7 +23,7 @@ def checkin_background [path: path] {
 def update_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --no-cache-pointers --no-lock --update unused | complete
+		let output = tg checkin $path --watch --no-checkout-pointers --no-lock --update unused | complete
 		$output | job send --tag $job_id 0
 	}
 }

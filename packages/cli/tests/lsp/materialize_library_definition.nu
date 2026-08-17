@@ -16,7 +16,7 @@ let module_path = $path | path join "tangram.ts"
 let module_uri = lsp uri $module_path
 let source = open $module_path
 
-let responses = lsp run [
+let responses = lsp exchange [
 	(lsp initialize 1)
 	(lsp initialized)
 	(lsp did_open $module_uri $source)
@@ -31,7 +31,7 @@ snapshot ($definition_uri | split row '/' | last 2 | str join '/') 'tangram/dire
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the library definition path to be materialized"
 
-let definition_responses = lsp run [
+let definition_responses = lsp exchange [
 	(lsp initialize 1)
 	(lsp initialized)
 	(lsp did_open $definition_uri (open $definition_path))

@@ -96,7 +96,7 @@ impl Session {
 
 		let mut output = tg::clean::Output {
 			bytes: 0,
-			cache_entries: 0,
+			checkouts: 0,
 			objects: 0,
 			processes: 0,
 			sandboxes: 0,
@@ -108,8 +108,8 @@ impl Session {
 		let process_time_to_live = Duration::from_secs(0);
 		let sandbox_time_to_live = Duration::from_secs(0);
 		progress.start(
-			"cache_entries".into(),
-			"cache entries".into(),
+			"checkouts".into(),
+			"checkouts".into(),
 			tangram_client::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
@@ -161,16 +161,16 @@ impl Session {
 
 			// Get the number of nodes cleaned.
 			let bytes = inner_output.bytes;
-			let cache_entries = inner_output.cache_entries.len().to_u64().unwrap();
+			let checkouts = inner_output.checkouts.len().to_u64().unwrap();
 			let objects = inner_output.objects.len().to_u64().unwrap();
 			let processes = inner_output.processes.len().to_u64().unwrap();
 			let sandboxes = inner_output.sandboxes.len().to_u64().unwrap();
 			output.bytes += bytes;
-			output.cache_entries += cache_entries;
+			output.checkouts += checkouts;
 			output.objects += objects;
 			output.processes += processes;
 			output.sandboxes += sandboxes;
-			progress.increment("cache_entries", cache_entries);
+			progress.increment("checkouts", checkouts);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);
 			progress.increment("sandboxes", sandboxes);

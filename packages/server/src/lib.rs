@@ -31,7 +31,6 @@ use {
 mod authentication;
 mod authorization;
 mod billing;
-mod cache;
 mod check;
 mod checkin;
 mod checkout;
@@ -104,17 +103,18 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	authentication_tokens: Tokens,
+	authorization_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
-	cache_graph_tasks: self::cache::GraphTasks,
-	cache_tasks: self::cache::Tasks,
 	checkin_tasks: self::checkin::Tasks,
+	checkout_graph_tasks: self::checkout::internal::GraphTasks,
+	checkout_lock: self::checkout::Lock,
+	checkout_tasks: self::checkout::internal::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
 	clock: self::clock::Clock,
 	config: Config,
 	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	authorization_tokens: Tokens,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	#[cfg(target_os = "linux")]
@@ -128,10 +128,11 @@ pub struct State {
 	object_store: self::object::Store,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+	remote_list_tasks: self::list::remote::Tasks,
 	remote_object_put_tasks: tangram_futures::task::Set<()>,
 	remote_process_put_tasks: tangram_futures::task::Set<()>,
-	remote_list_tasks: self::list::remote::Tasks,
-	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
+	runner: self::runner::Runner,
 	sandbox_container_root: PathBuf,
 	sandbox_seatbelt_root: PathBuf,
 	sandbox_tasks: self::sandbox::Tasks,
@@ -140,9 +141,7 @@ pub struct State {
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
-	runner: self::runner::Runner,
 	tangram_path: PathBuf,
-	tag_cache_entry_lock: tokio::sync::Mutex<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -254,11 +253,11 @@ impl Server {
 		let socket_path = path.join("socket");
 		tokio::fs::remove_file(&socket_path).await.ok();
 
-		// Create the cache graph tasks.
-		let cache_graph_tasks = tangram_futures::task::Map::default();
+		// Create the checkout graph tasks.
+		let checkout_graph_tasks = tangram_futures::task::Map::default();
 
-		// Create the cache tasks.
-		let cache_tasks = tangram_futures::task::Map::default();
+		// Create the checkout tasks.
+		let checkout_tasks = tangram_futures::task::Map::default();
 
 		// Create the checkin tasks.
 		let checkin_tasks = tangram_futures::task::Map::default();
@@ -345,11 +344,6 @@ impl Server {
 					"the indexer partition end must be greater than the partition start"
 				));
 			}
-			if indexer.partition_end > config.database.outbox().partition_total {
-				return Err(tg::error!(
-					"the indexer partition range exceeds the database outbox partition total"
-				));
-			}
 			if !config.advanced.single_process
 				&& indexer.partition_end > config.object.outbox.partition_total
 			{
@@ -369,11 +363,6 @@ impl Server {
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
 				"the database outbox batch size must be greater than zero"
-			));
-		}
-		if outbox.partition_total == 0 {
-			return Err(tg::error!(
-				"the database outbox partition total must be greater than zero"
 			));
 		}
 
@@ -847,6 +836,15 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
+		// Create the checkout lock.
+		let checkout_lock_path = if config.vfs.is_some() {
+			path.join("checkouts.lock")
+		} else {
+			path.join("store.lock")
+		};
+		let checkout_lock =
+			self::checkout::Lock::new(&checkout_lock_path, config.advanced.single_process);
+
 		// Create the watches.
 		let next_watch_id = AtomicU64::new(0);
 		let watches = DashMap::default();
@@ -865,17 +863,18 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			authentication_tokens,
+			authorization_tokens,
 			billing,
-			cache_graph_tasks,
-			cache_tasks,
 			checkin_tasks,
+			checkout_graph_tasks,
+			checkout_lock,
+			checkout_tasks,
 			checkpoints,
 			clock,
 			config,
 			context,
 			database,
 			diagnostics,
-			authorization_tokens,
 			index,
 			index_tasks,
 			#[cfg(target_os = "linux")]
@@ -889,10 +888,11 @@ impl Server {
 			object_store,
 			path,
 			regions,
+			remote_clients,
+			remote_list_tasks,
 			remote_object_put_tasks,
 			remote_process_put_tasks,
-			remote_list_tasks,
-			remote_clients,
+			runner,
 			sandbox_container_root,
 			sandbox_seatbelt_root,
 			sandbox_tasks,
@@ -901,9 +901,7 @@ impl Server {
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
-			runner,
 			tangram_path,
-			tag_cache_entry_lock: tokio::sync::Mutex::new(()),
 			temps,
 			version,
 			vfs,
@@ -950,6 +948,91 @@ impl Server {
 				})
 				.await?;
 		}
+
+		// Start the VFS if enabled.
+		let checkout_guard = server.checkout_lock.acquire().await?;
+		let store_path = server.store_path();
+		let checkout_path = server.path.join("checkouts");
+		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
+			config::VfsKind::Auto => {
+				if cfg!(target_os = "macos")
+					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
+				{
+					vfs::Kind::Fskit
+				} else if cfg!(target_os = "macos") {
+					vfs::Kind::Nfs
+				} else if cfg!(target_os = "linux") {
+					vfs::Kind::Fuse
+				} else {
+					unreachable!()
+				}
+			},
+			config::VfsKind::Fskit => vfs::Kind::Fskit,
+			config::VfsKind::Fuse => vfs::Kind::Fuse,
+			config::VfsKind::Nfs => vfs::Kind::Nfs,
+		};
+		let store_exists = match tokio::fs::try_exists(&store_path).await {
+			Ok(exists) => exists,
+			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
+				self::vfs::Server::unmount(vfs_kind, &store_path).await?;
+				true
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to stat the path"));
+			},
+		};
+		let checkout_exists = tokio::fs::try_exists(&checkout_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
+		if let Some(options) = server.config.vfs.clone() {
+			if store_exists && !checkout_exists {
+				tokio::fs::rename(&store_path, &checkout_path)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to move the store directory to the checkouts path"
+						)
+					})?;
+			}
+			tokio::fs::create_dir_all(&store_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+			tokio::fs::create_dir_all(&checkout_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the checkouts directory"))?;
+			let vfs = self::vfs::Server::start(
+				&server,
+				vfs_kind,
+				&store_path,
+				options,
+				Origin::Host,
+				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
+				None,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
+			server.vfs.lock().unwrap().replace(vfs);
+		} else {
+			if checkout_exists {
+				tokio::fs::rename(&checkout_path, &store_path)
+					.await
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to move the checkouts directory to the store path"
+						)
+					})?;
+				// Remove named checkout entries before exposing the physical store.
+				server
+					.remove_all_named_checkout_entries_with_lock(&checkout_guard)
+					.await?;
+			}
+			tokio::fs::create_dir_all(&store_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+		}
+		drop(checkout_guard);
 
 		// Spawn the indexer task.
 		let indexer_task = server
@@ -1001,85 +1084,6 @@ impl Server {
 					}
 				})
 			});
-
-		// Start the VFS if enabled.
-		let store_path = server.store_path();
-		let cache_path = server.path.join("cache");
-		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
-			config::VfsKind::Auto => {
-				if cfg!(target_os = "macos")
-					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
-				{
-					vfs::Kind::Fskit
-				} else if cfg!(target_os = "macos") {
-					vfs::Kind::Nfs
-				} else if cfg!(target_os = "linux") {
-					vfs::Kind::Fuse
-				} else {
-					unreachable!()
-				}
-			},
-			config::VfsKind::Fskit => vfs::Kind::Fskit,
-			config::VfsKind::Fuse => vfs::Kind::Fuse,
-			config::VfsKind::Nfs => vfs::Kind::Nfs,
-		};
-		let store_exists = match tokio::fs::try_exists(&store_path).await {
-			Ok(exists) => exists,
-			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				self::vfs::Server::unmount(vfs_kind, &store_path).await?;
-				true
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to stat the path"));
-			},
-		};
-		let cache_exists = tokio::fs::try_exists(&cache_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
-		if let Some(options) = server.config.vfs.clone() {
-			if store_exists && !cache_exists {
-				tokio::fs::rename(&store_path, &cache_path)
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the store directory to the cache path"
-						)
-					})?;
-			}
-			tokio::fs::create_dir_all(&store_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			tokio::fs::create_dir_all(&cache_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the cache directory"))?;
-			let vfs = self::vfs::Server::start(
-				&server,
-				vfs_kind,
-				&store_path,
-				options,
-				Origin::Host,
-				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
-				None,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
-			server.vfs.lock().unwrap().replace(vfs);
-		} else {
-			if cache_exists {
-				tokio::fs::rename(&cache_path, &store_path)
-					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the cache directory to the store path"
-						)
-					})?;
-			}
-			tokio::fs::create_dir_all(&store_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-		}
 
 		// Spawn the HTTP task.
 		let http_listeners = if server.config.roles.contains(&self::config::Role::Http) {
@@ -1280,29 +1284,29 @@ impl Server {
 				}
 				tracing::trace!("checkin tasks");
 
-				// Abort the cache graph tasks.
-				server.cache_graph_tasks.abort_all();
-				let results = server.cache_graph_tasks.wait().await;
+				// Abort the checkout graph tasks.
+				server.checkout_graph_tasks.abort_all();
+				let results = server.checkout_graph_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a cache graph task failed");
+						tracing::error!(?error, "a checkout graph task failed");
 					}
 				}
-				tracing::trace!("cache graph tasks");
+				tracing::trace!("checkout graph tasks");
 
-				// Abort the cache tasks.
-				server.cache_tasks.abort_all();
-				let results = server.cache_tasks.wait().await;
+				// Abort the checkout tasks.
+				server.checkout_tasks.abort_all();
+				let results = server.checkout_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a cache task panicked");
+						tracing::error!(?error, "a checkout task panicked");
 					}
 				}
-				tracing::trace!("cache tasks");
+				tracing::trace!("checkout tasks");
 
 				// Abort the object get tasks.
 				server.object_get_tasks.abort_all();
@@ -1528,9 +1532,9 @@ impl Server {
 	}
 
 	#[must_use]
-	fn cache_path(&self) -> PathBuf {
+	fn checkout_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
-			self.path.join("cache")
+			self.path.join("checkouts")
 		} else {
 			self.store_path()
 		}
@@ -1590,8 +1594,8 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		self.cache_graph_tasks.abort_all();
-		self.cache_tasks.abort_all();
+		self.checkout_graph_tasks.abort_all();
+		self.checkout_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
 		self.object_get_tasks.abort_all();

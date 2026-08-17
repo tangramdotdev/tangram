@@ -81,7 +81,7 @@ export def rename [id: int, uri: string, line: int, character: int, new_name: st
 	}
 }
 
-export def run [messages: list<string>] {
+export def exchange [messages: list<string>] {
 	let shutdown_id = 999_998
 	let input = (
 		$messages

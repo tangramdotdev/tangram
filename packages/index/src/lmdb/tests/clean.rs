@@ -24,7 +24,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(crate::object::put::Arg {
-				cache_entry: None,
+				checkout: None,
 				children: BTreeSet::new(),
 				id: object.clone(),
 				metadata: tg::object::Metadata::default(),

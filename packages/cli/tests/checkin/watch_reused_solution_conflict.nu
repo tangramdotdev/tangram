@@ -18,7 +18,7 @@ tg tag -p c/2.0.0 $c2_path
 let path = artifact {
 	"z.tg.ts": 'import c from "c/^1";'
 }
-tg checkin $path --watch --no-cache-pointers --no-lock --unsolved-dependencies | ignore
+tg checkin $path --watch --no-checkout-pointers --no-lock --unsolved-dependencies | ignore
 
 # Add a compatible reference that reuses c/1.0.0 followed by an incompatible reference.
 'import c from "c/*";' | save ($path | path join 'a.tg.ts')
@@ -26,5 +26,5 @@ tg checkin $path --watch --no-cache-pointers --no-lock --unsolved-dependencies |
 tg watch touch $path $path
 
 # The conflict is allowed to remain unsolved, but the incremental solver must not panic while attempting to backtrack through the reused solution.
-let output = tg checkin $path --watch --no-cache-pointers --no-lock --unsolved-dependencies | complete
+let output = tg checkin $path --watch --no-checkout-pointers --no-lock --unsolved-dependencies | complete
 success $output

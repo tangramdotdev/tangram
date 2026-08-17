@@ -1,0 +1,513 @@
+use {
+	crate::{
+		Session,
+		checkin::{Graph, GraphData, IndexCheckoutArgs, graph::Variant},
+		temp::Temp,
+	},
+	futures::stream::{self, StreamExt as _, TryStreamExt as _},
+	num::ToPrimitive,
+	std::{
+		collections::BTreeSet,
+		os::unix::fs::PermissionsExt as _,
+		path::{Path, PathBuf},
+		pin::pin,
+	},
+	tangram_client::prelude::*,
+	tangram_util::{iter::Ext as _, path},
+};
+
+pub(super) struct CheckinCheckoutArg<'a> {
+	pub arg: &'a tg::checkin::Arg,
+	pub graph: &'a Graph,
+	pub graph_data: &'a mut GraphData,
+	pub index_checkout_args: &'a IndexCheckoutArgs,
+	pub next: usize,
+	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+	pub root: &'a Path,
+}
+
+impl Session {
+	#[tracing::instrument(level = "trace", skip_all)]
+	pub(super) async fn checkin_checkout(&self, arg: CheckinCheckoutArg<'_>) -> tg::Result<()> {
+		let CheckinCheckoutArg {
+			arg,
+			graph,
+			graph_data,
+			index_checkout_args,
+			next,
+			progress,
+			root,
+		} = arg;
+		if arg.options.destructive {
+			progress.spinner("checking", "checking");
+			self.checkin_ensure_dependencies_are_checked_out(
+				graph,
+				root,
+				index_checkout_args,
+				graph_data,
+				progress,
+			)
+			.await?;
+			progress.finish("checking");
+			progress.spinner("copying", "copying");
+			self.checkin_checkout_destructive(graph, root).await?;
+			progress.finish("copying");
+		} else {
+			let files = graph
+				.nodes
+				.range(next..)
+				.filter_map(|(_, node)| {
+					let path = node.path.as_ref()?.clone();
+					let metadata = node.path_metadata.as_ref()?.clone();
+					if !metadata.is_file() {
+						return None;
+					}
+					let id = node.id.as_ref()?.clone();
+					let size = metadata.len();
+					Some((path, metadata, id, size))
+				})
+				.collect::<Vec<_>>();
+
+			// Start the progress indicator.
+			progress.spinner("copying", "copying");
+			let files_total = files.len().to_u64().unwrap();
+			let bytes_total = files.iter().map(|(_, _, _, size)| size).sum();
+			progress.start(
+				"files".to_owned(),
+				"files".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				Some(files_total),
+			);
+			progress.start(
+				"bytes".to_owned(),
+				"bytes".to_owned(),
+				tg::progress::IndicatorFormat::Bytes,
+				Some(0),
+				Some(bytes_total),
+			);
+
+			let batches = files
+				.into_iter()
+				.batches(self.server.config.checkin.checkout.batch_size)
+				.map(|batch| {
+					let session = self.clone();
+					async move {
+						let progress = progress.clone();
+						tokio::task::spawn_blocking(move || {
+							session.checkin_checkout_inner(batch, &progress)
+						})
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "the checkin checkout task panicked")
+						})??;
+						Ok::<_, tg::Error>(())
+					}
+				})
+				.collect::<Vec<_>>();
+
+			stream::iter(batches)
+				.buffer_unordered(self.server.config.checkin.checkout.concurrency)
+				.try_collect::<()>()
+				.await
+				.map_err(|error| tg::error!(!error, "the checkin checkout task failed"))?;
+
+			progress.finish("copying");
+			progress.finish("files");
+			progress.finish("bytes");
+		}
+		Ok(())
+	}
+
+	async fn checkin_checkout_destructive(&self, graph: &Graph, root: &Path) -> tg::Result<()> {
+		let index = graph.paths.get(root).unwrap();
+		let node = graph.nodes.get(index).unwrap();
+		let id = node.id.as_ref().unwrap();
+		let src = node.path.as_ref().unwrap();
+		let dst = self.server.checkout_path().join(id.to_string());
+		if id.is_directory() {
+			let permissions = std::fs::Permissions::from_mode(0o755);
+			std::fs::set_permissions(src, permissions).map_err(
+				|error| tg::error!(!error, path = %src.display(), "failed to set permissions"),
+			)?;
+		}
+		let done = match tangram_util::fs::rename_noreplace(src, &dst).await {
+			Ok(()) => false,
+			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+				self.checkin_checkout_destructive_copy(src, &dst).await?
+			},
+			Err(error)
+				if matches!(
+					error.kind(),
+					std::io::ErrorKind::AlreadyExists
+						| std::io::ErrorKind::IsADirectory
+						| std::io::ErrorKind::PermissionDenied
+				) =>
+			{
+				true
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to rename the root"));
+			},
+		};
+		if !done && id.is_directory() {
+			let permissions = std::fs::Permissions::from_mode(0o555);
+			tokio::fs::set_permissions(&dst, permissions)
+				.await
+				.map_err(
+					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
+				)?;
+		}
+		if !done {
+			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+			filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
+				|error| tg::error!(!error, path = %dst.display(), "failed to set the modified time"),
+			)?;
+		}
+		Ok(())
+	}
+
+	async fn checkin_checkout_destructive_copy(&self, src: &Path, dst: &Path) -> tg::Result<bool> {
+		let src = src.to_owned();
+		let dst = dst.to_owned();
+		let temp = Temp::new(&self.server);
+		let temp_path = temp.path().to_owned();
+		tokio::task::spawn_blocking(move || {
+			Self::checkin_checkout_destructive_copy_inner(&src, &temp_path)?;
+			let done = match tangram_util::fs::rename_noreplace_sync(&temp_path, &dst) {
+				Ok(()) => false,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::AlreadyExists
+							| std::io::ErrorKind::IsADirectory
+							| std::io::ErrorKind::PermissionDenied
+					) =>
+				{
+					true
+				},
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to rename the root"));
+				},
+			};
+			if !done {
+				tangram_util::fs::remove_sync(&src).map_err(
+					|error| tg::error!(!error, path = %src.display(), "failed to remove the root"),
+				)?;
+			}
+			Ok(done)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the destructive checkin copy task panicked"))?
+	}
+
+	fn checkin_checkout_destructive_copy_inner(src: &Path, dst: &Path) -> tg::Result<()> {
+		let metadata = std::fs::symlink_metadata(src).map_err(
+			|error| tg::error!(!error, path = %src.display(), "failed to get the metadata"),
+		)?;
+		if metadata.is_dir() {
+			std::fs::create_dir(dst).map_err(
+				|error| tg::error!(!error, path = %dst.display(), "failed to create the directory"),
+			)?;
+			let read_dir = std::fs::read_dir(src).map_err(
+				|error| tg::error!(!error, path = %src.display(), "failed to read the directory"),
+			)?;
+			for entry in read_dir {
+				let entry = entry
+					.map_err(|error| tg::error!(!error, "failed to get the directory entry"))?;
+				let src = entry.path();
+				let dst = dst.join(entry.file_name());
+				Self::checkin_checkout_destructive_copy_inner(&src, &dst)?;
+			}
+		} else if metadata.is_file() {
+			std::fs::copy(src, dst)
+				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
+		} else if metadata.is_symlink() {
+			let target = std::fs::read_link(src)
+				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
+			std::os::unix::fs::symlink(target, dst)
+				.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
+		} else {
+			return Err(tg::error!(path = %src.display(), "invalid file type"));
+		}
+		Self::checkin_fixup(dst, &metadata).map_err(
+			|error| tg::error!(!error, path = %dst.display(), "failed to fix up the copied path"),
+		)?;
+		Ok(())
+	}
+
+	fn checkin_checkout_inner(
+		&self,
+		batch: Vec<(PathBuf, std::fs::Metadata, tg::object::Id, u64)>,
+		progress: &crate::progress::Handle<super::TaskOutput>,
+	) -> tg::Result<()> {
+		for (path, metadata, id, size) in batch {
+			// If the file is already checked out, then continue.
+			let checkout_path = self.server.checkout_path().join(id.to_string());
+			if checkout_path.exists() {
+				continue;
+			}
+
+			// Copy the file to a temp.
+			let src = &path;
+			let temp = Temp::new(&self.server);
+			let dst = temp.path();
+			std::fs::copy(src, dst)
+				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
+
+			// Set its permissions.
+			if !metadata.is_symlink() {
+				let executable = metadata.permissions().mode() & 0o111 != 0;
+				let mode = if executable { 0o555 } else { 0o444 };
+				let permissions = std::fs::Permissions::from_mode(mode);
+				std::fs::set_permissions(dst, permissions).map_err(
+					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
+				)?;
+			}
+
+			// Rename the temp to the checkouts directory.
+			let src = temp.path();
+			let dst = &checkout_path;
+			let done = match tangram_util::fs::rename_noreplace_sync(src, dst) {
+				Ok(()) => false,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::AlreadyExists
+							| std::io::ErrorKind::IsADirectory
+							| std::io::ErrorKind::PermissionDenied
+					) =>
+				{
+					true
+				},
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to rename the file"));
+				},
+			};
+
+			// Set the file times.
+			if !done {
+				let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
+				filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
+					|error| tg::error!(!error, path = %dst.display(), "failed to set the modified time"),
+				)?;
+			}
+
+			progress.increment("files", 1);
+			progress.increment("bytes", size);
+		}
+
+		Ok(())
+	}
+
+	async fn checkin_ensure_dependencies_are_checked_out(
+		&self,
+		graph: &Graph,
+		path: &Path,
+		index_checkout_args: &IndexCheckoutArgs,
+		graph_data: &mut GraphData,
+		progress: &crate::progress::Handle<super::TaskOutput>,
+	) -> tg::Result<()> {
+		let root = graph
+			.paths
+			.get(path)
+			.copied()
+			.ok_or_else(|| tg::error!("expected a node"))?;
+		let will_checkout = index_checkout_args
+			.iter()
+			.map(|arg| arg.id.clone())
+			.collect::<BTreeSet<_>>();
+		let mut visited = BTreeSet::new();
+		let mut stack = vec![root];
+		let root_is_dir = graph
+			.nodes
+			.get(&root)
+			.is_some_and(|node| node.variant.is_directory());
+
+		let mut artifacts = Vec::new();
+		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			let Some(node) = graph.nodes.get(&index) else {
+				continue;
+			};
+
+			// Make sure we're not missing local path dependencies.
+			if let Some(node_path) = &node.path
+				&& index != root
+			{
+				if !root_is_dir {
+					return Err(tg::error!(
+						"cannot destructively checkin files or symlinks with path dependencies"
+					));
+				}
+				if path::diff(path, node_path)
+					.is_ok_and(|option| option.is_some_and(|path| path.starts_with("..")))
+				{
+					return Err(tg::error!(
+						"cannot destructively check in an artifact with external path dependencies"
+					));
+				}
+			}
+
+			match &node.variant {
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									if !will_checkout.contains(id) {
+										return Err(tg::error!("missing checkout dependency"));
+									}
+									stack.push(*index);
+								}
+								artifacts.push(id.clone());
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if let Some(id) = &pointer.graph {
+									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+										graph: Some(tg::Graph::with_id(id.clone())),
+										index: pointer.index,
+										kind: pointer.kind,
+									})
+									.id();
+									if will_checkout.contains(&artifact) {
+										continue;
+									}
+									let data = graph_data.get(id);
+									let ids = self.graph_ids(id, data).await.map_err(|error| {
+										tg::error!(!error, "failed to get the graph ids")
+									})?;
+									artifacts.extend(ids);
+								} else {
+									stack.push(pointer.index);
+								}
+							},
+						}
+					}
+				},
+				Variant::File(file) => {
+					for dependency in file.dependencies.values().flatten() {
+						if let Some(edge) = &dependency.node {
+							match edge {
+								tg::graph::data::Edge::Object(id) => {
+									let Ok(id) = tg::artifact::Id::try_from(id.clone()) else {
+										continue;
+									};
+									if let Some(index) = graph.artifacts.get(&id) {
+										if !will_checkout.contains(&id) {
+											return Err(tg::error!("missing checkout dependency"));
+										}
+										stack.push(*index);
+									}
+									artifacts.push(id.clone());
+								},
+								tg::graph::data::Edge::Pointer(pointer) => {
+									if let Some(id) = &pointer.graph {
+										let artifact =
+											tg::Artifact::with_pointer(tg::graph::Pointer {
+												graph: Some(tg::Graph::with_id(id.clone())),
+												index: pointer.index,
+												kind: pointer.kind,
+											})
+											.id();
+										if will_checkout.contains(&artifact) {
+											continue;
+										}
+										let data = graph_data.get(id);
+										let ids =
+											self.graph_ids(id, data).await.map_err(|error| {
+												tg::error!(!error, "failed to get the graph ids")
+											})?;
+										artifacts.extend(ids);
+									} else {
+										stack.push(pointer.index);
+									}
+								},
+							}
+						}
+					}
+				},
+				Variant::Symlink(symlink) => {
+					if let Some(edge) = &symlink.artifact {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									if !will_checkout.contains(id) {
+										return Err(tg::error!("missing checkout dependency"));
+									}
+									stack.push(*index);
+								}
+								artifacts.push(id.clone());
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if let Some(id) = &pointer.graph {
+									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+										graph: Some(tg::Graph::with_id(id.clone())),
+										index: pointer.index,
+										kind: pointer.kind,
+									})
+									.id();
+									if will_checkout.contains(&artifact) {
+										continue;
+									}
+									let data = graph_data.get(id);
+									let ids = self.graph_ids(id, data).await.map_err(|error| {
+										tg::error!(!error, "failed to get the graph ids")
+									})?;
+									artifacts.extend(ids);
+								} else {
+									stack.push(pointer.index);
+								}
+							},
+						}
+					}
+				},
+			}
+		}
+
+		progress.spinner("dependencies", "checking out dependencies");
+		let artifacts = artifacts.into_iter().map(tg::Referent::with_node).collect();
+		let stream = self
+			.checkout_internal(artifacts)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to check out dependencies"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			if matches!(event, Ok(tg::progress::Event::Output(()))) {
+				break;
+			}
+			progress.forward(event);
+		}
+		progress.finish("dependencies");
+		Ok(())
+	}
+
+	pub(crate) async fn graph_ids(
+		&self,
+		graph: &tg::graph::Id,
+		data: Option<&tg::graph::Data>,
+	) -> tg::Result<Vec<tg::artifact::Id>> {
+		let data = if let Some(data) = data {
+			data.clone()
+		} else {
+			tg::Graph::with_id(graph.clone())
+				.data_with_handle(self)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
+		};
+		let graph = tg::Graph::with_id(graph.clone());
+		let mut nodes = Vec::with_capacity(data.nodes.len());
+		for (index, node) in data.nodes.into_iter().enumerate() {
+			let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+				graph: Some(graph.clone()),
+				index,
+				kind: node.kind(),
+			});
+			nodes.push(artifact.id());
+		}
+		Ok(nodes)
+	}
+}

@@ -5,7 +5,7 @@ use tangram_client::prelude::*;
 pub enum ItemKind {
 	AccountObject = 4,
 	AccountProcess = 5,
-	CacheEntry = 0,
+	Checkout = 0,
 	Object = 1,
 	Process = 2,
 	Sandbox = 3,
@@ -23,8 +23,8 @@ pub enum Key {
 		process: tg::process::Id,
 		touched_at: i64,
 	},
-	CacheEntry {
-		id: tg::artifact::Id,
+	Checkout {
+		id: tg::Id,
 		touched_at: i64,
 	},
 	Object {
@@ -55,10 +55,12 @@ mod tests {
 	fn roundtrips_centralized_clean_keys() {
 		let subspace = fdbt::Subspace::all();
 		let account = crate::usage::Account::User(tg::user::Id::new());
-		let artifact = tg::artifact::Id::new(tg::artifact::Kind::Directory, &vec![0].into());
+		let artifact: tg::Id =
+			tg::artifact::Id::new(tg::artifact::Kind::Directory, &vec![0].into()).into();
 		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
+		let tag: tg::Id = tg::tag::Id::new().into();
 		let keys = [
 			Key::AccountObject {
 				account: account.clone(),
@@ -70,8 +72,12 @@ mod tests {
 				process: process.clone(),
 				touched_at: 2,
 			},
-			Key::CacheEntry {
+			Key::Checkout {
 				id: artifact,
+				touched_at: 2,
+			},
+			Key::Checkout {
+				id: tag,
 				touched_at: 2,
 			},
 			Key::Object {
