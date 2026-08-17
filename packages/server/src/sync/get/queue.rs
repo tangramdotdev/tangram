@@ -374,23 +374,28 @@ impl Session {
 						)
 						.await?;
 					}
+					let log_needs_compaction = Self::process_log_needs_compaction(&data);
 
 					// Update the graph with stored and metadata and data.
-					let arg = UpdateProcessLocalArg {
-						data: Some(&data),
-						id: &node.id,
-						marked: None,
-						metadata: Some(metadata.clone()),
-						permissions,
-						requested: None,
-						stored: Some(stored.clone()),
+					let (request, visible) = {
+						let mut graph = state.graph.lock().unwrap();
+						let request = state.arg.process_logs
+							&& log_needs_compaction
+							&& graph.get_process_requested(&node.id).is_none();
+						let arg = UpdateProcessLocalArg {
+							data: Some(&data),
+							id: &node.id,
+							marked: None,
+							metadata: Some(metadata.clone()),
+							permissions,
+							requested: request.then_some(Requested { eager: node.eager }),
+							stored: Some(stored.clone()),
+						};
+						graph.update_process_local(arg);
+						let visible = graph.get_process_local_visible(&node.id);
+
+						(request, visible)
 					};
-					state.graph.lock().unwrap().update_process_local(arg);
-					let visible = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_process_local_visible(&node.id);
 
 					// Enqueue the children as necessary.
 					Self::sync_get_enqueue_process_children(
@@ -400,6 +405,21 @@ impl Session {
 						Some(&visible),
 						node.token.as_ref(),
 					);
+
+					// Request the process if its log is not available yet.
+					if request {
+						let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
+							descendants: true,
+							eager: node.eager,
+							selector: tg::Selector::Id(node.id.clone().into()),
+							token: node.token.clone(),
+						});
+						state
+							.sender
+							.send(Ok(message))
+							.await
+							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+					}
 
 					// Send a stored message if the process is visible.
 					if Graph::process_visible_any(&visible) {

@@ -1,7 +1,8 @@
 use ../../test.nu *
 
-# Reproduces a bug where reading a compacted log fails with early eof.
+# Reproduces a race where sync observes a process before its log is compacted.
 
+let local = spawn --name local --config { indexer: { log_compaction: false } }
 let remote = spawn --name remote
 
 let path = artifact {
@@ -14,11 +15,13 @@ let path = artifact {
 	'
 }
 
-let id = tg build --detach $path | str trim
-tg wait $id
-tg remote put default $remote.url | complete
-tg push --process-logs $id
+let id = tg --url $local.url build --detach $path | str trim
+tg --url $local.url wait $id
+assert ((tg --url $local.url get $id | from json | get log?) == null) "The source log should remain live before the push"
+tg --url $local.url remote put default $remote.url | complete
+tg --url $local.url push --process-logs $id
 
 # Read from remote blob should not fail with early eof.
 let output = tg --url $remote.url process log $id | complete
 success $output "Log read failed"
+assert equal ($output.stdout | lines | length) 9900 "The remote log should contain every line"
