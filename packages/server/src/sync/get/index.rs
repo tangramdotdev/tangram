@@ -5,6 +5,7 @@ use {
 	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -98,7 +99,7 @@ impl Session {
 
 		// Authorize and touch the objects, then get stored and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let (outputs, permissions) = self
+		let (mut outputs, mut permissions) = self
 			.sync_get_touch_authorized_objects(
 				&state.graph,
 				&ids,
@@ -107,6 +108,41 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
+
+		// If a missing node's object was not found, then the index may be behind the store, so force it to catch up and retry the touch.
+		let retry_positions = std::iter::zip(&nodes, &outputs)
+			.enumerate()
+			.filter(|(_, (node, output))| node.missing && output.is_none())
+			.map(|(position, _)| position)
+			.collect::<Vec<_>>();
+		if !retry_positions.is_empty() {
+			self.index()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?;
+			let retry_ids = retry_positions
+				.iter()
+				.map(|position| ids[*position].clone())
+				.collect::<Vec<_>>();
+			let (retry_outputs, retry_permissions) = self
+				.sync_get_touch_authorized_objects(
+					&state.graph,
+					&retry_ids,
+					touched_at,
+					self.server.config.object.time_to_touch,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
+			for ((position, output), permission) in std::iter::zip(
+				std::iter::zip(retry_positions, retry_outputs),
+				retry_permissions,
+			) {
+				outputs[position] = output;
+				permissions[position] = permission;
+			}
+		}
 
 		for ((node, output), permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
@@ -234,7 +270,7 @@ impl Session {
 
 		// Authorize and touch the processes, then get stored and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let (mut outputs, permissions) = self
+		let (mut outputs, mut permissions) = self
 			.sync_get_touch_authorized_processes(
 				&state.graph,
 				&ids,
@@ -244,6 +280,43 @@ impl Session {
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
+
+		// If a missing node's process was not found, then the index may be behind, so force it to catch up and retry the touch.
+		let retry_positions = std::iter::zip(&nodes, &outputs)
+			.enumerate()
+			.filter(|(_, (node, output))| node.missing && output.is_none())
+			.map(|(position, _)| position)
+			.collect::<Vec<_>>();
+		if !retry_positions.is_empty() {
+			self.index()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?;
+			let retry_ids = retry_positions
+				.iter()
+				.map(|position| ids[*position].clone())
+				.collect::<Vec<_>>();
+			let (retry_outputs, retry_permissions) = self
+				.sync_get_touch_authorized_processes(
+					&state.graph,
+					&retry_ids,
+					&state.arg,
+					touched_at,
+					self.server.config.process.time_to_touch,
+				)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to touch and get process metadata"))?;
+			for ((position, output), permission) in std::iter::zip(
+				std::iter::zip(retry_positions, retry_outputs),
+				retry_permissions,
+			) {
+				outputs[position] = output;
+				permissions[position] = permission;
+			}
+		}
+
 		if state.arg.process_children {
 			for (id, process) in std::iter::zip(&ids, &mut outputs) {
 				let Some(process) = process else {
