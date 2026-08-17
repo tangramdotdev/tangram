@@ -86,6 +86,13 @@ impl Args {
 				arg.0.push(tg::location::arg::Component::Local(
 					tg::location::arg::LocalComponent::default(),
 				));
+			} else if self.remotes.is_none() {
+				arg.0.push(tg::location::arg::Component::Remote(
+					tg::location::arg::RemoteComponent {
+						name: "default".to_owned(),
+						regions: None,
+					},
+				));
 			}
 		}
 
@@ -100,7 +107,13 @@ impl Args {
 						},
 					));
 				},
-				[remote] if remote == "false" => (),
+				[remote] if remote == "false" => {
+					if self.local.is_none() {
+						arg.0.push(tg::location::arg::Component::Local(
+							tg::location::arg::LocalComponent::default(),
+						));
+					}
+				},
 				_ => {
 					arg.0.extend(remotes.iter().cloned().map(|name| {
 						tg::location::arg::Component::Remote(tg::location::arg::RemoteComponent {
