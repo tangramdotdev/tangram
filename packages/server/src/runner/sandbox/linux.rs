@@ -82,7 +82,7 @@ impl Server {
 				principal,
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to start the artifacts vfs"))?
+			.map_err(|error| tg::error!(!error, "failed to start the store VFS"))?
 		};
 		let image_path = self.sandbox_vm_image.as_ref().ok_or_else(|| {
 			tg::error!(
@@ -109,8 +109,8 @@ impl Server {
 			.arg(snapshot_path)
 			.arg("--index")
 			.arg(index.to_string())
-			.arg("--artifacts-path")
-			.arg(self.artifacts_path())
+			.arg("--store-path")
+			.arg(self.store_path())
 			.arg("--firewall")
 			.arg(firewall.to_string())
 			.arg("--kernel-path")

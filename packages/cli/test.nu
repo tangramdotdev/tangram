@@ -1265,7 +1265,7 @@ export def --env spawn [
 	}
 
 	let vfs = $config | get --optional vfs
-	let cache_directory_name = if $vfs == null or $vfs == false { 'artifacts' } else { 'cache' }
+	let cache_directory_name = if $vfs == null or $vfs == false { 'store' } else { 'cache' }
 	let cache_directory = $directory_path | path join $cache_directory_name
 
 	{ cache_directory: $cache_directory, clock: $clock_path, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
@@ -1774,16 +1774,16 @@ def force_unmount_vfs_macos [path: string] {
 			[]
 		}
 	)
-	let artifacts_paths = (
+	let store_paths = (
 		$targets
-		| where { |target| ($target == ($path | path join 'artifacts')) or ($target | str starts-with ($path + '/')) }
+		| where { |target| ($target == ($path | path join 'store')) or ($target | str starts-with ($path + '/')) }
 		| uniq
 		| each { |path| { path: $path, length: ($path | str length) } }
 		| sort-by length --reverse
 		| get path
 	)
-	for artifacts_path in $artifacts_paths {
-		try { ^umount -f $artifacts_path o> /dev/null e> /dev/null }
+	for store_path in $store_paths {
+		try { ^umount -f $store_path o> /dev/null e> /dev/null }
 	}
 }
 
@@ -1817,31 +1817,31 @@ def fskit_provider_pids [executable: path] {
 }
 
 def force_unmount_vfs_linux [path: string] {
-	let mounted_artifacts_paths = (
+	let mounted_store_paths = (
 		try {
 			^findmnt -rn -o TARGET | lines | where { |target|
-				($target == ($path | path join 'artifacts')) or (($target | str starts-with ($path + '/')) and (($target | path basename) == 'artifacts'))
+				($target == ($path | path join 'store')) or (($target | str starts-with ($path + '/')) and (($target | path basename) == 'store'))
 			}
 		} catch {
 			[]
 		}
 	)
-	let artifacts_paths = (
+	let store_paths = (
 		[
-			($path | path join 'artifacts')
+			($path | path join 'store')
 		] | append (
 			try {
-				^fd -a -t d '^artifacts$' $path | lines
+				^fd -a -t d '^store$' $path | lines
 			} catch {
 				[]
 			}
-		) | append $mounted_artifacts_paths | uniq | each { |path|
+		) | append $mounted_store_paths | uniq | each { |path|
 			{ path: $path, length: ($path | str length) }
 		} | sort-by length --reverse | get path
 	)
-	for artifacts_path in $artifacts_paths {
+	for store_path in $store_paths {
 		try {
-			^fusermount3 -u -z $artifacts_path o> /dev/null e> /dev/null
+			^fusermount3 -u -z $store_path o> /dev/null e> /dev/null
 		}
 	}
 }

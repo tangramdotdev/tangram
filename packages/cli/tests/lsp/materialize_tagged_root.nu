@@ -37,14 +37,14 @@ $client = $links_output.session
 let links = $links_output.result
 assert (($links | length) == 1) "expected one document link"
 let link_uri = $links.0.target
-snapshot --normalize-ids --redact $server.directory $link_uri 'file://<redacted>/tags/dep/tangram.ts'
+snapshot --normalize-ids --redact $server.directory $link_uri 'file://<redacted>/store/dep/tangram.ts'
 
 let locations_output = lsp wait_result $client 11
 $client = $locations_output.session
 let locations = $locations_output.result
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-snapshot --normalize-ids --redact $server.directory $definition_uri 'file://<redacted>/tags/dep/tangram.ts'
+snapshot --normalize-ids --redact $server.directory $definition_uri 'file://<redacted>/store/dep/tangram.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the definition path to be materialized"
@@ -62,3 +62,8 @@ $client = $diagnostics_output.session
 let diagnostics = $diagnostics_output.result
 assert (($diagnostics.items | length) == 0) "expected no diagnostics for the materialized definition"
 lsp stop $client
+
+let tag_path = $server.directory | path join store dep
+assert ($tag_path | path exists) "expected the tag cache entry to exist"
+tg tag delete dep | ignore
+assert (not ($tag_path | path exists)) "expected deleting the tag to remove its cache entry"

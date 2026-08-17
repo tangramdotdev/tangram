@@ -19,4 +19,4 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot --name object $object
 
 tg cache $id
-snapshot --name cache --path ($server.directory | path join "artifacts" | path join ($id | str trim))
+snapshot --name cache --path ($server.directory | path join "store" | path join ($id | str trim))

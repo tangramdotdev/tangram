@@ -369,13 +369,13 @@ impl Session {
 			return Err(tg::error!("ignore is forbidden for destructive checkins"));
 		}
 
-		// Try to find the artifacts path.
-		let artifacts_path = root.join(".tangram/artifacts");
-		let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
+		// Try to find the store path.
+		let store_path = root.join(".tangram/store");
+		let store_path = if tokio::fs::try_exists(&store_path)
 			.await
 			.is_ok_and(|exists| exists)
 		{
-			Some(artifacts_path)
+			Some(store_path)
 		} else {
 			None
 		};
@@ -493,14 +493,14 @@ impl Session {
 		let mut graph = tokio::task::spawn_blocking({
 			let session = self.clone();
 			let arg = arg.clone();
-			let artifacts_path = artifacts_path.clone();
+			let store_path = store_path.clone();
 			let lock = lock.clone();
 			let progress = progress.clone();
 			let root = root.to_owned();
 			move || {
 				let arg = input::CheckinInputArg {
 					arg: &arg,
-					artifacts_path: artifacts_path.as_deref(),
+					store_path: store_path.as_deref(),
 					fixup_sender,
 					graph: &mut graph,
 					ignorer,

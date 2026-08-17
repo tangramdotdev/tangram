@@ -1,7 +1,7 @@
 use ../../test.nu *
 use ../lib/lsp.nu
 
-# With the artifacts directory mounted as a VFS on Linux, a go-to-definition request against a tagged dependency resolves to the materialized tag path and opening the materialized definition reports no diagnostics.
+# With the store directory mounted as a VFS on Linux, a go-to-definition request against a tagged dependency resolves to the materialized tag path and opening the materialized definition reports no diagnostics.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -12,10 +12,10 @@ let server = spawn --directory $server_path --config { vfs: true }
 
 if $nu.os-info.name == 'linux' {
 	let mount_exit_code = do --ignore-errors {
-		^mountpoint -q ($server_path | path join "artifacts")
+		^mountpoint -q ($server_path | path join "store")
 		$env.LAST_EXIT_CODE
 	}
-	assert ($mount_exit_code == 0) "expected the artifacts path to be mounted as a VFS"
+	assert ($mount_exit_code == 0) "expected the store path to be mounted as a VFS"
 }
 
 let dep_path = artifact {
@@ -46,7 +46,7 @@ let responses = lsp run [
 let locations = lsp result $responses 10
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-snapshot --normalize-ids --redact $server_path $definition_uri 'file://<redacted>/tags/dep/tangram.ts'
+snapshot --normalize-ids --redact $server_path $definition_uri 'file://<redacted>/store/dep/tangram.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the definition path to be materialized"
@@ -62,3 +62,14 @@ let definition_responses = lsp run [
 lsp response $definition_responses 20 | ignore
 let diagnostics = lsp result $definition_responses 21
 assert (($diagnostics.items | length) == 0) "expected no diagnostics for the VFS materialized definition"
+
+let updated_dep_path = artifact {
+	tangram.ts: '
+		export const foo = () => "updated";
+	'
+}
+tg tag dep $updated_dep_path
+assert ((open $definition_path) =~ 'updated') "expected the VFS tag to reflect the new target"
+
+tg tag delete dep | ignore
+assert (not ($definition_path | path exists)) "expected the deleted VFS tag to disappear"

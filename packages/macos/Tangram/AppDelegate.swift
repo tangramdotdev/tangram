@@ -554,8 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 		dataDirectory.appending(path: "lock")
 	}
 
-	private var artifactsPath: URL {
-		dataDirectory.appending(path: "artifacts", directoryHint: .isDirectory)
+	private var storePath: URL {
+		dataDirectory.appending(path: "store", directoryHint: .isDirectory)
 	}
 
 	private var fskitExecutable: URL {
@@ -788,14 +788,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 	}
 
 	private func cleanupExistingVfsState() {
-		unmountArtifactsIfNeeded()
+		unmountStoreIfNeeded()
 		terminateLingeringFSKitExtensions()
 	}
 
-	private func unmountArtifactsIfNeeded() {
-		let output = runForCleanup(executable: URL(filePath: "/sbin/umount"), arguments: [artifactsPath.path()])
+	private func unmountStoreIfNeeded() {
+		let output = runForCleanup(executable: URL(filePath: "/sbin/umount"), arguments: [storePath.path()])
 		if output.status == 0 {
-			appendDiagnostic("unmounted the artifacts VFS")
+			appendDiagnostic("unmounted the store VFS")
 		}
 	}
 

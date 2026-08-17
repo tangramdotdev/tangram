@@ -26,7 +26,7 @@ pub const CLOUD_HYPERVISOR_API_SOCKET_NAME: &str = "cloud-hypervisor-api.sock";
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
 
 const SANDBOX_FS_TAG: &str = "sandbox";
-const ARTIFACTS_FS_TAG: &str = "artifacts";
+const STORE_FS_TAG: &str = "store";
 
 const HOST_MOUNT_POINT: &str = "/mnt/host";
 const SERIAL_SOCKET_NAME: &str = "serial.sock";
@@ -52,7 +52,7 @@ const VMM_GUEST_CID: u32 = 3;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub artifacts_path: PathBuf,
+	pub store_path: PathBuf,
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
@@ -362,14 +362,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			format!("path={VMM_ROOTFS_IMAGE_PATH},readonly=on,sparse=off,image_type=raw").into(),
 		);
 		cloud_hypervisor_args.push("--fs".into());
-		let artifacts_fs = if let Some(window_size) = arg.dax {
-			format!(
-				"tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET},dax=true,shm_size={window_size}"
-			)
+		let store_fs = if let Some(window_size) = arg.dax {
+			format!("tag={STORE_FS_TAG},socket={VMM_VFS_SOCKET},dax=true,shm_size={window_size}")
 		} else {
-			format!("tag={ARTIFACTS_FS_TAG},socket={VMM_VFS_SOCKET}")
+			format!("tag={STORE_FS_TAG},socket={VMM_VFS_SOCKET}")
 		};
-		cloud_hypervisor_args.push(artifacts_fs.into());
+		cloud_hypervisor_args.push(store_fs.into());
 		cloud_hypervisor_args.push("--fs".into());
 		cloud_hypervisor_args
 			.push(format!("tag={SANDBOX_FS_TAG},socket={VMM_VIRTIOFSD_SANDBOX_SOCKET}").into());
@@ -742,8 +740,8 @@ fn host_share_opt_tangram_path_from_root(root_path: &Path) -> PathBuf {
 	host_share_path_from_root(root_path).join("opt/tangram")
 }
 
-fn host_share_artifacts_path_from_root(root_path: &Path) -> PathBuf {
-	host_share_opt_tangram_path_from_root(root_path).join("artifacts")
+fn host_share_store_path_from_root(root_path: &Path) -> PathBuf {
+	host_share_opt_tangram_path_from_root(root_path).join("store")
 }
 
 fn host_share_output_path_from_root(root_path: &Path) -> PathBuf {
@@ -801,7 +799,7 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 		host_share_etc_path_from_root(sandbox_path),
 		host_share_opt_tangram_path_from_root(sandbox_path),
 		host_share_output_path_from_root(sandbox_path),
-		host_share_artifacts_path_from_root(sandbox_path),
+		host_share_store_path_from_root(sandbox_path),
 		host_share_tmp_path_from_root(sandbox_path),
 		host_share_mounts_path_from_root(sandbox_path),
 	] {

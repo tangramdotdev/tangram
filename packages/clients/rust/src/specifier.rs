@@ -118,7 +118,7 @@ impl std::str::FromStr for Component {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		if s.is_empty() || s.parse::<tg::Id>().is_ok() {
+		if s.is_empty() || matches!(s, "." | "..") || tg::Id::try_parse_prefix(s).is_some() {
 			return Err(tg::error!("invalid specifier component"));
 		}
 		for character in s.chars() {
@@ -143,6 +143,8 @@ mod tests {
 	fn component_rejects_id() {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Tag).to_string();
 		assert!(Component::from_str(&id).is_err());
+		assert!(Component::from_str(&format!("{id}.tg.ts")).is_err());
+		assert!(Component::from_str(&format!("{id}-suffix")).is_err());
 		assert!(Specifier::from_str(&id).is_err());
 		assert!(Specifier::from_str(&format!("foo/{id}")).is_err());
 	}
@@ -150,6 +152,16 @@ mod tests {
 	#[test]
 	fn component_allows_id_like_strings() {
 		assert!(Component::from_str("tag_00abc").is_ok());
+	}
+
+	#[test]
+	fn component_rejects_dot_components() {
+		assert!(Component::from_str(".").is_err());
+		assert!(Component::from_str("..").is_err());
+		assert!(Specifier::from_str(".").is_err());
+		assert!(Specifier::from_str("..").is_err());
+		assert!(Specifier::from_str("foo/./bar").is_err());
+		assert!(Specifier::from_str("foo/../bar").is_err());
 	}
 
 	#[test]

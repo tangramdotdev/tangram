@@ -68,7 +68,7 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub artifacts_path: PathBuf,
+	pub store_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]

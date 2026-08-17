@@ -120,3 +120,17 @@ async fn directory_reads_look_past_provider_page_limits() {
 	assert_eq!(entries.len(), 1);
 	assert!(eof);
 }
+
+#[test]
+fn dynamic_attributes_have_distinct_change_values() {
+	let file_handle = nfs_fh4(3);
+	let attrs = Attrs::new(AttrsInner::Directory).cacheable(false);
+	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	assert_ne!(first.change, second.change);
+
+	let attrs = Attrs::new(AttrsInner::Directory);
+	let first = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	let second = FileAttrData::new(file_handle, nfs_ftype4::NF4DIR, 0, O_RX, attrs);
+	assert_eq!(first.change, second.change);
+}

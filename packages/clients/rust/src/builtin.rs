@@ -5,7 +5,7 @@ use {
 	tangram_uri::Uri,
 };
 
-const TANGRAM_ARTIFACTS_PATH: &str = ".tangram/artifacts";
+const TANGRAM_STORE_PATH: &str = ".tangram/store";
 
 #[derive(
 	Clone,
@@ -214,7 +214,7 @@ where
 	let directory = directory
 		.to_builder_with_handle(handle)
 		.await?
-		.add_with_handle(handle, TANGRAM_ARTIFACTS_PATH.as_ref(), artifacts.into())
+		.add_with_handle(handle, TANGRAM_STORE_PATH.as_ref(), artifacts.into())
 		.await?
 		.build();
 
@@ -626,7 +626,7 @@ where
 				for _ in 0..depth.saturating_sub(1) {
 					target.push("..");
 				}
-				target.push(TANGRAM_ARTIFACTS_PATH);
+				target.push(TANGRAM_STORE_PATH);
 				target.push(artifact.id().to_string());
 			}
 			if let Some(path) = path {

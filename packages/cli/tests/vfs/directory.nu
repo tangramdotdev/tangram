@@ -27,7 +27,7 @@ for io in $transports {
 		}
 	}
 	let id = tg checkin $source | str trim
-	let path = $server_path | path join 'artifacts' $id
+	let path = $server_path | path join 'store' $id
 	let first = ls $path | get name | each { path basename } | sort
 	let second = ls $path | get name | each { path basename } | sort
 

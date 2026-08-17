@@ -113,6 +113,7 @@ pub mod sandbox;
 pub mod scheduler;
 pub mod selector;
 pub mod specifier;
+pub mod store;
 pub mod symlink;
 pub mod sync;
 pub mod tag;

@@ -76,6 +76,21 @@ impl Id {
 	}
 
 	#[must_use]
+	pub fn try_parse_prefix(value: &str) -> Option<(Self, &str)> {
+		if value.as_bytes().get(3) != Some(&b'_') {
+			return None;
+		}
+		let length = match value.as_bytes().get(5) {
+			Some(b'0') => 32,
+			Some(b'1') => 58,
+			_ => return None,
+		};
+		let (prefix, suffix) = value.split_at_checked(length)?;
+		let id = prefix.parse().ok()?;
+		Some((id, suffix))
+	}
+
+	#[must_use]
 	pub fn to_bytes(&self) -> Bytes {
 		let mut bytes = Vec::new();
 		self.to_writer(&mut bytes).unwrap();

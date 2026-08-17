@@ -6,12 +6,12 @@ export def skip_unless_supported [] {
 	}
 }
 
-export def artifacts_path [server_path: string] {
-	$server_path | path join 'artifacts' | path expand
+export def store_path [server_path: string] {
+	$server_path | path join 'store' | path expand
 }
 
 export def assert_mounted [server_path: string] {
-	let path = artifacts_path $server_path
+	let path = store_path $server_path
 	let mounted = match $nu.os-info.name {
 		'linux' => ((do --ignore-errors { ^mountpoint -q $path; $env.LAST_EXIT_CODE }) == 0),
 		'macos' => (^mount | lines | any { |line|
@@ -24,7 +24,7 @@ export def assert_mounted [server_path: string] {
 }
 
 export def root [server_path: string, id: string] {
-	artifacts_path $server_path | path join $id
+	store_path $server_path | path join $id
 }
 
 export def assert_read_only [output: record, operation: string] {

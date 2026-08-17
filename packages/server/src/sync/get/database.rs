@@ -68,7 +68,8 @@ impl Session {
 
 		// Write all of the nodes and enqueue their index mutations atomically.
 		let session = self.clone();
-		self.server
+		let invalidated_specifiers = self
+			.server
 			.run_database_outbox_transaction(|transaction, database_outbox_partition| {
 				let nodes = nodes.clone();
 				let replacement_ids = replacement_ids.clone();
@@ -89,6 +90,9 @@ impl Session {
 				.boxed()
 			})
 			.await?;
+		let invalidated_specifiers = invalidated_specifiers.into_iter().collect::<Vec<_>>();
+		self.invalidate_tag_cache_entries(&invalidated_specifiers)
+			.await?;
 
 		Ok(())
 	}
@@ -101,15 +105,22 @@ impl Session {
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
 		database_outbox_partition: u64,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>, crate::database::Error>> {
 		let mut batch = tangram_index::batch::Arg::default();
 		let mut tag_accounts = BTreeMap::new();
+		let mut invalidated_specifiers = nodes
+			.iter()
+			.filter_map(|node| match node {
+				tg::sync::PutNodeMessage::Tag(message) => Some(message.specifier.clone()),
+				_ => None,
+			})
+			.collect::<BTreeSet<_>>();
 		let mut namespace =
 			match Self::sync_get_database_namespace_with_transaction(transaction, nodes).await? {
 				ControlFlow::Break(namespace) => namespace,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
-		match self
+		let replaced_specifiers = match self
 			.sync_get_database_replace_nodes_with_transaction(
 				transaction,
 				nodes,
@@ -119,9 +130,10 @@ impl Session {
 			)
 			.await?
 		{
-			ControlFlow::Break(()) => (),
+			ControlFlow::Break(specifiers) => specifiers,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		}
+		};
+		invalidated_specifiers.extend(replaced_specifiers);
 		for node in nodes {
 			if let tg::sync::PutNodeMessage::Tag(message) = node {
 				let account = match self
@@ -195,7 +207,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(invalidated_specifiers))
 	}
 
 	async fn sync_get_database_authorize(
@@ -566,7 +578,7 @@ impl Session {
 		namespace: &mut Namespace,
 		replacement_ids: &std::collections::HashSet<tg::Id, fnv::FnvBuildHasher>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Vec<tg::Specifier>, crate::database::Error>> {
 		// Find the current conflicts.
 		let mut roots = BTreeMap::new();
 		for node in nodes {
@@ -594,6 +606,11 @@ impl Session {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
 		let ids = Self::sync_get_database_sort_deletions(nodes);
+		let specifiers = ids
+			.iter()
+			.filter(|id| matches!(id.kind(), tg::id::Kind::Tag))
+			.filter_map(|id| namespace.ids.get(id).cloned())
+			.collect();
 		for ids in ids.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
 			match self
 				.sync_get_database_delete_nodes_with_transaction(transaction, ids, batch)
@@ -605,7 +622,7 @@ impl Session {
 		}
 		namespace.remove_ids(&ids);
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(specifiers))
 	}
 
 	fn sync_get_database_replacement_roots(

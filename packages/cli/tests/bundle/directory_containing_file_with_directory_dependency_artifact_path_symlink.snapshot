@@ -4,7 +4,7 @@
     ".tangram": {
       "kind": "directory",
       "entries": {
-        "artifacts": {
+        "store": {
           "kind": "directory",
           "entries": {
             "dir_01fczet3j09dq7y6y5bbczn34v3cvqcf9jeq9acmb68496ptp6h3k0": {
@@ -16,7 +16,7 @@
                 },
                 "link": {
                   "kind": "symlink",
-                  "path": "../../../.tangram/artifacts/dir_01kq2wscftva7h84b5hknjb7n7r732rrmj1m82r20n9dx0r8dcscgg/a"
+                  "path": "../../../.tangram/store/dir_01kq2wscftva7h84b5hknjb7n7r732rrmj1m82r20n9dx0r8dcscgg/a"
                 }
               }
             },

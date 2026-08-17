@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 # Builds the flex VFS artifact (/tmp/flex-vfs.tg.ts) and reads it back through
-# the mounted FSKit VFS at ~/.tangram/artifacts/<id> to confirm the read path
+# the mounted FSKit VFS at ~/.tangram/store/<id> to confirm the read path
 # works for every operation we care about: lookup, getattr, readdir, read, and
 # readlink. This lives outside the test suite because the FSKit VFS is a global,
 # machine-wide resource the harness cannot isolate.
@@ -17,7 +17,7 @@ def main [] {
 	}
 	print $"artifact: ($id)"
 
-	let root = ($env.HOME | path join ".tangram/artifacts" $id)
+	let root = ($env.HOME | path join ".tangram/store" $id)
 	print $"vfs path: ($root)\n"
 
 	print "=== tree ==="

@@ -8,7 +8,7 @@ use {
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
-	pub artifacts_path: PathBuf,
+	pub store_path: PathBuf,
 
 	#[arg(long)]
 	pub cloud_hypervisor_path: Option<PathBuf>,
@@ -89,7 +89,7 @@ pub struct Args {
 impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
-			artifacts_path: args.artifacts_path,
+			store_path: args.store_path,
 			cloud_hypervisor_path: args.cloud_hypervisor_path,
 			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,

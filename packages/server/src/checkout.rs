@@ -22,8 +22,8 @@ mod lock;
 struct State {
 	arg: tg::checkout::Arg,
 	artifact: tg::artifact::Id,
-	artifacts_path: Option<PathBuf>,
-	artifacts_path_created: bool,
+	store_path: Option<PathBuf>,
+	store_path_created: bool,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
@@ -52,7 +52,7 @@ impl Session {
 
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
-			let path = self.server.artifacts_path().join(artifact.to_string());
+			let path = self.server.store_path().join(artifact.to_string());
 			if self.server.vfs.lock().unwrap().is_none() {
 				let cache_arg = tg::cache::Arg {
 					artifacts: vec![arg.artifact.clone()],
@@ -62,38 +62,58 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to cache the artifact"))?;
 				let extension = arg.extension.clone();
+				let tag = arg.artifact.options.tag.clone();
 				let stream = stream
 					.boxed()
-					.map({
+					.and_then({
 						let session = self.clone();
-						move |result| {
-							result.and_then(|event| match event {
-								tg::progress::Event::Output(()) => {
-									let path =
-										session.server.artifacts_path().join(artifact.to_string());
+						move |event| {
+							let artifact = artifact.clone();
+							let extension = extension.clone();
+							let session = session.clone();
+							let tag = tag.clone();
+							async move {
+								match event {
+									tg::progress::Event::Output(()) => {
+										let path =
+											session.server.store_path().join(artifact.to_string());
 
-									// Add an extension if necessary.
-									let path = if let Some(extension) = &extension {
-										let path_with_extension = session
-											.server
-											.artifacts_path()
-											.join(format!("{artifact}{extension}"));
-										std::fs::hard_link(&path, &path_with_extension).ok();
-										path_with_extension
-									} else {
-										path
-									};
+										// Add an extension if necessary.
+										let artifact_path = if let Some(extension) = &extension {
+											let path_with_extension = session
+												.server
+												.store_path()
+												.join(format!("{artifact}{extension}"));
+											std::fs::hard_link(&path, &path_with_extension).ok();
+											path_with_extension
+										} else {
+											path
+										};
+										let path = if let Some(tag) = &tag {
+											session
+												.cache_tag_entry(
+													tag,
+													&artifact,
+													extension.as_deref(),
+												)
+												.await?
+										} else {
+											artifact_path
+										};
 
-									// Map the path if necessary.
-									let path = session.guest_path_for_host_path(&path)?;
+										// Map the path if necessary.
+										let path = session.guest_path_for_host_path(&path)?;
 
-									let output =
-										tg::progress::Event::Output(tg::checkout::Output { path });
+										let output =
+											tg::progress::Event::Output(tg::checkout::Output {
+												path,
+											});
 
-									Ok(output)
-								},
-								event => Ok(event.map_output(|()| unreachable!())),
-							})
+										Ok(output)
+									},
+									event => Ok(event.map_output(|()| unreachable!())),
+								}
+							}
 						}
 					})
 					.left_stream()
@@ -101,10 +121,11 @@ impl Session {
 				return Ok(stream);
 			}
 
-			let path = if let Some(ext) = &arg.extension {
-				self.server
-					.artifacts_path()
-					.join(format!("{artifact}{ext}"))
+			let path = if let Some(tag) = &arg.artifact.options.tag {
+				self.cache_tag_entry(tag, &artifact, arg.extension.as_deref())
+					.await?
+			} else if let Some(ext) = &arg.extension {
+				self.server.store_path().join(format!("{artifact}{ext}"))
 			} else {
 				path
 			};
@@ -353,9 +374,9 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the path's parent"))?;
 
-		// Determine the artifacts path.
-		let artifacts_path: Option<PathBuf> = if artifact.is_directory() {
-			Some(path.join(".tangram/artifacts"))
+		// Determine the store path.
+		let store_path: Option<PathBuf> = if artifact.is_directory() {
+			Some(path.join(".tangram/store"))
 		} else {
 			None
 		};
@@ -385,8 +406,8 @@ impl Session {
 				let mut state = State {
 					arg,
 					artifact,
-					artifacts_path,
-					artifacts_path_created: false,
+					store_path,
+					store_path_created: false,
 					path,
 					progress,
 					visited: HashSet::default(),
@@ -443,16 +464,16 @@ impl Session {
 		if !state.visited.insert(item.id.clone()) {
 			return Ok(());
 		}
-		let artifacts_path = state
-			.artifacts_path
+		let store_path = state
+			.store_path
 			.as_ref()
-			.ok_or_else(|| tg::error!("cannot check out a dependency without an artifacts path"))?;
-		if !state.artifacts_path_created {
-			std::fs::create_dir_all(artifacts_path)
-				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
-			state.artifacts_path_created = true;
+			.ok_or_else(|| tg::error!("cannot check out a dependency without an store path"))?;
+		if !state.store_path_created {
+			std::fs::create_dir_all(store_path)
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+			state.store_path_created = true;
 		}
-		let path = artifacts_path.join(item.id.to_string());
+		let path = store_path.join(item.id.to_string());
 
 		// Save and clear the visiting set for the dependency checkout. Dependencies are checked out to a separate location and should have their own cycle detection.
 		let visiting = std::mem::take(&mut state.visiting);
@@ -478,18 +499,18 @@ impl Session {
 			.try_into()
 			.map_err(|_| tg::error!("expected graph data"))?;
 
-		// Get all items that need artifacts path entries.
+		// Get all items that need store path entries.
 		let items = Self::checkout_entry_items_for_graph(graph_id, &graph_data)?;
 
-		// Ensure the artifacts path exists.
-		let artifacts_path = state
-			.artifacts_path
+		// Ensure the store path exists.
+		let store_path = state
+			.store_path
 			.clone()
-			.ok_or_else(|| tg::error!("cannot check out a dependency without an artifacts path"))?;
-		if !state.artifacts_path_created {
-			std::fs::create_dir_all(&artifacts_path)
-				.map_err(|error| tg::error!(!error, "failed to create the artifacts directory"))?;
-			state.artifacts_path_created = true;
+			.ok_or_else(|| tg::error!("cannot check out a dependency without an store path"))?;
+		if !state.store_path_created {
+			std::fs::create_dir_all(&store_path)
+				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+			state.store_path_created = true;
 		}
 
 		// Check out all the items in the graph.
@@ -499,7 +520,7 @@ impl Session {
 				continue;
 			}
 
-			let path = artifacts_path.join(item.id.to_string());
+			let path = store_path.join(item.id.to_string());
 
 			// Save and clear the visiting set for the dependency checkout.
 			let visiting = std::mem::take(&mut state.visiting);
@@ -817,11 +838,11 @@ impl Session {
 				self.checkout_dependency(state, &dependency_item)?;
 
 				// Update the target.
-				let artifacts_path = state
-					.artifacts_path
+				let store_path = state
+					.store_path
 					.as_ref()
-					.ok_or_else(|| tg::error!("expected there to be an artifacts path"))?;
-				target.push(artifacts_path.join(dependency_id.to_string()));
+					.ok_or_else(|| tg::error!("expected there to be an store path"))?;
+				target.push(store_path.join(dependency_id.to_string()));
 			}
 
 			// Add the path if it is set.

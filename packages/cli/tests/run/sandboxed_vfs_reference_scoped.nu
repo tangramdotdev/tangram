@@ -19,7 +19,7 @@ let path = artifact {
 		import busybox from "busybox";
 		export default async function (foreign: string) {
 			let granted = tg.directory({ "ours.txt": tg.file("ours") });
-			let foreignPath = `/opt/tangram/artifacts/${foreign}/secret.txt`;
+			let foreignPath = `/opt/tangram/store/${foreign}/secret.txt`;
 			return await tg.run`
 				cat ${granted}/ours.txt
 				if cat "${foreignPath}" 2>/dev/null; then echo leaked; else echo denied; fi

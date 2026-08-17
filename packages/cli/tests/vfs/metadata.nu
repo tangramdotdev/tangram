@@ -26,7 +26,7 @@ for io in $transports {
 		}
 	}
 	let id = tg checkin $source | str trim
-	let path = $server_path | path join 'artifacts' $id 'link'
+	let path = $server_path | path join 'store' $id 'link'
 	let target = ^readlink $path | str trim
 	let size = ^stat --format=%s -- $path | str trim | into int
 

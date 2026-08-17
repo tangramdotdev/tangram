@@ -66,8 +66,8 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
-	/// The artifacts path.
-	artifacts_path: PathBuf,
+	/// The store path.
+	store_path: PathBuf,
 
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
@@ -96,9 +96,6 @@ pub struct State {
 
 	/// The serve task.
 	serve_task: Mutex<Option<tangram_futures::task::Shared<()>>>,
-
-	/// The tags path.
-	tags_path: PathBuf,
 
 	/// The typescript service.
 	#[cfg(feature = "typescript")]
@@ -190,8 +187,7 @@ impl Compiler {
 	#[must_use]
 	pub fn start(
 		handle: tg::handle::dynamic::Handle,
-		artifacts_path: PathBuf,
-		tags_path: PathBuf,
+		store_path: PathBuf,
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
 		version: String,
@@ -207,7 +203,7 @@ impl Compiler {
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
-			artifacts_path,
+			store_path,
 			documents,
 			handle,
 			library_path,
@@ -217,7 +213,6 @@ impl Compiler {
 			requests,
 			sender,
 			serve_task,
-			tags_path,
 			#[cfg(feature = "typescript")]
 			typescript,
 			version,
@@ -886,6 +881,171 @@ impl Compiler {
 		}
 	}
 
+	async fn module_for_store_path(
+		&self,
+		path: &Path,
+		absolute_path: &Path,
+	) -> tg::Result<tg::module::Data> {
+		let component = path
+			.components()
+			.next()
+			.ok_or_else(|| tg::error!("invalid path"))?
+			.as_os_str()
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let component = tg::store::path::parse_component(component)?;
+		match component {
+			tg::store::path::Component::Id { id, .. } => {
+				self.module_for_store_artifact_path(id, path, absolute_path)
+					.await
+			},
+			tg::store::path::Component::Tag { .. } => self.module_for_store_tag_path(path).await,
+		}
+	}
+
+	async fn module_for_store_artifact_path(
+		&self,
+		id: tg::artifact::Id,
+		path: &Path,
+		absolute_path: &Path,
+	) -> tg::Result<tg::module::Data> {
+		let kind = self.module_kind_for_path(absolute_path).await?;
+		let id: tg::object::Id = id.into();
+		let path = path.components().skip(1).collect::<PathBuf>();
+		let edge: tg::graph::data::Edge<tg::object::Id> = if path.as_os_str().is_empty() {
+			tg::graph::data::Edge::Object(id.clone())
+		} else {
+			let directory = tg::Object::with_id(id.clone())
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory
+				.get_edge_with_handle(&self.handle, &path)
+				.await?
+				.to_data_artifact()
+				.into()
+		};
+		let source = tg::module::data::Source::Edge(edge);
+		let options = if path.as_os_str().is_empty() {
+			tg::referent::Options::default()
+		} else {
+			tg::referent::Options {
+				id: Some(id),
+				path: Some(path),
+				..Default::default()
+			}
+		};
+		let referent = tg::Referent {
+			node: source,
+			options,
+		};
+		let module = tg::module::Data { kind, referent };
+
+		Ok(module)
+	}
+
+	async fn module_for_store_tag_path(&self, path: &Path) -> tg::Result<tg::module::Data> {
+		// Walk through the path to find the tag symlink.
+		let mut current_path = self.store_path.clone();
+		let mut relative_path = PathBuf::new();
+		let mut symlink_path = None;
+		let mut tag_components = Vec::new();
+		for component in path.components() {
+			if symlink_path.is_some() {
+				relative_path.push(component);
+				continue;
+			}
+			current_path.push(component);
+			let metadata = tokio::fs::symlink_metadata(&current_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
+			let component = component
+				.as_os_str()
+				.to_str()
+				.ok_or_else(|| tg::error!("invalid tag component"))?;
+			let tg::store::path::Component::Tag { component, suffix } =
+				tg::store::path::parse_component(component)?
+			else {
+				return Err(tg::error!("invalid tag component"));
+			};
+			if metadata.is_symlink() {
+				tag_components.push(component.to_string());
+				symlink_path = Some(current_path.clone());
+			} else if metadata.is_dir() && suffix.is_none() {
+				tag_components.push(component.to_string());
+			} else {
+				return Err(tg::error!("expected a tag directory or symlink"));
+			}
+		}
+		let symlink_path = symlink_path.ok_or_else(|| tg::error!("invalid tag path"))?;
+
+		// Resolve the symlink to get the artifact ID.
+		let symlink_target = tokio::fs::read_link(&symlink_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
+		let artifact_path = symlink_path.parent().unwrap().join(symlink_target);
+		let artifact_path = tokio::fs::canonicalize(artifact_path)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
+		let component = artifact_path
+			.strip_prefix(&self.store_path)
+			.map_err(|_| tg::error!("the artifact path is not in the store directory"))?
+			.components()
+			.next()
+			.ok_or_else(|| tg::error!("invalid artifact path"))?
+			.as_os_str()
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid artifact path"))?;
+		let tg::store::path::Component::Id { id, .. } =
+			tg::store::path::parse_component(component)?
+		else {
+			return Err(tg::error!("invalid artifact path"));
+		};
+		let id: tg::object::Id = id.into();
+
+		// Determine the module kind and edge.
+		let path = if relative_path.as_os_str().is_empty() {
+			artifact_path
+		} else {
+			artifact_path.join(&relative_path)
+		};
+		let kind = self.module_kind_for_path(&path).await?;
+		let edge: tg::graph::data::Edge<tg::object::Id> = if relative_path.as_os_str().is_empty() {
+			tg::graph::data::Edge::Object(id.clone())
+		} else {
+			let directory = tg::Object::with_id(id.clone())
+				.try_unwrap_directory()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			directory
+				.get_edge_with_handle(&self.handle, &relative_path)
+				.await?
+				.to_data_artifact()
+				.into()
+		};
+
+		// Create the module.
+		let tag = tag_components
+			.join("/")
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
+		let source = tg::module::data::Source::Edge(edge);
+		let path = (!relative_path.as_os_str().is_empty()).then_some(relative_path);
+		let options = tg::referent::Options {
+			id: Some(id),
+			path,
+			tag: Some(tag),
+			..Default::default()
+		};
+		let referent = tg::Referent {
+			node: source,
+			options,
+		};
+		let module = tg::module::Data { kind, referent };
+
+		Ok(module)
+	}
+
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
 		// Verify the scheme and get the path.
 		if uri.scheme().unwrap().as_str() != "file" {
@@ -893,63 +1053,10 @@ impl Compiler {
 		}
 		let path = Path::new(uri.path().as_str());
 
-		// Handle a path in the materialized artifact directories.
+		// Handle a path in the store directory.
 		let absolute_path = path;
-		if let Ok(path) = path.strip_prefix(&self.artifacts_path) {
-			let kind = self.module_kind_for_path(absolute_path).await?;
-
-			// Parse the id.
-			let id = path
-				.components()
-				.next()
-				.ok_or_else(|| tg::error!("invalid path"))?
-				.as_os_str()
-				.to_str()
-				.ok_or_else(|| tg::error!("invalid path"))?;
-			let id = None
-				.or_else(|| id.strip_suffix(".tg.js"))
-				.or_else(|| id.strip_suffix(".tg.ts"))
-				.unwrap_or(id);
-			let id = id
-				.parse::<tg::object::Id>()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid path"))?;
-
-			let path = path.components().skip(1).collect::<PathBuf>();
-			let edge: tg::graph::data::Edge<tg::object::Id> = if path.as_os_str().is_empty() {
-				tg::graph::data::Edge::Object(id.clone())
-			} else {
-				let directory = tg::Object::with_id(id.clone())
-					.try_unwrap_directory()
-					.ok()
-					.ok_or_else(|| tg::error!("expected a directory"))?;
-				directory
-					.get_edge_with_handle(&self.handle, &path)
-					.await?
-					.to_data_artifact()
-					.into()
-			};
-			let source = tg::module::data::Source::Edge(edge);
-			let options = if path.as_os_str().is_empty() {
-				tg::referent::Options::default()
-			} else {
-				tg::referent::Options {
-					artifact: None,
-					id: Some(id),
-					location: None,
-					name: None,
-					path: Some(path),
-					tag: None,
-					tokens: tg::authorization::Tokens::default(),
-				}
-			};
-			let referent = tg::Referent {
-				node: source,
-				options,
-			};
-			let module = tg::module::Data { kind, referent };
-
-			return Ok(module);
+		if let Ok(path) = path.strip_prefix(&self.store_path) {
+			return self.module_for_store_path(path, absolute_path).await;
 		}
 
 		// Handle a path in the library directory.
@@ -958,135 +1065,6 @@ impl Compiler {
 			let source = tg::module::data::Source::Path(path.to_owned());
 			let referent = tg::Referent::with_node(source);
 			let module = tg::module::Data { kind, referent };
-			return Ok(module);
-		}
-
-		// Handle a path in the tags directory.
-		if let Ok(path) = path.strip_prefix(&self.tags_path) {
-			// Walk through the path to find the symlink.
-			let mut current_path = self.tags_path.clone();
-			let mut tag_components = Vec::new();
-			let mut symlink_found = false;
-			let mut relative_path = PathBuf::new();
-			for component in path.components() {
-				if symlink_found {
-					relative_path.push(component);
-				} else {
-					current_path.push(component);
-					let metadata = tokio::fs::symlink_metadata(&current_path)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
-					if metadata.is_symlink() {
-						tag_components.push(
-							component
-								.as_os_str()
-								.to_str()
-								.ok_or_else(|| tg::error!("invalid tag component"))?,
-						);
-						symlink_found = true;
-					} else if metadata.is_dir() {
-						tag_components.push(
-							component
-								.as_os_str()
-								.to_str()
-								.ok_or_else(|| tg::error!("invalid tag component"))?,
-						);
-					} else {
-						return Err(tg::error!("expected a directory or symlink"));
-					}
-				}
-			}
-			if !symlink_found {
-				return Err(tg::error!("the tags directory is malformed"));
-			}
-
-			// Resolve the symlink to get the artifact ID.
-			let symlink_path = self.tags_path.join(tag_components.join("/"));
-			let symlink_target = tokio::fs::read_link(&symlink_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the symlink"))?;
-
-			// The symlink target is a relative path to the artifact.
-			let artifact_path = symlink_path.parent().unwrap().join(symlink_target);
-			let artifact_path = tokio::fs::canonicalize(artifact_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-
-			// Extract the directory ID from the artifact path.
-			let id = artifact_path
-				.strip_prefix(&self.artifacts_path)
-				.map_err(|_| tg::error!("the artifact path is not in the artifacts directory"))?
-				.components()
-				.next()
-				.ok_or_else(|| tg::error!("invalid artifact path"))?
-				.as_os_str()
-				.to_str()
-				.ok_or_else(|| tg::error!("invalid artifact path"))?;
-			let id = None
-				.or_else(|| id.strip_suffix(".tg.js"))
-				.or_else(|| id.strip_suffix(".tg.ts"))
-				.unwrap_or(id);
-			let id = id
-				.parse::<tg::object::Id>()
-				.ok()
-				.ok_or_else(|| tg::error!("invalid artifact ID"))?;
-
-			// Determine the module kind.
-			let path = if relative_path.as_os_str().is_empty() {
-				artifact_path.clone()
-			} else {
-				artifact_path.join(&relative_path)
-			};
-			let kind = self.module_kind_for_path(&path).await?;
-
-			// Get the edge.
-			let edge: tg::graph::data::Edge<tg::object::Id> =
-				if relative_path.as_os_str().is_empty() {
-					tg::graph::data::Edge::Object(id.clone())
-				} else {
-					let directory = tg::Object::with_id(id.clone())
-						.try_unwrap_directory()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a directory"))?;
-					directory
-						.get_edge_with_handle(&self.handle, &relative_path)
-						.await?
-						.to_data_artifact()
-						.into()
-				};
-
-			// Create the tag, stripping any extension from the last component.
-			let tag_string = tag_components.join("/");
-			let tag_string = None
-				.or_else(|| tag_string.strip_suffix(".tg.js"))
-				.or_else(|| tag_string.strip_suffix(".tg.ts"))
-				.unwrap_or(&tag_string);
-			let tag = tag_string
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the tag"))?;
-
-			// Create the referent.
-			let source = tg::module::data::Source::Edge(edge);
-			let path = if relative_path.as_os_str().is_empty() {
-				None
-			} else {
-				Some(relative_path)
-			};
-			let options = tg::referent::Options {
-				artifact: None,
-				id: Some(id),
-				location: None,
-				name: None,
-				path,
-				tag: Some(tag),
-				tokens: tg::authorization::Tokens::default(),
-			};
-			let referent = tg::Referent {
-				node: source,
-				options,
-			};
-			let module = tg::module::Data { kind, referent };
-
 			return Ok(module);
 		}
 
@@ -1172,13 +1150,17 @@ impl Compiler {
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
+					let extension = options.path.is_none().then_some(extension).flatten();
 					let artifact = id.clone().try_into()?;
-					let referent_options = tg::referent::Options {
-						location: options.location.clone(),
-						tokens: options.tokens.clone(),
-						..tg::referent::Options::default()
-					};
-					let artifact = tg::Referent::new(artifact, referent_options);
+					let artifact = tg::Referent::new(
+						artifact,
+						tg::referent::Options {
+							location: options.location.clone(),
+							tag: Some(tag.clone()),
+							tokens: options.tokens.clone(),
+							..Default::default()
+						},
+					);
 					let arg = tg::checkout::Arg {
 						artifact,
 						dependencies: true,
@@ -1187,94 +1169,12 @@ impl Compiler {
 						lock: None,
 						path: None,
 					};
-					tg::checkout::checkout_with_handle(&self.handle, arg).await?;
-					let tag = tag.to_string();
-					let components = tag.split('/').collect::<Vec<_>>();
-					let mut path = self.tags_path.clone();
-					for (i, component) in components.iter().enumerate() {
-						path.push(component);
-						let is_leaf = i == components.len() - 1;
-						if is_leaf {
-							if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await {
-								if metadata.is_dir() {
-									tokio::fs::remove_dir_all(&path).await.map_err(|error| {
-										tg::error!(!error, "failed to remove the directory")
-									})?;
-								} else {
-									tokio::fs::remove_file(&path).await.map_err(|error| {
-										tg::error!(!error, "failed to remove the file")
-									})?;
-								}
-							}
-						} else {
-							match tokio::fs::symlink_metadata(&path).await {
-								Ok(metadata) if metadata.is_dir() => (),
-								Ok(_) => {
-									tokio::fs::remove_file(&path).await.map_err(|error| {
-										tg::error!(!error, "failed to remove the file")
-									})?;
-									tokio::fs::create_dir(&path).await.map_err(|error| {
-										tg::error!(!error, "failed to create the directory")
-									})?;
-								},
-								Err(_) => {
-									tokio::fs::create_dir(&path).await.map_err(|error| {
-										tg::error!(!error, "failed to create the directory")
-									})?;
-								},
-							}
-						}
-					}
-
-					// Create the target.
-					let depth = components.len();
-					let mut target = PathBuf::new();
-					for _ in 0..depth {
-						target.push("..");
-					}
-					target.push("artifacts");
-					if options.path.is_none() {
-						if let Some(ext) = &extension {
-							target.push(format!("{id}{ext}"));
-						} else {
-							target.push(id.to_string());
-						}
-					} else {
-						target.push(id.to_string());
-					}
-
-					// Create the symlink.
-					let add_extension = options.path.is_none() && extension.is_some();
-					let symlink_path = if add_extension {
-						let ext = extension.as_ref().unwrap();
-						let mut symlink_path = path.clone();
-						let file_name = symlink_path.file_name().unwrap().to_str().unwrap();
-						symlink_path.set_file_name(format!("{file_name}{ext}"));
-						symlink_path
-					} else {
-						path.clone()
-					};
-					if let Ok(metadata) = tokio::fs::symlink_metadata(&symlink_path).await {
-						if metadata.is_dir() {
-							tokio::fs::remove_dir_all(&symlink_path)
-								.await
-								.map_err(|error| {
-									tg::error!(!error, "failed to remove the directory")
-								})?;
-						} else {
-							tokio::fs::remove_file(&symlink_path)
-								.await
-								.map_err(|error| tg::error!(!error, "failed to remove the file"))?;
-						}
-					}
-					tokio::fs::symlink(&target, &symlink_path)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
+					let path = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
 
 					if let Some(path_) = &options.path {
-						symlink_path.join(path_)
+						path.join(path_)
 					} else {
-						symlink_path
+						path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					let artifact = id.clone().try_into()?;

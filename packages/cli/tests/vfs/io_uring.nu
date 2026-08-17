@@ -18,8 +18,8 @@ let server = spawn --directory $server_path --config {
 	}
 }
 
-^mountpoint -q ($server_path | path join 'artifacts')
-assert ($env.LAST_EXIT_CODE == 0) 'expected the artifacts path to be mounted as a VFS'
+^mountpoint -q ($server_path | path join 'store')
+assert ($env.LAST_EXIT_CODE == 0) 'expected the store path to be mounted as a VFS'
 
 let path = artifact {
 	file.txt: 'hello'
