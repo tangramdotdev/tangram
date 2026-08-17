@@ -139,7 +139,10 @@ impl Cli {
 				) && referent.options.tag.is_none()
 			{
 				artifacts.push(None);
-				nodes.push(tg::Referent::new(id.clone(), referent.options));
+				nodes.push(tg::Referent::new(
+					tg::Selector::Id(id.clone()),
+					referent.options,
+				));
 				continue;
 			}
 			let artifact = referent.into_graph_edge()?.try_map(|edge| {
@@ -151,29 +154,18 @@ impl Cli {
 			})?;
 			artifacts.push(Some(artifact.node.clone()));
 			let Some(tag) = artifact.options.tag.clone() else {
-				nodes.push(artifact.map(Into::into));
+				nodes.push(artifact.map(|id| tg::Selector::Id(id.into())));
 				continue;
 			};
-			let output = client
-				.try_get_tag(
-					&tg::tag::Selector::Specifier(tag.clone()),
-					tg::tag::get::Arg {
-						location: artifact.options.location.clone().map(Into::into),
-						..Default::default()
-					},
-				)
-				.await?
-				.ok_or_else(|| tg::error!(%tag, "the tag was not found"))?;
 			let options = tg::referent::Options {
 				artifact: Some(artifact.node),
 				id: artifact.options.id,
-				location: output.location,
+				location: artifact.options.location,
 				name: artifact.options.name,
 				path: artifact.options.path,
-				tokens: output.tokens,
 				..Default::default()
 			};
-			nodes.push(tg::Referent::new(output.data.id.into(), options));
+			nodes.push(tg::Referent::new(tg::Selector::Specifier(tag), options));
 		}
 		let external_artifact = path.as_ref().and_then(|_| {
 			(nodes.len() == 1)

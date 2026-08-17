@@ -286,7 +286,16 @@ impl Session {
 			return Err(tg::error!("the tag target does not match"));
 		}
 
-		// Create the token.
+		let token = self.create_tag_target_token_with_permissions(target, data.permissions)?;
+
+		Ok(ControlFlow::Break(token))
+	}
+
+	pub(crate) fn create_tag_target_token_with_permissions(
+		&self,
+		target: &tg::Id,
+		permissions: Vec<tg::authorization::Permission>,
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let time_to_live = if target.kind().is_object() {
 			self.server.config.object.grant_time_to_live
 		} else if target.kind() == tg::id::Kind::Process {
@@ -296,9 +305,9 @@ impl Session {
 		};
 		let expires_at =
 			self.server.clock.unix_timestamp()? + time_to_live.as_secs().to_i64().unwrap();
-		let token = self.create_token(target.clone(), data.permissions, expires_at)?;
+		let token = self.create_token(target.clone(), permissions, expires_at)?;
 
-		Ok(ControlFlow::Break(token))
+		Ok(token)
 	}
 
 	pub(super) async fn match_tags_for_resolve(

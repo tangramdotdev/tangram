@@ -1152,24 +1152,12 @@ impl Compiler {
 					};
 					let extension = options.path.is_none().then_some(extension).flatten();
 					let artifact: tg::artifact::Id = id.clone().try_into()?;
-					let tag_output = self
-						.handle
-						.try_get_tag(
-							&tg::tag::Selector::Specifier(tag.clone()),
-							tg::tag::get::Arg {
-								location: options.location.clone().map(Into::into),
-								..Default::default()
-							},
-						)
-						.await?
-						.ok_or_else(|| tg::error!(%tag, "the tag was not found"))?;
 					let node = tg::Referent::new(
-						tag_output.data.id.into(),
+						tg::Selector::Specifier(tag.clone()),
 						tg::referent::Options {
 							artifact: Some(artifact),
 							id: options.id.clone(),
-							location: tag_output.location,
-							tokens: tag_output.tokens,
+							location: options.location.clone(),
 							..Default::default()
 						},
 					);
@@ -1201,7 +1189,7 @@ impl Compiler {
 						extension: None,
 						force: false,
 						lock: None,
-						nodes: vec![artifact.map(Into::into)],
+						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
 						path: None,
 					};
 					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
@@ -1223,7 +1211,7 @@ impl Compiler {
 						extension,
 						force: false,
 						lock: None,
-						nodes: vec![artifact.map(Into::into)],
+						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
 						path: None,
 					};
 					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?

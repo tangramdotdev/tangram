@@ -4,13 +4,15 @@ use {
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	std::{
-		collections::HashSet,
+		collections::{BTreeMap, HashSet},
+		ops::ControlFlow,
 		os::unix::fs::PermissionsExt as _,
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 		pin::pin,
 	},
 	tangram_client::prelude::*,
+	tangram_database as db,
 	tangram_futures::{
 		stream::{Ext as _, TryExt as _},
 		task::Task,
@@ -38,6 +40,11 @@ struct State {
 	path: PathBuf,
 	progress: crate::progress::Handle<()>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+}
+
+struct NamedCheckoutEntry {
+	artifact: Option<tg::artifact::Id>,
+	node: super::NamedNode,
 }
 
 #[derive(Clone)]
@@ -148,81 +155,172 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn checkout_named_nodes(
+	pub(super) async fn checkout_named_nodes_local(
 		&self,
-		id: &tg::Id,
+		selector: &tg::Selector<tg::Id>,
+		include_hierarchy: bool,
 	) -> tg::Result<Vec<super::NamedNode>> {
-		let mut current = Some(id.clone());
-		let mut ids = HashSet::with_hasher(tg::id::BuildHasher);
-		let mut nodes = Vec::new();
-		while let Some(id) = current {
-			if !ids.insert(id.clone()) {
-				return Err(tg::error!(%id, "the named node hierarchy contains a cycle"));
-			}
-			let node =
-				match id.kind() {
-					tg::id::Kind::Group => {
-						let id = tg::group::Id::try_from(id)?;
-						let group = self.server.index.try_get_group(&id).await?.ok_or_else(
-							|| tg::error!(%id, "the group was not found in the index"),
-						)?;
-						super::NamedNode {
-							id: id.into(),
-							parent: group.parent,
-							specifier: group.specifier,
-							target: None,
-						}
-					},
-					tg::id::Kind::Organization => {
-						let id = tg::organization::Id::try_from(id)?;
-						let organization = self
-							.server
-							.index
-							.try_get_organization(&id)
-							.await?
-							.ok_or_else(
-								|| tg::error!(%id, "the organization was not found in the index"),
-							)?;
-						super::NamedNode {
-							id: id.into(),
-							parent: None,
-							specifier: organization.specifier,
-							target: None,
-						}
-					},
-					tg::id::Kind::Tag => {
-						let id = tg::tag::Id::try_from(id)?;
-						let tag =
-							self.server.index.try_get_tag(&id).await?.ok_or_else(
-								|| tg::error!(%id, "the tag was not found in the index"),
-							)?;
-						super::NamedNode {
-							id: id.into(),
-							parent: tag.parent,
-							specifier: tag.specifier,
-							target: Some(tag.target),
-						}
-					},
-					tg::id::Kind::User => {
-						let id = tg::user::Id::try_from(id)?;
-						let user = self.server.index.try_get_user(&id).await?.ok_or_else(
-							|| tg::error!(%id, "the user was not found in the index"),
-						)?;
-						super::NamedNode {
-							id: id.into(),
-							parent: None,
-							specifier: user.specifier,
-							target: None,
-						}
-					},
-					_ => return Err(tg::error!(%id, "the node is not named")),
-				};
-			current = node.parent.clone();
-			nodes.push(node);
-		}
-		nodes.reverse();
+		let selector = selector.clone();
+		let nodes = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let selector = selector.clone();
+				async move {
+					Self::checkout_named_nodes_local_with_transaction(
+						transaction,
+						&selector,
+						include_hierarchy,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
 
 		Ok(nodes)
+	}
+
+	async fn checkout_named_nodes_local_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		selector: &tg::Selector<tg::Id>,
+		include_hierarchy: bool,
+	) -> tg::Result<ControlFlow<Vec<super::NamedNode>, crate::database::Error>> {
+		let id = match selector {
+			tg::Selector::Id(id) => id.clone(),
+			tg::Selector::Specifier(specifier) => {
+				match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
+					.await?
+				{
+					ControlFlow::Break(Some(id)) => id,
+					ControlFlow::Break(None) => {
+						return Err(tg::error!(%specifier, "the named node was not found"));
+					},
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				}
+			},
+		};
+		let node = match Self::try_get_named_checkout_node_local_with_transaction(transaction, &id)
+			.await?
+		{
+			ControlFlow::Break(Some(node)) => node,
+			ControlFlow::Break(None) => {
+				return Err(tg::error!(%id, "the named node was not found"));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if !include_hierarchy {
+			return Ok(ControlFlow::Break(vec![node]));
+		}
+		let mut nodes = Vec::with_capacity(node.specifier.components().count());
+		let mut parent = None;
+		for specifier in node.specifier.ancestors() {
+			let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
+				.await?
+			{
+				ControlFlow::Break(Some(id)) => id,
+				ControlFlow::Break(None) => {
+					return Err(tg::error!(%specifier, "the named node ancestor was not found"));
+				},
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			nodes.push(super::NamedNode {
+				id: id.clone(),
+				parent,
+				permissions: Vec::new(),
+				specifier,
+				target: None,
+			});
+			parent = Some(id);
+		}
+		if node.parent != parent {
+			return Err(tg::error!(%id, "the named node parent does not match its specifier"));
+		}
+		nodes.push(node);
+
+		Ok(ControlFlow::Break(nodes))
+	}
+
+	async fn try_get_named_checkout_node_local_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		id: &tg::Id,
+	) -> tg::Result<ControlFlow<Option<super::NamedNode>, crate::database::Error>> {
+		let node = match id.kind() {
+			tg::id::Kind::Group => {
+				let id = tg::group::Id::try_from(id.clone())?;
+				let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+					ControlFlow::Break(group) => group,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(error));
+					},
+				};
+				group.map(|group| super::NamedNode {
+					id: id.into(),
+					parent: group.parent,
+					permissions: Vec::new(),
+					specifier: group.specifier,
+					target: None,
+				})
+			},
+			tg::id::Kind::Organization => {
+				let id = tg::organization::Id::try_from(id.clone())?;
+				let organization =
+					match Self::try_get_organization_with_transaction(transaction, &id).await? {
+						ControlFlow::Break(organization) => organization,
+						ControlFlow::Continue(error) => {
+							return Ok(ControlFlow::Continue(error));
+						},
+					};
+				organization.map(|organization| super::NamedNode {
+					id: id.into(),
+					parent: None,
+					permissions: Vec::new(),
+					specifier: organization.specifier,
+					target: None,
+				})
+			},
+			tg::id::Kind::Tag => {
+				let id = tg::tag::Id::try_from(id.clone())?;
+				let tag = match Self::try_get_tag_data_with_transaction(transaction, &id).await? {
+					ControlFlow::Break(tag) => tag,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(error));
+					},
+				};
+				tag.map(|tag| {
+					let target = match tag.target {
+						tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+						tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+					};
+					super::NamedNode {
+						id: id.into(),
+						parent: tag.parent,
+						permissions: tag.permissions,
+						specifier: tag.specifier,
+						target: Some(target),
+					}
+				})
+			},
+			tg::id::Kind::User => {
+				let id = tg::user::Id::try_from(id.clone())?;
+				let user = match Self::try_get_user_with_transaction(transaction, &id).await? {
+					ControlFlow::Break(user) => user,
+					ControlFlow::Continue(error) => {
+						return Ok(ControlFlow::Continue(error));
+					},
+				};
+				user.map(|user| super::NamedNode {
+					id: id.into(),
+					parent: None,
+					permissions: Vec::new(),
+					specifier: user.specifier,
+					target: None,
+				})
+			},
+			_ => return Err(tg::error!(%id, "the node is not named")),
+		};
+
+		Ok(ControlFlow::Break(node))
 	}
 
 	pub(super) fn named_checkout_path(
@@ -235,27 +333,36 @@ impl Session {
 			.join(Server::named_checkout_relative_path(node, suffix))
 	}
 
-	pub(super) async fn materialize_named_checkout(
+	pub(super) async fn materialize_named_checkouts(
 		&self,
-		expected: &[super::NamedNode],
-		artifact: Option<&tg::artifact::Id>,
+		checkouts: &[super::NamedCheckout],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
 		if self.server.vfs.lock().unwrap().is_some() {
 			return Ok(());
 		}
+		let entries = Self::named_checkout_entries(checkouts)?;
+		if entries.is_empty() {
+			return Ok(());
+		}
+		let ids = entries
+			.iter()
+			.map(|entry| entry.node.id.clone())
+			.collect::<Vec<_>>();
 		for attempt in 0..2 {
 			let guard = self.server.checkout_lock.lock().await;
 			if self.server.vfs.lock().unwrap().is_some() {
 				return Ok(());
 			}
-			let actual = self
-				.checkout_named_nodes(&expected.last().unwrap().id)
-				.await?;
-			if actual == expected {
+			let actual = self.server.try_get_named_checkout_nodes(&ids).await?;
+			if entries
+				.iter()
+				.all(|entry| actual.get(&entry.node.id) == Some(&entry.node))
+			{
 				let touched_at = self.server.clock.unix_timestamp()?;
 				let mut batch = tangram_index::batch::Arg::default();
-				for node in expected {
+				for entry in &entries {
+					let node = &entry.node;
 					if node.id.kind() == tg::id::Kind::Tag {
 						// Replace the tag checkout so a changed target does not retain its old dependency.
 						batch
@@ -264,7 +371,7 @@ impl Session {
 					}
 					let mut dependencies = node.parent.iter().cloned().collect::<Vec<_>>();
 					if node.id.kind() == tg::id::Kind::Tag {
-						let artifact = artifact.ok_or_else(
+						let artifact = entry.artifact.as_ref().ok_or_else(
 							|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
 						)?;
 						dependencies.push(artifact.clone().into());
@@ -278,12 +385,10 @@ impl Session {
 					));
 				}
 				self.server.index.batch(batch).await?;
+				crate::checkpoint!(self.server, "checkout.named.materialize").await;
 				self.server
-					.materialize_named_checkout_entries_with_lock(
-						&guard, expected, artifact, suffix,
-					)
+					.materialize_named_checkout_entries_with_lock(&guard, &entries, suffix)
 					.await?;
-				drop(guard);
 
 				return Ok(());
 			}
@@ -293,10 +398,47 @@ impl Session {
 			}
 		}
 
-		Err(tg::error!(
-			id = %expected.last().unwrap().id,
-			"the named node changed while it was checked out"
-		))
+		Err(tg::error!("a named node changed while it was checked out"))
+	}
+
+	fn named_checkout_entries(
+		checkouts: &[super::NamedCheckout],
+	) -> tg::Result<Vec<NamedCheckoutEntry>> {
+		let mut entries = BTreeMap::<tg::Id, NamedCheckoutEntry>::new();
+		for checkout in checkouts {
+			for node in &checkout.nodes {
+				let artifact = if node.id.kind() == tg::id::Kind::Tag {
+					checkout.artifact.clone()
+				} else {
+					None
+				};
+				if let Some(previous) = entries.get(&node.id) {
+					if previous.artifact != artifact || previous.node != *node {
+						return Err(
+							tg::error!(id = %node.id, "the named checkout is inconsistent"),
+						);
+					}
+					continue;
+				}
+				let entry = NamedCheckoutEntry {
+					artifact,
+					node: node.clone(),
+				};
+				entries.insert(node.id.clone(), entry);
+			}
+		}
+		let mut entries = entries.into_values().collect::<Vec<_>>();
+		entries.sort_by(|a, b| {
+			a.node
+				.specifier
+				.components()
+				.count()
+				.cmp(&b.node.specifier.components().count())
+				.then_with(|| a.node.specifier.cmp(&b.node.specifier))
+				.then_with(|| a.node.id.cmp(&b.node.id))
+		});
+
+		Ok(entries)
 	}
 
 	async fn checkout_internal_ensure_stored_and_authorized(
@@ -1414,6 +1556,108 @@ impl Session {
 }
 
 impl Server {
+	pub(crate) async fn try_get_named_checkout_nodes(
+		&self,
+		ids: &[tg::Id],
+	) -> tg::Result<BTreeMap<tg::Id, super::NamedNode>> {
+		let mut group_ids = Vec::new();
+		let mut organization_ids = Vec::new();
+		let mut tag_ids = Vec::new();
+		let mut user_ids = Vec::new();
+		for id in ids {
+			match id.kind() {
+				tg::id::Kind::Group => group_ids.push(tg::group::Id::try_from(id.clone())?),
+				tg::id::Kind::Organization => {
+					organization_ids.push(tg::organization::Id::try_from(id.clone())?);
+				},
+				tg::id::Kind::Tag => tag_ids.push(tg::tag::Id::try_from(id.clone())?),
+				tg::id::Kind::User => user_ids.push(tg::user::Id::try_from(id.clone())?),
+				_ => return Err(tg::error!(%id, "the node is not named")),
+			}
+		}
+
+		let groups = async {
+			if group_ids.is_empty() {
+				Ok(Vec::new())
+			} else {
+				self.index.try_get_groups(&group_ids).await
+			}
+		};
+		let organizations = async {
+			if organization_ids.is_empty() {
+				Ok(Vec::new())
+			} else {
+				self.index.try_get_organizations(&organization_ids).await
+			}
+		};
+		let tags = async {
+			if tag_ids.is_empty() {
+				Ok(Vec::new())
+			} else {
+				self.index.try_get_tags(&tag_ids).await
+			}
+		};
+		let users = async {
+			if user_ids.is_empty() {
+				Ok(Vec::new())
+			} else {
+				self.index.try_get_users(&user_ids).await
+			}
+		};
+		let (groups, organizations, tags, users) =
+			futures::try_join!(groups, organizations, tags, users)?;
+		let mut nodes = BTreeMap::<tg::Id, super::NamedNode>::new();
+		for (id, group) in std::iter::zip(group_ids, groups) {
+			if let Some(group) = group {
+				let node = super::NamedNode {
+					id: id.clone().into(),
+					parent: group.parent,
+					permissions: Vec::new(),
+					specifier: group.specifier,
+					target: None,
+				};
+				nodes.insert(id.into(), node);
+			}
+		}
+		for (id, organization) in std::iter::zip(organization_ids, organizations) {
+			if let Some(organization) = organization {
+				let node = super::NamedNode {
+					id: id.clone().into(),
+					parent: None,
+					permissions: Vec::new(),
+					specifier: organization.specifier,
+					target: None,
+				};
+				nodes.insert(id.into(), node);
+			}
+		}
+		for (id, tag) in std::iter::zip(tag_ids, tags) {
+			if let Some(tag) = tag {
+				let node = super::NamedNode {
+					id: id.clone().into(),
+					parent: tag.parent,
+					permissions: tag.permissions,
+					specifier: tag.specifier,
+					target: Some(tag.target),
+				};
+				nodes.insert(id.into(), node);
+			}
+		}
+		for (id, user) in std::iter::zip(user_ids, users) {
+			if let Some(user) = user {
+				let node = super::NamedNode {
+					id: id.clone().into(),
+					parent: None,
+					permissions: Vec::new(),
+					specifier: user.specifier,
+					target: None,
+				};
+				nodes.insert(id.into(), node);
+			}
+		}
+		Ok(nodes)
+	}
+
 	pub(crate) async fn remove_all_named_checkout_entries_with_lock(
 		&self,
 		_guard: &tokio::sync::MutexGuard<'_, ()>,
@@ -1449,24 +1693,25 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn materialize_named_checkout_entries_with_lock(
+	async fn materialize_named_checkout_entries_with_lock(
 		&self,
 		_guard: &tokio::sync::MutexGuard<'_, ()>,
-		nodes: &[super::NamedNode],
-		artifact: Option<&tg::artifact::Id>,
+		entries: &[NamedCheckoutEntry],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
 		if self.vfs.lock().unwrap().is_some() {
 			return Ok(());
 		}
-		for (index, node) in nodes.iter().enumerate() {
-			let is_last = index + 1 == nodes.len();
-			let suffix = is_last.then_some(suffix).flatten();
+		for entry in entries {
+			let node = &entry.node;
+			let suffix = (node.id.kind() == tg::id::Kind::Tag)
+				.then_some(suffix)
+				.flatten();
 			let path = self
 				.store_path()
 				.join(Self::named_checkout_relative_path(node, suffix));
 			if node.id.kind() == tg::id::Kind::Tag {
-				let artifact = artifact.ok_or_else(
+				let artifact = entry.artifact.as_ref().ok_or_else(
 					|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
 				)?;
 				Self::materialize_tag_checkout_entry(&path, &node.specifier, artifact, suffix)
@@ -1491,6 +1736,7 @@ impl Server {
 		let node = super::NamedNode {
 			id: id.clone(),
 			parent: None,
+			permissions: Vec::new(),
 			specifier: specifier.clone(),
 			target: None,
 		};

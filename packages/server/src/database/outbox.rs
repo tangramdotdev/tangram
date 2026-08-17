@@ -19,14 +19,9 @@ pub struct Item {
 	pub payload: Bytes,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Key {
-	pub batch: BatchId,
-}
-
 #[derive(Clone, Debug)]
 pub struct DeleteArg {
-	pub keys: Vec<Key>,
+	pub batch: BatchId,
 	pub region: String,
 }
 
@@ -166,21 +161,9 @@ impl Database {
 		transaction: &Transaction<'_>,
 		arg: DeleteArg,
 	) -> tg::Result<ControlFlow<(), super::Error>> {
-		if arg.keys.is_empty() {
-			return Ok(ControlFlow::Break(()));
-		}
 		let p = transaction.p();
-		let mut params = db::params![arg.region];
-		let mut predicates = Vec::with_capacity(arg.keys.len());
-		for (index, key) in arg.keys.into_iter().enumerate() {
-			let offset = index + 2;
-			predicates.push(format!("batch = {p}{offset}"));
-			params.extend(db::params![key.batch.value()]);
-		}
-		let statement = format!(
-			"delete from outbox where region = {p}1 and ({});",
-			predicates.join(" or ")
-		);
+		let statement = format!("delete from outbox where region = {p}1 and batch <= {p}2;");
+		let params = db::params![arg.region, arg.batch.value()];
 		let result = transaction.execute(statement.into(), params).await;
 		crate::database::retry!(result, "failed to delete the database outbox items");
 

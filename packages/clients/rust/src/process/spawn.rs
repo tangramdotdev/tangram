@@ -902,7 +902,7 @@ where
 				extension: None,
 				force: false,
 				lock: None,
-				nodes: vec![referent.map(Into::into)],
+				nodes: vec![referent.map(|id| tg::Selector::Id(id.into()))],
 				path: None,
 			},
 		)

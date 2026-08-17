@@ -5,7 +5,11 @@ use {
 		stream::{self, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeMap, pin::pin, time::Duration},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		pin::pin,
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
@@ -466,13 +470,11 @@ impl Indexer {
 
 		// Deserialize the index batches.
 		let count = entries.len();
+		let batch = entries.last().unwrap().batch;
 		let mut args = Vec::with_capacity(count);
-		let mut keys = Vec::with_capacity(count);
 		for entry in entries {
 			let arg = tangram_index::batch::Arg::deserialize(&entry.payload)?;
 			args.push(arg);
-			let key = crate::database::outbox::Key { batch: entry.batch };
-			keys.push(key);
 		}
 
 		// Submit each outbox entry sequentially to preserve transaction order.
@@ -485,6 +487,7 @@ impl Indexer {
 				})?;
 				continue;
 			}
+			crate::checkpoint!(self.server, "indexer.database_outbox.named_node").await;
 			let guard = self.server.checkout_lock.lock().await;
 			if self.server.vfs.lock().unwrap().is_some() {
 				self.server.index.batch(arg).await.map_err(|error| {
@@ -511,7 +514,7 @@ impl Indexer {
 				.map_err(|error| tg::error!(!error, "failed to index a database outbox batch"))?;
 		}
 		let arg = crate::database::outbox::DeleteArg {
-			keys,
+			batch,
 			region: region.to_owned(),
 		};
 		self.server
@@ -524,80 +527,91 @@ impl Indexer {
 	}
 
 	fn database_outbox_batch_contains_named_node_mutation(arg: &tangram_index::batch::Arg) -> bool {
-		arg.items.iter().any(|item| {
-			matches!(
-				item,
-				tangram_index::batch::Item::DeleteGroup(_)
-					| tangram_index::batch::Item::DeleteOrganization(_)
-					| tangram_index::batch::Item::DeleteTag(_)
-					| tangram_index::batch::Item::DeleteUser(_)
-					| tangram_index::batch::Item::PutGroup(_)
-					| tangram_index::batch::Item::PutOrganization(_)
-					| tangram_index::batch::Item::PutTag(_)
-					| tangram_index::batch::Item::PutUser(_)
-			)
-		})
+		arg.items
+			.iter()
+			.any(|item| Self::database_outbox_named_node_id(item).is_some())
+	}
+
+	fn database_outbox_named_node_id(item: &tangram_index::batch::Item) -> Option<tg::Id> {
+		let id = match item {
+			tangram_index::batch::Item::DeleteGroup(id) => id.clone().into(),
+			tangram_index::batch::Item::DeleteOrganization(id) => id.clone().into(),
+			tangram_index::batch::Item::DeleteTag(id) => id.clone().into(),
+			tangram_index::batch::Item::DeleteUser(id) => id.clone().into(),
+			tangram_index::batch::Item::PutGroup(arg) => arg.id.clone().into(),
+			tangram_index::batch::Item::PutOrganization(arg) => arg.id.clone().into(),
+			tangram_index::batch::Item::PutTag(arg) => arg.id.clone().into(),
+			tangram_index::batch::Item::PutUser(arg) => arg.id.clone().into(),
+			_ => return None,
+		};
+
+		Some(id)
 	}
 
 	async fn prepare_database_outbox_batch(
 		&self,
 		arg: tangram_index::batch::Arg,
 	) -> tg::Result<(tangram_index::batch::Arg, Vec<NamedCheckout>)> {
+		let ids = arg
+			.items
+			.iter()
+			.filter_map(Self::database_outbox_named_node_id)
+			.collect::<BTreeSet<_>>()
+			.into_iter()
+			.collect::<Vec<_>>();
+		let nodes = self.server.try_get_named_checkout_nodes(&ids).await?;
 		let mut invalidations = BTreeMap::<tg::Id, tg::Specifier>::new();
 		let mut items = Vec::with_capacity(arg.items.len());
 		for item in arg.items {
 			let invalidation = match &item {
-				tangram_index::batch::Item::DeleteGroup(id) => self
-					.server
-					.index
-					.try_get_group(id)
-					.await?
-					.map(|group| (tg::Id::from(id.clone()), group.specifier)),
-				tangram_index::batch::Item::DeleteOrganization(id) => self
-					.server
-					.index
-					.try_get_organization(id)
-					.await?
-					.map(|organization| (tg::Id::from(id.clone()), organization.specifier)),
-				tangram_index::batch::Item::DeleteTag(id) => self
-					.server
-					.index
-					.try_get_specifier_for_id(&tg::Id::from(id.clone()))
-					.await?
-					.map(|specifier| (tg::Id::from(id.clone()), specifier)),
-				tangram_index::batch::Item::DeleteUser(id) => self
-					.server
-					.index
-					.try_get_user(id)
-					.await?
-					.map(|user| (tg::Id::from(id.clone()), user.specifier)),
-				tangram_index::batch::Item::PutGroup(arg) => self
-					.server
-					.index
-					.try_get_group(&arg.id)
-					.await?
-					.filter(|group| group.parent != arg.parent || group.specifier != arg.specifier)
-					.map(|group| (tg::Id::from(arg.id.clone()), group.specifier)),
-				tangram_index::batch::Item::PutOrganization(arg) => self
-					.server
-					.index
-					.try_get_organization(&arg.id)
-					.await?
-					.filter(|organization| organization.specifier != arg.specifier)
-					.map(|organization| (tg::Id::from(arg.id.clone()), organization.specifier)),
-				tangram_index::batch::Item::PutTag(arg) => self
-					.server
-					.index
-					.try_get_specifier_for_id(&tg::Id::from(arg.id.clone()))
-					.await?
-					.map(|specifier| (tg::Id::from(arg.id.clone()), specifier)),
-				tangram_index::batch::Item::PutUser(arg) => self
-					.server
-					.index
-					.try_get_user(&arg.id)
-					.await?
-					.filter(|user| user.specifier != arg.specifier)
-					.map(|user| (tg::Id::from(arg.id.clone()), user.specifier)),
+				tangram_index::batch::Item::DeleteGroup(id) => {
+					let id = tg::Id::from(id.clone());
+					nodes.get(&id).map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::DeleteOrganization(id) => {
+					let id = tg::Id::from(id.clone());
+					nodes.get(&id).map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::DeleteTag(id) => {
+					let id = tg::Id::from(id.clone());
+					nodes.get(&id).map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::DeleteUser(id) => {
+					let id = tg::Id::from(id.clone());
+					nodes.get(&id).map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::PutGroup(arg) => {
+					let id = tg::Id::from(arg.id.clone());
+					nodes
+						.get(&id)
+						.filter(|node| node.parent != arg.parent || node.specifier != arg.specifier)
+						.map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::PutOrganization(arg) => {
+					let id = tg::Id::from(arg.id.clone());
+					nodes
+						.get(&id)
+						.filter(|node| node.specifier != arg.specifier)
+						.map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::PutTag(arg) => {
+					let id = tg::Id::from(arg.id.clone());
+					nodes
+						.get(&id)
+						.filter(|node| {
+							node.parent != arg.parent
+								|| node.specifier != arg.specifier
+								|| node.target.as_ref() != Some(&arg.target)
+						})
+						.map(|node| (id, node.specifier.clone()))
+				},
+				tangram_index::batch::Item::PutUser(arg) => {
+					let id = tg::Id::from(arg.id.clone());
+					nodes
+						.get(&id)
+						.filter(|node| node.specifier != arg.specifier)
+						.map(|node| (id, node.specifier.clone()))
+				},
 				_ => None,
 			};
 			if let Some((id, specifier)) = invalidation {
