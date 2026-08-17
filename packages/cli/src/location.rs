@@ -8,18 +8,17 @@ pub struct Args {
 		default_missing_value = "true",
 		id = "location.local",
 		long = "local",
-		num_args = 0..=1,
-		require_equals = true,
+		num_args = 0,
 	)]
 	local: Option<bool>,
 
 	#[arg(id = "location.location", long = "location")]
 	location: Option<tg::location::Arg>,
 
-	/// Use the specified remotes. Pass --remote for the default remote, --remote=false for no remotes, or --remote=<name>[,<name>...] for specific remotes. Can be specified multiple times or comma-separated.
+	/// Use the specified remotes. Pass --remote for the default remote or --remote=<name>[,<name>...] for specific remotes. Can be specified multiple times or comma-separated.
 	#[arg(
 		conflicts_with_all = ["location.location"],
-		default_missing_value = "true",
+		default_missing_value = "default",
 		id = "location.remotes",
 		long = "remotes",
 		num_args = 0..=1,
@@ -91,25 +90,12 @@ impl Args {
 
 		if let Some(remotes) = &self.remotes {
 			let arg = arg.get_or_insert_default();
-			match remotes.as_slice() {
-				[remote] if remote == "true" => {
-					arg.0.push(tg::location::arg::Component::Remote(
-						tg::location::arg::RemoteComponent {
-							name: "default".to_owned(),
-							regions: None,
-						},
-					));
-				},
-				[remote] if remote == "false" => (),
-				_ => {
-					arg.0.extend(remotes.iter().cloned().map(|name| {
-						tg::location::arg::Component::Remote(tg::location::arg::RemoteComponent {
-							name,
-							regions: None,
-						})
-					}));
-				},
-			}
+			arg.0.extend(remotes.iter().cloned().map(|name| {
+				tg::location::arg::Component::Remote(tg::location::arg::RemoteComponent {
+					name,
+					regions: None,
+				})
+			}));
 		}
 
 		arg

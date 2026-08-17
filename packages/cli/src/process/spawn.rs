@@ -489,6 +489,12 @@ impl Cli {
 		let client = self.client().await?;
 		let location = options.location.get();
 		let debug = options.debug.get();
+		if location
+			.as_ref()
+			.is_some_and(|location| location.to_location().is_none())
+		{
+			return Err(tg::error!("expected exactly one location"));
+		}
 
 		// Handle the build flag.
 		let reference = if options.build {
@@ -534,10 +540,7 @@ impl Cli {
 				options.cached.is_some_and(|v| v)
 					|| options.checksum.is_some()
 					|| !options.sandbox.arg.is_empty()
-					|| location
-						.as_ref()
-						.and_then(tg::location::Arg::to_location)
-						.is_some_and(|location| location.is_remote())
+					|| location.is_some()
 					|| matches!(
 						options.tty.tty,
 						Some(tg::Either::Left(true) | tg::Either::Right(_))
@@ -546,6 +549,9 @@ impl Cli {
 			Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
 			Some(tg::Either::Left(false)) => false,
 		};
+		if !sandbox && location.is_some() {
+			return Err(tg::error!("a location is not supported without a sandbox"));
+		}
 		if !sandbox && !options.sandbox.arg.is_empty() {
 			return Err(tg::error!(
 				"sandbox options are not supported without a sandbox"
