@@ -134,13 +134,13 @@ impl Cli {
 
 		let alternate_screen = args.alternate_screen.get().unwrap_or(true);
 		let mode = args.mode;
-		Task::spawn_blocking(move |stop| -> tg::Result<()> {
+		let outcome = Task::spawn_blocking(move |stop| -> tg::Result<crate::viewer::Outcome> {
 			let local_set = tokio::task::LocalSet::new();
 			let runtime = tokio::runtime::Builder::new_current_thread()
 				.enable_all()
 				.build()
 				.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
-			local_set.block_on(&runtime, async move {
+			let outcome = local_set.block_on(&runtime, async move {
 				let options = crate::viewer::Options {
 					attached: false,
 					collapse_process_children: args.collapse_process_children,
@@ -156,21 +156,29 @@ impl Cli {
 					expand_values: matches!(mode, Mode::Inline),
 					show_process_commands: true,
 				};
-				let mut viewer = crate::viewer::Viewer::new(&client, root, exit_receiver, options);
-				match mode {
-					Mode::Inline => {
-						viewer.run_inline(stop, true).await?;
-					},
-					Mode::Fullscreen => {
-						viewer.run_fullscreen(stop, alternate_screen).await?;
-					},
-				}
-				Ok::<_, tg::Error>(())
-			})
+				let mut viewer = crate::viewer::Viewer::new(&client, root, exit_receiver, options)?;
+				let outcome = match mode {
+					Mode::Fullscreen => viewer.run_fullscreen(stop, alternate_screen).await?,
+					Mode::Inline => viewer.run_inline(stop, true).await?,
+				};
+
+				Ok::<_, tg::Error>(outcome)
+			})?;
+
+			Ok(outcome)
 		})
 		.wait()
 		.await
 		.map_err(|error| tg::error!(!error, "the viewer task panicked"))??;
+		match outcome {
+			crate::viewer::Outcome::Finished | crate::viewer::Outcome::Quit => {},
+			crate::viewer::Outcome::Interrupt => {
+				self.exit.replace(130.into());
+			},
+			crate::viewer::Outcome::Terminate => {
+				self.exit.replace(143.into());
+			},
+		}
 
 		Ok(())
 	}

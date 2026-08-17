@@ -435,6 +435,7 @@ impl Session {
 			.boxed();
 
 			let session = self.clone();
+			let checkpoint_id = id.clone();
 			let id = id.clone();
 			let guard = scopeguard::guard((), move |()| {
 				if cancel.load(Ordering::SeqCst) && !stopper.as_ref().is_some_and(Stopper::stopped)
@@ -448,6 +449,13 @@ impl Session {
 					});
 				}
 			});
+			let server = self.server.clone();
+			let future = async move {
+				crate::checkpoint!(server, "process.wait.attach", process = %checkpoint_id).await;
+
+				future.await
+			}
+			.boxed();
 
 			future.attach(guard).boxed()
 		} else {

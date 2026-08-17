@@ -73,12 +73,13 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if let Some(task) = self.stdio_task.as_ref() {
-			task.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-		}
 		if let Some(task) = &self.task {
+			if let Some(stdio_task) = self.stdio_task.as_ref() {
+				stdio_task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
+			}
 			let output = task
 				.wait()
 				.await
@@ -91,7 +92,14 @@ impl<O> tg::Process<O> {
 			self.detach();
 			return Ok(wait);
 		}
-		if let Some(wait) = self.wait.lock().unwrap().take() {
+		let wait = self.wait.lock().unwrap().take();
+		if let Some(wait) = wait {
+			if let Some(stdio_task) = self.stdio_task.as_ref() {
+				stdio_task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
+			}
 			let location = self.location().and_then(|location| location.to_location());
 			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
@@ -110,7 +118,20 @@ impl<O> tg::Process<O> {
 			location: location.clone(),
 			tokens: self.tokens(),
 		};
-		let wait: tg::process::Wait = handle.wait_process(id, arg).await?.try_into()?;
+		let mut future = handle.wait_process_future(id, arg.clone()).await?;
+		if let Some(stdio_task) = self.stdio_task.as_ref() {
+			stdio_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
+		}
+		let output = loop {
+			if let Some(output) = future.await? {
+				break output;
+			}
+			future = handle.wait_process_future(id, arg.clone()).await?;
+		};
+		let wait: tg::process::Wait = output.try_into()?;
 		let location = location.and_then(|location| location.to_location());
 		wait.inherit_location(location.as_ref());
 		let tokens = self.tokens();

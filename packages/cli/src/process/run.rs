@@ -166,103 +166,105 @@ impl Cli {
 		}
 
 		// Spawn the view task if necessary.
-		let (_exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
-		let view_task = if let Some(view) = options.view {
-			let client = client.clone();
-			let root = process.clone().map(crate::viewer::Item::Process);
-			let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
-				let local_set = tokio::task::LocalSet::new();
-				let runtime = tokio::runtime::Builder::new_current_thread()
-					.enable_all()
-					.build()
-					.map_err(|error| tg::error!(!error, "failed to create the tokio runtime"))?;
-				local_set.block_on(&runtime, async move {
-					let viewer_options = crate::viewer::Options {
-						attached: true,
-						collapse_process_children: true,
-						depth: None,
-						expand_groups: false,
-						expand_metadata: false,
-						expand_objects: false,
-						expand_organizations: false,
-						expand_processes: true,
-						expand_sandboxes: false,
-						expand_tags: false,
-						expand_users: false,
-						expand_values: false,
-						show_process_commands: false,
-					};
-					let mut viewer =
-						crate::viewer::Viewer::new(&client, root, exit_receiver, viewer_options);
-					match view {
-						View::None => (),
-						View::Inline => {
-							viewer.run_inline(stop, false).await?;
-						},
-						View::Fullscreen => {
-							viewer.run_fullscreen(stop, true).await?;
+		let (view_task, view_receiver, view_ready_receiver) = match options.view {
+			None | Some(View::None) => (None, None, None),
+			Some(view) => {
+				let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
+				let (view_sender, view_receiver) = tokio::sync::oneshot::channel();
+				let (view_ready_sender, view_ready_receiver) = tokio::sync::oneshot::channel();
+				let client = client.clone();
+				let root = process.clone().map(crate::viewer::Item::Process);
+				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
+					let local_set = tokio::task::LocalSet::new();
+					let runtime = tokio::runtime::Builder::new_current_thread()
+						.enable_all()
+						.build()
+						.map_err(|error| {
+							tg::error!(!error, "failed to create the tokio runtime")
+						})?;
+					let _exit_sender = exit_sender;
+					let outcome = local_set.block_on(&runtime, async move {
+						let viewer_options = crate::viewer::Options {
+							attached: true,
+							collapse_process_children: true,
+							depth: None,
+							expand_groups: false,
+							expand_metadata: false,
+							expand_objects: false,
+							expand_organizations: false,
+							expand_processes: true,
+							expand_sandboxes: false,
+							expand_tags: false,
+							expand_users: false,
+							expand_values: false,
+							show_process_commands: false,
+						};
+						let mut viewer = crate::viewer::Viewer::new(
+							&client,
+							root,
+							exit_receiver,
+							viewer_options,
+						)?;
+						view_ready_sender.send(()).ok();
+						let outcome = match view {
+							View::Fullscreen => viewer.run_fullscreen(stop, true).await?,
+							View::Inline => viewer.run_inline(stop, false).await?,
+							View::None => unreachable!(),
+						};
+
+						Ok::<_, tg::Error>(outcome)
+					})?;
+					view_sender.send(outcome).ok();
+
+					Ok(())
+				});
+				(Some(task), Some(view_receiver), Some(view_ready_receiver))
+			},
+		};
+		if let Some(view_ready_receiver) = view_ready_receiver {
+			view_ready_receiver.await.ok();
+		}
+
+		// Await the process or a request to exit from the viewer.
+		let mut wait_future = Box::pin(
+			process
+				.node()
+				.wait_with_handle(&client, tg::process::wait::Options::default()),
+		);
+		let wait = if let Some(mut view_receiver) = view_receiver {
+			tokio::select! {
+				result = &mut wait_future => result,
+				result = &mut view_receiver => {
+					match result {
+						Err(_) | Ok(crate::viewer::Outcome::Finished) => wait_future.await,
+						Ok(outcome) => {
+							drop(wait_future);
+							if let Some(view_task) = view_task {
+								Self::stop_view_task(view_task).await;
+							}
+							match outcome {
+								crate::viewer::Outcome::Finished => unreachable!(),
+								crate::viewer::Outcome::Interrupt => {
+									self.exit.replace(130.into());
+								},
+								crate::viewer::Outcome::Quit => (),
+								crate::viewer::Outcome::Terminate => {
+									self.exit.replace(143.into());
+								},
+							}
+							return Ok(tg::Value::Null);
 						},
 					}
-					Ok::<_, tg::Error>(())
-				})
-			});
-			Some(task)
+				},
+			}
 		} else {
-			None
-		};
-
-		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
-		let cancel_task = if view_task.is_some() {
-			Some(Task::spawn({
-				let client = client.clone();
-				let process = process.clone();
-				|_| async move {
-					tokio::signal::ctrl_c().await.unwrap();
-					tokio::spawn(async move {
-						let options = tg::process::cancel::Options::default();
-						process
-							.node()
-							.cancel_with_handle(&client, options)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to cancel the process");
-							})
-							.ok();
-					});
-					tokio::signal::ctrl_c().await.unwrap();
-					std::process::exit(130);
-				}
-			}))
-		} else {
-			None
-		};
-
-		// Await the process.
-		let wait = process
-			.node()
-			.wait_with_handle(&client, tg::process::wait::Options::default())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to await the process"))?;
-
-		// Abort the cancel task.
-		if let Some(cancel_task) = cancel_task {
-			cancel_task.abort();
+			wait_future.await
 		}
+		.map_err(|error| tg::error!(!error, "failed to await the process"))?;
 
 		// Stop and await the view task.
 		if let Some(view_task) = view_task {
-			view_task.stop();
-			match view_task.wait().await {
-				Ok(Ok(())) => {},
-				Ok(Err(error)) => {
-					tracing::warn!(?error, "failed to render the viewer");
-					Self::print_warning_message("failed to render the viewer");
-				},
-				Err(error) => {
-					tracing::warn!(?error, "the viewer task panicked");
-					Self::print_warning_message("failed to render the viewer");
-				},
-			}
+			Self::stop_view_task(view_task).await;
 		}
 
 		// If verbose, return the wait output.
@@ -355,5 +357,20 @@ impl Cli {
 		}
 
 		Ok(output)
+	}
+
+	async fn stop_view_task(view_task: Task<tg::Result<()>>) {
+		view_task.stop();
+		match view_task.wait().await {
+			Ok(Ok(())) => {},
+			Ok(Err(error)) => {
+				tracing::warn!(?error, "failed to render the viewer");
+				Self::print_warning_message("failed to render the viewer");
+			},
+			Err(error) => {
+				tracing::warn!(?error, "the viewer task panicked");
+				Self::print_warning_message("failed to render the viewer");
+			},
+		}
 	}
 }

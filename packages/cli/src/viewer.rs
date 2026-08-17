@@ -2,13 +2,12 @@ use {
 	self::{data::Data, help::Help, log::Log, tree::Tree},
 	anstream::println,
 	crossterm::{self as ct, event::KeyModifiers},
-	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::TryStreamExt as _,
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
 		io::{IsTerminal as _, Write as _},
 		os::fd::AsRawFd,
-		pin::pin,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -33,9 +32,9 @@ pub struct Viewer {
 	exited: bool,
 	focus: Focus,
 	help: Help,
-	interrupt: bool,
 	log: Option<Log>,
 	quit: bool,
+	signals: Signals,
 	split: Split,
 	tree: Tree,
 	tree_finished: bool,
@@ -71,6 +70,14 @@ pub struct Options {
 	pub show_process_commands: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Outcome {
+	Finished,
+	Interrupt,
+	Quit,
+	Terminate,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Focus {
 	Help,
@@ -84,6 +91,11 @@ enum Split {
 }
 
 struct CursorGuard(std::fs::File);
+
+struct Signals {
+	interrupt: tokio::signal::unix::Signal,
+	terminate: tokio::signal::unix::Signal,
+}
 
 struct TerminalSession {
 	alternate_screen: bool,
@@ -107,13 +119,15 @@ pub fn clip(string: &str, max_width: usize) -> &str {
 }
 
 impl Viewer {
-	#[must_use]
 	pub fn new(
 		client: &tg::Client,
 		root: tg::Referent<Item>,
 		exit: tokio::sync::oneshot::Receiver<()>,
 		options: Options,
-	) -> Self {
+	) -> tg::Result<Self> {
+		// Install the signal handlers.
+		let signals = Signals::new()?;
+
 		// Create the update channel.
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 
@@ -127,28 +141,30 @@ impl Viewer {
 			update_sender.clone(),
 		);
 		let tree_finished = tree.is_finished();
-		Self {
+		let viewer = Self {
 			data,
 			exit,
 			exited: false,
 			focus: Focus::Tree,
 			help: Help,
-			interrupt: false,
 			log: None,
 			quit: false,
+			signals,
 			split: Split::Vertical,
 			tree,
 			tree_finished,
 			update_receiver,
 			_update_sender: update_sender,
-		}
+		};
+
+		Ok(viewer)
 	}
 
 	pub async fn run_fullscreen(
 		&mut self,
 		stopper: Stopper,
 		alternate_screen: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<Outcome> {
 		// Select the root.
 		self.tree.ensure_root_selected();
 
@@ -172,7 +188,7 @@ impl Viewer {
 		let result = loop {
 			// Stop when requested.
 			if stopper.stopped() {
-				break Ok(());
+				break Ok(Outcome::Finished);
 			}
 
 			// Apply pending updates.
@@ -190,43 +206,41 @@ impl Viewer {
 			}
 
 			// Exit after rendering the final frame.
-			if self.exited() {
-				break Ok(());
+			if let Some(outcome) = self.outcome() {
+				break Ok(outcome);
 			}
 
 			// Wait for and handle an event.
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
-			let event = events
-				.try_next()
-				.map_err(|error| tg::error!(!error, "failed to poll for an event"));
-			match future::select(pin!(sleep), event).await {
-				future::Either::Left(((), _)) => (),
-				future::Either::Right((Err(error), _)) => {
-					break Err(error);
+			tokio::select! {
+				outcome = self.signals.recv() => {
+					break outcome;
 				},
-				future::Either::Right((Ok(None), _)) => {
-					break Ok(());
+				result = events.try_next() => {
+					match result {
+						Err(error) => {
+							break Err(tg::error!(!error, "failed to poll for an event"));
+						},
+						Ok(None) => {
+							break Ok(Outcome::Finished);
+						},
+						Ok(Some(event)) => {
+							self.handle(&event);
+							dirty = true;
+						},
+					}
 				},
-				future::Either::Right((Ok(Some(event)), _)) => {
-					self.handle(&event);
-					dirty = true;
-				},
+				() = sleep => (),
 			}
 		};
 
-		// Restore the terminal before forwarding an interrupt to the process signal handler.
+		// Restore the terminal before reporting the outcome.
 		drop(terminal);
-		if self.interrupt {
-			// SAFETY: Raising SIGINT forwards the terminal interrupt after the terminal state has been restored.
-			unsafe {
-				libc::raise(libc::SIGINT);
-			}
-		}
 
 		result
 	}
 
-	pub async fn run_inline(&mut self, stopper: Stopper, print_final: bool) -> tg::Result<()> {
+	pub async fn run_inline(&mut self, stopper: Stopper, print_final: bool) -> tg::Result<Outcome> {
 		let mut tty = if std::io::stderr().is_terminal() {
 			tangram_util::tty::open_controlling_tty()
 				.filter(|tty| tangram_util::tty::is_foreground_controlling_tty(tty.as_raw_fd()))
@@ -252,26 +266,13 @@ impl Viewer {
 		};
 
 		// Run the render loop.
-		loop {
+		let outcome = loop {
 			// Apply pending updates.
 			self.update();
 
-			// Finish the live display.
+			// Finish when requested or when the tree is complete.
 			if stopper.stopped() || self.tree.is_finished() {
-				if self.tree.has_process()
-					&& let Some(tty) = tty.as_mut()
-				{
-					ct::queue!(
-						tty,
-						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-						ct::cursor::Show,
-					)
-					.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
-					tty.flush()
-						.map_err(|error| tg::error!(!error, "failed to flush the terminal"))?;
-				}
-
-				break;
+				break Outcome::Finished;
 			}
 
 			// Render to the terminal or clear the display guards.
@@ -329,14 +330,29 @@ impl Viewer {
 			}
 
 			// Wait for the task to be stopped, a change, or a timeout.
-			let mut stopper_wait = pin!(stopper.wait().fuse());
-			let mut changed = pin!(self.tree.changed().fuse());
-			let mut sleep = pin!(tokio::time::sleep(Duration::from_millis(100)).fuse());
-			futures::select! {
-				() = stopper_wait => (),
-				() = changed => (),
+			let sleep = tokio::time::sleep(Duration::from_millis(100));
+			tokio::select! {
+				outcome = self.signals.recv() => {
+					break outcome?;
+				},
+				() = stopper.wait() => (),
+				() = self.tree.changed() => (),
 				() = sleep => (),
 			};
+		};
+
+		// Finish the live display.
+		if self.tree.has_process()
+			&& let Some(tty) = tty.as_mut()
+		{
+			ct::queue!(
+				tty,
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+				ct::cursor::Show,
+			)
+			.map_err(|error| tg::error!(!error, "failed to write to the terminal"))?;
+			tty.flush()
+				.map_err(|error| tg::error!(!error, "failed to flush the terminal"))?;
 		}
 
 		// Show the cursor before printing the final tree.
@@ -347,7 +363,7 @@ impl Viewer {
 			println!("{}", self.tree.display());
 		}
 
-		Ok(())
+		Ok(outcome)
 	}
 
 	pub fn render(&mut self, area: Rect, buffer: &mut tui::buffer::Buffer) {
@@ -392,7 +408,10 @@ impl Viewer {
 					return;
 				},
 				(ct::event::KeyCode::Char('c'), ct::event::KeyModifiers::CONTROL) => {
-					self.interrupt = true;
+					// SAFETY: The viewer installs a SIGINT handler before entering raw mode.
+					unsafe {
+						libc::raise(libc::SIGINT);
+					}
 					return;
 				},
 				(ct::event::KeyCode::Char('q'), ct::event::KeyModifiers::NONE) => {
@@ -474,14 +493,20 @@ impl Viewer {
 		changed
 	}
 
-	fn exited(&mut self) -> bool {
+	fn outcome(&mut self) -> Option<Outcome> {
 		if !self.exited {
 			self.exited = match self.exit.try_recv() {
 				Err(tokio::sync::oneshot::error::TryRecvError::Closed) | Ok(()) => true,
 				Err(tokio::sync::oneshot::error::TryRecvError::Empty) => false,
 			};
 		}
-		self.interrupt || self.quit || (self.exited && self.tree.is_finished())
+		if self.quit {
+			Some(Outcome::Quit)
+		} else if self.exited && self.tree.is_finished() {
+			Some(Outcome::Finished)
+		} else {
+			None
+		}
 	}
 
 	#[must_use]
@@ -503,6 +528,37 @@ impl Viewer {
 			(tree_area, detail_areas[0], Some(detail_areas[1]))
 		} else {
 			(areas[0], areas[1], None)
+		}
+	}
+}
+
+impl Signals {
+	fn new() -> tg::Result<Self> {
+		let interrupt =
+			tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+				.map_err(|error| tg::error!(!error, "failed to install the SIGINT handler"))?;
+		let terminate =
+			tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+				.map_err(|error| tg::error!(!error, "failed to install the SIGTERM handler"))?;
+
+		Ok(Self {
+			interrupt,
+			terminate,
+		})
+	}
+
+	async fn recv(&mut self) -> tg::Result<Outcome> {
+		tokio::select! {
+			signal = self.interrupt.recv() => {
+				signal
+					.map(|()| Outcome::Interrupt)
+					.ok_or_else(|| tg::error!("the SIGINT signal stream ended"))
+			},
+			signal = self.terminate.recv() => {
+				signal
+					.map(|()| Outcome::Terminate)
+					.ok_or_else(|| tg::error!("the SIGTERM signal stream ended"))
+			},
 		}
 	}
 }

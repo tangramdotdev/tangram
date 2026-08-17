@@ -292,6 +292,8 @@ impl Session {
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
+		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
+
 		if let Some(data) = data {
 			let index_arg = tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutSandbox(
