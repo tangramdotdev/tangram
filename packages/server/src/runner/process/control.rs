@@ -6,10 +6,7 @@ use {
 	},
 	crate::session::Session,
 	bytes::Bytes,
-	futures::{
-		StreamExt as _, TryStreamExt as _,
-		stream::{self, BoxStream},
-	},
+	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},

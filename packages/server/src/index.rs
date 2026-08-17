@@ -766,6 +766,7 @@ impl Server {
 			.spawn({
 				let server = self.clone();
 				|_| async move {
+					crate::checkpoint!(server, "index.batch").await;
 					let result = server.index.batch(arg).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
