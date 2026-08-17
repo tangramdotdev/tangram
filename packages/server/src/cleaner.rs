@@ -196,7 +196,7 @@ impl Server {
 
 		// Delete named checkouts.
 		if !named.is_empty() && self.vfs.lock().unwrap().is_none() {
-			let guard = self.checkout_lock.lock().await;
+			let guard = self.checkout_lock.acquire().await?;
 			if self.vfs.lock().unwrap().is_none() {
 				let checkouts = self.index.try_get_checkouts(&named).await?;
 				let specifiers = self.index.try_get_specifiers_for_ids(&named).await?;

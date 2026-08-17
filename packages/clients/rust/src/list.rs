@@ -26,6 +26,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Selector<tg::Id>>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub position: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
 
@@ -83,8 +86,6 @@ pub enum Entry {
 	Tag {
 		id: tg::tag::Id,
 
-		target: tg::Either<tg::object::Id, tg::process::Id>,
-
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		location: Option<tg::Location>,
 
@@ -94,6 +95,8 @@ pub enum Entry {
 		parent: Option<tg::Id>,
 
 		specifier: tg::Specifier,
+
+		target: tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
 
 		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 		tokens: tg::authorization::Tokens,
@@ -117,11 +120,12 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			cached: false,
+			groups: true,
 			length: None,
 			location: None,
-			groups: true,
 			organizations: true,
 			parent: None,
+			position: None,
 			recursive: false,
 			reverse: false,
 			tags: true,

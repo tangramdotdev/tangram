@@ -49,9 +49,9 @@ struct NamedCheckoutEntry {
 
 #[derive(Clone)]
 pub struct Item {
+	pub graph: Option<tg::graph::Id>,
 	pub id: tg::artifact::Id,
 	pub node: tg::graph::data::Node,
-	pub graph: Option<tg::graph::Id>,
 }
 
 impl Session {
@@ -350,7 +350,7 @@ impl Session {
 			.map(|entry| entry.node.id.clone())
 			.collect::<Vec<_>>();
 		for attempt in 0..2 {
-			let guard = self.server.checkout_lock.lock().await;
+			let guard = self.server.checkout_lock.acquire().await?;
 			if self.server.vfs.lock().unwrap().is_some() {
 				return Ok(());
 			}
@@ -1048,7 +1048,7 @@ impl Session {
 		item: &Item,
 		node: &tg::graph::data::Directory,
 	) -> tg::Result<Vec<Item>> {
-		let Item { id, graph, .. } = item;
+		let Item { graph, id, .. } = item;
 
 		// Add to the visiting set to detect cycles.
 		state.visiting.insert(id.clone());
@@ -1117,7 +1117,7 @@ impl Session {
 		item: &Item,
 		node: &tg::graph::data::File,
 	) -> tg::Result<Vec<Item>> {
-		let Item { id, graph, .. } = item;
+		let Item { graph, id, .. } = item;
 
 		let mut dependencies = Vec::new();
 		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
@@ -1403,9 +1403,9 @@ impl Session {
 				let id = tg::artifact::Id::new(node.kind(), &bytes);
 
 				let item = Item {
+					graph: Some(graph_id),
 					id,
 					node,
-					graph: Some(graph_id),
 				};
 
 				Ok(item)
@@ -1453,9 +1453,9 @@ impl Session {
 							.clone();
 
 						let item = Item {
+							graph: Some(graph_id),
 							id: object_id,
 							node,
-							graph: Some(graph_id),
 						};
 
 						Ok(item)
@@ -1463,25 +1463,25 @@ impl Session {
 
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
 						let item = Item {
+							graph: None,
 							id: object_id,
 							node: tg::graph::data::Node::Directory(node),
-							graph: None,
 						};
 						Ok(item)
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => {
 						let item = Item {
+							graph: None,
 							id: object_id,
 							node: tg::graph::data::Node::File(node),
-							graph: None,
 						};
 						Ok(item)
 					},
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
 						let item = Item {
+							graph: None,
 							id: object_id,
 							node: tg::graph::data::Node::Symlink(node),
-							graph: None,
 						};
 						Ok(item)
 					},
@@ -1545,9 +1545,9 @@ impl Session {
 			let id = tg::artifact::Id::new(node.kind(), &bytes);
 
 			items.push(Item {
+				graph: Some(graph_id.clone()),
 				id,
 				node,
-				graph: Some(graph_id.clone()),
 			});
 		}
 
@@ -1660,7 +1660,7 @@ impl Server {
 
 	pub(crate) async fn remove_all_named_checkout_entries_with_lock(
 		&self,
-		_guard: &tokio::sync::MutexGuard<'_, ()>,
+		_guard: &super::Guard<'_>,
 	) -> tg::Result<()> {
 		if self.vfs.lock().unwrap().is_some() {
 			return Ok(());
@@ -1695,7 +1695,7 @@ impl Server {
 
 	async fn materialize_named_checkout_entries_with_lock(
 		&self,
-		_guard: &tokio::sync::MutexGuard<'_, ()>,
+		_guard: &super::Guard<'_>,
 		entries: &[NamedCheckoutEntry],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
@@ -1726,7 +1726,7 @@ impl Server {
 
 	pub(crate) async fn remove_named_checkout_entry_with_lock(
 		&self,
-		_guard: &tokio::sync::MutexGuard<'_, ()>,
+		_guard: &super::Guard<'_>,
 		id: &tg::Id,
 		specifier: &tg::Specifier,
 	) -> tg::Result<()> {
@@ -1811,27 +1811,41 @@ impl Server {
 		artifact: &tg::artifact::Id,
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
-		match tokio::fs::symlink_metadata(path).await {
-			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir(path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove a checkout directory"))?,
-			Ok(_) => tokio::fs::remove_file(path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to remove a checkout entry"))?,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
-			},
-		}
 		let mut target = PathBuf::new();
 		for _ in 1..specifier.components().count() {
 			target.push("..");
 		}
 		let suffix = suffix.unwrap_or_default();
 		target.push(format!("{artifact}{suffix}"));
-		tokio::fs::symlink(&target, path)
+		match tokio::fs::symlink_metadata(path).await {
+			Ok(metadata) if metadata.is_symlink() => {
+				let actual = tokio::fs::read_link(path)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read a checkout entry"))?;
+				if actual == target {
+					return Ok(());
+				}
+			},
+			Ok(metadata) if metadata.is_dir() => tokio::fs::remove_dir(path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to remove a checkout directory"))?,
+			Ok(_) => (),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to inspect a checkout entry"));
+			},
+		}
+
+		let name = path.file_name().unwrap().to_string_lossy();
+		let temp_name = format!(".{name}.{}.tmp", uuid::Uuid::now_v7());
+		let temp_path = path.with_file_name(temp_name);
+		tokio::fs::symlink(&target, &temp_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a checkout entry"))?;
+		if let Err(error) = tokio::fs::rename(&temp_path, path).await {
+			tokio::fs::remove_file(&temp_path).await.ok();
+			return Err(tg::error!(!error, "failed to replace a checkout entry"));
+		}
 
 		Ok(())
 	}

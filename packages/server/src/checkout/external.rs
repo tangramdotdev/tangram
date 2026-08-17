@@ -21,10 +21,10 @@ mod lock;
 struct State {
 	arg: tg::checkout::Arg,
 	artifact: tg::artifact::Id,
-	store_path: Option<PathBuf>,
-	store_path_created: bool,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
+	store_path: Option<PathBuf>,
+	store_path_created: bool,
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
@@ -32,9 +32,9 @@ struct State {
 
 #[derive(Clone)]
 pub struct Item {
+	pub graph: Option<tg::graph::Id>,
 	pub id: tg::artifact::Id,
 	pub node: tg::graph::data::Node,
-	pub graph: Option<tg::graph::Id>,
 }
 
 impl Session {
@@ -317,10 +317,10 @@ impl Session {
 				let mut state = State {
 					arg,
 					artifact,
-					store_path,
-					store_path_created: false,
 					path,
 					progress,
+					store_path,
+					store_path_created: false,
 					visited: HashSet::default(),
 					visited_graphs: HashSet::default(),
 					visiting: HashSet::default(),
@@ -499,9 +499,9 @@ impl Session {
 			let id = tg::artifact::Id::new(node.kind(), &bytes);
 
 			items.push(Item {
+				graph: Some(graph_id.clone()),
 				id,
 				node,
-				graph: Some(graph_id.clone()),
 			});
 		}
 
@@ -532,7 +532,7 @@ impl Session {
 		item: &Item,
 		node: &tg::graph::data::Directory,
 	) -> tg::Result<()> {
-		let Item { id, graph, .. } = item;
+		let Item { graph, id, .. } = item;
 
 		// Add to visiting set to detect cycles.
 		state.visiting.insert(id.clone());
@@ -586,7 +586,7 @@ impl Session {
 		item: &Item,
 		node: &tg::graph::data::File,
 	) -> tg::Result<()> {
-		let Item { id, graph, .. } = item;
+		let Item { graph, id, .. } = item;
 
 		// Check out the dependencies.
 		for dependency in node.dependencies.values() {
@@ -824,9 +824,9 @@ impl Session {
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
 
 				Ok(Item {
+					graph: Some(graph_id),
 					id,
 					node,
-					graph: Some(graph_id),
 				})
 			},
 
@@ -872,28 +872,28 @@ impl Session {
 							.clone();
 
 						Ok(Item {
+							graph: Some(graph_id),
 							id: id.clone(),
 							node,
-							graph: Some(graph_id),
 						})
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
 						Ok(Item {
+							graph: None,
 							id: id.clone(),
 							node: tg::graph::data::Node::Directory(node),
-							graph: None,
 						})
 					},
 					tg::artifact::data::Artifact::File(tg::file::Data::Node(node)) => Ok(Item {
+						graph: None,
 						id: id.clone(),
 						node: tg::graph::data::Node::File(node),
-						graph: None,
 					}),
 					tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Node(node)) => {
 						Ok(Item {
+							graph: None,
 							id: id.clone(),
 							node: tg::graph::data::Node::Symlink(node),
-							graph: None,
 						})
 					},
 				}

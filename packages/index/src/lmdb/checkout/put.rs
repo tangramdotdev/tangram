@@ -41,8 +41,8 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the checkout dependency"))?;
 
 			let key = Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
-				dependency: dependency.clone(),
 				checkout: arg.id.clone(),
+				dependency: dependency.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])

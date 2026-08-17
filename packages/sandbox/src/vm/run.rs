@@ -52,7 +52,6 @@ const VMM_GUEST_CID: u32 = 3;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub store_path: PathBuf,
 	pub cloud_hypervisor_path: Option<PathBuf>,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
@@ -62,20 +61,21 @@ pub struct Arg {
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub image_path: PathBuf,
 	pub index: u64,
 	pub kernel_path: PathBuf,
-	pub memory: Option<u64>,
-	pub mounts: Vec<tg::sandbox::Mount>,
 	pub max_cpu: u64,
 	pub max_memory: u64,
+	pub memory: Option<u64>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<NetworkKind>,
 	pub path: PathBuf,
 	pub ports: Vec<tg::sandbox::Port>,
-	pub image_path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub snapshot: Option<PathBuf>,
 	pub snapshot_cpu: u64,
 	pub snapshot_memory: u64,
+	pub store_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
 }

@@ -53,12 +53,14 @@ pub struct Dependencies {
 }
 
 impl Dependencies {
+	#[must_use]
 	pub fn get(&self) -> bool {
 		self.dependencies
 			.or(self.no_dependencies.map(|v| !v))
 			.unwrap_or(true)
 	}
 
+	#[must_use]
 	pub fn is_set(&self) -> bool {
 		self.dependencies.is_some() || self.no_dependencies.is_some()
 	}
@@ -87,6 +89,7 @@ pub struct Lock {
 }
 
 impl Lock {
+	#[must_use]
 	pub fn get(&self) -> Option<tg::checkout::Lock> {
 		if self.no_lock {
 			None
@@ -95,6 +98,7 @@ impl Lock {
 		}
 	}
 
+	#[must_use]
 	pub fn is_set(&self) -> bool {
 		self.lock.is_some() || self.no_lock
 	}

@@ -107,7 +107,7 @@ pub struct State {
 	billing: Option<self::billing::Stripe>,
 	checkin_tasks: self::checkin::Tasks,
 	checkout_graph_tasks: self::checkout::internal::GraphTasks,
-	checkout_lock: tokio::sync::Mutex<()>,
+	checkout_lock: self::checkout::Lock,
 	checkout_tasks: self::checkout::internal::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
 	clock: self::clock::Clock,
@@ -836,6 +836,15 @@ impl Server {
 		// Create the vfs.
 		let vfs = Mutex::new(None);
 
+		// Create the checkout lock.
+		let checkout_lock_path = if config.vfs.is_some() {
+			path.join("checkouts.lock")
+		} else {
+			path.join("store.lock")
+		};
+		let checkout_lock =
+			self::checkout::Lock::new(&checkout_lock_path, config.advanced.single_process);
+
 		// Create the watches.
 		let next_watch_id = AtomicU64::new(0);
 		let watches = DashMap::default();
@@ -858,7 +867,7 @@ impl Server {
 			billing,
 			checkin_tasks,
 			checkout_graph_tasks,
-			checkout_lock: tokio::sync::Mutex::new(()),
+			checkout_lock,
 			checkout_tasks,
 			checkpoints,
 			clock,
@@ -940,58 +949,8 @@ impl Server {
 				.await?;
 		}
 
-		// Spawn the indexer task.
-		let indexer_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Indexer)
-			.then(|| {
-				let config = server.config.indexer.clone();
-				Task::spawn({
-					let server = server.clone();
-					|_| async move {
-						let result = server.indexer_task(&config).await;
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace());
-						}
-					}
-				})
-			});
-
-		// Spawn the cleaner task.
-		let cleaner_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Cleaner)
-			.then(|| {
-				let config = server.config.cleaner.clone();
-				Task::spawn({
-					let server = server.clone();
-					|_| async move {
-						let result = server.cleaner_task(&config).await;
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace());
-						}
-					}
-				})
-			});
-
-		// Spawn the scheduler task.
-		let scheduler_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Scheduler)
-			.then(|| {
-				let config = server.config.scheduler.clone();
-				Task::spawn({
-					let server = server.clone();
-					|_| async move {
-						server.scheduler_task(&config).await;
-					}
-				})
-			});
-
 		// Start the VFS if enabled.
+		let checkout_guard = server.checkout_lock.acquire().await?;
 		let store_path = server.store_path();
 		let checkout_path = server.path.join("checkouts");
 		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
@@ -1065,15 +1024,66 @@ impl Server {
 						)
 					})?;
 				// Remove named checkout entries before exposing the physical store.
-				let guard = server.checkout_lock.lock().await;
 				server
-					.remove_all_named_checkout_entries_with_lock(&guard)
+					.remove_all_named_checkout_entries_with_lock(&checkout_guard)
 					.await?;
 			}
 			tokio::fs::create_dir_all(&store_path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
 		}
+		drop(checkout_guard);
+
+		// Spawn the indexer task.
+		let indexer_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Indexer)
+			.then(|| {
+				let config = server.config.indexer.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						let result = server.indexer_task(&config).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace());
+						}
+					}
+				})
+			});
+
+		// Spawn the cleaner task.
+		let cleaner_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Cleaner)
+			.then(|| {
+				let config = server.config.cleaner.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						let result = server.cleaner_task(&config).await;
+						if let Err(error) = result {
+							tracing::error!(error = %error.trace());
+						}
+					}
+				})
+			});
+
+		// Spawn the scheduler task.
+		let scheduler_task = server
+			.config
+			.roles
+			.contains(&self::config::Role::Scheduler)
+			.then(|| {
+				let config = server.config.scheduler.clone();
+				Task::spawn({
+					let server = server.clone();
+					|_| async move {
+						server.scheduler_task(&config).await;
+					}
+				})
+			});
 
 		// Spawn the HTTP task.
 		let http_listeners = if server.config.roles.contains(&self::config::Role::Http) {

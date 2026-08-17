@@ -344,7 +344,7 @@ impl Session {
 
 		// Prefetch the first candidate's object.
 		if let Some(tg::list::Entry::Tag { target, .. }) = output.data.first()
-			&& let Some(id) = target.as_ref().left()
+			&& let Some(id) = target.node.as_ref().left()
 		{
 			self.checkin_solve_get_or_spawn_object_task(prefetch, id);
 		}

@@ -718,8 +718,8 @@ impl Index {
 
 		for dependency in dependencies {
 			let key = crate::fdb::Key::Checkout(crate::fdb::checkout::Key::DependencyCheckout {
-				dependency: dependency.clone(),
 				checkout: id.clone(),
+				dependency: dependency.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);

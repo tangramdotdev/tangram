@@ -892,24 +892,36 @@ where
 		.into_iter()
 		.filter_map(|object| object.try_into().ok())
 		.collect::<BTreeSet<tg::artifact::Id>>();
-	let mut output = BTreeMap::new();
-	for artifact in artifacts {
-		let referent = tg::Referent::with_node_and_tokens(artifact.clone(), tokens.clone());
-		let path = tg::checkout::checkout_one_with_handle(
-			handle,
-			tg::checkout::Arg {
-				dependencies: true,
-				extension: None,
-				force: false,
-				lock: None,
-				nodes: vec![referent.map(|id| tg::Selector::Id(id.into()))],
-				path: None,
-			},
-		)
-		.await
-		.map_err(|error| tg::error!(!error, %artifact, "failed to check out the artifact"))?;
-		output.insert(artifact, path);
+	let nodes = artifacts
+		.iter()
+		.cloned()
+		.map(|artifact| {
+			tg::Referent::with_node_and_tokens(artifact, tokens.clone())
+				.map(|id| tg::Selector::Id(id.into()))
+		})
+		.collect();
+	let paths = tg::checkout::checkout_with_handle(
+		handle,
+		tg::checkout::Arg {
+			dependencies: true,
+			extension: None,
+			force: false,
+			lock: None,
+			nodes,
+			path: None,
+		},
+	)
+	.await
+	.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
+	if paths.len() != artifacts.len() {
+		return Err(tg::error!(
+			actual = %paths.len(),
+			expected = %artifacts.len(),
+			"received an invalid number of checkout paths"
+		));
 	}
+	let output = std::iter::zip(artifacts, paths).collect();
+
 	Ok(output)
 }
 

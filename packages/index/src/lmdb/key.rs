@@ -240,8 +240,8 @@ impl fdbt::TuplePack for Key {
 				.pack(w, tuple_depth),
 
 			Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
-				dependency,
 				checkout,
+				dependency,
 			}) => (
 				Kind::DependencyCheckout.to_i32().unwrap(),
 				dependency.to_bytes().as_ref(),
@@ -865,8 +865,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let checkout = tg::Id::from_slice(&checkout_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
 				let key = Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
-					dependency,
 					checkout,
+					dependency,
 				});
 				Ok((input, key))
 			},

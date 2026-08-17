@@ -70,9 +70,9 @@ impl Session {
 		let tag = data.into_iter().find_map(|entry| {
 			let tg::match_::Entry::Tag {
 				id,
-				target,
 				location,
 				specifier,
+				target,
 				..
 			} = entry
 			else {
@@ -82,7 +82,7 @@ impl Session {
 		});
 		let output = if let Some((id, target, location, specifier)) = tag {
 			let output = self
-				.try_resolve_tag(id, target, location, specifier, arg.cached, arg.ttl)
+				.try_resolve_tag(id, target.node, location, specifier, arg.cached, arg.ttl)
 				.await?;
 			match output {
 				None => None,
@@ -363,13 +363,21 @@ impl Session {
 							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 						};
+						let target = tg::Referent::new(
+							target,
+							tg::referent::Options {
+								location: location.clone(),
+								tokens: tokens.clone(),
+								..Default::default()
+							},
+						);
 						let entry = tg::list::Entry::Tag {
 							id: data.id,
-							target,
 							location,
 							name: data.name,
 							parent: data.parent,
 							specifier: data.specifier,
+							target,
 							tokens,
 						};
 						return Ok(tg::match_::Output { data: vec![entry] });

@@ -646,15 +646,15 @@ impl Session {
 			.into_iter()
 			.filter_map(|output| {
 				let tg::list::Entry::Tag {
-					target,
 					location,
 					specifier: tag,
+					target,
 					..
 				} = output
 				else {
 					return None;
 				};
-				let object = target.left()?;
+				let object = target.node.left()?;
 				let index = None;
 				let candidate = Candidate {
 					index,

@@ -1413,6 +1413,7 @@ impl Tree {
 			location,
 			organizations: false,
 			parent: Some(tg::Selector::Id(parent.clone())),
+			position: None,
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -1454,11 +1455,11 @@ impl Tree {
 				},
 				tg::list::Entry::Tag {
 					id,
-					target,
 					location,
 					name,
 					parent,
 					specifier,
+					target,
 					tokens,
 				} => {
 					let referent_options = tg::referent::Options {
@@ -1466,13 +1467,14 @@ impl Tree {
 						tokens: tokens.clone(),
 						..tg::referent::Options::default()
 					};
-					let target = match target {
+					let target_options = target.options;
+					let target = match target.node {
 						tg::Either::Left(id) => {
-							let referent = tg::Referent::new(id, referent_options.clone());
+							let referent = tg::Referent::new(id, target_options);
 							tg::tag::Target::Object(tg::Object::with_referent(referent))
 						},
 						tg::Either::Right(id) => {
-							let referent = tg::Referent::new(id, referent_options.clone());
+							let referent = tg::Referent::new(id, target_options);
 							tg::tag::Target::Process(tg::Process::with_referent(referent))
 						},
 					};

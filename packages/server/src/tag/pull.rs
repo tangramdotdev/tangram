@@ -30,18 +30,19 @@ impl Session {
 		list.into_iter()
 			.filter_map(|entry| {
 				let tg::list::Entry::Tag {
-					target, location, ..
+					location, target, ..
 				} = entry
 				else {
 					return None;
 				};
-				let directory = target.left()?.try_unwrap_directory().ok()?;
+				let tg::Referent { node, options } = target;
+				let directory = node.left()?.try_unwrap_directory().ok()?;
 				let session = self.clone();
-				let location = location?;
+				let location = options.location.clone().or(location)?;
 				Some(async move {
 					let arg = tg::pull::Arg {
 						source: Some(location),
-						nodes: vec![tg::Referent::with_node(directory.into())],
+						nodes: vec![tg::Referent::new(directory.into(), options)],
 						..Default::default()
 					};
 					let stream = session.pull(arg).await?;

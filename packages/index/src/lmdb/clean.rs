@@ -644,8 +644,8 @@ impl Index {
 
 		for (_, dependency) in entries {
 			let key = crate::lmdb::Key::Checkout(crate::lmdb::checkout::Key::DependencyCheckout {
-				dependency: dependency.clone(),
 				checkout: id.clone(),
+				dependency: dependency.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)

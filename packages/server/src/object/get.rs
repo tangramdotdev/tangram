@@ -28,8 +28,8 @@ pub(crate) type Tasks = tangram_futures::task::Map<
 
 pub(crate) struct CheckoutFile {
 	pub artifact: tg::artifact::Id,
-	pub path: Option<PathBuf>,
 	pub file: std::fs::File,
+	pub path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -776,8 +776,8 @@ impl Server {
 				)?;
 				checkout_file.replace(CheckoutFile {
 					artifact: checkout_pointer.artifact.clone(),
-					path: checkout_pointer.path.clone(),
 					file: file_,
+					path: checkout_pointer.path.clone(),
 				});
 			},
 		}

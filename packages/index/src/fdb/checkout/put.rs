@@ -38,8 +38,8 @@ impl Index {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Checkout(crate::fdb::checkout::Key::DependencyCheckout {
-				dependency: dependency.clone(),
 				checkout: id.clone(),
+				dependency: dependency.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);

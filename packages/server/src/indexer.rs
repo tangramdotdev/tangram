@@ -488,7 +488,7 @@ impl Indexer {
 				continue;
 			}
 			crate::checkpoint!(self.server, "indexer.database_outbox.named_node").await;
-			let guard = self.server.checkout_lock.lock().await;
+			let guard = self.server.checkout_lock.acquire().await?;
 			if self.server.vfs.lock().unwrap().is_some() {
 				self.server.index.batch(arg).await.map_err(|error| {
 					tg::error!(!error, "failed to index a database outbox batch")

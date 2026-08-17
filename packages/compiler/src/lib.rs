@@ -66,9 +66,6 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
-	/// The store path.
-	store_path: PathBuf,
-
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -96,6 +93,9 @@ pub struct State {
 
 	/// The serve task.
 	serve_task: Mutex<Option<tangram_futures::task::Shared<()>>>,
+
+	/// The store path.
+	store_path: PathBuf,
 
 	/// The typescript service.
 	#[cfg(feature = "typescript")]
@@ -203,7 +203,6 @@ impl Compiler {
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
-			store_path,
 			documents,
 			handle,
 			library_path,
@@ -213,6 +212,7 @@ impl Compiler {
 			requests,
 			sender,
 			serve_task,
+			store_path,
 			#[cfg(feature = "typescript")]
 			typescript,
 			version,

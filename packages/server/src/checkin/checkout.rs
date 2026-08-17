@@ -19,11 +19,11 @@ use {
 pub(super) struct CheckinCheckoutArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a Graph,
-	pub next: usize,
-	pub root: &'a Path,
-	pub index_checkout_args: &'a IndexCheckoutArgs,
 	pub graph_data: &'a mut GraphData,
+	pub index_checkout_args: &'a IndexCheckoutArgs,
+	pub next: usize,
 	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+	pub root: &'a Path,
 }
 
 impl Session {
@@ -32,11 +32,11 @@ impl Session {
 		let CheckinCheckoutArg {
 			arg,
 			graph,
-			next,
-			root,
-			index_checkout_args,
 			graph_data,
+			index_checkout_args,
+			next,
 			progress,
+			root,
 		} = arg;
 		if arg.options.destructive {
 			progress.spinner("checking", "checking");

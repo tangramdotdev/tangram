@@ -500,7 +500,6 @@ impl Session {
 			move || {
 				let arg = input::CheckinInputArg {
 					arg: &arg,
-					store_path: store_path.as_deref(),
 					fixup_sender,
 					graph: &mut graph,
 					ignorer,
@@ -508,6 +507,7 @@ impl Session {
 					next,
 					progress,
 					root: &root,
+					store_path: store_path.as_deref(),
 				};
 				session.checkin_input(arg)?;
 				Ok::<_, tg::Error>(graph)
@@ -587,11 +587,11 @@ impl Session {
 			let checkout_arg = checkout::CheckinCheckoutArg {
 				arg: &arg,
 				graph: &graph,
-				next,
-				root,
-				index_checkout_args: &index_checkout_args,
 				graph_data: &mut graph_data,
+				index_checkout_args: &index_checkout_args,
+				next,
 				progress,
+				root,
 			};
 			self.checkin_checkout(checkout_arg)
 				.await

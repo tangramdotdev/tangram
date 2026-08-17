@@ -8,7 +8,7 @@ pub enum Key {
 		dependency: tg::Id,
 	},
 	DependencyCheckout {
-		dependency: tg::Id,
 		checkout: tg::Id,
+		dependency: tg::Id,
 	},
 }

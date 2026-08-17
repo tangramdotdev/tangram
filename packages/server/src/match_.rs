@@ -17,12 +17,12 @@ impl Session {
 				crate::list::remote::Query::Match(arg.clone()),
 				move |entries| {
 					let data = filter_entries(entries, &local_arg);
-					crate::list::sort_and_truncate(data, local_arg.reverse, local_arg.length)
+					crate::list::sort_and_truncate(data, local_arg.reverse, None, local_arg.length)
 				},
 			)
 			.await?;
 		let data = filter_entries(entries, &arg);
-		let data = crate::list::sort_and_truncate(data, arg.reverse, arg.length);
+		let data = crate::list::sort_and_truncate(data, arg.reverse, None, arg.length);
 
 		Ok(tg::match_::Output { data })
 	}
