@@ -321,6 +321,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to touch the processes"))?;
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
+			// Treat a process without data as absent.
+			let output = output.filter(|process| process.data.is_some());
 			if output.is_none() {
 				permissions[index] = None;
 			}
