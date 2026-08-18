@@ -770,6 +770,8 @@ pub struct Scheduler {
 
 #[derive(Clone, Debug)]
 pub struct Sandbox {
+	pub control_tcp_keep_alive: SandboxControlTcpKeepAlive,
+
 	pub isolation: SandboxIsolation,
 
 	pub network: SandboxNetwork,
@@ -781,6 +783,13 @@ pub struct Sandbox {
 	pub status_wakeup_interval: Duration,
 
 	pub time_to_live: Duration,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SandboxControlTcpKeepAlive {
+	pub interval: Duration,
+
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -1519,12 +1528,22 @@ impl Default for Scheduler {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
+			control_tcp_keep_alive: SandboxControlTcpKeepAlive::default(),
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
 			processes_wakeup_interval: Duration::from_mins(1),
 			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),
+		}
+	}
+}
+
+impl Default for SandboxControlTcpKeepAlive {
+	fn default() -> Self {
+		Self {
+			interval: Duration::from_secs(10),
+			timeout: Duration::from_secs(10),
 		}
 	}
 }

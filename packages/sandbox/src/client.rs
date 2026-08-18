@@ -162,6 +162,10 @@ impl Client {
 				let stream = Self::connect_tcp(host, port).await?;
 				Self::handshake_h2(stream).await
 			},
+			// A stdio connection is established from the sandbox process's inherited pipes, so it cannot be reestablished once it is lost.
+			Some("http+stdio") => Err(tg::error!(
+				"the connection to the sandbox over stdio was lost"
+			)),
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;

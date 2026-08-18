@@ -17,6 +17,10 @@ pub(crate) fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("vm").arg("run");
 	command
+		.arg("--control-tcp-keep-alive-interval")
+		.arg(humantime::format_duration(serve_arg.control_tcp_keep_alive.interval).to_string())
+		.arg("--control-tcp-keep-alive-timeout")
+		.arg(humantime::format_duration(serve_arg.control_tcp_keep_alive.timeout).to_string())
 		.arg("--index")
 		.arg(arg.index.to_string())
 		.arg("--store-path")

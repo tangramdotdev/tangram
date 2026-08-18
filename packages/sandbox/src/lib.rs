@@ -68,6 +68,7 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
+	pub control_tcp_keep_alive: KeepAlive,
 	pub cpu: Option<u64>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
@@ -89,6 +90,12 @@ pub struct Arg {
 	pub store_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+pub struct KeepAlive {
+	pub interval: Duration,
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
@@ -241,6 +248,7 @@ impl Sandbox {
 			},
 		};
 		let serve_arg = self::serve::Arg {
+			control_tcp_keep_alive: arg.control_tcp_keep_alive,
 			library_paths,
 			listen: false,
 			output_path: Self::guest_output_path_from_root(&arg.path),

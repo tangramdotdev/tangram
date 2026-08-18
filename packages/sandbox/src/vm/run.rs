@@ -53,6 +53,7 @@ const VMM_GUEST_CID: u32 = 3;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub cloud_hypervisor_path: Option<PathBuf>,
+	pub control_tcp_keep_alive: crate::KeepAlive,
 	pub create_snapshot: Option<PathBuf>,
 	pub cpu: Option<u64>,
 	pub dax: Option<u64>,
@@ -245,6 +246,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let init_config = crate::vm::init::Config {
+			control_tcp_keep_alive: arg.control_tcp_keep_alive,
 			gid: user.gid,
 			hostname: arg.hostname.clone(),
 			library_paths: Vec::new(),

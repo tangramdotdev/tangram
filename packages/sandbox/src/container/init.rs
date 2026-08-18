@@ -15,6 +15,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		} else {
 			"--connect"
 		})
+		.arg("--control-tcp-keep-alive-interval")
+		.arg(humantime::format_duration(arg.serve.control_tcp_keep_alive.interval).to_string())
+		.arg("--control-tcp-keep-alive-timeout")
+		.arg(humantime::format_duration(arg.serve.control_tcp_keep_alive.timeout).to_string())
 		.arg("--output-path")
 		.arg(&arg.serve.output_path)
 		.arg("--url")

@@ -1,9 +1,19 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{path::PathBuf, time::Duration},
+	tangram_client::prelude::*,
+};
 
 /// Serve sandbox requests.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[arg(long, value_parser = humantime::parse_duration)]
+	pub control_tcp_keep_alive_interval: Duration,
+
+	#[arg(long, value_parser = humantime::parse_duration)]
+	pub control_tcp_keep_alive_timeout: Duration,
+
 	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
 	pub library_paths: Vec<PathBuf>,
 
@@ -55,6 +65,10 @@ impl Listen {
 impl Cli {
 	pub async fn command_sandbox_serve(&mut self, args: Args) -> tg::Result<()> {
 		let arg = tangram_sandbox::serve::Arg {
+			control_tcp_keep_alive: tangram_sandbox::KeepAlive {
+				interval: args.control_tcp_keep_alive_interval,
+				timeout: args.control_tcp_keep_alive_timeout,
+			},
 			library_paths: args.library_paths,
 			listen: args.listen.get(),
 			output_path: args.output_path,

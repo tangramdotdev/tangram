@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	std::{net::Ipv4Addr, path::PathBuf},
+	std::{net::Ipv4Addr, path::PathBuf, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -9,6 +9,12 @@ use {
 pub struct Args {
 	#[arg(long)]
 	pub cloud_hypervisor_path: Option<PathBuf>,
+
+	#[arg(long, value_parser = humantime::parse_duration)]
+	pub control_tcp_keep_alive_interval: Duration,
+
+	#[arg(long, value_parser = humantime::parse_duration)]
+	pub control_tcp_keep_alive_timeout: Duration,
 
 	#[arg(long, hide = true, value_name = "DIR")]
 	pub create_snapshot: Option<PathBuf>,
@@ -90,6 +96,10 @@ impl Cli {
 	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
 			cloud_hypervisor_path: args.cloud_hypervisor_path,
+			control_tcp_keep_alive: tangram_sandbox::KeepAlive {
+				interval: args.control_tcp_keep_alive_interval,
+				timeout: args.control_tcp_keep_alive_timeout,
+			},
 			create_snapshot: args.create_snapshot,
 			cpu: args.cpu,
 			dax: args.dax,

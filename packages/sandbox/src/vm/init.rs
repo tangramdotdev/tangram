@@ -28,6 +28,7 @@ const ROOTVIEW_MERGED: &str = "/mnt/root/merged";
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Config {
+	pub control_tcp_keep_alive: crate::KeepAlive,
 	pub gid: u32,
 	pub hostname: Option<String>,
 	#[serde(default)]
@@ -161,6 +162,7 @@ pub fn run() -> tg::Result<ExitCode> {
 	tracing::trace!("set uid={} gid={}", config.uid, config.gid);
 
 	let serve = crate::serve::Arg {
+		control_tcp_keep_alive: config.control_tcp_keep_alive,
 		library_paths: config.library_paths,
 		listen: false,
 		output_path: config.output_path,
@@ -876,6 +878,10 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 		.arg("sandbox")
 		.arg("serve")
 		.arg(if arg.listen { "--listen" } else { "--connect" })
+		.arg("--control-tcp-keep-alive-interval")
+		.arg(humantime::format_duration(arg.control_tcp_keep_alive.interval).to_string())
+		.arg("--control-tcp-keep-alive-timeout")
+		.arg(humantime::format_duration(arg.control_tcp_keep_alive.timeout).to_string())
 		.arg("--output-path")
 		.arg(&arg.output_path)
 		.arg("--url")

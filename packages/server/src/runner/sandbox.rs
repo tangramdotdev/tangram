@@ -614,6 +614,10 @@ impl Session {
 			Some(tg::sandbox::Network::Host) => Some(tangram_sandbox::Network::Host),
 		};
 		let arg = tangram_sandbox::Arg {
+			control_tcp_keep_alive: tangram_sandbox::KeepAlive {
+				interval: self.server.config.sandbox.control_tcp_keep_alive.interval,
+				timeout: self.server.config.sandbox.control_tcp_keep_alive.timeout,
+			},
 			cpu: arg.cpu,
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]

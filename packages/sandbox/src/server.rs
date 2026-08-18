@@ -25,6 +25,7 @@ mod process;
 mod shutdown;
 
 pub struct Arg {
+	pub control_tcp_keep_alive: crate::KeepAlive,
 	pub library_paths: Vec<std::path::PathBuf>,
 	pub output_path: std::path::PathBuf,
 	pub tangram_path: std::path::PathBuf,
@@ -34,6 +35,7 @@ pub struct Arg {
 pub struct Server(Arc<State>);
 
 pub struct State {
+	control_tcp_keep_alive: crate::KeepAlive,
 	library_paths: Vec<std::path::PathBuf>,
 	output_path: std::path::PathBuf,
 	processes: DashMap<u64, Process>,
@@ -73,6 +75,7 @@ pub(crate) enum Stream {
 impl Server {
 	pub fn new(arg: Arg) -> Self {
 		Self(Arc::new(State {
+			control_tcp_keep_alive: arg.control_tcp_keep_alive,
 			library_paths: arg.library_paths,
 			output_path: arg.output_path,
 			processes: DashMap::default(),
@@ -245,9 +248,12 @@ impl Server {
 			hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
 		builder
 			.http2()
+			.keep_alive_interval(self.control_tcp_keep_alive.interval)
+			.keep_alive_timeout(self.control_tcp_keep_alive.timeout)
 			.max_concurrent_streams(None)
 			.max_pending_accept_reset_streams(None)
-			.max_local_error_reset_streams(None);
+			.max_local_error_reset_streams(None)
+			.timer(hyper_util::rt::TokioTimer::new());
 		let connection = builder.serve_connection_with_upgrades(stream, service);
 		let stop_future = self.stopper.wait();
 		let result = match future::select(pin!(connection), pin!(stop_future)).await {

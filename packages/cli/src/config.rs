@@ -1194,6 +1194,9 @@ pub struct Scheduler {
 #[serde(deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control_tcp_keep_alive: Option<SandboxControlTcpKeepAlive>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub isolation: Option<SandboxIsolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1213,6 +1216,19 @@ pub struct Sandbox {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttl", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_live: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SandboxControlTcpKeepAlive {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -3078,6 +3094,9 @@ fn resolve_scheduler(source: Scheduler) -> server::Scheduler {
 
 fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	let mut target = server::Sandbox::default();
+	if let Some(source) = source.control_tcp_keep_alive {
+		target.control_tcp_keep_alive = resolve_sandbox_control_tcp_keep_alive(source);
+	}
 	if let Some(source) = source.isolation {
 		target.isolation = resolve_sandbox_isolation(source)?;
 	}
@@ -3098,6 +3117,20 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	}
 
 	Ok(target)
+}
+
+fn resolve_sandbox_control_tcp_keep_alive(
+	source: SandboxControlTcpKeepAlive,
+) -> server::SandboxControlTcpKeepAlive {
+	let mut target = server::SandboxControlTcpKeepAlive::default();
+	if let Some(value) = source.interval {
+		target.interval = value;
+	}
+	if let Some(value) = source.timeout {
+		target.timeout = value;
+	}
+
+	target
 }
 
 fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
