@@ -1128,6 +1128,12 @@ impl Session {
 				tg::sandbox::control::ServerMessage::Response(_) => {},
 			}
 		}
+		crate::checkpoint!(
+			self.server,
+			"runner.sandbox.destroyed",
+			sandbox = %id,
+		)
+		.await;
 		event_sender.send(Ok(Event::Destroyed)).ok();
 
 		let output = RetainSandboxTaskArg {

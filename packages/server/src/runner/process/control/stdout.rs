@@ -1,8 +1,7 @@
 use {
 	super::{ProcessControlSender, Reader},
 	crate::session::Session,
-	bytes::Bytes,
-	futures::stream::BoxStream,
+	futures::TryFutureExt as _,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -23,7 +22,11 @@ impl Session {
 		arg: RunProcessControlStdoutTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_stdout_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_stdout_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control stdout task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_stdout_task(
@@ -45,27 +48,22 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.ok()
-			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
+			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
+			.as_ref()
+			.cloned()
+			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
 
 		let mut writes = None;
-		let mut reader = None;
+		let mut reader = Self::create_process_control_reader(
+			&sandbox,
+			&sandbox_process,
+			tg::process::stdio::Stream::Stdout,
+			&mut writes,
+		)
+		.await?;
 		while let Some((id, request)) = receiver.recv().await {
-			let response = if let Some(sandbox_process) = &sandbox_process {
-				Self::handle_process_control_stdout_read_request(
-					&sandbox,
-					sandbox_process,
-					request,
-					&mut reader,
-					&mut writes,
-				)
-				.await
-			} else {
-				Ok(tg::process::control::ReadClientResponseOutput {
-					stream: request.stream,
-					bytes: Bytes::new(),
-				})
-			};
+			let response =
+				Self::handle_process_control_stdout_read_request(request, &mut reader).await;
 			let eof = response
 				.as_ref()
 				.is_ok_and(|response| response.bytes.is_empty());
@@ -81,13 +79,9 @@ impl Session {
 	}
 
 	async fn handle_process_control_stdout_read_request(
-		sandbox: &tangram_sandbox::Sandbox,
-		sandbox_process: &tangram_sandbox::Process,
 		request: tg::process::control::ReadServerRequestArg,
-		reader: &mut Option<Reader>,
-		writes: &mut Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+		reader: &mut Reader,
 	) -> tg::Result<tg::process::control::ReadClientResponseOutput> {
-		Self::handle_process_control_read_request(sandbox, sandbox_process, request, reader, writes)
-			.await
+		Self::handle_process_control_read_request(request, reader).await
 	}
 }

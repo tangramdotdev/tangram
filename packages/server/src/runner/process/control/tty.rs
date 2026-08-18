@@ -1,6 +1,6 @@
 use {
-	super::ProcessControlSender, crate::session::Session, std::sync::Arc,
-	tangram_client::prelude::*, tangram_futures::task::Task,
+	super::ProcessControlSender, crate::session::Session, futures::TryFutureExt as _,
+	std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Task,
 };
 
 pub(super) struct RunProcessControlTtyTaskArg {
@@ -17,7 +17,11 @@ impl Session {
 		arg: RunProcessControlTtyTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_tty_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_tty_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control tty task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_tty_task(
@@ -34,15 +38,14 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.ok()
-			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
+			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
+			.as_ref()
+			.cloned()
+			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
 
 		while let Some((id, request)) = receiver.recv().await {
-			let result = if let Some(sandbox_process) = &sandbox_process {
-				Self::handle_process_control_tty_request(&sandbox, sandbox_process, request).await
-			} else {
-				Err(tg::error!("the process was not spawned"))
-			};
+			let result =
+				Self::handle_process_control_tty_request(&sandbox, &sandbox_process, request).await;
 			let response = result.map(|()| {
 				tg::process::control::ClientResponseOutput::Tty(
 					tg::process::control::TtyClientResponseOutput {},

@@ -346,6 +346,14 @@ impl Session {
 				return Ok(());
 			}
 
+			crate::checkpoint!(
+				self.server,
+				"process.stdio.read.request",
+				process = %id,
+				stream = %stream,
+			)
+			.await;
+
 			let request = tg::process::control::ServerRequestArg::Read(
 				tg::process::control::ReadServerRequestArg {
 					stream,

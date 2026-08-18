@@ -1,7 +1,7 @@
 use {
 	super::ProcessControlSender,
 	crate::session::Session,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -24,7 +24,11 @@ impl Session {
 		arg: RunProcessControlStdinTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_stdin_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_stdin_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control stdin task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_stdin_task(
@@ -43,12 +47,12 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.ok()
-			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
+			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
+			.as_ref()
+			.cloned()
+			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
 
-		if let Some(blob) = stdin_blob
-			&& let Some(sandbox_process) = &sandbox_process
-		{
+		if let Some(blob) = stdin_blob {
 			let reader = blob
 				.read_with_handle(self, tg::read::Options::default())
 				.await
@@ -65,7 +69,7 @@ impl Session {
 				.boxed();
 			let stream = sandbox
 				.write_stdio(
-					sandbox_process,
+					&sandbox_process,
 					vec![tg::process::stdio::Stream::Stdin],
 					stream,
 				)
@@ -87,17 +91,13 @@ impl Session {
 		}
 
 		while let Some((id, request)) = receiver.recv().await {
-			let response = if let Some(sandbox_process) = &sandbox_process {
-				if request.bytes.is_empty() {
-					Self::handle_process_control_stdin_close_request(&sandbox, sandbox_process)
-						.await
-						.map(|()| tg::process::control::WriteClientResponseOutput { length: 0 })
-				} else {
-					Self::handle_process_control_write_request(&sandbox, sandbox_process, request)
-						.await
-				}
+			let response = if request.bytes.is_empty() {
+				Self::handle_process_control_stdin_close_request(&sandbox, &sandbox_process)
+					.await
+					.map(|()| tg::process::control::WriteClientResponseOutput { length: 0 })
 			} else {
-				Ok(tg::process::control::WriteClientResponseOutput { length: 0 })
+				Self::handle_process_control_write_request(&sandbox, &sandbox_process, request)
+					.await
 			};
 			let eof = response.as_ref().is_ok_and(|response| response.length == 0);
 			let response = response.map(tg::process::control::ClientResponseOutput::Write);

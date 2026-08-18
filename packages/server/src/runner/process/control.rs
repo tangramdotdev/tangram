@@ -7,7 +7,7 @@ use {
 	crate::session::Session,
 	bytes::Bytes,
 	futures::{
-		StreamExt as _, TryStreamExt as _,
+		StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 		stream::{self, BoxStream},
 	},
 	std::{pin::pin, sync::Arc},
@@ -287,7 +287,11 @@ impl Session {
 		arg: RunProcessControlHandlerTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_handler_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_handler_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control handler task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_handler_task(
@@ -459,11 +463,8 @@ impl Session {
 	}
 
 	pub(super) async fn handle_process_control_read_request(
-		sandbox: &tangram_sandbox::Sandbox,
-		sandbox_process: &tangram_sandbox::Process,
 		request: tg::process::control::ReadServerRequestArg,
-		reader: &mut Option<Reader>,
-		writes: &mut Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+		reader: &mut Reader,
 	) -> tg::Result<tg::process::control::ReadClientResponseOutput> {
 		if matches!(request.stream, tg::process::stdio::Stream::Stdin) {
 			return Err(tg::error!("cannot read the stdin of a process"));
@@ -478,48 +479,37 @@ impl Session {
 				return Err(tg::error!("lost connection to the sandbox i/o"));
 			}
 
-			if reader.is_none() {
-				reader.replace(
-					Self::create_process_control_reader(sandbox, sandbox_process, &request, writes)
-						.await?,
-				);
-			}
-
-			let reader_mut = reader.as_mut().unwrap();
-
-			if reader_mut.offset >= reader_mut.buffer.len() {
-				if reader_mut.eof {
+			if reader.offset >= reader.buffer.len() {
+				if reader.eof {
 					return Ok(tg::process::control::ReadClientResponseOutput {
 						stream: request.stream,
 						bytes: Bytes::new(),
 					});
 				}
 
-				let event = reader_mut
+				let event = reader
 					.stream
 					.try_next()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the next event"))?;
 				let Some(event) = event else {
-					reader.take();
+					reader.eof = true;
 					continue;
 				};
 				match event {
 					tg::process::stdio::read::Event::Chunk(chunk) => {
-						reader_mut.offset = 0;
-						reader_mut.buffer = chunk.bytes;
+						reader.offset = 0;
+						reader.buffer = chunk.bytes;
 					},
 					tg::process::stdio::read::Event::End => {
-						reader_mut.eof = true;
+						reader.eof = true;
 					},
 				}
 			}
 
-			let amount = (reader_mut.buffer.len() - reader_mut.offset).min(request.length);
-			let bytes = reader_mut
-				.buffer
-				.slice(reader_mut.offset..reader_mut.offset + amount);
-			reader_mut.offset += amount;
+			let amount = (reader.buffer.len() - reader.offset).min(request.length);
+			let bytes = reader.buffer.slice(reader.offset..reader.offset + amount);
+			reader.offset += amount;
 
 			return Ok(tg::process::control::ReadClientResponseOutput {
 				stream: request.stream,
@@ -528,14 +518,14 @@ impl Session {
 		}
 	}
 
-	async fn create_process_control_reader(
+	pub(super) async fn create_process_control_reader(
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
-		request: &tg::process::control::ReadServerRequestArg,
+		stream: tg::process::stdio::Stream,
 		writes: &mut Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
 	) -> tg::Result<Reader> {
 		let stream = sandbox
-			.read_stdio(sandbox_process, vec![request.stream])
+			.read_stdio(sandbox_process, vec![stream])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the stream"))?
 			.boxed();
