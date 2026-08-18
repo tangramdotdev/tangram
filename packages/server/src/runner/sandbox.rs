@@ -949,16 +949,13 @@ impl Session {
 					}
 				},
 
-				// Handle an underlying process exiting.
+				// Handle an underlying process event.
 				event = process_events.next(), if !process_events.is_empty() => {
 					let Some((process, event)) = event else {
 						break;
 					};
 					match event? {
-						ProcessEvent::Connected(_) => {
-							return Err(tg::error!(%process, "received a duplicate process connected event"));
-						},
-						ProcessEvent::Exited => {
+						ProcessEvent::Buffered | ProcessEvent::Released => {
 							process_events.remove(&process);
 							if process_events.is_empty() {
 								if !reusable {
@@ -969,6 +966,10 @@ impl Session {
 								}
 							}
 						},
+						ProcessEvent::Connected(_) => {
+							return Err(tg::error!(%process, "received a duplicate process connected event"));
+						},
+						ProcessEvent::Exited => {},
 					}
 				},
 
@@ -991,14 +992,15 @@ impl Session {
 		process_stopper.stop();
 		while let Some((process, event)) = process_events.next().await {
 			match event? {
+				ProcessEvent::Buffered | ProcessEvent::Released => {
+					process_events.remove(&process);
+				},
 				ProcessEvent::Connected(_) => {
 					return Err(
 						tg::error!(%process, "received a duplicate process connected event"),
 					);
 				},
-				ProcessEvent::Exited => {
-					process_events.remove(&process);
-				},
+				ProcessEvent::Exited => {},
 			}
 		}
 

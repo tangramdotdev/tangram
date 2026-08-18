@@ -307,7 +307,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 
-		if output.data.status.is_finished() {
+		if output.data.status.is_finished()
+			&& self
+				.server
+				.runner
+				.state()
+				.try_get_process_sandbox(id)
+				.is_none()
+		{
 			sender
 				.send(Ok(tg::process::stdio::read::Event::End))
 				.await

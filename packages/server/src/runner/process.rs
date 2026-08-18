@@ -54,6 +54,7 @@ struct ProcessTaskArg {
 }
 
 struct FinishProcessTaskArg {
+	buffered_task: Task<tg::Result<()>>,
 	control_task: Task<tg::Result<()>>,
 	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
 	id: tg::process::Id,
@@ -72,8 +73,10 @@ struct CollectProcessOutputArg<'a> {
 }
 
 pub(super) enum Event {
+	Buffered,
 	Connected(ConnectedEvent),
 	Exited,
+	Released,
 }
 
 #[derive(Clone, Debug)]
@@ -310,19 +313,30 @@ impl Session {
 		// Start the process task concurrently with the control stream.
 		let (sandbox_process_sender, sandbox_process_receiver) =
 			tokio::sync::watch::channel::<Option<Arc<tangram_sandbox::Process>>>(None);
-		let log_task = log_sender.map(|log_sender| {
-			Task::spawn({
+		let (log_buffered_sender, log_buffered_receiver) = tokio::sync::oneshot::channel();
+		let log_task = match log_sender {
+			None => {
+				log_buffered_sender.send(Ok(())).ok();
+
+				None
+			},
+			Some(log_sender) => Some(Task::spawn({
 				let log_streams = log_streams.clone();
 				let process_stopper = process_stopper.clone();
 				let sandbox = sandbox.clone();
 				let mut sandbox_process = sandbox_process_receiver.clone();
 				move |_| async move {
+					let mut log_buffered_sender = Some(log_buffered_sender);
 					let result = async {
 						let sandbox_process = loop {
 							if let Some(process) = sandbox_process.borrow().clone() {
 								break process;
 							}
 							if sandbox_process.changed().await.is_err() {
+								if let Some(sender) = log_buffered_sender.take() {
+									sender.send(Ok(())).ok();
+								}
+
 								return Ok(());
 							}
 						};
@@ -353,6 +367,10 @@ impl Session {
 						let mut input = std::pin::pin!(input);
 						while let Some(event) = input.try_next().await? {
 							if matches!(event, tg::process::stdio::read::Event::End) {
+								if let Some(sender) = log_buffered_sender.take() {
+									sender.send(Ok(())).ok();
+								}
+
 								continue;
 							}
 							log_sender
@@ -366,14 +384,20 @@ impl Session {
 						Ok::<_, tg::Error>(())
 					}
 					.await;
+					if let Some(sender) = log_buffered_sender {
+						let error = result.as_ref().err().cloned().unwrap_or_else(|| {
+							tg::error!("the sandbox stdio stream ended unexpectedly")
+						});
+						sender.send(Err(error)).ok();
+					}
 					if result.is_err() {
 						process_stopper.stop();
 					}
 
 					result
 				}
-			})
-		});
+			})),
+		};
 		let mut run_task = Some(Task::spawn({
 			let command = command.clone();
 			let guest_url = guest_url.clone();
@@ -610,6 +634,8 @@ impl Session {
 
 		// Spawn the process control task.
 		let (finish_sender, finish_receiver) = tokio::sync::oneshot::channel();
+		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
+		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
 		let stdin_blob = command
 			.clone()
 			.await
@@ -631,10 +657,12 @@ impl Session {
 						sandbox_process: sandbox_process_receiver,
 						sender: control_sender,
 						stderr,
+						stderr_buffered: stderr_buffered_sender,
 						stderr_progress,
 						stdin,
 						stdin_blob,
 						stdout,
+						stdout_buffered: stdout_buffered_sender,
 					})
 					.await
 					.inspect_err(|error| {
@@ -691,7 +719,61 @@ impl Session {
 		)
 		.await;
 		event_sender.send(Ok(Event::Exited)).ok();
+		let buffered_task = Task::spawn({
+			let event_sender = event_sender.clone();
+			let id = id.clone();
+			let server = session.server.clone();
+			move |_| async move {
+				let result = async {
+					let log_buffered = match log_buffered_receiver.await {
+						Ok(result) => {
+							result?;
+							true
+						},
+						Err(_) => false,
+					};
+					let stderr_buffered = match stderr_buffered_receiver.await {
+						Ok(result) => {
+							result?;
+							true
+						},
+						Err(_) => false,
+					};
+					let stdout_buffered = match stdout_buffered_receiver.await {
+						Ok(result) => {
+							result?;
+							true
+						},
+						Err(_) => false,
+					};
+					let buffered = log_buffered && stderr_buffered && stdout_buffered;
+
+					Ok::<_, tg::Error>(buffered)
+				}
+				.await;
+				match &result {
+					Ok(true) => {
+						crate::checkpoint!(
+							server,
+							"runner.process.buffered",
+							process = %id,
+						)
+						.await;
+						event_sender.send(Ok(Event::Buffered)).ok();
+					},
+					Ok(false) => {
+						event_sender.send(Ok(Event::Released)).ok();
+					},
+					Err(error) => {
+						event_sender.send(Err(error.clone())).ok();
+					},
+				}
+
+				result.map(|_| ())
+			}
+		});
 		let arg = FinishProcessTaskArg {
+			buffered_task,
 			control_task,
 			finish_sender,
 			id,
@@ -708,6 +790,7 @@ impl Session {
 
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
 		let FinishProcessTaskArg {
+			buffered_task,
 			control_task,
 			finish_sender,
 			id,
@@ -1001,6 +1084,10 @@ impl Session {
 		finish_sender
 			.send(data)
 			.map_err(|_| tg::error!(%id, "failed to send the finished process data"))?;
+		buffered_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, %id, "the process buffered task panicked"))??;
 		control_task
 			.wait()
 			.await

@@ -9,6 +9,7 @@ use {
 };
 
 pub(super) struct RunProcessControlStderrTaskArg {
+	pub(super) buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub(super) receiver:
 		tokio::sync::mpsc::Receiver<(String, tg::process::control::ReadServerRequestArg)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
@@ -36,6 +37,7 @@ impl Session {
 		arg: RunProcessControlStderrTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlStderrTaskArg {
+			buffered,
 			mut receiver,
 			sandbox,
 			mut sandbox_process,
@@ -45,6 +47,8 @@ impl Session {
 		} = arg;
 
 		if !matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
+			buffered.send(Ok(())).ok();
+
 			return Ok(());
 		}
 
@@ -54,7 +58,7 @@ impl Session {
 			.ok()
 			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
-		let mut writes = stderr_progress.map(|progress| {
+		let writes = stderr_progress.map(|progress| {
 			progress
 				.map_ok(|bytes| {
 					tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
@@ -66,13 +70,15 @@ impl Session {
 				.boxed()
 		});
 
-		let mut reader = Self::create_process_control_reader(
-			&sandbox,
-			sandbox_process.as_deref(),
-			tg::process::stdio::Stream::Stderr,
-			&mut writes,
-		)
-		.await?;
+		let mut reader = self
+			.create_process_control_reader(
+				buffered,
+				&sandbox,
+				sandbox_process.as_deref(),
+				tg::process::stdio::Stream::Stderr,
+				writes,
+			)
+			.await?;
 		while let Some((id, request)) = receiver.recv().await {
 			let response =
 				Self::handle_process_control_stderr_read_request(request, &mut reader).await;
