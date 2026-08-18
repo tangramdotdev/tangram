@@ -89,6 +89,9 @@ impl Session {
 			let Some(process) = process else {
 				return false;
 			};
+			if process.data.is_none() {
+				return false;
+			}
 			let stored = process.stored;
 			if arg.process_children {
 				stored.subtree
