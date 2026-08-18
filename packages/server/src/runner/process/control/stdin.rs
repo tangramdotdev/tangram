@@ -47,12 +47,12 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
-			.as_ref()
-			.cloned()
-			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
+			.ok()
+			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
-		if let Some(blob) = stdin_blob {
+		if let Some(blob) = stdin_blob
+			&& let Some(sandbox_process) = &sandbox_process
+		{
 			let reader = blob
 				.read_with_handle(self, tg::read::Options::default())
 				.await
@@ -69,7 +69,7 @@ impl Session {
 				.boxed();
 			let stream = sandbox
 				.write_stdio(
-					&sandbox_process,
+					sandbox_process,
 					vec![tg::process::stdio::Stream::Stdin],
 					stream,
 				)
@@ -91,13 +91,17 @@ impl Session {
 		}
 
 		while let Some((id, request)) = receiver.recv().await {
-			let response = if request.bytes.is_empty() {
-				Self::handle_process_control_stdin_close_request(&sandbox, &sandbox_process)
-					.await
-					.map(|()| tg::process::control::WriteClientResponseOutput { length: 0 })
+			let response = if let Some(sandbox_process) = &sandbox_process {
+				if request.bytes.is_empty() {
+					Self::handle_process_control_stdin_close_request(&sandbox, sandbox_process)
+						.await
+						.map(|()| tg::process::control::WriteClientResponseOutput { length: 0 })
+				} else {
+					Self::handle_process_control_write_request(&sandbox, sandbox_process, request)
+						.await
+				}
 			} else {
-				Self::handle_process_control_write_request(&sandbox, &sandbox_process, request)
-					.await
+				Ok(tg::process::control::WriteClientResponseOutput { length: 0 })
 			};
 			let eof = response.as_ref().is_ok_and(|response| response.length == 0);
 			let response = response.map(tg::process::control::ClientResponseOutput::Write);

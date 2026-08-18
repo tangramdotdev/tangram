@@ -520,15 +520,19 @@ impl Session {
 
 	pub(super) async fn create_process_control_reader(
 		sandbox: &tangram_sandbox::Sandbox,
-		sandbox_process: &tangram_sandbox::Process,
+		sandbox_process: Option<&tangram_sandbox::Process>,
 		stream: tg::process::stdio::Stream,
 		writes: &mut Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
 	) -> tg::Result<Reader> {
-		let stream = sandbox
-			.read_stdio(sandbox_process, vec![stream])
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the stream"))?
-			.boxed();
+		// A process that was never spawned produces no output, so its reader begins at the end of the stream.
+		let stream = match sandbox_process {
+			Some(sandbox_process) => sandbox
+				.read_stdio(sandbox_process, vec![stream])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the stream"))?
+				.boxed(),
+			None => stream::empty().boxed(),
+		};
 		let stream = match writes.take() {
 			Some(writes) => stream::select(stream, writes).boxed(),
 			None => stream,

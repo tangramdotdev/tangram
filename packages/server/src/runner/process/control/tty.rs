@@ -38,14 +38,15 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
-			.as_ref()
-			.cloned()
-			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
+			.ok()
+			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 		while let Some((id, request)) = receiver.recv().await {
-			let result =
-				Self::handle_process_control_tty_request(&sandbox, &sandbox_process, request).await;
+			let result = if let Some(sandbox_process) = &sandbox_process {
+				Self::handle_process_control_tty_request(&sandbox, sandbox_process, request).await
+			} else {
+				Err(tg::error!("the process was not spawned"))
+			};
 			let response = result.map(|()| {
 				tg::process::control::ClientResponseOutput::Tty(
 					tg::process::control::TtyClientResponseOutput {},

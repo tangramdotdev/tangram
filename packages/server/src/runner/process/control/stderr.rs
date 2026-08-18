@@ -51,10 +51,8 @@ impl Session {
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the sandboxed process"))?
-			.as_ref()
-			.cloned()
-			.ok_or_else(|| tg::error!("failed to get the sandboxed process"))?;
+			.ok()
+			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
 		let mut writes = stderr_progress.map(|progress| {
 			progress
@@ -70,7 +68,7 @@ impl Session {
 
 		let mut reader = Self::create_process_control_reader(
 			&sandbox,
-			&sandbox_process,
+			sandbox_process.as_deref(),
 			tg::process::stdio::Stream::Stderr,
 			&mut writes,
 		)
