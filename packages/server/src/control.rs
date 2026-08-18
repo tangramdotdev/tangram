@@ -32,8 +32,9 @@ pub(crate) struct Stream<I, O> {
 }
 
 pub(crate) struct Sender<I, O> {
-	_marker: PhantomData<fn() -> I>,
 	inner: tokio::sync::mpsc::Sender<O>,
+	_marker: PhantomData<fn() -> I>,
+	notify: Arc<tokio::sync::Notify>,
 	outbox: Arc<DashMap<String, O>>,
 }
 
@@ -75,8 +76,9 @@ where
 		let inbox = Arc::new(DashMap::new());
 		let sender = Sender {
 			inner: sender,
-			outbox: Arc::new(DashMap::new()),
 			_marker: PhantomData,
+			notify: Arc::new(tokio::sync::Notify::new()),
+			outbox: Arc::new(DashMap::new()),
 		};
 		let send_task = tokio::spawn({
 			let sender = sender.clone();
@@ -148,8 +150,9 @@ impl<I, O> Clone for Sender<I, O> {
 	fn clone(&self) -> Self {
 		Self {
 			inner: self.inner.clone(),
-			outbox: self.outbox.clone(),
 			_marker: PhantomData,
+			notify: self.notify.clone(),
+			outbox: self.outbox.clone(),
 		}
 	}
 }
@@ -170,7 +173,19 @@ where
 	}
 
 	pub(crate) fn remove(&self, id: &str) {
-		self.outbox.remove(id);
+		if self.outbox.remove(id).is_some() && self.outbox.is_empty() {
+			self.notify.notify_waiters();
+		}
+	}
+
+	pub(crate) async fn wait_for_empty(&self) {
+		loop {
+			let notified = self.notify.notified();
+			if self.outbox.is_empty() {
+				return;
+			}
+			notified.await;
+		}
 	}
 
 	fn messages(&self) -> Vec<O> {

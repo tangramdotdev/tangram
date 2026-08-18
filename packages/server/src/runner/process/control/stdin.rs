@@ -1,7 +1,7 @@
 use {
 	super::ProcessControlSender,
 	crate::session::Session,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -24,7 +24,11 @@ impl Session {
 		arg: RunProcessControlStdinTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_stdin_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_stdin_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control stdin task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_stdin_task(

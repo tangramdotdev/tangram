@@ -1,6 +1,6 @@
 use {
-	super::ProcessControlSender, crate::session::Session, std::sync::Arc,
-	tangram_client::prelude::*, tangram_futures::task::Task,
+	super::ProcessControlSender, crate::session::Session, futures::TryFutureExt as _,
+	std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Task,
 };
 
 pub(super) struct RunProcessControlSignalTaskArg {
@@ -17,7 +17,11 @@ impl Session {
 		arg: RunProcessControlSignalTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		Task::spawn(move |_| async move { session.run_process_control_signal_task(arg).await })
+		Task::spawn(move |_| {
+			async move { session.run_process_control_signal_task(arg).await }.inspect_err(
+				|error| tracing::error!(error = %error.trace(), "the process control signal task failed"),
+			)
+		})
 	}
 
 	async fn run_process_control_signal_task(
