@@ -27,48 +27,124 @@ impl Session {
 		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
+		// Create the retry queue.
+		let (retry_sender, mut retry_receiver) =
+			tokio::sync::mpsc::channel::<tg::Either<ObjectNode, ProcessNode>>(256);
+
 		// Create the objects future.
 		let object_batch_size = self.server.config.sync.get.index.object_batch_size;
 		let object_batch_timeout = self.server.config.sync.get.index.object_batch_timeout;
 		let object_concurrency = self.server.config.sync.get.index.object_concurrency;
+		let object_retry_sender = retry_sender.clone();
+		let object_session = self.clone();
+		let object_state = state.clone();
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(index_object_receiver),
 			object_batch_size,
 			object_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(object_concurrency, |nodes| {
-			let session = self.clone();
-			let state = state.clone();
-			async move { session.sync_get_index_object_batch(&state, nodes).await }
+		.try_for_each_concurrent(object_concurrency, move |nodes| {
+			let retry_sender = object_retry_sender.clone();
+			let session = object_session.clone();
+			let state = object_state.clone();
+			async move {
+				session
+					.sync_get_index_object_batch(&state, nodes, Some(&retry_sender))
+					.await
+			}
 		});
 
 		// Create the processes future.
 		let process_batch_size = self.server.config.sync.get.index.process_batch_size;
 		let process_batch_timeout = self.server.config.sync.get.index.process_batch_timeout;
 		let process_concurrency = self.server.config.sync.get.index.process_concurrency;
+		let process_retry_sender = retry_sender.clone();
+		let process_session = self.clone();
+		let process_state = state.clone();
 		let processes_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(index_process_receiver),
 			process_batch_size,
 			process_batch_timeout,
 		)
 		.map(Ok)
-		.try_for_each_concurrent(process_concurrency, |nodes| {
-			let session = self.clone();
-			let state = state.clone();
-			async move { session.sync_get_index_process_batch(&state, nodes).await }
+		.try_for_each_concurrent(process_concurrency, move |nodes| {
+			let retry_sender = process_retry_sender.clone();
+			let session = process_session.clone();
+			let state = process_state.clone();
+			async move {
+				session
+					.sync_get_index_process_batch(&state, nodes, Some(&retry_sender))
+					.await
+			}
 		});
 
-		// Join the objects and processes futures.
-		futures::try_join!(objects_future, processes_future)?;
+		// Create the retries future.
+		drop(retry_sender);
+		let retries_future = async {
+			while let Some(node) = retry_receiver.recv().await {
+				// Drain the retry queue.
+				let mut objects = Vec::new();
+				let mut processes = Vec::new();
+				match node {
+					tg::Either::Left(node) => objects.push(node),
+					tg::Either::Right(node) => processes.push(node),
+				}
+				while let Ok(node) = retry_receiver.try_recv() {
+					match node {
+						tg::Either::Left(node) => objects.push(node),
+						tg::Either::Right(node) => processes.push(node),
+					}
+				}
+
+				// Index before retrying the nodes.
+				for node in &objects {
+					crate::checkpoint!(self.server, "sync.get.index.object.retry", id = %node.id)
+						.await;
+				}
+				for node in &processes {
+					crate::checkpoint!(self.server, "sync.get.index.process.retry", id = %node.id)
+						.await;
+				}
+				self.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
+
+				// Retry the nodes.
+				let objects_future = async {
+					if objects.is_empty() {
+						return Ok(());
+					}
+					self.sync_get_index_object_batch(&state, objects, None)
+						.await
+				};
+				let processes_future = async {
+					if processes.is_empty() {
+						return Ok(());
+					}
+					self.sync_get_index_process_batch(&state, processes, None)
+						.await
+				};
+				futures::try_join!(objects_future, processes_future)?;
+			}
+
+			Ok(())
+		};
+
+		// Join the objects, processes, and retries futures.
+		futures::try_join!(objects_future, processes_future, retries_future)?;
 
 		Ok(())
 	}
 
-	pub(super) async fn sync_get_index_object_batch(
+	async fn sync_get_index_object_batch(
 		&self,
 		state: &State,
 		nodes: Vec<ObjectNode>,
+		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
 	) -> tg::Result<()> {
 		for node in &nodes {
 			crate::checkpoint!(self.server, "sync.get.index.object.filter", id = %node.id).await;
@@ -109,32 +185,19 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
 
-		for ((node, mut output), mut permissions) in
+		for ((node, output), permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
-			// Before reporting a missing object, index and retry.
-			if node.missing && output.is_none() {
-				crate::checkpoint!(self.server, "sync.get.index.object.retry", id = %node.id).await;
-				self.index()
+			// Send a missing object to the retry queue.
+			if node.missing
+				&& output.is_none()
+				&& let Some(retry_sender) = retry_sender
+			{
+				retry_sender
+					.send(tg::Either::Left(node))
 					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?
-					.try_last()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?;
-				let touched_at = self.server.clock.unix_timestamp()?;
-				let (retry_outputs, retry_permissions) = self
-					.sync_get_touch_authorized_objects(
-						&state.graph,
-						std::slice::from_ref(&node.id),
-						touched_at,
-						self.server.config.object.time_to_touch,
-					)
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to touch and get object metadata")
-					})?;
-				output = retry_outputs.into_iter().next().unwrap();
-				permissions = retry_permissions.into_iter().next().unwrap();
+					.map_err(|_| tg::error!("failed to send the object to the retry queue"))?;
+				continue;
 			}
 
 			// Update the graph.
@@ -220,10 +283,11 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn sync_get_index_process_batch(
+	async fn sync_get_index_process_batch(
 		&self,
 		state: &State,
 		nodes: Vec<ProcessNode>,
+		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
 	) -> tg::Result<()> {
 		// Separate the visible nodes. Missing nodes still need the local index as a fallback.
 		let (visible_nodes, nodes): (Vec<_>, Vec<_>) = {
@@ -283,34 +347,19 @@ impl Session {
 			}
 		}
 
-		for ((node, mut output), mut permissions) in
+		for ((node, output), permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
-			// Before reporting a missing process, index and retry.
-			if node.missing && output.is_none() {
-				crate::checkpoint!(self.server, "sync.get.index.process.retry", id = %node.id)
-					.await;
-				self.index()
+			// Send a missing process to the retry queue.
+			if node.missing
+				&& output.is_none()
+				&& let Some(retry_sender) = retry_sender
+			{
+				retry_sender
+					.send(tg::Either::Right(node))
 					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?
-					.try_last()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to index"))?;
-				let touched_at = self.server.clock.unix_timestamp()?;
-				let (retry_outputs, retry_permissions) = self
-					.sync_get_touch_authorized_processes(
-						&state.graph,
-						std::slice::from_ref(&node.id),
-						&state.arg,
-						touched_at,
-						self.server.config.process.time_to_touch,
-					)
-					.await
-					.map_err(|error| {
-						tg::error!(!error, "failed to touch and get process metadata")
-					})?;
-				output = retry_outputs.into_iter().next().unwrap();
-				permissions = retry_permissions.into_iter().next().unwrap();
+					.map_err(|_| tg::error!("failed to send the process to the retry queue"))?;
+				continue;
 			}
 
 			// Update the graph.
