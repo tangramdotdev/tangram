@@ -80,16 +80,18 @@ impl Session {
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let mut stream = pin!(stream);
+		let mut closed = false;
 		while let Some(event) = stream.try_next().await? {
 			match event {
-				tg::progress::Event::Indicators(indicators) => {
+				tg::progress::Event::Indicators(indicators) if !closed => {
 					for indicator in indicators {
 						let indicator = indicator.to_string();
 						if indicator.is_empty() {
 							continue;
 						}
 						if progress.send(format!("{indicator}\n").into()).is_err() {
-							return Err(tg::error!("failed to write the progress stream"));
+							closed = true;
+							break;
 						}
 					}
 				},
@@ -153,7 +155,7 @@ impl Session {
 			let mut receiver = pin!(ReceiverStream::new(receiver));
 			while let Some(bytes) = receiver.next().await {
 				if progress.send(bytes).is_err() {
-					return Err(tg::error!("failed to write the progress stream"));
+					break;
 				}
 			}
 			Ok::<_, tg::Error>(())
