@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*};
+use {crate::Session, std::collections::BTreeSet, tangram_client::prelude::*};
 
 pub(super) struct AddProcessChildArg<'a> {
 	pub cached: bool,
@@ -10,6 +10,7 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub parent: &'a tg::process::Id,
 	pub sandbox: Option<&'a tg::sandbox::Id>,
 	pub tokens: &'a tg::authorization::Tokens,
+	pub wait: Option<&'a tg::process::wait::Output>,
 }
 
 impl Session {
@@ -26,7 +27,7 @@ impl Session {
 		};
 		let Some(parent_sandbox) = self.server.runner.state().try_get_process_sandbox(&parent)
 		else {
-			self.index_process_child(&parent, &data, &command, sandbox.as_ref(), None)
+			self.index_process_child(&parent, &data, &command, sandbox.as_ref(), None, arg.wait)
 				.await?;
 			return Ok(());
 		};
@@ -84,6 +85,7 @@ impl Session {
 			&command,
 			sandbox.as_ref(),
 			Some(parent_data),
+			arg.wait,
 		)
 		.await?;
 
@@ -97,7 +99,19 @@ impl Session {
 		command: &tg::command::Id,
 		sandbox: Option<&tg::sandbox::Id>,
 		parent_data: Option<tg::process::Data>,
+		wait: Option<&tg::process::wait::Output>,
 	) -> tg::Result<()> {
+		let (error, output) = if child.cached {
+			match wait {
+				Some(wait) => (
+					Some(Self::index_process_child_error(wait.error.as_ref())),
+					Some(Self::index_process_child_output(wait.output.as_ref())),
+				),
+				None => (None, None),
+			}
+		} else {
+			(None, None)
+		};
 		let now = self.server.clock.unix_timestamp()?;
 		let child_id = &child.process.node;
 		let parent_arg = parent_data.map(|parent_data| {
@@ -125,12 +139,12 @@ impl Session {
 			children: None,
 			command: command.clone().into(),
 			data: None,
-			error: None,
+			error,
 			id: child_id.clone(),
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options: child.process.options.clone(),
-			output: None,
+			output,
 			parent: Some(parent.clone()),
 			sandbox: sandbox.cloned(),
 			stored: tangram_index::process::Stored::default(),
@@ -159,5 +173,27 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index the process child"))?;
 
 		Ok(())
+	}
+
+	fn index_process_child_error(
+		error: Option<&tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
+	) -> Option<Vec<tg::object::Id>> {
+		error.map(|error| match error {
+			tg::Either::Left(data) => {
+				let mut objects = BTreeSet::new();
+				data.children(&mut objects);
+				objects.into_iter().collect()
+			},
+			tg::Either::Right(error) => vec![error.node.clone().into()],
+		})
+	}
+
+	fn index_process_child_output(output: Option<&tg::value::Data>) -> Option<Vec<tg::object::Id>> {
+		let output = output?;
+		let mut objects = BTreeSet::new();
+		output.children(&mut objects);
+		let output = objects.into_iter().collect();
+
+		Some(output)
 	}
 }

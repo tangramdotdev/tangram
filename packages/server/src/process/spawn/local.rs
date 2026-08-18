@@ -444,6 +444,7 @@ impl Session {
 			parent,
 			sandbox: sandbox.as_ref(),
 			tokens: &output.tokens,
+			wait: output.wait.as_ref(),
 		})
 		.await
 		.map_err(
