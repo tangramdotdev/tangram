@@ -136,14 +136,14 @@ impl Cli {
 						print,
 						tokens,
 						ttl: args.ttl,
-						user: tg::Selector::Id(id.try_into()?),
+						user: tg::user::Selector::Id(id.try_into()?),
 					};
 					self.command_user_get(args).await?;
 				},
 				tg::id::Kind::Group => {
 					let args = crate::group::get::Args {
 						cached: args.cached,
-						group: tg::Selector::Id(id.try_into()?),
+						group: tg::group::Selector::Id(id.try_into()?),
 						location: locations,
 						print,
 						tokens,
@@ -155,7 +155,7 @@ impl Cli {
 					let args = crate::organization::get::Args {
 						cached: args.cached,
 						location: locations,
-						organization: tg::Selector::Id(id.try_into()?),
+						organization: tg::organization::Selector::Id(id.try_into()?),
 						print,
 						tokens,
 						ttl: args.ttl,
@@ -167,7 +167,7 @@ impl Cli {
 						cached: args.cached,
 						location: locations,
 						print,
-						tag: tg::Selector::Id(id.try_into()?),
+						tag: tg::tag::Selector::Id(id.try_into()?),
 						tokens,
 						ttl: args.ttl,
 					};

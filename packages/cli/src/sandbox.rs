@@ -284,7 +284,7 @@ impl Cli {
 		};
 		match kind {
 			tg::id::Kind::Group => {
-				let selector = tg::Selector::Specifier(specifier);
+				let selector = tg::group::Selector::Specifier(specifier);
 				let group = client
 					.try_get_group(&selector, tg::group::get::Arg::default())
 					.await?
@@ -292,7 +292,7 @@ impl Cli {
 				Ok(tg::Principal::Group(group.id))
 			},
 			tg::id::Kind::Organization => {
-				let selector = tg::Selector::Specifier(specifier);
+				let selector = tg::organization::Selector::Specifier(specifier);
 				let organization = client
 					.try_get_organization(&selector, tg::organization::get::Arg::default())
 					.await?
@@ -300,7 +300,7 @@ impl Cli {
 				Ok(tg::Principal::Organization(organization.id))
 			},
 			tg::id::Kind::User => {
-				let selector = tg::Selector::Specifier(specifier);
+				let selector = tg::user::Selector::Specifier(specifier);
 				let user = client
 					.try_get_user(&selector, tg::user::get::Arg::default())
 					.await?
@@ -356,7 +356,7 @@ impl Cli {
 		else {
 			return Ok(None);
 		};
-		let selector = tg::Selector::Specifier(specifier);
+		let selector = tg::user::Selector::Specifier(specifier);
 		let user = client
 			.try_get_user(&selector, tg::user::get::Arg::default())
 			.await?;
@@ -374,7 +374,7 @@ impl Cli {
 		else {
 			return Ok(None);
 		};
-		let selector = tg::Selector::Specifier(specifier);
+		let selector = tg::group::Selector::Specifier(specifier);
 		let group = client
 			.try_get_group(&selector, tg::group::get::Arg::default())
 			.await?;
@@ -392,7 +392,7 @@ impl Cli {
 		else {
 			return Ok(None);
 		};
-		let selector = tg::Selector::Specifier(specifier);
+		let selector = tg::organization::Selector::Specifier(specifier);
 		let organization = client
 			.try_get_organization(&selector, tg::organization::get::Arg::default())
 			.await?;
