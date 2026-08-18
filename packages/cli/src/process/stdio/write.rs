@@ -24,7 +24,7 @@ impl Cli {
 		let mut location = args.location;
 		location.set_from_reference_if_unset(&args.reference);
 		let process = self
-			.resolve_process_with_locations(&args.reference, &location)
+			.get_process_with_locations(&args.reference, &location)
 			.await?;
 		let id = process.node.clone();
 		let location = location.get_for_options(&process);

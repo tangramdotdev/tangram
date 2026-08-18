@@ -4,11 +4,27 @@ use {
 	foundationdb_tuple::Subspace,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		ops::ControlFlow,
+	},
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn try_get_process_node_children(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<crate::process::NodeChildren>> {
+		let request = crate::read::Request::TryGetProcessNodeChildren { id: id.clone() };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcessNodeChildren(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -439,5 +455,68 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(ControlFlow::Break(objects))
+	}
+
+	pub(crate) async fn try_get_process_node_children_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<crate::process::NodeChildren>, fdb::FdbError>> {
+		let Some(process) =
+			crate::fdb::propagate!(Self::try_get_process_with_transaction(txn, subspace, id).await)
+		else {
+			return Ok(ControlFlow::Break(None));
+		};
+
+		let bytes = id.to_bytes();
+		let key = (Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::fdb::retry!(result);
+		let mut children = BTreeMap::new();
+		for entry in &entries {
+			let key = Self::unpack(subspace, entry.key())?;
+			let Key::Process(crate::fdb::process::Key::ProcessChild {
+				child: child_id, ..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let child: tg::process::data::Child = tangram_serialize::from_slice(entry.value())
+				.map_err(|error| tg::error!(!error, "failed to deserialize the process child"))?;
+			if child.process.node != child_id {
+				return Err(tg::error!("the process child value does not match its key"));
+			}
+			let child: tg::Referent<tg::Id> = child.process.map(Into::into);
+			children
+				.entry(child.node.clone())
+				.and_modify(|existing: &mut tg::Referent<tg::Id>| {
+					existing.options.inherit(&child.options);
+				})
+				.or_insert(child);
+		}
+
+		let objects = crate::fdb::propagate!(
+			Self::get_process_objects_with_transaction(txn, subspace, id).await
+		);
+		for (object, _) in objects {
+			let id: tg::Id = object.into();
+			children
+				.entry(id.clone())
+				.or_insert_with(|| tg::Referent::with_node(id));
+		}
+
+		let complete = process.set.complete();
+		let nodes = children.into_values().collect();
+		let output = crate::process::NodeChildren { complete, nodes };
+
+		Ok(ControlFlow::Break(Some(output)))
 	}
 }

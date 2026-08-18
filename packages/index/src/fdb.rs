@@ -337,6 +337,13 @@ impl crate::Index for Index {
 		self.touch_checkouts(ids, touched_at, time_to_touch).await
 	}
 
+	async fn try_get_object_children(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Vec<tg::object::Id>>> {
+		self.try_get_object_children(id).await
+	}
+
 	async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -378,6 +385,13 @@ impl crate::Index for Index {
 		length: u64,
 	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
 		self.try_get_process_children(id, position, length).await
+	}
+
+	async fn try_get_process_node_children(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<crate::process::NodeChildren>> {
+		self.try_get_process_node_children(id).await
 	}
 
 	async fn try_get_cached_processes(

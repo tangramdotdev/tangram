@@ -31,6 +31,11 @@ export def test [path: string, ...args] {
 	let remote_process = tg --url $remote.url get $process_id --pretty
 	assert equal $local_process $remote_process
 
+	# Confirm the error is present.
+	if $output.error? != null and (($output.error | describe) == "string") {
+		tg --url $remote.url get $output.error --pretty
+	}
+
 	# Confirm output is present.
 	if $output.output? != null and (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {

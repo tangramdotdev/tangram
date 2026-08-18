@@ -35,7 +35,7 @@ tg --url $remote.url index
 # Bob has only the parent process node and relies on the granted subtree for the rest.
 tg --url $alice_local.url get $parent | tg --url $bob_local.url put --id $parent
 tg --url $bob_local.url index
-tg --url $remote.url --token $alice.token grant $bob.user.id process_subtree,process_subtree_command,process_subtree_log,process_subtree_output $parent | ignore
+tg --url $remote.url --token $alice.token grant $bob.user.id process_subtree,process_subtree_command,process_subtree_error,process_subtree_log,process_subtree_output $parent | ignore
 
 # The grant covers every resident field, so Bob relies on the private child subtree and the recursive lazy push succeeds.
 let output = tg --url $bob_local.url --no-quiet push --lazy $parent --process-children --process-commands --process-logs | complete

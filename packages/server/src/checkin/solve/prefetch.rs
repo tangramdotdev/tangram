@@ -337,13 +337,13 @@ impl Session {
 		let output = if prefetch.arg.options.deterministic {
 			tg::list::Output { data: Vec::new() }
 		} else {
-			self.match_tags_for_resolve(pattern, None, false, None, prefetch.arg.options.tag_ttl)
+			self.match_tags_for_get(pattern, None, false, None, prefetch.arg.options.tag_ttl)
 				.await
 				.map_err(|error| tg::error!(!error, %pattern, "failed to list entries"))?
 		};
 
 		// Prefetch the first candidate's object.
-		if let Some(tg::list::Entry::Tag { target, .. }) = output.data.first()
+		if let Some(target) = output.data.first().and_then(tg::list::Entry::target)
 			&& let Some(id) = target.node.as_ref().left()
 		{
 			self.checkin_solve_get_or_spawn_object_task(prefetch, id);

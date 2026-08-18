@@ -1144,23 +1144,32 @@ impl Compiler {
 				} else {
 					artifact
 				};
-				let path = if let (Some(tag), Some(id)) = (&options.tag, &options.id) {
+				let path = if let (Some(tag), Some(_)) = (&options.tag, &options.id) {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
 					let extension = options.path.is_none().then_some(extension).flatten();
-					let artifact: tg::artifact::Id = id.clone().try_into()?;
-					let node = tg::Referent::new(
-						tg::Selector::Specifier(tag.clone()),
-						tg::referent::Options {
-							artifact: Some(artifact),
-							id: options.id.clone(),
-							location: options.location.clone(),
-							..Default::default()
-						},
+					let reference_options = tg::reference::Options {
+						location: options.location.clone().map(Into::into),
+						tokens: options.tokens.clone(),
+						..Default::default()
+					};
+					let reference = tg::Reference::with_node_and_options(
+						tg::reference::Node::Specifier(tag.clone().into()),
+						reference_options,
 					);
+					let mut node =
+						reference
+							.get_with_handle(&self.handle)
+							.await?
+							.try_map(|node| {
+								node.try_unwrap_id()
+									.map_err(|_| tg::error!("expected a tag ID"))
+							})?;
+					node.options.artifact = Some(artifact.clone());
+					node.options.id.clone_from(&options.id);
 					let arg = tg::checkout::Arg {
 						dependencies: true,
 						extension: extension.clone(),
@@ -1189,7 +1198,7 @@ impl Compiler {
 						extension: None,
 						force: false,
 						lock: None,
-						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
+						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
 					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
@@ -1211,7 +1220,7 @@ impl Compiler {
 						extension,
 						force: false,
 						lock: None,
-						nodes: vec![artifact.map(|id| tg::Selector::Id(id.into()))],
+						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
 					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?

@@ -156,6 +156,15 @@ impl Index {
 				)?;
 				crate::read::Response::TryGetProcessChildren(output)
 			},
+			crate::read::Request::TryGetProcessNodeChildren { id } => {
+				let output = Self::try_get_process_node_children_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id,
+				)?;
+				crate::read::Response::TryGetProcessNodeChildren(output)
+			},
 			crate::read::Request::LmdbLogCompactionBatch { batch_size } => {
 				let output = Self::log_compaction_batch_with_transaction(
 					db,
@@ -261,6 +270,11 @@ impl Index {
 					&specifiers,
 				)?;
 				crate::read::Response::TryGetIdsForSpecifiers(output)
+			},
+			crate::read::Request::TryGetObjectChildren { id } => {
+				let output =
+					Self::try_get_object_children_with_transaction(db, subspace, transaction, &id)?;
+				crate::read::Response::TryGetObjectChildren(output)
 			},
 			crate::read::Request::TryGetObjects { ids } => {
 				let output =

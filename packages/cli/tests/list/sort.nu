@@ -13,4 +13,4 @@ tg --url $local.url tag put b $id
 
 let entries = tg --url $local.url match --no-groups --no-organizations --no-users "*" | from json
 assert equal ($entries | get specifier) [a b]
-assert equal ($entries | get location) [remote local]
+assert equal ($entries | get node.options.location) [remote local]

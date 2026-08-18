@@ -22,6 +22,14 @@ assert equal ($child | get specifier) [foo/bar]
 let nested = tg list --local foo/baz | from json
 assert equal ($nested | get specifier) [foo/baz/qux]
 
+tg group create versions | ignore
+tg group create versions/1.0.0 | ignore
+tg tag versions/1.0.0/linux $artifact
+tg group create versions/1.1.0 | ignore
+tg tag versions/1.1.0/macos $artifact
+let version = tg list --local "versions/^1" | from json
+assert equal ($version | get specifier) [versions/1.1.0/macos]
+
 # Pagination is applied after authorization filters hidden rows.
 let auth = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg --url $auth.url login --verbose --name alice | from json

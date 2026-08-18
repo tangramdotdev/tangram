@@ -77,6 +77,16 @@ where
 		}
 	}
 
+	fn children(
+		&self,
+		arg: tg::children::Arg,
+	) -> impl Future<Output = tg::Result<tg::children::Output>> {
+		match self {
+			tg::Either::Left(s) => s.children(arg).left_future(),
+			tg::Either::Right(s) => s.children(arg).right_future(),
+		}
+	}
+
 	fn clean(
 		&self,
 	) -> impl Future<
@@ -241,29 +251,6 @@ where
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_get(reference, arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> {
-		match self {
-			tg::Either::Left(s) => s
-				.try_resolve(reference, arg.clone())
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_resolve(reference, arg)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

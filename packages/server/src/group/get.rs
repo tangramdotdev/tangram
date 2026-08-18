@@ -22,7 +22,7 @@ impl Session {
 			.try_get_with_selector(
 				&selector,
 				arg.location.as_ref(),
-				&tg::authorization::Tokens::default(),
+				&arg.tokens,
 				arg.cached,
 				arg.ttl,
 			)
@@ -93,9 +93,11 @@ impl Session {
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let cached = arg.cached;
+		let cacheable = arg.tokens.is_empty();
 		let ttl = arg.ttl;
 		let location = tg::Location::Remote(remote.clone());
 		arg.cached = false;
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(
 			tg::Location::Local(tg::location::Local {
 				region: remote.region.clone(),
@@ -103,9 +105,11 @@ impl Session {
 			.into(),
 		);
 		arg.ttl = tg::remote::cache::Ttl::default();
+		let mut cache_arg = arg.clone();
+		cache_arg.tokens.clear();
 		let request =
 			crate::remote::cache::Request::GroupGet(crate::remote::cache::GroupGetRequest {
-				arg: arg.clone(),
+				arg: cache_arg,
 				id: id.clone(),
 			});
 		if let Some(crate::remote::cache::Response::GroupGet(response)) = self
@@ -144,8 +148,10 @@ impl Session {
 			crate::remote::cache::Response::GroupGet(crate::remote::cache::GroupGetResponse {
 				output: output.clone(),
 			});
-		self.put_cached_remote_response(&remote.name, &request, &response)
-			.await?;
+		if cacheable {
+			self.put_cached_remote_response(&remote.name, &request, &response)
+				.await?;
+		}
 		if let Some(group) = &mut output {
 			self.update_tokens_for_location(&mut group.tokens, &location)?;
 			group.tokens.inherit(&tokens);

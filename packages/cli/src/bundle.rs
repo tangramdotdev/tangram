@@ -11,7 +11,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_bundle(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let artifact = self.resolve_artifact(&args.reference).await?;
+		let artifact = self.get_artifact(&args.reference).await?;
 		let artifact = tg::Artifact::with_referent(artifact);
 		let artifact = tg::builtin::bundle_with_handle(&artifact, &client).await?;
 		let id = artifact

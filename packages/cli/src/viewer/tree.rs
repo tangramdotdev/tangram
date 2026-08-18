@@ -1411,8 +1411,8 @@ impl Tree {
 			groups: true,
 			length: None,
 			location,
+			node: Some(tg::Referent::with_node(parent.clone())),
 			organizations: false,
-			parent: Some(tg::Selector::Id(parent.clone())),
 			position: None,
 			recursive: false,
 			reverse: false,
@@ -1429,68 +1429,58 @@ impl Tree {
 		let mut children = output
 			.data
 			.into_iter()
-			.filter_map(|entry| match entry {
-				tg::list::Entry::Group {
-					id,
-					location,
-					name,
-					parent,
-					specifier,
-					tokens,
-				} => {
-					let referent_options = tg::referent::Options {
-						location: location.clone(),
-						tokens: tokens.clone(),
-						..tg::referent::Options::default()
-					};
-					let group = tg::Group {
-						id,
-						location,
-						name,
-						parent,
-						specifier,
-						tokens,
-					};
-					Some(tg::Referent::new(Item::Group(group), referent_options))
-				},
-				tg::list::Entry::Tag {
-					id,
-					location,
-					name,
+			.filter_map(|entry| {
+				let tg::list::Entry {
+					node,
 					parent,
 					specifier,
 					target,
-					tokens,
-				} => {
-					let referent_options = tg::referent::Options {
-						location: location.clone(),
-						tokens: tokens.clone(),
-						..tg::referent::Options::default()
-					};
-					let target_options = target.options;
-					let target = match target.node {
-						tg::Either::Left(id) => {
-							let referent = tg::Referent::new(id, target_options);
-							tg::tag::Target::Object(tg::Object::with_referent(referent))
-						},
-						tg::Either::Right(id) => {
-							let referent = tg::Referent::new(id, target_options);
-							tg::tag::Target::Process(tg::Process::with_referent(referent))
-						},
-					};
-					let tag = tg::Tag {
-						id,
-						target,
-						location,
-						name,
-						parent,
-						permissions: Vec::new(),
-						specifier,
-						tokens,
-					};
-					Some(tg::Referent::new(Item::Tag(tag), referent_options))
-				},
-				tg::list::Entry::Organization { .. } | tg::list::Entry::User { .. } => None,
+				} = entry;
+				let referent_options = node.options;
+				let location = referent_options.location.clone();
+				let name = specifier.name().to_owned();
+				let tokens = referent_options.tokens.clone();
+				match node.node.kind() {
+					tg::id::Kind::Group => {
+						let id = node.node.try_into().ok()?;
+						let group = tg::Group {
+							id,
+							location,
+							name,
+							parent,
+							specifier,
+							tokens,
+						};
+						Some(tg::Referent::new(Item::Group(group), referent_options))
+					},
+					tg::id::Kind::Tag => {
+						let id = node.node.try_into().ok()?;
+						let target = target?;
+						let target_options = target.options;
+						let target = match target.node {
+							tg::Either::Left(id) => {
+								let referent = tg::Referent::new(id, target_options);
+								tg::tag::Target::Object(tg::Object::with_referent(referent))
+							},
+							tg::Either::Right(id) => {
+								let referent = tg::Referent::new(id, target_options);
+								tg::tag::Target::Process(tg::Process::with_referent(referent))
+							},
+						};
+						let tag = tg::Tag {
+							id,
+							target,
+							location,
+							name,
+							parent,
+							permissions: Vec::new(),
+							specifier,
+							tokens,
+						};
+						Some(tg::Referent::new(Item::Tag(tag), referent_options))
+					},
+					_ => None,
+				}
 			})
 			.collect::<Vec<_>>();
 		children.sort_by(|a, b| Self::item_title(a).cmp(&Self::item_title(b)));
@@ -1544,6 +1534,7 @@ impl Tree {
 		let location = tag.location.clone().map(Into::into);
 		tokens.inherit(&tag.tokens);
 		let options = tg::reference::Options {
+			follow: true,
 			location: location.clone(),
 			tokens,
 			..tg::reference::Options::default()
@@ -1553,27 +1544,27 @@ impl Tree {
 			options,
 			None,
 		);
-		let referent = reference.resolve_with_handle(client).await?;
+		let referent = reference.get_with_handle(client).await?;
 		let tg::Referent {
 			node: item,
 			options,
 		} = referent;
 		let item = match item {
-			tg::resolve::Node::Id(id) if id.kind().is_object() => {
+			tg::get::Node::Id(id) if id.kind().is_object() => {
 				let id = id.try_into()?;
 				let object = tg::Object::with_referent(tg::Referent::new(id, options.clone()));
 				Item::Value(object.into())
 			},
-			tg::resolve::Node::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
+			tg::get::Node::Id(id) if matches!(id.kind(), tg::id::Kind::Process) => {
 				let id = id.try_into()?;
 				let referent = tg::Referent::new(id, options.clone());
 				let process = tg::Process::with_referent(referent);
 				Item::Process(process)
 			},
-			tg::resolve::Node::Id(id) => {
+			tg::get::Node::Id(id) => {
 				return Err(tg::error!(%id, "expected an object or a process"));
 			},
-			tg::resolve::Node::Pointer(pointer) => {
+			tg::get::Node::Pointer(pointer) => {
 				let graph = pointer
 					.graph
 					.clone()
@@ -2770,6 +2761,7 @@ impl Tree {
 								let arg = tg::tag::get::Arg {
 									cached: false,
 									location: tag.location.clone().map(Into::into),
+									tokens: tag.tokens.clone(),
 									ttl: tg::remote::cache::Ttl::default(),
 								};
 								client

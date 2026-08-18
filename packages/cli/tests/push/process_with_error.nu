@@ -1,7 +1,7 @@
 use ../../test.nu *
 use ./process.nu test
 
-# Pushing a process that threw an error, with the errors flag, makes the failed process present and identical on the remote.
+# Pushing a process that threw an error includes the error by default.
 
 # Create a module that throws an error.
 let path = artifact {
@@ -12,5 +12,5 @@ let path = artifact {
 	'#
 }
 
-test $path "--process-errors"
-test $path "--process-errors" "--eager"
+test $path
+test $path "--eager"

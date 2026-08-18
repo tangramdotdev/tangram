@@ -62,6 +62,8 @@ pub trait Handle:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
 	>;
 
+	fn children(&self, arg: tg::children::Arg) -> BoxFuture<'_, tg::Result<tg::children::Output>>;
+
 	fn clean(
 		&self,
 	) -> BoxFuture<
@@ -120,17 +122,6 @@ pub trait Handle:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>,
 	>;
 
-	fn try_resolve<'a>(
-		&'a self,
-		reference: &'a tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<
-			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>,
-		>,
-	>;
-
 	fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
@@ -173,6 +164,10 @@ where
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>,
 	> {
 		self.checkout(arg).map_ok(futures::StreamExt::boxed).boxed()
+	}
+
+	fn children(&self, arg: tg::children::Arg) -> BoxFuture<'_, tg::Result<tg::children::Output>> {
+		tg::Handle::children(self, arg).boxed()
 	}
 
 	fn clean(
@@ -257,21 +252,6 @@ where
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>>,
 	> {
 		self.try_get(reference, arg)
-			.map_ok(futures::StreamExt::boxed)
-			.boxed()
-	}
-
-	fn try_resolve<'a>(
-		&'a self,
-		reference: &'a tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<
-			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>,
-		>,
-	> {
-		self.try_resolve(reference, arg)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
 	}

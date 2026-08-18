@@ -9,5 +9,5 @@ let path = artifact {
 }
 let process = tg build --detach $path | str trim
 
-let output = tg status --no-timeout $process | from json
-assert (($output | last) == "finished") "the followed status should end with finished"
+let output = tg process status --no-timeout $process | from json
+assert (($output | last) == "finished") "the status with follow should end with finished"

@@ -43,12 +43,20 @@ struct InternalOutput {
 #[derive(Clone)]
 struct Node {
 	artifact: Option<tg::Referent<tg::artifact::Id>>,
-	named: Option<Vec<NamedNode>>,
+	artifacts: Vec<tg::Referent<tg::artifact::Id>>,
+	named: Option<NamedNode>,
+	named_checkouts: Vec<NamedCheckout>,
 }
 
+#[derive(Clone)]
 struct NamedCheckout {
-	artifact: Option<tg::artifact::Id>,
 	nodes: Vec<NamedNode>,
+	target: Option<tg::Id>,
+}
+
+pub(super) struct NamedTree {
+	pub ancestors: Vec<NamedNode>,
+	pub nodes: Vec<NamedNode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,7 +170,7 @@ impl Session {
 		}
 		let artifacts = nodes
 			.iter()
-			.filter_map(|node| node.artifact.clone())
+			.flat_map(|node| node.artifacts.clone())
 			.collect::<Vec<_>>();
 		let artifact_paths = artifacts
 			.iter()
@@ -172,7 +180,6 @@ impl Session {
 			.iter()
 			.map(|node| {
 				if let Some(named) = &node.named {
-					let named = named.last().unwrap();
 					self.named_checkout_path(named, extension.as_deref())
 				} else {
 					let artifact = node.artifact.as_ref().unwrap();
@@ -197,12 +204,7 @@ impl Session {
 			.collect::<Vec<_>>();
 		let named_checkouts = nodes
 			.into_iter()
-			.filter_map(|node| {
-				let nodes = node.named?;
-				let artifact = node.artifact.map(|artifact| artifact.node);
-
-				Some(NamedCheckout { artifact, nodes })
-			})
+			.flat_map(|node| node.named_checkouts)
 			.collect();
 		let internal_output = Arc::new(InternalOutput {
 			artifact_paths,
@@ -261,74 +263,143 @@ impl Session {
 
 	async fn resolve_checkout_node(
 		&self,
-		node: tg::Referent<tg::Selector<tg::Id>>,
+		node: tg::Referent<tg::Id>,
 		include_hierarchy: bool,
 	) -> tg::Result<Node> {
-		let artifact = match &node.node {
-			tg::Selector::Id(id) => tg::artifact::Id::try_from(id.clone()).ok(),
-			tg::Selector::Specifier(_) => None,
-		};
+		let artifact = tg::artifact::Id::try_from(node.node.clone()).ok();
 		if let Some(id) = artifact {
-			let artifact = Some(node.map(|_| id));
+			let artifact = node.map(|_| id);
 			return Ok(Node {
-				artifact,
+				artifact: Some(artifact.clone()),
+				artifacts: vec![artifact],
 				named: None,
+				named_checkouts: Vec::new(),
 			});
+		}
+		if !matches!(
+			node.node.kind(),
+			tg::id::Kind::Group
+				| tg::id::Kind::Organization
+				| tg::id::Kind::Tag
+				| tg::id::Kind::User
+		) {
+			if node.node.kind().is_object() {
+				return Err(tg::error!("expected an artifact"));
+			}
+			return Err(tg::error!(kind = %node.node.kind(), "expected an object ID"));
 		}
 		if matches!(&node.options.location, Some(tg::Location::Remote(_))) {
 			return Err(tg::error!(
-				selector = %node.node,
+				id = %node.node,
 				"a named node checkout must be local"
 			));
 		}
 
-		let named = self
+		let tree = self
 			.checkout_named_nodes_local(&node.node, include_hierarchy)
 			.await?;
-		let last = named.last().unwrap();
-		let permission = Self::named_checkout_permission(&last.id)?;
-		let resource = tg::Referent::with_node_and_tokens(
-			tg::Selector::Id(last.id.clone()),
-			node.options.tokens.clone(),
-		);
-		let authorized = self.authorize(resource, permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Err(tg::error!(id = %last.id, "unauthorized"));
-		}
-
-		let artifact = if let Some(target) = &last.target {
-			let tg::Either::Left(target) = target else {
-				return Err(tg::error!(id = %last.id, "the tag target is not an artifact"));
-			};
-			let artifact = match node.options.artifact.clone() {
-				Some(artifact) => artifact,
-				None => target
-					.clone()
-					.try_into()
-					.map_err(|_| tg::error!(id = %last.id, "the tag target is not an artifact"))?,
-			};
-			let artifact_object = tg::object::Id::from(artifact.clone());
-			if artifact_object != *target && node.options.id.as_ref() != Some(target) {
-				return Err(
-					tg::error!(id = %last.id, "the artifact does not belong to the tag target"),
+		let authorization_args = tree
+			.nodes
+			.iter()
+			.map(|named| {
+				let permission = Self::named_checkout_permission(&named.id)?;
+				let resource = tg::Referent::with_node_and_tokens(
+					tg::Selector::Id(named.id.clone()),
+					node.options.tokens.clone(),
 				);
+				let permissions = tg::authorization::permission::Set::from_permission(permission);
+
+				Ok::<_, tg::Error>((resource, permissions))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		let authorization = self.authorize_batch(authorization_args).await?;
+		let mut allowed = tree
+			.ancestors
+			.iter()
+			.map(|ancestor| ancestor.id.clone())
+			.collect::<std::collections::BTreeSet<_>>();
+		let mut named_checkouts = Vec::new();
+		if !tree.ancestors.is_empty() {
+			named_checkouts.push(NamedCheckout {
+				nodes: tree.ancestors,
+				target: None,
+			});
+		}
+		let mut artifact = None;
+		let mut artifacts = Vec::new();
+		let mut named = None;
+		for (named_node, authorization) in std::iter::zip(tree.nodes, authorization) {
+			let permission = Self::named_checkout_permission(&named_node.id)?;
+			let parent_allowed = named_node.id == node.node
+				|| named_node
+					.parent
+					.as_ref()
+					.is_none_or(|parent| allowed.contains(parent));
+			let authorized = parent_allowed
+				&& authorization.is_some_and(|permissions| permissions.contains(permission));
+			if !authorized {
+				if named_node.id == node.node {
+					return Err(tg::error!(id = %named_node.id, "unauthorized"));
+				}
+				continue;
 			}
-			let target_id = tg::Id::from(target.clone());
-			let token = self
-				.create_tag_target_token_with_permissions(&target_id, last.permissions.clone())?;
-			let options = tg::referent::Options {
-				location: node.options.location,
-				tokens: tg::authorization::Tokens::with_local(token),
-				..Default::default()
+			allowed.insert(named_node.id.clone());
+			let target = named_node.target.as_ref().map(|target| match target {
+				tg::Either::Left(target) => tg::Id::from(target.clone()),
+				tg::Either::Right(target) => tg::Id::from(target.clone()),
+			});
+			if named_node.id == node.node
+				&& let Some(expected_artifact) = &node.options.artifact
+			{
+				let target = target.as_ref().ok_or_else(
+					|| tg::error!(id = %named_node.id, "the tag does not have a target"),
+				)?;
+				let expected_object = tg::object::Id::from(expected_artifact.clone());
+				if tg::Id::from(expected_object) != *target
+					&& node.options.id.clone().map(tg::Id::from) != Some(target.clone())
+				{
+					return Err(tg::error!(
+						id = %named_node.id,
+						"the artifact does not belong to the tag target"
+					));
+				}
+			}
+			let target_artifact = if let Some(target) = &target
+				&& let Ok(target_artifact) = tg::artifact::Id::try_from(target.clone())
+			{
+				let token = self.create_tag_target_token_with_permissions(
+					target,
+					named_node.permissions.clone(),
+				)?;
+				let options = tg::referent::Options {
+					location: node.options.location.clone(),
+					tokens: tg::authorization::Tokens::with_local(token),
+					..Default::default()
+				};
+				Some(tg::Referent::new(target_artifact, options))
+			} else {
+				None
 			};
-			Some(tg::Referent::new(artifact, options))
-		} else {
-			None
-		};
+			if named_node.id == node.node {
+				artifact.clone_from(&target_artifact);
+				named = Some(named_node.clone());
+			}
+			if let Some(target_artifact) = target_artifact {
+				artifacts.push(target_artifact);
+			}
+			named_checkouts.push(NamedCheckout {
+				nodes: vec![named_node],
+				target,
+			});
+		}
+		let named =
+			named.ok_or_else(|| tg::error!(id = %node.node, "the named node was not found"))?;
 
 		Ok(Node {
 			artifact,
+			artifacts,
 			named: Some(named),
+			named_checkouts,
 		})
 	}
 

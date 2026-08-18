@@ -162,6 +162,11 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
+	fn try_get_object_children(
+		&self,
+		id: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::object::Id>>>> + Send;
+
 	fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -227,6 +232,11 @@ pub trait Index {
 		position: std::io::SeekFrom,
 		length: u64,
 	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::data::Child>>>> + Send;
+
+	fn try_get_process_node_children(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildren>>> + Send;
 
 	fn try_get_cached_processes(
 		&self,

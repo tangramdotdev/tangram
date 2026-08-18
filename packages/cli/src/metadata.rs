@@ -22,7 +22,7 @@ impl Cli {
 		let print = args.print;
 
 		// Get the reference.
-		let referent = self.resolve(&reference).await?;
+		let referent = self.get_with_follow(&reference).await?;
 		match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);

@@ -73,6 +73,7 @@ impl Cli {
 		args: Args,
 		referent: tg::Referent<tg::get::Node>,
 	) -> tg::Result<()> {
+		let tokens = args.reference.options().tokens.clone();
 		let locations = args
 			.locations
 			.get_for_options(&referent)
@@ -133,6 +134,7 @@ impl Cli {
 						cached: args.cached,
 						location: locations,
 						print,
+						tokens,
 						ttl: args.ttl,
 						user: tg::Selector::Id(id.try_into()?),
 					};
@@ -144,6 +146,7 @@ impl Cli {
 						group: tg::Selector::Id(id.try_into()?),
 						location: locations,
 						print,
+						tokens,
 						ttl: args.ttl,
 					};
 					self.command_group_get(args).await?;
@@ -154,6 +157,7 @@ impl Cli {
 						location: locations,
 						organization: tg::Selector::Id(id.try_into()?),
 						print,
+						tokens,
 						ttl: args.ttl,
 					};
 					self.command_organization_get(args).await?;
@@ -164,6 +168,7 @@ impl Cli {
 						location: locations,
 						print,
 						tag: tg::Selector::Id(id.try_into()?),
+						tokens,
 						ttl: args.ttl,
 					};
 					self.command_tag_get(args).await?;
@@ -189,20 +194,24 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) async fn resolve(
+	pub(crate) async fn get_with_follow(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::get::Node>> {
-		self.resolve_with_arg(reference, tg::resolve::Arg::default())
-			.boxed()
-			.await
+		let mut reference = reference.clone();
+		let mut options = reference.options().clone();
+		options.follow = true;
+		reference.set_options(options);
+		let output = self.get(&reference).await?;
+
+		Ok(output.referent)
 	}
 
-	pub(crate) async fn resolve_artifact(
+	pub(crate) async fn get_artifact(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::artifact::Id>> {
-		let referent = self.resolve(reference).await?;
+		let referent = self.get_with_follow(reference).await?;
 		let referent = referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => id
 				.try_into()
@@ -212,11 +221,11 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_object(
+	pub(crate) async fn get_object(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::object::Id>> {
-		let referent = self.resolve(reference).await?;
+		let referent = self.get_with_follow(reference).await?;
 		let referent = referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected an object")),
 			tg::get::Node::Pointer(_) => Err(tg::error!("expected an object")),
@@ -224,20 +233,20 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_object_with_locations(
+	pub(crate) async fn get_object_with_locations(
 		&mut self,
 		reference: &tg::Reference,
 		locations: &crate::location::Args,
 	) -> tg::Result<tg::Referent<tg::object::Id>> {
 		let reference = locations.apply_to_reference(reference);
-		self.resolve_object(&reference).await
+		self.get_object(&reference).await
 	}
 
-	pub(crate) async fn resolve_process(
+	pub(crate) async fn get_process(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::process::Id>> {
-		let referent = self.resolve(reference).await?;
+		let referent = self.get_with_follow(reference).await?;
 		let referent = referent.try_map(|node| match node {
 			tg::get::Node::Id(id) => id.try_into().map_err(|_| tg::error!("expected a process")),
 			tg::get::Node::Pointer(_) => Err(tg::error!("expected a process")),
@@ -245,13 +254,13 @@ impl Cli {
 		Ok(referent)
 	}
 
-	pub(crate) async fn resolve_process_with_locations(
+	pub(crate) async fn get_process_with_locations(
 		&mut self,
 		reference: &tg::Reference,
 		locations: &crate::location::Args,
 	) -> tg::Result<tg::Referent<tg::process::Id>> {
 		let reference = locations.apply_to_reference(reference);
-		self.resolve_process(&reference).await
+		self.get_process(&reference).await
 	}
 
 	pub(crate) async fn get(&mut self, reference: &tg::Reference) -> tg::Result<tg::get::Output> {
@@ -343,87 +352,14 @@ impl Cli {
 		Ok(output)
 	}
 
-	pub(crate) async fn resolve_with_arg(
-		&mut self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> tg::Result<tg::Referent<tg::resolve::Node>> {
-		let tokens = reference.options().tokens.clone();
-		let direct_reference =
-			tg::Reference::with_node_and_tokens(reference.node().clone(), tokens.clone());
-		if reference == &direct_reference {
-			match reference.node() {
-				tg::reference::Node::Id(id)
-					if !tokens.is_empty()
-						|| !matches!(
-							id.kind(),
-							tg::id::Kind::Group
-								| tg::id::Kind::Organization
-								| tg::id::Kind::Sandbox | tg::id::Kind::Tag
-								| tg::id::Kind::User
-						) =>
-				{
-					let referent = tg::Referent::with_node_and_tokens(
-						tg::resolve::Node::Id(id.clone()),
-						tokens.clone(),
-					);
-
-					return Ok(referent);
-				},
-				tg::reference::Node::Pointer(pointer) => {
-					let referent = tg::Referent::with_node_and_tokens(
-						tg::resolve::Node::Pointer(pointer.clone()),
-						tokens,
-					);
-
-					return Ok(referent);
-				},
-				_ => (),
-			}
-		}
-
-		let client = self.client().await?;
-		let relative = reference
-			.node()
-			.try_unwrap_path_ref()
-			.is_ok_and(|path| path.is_relative());
-		let mut reference = reference.clone();
-		let mut node = reference.node().clone();
-		if let tg::reference::Node::Path(path) = &mut node {
-			*path = tangram_util::fs::canonicalize_parent(&path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;
-		}
-		reference.set_node(node);
-		let stream = client
-			.try_resolve(&reference, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to resolve the reference"))?;
-		let mut output = self
-			.render_progress_stream(stream)
-			.await
-			.map_err(|error| tg::error!(!error, %reference, "failed to resolve the reference"))?
-			.ok_or_else(|| tg::error!(%reference, "failed to resolve the reference"))?;
-		if relative && let Some(path) = output.referent.path() {
-			let current_dir = std::env::current_dir()
-				.map_err(|error| tg::error!(!error, "failed to get the working directory"))?;
-			let path = tangram_util::path::diff(&current_dir, path)
-				.map_err(|error| tg::error!(!error, "failed to diff the paths"))?
-				.unwrap_or_default();
-			output.referent.options.path = Some(path);
-		}
-
-		Ok(output.referent)
-	}
-
-	pub(crate) async fn resolve_references(
+	pub(crate) async fn get_references(
 		&mut self,
 		references: &[tg::Reference],
 	) -> tg::Result<Vec<tg::Referent<tg::get::Node>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
-			let referent = self.resolve(reference).await?;
-			referents.push(referent);
+			let output = self.get(reference).await?;
+			referents.push(output.referent);
 		}
 		Ok(referents)
 	}
@@ -444,7 +380,7 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Get the reference.
-		let referent = self.resolve(reference).await?;
+		let referent = self.get_with_follow(reference).await?;
 		let mut referent = referent.into_graph_edge()?;
 		let module = match referent.node.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {

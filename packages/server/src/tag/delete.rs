@@ -130,9 +130,10 @@ impl Session {
 			entries
 				.into_iter()
 				.filter_map(|entry| {
-					let tg::list::Entry::Tag { specifier, .. } = entry else {
+					if entry.kind() != tg::id::Kind::Tag {
 						return None;
-					};
+					}
+					let specifier = entry.specifier;
 					let matches = if recursive {
 						specifier
 							.prefixes()

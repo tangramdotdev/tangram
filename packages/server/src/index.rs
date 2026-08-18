@@ -191,6 +191,18 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_object_children(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Vec<tg::object::Id>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_children(id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_object_children(id).await,
+		}
+	}
+
 	async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -263,6 +275,18 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_process_children(id, position, length).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_process_children(id, position, length).await,
+		}
+	}
+
+	async fn try_get_process_node_children(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_node_children(id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_process_node_children(id).await,
 		}
 	}
 

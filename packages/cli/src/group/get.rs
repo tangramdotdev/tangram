@@ -17,6 +17,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	#[arg(skip)]
+	pub tokens: tg::authorization::Tokens,
+
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
 }
@@ -27,6 +30,7 @@ impl Cli {
 		let arg = tg::group::get::Arg {
 			cached: args.cached,
 			location: args.location.get(),
+			tokens: args.tokens,
 			ttl: args.ttl.get(),
 		};
 		let group = client

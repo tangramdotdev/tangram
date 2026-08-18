@@ -953,6 +953,8 @@ impl Index {
 					resource,
 					cache,
 				)? {
+					let permission =
+						crate::authorize::permission_for_named_parent(&parent, permission)?;
 					dependencies.push((parent, permission));
 				}
 			},

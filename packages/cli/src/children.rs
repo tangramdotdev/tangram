@@ -1,4 +1,4 @@
-use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Get the children.
 #[derive(Clone, Debug, clap::Args)]
@@ -10,75 +10,40 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The object or process.
+	/// The node.
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
-
-	#[command(flatten)]
-	pub timeout: Timeout,
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct Timeout {
-	#[arg(id = "children.timeout.timeout", long = "timeout", overrides_with = "children.timeout.no_timeout", value_parser = humantime::parse_duration)]
-	pub timeout: Option<Duration>,
-
-	#[arg(
-		id = "children.timeout.no_timeout",
-		long = "no-timeout",
-		overrides_with = "children.timeout.timeout"
-	)]
-	pub no_timeout: bool,
-}
-
-impl Timeout {
-	fn get(&self) -> Option<Duration> {
-		if self.no_timeout {
-			None
-		} else {
-			self.timeout.or(Some(Duration::ZERO))
-		}
-	}
 }
 
 impl Cli {
 	pub async fn command_children(&mut self, mut args: Args) -> tg::Result<()> {
+		// Get the node.
 		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
-		let locations = args.locations;
-		let print = args.print;
-		let timeout = args.timeout;
+		let output = self
+			.get_with_arg(&reference, tg::get::Arg::default())
+			.await?;
+		let node = output.referent.try_map(|node| match node {
+			tg::get::Node::Id(id) => Ok(id),
+			tg::get::Node::Pointer(_) => {
+				Err(tg::error!(%reference, "the children node must be an ID"))
+			},
+		})?;
 
-		let referent = self.resolve(&reference).await?;
-		match referent.node {
-			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
-				let process = tg::Referent::new(id.try_into()?, referent.options);
-				let options = crate::process::children::Options {
-					length: None,
-					locations,
-					position: None,
-					print,
-					size: None,
-					timeout: crate::process::children::Timeout {
-						timeout: timeout.get(),
-						no_timeout: timeout.no_timeout,
-					},
-				};
-				self.command_process_children_inner(process, options)
-					.await?;
-			},
-			node => {
-				let object = tg::Referent::new(node, referent.options)
-					.into_graph_edge()?
-					.try_map::<tg::object::Id, _>(|edge| {
-						edge.try_unwrap_object()
-							.map(|object| object.id())
-							.map_err(|_| tg::error!("expected an object"))
-					})?;
-				let options = crate::object::children::Options { locations, print };
-				self.command_object_children_inner(object, options).await?;
-			},
-		}
+		// Get the children.
+		let client = self.client().await?;
+		let arg = tg::children::Arg { node };
+		let output = client
+			.children(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %reference, "failed to get the children"))?;
+		let nodes = output
+			.nodes
+			.into_iter()
+			.map(|node| node.node)
+			.collect::<Vec<_>>();
+		self.print_serde(nodes, args.print).await?;
+
 		Ok(())
 	}
 }

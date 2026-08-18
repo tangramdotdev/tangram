@@ -12,7 +12,7 @@ let id = tg --url $remote.url checkin $path
 tg --url $remote.url tag put -p "a/b" $id
 
 # Cache the parent's children, including a/b.
-tg --url $local.url resolve --ttl 0 "a" | ignore
+tg --url $local.url get --ttl 0 "a?follow=true" | ignore
 
 # Update the child on the remote.
 let path2 = artifact 'Final version'
@@ -21,5 +21,5 @@ let new = tg --url $remote.url get $id2 | str trim
 tg --url $remote.url tag put -p "a/b" $id2
 
 # Busting the cache for the child specifically returns the new node.
-let b = tg --url $local.url resolve --ttl 0 "a/b" | str trim
+let b = tg --url $local.url get --ttl 0 "a/b?follow=true" | str trim
 assert equal $b $new "the child updated individually should return the new node"

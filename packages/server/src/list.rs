@@ -32,8 +32,15 @@ enum Parent {
 
 impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
-	pub(crate) async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+	pub(crate) async fn list(&self, mut arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		self.verify_request_with_network_access()?;
+		if let Some(location) = arg
+			.node
+			.as_ref()
+			.and_then(|node| node.options.location.clone())
+		{
+			arg.location = Some(location.into());
+		}
 		let local_only = arg
 			.location
 			.as_ref()
@@ -57,9 +64,16 @@ impl Session {
 		};
 		source_arg.position = None;
 		let local_arg = source_arg.clone();
+		let tokens = arg
+			.node
+			.as_ref()
+			.map(tg::Referent::options)
+			.map(|options| options.tokens.clone())
+			.unwrap_or_default();
 		let entries = self
 			.query_specifier_entries(
 				arg.location.as_ref(),
+				&tokens,
 				arg.cached,
 				arg.ttl,
 				remote::Query::List(source_arg),
@@ -75,6 +89,14 @@ impl Session {
 	}
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
+		self.list_local_entries_with_tokens(&tg::authorization::Tokens::default())
+			.await
+	}
+
+	async fn list_local_entries_with_tokens(
+		&self,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Vec<tg::list::Entry>> {
 		// List the entries.
 		let entries = self
 			.server
@@ -85,12 +107,12 @@ impl Session {
 			.await?;
 
 		// Filter the visible entries.
-		let entries = self.filter_visible_entries(entries).await?;
+		let entries = self.filter_visible_entries(entries, tokens).await?;
 
 		Ok(entries)
 	}
 
-	async fn list_local_entries_for_list(
+	pub(crate) async fn list_local_entries_for_list(
 		&self,
 		arg: &tg::list::Arg,
 	) -> tg::Result<Vec<tg::list::Entry>> {
@@ -99,28 +121,9 @@ impl Session {
 		}
 
 		// Resolve the parent.
-		let parent = match &arg.parent {
+		let parent = match &arg.node {
 			None => Parent::Root,
-			Some(tg::Selector::Id(id)) => Parent::Id(id.clone()),
-			Some(tg::Selector::Specifier(specifier)) => {
-				let id = self
-					.server
-					.index
-					.try_get_id_for_specifier(specifier)
-					.await?;
-				let Some(id) = id else {
-					return Ok(Vec::new());
-				};
-				let permission = Self::read_permission_for_resource(&id)?;
-				let authorized = self
-					.authorize(tg::Selector::Id(id.clone()), permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission));
-				if !authorized {
-					return Ok(Vec::new());
-				}
-				Parent::Id(id)
-			},
+			Some(node) => Parent::Id(node.node.clone()),
 		};
 
 		// Page through the database entries.
@@ -136,6 +139,12 @@ impl Session {
 		} else {
 			arg.position.unwrap_or_default()
 		};
+		let tokens = arg
+			.node
+			.as_ref()
+			.map(tg::Referent::options)
+			.map(|options| options.tokens.clone())
+			.unwrap_or_default();
 		loop {
 			let database_length = if root {
 				arg.length
@@ -168,7 +177,7 @@ impl Session {
 				})
 				.await?;
 			let input_length = entries.len().to_u64().unwrap();
-			let entries = self.filter_visible_entries(entries).await?;
+			let entries = self.filter_visible_entries(entries, &tokens).await?;
 			for entry in entries {
 				if output_position > 0 {
 					output_position -= 1;
@@ -230,7 +239,6 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::Id,
-			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -250,7 +258,7 @@ impl Session {
 			let condition = condition("groups");
 			queries.push(format!(
 				"
-					select groups.id, groups.name, groups.parent, specifiers.specifier,
+					select groups.id, groups.parent, specifiers.specifier,
 						cast(null as text) as target
 					from groups
 					join specifiers on specifiers.id = groups.id
@@ -261,7 +269,7 @@ impl Session {
 		if arg.organizations && matches!(parent, Parent::Root) {
 			queries.push(
 				"
-					select organizations.id, organizations.name, cast(null as text) as parent,
+					select organizations.id, cast(null as text) as parent,
 						specifiers.specifier, cast(null as text) as target
 					from organizations
 					join specifiers on specifiers.id = organizations.id
@@ -273,7 +281,7 @@ impl Session {
 			let condition = condition("tags");
 			queries.push(format!(
 				"
-					select tags.id, tags.name, tags.parent, specifiers.specifier, tags.target
+					select tags.id, tags.parent, specifiers.specifier, tags.target
 					from tags
 					join specifiers on specifiers.id = tags.id
 					where {condition}
@@ -283,7 +291,7 @@ impl Session {
 		if arg.users && matches!(parent, Parent::Root) {
 			queries.push(
 				"
-					select users.id, users.name, cast(null as text) as parent,
+					select users.id, cast(null as text) as parent,
 						specifiers.specifier, cast(null as text) as target
 					from users
 					join specifiers on specifiers.id = users.id
@@ -307,7 +315,7 @@ impl Session {
 		]);
 		let statement = format!(
 			"
-				select id, name, parent, specifier, target
+				select id, parent, specifier, target
 				from ({}) as entries
 				order by specifier {direction}
 				limit {p}{length_parameter}
@@ -327,46 +335,28 @@ impl Session {
 		let mut entries = Vec::with_capacity(rows.len());
 		for row in rows {
 			let id = row.id;
-			let entry = match id.kind() {
-				tg::id::Kind::Group => tg::list::Entry::Group {
-					id: id.clone().try_into()?,
-					location: Some(location.clone()),
-					name: row.name,
-					parent: row.parent,
-					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
-				},
-				tg::id::Kind::Organization => tg::list::Entry::Organization {
-					id: id.clone().try_into()?,
-					location: Some(location.clone()),
-					name: row.name,
-					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
-				},
+			let target = match id.kind() {
+				tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User => None,
 				tg::id::Kind::Tag => {
 					let target = row
 						.target
 						.ok_or_else(|| tg::error!("expected a tag target"))?;
 					let target = Self::parse_tag_target(&target)?;
 					let target = Self::tag_target_referent(target, Some(location.clone()));
-					tg::list::Entry::Tag {
-						id: id.clone().try_into()?,
-						location: Some(location.clone()),
-						name: row.name,
-						parent: row.parent,
-						specifier: row.specifier,
-						target,
-						tokens: tg::authorization::Tokens::default(),
-					}
-				},
-				tg::id::Kind::User => tg::list::Entry::User {
-					id: id.clone().try_into()?,
-					location: Some(location.clone()),
-					name: row.name,
-					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
+					Some(target)
 				},
 				_ => return Err(tg::error!(%id, "invalid list entry")),
+			};
+			let options = tg::referent::Options {
+				location: Some(location.clone()),
+				..Default::default()
+			};
+			let node = tg::Referent::new(id.clone(), options);
+			let entry = tg::list::Entry {
+				node,
+				parent: row.parent,
+				specifier: row.specifier,
+				target,
 			};
 			entries.push((id, entry));
 		}
@@ -377,6 +367,7 @@ impl Session {
 	pub(crate) async fn query_specifier_entries<F>(
 		&self,
 		location: Option<&tg::location::Arg>,
+		tokens: &tg::authorization::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: remote::Query,
@@ -392,7 +383,7 @@ impl Session {
 		let mut sources = Vec::new();
 		if locations.local.is_some() {
 			let entries = self
-				.list_local_entries()
+				.list_local_entries_with_tokens(tokens)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to list local entries"))?;
 			let entries = filter_local(entries);
@@ -429,6 +420,7 @@ impl Session {
 	async fn filter_visible_entries(
 		&self,
 		entries: Vec<(tg::Id, tg::list::Entry)>,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		if entries.is_empty() {
 			return Ok(Vec::new());
@@ -445,13 +437,17 @@ impl Session {
 				true
 			} else {
 				let permission = Self::read_permission_for_resource(&id)?;
-				self.authorize(tg::Selector::Id(id.clone()), permission)
+				let resource = tg::Referent::with_node_and_tokens(
+					tg::Selector::Id(id.clone()),
+					tokens.clone(),
+				);
+				self.authorize(resource, permission)
 					.await?
 					.is_some_and(|permissions| permissions.contains(permission))
 			};
 			if authorized {
 				let tokens = tg::authorization::Tokens::with_local(self.create_read_token(&id)?);
-				if let tg::list::Entry::Tag { target, .. } = &mut entry {
+				if let Some(target) = &mut entry.target {
 					target.options.tokens = tokens.clone();
 				}
 				entry.set_tokens(tokens);
@@ -470,7 +466,6 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::group::Id,
-			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -480,7 +475,7 @@ impl Session {
 		let (statement, params) = match parent {
 			Parent::Any => (
 				"
-					select groups.id, groups.name, groups.parent, specifiers.specifier
+					select groups.id, groups.parent, specifiers.specifier
 					from groups
 					join specifiers on specifiers.id = groups.id
 					order by specifiers.specifier;
@@ -491,7 +486,7 @@ impl Session {
 			Parent::Id(parent) => (
 				format!(
 					"
-						select groups.id, groups.name, groups.parent, specifiers.specifier
+						select groups.id, groups.parent, specifiers.specifier
 						from groups
 						join specifiers on specifiers.id = groups.id
 						where groups.parent = {p}1
@@ -502,7 +497,7 @@ impl Session {
 			),
 			Parent::Root => (
 				"
-					select groups.id, groups.name, groups.parent, specifiers.specifier
+					select groups.id, groups.parent, specifiers.specifier
 					from groups
 					join specifiers on specifiers.id = groups.id
 					where groups.parent is null
@@ -519,14 +514,18 @@ impl Session {
 		let entries = rows
 			.into_iter()
 			.map(|row| {
-				let id = row.id.clone().into();
-				let entry = tg::list::Entry::Group {
-					id: row.id,
-					location: Some(tg::Location::Local(tg::location::Local::default())),
-					name: row.name,
+				let id: tg::Id = row.id.clone().into();
+				let location = tg::Location::Local(tg::location::Local::default());
+				let options = tg::referent::Options {
+					location: Some(location),
+					..Default::default()
+				};
+				let node = tg::Referent::new(id.clone(), options);
+				let entry = tg::list::Entry {
+					node,
 					parent: row.parent,
 					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
+					target: None,
 				};
 				(id, entry)
 			})
@@ -542,14 +541,13 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::organization::Id,
-			name: String,
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
 		let result = transaction
 			.query_all_into::<Row>(
 				"
-					select organizations.id, organizations.name, specifiers.specifier
+					select organizations.id, specifiers.specifier
 					from organizations
 					join specifiers on specifiers.id = organizations.id
 					order by specifiers.specifier;
@@ -562,13 +560,18 @@ impl Session {
 		let entries = rows
 			.into_iter()
 			.map(|row| {
-				let id = row.id.clone().into();
-				let entry = tg::list::Entry::Organization {
-					id: row.id,
-					location: Some(tg::Location::Local(tg::location::Local::default())),
-					name: row.name,
+				let id: tg::Id = row.id.clone().into();
+				let location = tg::Location::Local(tg::location::Local::default());
+				let options = tg::referent::Options {
+					location: Some(location),
+					..Default::default()
+				};
+				let node = tg::Referent::new(id.clone(), options);
+				let entry = tg::list::Entry {
+					node,
+					parent: None,
 					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
+					target: None,
 				};
 				(id, entry)
 			})
@@ -585,7 +588,6 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::tag::Id,
-			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -596,7 +598,7 @@ impl Session {
 		let (statement, params) = match parent {
 			Parent::Any => (
 				"
-					select tags.id, tags.name, tags.parent, specifiers.specifier, tags.target
+					select tags.id, tags.parent, specifiers.specifier, tags.target
 					from tags
 					join specifiers on specifiers.id = tags.id
 					order by specifiers.specifier;
@@ -607,7 +609,7 @@ impl Session {
 			Parent::Id(parent) => (
 				format!(
 					"
-						select tags.id, tags.name, tags.parent, specifiers.specifier, tags.target
+						select tags.id, tags.parent, specifiers.specifier, tags.target
 						from tags
 						join specifiers on specifiers.id = tags.id
 						where tags.parent = {p}1
@@ -618,7 +620,7 @@ impl Session {
 			),
 			Parent::Root => (
 				"
-					select tags.id, tags.name, tags.parent, specifiers.specifier, tags.target
+					select tags.id, tags.parent, specifiers.specifier, tags.target
 					from tags
 					join specifiers on specifiers.id = tags.id
 					where tags.parent is null
@@ -636,16 +638,18 @@ impl Session {
 		for row in rows {
 			let target = Self::parse_tag_target(&row.target)?;
 			let location = tg::Location::Local(tg::location::Local::default());
-			let target = Self::tag_target_referent(target, Some(location.clone()));
-			let id = row.id.clone().into();
-			let entry = tg::list::Entry::Tag {
-				id: row.id,
-				location: Some(location),
-				name: row.name,
+			let id: tg::Id = row.id.clone().into();
+			let options = tg::referent::Options {
+				location: Some(location.clone()),
+				..Default::default()
+			};
+			let node = tg::Referent::new(id.clone(), options);
+			let target = Some(Self::tag_target_referent(target, Some(location)));
+			let entry = tg::list::Entry {
+				node,
 				parent: row.parent,
 				specifier: row.specifier,
 				target,
-				tokens: tg::authorization::Tokens::default(),
 			};
 			entries.push((id, entry));
 		}
@@ -677,14 +681,13 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::user::Id,
-			name: String,
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 		}
 		let result = transaction
 			.query_all_into::<Row>(
 				"
-					select users.id, users.name, specifiers.specifier
+					select users.id, specifiers.specifier
 					from users
 					join specifiers on specifiers.id = users.id
 					order by specifiers.specifier;
@@ -697,13 +700,18 @@ impl Session {
 		let entries = rows
 			.into_iter()
 			.map(|row| {
-				let id = row.id.clone().into();
-				let entry = tg::list::Entry::User {
-					id: row.id,
-					location: Some(tg::Location::Local(tg::location::Local::default())),
-					name: row.name,
+				let id: tg::Id = row.id.clone().into();
+				let location = tg::Location::Local(tg::location::Local::default());
+				let options = tg::referent::Options {
+					location: Some(location),
+					..Default::default()
+				};
+				let node = tg::Referent::new(id.clone(), options);
+				let entry = tg::list::Entry {
+					node,
+					parent: None,
 					specifier: row.specifier,
-					tokens: tg::authorization::Tokens::default(),
+					target: None,
 				};
 				(id, entry)
 			})
@@ -715,16 +723,29 @@ impl Session {
 	pub(crate) async fn list_request(
 		&self,
 		request: http::Request<BoxBody>,
+		path: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
+		let mut arg: tg::list::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
+		if !path.is_empty() {
+			let id = path
+				.join("/")
+				.parse()
+				.map_err(|error| tg::error!(!error, "failed to parse the list node"))?;
+			let options = request
+				.query_params::<tg::referent::Options>()
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to parse the referent options"))?
+				.unwrap_or_default();
+			arg.node = Some(tg::Referent::new(id, options));
+		}
 		let output = self.list(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
@@ -750,11 +771,12 @@ impl Session {
 }
 
 pub(crate) fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool {
-	match entry {
-		tg::list::Entry::Group { .. } => kinds.groups,
-		tg::list::Entry::Organization { .. } => kinds.organizations,
-		tg::list::Entry::Tag { .. } => kinds.tags,
-		tg::list::Entry::User { .. } => kinds.users,
+	match entry.kind() {
+		tg::id::Kind::Group => kinds.groups,
+		tg::id::Kind::Organization => kinds.organizations,
+		tg::id::Kind::Tag => kinds.tags,
+		tg::id::Kind::User => kinds.users,
+		_ => false,
 	}
 }
 
@@ -784,16 +806,7 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 		tags: arg.tags,
 		users: arg.users,
 	};
-	let parent = arg.parent.as_ref().and_then(|parent| match parent {
-		tg::Selector::Id(id) => Some(id.clone()),
-		tg::Selector::Specifier(specifier) => entries
-			.iter()
-			.find(|entry| entry.specifier() == specifier)
-			.map(tg::list::Entry::id),
-	});
-	if arg.parent.is_some() && parent.is_none() {
-		return Vec::new();
-	}
+	let parent = arg.node.as_ref().map(|node| node.node.clone());
 	let descendants = if arg.recursive {
 		let mut descendants = BTreeSet::new();
 		if let Some(parent) = &parent {
@@ -808,7 +821,7 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 					(Some(_), None) => false,
 				};
 				if include {
-					descendants.insert(entry.id());
+					descendants.insert(entry.id().clone());
 				}
 			}
 			if descendants.len() == length {
@@ -823,8 +836,8 @@ fn filter_list_entries(entries: Vec<tg::list::Entry>, arg: &tg::list::Arg) -> Ve
 		.into_iter()
 		.filter(|entry| {
 			let matches_parent = if let Some(descendants) = &descendants {
-				(parent.is_none() || descendants.contains(&entry.id()))
-					&& parent.as_ref() != Some(&entry.id())
+				(parent.is_none() || descendants.contains(entry.id()))
+					&& parent.as_ref() != Some(entry.id())
 			} else {
 				entry.parent() == parent.as_ref()
 			};
@@ -854,10 +867,5 @@ fn compare_entries(a: &tg::list::Entry, b: &tg::list::Entry, reverse: bool) -> s
 }
 
 fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {
-	match entry {
-		tg::list::Entry::Group { .. } => tg::id::Kind::Group,
-		tg::list::Entry::Organization { .. } => tg::id::Kind::Organization,
-		tg::list::Entry::Tag { .. } => tg::id::Kind::Tag,
-		tg::list::Entry::User { .. } => tg::id::Kind::User,
-	}
+	entry.kind()
 }

@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use {
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
@@ -55,7 +57,6 @@ mod read;
 mod remote;
 #[cfg(feature = "js")]
 mod repl;
-mod resolve;
 mod runner;
 mod sandbox;
 mod server;
@@ -352,8 +353,6 @@ enum Command {
 
 	Remote(self::remote::Args),
 
-	Resolve(self::resolve::Args),
-
 	Revoke(self::grants::delete::Args),
 
 	#[cfg(feature = "js")]
@@ -380,8 +379,6 @@ enum Command {
 	Signal(self::process::signal::Args),
 
 	Spawn(self::process::spawn::Args),
-
-	Status(self::process::status::Args),
 
 	Stored(self::stored::Args),
 
@@ -684,7 +681,6 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
-			Command::Resolve(args) => self.command_resolve(args).boxed_local(),
 			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
 			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
@@ -697,7 +693,6 @@ impl Cli {
 			Command::Server(args) => self.command_server(args).boxed_local(),
 			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
-			Command::Status(args) => self.command_process_status(args).boxed_local(),
 			Command::Stored(args) => self.command_stored(args).boxed_local(),
 			Command::Tag(args) => self.command_tag(args).boxed_local(),
 			Command::Touch(args) => self.command_touch(args).boxed_local(),

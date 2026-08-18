@@ -9,7 +9,7 @@ let path = artifact {
 }
 let spawned = tg build --detach --verbose $path | from json
 
-wait_until { (tg status --timeout 0 $spawned.process | from json) == ["started"] } "the process should start"
+wait_until { (tg process status --timeout 0 $spawned.process | from json) == ["started"] } "the process should start"
 
 tg cancel $spawned.process $spawned.lease
 

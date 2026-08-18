@@ -17,7 +17,7 @@ tg tag put $pattern $id
 # List tags.
 let list_output = tg list --no-groups
 let list = $list_output | from json
-assert (($list.0 | get --optional tokens.local) != null) "list should return a token"
+assert (($list.0 | get --optional node.options.tokens.local) != null) "list should return a token"
 snapshot --normalize --name list $list_output
 
 # Get tag.

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A local node masks only a remote node with the same exact specifier, not its descendants.
+# Listing a reference lists the children of the node selected by get.
 
 let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
@@ -18,7 +18,7 @@ assert equal $group.location remote
 
 let children = tg --url $local.url list --no-groups foo | from json
 assert equal ($children | get specifier) [foo/a]
-assert equal ($children | get location) [remote]
+assert equal ($children | get node.options.location) [remote]
 
 let local_group = tg --url $local.url group create foo | from json
 let group = tg --url $local.url get foo | from json
@@ -31,23 +31,22 @@ assert equal $tag.location remote
 assert equal $tag.parent $remote_group.id
 
 let children = tg --url $local.url list --no-groups foo | from json
-assert equal ($children | get specifier) [foo/a]
-assert equal ($children | get location) [remote]
+assert equal $children []
 
 let matches = tg --url $local.url match --no-groups "foo/*" | from json
 assert equal ($matches | get specifier) [foo/a]
-assert equal ($matches | get location) [remote]
+assert equal ($matches | get node.options.location) [remote]
 
 let exact = tg --url $local.url match foo | from json
-assert equal ($exact | get id) [$local_group.id]
-assert equal ($exact | get location) [local]
+assert equal ($exact | get node.node) [$local_group.id]
+assert equal ($exact | get node.options.location) [local]
 
 tg --url $local.url group delete foo
 
 let children = tg --url $local.url list --no-groups foo | from json
 assert equal ($children | get specifier) [foo/a]
-assert equal ($children | get location) [remote]
+assert equal ($children | get node.options.location) [remote]
 
 let matches = tg --url $local.url match --no-groups "foo/*" | from json
 assert equal ($matches | get specifier) [foo/a]
-assert equal ($matches | get location) [remote]
+assert equal ($matches | get node.options.location) [remote]

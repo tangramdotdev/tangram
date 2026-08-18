@@ -15,7 +15,6 @@ pub(crate) enum Request {
 	List(ListRequest),
 	Match(MatchRequest),
 	OrganizationGet(OrganizationGetRequest),
-	Resolve(ResolveRequest),
 	SandboxGet(SandboxGetRequest),
 	TagGet(TagGetRequest),
 	UserGet(UserGetRequest),
@@ -29,7 +28,6 @@ pub(crate) enum Response {
 	List(ListResponse),
 	Match(MatchResponse),
 	OrganizationGet(OrganizationGetResponse),
-	Resolve(ResolveResponse),
 	SandboxGet(SandboxGetResponse),
 	TagGet(TagGetResponse),
 	UserGet(UserGetResponse),
@@ -86,17 +84,6 @@ pub(crate) struct OrganizationGetRequest {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct OrganizationGetResponse {
 	pub output: Option<tg::organization::get::Output>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct ResolveRequest {
-	pub arg: tg::resolve::Arg,
-	pub reference: tg::Reference,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub(crate) struct ResolveResponse {
-	pub output: Option<tg::resolve::Output>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -365,7 +352,6 @@ impl Request {
 				| (Self::List(_), Response::List(_))
 				| (Self::Match(_), Response::Match(_))
 				| (Self::OrganizationGet(_), Response::OrganizationGet(_))
-				| (Self::Resolve(_), Response::Resolve(_))
 				| (Self::SandboxGet(_), Response::SandboxGet(_))
 				| (Self::TagGet(_), Response::TagGet(_))
 				| (Self::UserGet(_), Response::UserGet(_))

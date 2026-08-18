@@ -559,11 +559,15 @@ impl Cli {
 		}
 
 		// Get the reference.
-		let arg = tg::resolve::Arg {
+		let mut reference = reference;
+		let mut reference_options = reference.options().clone();
+		reference_options.follow = true;
+		reference.set_options(reference_options);
+		let arg = tg::get::Arg {
 			checkin: options.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self.resolve_with_arg(&reference, arg).await?;
+		let referent = self.get_with_arg(&reference, arg).await?.referent;
 		let mut referent = referent.into_graph_edge()?;
 
 		// Set the args.

@@ -46,6 +46,10 @@ impl tg::Handle for Server {
 		self.session(&self.context).checkout(arg).await
 	}
 
+	async fn children(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
+		self.session(&self.context).children(arg).await
+	}
+
 	async fn clean(
 		&self,
 	) -> tg::Result<
@@ -122,20 +126,6 @@ impl tg::Handle for Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		self.session(&self.context).try_get(reference, arg).await
-	}
-
-	async fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-		+ Send
-		+ 'static,
-	> {
-		self.session(&self.context)
-			.try_resolve(reference, arg)
-			.await
 	}
 
 	async fn try_read_stream(

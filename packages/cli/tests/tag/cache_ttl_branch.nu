@@ -13,7 +13,7 @@ let old = tg --url $remote.url get $id | str trim
 tg --url $remote.url tag put -p "a/c/d" $id
 
 # Prime the cache by resolving the branch through the local server.
-let c1 = tg --url $local.url resolve "a/c" | str trim
+let c1 = tg --url $local.url get "a/c?follow=true" | str trim
 assert equal $c1 $old "the branch should resolve to its only child"
 
 # Add a newer child on the remote.
@@ -23,9 +23,9 @@ let new = tg --url $remote.url get $id2 | str trim
 tg --url $remote.url tag put -p "a/c/h" $id2
 
 # Within the TTL the cached resolution is returned.
-let c2 = tg --url $local.url resolve "a/c" | str trim
+let c2 = tg --url $local.url get "a/c?follow=true" | str trim
 assert equal $c2 $c1 "within the TTL the same result should be returned"
 
 # With --ttl 0 the newest child is returned.
-let c3 = tg --url $local.url resolve --ttl 0 "a/c" | str trim
+let c3 = tg --url $local.url get --ttl 0 "a/c?follow=true" | str trim
 assert equal $c3 $new "with --ttl 0 the newest child should be returned"

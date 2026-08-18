@@ -32,6 +32,12 @@ pub struct Process {
 	pub touched_at: i64,
 }
 
+#[derive(Clone, Debug)]
+pub struct NodeChildren {
+	pub complete: bool,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
+}
+
 /// The set status of a process in the index.
 #[derive(
 	Clone,

@@ -233,6 +233,13 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetProcessChildren(output)
 			},
+			crate::read::Request::TryGetProcessNodeChildren { id } => {
+				let result =
+					Self::try_get_process_node_children_with_transaction(transaction, subspace, id)
+						.await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::TryGetProcessNodeChildren(output)
+			},
 			crate::read::Request::LmdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected LMDB read request"));
 			},
@@ -334,6 +341,12 @@ impl Index {
 				.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetIdsForSpecifiers(output)
+			},
+			crate::read::Request::TryGetObjectChildren { id } => {
+				let result =
+					Self::try_get_object_children_with_transaction(transaction, subspace, id).await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::TryGetObjectChildren(output)
 			},
 			crate::read::Request::TryGetObjects { ids } => {
 				let result =

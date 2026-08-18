@@ -41,7 +41,7 @@ impl Cli {
 			.locations
 			.set_from_reference_if_unset(&args.reference);
 		let object = self
-			.resolve_object_with_locations(&args.reference, &options.locations)
+			.get_object_with_locations(&args.reference, &options.locations)
 			.await?;
 		self.command_object_get_inner(object, options).await
 	}

@@ -25,7 +25,7 @@ tg cancel $first.process $first.lease
 # Reuse the first lease and verify that the second lease keeps the process running.
 let output = tg cancel $first.process $first.lease | complete
 success $output
-assert equal (tg status --timeout 0 $first.process | from json) [started] "reusing the first lease should not stop the process"
+assert equal (tg process status --timeout 0 $first.process | from json) [started] "reusing the first lease should not stop the process"
 
 tg cancel $second.process $second.lease
 tg wait $second.process

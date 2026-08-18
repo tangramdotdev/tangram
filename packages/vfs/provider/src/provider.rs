@@ -635,13 +635,34 @@ impl Inner {
 	) -> std::io::Result<Vec<NamedNodeChild>> {
 		let session = self.client.session(self.client.context());
 		let root = parent.is_none();
+		let location = tg::Location::Local(tg::location::Local::default());
+		let node = if let Some(parent) = parent {
+			let options = tg::reference::Options {
+				location: Some(location.clone().into()),
+				..tg::reference::Options::default()
+			};
+			let reference = tg::Reference::with_node_and_options(
+				tg::reference::Node::Specifier(parent.into()),
+				options,
+			);
+			let node = reference.get_with_handle(&session).await.map_err(eio)?;
+			let node = node
+				.try_map(|node| match node {
+					tg::get::Node::Id(id) => Ok(id),
+					tg::get::Node::Pointer(_) => Err(tg::error!("the list node must be an ID")),
+				})
+				.map_err(eio)?;
+			Some(node)
+		} else {
+			None
+		};
 		let arg = tg::list::Arg {
 			cached: false,
 			groups: true,
 			length: Some(length),
-			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			location: Some(location.into()),
+			node,
 			organizations: root,
-			parent: parent.map(tg::Selector::Specifier),
 			position: Some(position),
 			recursive: false,
 			reverse: false,
@@ -653,25 +674,17 @@ impl Inner {
 		let children = output
 			.data
 			.into_iter()
-			.filter_map(|entry| match entry {
-				tg::list::Entry::Group { name, .. }
-				| tg::list::Entry::Organization { name, .. }
-				| tg::list::Entry::User { name, .. } => Some(NamedNodeChild {
-					name: name.parse().ok()?,
-					target: None,
-				}),
-				tg::list::Entry::Tag { name, target, .. } => {
+			.filter_map(|entry| {
+				let name = entry.name().parse().ok()?;
+				let target = entry.target.map(|target| {
 					let tg::Referent { node, options } = target;
 					let node = match node {
 						tg::Either::Left(target) => target.into(),
 						tg::Either::Right(target) => target.into(),
 					};
-					let target = tg::Referent::new(node, options);
-					Some(NamedNodeChild {
-						name: name.parse().ok()?,
-						target: Some(target),
-					})
-				},
+					tg::Referent::new(node, options)
+				});
+				Some(NamedNodeChild { name, target })
 			})
 			.collect();
 

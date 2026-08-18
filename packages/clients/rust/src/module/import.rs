@@ -66,6 +66,7 @@ impl Import {
 
 		let options = tg::reference::Options {
 			artifact: artifact.or(reference.options().artifact.clone()),
+			follow: reference.options().follow,
 			get: get.or(reference.options().get.clone()),
 			id: id.or(reference.options().id.clone()),
 			location: location.or(reference.options().location.clone()),

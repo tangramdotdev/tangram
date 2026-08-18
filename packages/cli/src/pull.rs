@@ -25,8 +25,8 @@ pub struct Args {
 	#[arg(alias = "process-command", long)]
 	pub process_commands: bool,
 
-	#[arg(alias = "process-error", long)]
-	pub process_errors: bool,
+	#[command(flatten)]
+	pub process_errors: crate::push::ProcessErrors,
 
 	#[arg(alias = "process-log", long)]
 	pub process_logs: bool,
@@ -99,7 +99,7 @@ impl Cli {
 			organization_children: args.organization_children,
 			process_children: args.process_children,
 			process_commands: args.process_commands,
-			process_errors: args.process_errors,
+			process_errors: args.process_errors.get(),
 			process_logs: args.process_logs,
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,

@@ -14,6 +14,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub tag: tg::tag::Selector,
 
+	#[arg(skip)]
+	pub tokens: tg::authorization::Tokens,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
@@ -27,6 +30,7 @@ impl Cli {
 		let arg = tg::tag::get::Arg {
 			cached: args.cached,
 			location: args.location.get(),
+			tokens: args.tokens,
 			ttl: args.ttl.get(),
 		};
 		let tag = client

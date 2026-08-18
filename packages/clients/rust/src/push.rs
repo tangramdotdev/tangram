@@ -159,7 +159,7 @@ impl Default for Arg {
 			organization_children: false,
 			process_children: false,
 			process_commands: false,
-			process_errors: false,
+			process_errors: true,
 			process_logs: false,
 			process_outputs: true,
 			sandbox_processes: false,

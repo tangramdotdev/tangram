@@ -645,15 +645,12 @@ impl Session {
 			.data
 			.into_iter()
 			.filter_map(|output| {
-				let tg::list::Entry::Tag {
-					location,
-					specifier: tag,
-					target,
-					..
-				} = output
-				else {
+				if output.kind() != tg::id::Kind::Tag {
 					return None;
-				};
+				}
+				let location = output.node.options.location;
+				let tag = output.specifier;
+				let target = output.target?;
 				let object = target.node.left()?;
 				let index = None;
 				let candidate = Candidate {

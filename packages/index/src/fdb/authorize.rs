@@ -1469,6 +1469,8 @@ impl Index {
 					)
 					.await
 				) {
+					let permission =
+						crate::authorize::permission_for_named_parent(&parent, permission)?;
 					dependencies.push((parent, permission));
 				}
 			},

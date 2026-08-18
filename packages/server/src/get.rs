@@ -1,11 +1,12 @@
 use {
 	crate::Session,
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
+	futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
+mod follow;
 mod selector;
 
 impl Session {
@@ -13,10 +14,19 @@ impl Session {
 		&self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
-	> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
 		let stream = match reference.node() {
+			tg::reference::Node::Id(id)
+				if reference.options().follow
+					&& matches!(
+						id.kind(),
+						tg::id::Kind::Group
+							| tg::id::Kind::Organization
+							| tg::id::Kind::Tag | tg::id::Kind::User
+					) =>
+			{
+				self.try_get_with_follow(reference, arg).await?
+			},
 			tg::reference::Node::Id(id) => {
 				self.try_get_with_id(id, reference.options(), &arg).await?
 			},
@@ -27,6 +37,11 @@ impl Session {
 			tg::reference::Node::Pointer(pointer) => {
 				self.try_get_with_pointer(pointer, reference.options())
 					.await?
+			},
+			tg::reference::Node::Specifier(specifier)
+				if reference.options().follow || specifier.contains_operators() =>
+			{
+				self.try_get_with_follow(reference, arg).await?
 			},
 			tg::reference::Node::Specifier(specifier) => {
 				self.try_get_with_specifier(specifier, reference.options(), &arg)

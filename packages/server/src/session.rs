@@ -84,7 +84,7 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
 
-		// Resolve a guest store path to the checkouts directory, where the shared artifacts live.
+		// Resolve a guest store path to the shared checkouts directory.
 		if self.server.vfs.lock().unwrap().is_some()
 			&& let Ok(rest) = path.strip_prefix(sandbox.guest_store_path())
 		{
@@ -147,6 +147,10 @@ impl tg::Handle for Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
 		self.checkout(arg).await
+	}
+
+	async fn children(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
+		self.children(arg).await
 	}
 
 	async fn clean(
@@ -225,18 +229,6 @@ impl tg::Handle for Session {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		self.try_get(reference, arg).await
-	}
-
-	async fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-		+ Send
-		+ 'static,
-	> {
-		self.try_resolve(reference, arg).await
 	}
 
 	async fn try_read_stream(

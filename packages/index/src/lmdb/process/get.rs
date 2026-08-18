@@ -2,11 +2,24 @@ use {
 	crate::lmdb::{Db, Index, Key, Kind},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
-	std::collections::{BTreeSet, VecDeque},
+	std::collections::{BTreeMap, BTreeSet, VecDeque},
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn try_get_process_node_children(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<crate::process::NodeChildren>> {
+		let request = crate::read::Request::TryGetProcessNodeChildren { id: id.clone() };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcessNodeChildren(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -333,7 +346,7 @@ impl Index {
 	pub(crate) fn get_process_objects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
+		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
 		let id_bytes = id.to_bytes();
@@ -354,5 +367,62 @@ impl Index {
 			objects.push((object, kind));
 		}
 		Ok(objects)
+	}
+
+	pub(crate) fn try_get_process_node_children_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<crate::process::NodeChildren>> {
+		let Some(process) = Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+		else {
+			return Ok(None);
+		};
+
+		let id_bytes = id.to_bytes();
+		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get process children"))?;
+		let mut children = BTreeMap::new();
+		for entry in iter {
+			let (key, value) = entry
+				.map_err(|error| tg::error!(!error, "failed to read a process child entry"))?;
+			let key = Self::unpack(subspace, key)?;
+			let Key::Process(crate::lmdb::process::Key::ProcessChild {
+				child: child_id, ..
+			}) = key
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			let child: tg::process::data::Child = tangram_serialize::from_slice(value)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the process child"))?;
+			if child.process.node != child_id {
+				return Err(tg::error!("the process child value does not match its key"));
+			}
+			let child: tg::Referent<tg::Id> = child.process.map(Into::into);
+			children
+				.entry(child.node.clone())
+				.and_modify(|existing: &mut tg::Referent<tg::Id>| {
+					existing.options.inherit(&child.options);
+				})
+				.or_insert(child);
+		}
+
+		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
+		for (object, _) in objects {
+			let id: tg::Id = object.into();
+			children
+				.entry(id.clone())
+				.or_insert_with(|| tg::Referent::with_node(id));
+		}
+
+		let complete = process.set.complete();
+		let nodes = children.into_values().collect();
+		let output = crate::process::NodeChildren { complete, nodes };
+
+		Ok(Some(output))
 	}
 }

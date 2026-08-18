@@ -12,6 +12,7 @@ impl Session {
 		let entries = self
 			.query_specifier_entries(
 				arg.location.as_ref(),
+				&arg.tokens,
 				arg.cached,
 				arg.ttl,
 				crate::list::remote::Query::Match(arg.clone()),

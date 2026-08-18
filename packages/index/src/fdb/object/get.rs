@@ -8,6 +8,19 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_object_children(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Vec<tg::object::Id>>> {
+		let request = crate::read::Request::TryGetObjectChildren { id: id.clone() };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetObjectChildren(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
 	pub async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -98,6 +111,23 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(ControlFlow::Break(children))
+	}
+
+	pub(crate) async fn try_get_object_children_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+	) -> tg::Result<ControlFlow<Option<Vec<tg::object::Id>>, fdb::FdbError>> {
+		let Some(_) =
+			crate::fdb::propagate!(Self::try_get_object_with_transaction(txn, subspace, id).await)
+		else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let children = crate::fdb::propagate!(
+			Self::get_object_children_with_transaction(txn, subspace, id).await
+		);
+
+		Ok(ControlFlow::Break(Some(children)))
 	}
 
 	pub(crate) async fn get_object_parents_with_transaction(

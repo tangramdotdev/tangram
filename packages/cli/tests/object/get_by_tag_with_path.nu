@@ -18,7 +18,7 @@ let dir_id = tg checkin $path
 tg tag test $dir_id
 
 # Get the nested file using the path option with a resolved tag reference.
-let output = tg --no-quiet resolve --pretty "test?get=foo/bar/file.txt" | complete
+let output = tg --no-quiet get --pretty "test?follow=true&get=foo/bar/file.txt" | complete
 
 # Verify the output is a file ID.
 snapshot $output.stdout '

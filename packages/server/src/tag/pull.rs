@@ -21,6 +21,7 @@ impl Session {
 				pattern: pattern.clone(),
 				reverse: false,
 				tags: true,
+				tokens: tg::authorization::Tokens::default(),
 				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			})
@@ -29,12 +30,11 @@ impl Session {
 			.data;
 		list.into_iter()
 			.filter_map(|entry| {
-				let tg::list::Entry::Tag {
-					location, target, ..
-				} = entry
-				else {
+				if entry.kind() != tg::id::Kind::Tag {
 					return None;
-				};
+				}
+				let location = entry.node.options.location;
+				let target = entry.target?;
 				let tg::Referent { node, options } = target;
 				let directory = node.left()?.try_unwrap_directory().ok()?;
 				let session = self.clone();

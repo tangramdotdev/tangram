@@ -37,7 +37,7 @@ impl Session {
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		let query = query.with_regions(remote.regions.clone());
+		let query = query.with_remote(&remote);
 		let request = match &query {
 			Query::List(arg) => {
 				let arg = arg.clone();
@@ -66,13 +66,12 @@ impl Session {
 			let valid = entries.iter().all(|entry| {
 				let entry_valid =
 					crate::remote::cache::token_valid(entry.tokens().local(), &self.server.clock);
-				let target_valid = match entry {
-					tg::list::Entry::Tag { target, .. } => crate::remote::cache::token_valid(
+				let target_valid = entry.target.as_ref().is_none_or(|target| {
+					crate::remote::cache::token_valid(
 						target.options.tokens.local(),
 						&self.server.clock,
-					),
-					_ => true,
-				};
+					)
+				});
 				entry_valid && target_valid
 			});
 			if valid || cached {
@@ -83,7 +82,7 @@ impl Session {
 					) {
 						entry.set_tokens(tg::authorization::Tokens::default());
 					}
-					if let tg::list::Entry::Tag { target, .. } = entry
+					if let Some(target) = &mut entry.target
 						&& !crate::remote::cache::token_valid(
 							target.options.tokens.local(),
 							&self.server.clock,
@@ -157,27 +156,10 @@ impl Session {
 		let mut tokens = entry.tokens().clone();
 		self.update_tokens_for_location(&mut tokens, &location)?;
 		entry.set_tokens(tokens);
-		if let tg::list::Entry::Tag { target, .. } = entry {
+		if let Some(target) = &mut entry.target {
 			self.update_referent_options_for_location(&mut target.options, &location)?;
 		}
-		match entry {
-			tg::list::Entry::Group {
-				location: entry_location,
-				..
-			}
-			| tg::list::Entry::Organization {
-				location: entry_location,
-				..
-			}
-			| tg::list::Entry::Tag {
-				location: entry_location,
-				..
-			}
-			| tg::list::Entry::User {
-				location: entry_location,
-				..
-			} => *entry_location = Some(location),
-		}
+		entry.node.options.location = Some(location);
 		Ok(())
 	}
 
@@ -214,10 +196,29 @@ impl Session {
 
 impl Query {
 	#[must_use]
-	fn with_regions(mut self, regions: Option<Vec<String>>) -> Self {
+	fn with_remote(mut self, remote: &Remote) -> Self {
 		let location = Some(tg::location::Arg(vec![
-			tg::location::arg::Component::Local(tg::location::arg::LocalComponent { regions }),
+			tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+				regions: remote.regions.clone(),
+			}),
 		]));
+		match &mut self {
+			Self::List(arg) => {
+				if let Some(node) = &mut arg.node {
+					node.options.tokens = tokens_for_remote(&node.options.tokens, &remote.name);
+					if let Some(tg::Location::Remote(location)) = &node.options.location
+						&& location.name == remote.name
+					{
+						node.options.location = Some(tg::Location::Local(tg::location::Local {
+							region: location.region.clone(),
+						}));
+					}
+				}
+			},
+			Self::Match(arg) => {
+				arg.tokens = tokens_for_remote(&arg.tokens, &remote.name);
+			},
+		}
 		let (cached, query_location, ttl) = match &mut self {
 			Self::List(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
 			Self::Match(arg) => (&mut arg.cached, &mut arg.location, &mut arg.ttl),
@@ -228,4 +229,24 @@ impl Query {
 
 		self
 	}
+}
+
+fn tokens_for_remote(
+	tokens: &tg::authorization::Tokens,
+	remote: &str,
+) -> tg::authorization::Tokens {
+	let mut output = tg::authorization::Tokens::default();
+	for (location, token) in &tokens.0 {
+		let tg::Location::Remote(location) = location else {
+			continue;
+		};
+		if location.name == remote {
+			let location = tg::Location::Local(tg::location::Local {
+				region: location.region.clone(),
+			});
+			output.insert(location, token.clone());
+		}
+	}
+
+	output
 }

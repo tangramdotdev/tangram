@@ -12,7 +12,7 @@ use {
 		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
 	tangram_futures::{
 		stream::{Ext as _, TryExt as _},
 		task::Task,
@@ -43,8 +43,8 @@ struct State {
 }
 
 struct NamedCheckoutEntry {
-	artifact: Option<tg::artifact::Id>,
 	node: super::NamedNode,
+	target: Option<tg::Id>,
 }
 
 #[derive(Clone)]
@@ -157,19 +157,19 @@ impl Session {
 
 	pub(super) async fn checkout_named_nodes_local(
 		&self,
-		selector: &tg::Selector<tg::Id>,
+		id: &tg::Id,
 		include_hierarchy: bool,
-	) -> tg::Result<Vec<super::NamedNode>> {
-		let selector = selector.clone();
+	) -> tg::Result<super::NamedTree> {
+		let id = id.clone();
 		let nodes = self
 			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let selector = selector.clone();
+				let id = id.clone();
 				async move {
 					Self::checkout_named_nodes_local_with_transaction(
 						transaction,
-						&selector,
+						&id,
 						include_hierarchy,
 					)
 					.await
@@ -183,24 +183,10 @@ impl Session {
 
 	async fn checkout_named_nodes_local_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
-		selector: &tg::Selector<tg::Id>,
+		id: &tg::Id,
 		include_hierarchy: bool,
-	) -> tg::Result<ControlFlow<Vec<super::NamedNode>, crate::database::Error>> {
-		let id = match selector {
-			tg::Selector::Id(id) => id.clone(),
-			tg::Selector::Specifier(specifier) => {
-				match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
-					.await?
-				{
-					ControlFlow::Break(Some(id)) => id,
-					ControlFlow::Break(None) => {
-						return Err(tg::error!(%specifier, "the named node was not found"));
-					},
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				}
-			},
-		};
-		let node = match Self::try_get_named_checkout_node_local_with_transaction(transaction, &id)
+	) -> tg::Result<ControlFlow<super::NamedTree, crate::database::Error>> {
+		let node = match Self::try_get_named_checkout_node_local_with_transaction(transaction, id)
 			.await?
 		{
 			ControlFlow::Break(Some(node)) => node,
@@ -210,9 +196,14 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		if !include_hierarchy {
-			return Ok(ControlFlow::Break(vec![node]));
+			let tree = super::NamedTree {
+				ancestors: Vec::new(),
+				nodes: vec![node],
+			};
+
+			return Ok(ControlFlow::Break(tree));
 		}
-		let mut nodes = Vec::with_capacity(node.specifier.components().count());
+		let mut ancestors = Vec::with_capacity(node.specifier.components().count());
 		let mut parent = None;
 		for specifier in node.specifier.ancestors() {
 			let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &specifier)
@@ -224,7 +215,7 @@ impl Session {
 				},
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
-			nodes.push(super::NamedNode {
+			ancestors.push(super::NamedNode {
 				id: id.clone(),
 				parent,
 				permissions: Vec::new(),
@@ -236,7 +227,86 @@ impl Session {
 		if node.parent != parent {
 			return Err(tg::error!(%id, "the named node parent does not match its specifier"));
 		}
-		nodes.push(node);
+		let nodes =
+			match Self::list_named_checkout_subtree_with_transaction(transaction, id).await? {
+				ControlFlow::Break(nodes) => nodes,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		let tree = super::NamedTree { ancestors, nodes };
+
+		Ok(ControlFlow::Break(tree))
+	}
+
+	async fn list_named_checkout_subtree_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		root: &tg::Id,
+	) -> tg::Result<ControlFlow<Vec<super::NamedNode>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::Id,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			parent: Option<tg::Id>,
+			permissions: Option<String>,
+			#[tangram_database(as = "db::value::FromStr")]
+			specifier: tg::Specifier,
+			target: Option<String>,
+		}
+
+		let p = transaction.p();
+		let statement = format!(
+			"
+				with recursive
+					children(id, parent) as (
+						select id, parent from groups
+						union all
+						select id, parent from tags
+					),
+					descendants(id) as (
+						select {p}1
+						union all
+						select children.id
+						from children
+						join descendants on descendants.id = children.parent
+					)
+				select descendants.id, coalesce(groups.parent, tags.parent) as parent,
+					tags.permissions, specifiers.specifier, tags.target
+				from descendants
+				join specifiers on specifiers.id = descendants.id
+				left join groups on groups.id = descendants.id
+				left join tags on tags.id = descendants.id
+				order by specifiers.specifier;
+			"
+		);
+		let result = transaction
+			.query_all_into::<Row>(statement.into(), db::params![root.to_string()])
+			.await;
+		let rows = crate::database::retry!(result, "failed to list the named checkout subtree");
+		let mut nodes = Vec::with_capacity(rows.len());
+		for row in rows {
+			let permissions = row
+				.permissions
+				.map(|permissions| serde_json::from_str(&permissions))
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to deserialize the tag permissions"))?
+				.unwrap_or_default();
+			let target = row
+				.target
+				.map(|target| Self::parse_tag_target(&target))
+				.transpose()?
+				.map(|target| match target {
+					tg::tag::data::Target::Object(id) => tg::Either::Left(id),
+					tg::tag::data::Target::Process(id) => tg::Either::Right(id),
+				});
+			let node = super::NamedNode {
+				id: row.id,
+				parent: row.parent,
+				permissions,
+				specifier: row.specifier,
+				target,
+			};
+			nodes.push(node);
+		}
 
 		Ok(ControlFlow::Break(nodes))
 	}
@@ -371,10 +441,10 @@ impl Session {
 					}
 					let mut dependencies = node.parent.iter().cloned().collect::<Vec<_>>();
 					if node.id.kind() == tg::id::Kind::Tag {
-						let artifact = entry.artifact.as_ref().ok_or_else(
-							|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
+						let target = entry.target.as_ref().ok_or_else(
+							|| tg::error!(id = %node.id, "the tag does not have a target"),
 						)?;
-						dependencies.push(artifact.clone().into());
+						dependencies.push(target.clone());
 					}
 					batch.items.push(tangram_index::batch::Item::PutCheckout(
 						tangram_index::checkout::put::Arg {
@@ -407,13 +477,13 @@ impl Session {
 		let mut entries = BTreeMap::<tg::Id, NamedCheckoutEntry>::new();
 		for checkout in checkouts {
 			for node in &checkout.nodes {
-				let artifact = if node.id.kind() == tg::id::Kind::Tag {
-					checkout.artifact.clone()
+				let target = if node.id.kind() == tg::id::Kind::Tag {
+					checkout.target.clone()
 				} else {
 					None
 				};
 				if let Some(previous) = entries.get(&node.id) {
-					if previous.artifact != artifact || previous.node != *node {
+					if previous.node != *node || previous.target != target {
 						return Err(
 							tg::error!(id = %node.id, "the named checkout is inconsistent"),
 						);
@@ -421,8 +491,8 @@ impl Session {
 					continue;
 				}
 				let entry = NamedCheckoutEntry {
-					artifact,
 					node: node.clone(),
+					target,
 				};
 				entries.insert(node.id.clone(), entry);
 			}
@@ -1711,10 +1781,11 @@ impl Server {
 				.store_path()
 				.join(Self::named_checkout_relative_path(node, suffix));
 			if node.id.kind() == tg::id::Kind::Tag {
-				let artifact = entry.artifact.as_ref().ok_or_else(
-					|| tg::error!(id = %node.id, "the tag does not resolve to an artifact"),
-				)?;
-				Self::materialize_tag_checkout_entry(&path, &node.specifier, artifact, suffix)
+				let target = entry
+					.target
+					.as_ref()
+					.ok_or_else(|| tg::error!(id = %node.id, "the tag does not have a target"))?;
+				Self::materialize_tag_checkout_entry(&path, &node.specifier, target, suffix)
 					.await?;
 			} else {
 				Self::materialize_named_checkout_directory(&path).await?;
@@ -1808,7 +1879,7 @@ impl Server {
 	async fn materialize_tag_checkout_entry(
 		path: &Path,
 		specifier: &tg::Specifier,
-		artifact: &tg::artifact::Id,
+		target_id: &tg::Id,
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
 		let mut target = PathBuf::new();
@@ -1816,7 +1887,7 @@ impl Server {
 			target.push("..");
 		}
 		let suffix = suffix.unwrap_or_default();
-		target.push(format!("{artifact}{suffix}"));
+		target.push(format!("{target_id}{suffix}"));
 		match tokio::fs::symlink_metadata(path).await {
 			Ok(metadata) if metadata.is_symlink() => {
 				let actual = tokio::fs::read_link(path)

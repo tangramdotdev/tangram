@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 let build = tg build --detach --verbose $path | from json
-wait_until { (tg status --timeout 0 $build.process | from json) == ["started"] } "the process should start"
+wait_until { (tg process status --timeout 0 $build.process | from json) == ["started"] } "the process should start"
 
 let busy = tg health --fields processes | from json | get processes
 assert equal $busy.started 1 "the started count should reflect the running process"

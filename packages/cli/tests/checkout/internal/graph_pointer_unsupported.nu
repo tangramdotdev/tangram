@@ -26,4 +26,4 @@ let output = tg checkout $reference | complete
 # The command should fail with the expected message.
 failure $output
 let stderr = $output.stderr | lines | last
-snapshot $stderr '-> expected an object'
+snapshot $stderr '-> cannot check out a graph pointer'

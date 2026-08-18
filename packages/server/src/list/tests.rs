@@ -29,14 +29,11 @@ fn entry(specifier: &str) -> tg::list::Entry {
 	let name = specifier.to_owned();
 	let specifier = specifier.parse().unwrap();
 	let target = tg::Either::Left(tg::file::Id::new(name.as_bytes()).into());
-	let target = tg::Referent::with_node(target);
-	tg::list::Entry::Tag {
-		id,
-		location: None,
-		name,
+	let target = Some(tg::Referent::with_node(target));
+	tg::list::Entry {
+		node: tg::Referent::with_node(id.into()),
 		parent: None,
 		specifier,
 		target,
-		tokens: tg::authorization::Tokens::default(),
 	}
 }

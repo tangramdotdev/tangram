@@ -28,8 +28,8 @@ pub struct Args {
 	#[arg(alias = "process-command", long)]
 	pub process_commands: bool,
 
-	#[arg(alias = "process-error", long)]
-	pub process_errors: bool,
+	#[command(flatten)]
+	pub process_errors: ProcessErrors,
 
 	#[arg(alias = "process-log", long)]
 	pub process_logs: bool,
@@ -80,18 +80,40 @@ impl Eager {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct ProcessOutputs {
+pub struct ProcessErrors {
 	#[arg(
-		alias = "process-output",
+		alias = "no-process-error",
 		default_missing_value = "true",
-		id = "push.process_outputs.process_outputs",
-		long = "process-outputs",
+		id = "push.process_errors.no_process_errors",
+		long = "no-process-errors",
 		num_args = 0..=1,
-		overrides_with = "push.process_outputs.no_process_outputs",
+		overrides_with = "push.process_errors.process_errors",
 		require_equals = true,
 	)]
-	process_outputs: Option<bool>,
+	no_process_errors: Option<bool>,
 
+	#[arg(
+		alias = "process-error",
+		default_missing_value = "true",
+		id = "push.process_errors.process_errors",
+		long = "process-errors",
+		num_args = 0..=1,
+		overrides_with = "push.process_errors.no_process_errors",
+		require_equals = true,
+	)]
+	process_errors: Option<bool>,
+}
+
+impl ProcessErrors {
+	pub fn get(&self) -> bool {
+		self.process_errors
+			.or(self.no_process_errors.map(|value| !value))
+			.unwrap_or(true)
+	}
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct ProcessOutputs {
 	#[arg(
 		alias = "no-process-output",
 		default_missing_value = "true",
@@ -102,6 +124,17 @@ pub struct ProcessOutputs {
 		require_equals = true,
 	)]
 	no_process_outputs: Option<bool>,
+
+	#[arg(
+		alias = "process-output",
+		default_missing_value = "true",
+		id = "push.process_outputs.process_outputs",
+		long = "process-outputs",
+		num_args = 0..=1,
+		overrides_with = "push.process_outputs.no_process_outputs",
+		require_equals = true,
+	)]
+	process_outputs: Option<bool>,
 }
 
 impl ProcessOutputs {
@@ -116,16 +149,6 @@ impl ProcessOutputs {
 pub struct TagTargets {
 	#[arg(
 		default_missing_value = "true",
-		id = "push.tag_targets.tag_targets",
-		long = "tag-targets",
-		num_args = 0..=1,
-		overrides_with = "push.tag_targets.no_tag_targets",
-		require_equals = true,
-	)]
-	tag_targets: Option<bool>,
-
-	#[arg(
-		default_missing_value = "true",
 		id = "push.tag_targets.no_tag_targets",
 		long = "no-tag-targets",
 		num_args = 0..=1,
@@ -133,6 +156,16 @@ pub struct TagTargets {
 		require_equals = true,
 	)]
 	no_tag_targets: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		id = "push.tag_targets.tag_targets",
+		long = "tag-targets",
+		num_args = 0..=1,
+		overrides_with = "push.tag_targets.no_tag_targets",
+		require_equals = true,
+	)]
+	tag_targets: Option<bool>,
 }
 
 impl TagTargets {
@@ -185,7 +218,7 @@ impl Cli {
 			organization_children: args.organization_children,
 			process_children: args.process_children,
 			process_commands: args.process_commands,
-			process_errors: args.process_errors,
+			process_errors: args.process_errors.get(),
 			process_logs: args.process_logs,
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,

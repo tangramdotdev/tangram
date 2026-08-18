@@ -24,6 +24,12 @@ pub struct ProcessSubtreeConfig {
 	pub max_processes: usize,
 }
 
+enum NamedPermission {
+	Admin,
+	Read,
+	Write,
+}
+
 impl Default for ObjectSubtreeConfig {
 	fn default() -> Self {
 		Self {
@@ -125,4 +131,84 @@ pub(crate) fn write_permission_for_resource(
 		)),
 		_ => Err(tg::error!(%resource, "invalid resource")),
 	}
+}
+
+pub(crate) fn permission_for_named_parent(
+	parent: &tg::Id,
+	permission: tg::authorization::Permission,
+) -> tg::Result<tg::authorization::Permission> {
+	let permission = match permission {
+		tg::authorization::Permission::Group(permission) => match permission {
+			tg::authorization::permission::group::Permission::Admin => NamedPermission::Admin,
+			tg::authorization::permission::group::Permission::Read => NamedPermission::Read,
+			tg::authorization::permission::group::Permission::Write => NamedPermission::Write,
+		},
+		tg::authorization::Permission::Organization(permission) => match permission {
+			tg::authorization::permission::organization::Permission::Admin => {
+				NamedPermission::Admin
+			},
+			tg::authorization::permission::organization::Permission::Read => NamedPermission::Read,
+			tg::authorization::permission::organization::Permission::Write => {
+				NamedPermission::Write
+			},
+		},
+		tg::authorization::Permission::Tag(permission) => match permission {
+			tg::authorization::permission::tag::Permission::Admin => NamedPermission::Admin,
+			tg::authorization::permission::tag::Permission::Read => NamedPermission::Read,
+			tg::authorization::permission::tag::Permission::Write => NamedPermission::Write,
+		},
+		tg::authorization::Permission::User(permission) => match permission {
+			tg::authorization::permission::user::Permission::Admin => NamedPermission::Admin,
+			tg::authorization::permission::user::Permission::Read => NamedPermission::Read,
+			tg::authorization::permission::user::Permission::Write => NamedPermission::Write,
+		},
+		_ => return Err(tg::error!(%parent, %permission, "invalid named node permission")),
+	};
+	let permission = match (parent.kind(), permission) {
+		(tg::id::Kind::Group, NamedPermission::Admin) => tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Admin,
+		),
+		(tg::id::Kind::Group, NamedPermission::Read) => tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Read,
+		),
+		(tg::id::Kind::Group, NamedPermission::Write) => tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Write,
+		),
+		(tg::id::Kind::Organization, NamedPermission::Admin) => {
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Admin,
+			)
+		},
+		(tg::id::Kind::Organization, NamedPermission::Read) => {
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			)
+		},
+		(tg::id::Kind::Organization, NamedPermission::Write) => {
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Write,
+			)
+		},
+		(tg::id::Kind::Tag, NamedPermission::Admin) => tg::authorization::Permission::Tag(
+			tg::authorization::permission::tag::Permission::Admin,
+		),
+		(tg::id::Kind::Tag, NamedPermission::Read) => {
+			tg::authorization::Permission::Tag(tg::authorization::permission::tag::Permission::Read)
+		},
+		(tg::id::Kind::Tag, NamedPermission::Write) => tg::authorization::Permission::Tag(
+			tg::authorization::permission::tag::Permission::Write,
+		),
+		(tg::id::Kind::User, NamedPermission::Admin) => tg::authorization::Permission::User(
+			tg::authorization::permission::user::Permission::Admin,
+		),
+		(tg::id::Kind::User, NamedPermission::Read) => tg::authorization::Permission::User(
+			tg::authorization::permission::user::Permission::Read,
+		),
+		(tg::id::Kind::User, NamedPermission::Write) => tg::authorization::Permission::User(
+			tg::authorization::permission::user::Permission::Write,
+		),
+		_ => return Err(tg::error!(%parent, "invalid named node parent")),
+	};
+
+	Ok(permission)
 }

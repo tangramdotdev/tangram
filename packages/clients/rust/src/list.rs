@@ -20,11 +20,11 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub node: Option<tg::Referent<tg::Id>>,
+
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub organizations: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::Selector<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub position: Option<u64>,
@@ -52,68 +52,16 @@ pub struct Output {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum Entry {
-	Group {
-		id: tg::group::Id,
+pub struct Entry {
+	pub node: tg::Referent<tg::Id>,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		location: Option<tg::Location>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::Id>,
 
-		name: String,
+	pub specifier: tg::Specifier,
 
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		parent: Option<tg::Id>,
-
-		specifier: tg::Specifier,
-
-		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-		tokens: tg::authorization::Tokens,
-	},
-	Organization {
-		id: tg::organization::Id,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		location: Option<tg::Location>,
-
-		name: String,
-
-		specifier: tg::Specifier,
-
-		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-		tokens: tg::authorization::Tokens,
-	},
-	Tag {
-		id: tg::tag::Id,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		location: Option<tg::Location>,
-
-		name: String,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		parent: Option<tg::Id>,
-
-		specifier: tg::Specifier,
-
-		target: tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
-
-		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-		tokens: tg::authorization::Tokens,
-	},
-	User {
-		id: tg::user::Id,
-
-		#[serde(default, skip_serializing_if = "Option::is_none")]
-		location: Option<tg::Location>,
-
-		name: String,
-
-		specifier: tg::Specifier,
-
-		#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-		tokens: tg::authorization::Tokens,
-	},
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub target: Option<tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>>,
 }
 
 impl Default for Arg {
@@ -123,8 +71,8 @@ impl Default for Arg {
 			groups: true,
 			length: None,
 			location: None,
+			node: None,
 			organizations: true,
-			parent: None,
 			position: None,
 			recursive: false,
 			reverse: false,
@@ -137,69 +85,81 @@ impl Default for Arg {
 
 impl Entry {
 	#[must_use]
-	pub fn id(&self) -> tg::Id {
-		match self {
-			Self::Group { id, .. } => id.clone().into(),
-			Self::Organization { id, .. } => id.clone().into(),
-			Self::Tag { id, .. } => id.clone().into(),
-			Self::User { id, .. } => id.clone().into(),
-		}
+	pub fn id(&self) -> &tg::Id {
+		&self.node.node
+	}
+
+	#[must_use]
+	pub fn kind(&self) -> tg::id::Kind {
+		self.node.node.kind()
 	}
 
 	#[must_use]
 	pub fn location(&self) -> Option<&tg::Location> {
-		match self {
-			Self::Group { location, .. }
-			| Self::Organization { location, .. }
-			| Self::Tag { location, .. }
-			| Self::User { location, .. } => location.as_ref(),
-		}
+		self.node.options.location.as_ref()
+	}
+
+	#[must_use]
+	pub fn name(&self) -> &str {
+		self.specifier.name()
 	}
 
 	#[must_use]
 	pub fn parent(&self) -> Option<&tg::Id> {
-		match self {
-			Self::Group { parent, .. } | Self::Tag { parent, .. } => parent.as_ref(),
-			Self::Organization { .. } | Self::User { .. } => None,
-		}
+		self.parent.as_ref()
 	}
 
 	#[must_use]
 	pub fn specifier(&self) -> &tg::Specifier {
-		match self {
-			Self::Group { specifier, .. }
-			| Self::Organization { specifier, .. }
-			| Self::Tag { specifier, .. }
-			| Self::User { specifier, .. } => specifier,
-		}
+		&self.specifier
+	}
+
+	#[must_use]
+	pub fn target(&self) -> Option<&tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>> {
+		self.target.as_ref()
 	}
 
 	#[must_use]
 	pub fn tokens(&self) -> &tg::authorization::Tokens {
-		match self {
-			Self::Group { tokens, .. }
-			| Self::Organization { tokens, .. }
-			| Self::Tag { tokens, .. }
-			| Self::User { tokens, .. } => tokens,
-		}
+		&self.node.options.tokens
 	}
 
 	pub fn set_tokens(&mut self, value: tg::authorization::Tokens) {
-		match self {
-			Self::Group { tokens, .. }
-			| Self::Organization { tokens, .. }
-			| Self::Tag { tokens, .. }
-			| Self::User { tokens, .. } => *tokens = value,
-		}
+		self.node.options.tokens = value;
 	}
 }
 
 impl tg::Session {
 	pub async fn list(&self, arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
 		let method = http::Method::GET;
+		let path = arg.node.as_ref().map_or_else(
+			|| "/list".to_owned(),
+			|node| format!("/list/{}", node.node()),
+		);
+		let mut request_arg = arg.clone();
+		request_arg.node = None;
+		if arg
+			.node
+			.as_ref()
+			.is_some_and(|node| node.options().location.is_some())
+		{
+			request_arg.location = None;
+		}
+		#[derive(serde::Serialize)]
+		struct Query<'a> {
+			#[serde(flatten)]
+			arg: &'a tg::list::Arg,
+
+			#[serde(flatten)]
+			options: Option<&'a tg::referent::Options>,
+		}
+		let query = Query {
+			arg: &request_arg,
+			options: arg.node.as_ref().map(tg::Referent::options),
+		};
 		let uri = Uri::builder()
-			.path("/list")
-			.query_params_strict(&arg)
+			.path_raw(&path)
+			.query_params_strict(&query)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();

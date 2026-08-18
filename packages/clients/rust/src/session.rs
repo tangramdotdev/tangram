@@ -85,6 +85,13 @@ impl tg::Handle for tg::Session {
 		self.checkout(arg)
 	}
 
+	fn children(
+		&self,
+		arg: tg::children::Arg,
+	) -> impl Future<Output = tg::Result<tg::children::Output>> {
+		self.children(arg)
+	}
+
 	fn clean(
 		&self,
 	) -> impl Future<
@@ -180,20 +187,6 @@ impl tg::Handle for tg::Session {
 		>,
 	> {
 		self.try_get(reference, arg)
-	}
-
-	fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> {
-		self.try_resolve(reference, arg)
 	}
 
 	fn try_read_stream(

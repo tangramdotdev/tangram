@@ -17,7 +17,7 @@ impl Cli {
 		let reference = args.locations.apply_to_reference(&args.reference);
 		let locations = args.locations;
 
-		let referent = self.resolve(&reference).await?;
+		let referent = self.get_with_follow(&reference).await?;
 		match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);

@@ -28,7 +28,7 @@ impl Cli {
 			.locations
 			.set_from_reference_if_unset(&args.reference);
 		let process = self
-			.resolve_process_with_locations(&args.reference, &options.locations)
+			.get_process_with_locations(&args.reference, &options.locations)
 			.await?;
 		self.command_process_metadata_inner(process, options).await
 	}

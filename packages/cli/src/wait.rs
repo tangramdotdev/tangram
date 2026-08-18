@@ -19,7 +19,7 @@ impl Cli {
 		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
 		let locations = args.locations;
-		let referent = self.resolve(&reference).await?;
+		let referent = self.get_with_follow(&reference).await?;
 		let id = match referent.node {
 			tg::get::Node::Id(id) => id,
 			tg::get::Node::Pointer(_) => {

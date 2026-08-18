@@ -895,10 +895,7 @@ where
 	let nodes = artifacts
 		.iter()
 		.cloned()
-		.map(|artifact| {
-			tg::Referent::with_node_and_tokens(artifact, tokens.clone())
-				.map(|id| tg::Selector::Id(id.into()))
-		})
+		.map(|artifact| tg::Referent::with_node_and_tokens(artifact.into(), tokens.clone()))
 		.collect();
 	let paths = tg::checkout::checkout_with_handle(
 		handle,

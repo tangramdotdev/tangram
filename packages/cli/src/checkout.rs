@@ -129,52 +129,36 @@ impl Cli {
 		}
 
 		// Get the nodes.
-		let referents = self.resolve_references(&args.references).await?;
-		let mut artifacts = Vec::with_capacity(referents.len());
+		let referents = self.get_references(&args.references).await?;
 		let mut nodes = Vec::with_capacity(referents.len());
 		for referent in referents {
-			if let tg::get::Node::Id(id) = &referent.node
-				&& matches!(
-					id.kind(),
-					tg::id::Kind::Group
-						| tg::id::Kind::Organization
-						| tg::id::Kind::Tag
-						| tg::id::Kind::User
-				) && referent.options.tag.is_none()
-			{
-				artifacts.push(None);
-				nodes.push(tg::Referent::new(
-					tg::Selector::Id(id.clone()),
-					referent.options,
-				));
-				continue;
-			}
-			let artifact = referent.into_graph_edge()?.try_map(|edge| {
-				let object = edge
-					.try_unwrap_object()
-					.map_err(|_| tg::error!("expected an object"))?;
-				let artifact = tg::Artifact::try_from(object)?;
-				Ok::<_, tg::Error>(artifact.id())
+			let node = referent.try_map(|node| match node {
+				tg::get::Node::Id(id)
+					if tg::artifact::Id::try_from(id.clone()).is_ok()
+						|| matches!(
+							id.kind(),
+							tg::id::Kind::Group
+								| tg::id::Kind::Organization
+								| tg::id::Kind::Tag | tg::id::Kind::User
+						) =>
+				{
+					Ok(id)
+				},
+				tg::get::Node::Id(id) if id.kind().is_object() => {
+					Err(tg::error!("expected an artifact"))
+				},
+				tg::get::Node::Id(id) => {
+					Err(tg::error!(kind = %id.kind(), "expected an object ID"))
+				},
+				tg::get::Node::Pointer(_) => Err(tg::error!("cannot check out a graph pointer")),
 			})?;
-			artifacts.push(Some(artifact.node.clone()));
-			let Some(tag) = artifact.options.tag.clone() else {
-				nodes.push(artifact.map(|id| tg::Selector::Id(id.into())));
-				continue;
-			};
-			let options = tg::referent::Options {
-				artifact: Some(artifact.node),
-				id: artifact.options.id,
-				location: artifact.options.location,
-				name: artifact.options.name,
-				path: artifact.options.path,
-				..Default::default()
-			};
-			nodes.push(tg::Referent::new(tg::Selector::Specifier(tag), options));
+			nodes.push(node);
 		}
 		let external_artifact = path.as_ref().and_then(|_| {
-			(nodes.len() == 1)
-				.then(|| artifacts.pop().unwrap())
-				.flatten()
+			nodes
+				.first()
+				.filter(|_| nodes.len() == 1)
+				.and_then(|node| tg::artifact::Id::try_from(node.node.clone()).ok())
 		});
 
 		// Check out the artifact.

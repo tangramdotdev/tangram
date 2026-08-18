@@ -28,11 +28,15 @@ impl Cli {
 		let client = self.client().await?;
 
 		// Get the reference.
-		let arg = tg::resolve::Arg {
+		let mut reference = args.reference.clone();
+		let mut options = reference.options().clone();
+		options.follow = true;
+		reference.set_options(options);
+		let arg = tg::get::Arg {
 			checkin: args.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self.resolve_with_arg(&args.reference, arg).await?;
+		let referent = self.get_with_arg(&reference, arg).await?.referent;
 		let target = match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => id
 				.try_into()

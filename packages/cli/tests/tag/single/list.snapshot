@@ -1,1 +1,1 @@
-[{"id":"tag_0000000000000000000000000000","kind":"tag","location":"local","name":"test","specifier":"test","target":{"node":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0","options":{"location":"local","tokens":{"local":"<token>"}}},"tokens":{"local":"<token>"}}]
+[{"node":{"node":"tag_0000000000000000000000000000","options":{"location":"local","tokens":{"local":"<token>"}}},"specifier":"test","target":{"node":"fil_012qhh3dzv6bpymrpys6pgtvga6k2wm3jknx5y5ymp0ak4prm50eh0","options":{"location":"local","tokens":{"local":"<token>"}}}}]

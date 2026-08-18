@@ -100,6 +100,11 @@ pub trait Handle:
 		>,
 	> + Send;
 
+	fn children(
+		&self,
+		arg: tg::children::Arg,
+	) -> impl Future<Output = tg::Result<tg::children::Output>> + Send;
+
 	fn clean(
 		&self,
 	) -> impl Future<
@@ -209,51 +214,6 @@ pub trait Handle:
 		>,
 	> + Send;
 
-	fn resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::Referent<tg::resolve::Node>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send {
-		async move {
-			let stream = self.try_resolve(reference, arg).await?;
-			let reference = reference.clone();
-			let stream = stream.map(move |event_result| {
-				event_result.and_then(|event| match event {
-					tg::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
-					tg::progress::Event::Diagnostic(diagnostic) => {
-						Ok(tg::progress::Event::Diagnostic(diagnostic))
-					},
-					tg::progress::Event::Indicators(indicators) => {
-						Ok(tg::progress::Event::Indicators(indicators))
-					},
-					tg::progress::Event::Output(output) => output
-						.map(|output| tg::progress::Event::Output(output.referent))
-						.ok_or_else(|| tg::error!(%reference, "failed to resolve the reference")),
-				})
-			});
-
-			Ok(stream)
-		}
-	}
-
-	fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send;
-
 	fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
@@ -295,6 +255,10 @@ impl tg::Handle for tg::Client {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
 		self.session(&self.context).checkout(arg).await
+	}
+
+	async fn children(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
+		self.session(&self.context).children(arg).await
 	}
 
 	async fn clean(
@@ -373,20 +337,6 @@ impl tg::Handle for tg::Client {
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		self.session(&self.context).try_get(reference, arg).await
-	}
-
-	async fn try_resolve(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::resolve::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::resolve::Output>>>>
-		+ Send
-		+ 'static,
-	> {
-		self.session(&self.context)
-			.try_resolve(reference, arg)
-			.await
 	}
 
 	async fn try_read_stream(

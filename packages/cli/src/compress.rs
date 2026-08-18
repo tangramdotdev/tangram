@@ -17,7 +17,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_compress(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let input = self.resolve_object(&args.reference).await?;
+		let input = self.get_object(&args.reference).await?;
 		let (input, blob) = match tg::Object::with_referent(input) {
 			tg::Object::Blob(blob) => (tg::Either::Left(blob), true),
 			tg::Object::File(file) => (tg::Either::Right(file), false),

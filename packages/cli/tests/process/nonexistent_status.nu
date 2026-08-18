@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = spawn
 
-let output = tg status pcs_010000000000000000000000000000000000000000000000000000 | complete
+let output = tg process status pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

@@ -1,4 +1,10 @@
-use {crate::prelude::*, std::path::PathBuf, tangram_uri::Uri};
+use {
+	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
+	std::path::PathBuf,
+	tangram_uri::Uri,
+	tangram_util::serde::is_false,
+};
 
 #[derive(
 	Clone,
@@ -43,6 +49,7 @@ pub enum Node {
 	Specifier(tg::specifier::Pattern),
 }
 
+#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -58,6 +65,10 @@ pub enum Node {
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::artifact::Id>,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub follow: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<PathBuf>,
@@ -318,6 +329,7 @@ impl From<tg::referent::Options> for Options {
 	fn from(options: tg::referent::Options) -> Self {
 		Self {
 			artifact: options.artifact,
+			follow: false,
 			get: None,
 			id: options.id,
 			location: options.location.map(Into::into),
@@ -359,9 +371,10 @@ mod tests {
 	// Reference query parameters are parsed into the corresponding options fields.
 	#[test]
 	fn options() {
-		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_010200000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
+		let reference = "dir_010000000000000000000000000000000000000000000000000000?follow=true&id=dir_010200000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
 			.parse::<tg::Reference>()
 			.unwrap();
+		assert!(reference.options().follow);
 		assert_eq!(
 			reference.options().id.as_ref().unwrap().to_string(),
 			"dir_010200000000000000000000000000000000000000000000000000"

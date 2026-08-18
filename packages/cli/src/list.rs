@@ -18,9 +18,6 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
-	#[arg(index = 1)]
-	pub parent: Option<tg::Selector<tg::Id>>,
-
 	/// The position of the first entry to return.
 	#[arg(long)]
 	pub position: Option<u64>,
@@ -30,6 +27,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub recursive: bool,
+
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
 
 	#[arg(long)]
 	pub reverse: bool,
@@ -175,14 +175,40 @@ impl Ttl {
 
 impl Cli {
 	pub async fn command_list(&mut self, args: Args) -> tg::Result<()> {
+		// Get the node.
+		let node = if let Some(reference) = &args.reference {
+			let reference = args.locations.apply_to_reference(reference);
+			let arg = tg::get::Arg {
+				cached: args.cached,
+				ttl: args.ttl.get(),
+				..tg::get::Arg::default()
+			};
+			let output = self.get_with_arg(&reference, arg).await?;
+			let node = output.referent.try_map(|node| match node {
+				tg::get::Node::Id(id) => Ok(id),
+				tg::get::Node::Pointer(_) => {
+					Err(tg::error!(%reference, "the list node must be an ID"))
+				},
+			})?;
+			Some(node)
+		} else {
+			None
+		};
+
+		// List the entries.
 		let client = self.client().await?;
+		let location = node
+			.as_ref()
+			.and_then(|node| node.options.location.clone())
+			.map(Into::into)
+			.or_else(|| args.locations.get());
 		let arg = tg::list::Arg {
 			cached: args.cached,
 			groups: args.entries.groups(),
 			length: args.length,
-			location: args.locations.get(),
+			location,
+			node,
 			organizations: args.entries.organizations(),
-			parent: args.parent.clone(),
 			position: args.position,
 			recursive: args.recursive,
 			reverse: args.reverse,
@@ -190,10 +216,9 @@ impl Cli {
 			ttl: args.ttl.get(),
 			users: args.entries.users(),
 		};
-		let output = client
-			.list(arg)
-			.await
-			.map_err(|error| tg::error!(!error, parent = ?args.parent, "failed to list entries"))?;
+		let output = client.list(arg).await.map_err(
+			|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"),
+		)?;
 		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}

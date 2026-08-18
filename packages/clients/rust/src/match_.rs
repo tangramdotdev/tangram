@@ -30,6 +30,9 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub ttl: tg::remote::cache::Ttl,
 
@@ -51,6 +54,7 @@ impl Default for Arg {
 			pattern: tg::specifier::Pattern::default(),
 			reverse: false,
 			tags: true,
+			tokens: tg::authorization::Tokens::default(),
 			ttl: tg::remote::cache::Ttl::default(),
 			users: true,
 		}

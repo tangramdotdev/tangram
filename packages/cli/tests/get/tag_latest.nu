@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Resolving a tag pattern with the resolve option selects the most recent matching version.
+# Following a group selects the most recent matching version.
 
 let server = spawn
 
@@ -9,7 +9,7 @@ tg tag put -p a/1.0.0 $one
 let two = tg put 'tg.file("two")' | str trim
 tg tag put -p a/1.1.0 $two
 
-let output = tg resolve a | complete
+let output = tg get "a?follow=true" | complete
 success $output
 let expected = tg get $two | str trim
 assert (($output.stdout | str trim) == $expected) "the tag should resolve to the latest version"

@@ -22,7 +22,7 @@ assert ($second.lease != $first.lease) "each build should hold its own lease"
 
 # Cancelling the first lease leaves the process running.
 tg cancel $first.process $first.lease
-assert equal (tg status --timeout 0 $first.process | from json) ["started"] "the process should still be running"
+assert equal (tg process status --timeout 0 $first.process | from json) ["started"] "the process should still be running"
 
 # Cancelling the last lease cancels the process.
 tg cancel $second.process $second.lease

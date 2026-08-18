@@ -15,7 +15,7 @@ impl Cli {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		for reference in &args.references {
-			let referent = self.resolve(reference).await?;
+			let referent = self.get_with_follow(reference).await?;
 			let edge = referent.into_graph_edge()?.node;
 
 			let blob = match &edge {

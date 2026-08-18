@@ -95,6 +95,7 @@ impl Cli {
 					pattern: pattern.clone(),
 					reverse: true,
 					tags: true,
+					tokens: tg::authorization::Tokens::default(),
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
@@ -103,9 +104,8 @@ impl Cli {
 					.await?
 					.data
 					.into_iter()
-					.find_map(|entry| match entry {
-						tg::match_::Entry::Tag { specifier, .. } => Some(specifier),
-						_ => None,
+					.find_map(|entry| {
+						(entry.kind() == tg::id::Kind::Tag).then_some(entry.specifier)
 					});
 
 				let pattern = tg::specifier::Pattern::any_in_parent(pattern.parent.clone());
@@ -118,19 +118,18 @@ impl Cli {
 					pattern,
 					reverse: true,
 					tags: true,
+					tokens: tg::authorization::Tokens::default(),
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
-				let latest =
-					client
-						.match_(arg)
-						.await?
-						.data
-						.into_iter()
-						.find_map(|entry| match entry {
-							tg::match_::Entry::Tag { specifier, .. } => Some(specifier),
-							_ => None,
-						});
+				let latest = client
+					.match_(arg)
+					.await?
+					.data
+					.into_iter()
+					.find_map(|entry| {
+						(entry.kind() == tg::id::Kind::Tag).then_some(entry.specifier)
+					});
 
 				let entry = Entry {
 					current,

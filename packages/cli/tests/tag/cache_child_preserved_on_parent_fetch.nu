@@ -13,9 +13,9 @@ tg --url $remote.url tag put -p "a/q/r/s" $id
 tg --url $remote.url tag put -p "a/q/t" $id
 
 # Cache the child, then fetch its parent.
-let s1 = tg --url $local.url resolve "a/q/r/s" | str trim
-tg --url $local.url resolve "a/q" | ignore
+let s1 = tg --url $local.url get "a/q/r/s?follow=true" | str trim
+tg --url $local.url get "a/q?follow=true" | ignore
 
 # The child should still be in the cache.
-let s2 = tg --url $local.url resolve --remote --cached "a/q/r/s" | str trim
+let s2 = tg --url $local.url get --remote --cached "a/q/r/s?follow=true" | str trim
 assert equal $s1 $s2 "the child tag should still be cached after fetching its parent"

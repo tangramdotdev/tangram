@@ -29,7 +29,7 @@ pub struct Arg {
 	pub lock: Option<Lock>,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
-	pub nodes: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -100,7 +100,7 @@ impl tg::Artifact {
 			extension: options.extension,
 			force: options.force,
 			lock: options.lock,
-			nodes: vec![self.to_referent().map(|id| tg::Selector::Id(id.into()))],
+			nodes: vec![self.to_referent().map(Into::into)],
 			path: options.path,
 		};
 		let stream = handle.checkout(arg).await?.boxed();

@@ -11,7 +11,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Publish a tag with its transitive source dependencies.
+/// Publish a package with its transitive source dependencies.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
