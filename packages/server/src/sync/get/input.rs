@@ -246,15 +246,6 @@ impl Session {
 							if let Some(token) = message.token {
 								state.graph.lock().unwrap().update_process_token(&id, token);
 							}
-							let eager = state
-								.graph
-								.lock()
-								.unwrap()
-								.get_process_requested(&id)
-								.is_none_or(|requested| requested.eager);
-							if !eager {
-								return Err(tg::error!(%id, "failed to find the process"));
-							}
 							let node = super::index::ProcessNode { id, missing: true };
 							index_process_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the process to the index task")
@@ -264,15 +255,6 @@ impl Session {
 							let id = id.try_into()?;
 							if let Some(token) = message.token {
 								state.graph.lock().unwrap().update_object_token(&id, token);
-							}
-							let eager = state
-								.graph
-								.lock()
-								.unwrap()
-								.get_object_requested(&id)
-								.is_none_or(|requested| requested.eager);
-							if !eager {
-								return Err(tg::error!(%id, "failed to find the object"));
 							}
 							let node = super::index::ObjectNode { id, missing: true };
 							index_object_sender.send(node).await.map_err(|_| {

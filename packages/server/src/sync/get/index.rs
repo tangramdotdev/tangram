@@ -5,6 +5,7 @@ use {
 	num::ToPrimitive as _,
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -108,9 +109,34 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to touch and get object metadata"))?;
 
-		for ((node, output), permissions) in
+		for ((node, mut output), mut permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
+			// Before reporting a missing object, index and retry.
+			if node.missing && output.is_none() {
+				crate::checkpoint!(self.server, "sync.get.index.object.retry", id = %node.id).await;
+				self.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
+				let touched_at = self.server.clock.unix_timestamp()?;
+				let (retry_outputs, retry_permissions) = self
+					.sync_get_touch_authorized_objects(
+						&state.graph,
+						std::slice::from_ref(&node.id),
+						touched_at,
+						self.server.config.object.time_to_touch,
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to touch and get object metadata")
+					})?;
+				output = retry_outputs.into_iter().next().unwrap();
+				permissions = retry_permissions.into_iter().next().unwrap();
+			}
+
 			// Update the graph.
 			let arg = UpdateObjectLocalArg {
 				data: None,
@@ -257,9 +283,36 @@ impl Session {
 			}
 		}
 
-		for ((node, output), permissions) in
+		for ((node, mut output), mut permissions) in
 			std::iter::zip(std::iter::zip(nodes, outputs), permissions)
 		{
+			// Before reporting a missing process, index and retry.
+			if node.missing && output.is_none() {
+				crate::checkpoint!(self.server, "sync.get.index.process.retry", id = %node.id)
+					.await;
+				self.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
+				let touched_at = self.server.clock.unix_timestamp()?;
+				let (retry_outputs, retry_permissions) = self
+					.sync_get_touch_authorized_processes(
+						&state.graph,
+						std::slice::from_ref(&node.id),
+						&state.arg,
+						touched_at,
+						self.server.config.process.time_to_touch,
+					)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to touch and get process metadata")
+					})?;
+				output = retry_outputs.into_iter().next().unwrap();
+				permissions = retry_permissions.into_iter().next().unwrap();
+			}
+
 			// Update the graph.
 			let arg = UpdateProcessLocalArg {
 				data: output.as_ref().and_then(|process| process.data.as_ref()),
