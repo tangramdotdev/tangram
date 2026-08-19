@@ -455,7 +455,7 @@ pub struct IndexerLogCompaction {
 
 	pub enabled: bool,
 
-	pub poll_interval: Duration,
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1334,7 +1334,7 @@ impl Default for IndexerLogCompaction {
 			batch_size: 1024,
 			concurrency: 1,
 			enabled: true,
-			poll_interval: Duration::from_millis(100),
+			wakeup_interval: Duration::from_mins(1),
 		}
 	}
 }
@@ -1345,7 +1345,7 @@ impl Default for IndexerUsageCompaction {
 			batch_size: 1024,
 			concurrency: 1,
 			enabled: true,
-			poll_interval: Duration::from_millis(100),
+			poll_interval: Duration::from_secs(1),
 		}
 	}
 }

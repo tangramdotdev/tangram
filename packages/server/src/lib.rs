@@ -290,9 +290,9 @@ impl Server {
 						"the indexer log compaction concurrency must be greater than zero"
 					));
 				}
-				if indexer.log_compaction.poll_interval.is_zero() {
+				if indexer.log_compaction.wakeup_interval.is_zero() {
 					return Err(tg::error!(
-						"the indexer log compaction poll interval must be greater than zero"
+						"the indexer log compaction wakeup interval must be greater than zero"
 					));
 				}
 			}

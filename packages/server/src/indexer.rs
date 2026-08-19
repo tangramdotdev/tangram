@@ -108,6 +108,7 @@ impl Server {
 			server: self.clone(),
 		};
 		let poll_interval = config.poll_interval;
+		let usage_enabled = self.config.usage.enabled;
 
 		// Spawn the database outbox task.
 		let database_outbox_task = Task::spawn({
@@ -150,13 +151,10 @@ impl Server {
 		});
 
 		// Spawn the usage compaction task.
-		let usage_compaction_task = Task::spawn({
+		let usage_compaction_task = (usage_enabled && config.usage.compaction.enabled).then(|| {
 			let config = config.clone();
 			let indexer = indexer.clone();
-			move |_| async move {
-				if !config.usage.compaction.enabled {
-					return future::pending().await;
-				}
+			Task::spawn(move |_| async move {
 				indexer
 					.usage_compaction_task(
 						&config.usage.compaction,
@@ -164,7 +162,7 @@ impl Server {
 						config.partition_end,
 					)
 					.await
-			}
+			})
 		});
 
 		// Spawn the grant update task.
@@ -241,6 +239,9 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "the indexer log compaction task panicked"))?
 		};
 		let usage_compaction_future = async move {
+			let Some(usage_compaction_task) = usage_compaction_task else {
+				return future::pending().await;
+			};
 			usage_compaction_task
 				.wait()
 				.await
@@ -299,6 +300,18 @@ impl Server {
 		.await?;
 
 		Ok(())
+	}
+
+	pub(crate) fn spawn_publish_log_compaction_notification_task(&self) {
+		let subject = log_compaction_subject();
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				if let Err(error) = server.messenger.publish(subject, ()).await {
+					tracing::error!(%error, "failed to publish a log compaction notification");
+				}
+			}
+		});
 	}
 }
 
@@ -770,42 +783,68 @@ impl Indexer {
 				partition_start + task_index * partitions_per_task + task_index.min(extra);
 			let task_count = partitions_per_task + u64::from(task_index < extra);
 			let task_end = task_start + task_count;
-			(task_count > 0).then(|| self.log_compaction_task_inner(config, task_start, task_end))
+			(task_count > 0)
+				.then(|| self.log_compaction_partition_task(config, task_start, task_end))
 		});
 		future::try_join_all(futures).await?;
 
 		Ok(())
 	}
 
-	async fn log_compaction_task_inner(
+	async fn log_compaction_partition_task(
 		&self,
 		config: &crate::config::IndexerLogCompaction,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
 		loop {
+			let result = self
+				.log_compaction_partition_task_inner(config, partition_start, partition_end)
+				.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), "failed to compact logs");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn log_compaction_partition_task_inner(
+		&self,
+		config: &crate::config::IndexerLogCompaction,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<()> {
+		let subject = log_compaction_subject();
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject.clone())
+			.await
+			.map_err(
+				|error| tg::error!(!error, %subject, "failed to subscribe to log compaction notifications"),
+			)?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(config.wakeup_interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let mut wakeups = wakeups.boxed();
+		loop {
+			while wakeups.next().now_or_never().flatten().is_some() {}
 			crate::checkpoint!(self.server, "indexer.log_compaction.batch").await;
-			let entries = match self
+			let entries = self
 				.server
 				.index
 				.log_compaction_batch(config.batch_size, partition_start, partition_end)
 				.await
-			{
-				Ok(entries) if entries.is_empty() => {
-					tokio::time::sleep(config.poll_interval).await;
-					continue;
-				},
-				Ok(entries) => entries,
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to read log compactions");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-					continue;
-				},
-			};
-			if let Err(error) = self.compact_logs(&entries).boxed().await {
-				tracing::error!(error = %error.trace(), "failed to compact logs");
-				tokio::time::sleep(Duration::from_secs(1)).await;
+				.map_err(|error| tg::error!(!error, "failed to read log compactions"))?;
+			if entries.is_empty() {
+				if wakeups.next().await.is_none() {
+					return Err(tg::error!("the log compaction wakeup stream ended"));
+				}
+				continue;
 			}
+			self.compact_logs(&entries).boxed().await?;
 		}
 	}
 
@@ -1514,6 +1553,10 @@ pub(crate) fn database_outbox_subject() -> String {
 	"database.outbox".to_owned()
 }
 
+pub(crate) fn log_compaction_subject() -> String {
+	"index.log_compaction".to_owned()
+}
+
 pub(crate) fn object_outbox_subject(partition: u64) -> String {
 	format!("stores.object.outbox.{partition}")
 }
@@ -1525,6 +1568,11 @@ mod tests {
 	#[test]
 	fn database_outbox_subject_has_no_partition() {
 		assert_eq!(database_outbox_subject(), "database.outbox");
+	}
+
+	#[test]
+	fn log_compaction_subject_has_no_partition() {
+		assert_eq!(log_compaction_subject(), "index.log_compaction");
 	}
 
 	#[test]

@@ -693,7 +693,7 @@ pub struct IndexerLogCompaction {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub poll_interval: Option<Duration>,
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2575,8 +2575,8 @@ fn resolve_indexer_log_compaction(
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
 		}
-		if let Some(value) = source.poll_interval {
-			target.poll_interval = value;
+		if let Some(value) = source.wakeup_interval {
+			target.wakeup_interval = value;
 		}
 	}
 	target
@@ -3614,7 +3614,7 @@ mod tests {
 			log_compaction: Some(BoolOr::Value(IndexerLogCompaction {
 				batch_size: Some(11),
 				concurrency: Some(2),
-				poll_interval: Some(Duration::from_millis(250)),
+				wakeup_interval: Some(Duration::from_millis(250)),
 			})),
 			..Indexer::default()
 		};
@@ -3624,7 +3624,7 @@ mod tests {
 		assert_eq!(target.log_compaction.concurrency, 2);
 		assert!(target.log_compaction.enabled);
 		assert_eq!(
-			target.log_compaction.poll_interval,
+			target.log_compaction.wakeup_interval,
 			Duration::from_millis(250)
 		);
 

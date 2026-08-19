@@ -215,6 +215,9 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
+		if enqueue_log_compaction {
+			self.server.spawn_publish_log_compaction_notification_task();
+		}
 		let permission = self.process_permission_for_data(&token_data);
 		let tokens = tg::authorization::Tokens::with_local(
 			self.create_token(

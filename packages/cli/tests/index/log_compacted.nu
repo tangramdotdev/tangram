@@ -1,8 +1,10 @@
 use ../../test.nu *
 
-# After indexing a finished process, the process log blob is compacted to the expected encoded contents.
+# A finished process wakes log compaction without waiting for the fallback interval.
 
-let local = spawn --name local
+let local = spawn --name local --config {
+	indexer: { log_compaction: { wakeup_interval: 3600 } },
+}
 
 let path = artifact {
 	tangram.ts: r#'
@@ -12,7 +14,7 @@ let path = artifact {
 let id = tg build --detach $path | str trim
 tg wait $id
 
-tg index
+timeout 10 tg index
 
 let process = tg get $id | from json
 let log_id = $process.log
