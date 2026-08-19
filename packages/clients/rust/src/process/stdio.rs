@@ -348,7 +348,12 @@ where
 	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|error| tg::error!(!error, "failed to create signal handler"))?;
 	while let Some(()) = signal.recv().await {
-		let Some(size) = get_tty_size() else {
+		let Some(size) =
+			tangram_util::tty::get_controlling_tty_size().map(|size| tg::process::tty::Size {
+				rows: size.rows,
+				cols: size.cols,
+			})
+		else {
 			continue;
 		};
 		let arg = tg::process::tty::size::put::Arg {
@@ -362,21 +367,4 @@ where
 			.map_err(|error| tg::error!(!error, "failed to put the tty"))?;
 	}
 	Ok(())
-}
-
-pub(super) fn get_tty_size() -> Option<tg::process::tty::Size> {
-	let size = tangram_util::tty::get_controlling_tty_size()?;
-	Some(tg::process::tty::Size {
-		rows: size.rows,
-		cols: size.cols,
-	})
-}
-
-#[must_use]
-pub(super) fn get_tty_size_with_fallback() -> tg::process::tty::Size {
-	let size = tangram_util::tty::get_tty_size_with_fallback();
-	tg::process::tty::Size {
-		rows: size.rows,
-		cols: size.cols,
-	}
 }

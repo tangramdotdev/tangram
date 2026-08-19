@@ -1708,20 +1708,18 @@ impl Tree {
 			// module comparison below, so fall back to `None` instead of failing the
 			// entire expansion.
 			let child_module = match child.node.command_with_handle(client).await {
-				Ok(command) => {
-					command
-						.object_with_handle(client)
-						.await
-						.ok()
-						.and_then(|object| {
-							object.args.iter().find_map(|arg| match arg {
-								tg::command::Value::Value(tg::Value::Module(module)) => {
-									Some(module.to_data())
-								},
-								_ => None,
-							})
+				Ok(command) => command
+					.object_with_handle(client)
+					.await
+					.ok()
+					.and_then(|object| {
+						object.args.iter().find_map(|arg| match arg {
+							tg::command::Value::Value(tg::Value::Module(module)) => {
+								Some(module.to_data())
+							},
+							_ => None,
 						})
-				},
+					}),
 				Err(_) => None,
 			};
 			let same_module = match (&referent_module, &child_module) {

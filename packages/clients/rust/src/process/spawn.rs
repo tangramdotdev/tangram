@@ -414,9 +414,15 @@ impl<O: 'static> tg::Process<O> {
 				}
 			};
 		let mut tty = match arg.tty.take() {
-			Some(tg::Either::Left(true)) => Some(tg::process::Tty {
-				size: super::stdio::get_tty_size_with_fallback(),
-			}),
+			Some(tg::Either::Left(true)) => {
+				let size = tangram_util::tty::get_tty_size_with_fallback();
+				Some(tg::process::Tty {
+					size: tg::process::tty::Size {
+						rows: size.rows,
+						cols: size.cols,
+					},
+				})
+			},
 			Some(tg::Either::Right(tty)) => Some(tty),
 			_ => None,
 		};
@@ -445,8 +451,12 @@ impl<O: 'static> tg::Process<O> {
 				|| stdout.as_ref().is_some_and(tg::process::Stdio::is_tty)
 				|| stderr.as_ref().is_some_and(tg::process::Stdio::is_tty))
 		{
+			let size = tangram_util::tty::get_tty_size_with_fallback();
 			tty = Some(tg::process::Tty {
-				size: super::stdio::get_tty_size_with_fallback(),
+				size: tg::process::tty::Size {
+					rows: size.rows,
+					cols: size.cols,
+				},
 			});
 		}
 		let local_tty = tty.is_some()
