@@ -751,6 +751,7 @@ impl Indexer {
 		future::try_join_all(batches.into_values().map(|mut fragments| async move {
 			fragments.sort_unstable_by_key(|(index, _)| *index);
 			for (_, arg) in fragments {
+				crate::checkpoint!(self.server, "index.batch").await;
 				self.server.index.batch(arg).await?;
 			}
 			Ok::<_, tg::Error>(())
