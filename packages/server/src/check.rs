@@ -34,6 +34,9 @@ impl Session {
 
 	#[cfg(feature = "typescript")]
 	async fn check_local(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
 		// Create the compiler.
 		let compiler = self.create_compiler();
 

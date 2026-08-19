@@ -33,6 +33,9 @@ pub struct Config {
 	pub checkin: Option<Checkin>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkouts: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cleaner: Option<Cleaner>,
 
 	/// Configure the client.
@@ -1938,6 +1941,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.checkin {
 		target.checkin = resolve_checkin(source);
 	}
+	if let Some(checkouts) = source.checkouts {
+		target.checkouts = checkouts;
+	}
 	if let Some(source) = source.cleaner {
 		target.cleaner = resolve_cleaner(source);
 	}
@@ -3532,6 +3538,7 @@ mod tests {
 	#[test]
 	fn parses_bool_or_configs() {
 		let source: Config = serde_json::from_value(serde_json::json!({
+			"checkouts": false,
 			"indexer": {
 				"log_compaction": false,
 				"usage": { "compaction": true },
@@ -3539,7 +3546,11 @@ mod tests {
 			"usage": true,
 		}))
 		.unwrap();
+		assert_eq!(source.checkouts, Some(false));
 		assert!(matches!(source.usage, Some(BoolOr::Bool(true))));
+		let target = resolve_server_config(&source).unwrap();
+		assert!(!target.checkouts);
+		assert!(server::Config::default().checkouts);
 		let indexer = source.indexer.unwrap();
 		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
 		let usage = indexer.usage.unwrap();

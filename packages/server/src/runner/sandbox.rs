@@ -537,7 +537,9 @@ impl Session {
 				})?;
 				(Some(vfs), None, None, None)
 			},
-			tangram_sandbox::Isolation::Container(_) if self.server.config.vfs.is_some() => {
+			tangram_sandbox::Isolation::Container(_)
+				if self.server.checkouts_enabled() && self.server.config.vfs.is_some() =>
+			{
 				let mount_path = temp.path().join("store");
 				tokio::fs::create_dir_all(&mount_path)
 					.await

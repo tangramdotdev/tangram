@@ -28,6 +28,9 @@ impl Session {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
 		self.verify_request_from_host()?;
 		let compiler = self.create_compiler();
 		let result = match self.context.stopper.clone() {

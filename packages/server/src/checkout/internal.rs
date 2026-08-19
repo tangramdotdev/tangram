@@ -59,6 +59,9 @@ impl Session {
 		&self,
 		artifacts: Vec<tg::Referent<tg::artifact::Id>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
 		if artifacts.is_empty() {
 			return Ok(stream::once(future::ok(tg::progress::Event::Output(()))).left_stream());
 		}
@@ -142,7 +145,7 @@ impl Session {
 	}
 
 	pub(crate) async fn checkout_index_barrier(&self) -> tg::Result<()> {
-		if self.server.vfs.lock().unwrap().is_some() {
+		if !self.server.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
 		self.index()
@@ -408,7 +411,7 @@ impl Session {
 		checkouts: &[super::NamedCheckout],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
-		if self.server.vfs.lock().unwrap().is_some() {
+		if !self.server.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
 		let entries = Self::named_checkout_entries(checkouts)?;
@@ -421,7 +424,7 @@ impl Session {
 			.collect::<Vec<_>>();
 		for attempt in 0..2 {
 			let guard = self.server.checkout_lock.acquire().await?;
-			if self.server.vfs.lock().unwrap().is_some() {
+			if !self.server.named_checkout_maintenance_enabled() {
 				return Ok(());
 			}
 			let actual = self.server.try_get_named_checkout_nodes(&ids).await?;
@@ -1732,7 +1735,7 @@ impl Server {
 		&self,
 		_guard: &super::Guard<'_>,
 	) -> tg::Result<()> {
-		if self.vfs.lock().unwrap().is_some() {
+		if !self.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
 
@@ -1769,7 +1772,7 @@ impl Server {
 		entries: &[NamedCheckoutEntry],
 		suffix: Option<&str>,
 	) -> tg::Result<()> {
-		if self.vfs.lock().unwrap().is_some() {
+		if !self.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
 		for entry in entries {
@@ -1801,7 +1804,7 @@ impl Server {
 		id: &tg::Id,
 		specifier: &tg::Specifier,
 	) -> tg::Result<()> {
-		if self.vfs.lock().unwrap().is_some() {
+		if !self.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
 		let node = super::NamedNode {

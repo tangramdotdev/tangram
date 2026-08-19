@@ -43,13 +43,14 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Create the destination.
-		let destination = if self.server.config.advanced.single_directory {
-			Destination::Temp(Temp::new(&self.server))
-		} else {
-			Destination::Store {
-				stored_at: touched_at,
-			}
-		};
+		let destination =
+			if self.server.checkouts_enabled() && self.server.config.advanced.single_directory {
+				Destination::Temp(Temp::new(&self.server))
+			} else {
+				Destination::Store {
+					stored_at: touched_at,
+				}
+			};
 
 		// Create the blob.
 		let blob = self
@@ -62,7 +63,8 @@ impl Session {
 		let checkout_pointers = arg
 			.checkout_pointers
 			.unwrap_or(self.server.config.write.checkout_pointers);
-		let checkout_pointer = if let Destination::Temp(temp) = destination
+		let checkout_pointer = if self.server.checkouts_enabled()
+			&& let Destination::Temp(temp) = destination
 			&& checkout_pointers
 		{
 			let data = tg::file::Data::Node(tg::file::data::Node {

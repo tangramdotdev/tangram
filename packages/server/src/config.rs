@@ -21,6 +21,8 @@ pub struct Config {
 
 	pub checkin: Checkin,
 
+	pub checkouts: bool,
+
 	pub cleaner: Cleaner,
 
 	pub database: Database,
@@ -1094,6 +1096,7 @@ impl Default for Config {
 			authorization: Authorization::default(),
 			billing: None,
 			checkin: Checkin::default(),
+			checkouts: true,
 			cleaner: Cleaner::default(),
 			database: Database::default(),
 			directory: None,

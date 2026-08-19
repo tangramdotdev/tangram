@@ -124,6 +124,9 @@ impl Session {
 		&self,
 		arg: tg::checkout::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
 		if arg.path.is_some() {
 			if arg.nodes.len() != 1 {
 				return Err(tg::error!("an external checkout requires exactly one node"));

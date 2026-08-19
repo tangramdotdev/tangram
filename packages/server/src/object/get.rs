@@ -604,7 +604,9 @@ impl Server {
 		};
 		let bytes = if let Some(bytes) = object.bytes {
 			bytes.into_owned().into()
-		} else if let Some(checkout_pointer) = object.checkout_pointer {
+		} else if self.checkouts_enabled()
+			&& let Some(checkout_pointer) = object.checkout_pointer
+		{
 			let Some(bytes) =
 				self.try_read_checkout_pointer_sync(&checkout_pointer, checkout_file)?
 			else {
@@ -685,7 +687,9 @@ impl Server {
 				if let Some(bytes) = object.bytes {
 					return Ok(Some(bytes.into_owned().into()));
 				}
-				if let Some(checkout_pointer) = object.checkout_pointer {
+				if self.checkouts_enabled()
+					&& let Some(checkout_pointer) = object.checkout_pointer
+				{
 					return self.try_read_checkout_pointer(&checkout_pointer).await;
 				}
 				Ok(None)
@@ -710,7 +714,9 @@ impl Server {
 		if let Some(bytes) = object.bytes {
 			return Ok(Some(bytes.into_owned().into()));
 		}
-		if let Some(checkout_pointer) = object.checkout_pointer {
+		if self.checkouts_enabled()
+			&& let Some(checkout_pointer) = object.checkout_pointer
+		{
 			return self.try_read_checkout_pointer(&checkout_pointer).await;
 		}
 		Ok(None)

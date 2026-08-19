@@ -10,6 +10,7 @@ let config = {
 		kind: 'postgres',
 		url: 'postgres://root@localhost:26257/database?sslmode=disable',
 	},
+	checkouts: false,
 	http: {
 		url: 'http://localhost:8476'
 	},

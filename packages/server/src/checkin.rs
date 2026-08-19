@@ -80,6 +80,10 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
+
 		// Validate the arg.
 		if arg.options.watch && !self.server.config.advanced.single_process {
 			return Err(tg::error!(

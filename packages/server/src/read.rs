@@ -251,7 +251,7 @@ impl Reader {
 			.authorize(resource, permission)
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
-		let checkout_pointer = if authorized {
+		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
 			let arg = crate::object::store::TryGetArg {
 				id: id.clone().into(),
 			};
@@ -300,7 +300,11 @@ impl Reader {
 			.object_store
 			.try_get_sync(&arg)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let checkout_pointer = object.object.and_then(|object| object.checkout_pointer);
+		let checkout_pointer = session
+			.server
+			.checkouts_enabled()
+			.then(|| object.object.and_then(|object| object.checkout_pointer))
+			.flatten();
 		let reader = if let Some(checkout_pointer) = checkout_pointer {
 			let mut path = session
 				.server

@@ -492,7 +492,7 @@ impl Indexer {
 
 		// Submit each outbox entry sequentially to preserve transaction order.
 		for arg in args {
-			if self.server.vfs.lock().unwrap().is_some()
+			if !self.server.named_checkout_maintenance_enabled()
 				|| !Self::database_outbox_batch_contains_named_node_mutation(&arg)
 			{
 				self.server.index.batch(arg).await.map_err(|error| {
@@ -502,7 +502,7 @@ impl Indexer {
 			}
 			crate::checkpoint!(self.server, "indexer.database_outbox.named_node").await;
 			let guard = self.server.checkout_lock.acquire().await?;
-			if self.server.vfs.lock().unwrap().is_some() {
+			if !self.server.named_checkout_maintenance_enabled() {
 				self.server.index.batch(arg).await.map_err(|error| {
 					tg::error!(!error, "failed to index a database outbox batch")
 				})?;

@@ -170,34 +170,36 @@ impl Server {
 			.iter()
 			.cloned()
 			.partition(|id| tg::artifact::Id::try_from(id.clone()).is_ok());
-		tokio::task::spawn_blocking({
-			let server = self.clone();
-			move || {
-				let temp = Temp::new(&server);
-				let checkout_path = server.checkout_path();
-				for artifact in artifacts {
-					let path = checkout_path.join(artifact.to_string());
-					let temp_path = temp.path().join(artifact.to_string());
-					std::fs::rename(&path, &temp_path).ok();
-					tangram_util::fs::remove_sync(&temp_path).ok();
-
-					for extension in [".tg.js", ".tg.ts"] {
-						let path = checkout_path.join(format!("{artifact}{extension}"));
-						let temp_path = temp.path().join(format!("{artifact}{extension}"));
+		if self.checkouts_enabled() {
+			tokio::task::spawn_blocking({
+				let server = self.clone();
+				move || {
+					let temp = Temp::new(&server);
+					let checkout_path = server.checkout_path();
+					for artifact in artifacts {
+						let path = checkout_path.join(artifact.to_string());
+						let temp_path = temp.path().join(artifact.to_string());
 						std::fs::rename(&path, &temp_path).ok();
 						tangram_util::fs::remove_sync(&temp_path).ok();
+
+						for extension in [".tg.js", ".tg.ts"] {
+							let path = checkout_path.join(format!("{artifact}{extension}"));
+							let temp_path = temp.path().join(format!("{artifact}{extension}"));
+							std::fs::rename(&path, &temp_path).ok();
+							tangram_util::fs::remove_sync(&temp_path).ok();
+						}
 					}
+					Ok::<_, tg::Error>(())
 				}
-				Ok::<_, tg::Error>(())
-			}
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "the clean task panicked"))??;
+			})
+			.await
+			.map_err(|error| tg::error!(!error, "the clean task panicked"))??;
+		}
 
 		// Delete named checkouts.
-		if !named.is_empty() && self.vfs.lock().unwrap().is_none() {
+		if !named.is_empty() && self.named_checkout_maintenance_enabled() {
 			let guard = self.checkout_lock.acquire().await?;
-			if self.vfs.lock().unwrap().is_none() {
+			if self.named_checkout_maintenance_enabled() {
 				let checkouts = self.index.try_get_checkouts(&named).await?;
 				let specifiers = self.index.try_get_specifiers_for_ids(&named).await?;
 				let mut entries = std::iter::zip(named, std::iter::zip(checkouts, specifiers))

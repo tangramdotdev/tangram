@@ -837,7 +837,7 @@ impl Server {
 		let vfs = Mutex::new(None);
 
 		// Create the checkout lock.
-		let checkout_lock_path = if config.vfs.is_some() {
+		let checkout_lock_path = if config.checkouts && config.vfs.is_some() {
 			path.join("checkouts.lock")
 		} else {
 			path.join("store.lock")
@@ -949,90 +949,94 @@ impl Server {
 				.await?;
 		}
 
-		// Start the VFS if enabled.
-		let checkout_guard = server.checkout_lock.acquire().await?;
-		let store_path = server.store_path();
-		let checkout_path = server.path.join("checkouts");
-		let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
-			config::VfsKind::Auto => {
-				if cfg!(target_os = "macos")
-					&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
-				{
-					vfs::Kind::Fskit
-				} else if cfg!(target_os = "macos") {
-					vfs::Kind::Nfs
-				} else if cfg!(target_os = "linux") {
-					vfs::Kind::Fuse
-				} else {
-					unreachable!()
+		// Initialize the checkouts directory and start the VFS if enabled.
+		if server.checkouts_enabled() {
+			let checkout_guard = server.checkout_lock.acquire().await?;
+			let store_path = server.store_path();
+			let checkout_path = server.path.join("checkouts");
+			let vfs_kind = match server.config.vfs.clone().unwrap_or_default().kind {
+				config::VfsKind::Auto => {
+					if cfg!(target_os = "macos")
+						&& std::env::var_os("TANGRAM_MACOS_APP_SOCKET").is_some()
+					{
+						vfs::Kind::Fskit
+					} else if cfg!(target_os = "macos") {
+						vfs::Kind::Nfs
+					} else if cfg!(target_os = "linux") {
+						vfs::Kind::Fuse
+					} else {
+						unreachable!()
+					}
+				},
+				config::VfsKind::Fskit => vfs::Kind::Fskit,
+				config::VfsKind::Fuse => vfs::Kind::Fuse,
+				config::VfsKind::Nfs => vfs::Kind::Nfs,
+			};
+			let store_exists = match tokio::fs::try_exists(&store_path).await {
+				Ok(exists) => exists,
+				Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
+					self::vfs::Server::unmount(vfs_kind, &store_path).await?;
+					true
+				},
+				Err(error) => {
+					return Err(tg::error!(!error, "failed to stat the path"));
+				},
+			};
+			let checkout_exists = tokio::fs::try_exists(&checkout_path)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
+			if let Some(options) = server.config.vfs.clone() {
+				if store_exists && !checkout_exists {
+					tokio::fs::rename(&store_path, &checkout_path)
+						.await
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								"failed to move the store directory to the checkouts path"
+							)
+						})?;
 				}
-			},
-			config::VfsKind::Fskit => vfs::Kind::Fskit,
-			config::VfsKind::Fuse => vfs::Kind::Fuse,
-			config::VfsKind::Nfs => vfs::Kind::Nfs,
-		};
-		let store_exists = match tokio::fs::try_exists(&store_path).await {
-			Ok(exists) => exists,
-			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
-				self::vfs::Server::unmount(vfs_kind, &store_path).await?;
-				true
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to stat the path"));
-			},
-		};
-		let checkout_exists = tokio::fs::try_exists(&checkout_path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to stat the path"))?;
-		if let Some(options) = server.config.vfs.clone() {
-			if store_exists && !checkout_exists {
-				tokio::fs::rename(&store_path, &checkout_path)
+				tokio::fs::create_dir_all(&store_path)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+				tokio::fs::create_dir_all(&checkout_path)
 					.await
 					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the store directory to the checkouts path"
-						)
+						tg::error!(!error, "failed to create the checkouts directory")
 					})?;
-			}
-			tokio::fs::create_dir_all(&store_path)
+				let vfs = self::vfs::Server::start(
+					&server,
+					vfs_kind,
+					&store_path,
+					options,
+					Origin::Host,
+					Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
+					None,
+				)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
-			tokio::fs::create_dir_all(&checkout_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the checkouts directory"))?;
-			let vfs = self::vfs::Server::start(
-				&server,
-				vfs_kind,
-				&store_path,
-				options,
-				Origin::Host,
-				Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
-				None,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
-			server.vfs.lock().unwrap().replace(vfs);
-		} else {
-			if checkout_exists {
-				tokio::fs::rename(&checkout_path, &store_path)
+				.map_err(|error| tg::error!(!error, "failed to start the VFS"))?;
+				server.vfs.lock().unwrap().replace(vfs);
+			} else {
+				if checkout_exists {
+					tokio::fs::rename(&checkout_path, &store_path)
+						.await
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								"failed to move the checkouts directory to the store path"
+							)
+						})?;
+					// Remove named checkout entries before exposing the physical store.
+					server
+						.remove_all_named_checkout_entries_with_lock(&checkout_guard)
+						.await?;
+				}
+				tokio::fs::create_dir_all(&store_path)
 					.await
-					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to move the checkouts directory to the store path"
-						)
-					})?;
-				// Remove named checkout entries before exposing the physical store.
-				server
-					.remove_all_named_checkout_entries_with_lock(&checkout_guard)
-					.await?;
+					.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
 			}
-			tokio::fs::create_dir_all(&store_path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to create the store directory"))?;
+			drop(checkout_guard);
 		}
-		drop(checkout_guard);
 
 		// Spawn the indexer task.
 		let indexer_task = server
@@ -1524,6 +1528,16 @@ impl Server {
 	#[must_use]
 	pub fn config(&self) -> &Config {
 		&self.config
+	}
+
+	#[must_use]
+	fn checkouts_enabled(&self) -> bool {
+		self.config.checkouts
+	}
+
+	#[must_use]
+	fn named_checkout_maintenance_enabled(&self) -> bool {
+		self.checkouts_enabled() && self.vfs.lock().unwrap().is_none()
 	}
 
 	#[must_use]

@@ -34,6 +34,9 @@ impl Session {
 
 	#[cfg(feature = "typescript")]
 	async fn document_local(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+		if !self.server.checkouts_enabled() {
+			return Err(tg::error!("checkouts are disabled"));
+		}
 		// Create the compiler.
 		let compiler = self.create_compiler();
 
