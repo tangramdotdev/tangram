@@ -3,6 +3,9 @@ use ../../test.nu *
 # An incomplete local children list falls through to a remote instead of appearing empty.
 
 let remote = spawn --cloud --name remote
+let source = spawn --name source --config {
+	remotes: { default: { url: $remote.url } },
+}
 let local = spawn --name local --config {
 	advanced: { checkpoints: true },
 }
@@ -17,7 +20,9 @@ let path = artifact {
 		export function child() { return "child"; }
 	',
 }
-let process = tg --url $remote.url build --detach $path | str trim
+let process = tg --url $source.url build --detach $path | str trim
+tg --url $source.url wait $process
+tg --url $source.url push --process-children $process
 tg --url $remote.url wait $process
 let remote_children = tg --url $remote.url process children --local $process | from json
 assert equal ($remote_children | length) 1 "the remote process should have a child"

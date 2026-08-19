@@ -11,7 +11,8 @@ let dep_path = artifact {
 		export default function () { return "dependency"; }
 	'
 }
-tg --url $local.url tag dep $dep_path
+let dep_id = tg --url $local.url checkin $dep_path
+tg --url $local.url tag dep $dep_id
 let path = artifact {
 	tangram.ts: '
 		import dep from "dep";
@@ -41,7 +42,7 @@ snapshot --name metadata $metadata '
 # Push to push and verify metadata matches.
 tg --url $local.url remote put push $remote.url
 tg --url $local.url push --remote=push $id
-tg --url $remote.url tag dep $dep_path
+tg --url $remote.url tag dep $dep_id
 tg --url $remote.url index
 let remote_metadata = tg --url $remote.url object metadata --pretty $id
 assert equal $remote_metadata $metadata

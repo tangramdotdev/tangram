@@ -21,7 +21,8 @@ let dep_path = artifact {
 		export default function () { return "dependency"; }
 	'
 }
-tg --url $local.url tag dep $dep_path
+let dep_id = tg --url $local.url checkin $dep_path
+tg --url $local.url tag dep $dep_id
 
 # Create a package that imports the tagged dependency.
 let path = artifact {
@@ -89,8 +90,10 @@ snapshot --name partial_metadata $partial_metadata '
 # Now put the blob.
 tg --url $local.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 
-# Put the tag.
-tg --url $remote.url tag dep $dep_path
+# Push the dependency and put the tag.
+tg --url $local.url remote put incremental $remote.url
+tg --url $local.url push --remote=incremental $dep_id
+tg --url $remote.url tag dep $dep_id
 
 # Index and check metadata - should now be complete.
 tg --url $remote.url index
@@ -119,8 +122,9 @@ assert equal $complete_metadata $expected_metadata
 tg --url $local.url remote put push $other.url
 tg --url $local.url push --remote=push $dir_id
 
-# Also push the tag to the other server.
-tg --url $other.url tag dep $dep_path
+# Also push the dependency and tag to the other server.
+tg --url $local.url push --remote=push $dep_id
+tg --url $other.url tag dep $dep_id
 
 # Index the other server and verify metadata matches.
 tg --url $other.url index

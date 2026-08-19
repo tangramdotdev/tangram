@@ -5,8 +5,6 @@ const js_path = path self '../../../js'
 # The compiled Node.js client uses the default host and connects to the server using the inherited Tangram URL.
 
 let server = spawn
-let build_output = bun run --filter @tangramdotdev/client build | complete
-success $build_output
 
 cd $js_path
 

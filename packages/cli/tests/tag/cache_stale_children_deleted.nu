@@ -6,9 +6,13 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+let source = spawn --name source --config {
+	remotes: { default: { url: $remote.url } }
+}
 
 let path = artifact 'Hello, World!'
-let id = tg --url $remote.url checkin $path
+let id = tg --url $source.url checkin $path
+tg --url $source.url push $id
 let old = tg --url $remote.url get $id | str trim
 
 # Create a branch with two children and cache it.

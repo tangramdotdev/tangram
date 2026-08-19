@@ -2,7 +2,16 @@ use ../../test.nu *
 
 # An exact sandbox get can be served from the principal-scoped remote cache.
 
-let remote = spawn --cloud --name remote
+let root_token = random chars
+let remote = spawn --cloud --name remote --preserve-keys --config {
+	authentication: { root: { token: $root_token } },
+}
+let created = tg --url $remote.url --token $root_token runner create | from json
+let runner = spawn --name runner --config {
+	remotes: { default: { token: $created.token.token, url: $remote.url } },
+	roles: [indexer runner],
+	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+}
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }

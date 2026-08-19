@@ -8,12 +8,14 @@ let remote = spawn --cloud --name remote
 let c1 = artifact {
 	tangram.ts: ''
 }
-tg --url $local.url tag -p c/1.0.0 $c1
+let c1_id = tg --url $local.url checkin $c1
+tg --url $local.url tag -p c/1.0.0 $c1_id
 
 let c2 = artifact {
 	tangram.ts: ''
 }
-tg --url $local.url tag -p c/2.0.0 $c2
+let c2_id = tg --url $local.url checkin $c2
+tg --url $local.url tag -p c/2.0.0 $c2_id
 
 # Create packages that require incompatible versions.
 let a = artifact {
@@ -21,14 +23,16 @@ let a = artifact {
 		import * as c from "c/^1"
 	'
 }
-tg --url $local.url tag -p a/1.0.0 $a
+let a_id = tg --url $local.url checkin $a
+tg --url $local.url tag -p a/1.0.0 $a_id
 
 let b = artifact {
 	tangram.ts: '
 		import * as c from "c/^2"
 	'
 }
-tg --url $local.url tag -p b/1.0.0 $b
+let b_id = tg --url $local.url checkin $b
+tg --url $local.url tag -p b/1.0.0 $b_id
 
 # A graph that imports both, creating an unsolvable conflict.
 let path = artifact {
@@ -133,10 +137,10 @@ snapshot --name graph_metadata $graph_metadata '
 # Push to push and verify metadata matches.
 tg --url $local.url remote put push $remote.url
 tg --url $local.url push --remote=push $id
-tg --url $remote.url tag -p c/1.0.0 $c1
-tg --url $remote.url tag -p c/2.0.0 $c2
-tg --url $remote.url tag -p a/1.0.0 $a
-tg --url $remote.url tag -p b/1.0.0 $b
+tg --url $remote.url tag -p c/1.0.0 $c1_id
+tg --url $remote.url tag -p c/2.0.0 $c2_id
+tg --url $remote.url tag -p a/1.0.0 $a_id
+tg --url $remote.url tag -p b/1.0.0 $b_id
 tg --url $remote.url index
 let remote_metadata = tg --url $remote.url object metadata --pretty $id
 assert equal $remote_metadata $metadata

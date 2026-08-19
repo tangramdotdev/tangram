@@ -13,10 +13,10 @@ const server_exit_directory_name = 'server_jobs'
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from CockroachDB, FoundationDB, and ScyllaDB.
-	--cloud # Enable the shared CockroachDB, FoundationDB, ScyllaDB, and NATS backends for spawn --cloud.
 	--databases # Run the shared cloud databases in the foreground. This is supported on Linux only.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
+	--no-cloud # Use local backends for spawn --cloud. This is the default on macOS.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--offline # Skip tests which require network access.
@@ -44,6 +44,8 @@ def main [
 
 		return
 	}
+
+	let cloud = $nu.os-info.name == 'linux' and not $no_cloud
 
 	# Validate the --vm/--kernel-path flag combination.
 	if $vm and $kernel_path == null {
@@ -189,6 +191,9 @@ def main [
 		ln -sf tangram target/debug/tg
 		path add ($repository_path | path join 'target/debug')
 	}
+
+	# Build the Node.js client.
+	bun run --filter @tangramdotdev/client build
 
 	if $cloud {
 		check_databases
@@ -813,6 +818,16 @@ wait_for() {
 	exit 1
 }
 
+configure_cockroachdb() {
+	if timeout 10 cockroach sql --insecure --host=127.0.0.1:26257 -e 'set cluster setting timeseries.storage.enabled = false' >/dev/null 2>&1; then
+		echo 'CockroachDB is configured' >&2
+		return
+	fi
+	echo 'failed to configure CockroachDB' >&2
+	show_logs
+	exit 1
+}
+
 configure_foundationdb() {
 	for ((attempt = 0; attempt < 60; attempt++)); do
 		if timeout 2 fdbcli -C "$cluster_path" --exec 'status minimal' >/dev/null 2>&1; then
@@ -846,6 +861,7 @@ start cockroach \
 	--http-addr=127.0.0.1:0 \
 	--insecure \
 	--listen-addr=127.0.0.1:26257 \
+	--max-go-memory=2GiB \
 	--max-sql-memory=128MiB \
 	--store=type=mem,size=1GiB
 start foundationdb \
@@ -867,7 +883,7 @@ start scylla \
 	--developer-mode=1 \
 	--listen-address=127.0.0.1 \
 	--max-partition-key-restrictions-per-query=1024 \
-	--memory=1G \
+	--memory=1280MiB \
 	--options-file="$state_path/scylla.yaml" \
 	--overprovisioned \
 	--rpc-address=127.0.0.1 \
@@ -875,6 +891,7 @@ start scylla \
 	--workdir="$state_path/scylla"
 
 wait_for CockroachDB 600 cockroach sql --insecure --host=127.0.0.1:26257 -e 'select 1'
+configure_cockroachdb
 configure_foundationdb
 wait_for FoundationDB 600 fdbcli -C "$cluster_path" --exec 'status minimal'
 wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
@@ -1492,7 +1509,12 @@ export def --env spawn [
 		}
 		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 
+		let advanced = $default_config.advanced | merge {
+			single_directory: false,
+			single_process: false,
+		}
 		let config = {
+			advanced: $advanced,
 			database: {
 				kind: 'postgres',
 				pool: {
@@ -1532,6 +1554,11 @@ export def --env spawn [
 
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
+	let config = if $use_cloud and $config.roles? == null {
+		$config | upsert roles [cleaner http indexer scheduler]
+	} else {
+		$config
+	}
 
 	# Pin token keys to the server directory so restarts can verify existing tokens.
 	let config = if $preserve_keys {
@@ -1772,6 +1799,7 @@ def reset_database_id [id: string, cluster: string, pool_path: string] {
 		| reverse
 		| each { |table| $'delete from ($table);' }
 		| prepend 'begin;'
+		| append 'insert into outbox_batch (next) values (0);'
 		| append 'commit;'
 		| str join "\n"
 	let results = ['cockroach' 'foundationdb' 'scylla'] | par-each { |database|

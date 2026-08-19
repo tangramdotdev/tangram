@@ -6,9 +6,13 @@ let remote = spawn --cloud --name remote
 let local = spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
+let source = spawn --name source --config {
+	remotes: { default: { url: $remote.url } }
+}
 
 let path = artifact 'Hello, World!'
-let id = tg --url $remote.url checkin $path
+let id = tg --url $source.url checkin $path
+tg --url $source.url push $id
 let old = tg --url $remote.url get $id | str trim
 tg --url $remote.url tag put -p "a/b" $id
 
@@ -17,7 +21,8 @@ tg --url $local.url get "a/b?follow=true" | ignore
 
 # Update the tag on the remote.
 let path2 = artifact 'Goodbye, World!'
-let id2 = tg --url $remote.url checkin $path2
+let id2 = tg --url $source.url checkin $path2
+tg --url $source.url push $id2
 let new = tg --url $remote.url get $id2 | str trim
 tg --url $remote.url tag put -p "a/b" $id2
 

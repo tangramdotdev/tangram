@@ -24,16 +24,18 @@ automatically if startup fails or a database exits unexpectedly.
 The runner builds and uses `tangram_scylla_client` from
 `packages/scylla/client` for ScyllaDB administration.
 
-In another terminal, pass `--cloud` to run tests against the shared databases:
+On Linux, the normal test command runs cloud tests against the shared databases:
 
 ```sh
-nu packages/cli/test.nu --cloud [pattern]
+nu packages/cli/test.nu [pattern]
 ```
 
-Each test receives an isolated CockroachDB database, FoundationDB key prefixes,
-ScyllaDB keyspace, and NATS subject prefix. The runner removes these resources
-when the test finishes. Use `--clean` while the databases are running to remove
-resources left behind by interrupted test runs.
+Each server spawned with `spawn --cloud` receives an isolated CockroachDB
+database, FoundationDB key prefixes, ScyllaDB keyspace, and NATS subject prefix.
+The runner removes these resources when the test finishes. Use `--clean` while
+the databases are running to remove resources left behind by interrupted test
+runs. Pass `--no-cloud` to use local backends instead. On macOS, local backends
+are always used because the shared cloud databases are not supported there.
 
 ## Conventions
 

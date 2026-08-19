@@ -1,5 +1,3 @@
-!/target/release
-!/target/release/tangram
 *.pending-snap
 .DS_Store
 .git
@@ -11,4 +9,5 @@
 /release
 /target/*
 /target/release/*
+!/target/release/tangram
 node_modules

@@ -11,7 +11,9 @@ let local = spawn --name local --config {
 # Tag an object on the remote server.
 let tag = "foo/bar"
 let path = artifact 'foo'
-tg --url $remote.url tag put -p $tag $path
+let id = tg --url $local.url checkin $path
+tg --url $local.url push $id
+tg --url $remote.url tag put -p $tag $id
 
 # Tag the object on the remote server from the local server.
 tg tag put --remote -p $tag $path

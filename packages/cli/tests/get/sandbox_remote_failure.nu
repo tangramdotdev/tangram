@@ -2,8 +2,17 @@ use ../../test.nu *
 
 # Getting a sandbox fails when any queried remote fails, even if another remote has the sandbox.
 
-let alpha = spawn --cloud --name alpha
+let root_token = random chars
+let alpha = spawn --cloud --name alpha --preserve-keys --config {
+	authentication: { root: { token: $root_token } },
+}
 let zeta = spawn --cloud --name zeta
+let created = tg --url $alpha.url --token $root_token runner create | from json
+let runner = spawn --name runner --config {
+	remotes: { default: { token: $created.token.token, url: $alpha.url } },
+	roles: [indexer runner],
+	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+}
 let local = spawn --name local --config {
 	remotes: {
 		alpha: { url: $alpha.url }
