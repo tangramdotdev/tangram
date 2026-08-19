@@ -371,3 +371,12 @@ pub(super) fn get_tty_size() -> Option<tg::process::tty::Size> {
 		cols: size.cols,
 	})
 }
+
+#[must_use]
+pub(super) fn get_tty_size_with_fallback() -> tg::process::tty::Size {
+	let size = tangram_util::tty::get_tty_size_with_fallback();
+	tg::process::tty::Size {
+		rows: size.rows,
+		cols: size.cols,
+	}
+}

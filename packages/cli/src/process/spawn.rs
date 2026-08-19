@@ -1,6 +1,5 @@
 use {
 	crate::Cli,
-	crossterm as ct,
 	futures::prelude::*,
 	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf, time::Duration},
 	tangram_client::{Client, prelude::*},
@@ -930,18 +929,11 @@ impl Cli {
 		// Get the tty.
 		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
 			(Some(tg::Either::Left(true)), _) => {
-				let size = if let Some(size) = tangram_util::tty::get_controlling_tty_size() {
-					Some(tg::process::tty::Size {
-						rows: size.rows,
-						cols: size.cols,
-					})
-				} else {
-					ct::terminal::size().ok().and_then(|(cols, rows)| {
-						(cols != 0 && rows != 0).then_some(tg::process::tty::Size { rows, cols })
-					})
+				let size = tangram_util::tty::get_tty_size_with_fallback();
+				let size = tg::process::tty::Size {
+					rows: size.rows,
+					cols: size.cols,
 				};
-				let default = tg::process::tty::Size { rows: 64, cols: 64 };
-				let size = size.unwrap_or(default);
 				let tty = tg::process::Tty { size };
 				Some(tg::Either::Right(tty))
 			},
