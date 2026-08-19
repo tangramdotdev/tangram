@@ -5,15 +5,14 @@ use {
 		tty::RunProcessControlTtyTaskArg,
 	},
 	crate::session::Session,
-	bytes::Bytes,
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
-	std::{pin::pin, sync::Arc},
-	tangram_client::prelude::*,
-	tangram_futures::{
-		stream::Ext as _,
-		task::{Stopper, Task},
+	bytes::{Bytes, BytesMut},
+	futures::{
+		StreamExt as _, TryFutureExt as _, future,
+		stream::{self, BoxStream},
 	},
-	tokio_stream::wrappers::UnboundedReceiverStream,
+	std::sync::Arc,
+	tangram_client::prelude::*,
+	tangram_futures::task::{Stopper, Task},
 };
 
 mod signal;
@@ -46,16 +45,16 @@ pub(crate) struct RunProcessControlTaskArg {
 }
 
 pub(super) struct Reader {
-	pub(super) buffer: Bytes,
-	pub(super) eof: bool,
-	pub(super) offset: usize,
-	permit: Option<tokio::sync::OwnedSemaphorePermit>,
-	stream: BoxStream<'static, tg::Result<BufferedChunk>>,
+	buffer: BytesMut,
+	buffered: Option<tokio::sync::oneshot::Sender<tg::Result<()>>>,
+	eof: bool,
+	error: Option<tg::Error>,
+	input: BoxStream<'static, ReaderEvent>,
 }
 
-struct BufferedChunk {
-	bytes: Bytes,
-	permit: tokio::sync::OwnedSemaphorePermit,
+enum ReaderEvent {
+	Input(Option<tg::Result<tg::process::stdio::read::Event>>),
+	Output(tg::Result<tg::process::stdio::read::Event>),
 }
 
 struct RunProcessControlHandlerTaskArg {
@@ -72,6 +71,74 @@ struct RunProcessControlHandlerTaskArg {
 	stdin_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::WriteServerRequestArg)>,
 	stdout_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::ReadServerRequestArg)>,
 	tty_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::TtyServerRequestArg)>,
+}
+
+impl Reader {
+	async fn read(
+		&mut self,
+		request: tg::process::control::ReadServerRequestArg,
+	) -> tg::Result<tg::process::control::ReadClientResponseOutput> {
+		if matches!(request.stream, tg::process::stdio::Stream::Stdin) {
+			return Err(tg::error!("cannot read the stdin of a process"));
+		}
+		while self.buffer.is_empty() && self.error.is_none() && !self.eof {
+			self.fill().await;
+		}
+		let bytes = if !self.buffer.is_empty() {
+			let amount = self.buffer.len().min(request.length);
+			self.buffer.split_to(amount).freeze()
+		} else if let Some(error) = self.error.take() {
+			return Err(error);
+		} else {
+			Bytes::new()
+		};
+		let output = tg::process::control::ReadClientResponseOutput {
+			bytes,
+			stream: request.stream,
+		};
+
+		Ok(output)
+	}
+
+	async fn fill(&mut self) {
+		match self.input.next().await {
+			Some(event) => self.handle_event(event),
+			None => self.eof = true,
+		}
+	}
+
+	fn handle_event(&mut self, event: ReaderEvent) {
+		match event {
+			ReaderEvent::Input(None) if self.buffered.is_some() => {
+				self.fail(tg::error!("the sandbox stdio stream ended unexpectedly"));
+			},
+			ReaderEvent::Input(None)
+			| ReaderEvent::Output(Ok(tg::process::stdio::read::Event::End)) => {},
+			ReaderEvent::Input(Some(Err(source))) | ReaderEvent::Output(Err(source)) => {
+				self.fail(tg::error!(
+					!source,
+					"failed to get the next process stdio event"
+				));
+			},
+			ReaderEvent::Input(Some(Ok(tg::process::stdio::read::Event::Chunk(chunk))))
+			| ReaderEvent::Output(Ok(tg::process::stdio::read::Event::Chunk(chunk))) => {
+				self.buffer.extend_from_slice(&chunk.bytes);
+			},
+			ReaderEvent::Input(Some(Ok(tg::process::stdio::read::Event::End))) => {
+				if let Some(buffered) = self.buffered.take() {
+					buffered.send(Ok(())).ok();
+				}
+			},
+		}
+	}
+
+	fn fail(&mut self, error: tg::Error) {
+		if let Some(buffered) = self.buffered.take() {
+			buffered.send(Err(error.clone())).ok();
+		}
+		self.eof = true;
+		self.error = Some(error);
+	}
 }
 
 impl Session {
@@ -504,63 +571,6 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn handle_process_control_read_request(
-		request: tg::process::control::ReadServerRequestArg,
-		reader: &mut Reader,
-	) -> tg::Result<tg::process::control::ReadClientResponseOutput> {
-		if matches!(request.stream, tg::process::stdio::Stream::Stdin) {
-			return Err(tg::error!("cannot read the stdin of a process"));
-		}
-
-		let options = tangram_futures::retry::Options::default();
-		let mut retries = pin!(tangram_futures::retry::stream(options.clone()));
-
-		// Cannot use tangram_futures::retry(...) here due to lifetime requirements of closure captures.
-		loop {
-			if retries.next().await.is_none() {
-				return Err(tg::error!("lost connection to the sandbox i/o"));
-			}
-
-			if reader.offset >= reader.buffer.len() {
-				reader.permit = None;
-				if reader.eof {
-					return Ok(tg::process::control::ReadClientResponseOutput {
-						stream: request.stream,
-						bytes: Bytes::new(),
-					});
-				}
-
-				let chunk = reader
-					.stream
-					.try_next()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the next event"))?;
-				let Some(chunk) = chunk else {
-					reader.eof = true;
-					continue;
-				};
-				reader.buffer = chunk.bytes;
-				reader.offset = 0;
-				reader.permit = Some(chunk.permit);
-			}
-
-			let amount = (reader.buffer.len() - reader.offset).min(request.length);
-			let bytes = reader.buffer.slice(reader.offset..reader.offset + amount);
-			reader.offset += amount;
-			let permit = reader
-				.permit
-				.as_mut()
-				.and_then(|permit| permit.split(amount))
-				.ok_or_else(|| tg::error!("the process stdio buffer is inconsistent"))?;
-			drop(permit);
-
-			return Ok(tg::process::control::ReadClientResponseOutput {
-				stream: request.stream,
-				bytes,
-			});
-		}
-	}
-
 	pub(super) async fn create_process_control_reader(
 		&self,
 		buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
@@ -576,14 +586,7 @@ impl Session {
 		)
 		.await;
 
-		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let semaphore = Arc::new(tokio::sync::Semaphore::new(
-			PROCESS_CONTROL_READER_BUFFER_CAPACITY,
-		));
-		let mut tasks = Vec::new();
-
-		// Drain the sandbox stream into the bounded buffer.
-		if let Some(sandbox_process) = sandbox_process {
+		let (buffered, input) = if let Some(sandbox_process) = sandbox_process {
 			let input = match sandbox.read_stdio(sandbox_process, vec![stream]).await {
 				Ok(input) => input.boxed(),
 				Err(source) => {
@@ -593,98 +596,62 @@ impl Session {
 					return Err(error);
 				},
 			};
-			let sender = sender.clone();
-			let semaphore = semaphore.clone();
-			let task = Task::spawn(move |_| async move {
-				let result =
-					Self::run_process_control_reader_task(input, sender.clone(), semaphore).await;
-				if let Err(error) = &result {
-					sender.send(Err(error.clone())).ok();
-				}
-				buffered.send(result).ok();
-			});
-			tasks.push(task);
+			let input = input
+				.map(|event| ReaderEvent::Input(Some(event)))
+				.chain(stream::once(future::ready(ReaderEvent::Input(None))))
+				.boxed();
+
+			(Some(buffered), Some(input))
 		} else {
 			// A process that was never spawned produces no sandbox output.
 			buffered.send(Ok(())).ok();
-		}
 
-		// Buffer progress independently because it can outlive the sandbox stream.
-		if let Some(mut writes) = writes {
-			let sender = sender.clone();
-			let semaphore = semaphore.clone();
-			let task = Task::spawn(move |_| async move {
-				while let Some(event) = writes.next().await {
-					match event {
-						Ok(tg::process::stdio::read::Event::Chunk(chunk)) => {
-							if Self::buffer_process_control_chunk(chunk.bytes, &sender, &semaphore)
-								.await
-								.is_err()
-							{
-								break;
-							}
-						},
-						Ok(tg::process::stdio::read::Event::End) => break,
-						Err(error) => {
-							sender.send(Err(error)).ok();
+			(None, None)
+		};
+		let writes = writes.map(|writes| writes.map(ReaderEvent::Output).boxed());
+		let input = match (input, writes) {
+			(None, None) => stream::empty().boxed(),
+			(None, Some(input)) | (Some(input), None) => input,
+			(Some(sandbox), Some(writes)) => stream::select(sandbox, writes).boxed(),
+		};
 
-							break;
-						},
-					}
-				}
-			});
-			tasks.push(task);
-		}
-		drop(sender);
-
-		let stream = UnboundedReceiverStream::new(receiver).attach(tasks).boxed();
 		Ok(Reader {
-			buffer: Bytes::new(),
+			buffer: BytesMut::with_capacity(PROCESS_CONTROL_READER_BUFFER_CAPACITY),
+			buffered,
 			eof: false,
-			offset: 0,
-			permit: None,
-			stream,
+			error: None,
+			input,
 		})
 	}
 
-	async fn run_process_control_reader_task(
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-		sender: tokio::sync::mpsc::UnboundedSender<tg::Result<BufferedChunk>>,
-		semaphore: Arc<tokio::sync::Semaphore>,
+	pub(super) async fn run_process_control_reader_task(
+		mut reader: Reader,
+		mut receiver: tokio::sync::mpsc::Receiver<(
+			String,
+			tg::process::control::ReadServerRequestArg,
+		)>,
+		sender: ProcessControlSender,
 	) -> tg::Result<()> {
 		loop {
-			let event = input
-				.try_next()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the next event"))?
-				.ok_or_else(|| tg::error!("the sandbox stdio stream ended unexpectedly"))?;
-			match event {
-				tg::process::stdio::read::Event::Chunk(chunk) => {
-					Self::buffer_process_control_chunk(chunk.bytes, &sender, &semaphore).await?;
+			tokio::select! {
+				() = reader.fill(), if !reader.eof && reader.buffer.len() < PROCESS_CONTROL_READER_BUFFER_CAPACITY => {},
+				request = receiver.recv() => {
+					let Some((id, request)) = request else {
+						break;
+					};
+					let response = reader.read(request).await;
+					let eof = response.as_ref().is_ok_and(|response| response.bytes.is_empty())
+						&& reader.eof
+						&& reader.error.is_none()
+						&& reader.buffer.is_empty();
+					let response = response.map(tg::process::control::ClientResponseOutput::Read);
+					let response = Self::process_control_response(id, response);
+					sender.send(response).await.ok();
+					if eof {
+						break;
+					}
 				},
-				tg::process::stdio::read::Event::End => break,
 			}
-		}
-
-		Ok(())
-	}
-
-	async fn buffer_process_control_chunk(
-		mut bytes: Bytes,
-		sender: &tokio::sync::mpsc::UnboundedSender<tg::Result<BufferedChunk>>,
-		semaphore: &Arc<tokio::sync::Semaphore>,
-	) -> tg::Result<()> {
-		while !bytes.is_empty() {
-			let length = bytes.len().min(PROCESS_CONTROL_READER_BUFFER_CAPACITY);
-			let permit = semaphore
-				.clone()
-				.acquire_many_owned(length.try_into().unwrap())
-				.await
-				.map_err(|_| tg::error!("the process stdio buffer was closed"))?;
-			let bytes = bytes.split_to(length);
-			sender
-				.send(Ok(BufferedChunk { bytes, permit }))
-				.map_err(|_| tg::error!("failed to buffer process stdio"))?;
 		}
 
 		Ok(())

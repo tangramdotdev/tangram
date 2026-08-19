@@ -1,5 +1,5 @@
 use {
-	super::{ProcessControlSender, Reader},
+	super::ProcessControlSender,
 	crate::session::Session,
 	bytes::Bytes,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
@@ -38,7 +38,7 @@ impl Session {
 	) -> tg::Result<()> {
 		let RunProcessControlStderrTaskArg {
 			buffered,
-			mut receiver,
+			receiver,
 			sandbox,
 			mut sandbox_process,
 			sender,
@@ -70,7 +70,7 @@ impl Session {
 				.boxed()
 		});
 
-		let mut reader = self
+		let reader = self
 			.create_process_control_reader(
 				buffered,
 				&sandbox,
@@ -79,27 +79,6 @@ impl Session {
 				writes,
 			)
 			.await?;
-		while let Some((id, request)) = receiver.recv().await {
-			let response =
-				Self::handle_process_control_stderr_read_request(request, &mut reader).await;
-			let eof = response
-				.as_ref()
-				.is_ok_and(|response| response.bytes.is_empty());
-			let response = response.map(tg::process::control::ClientResponseOutput::Read);
-			let response = Self::process_control_response(id.clone(), response);
-			sender.send(response).await.ok();
-			if eof {
-				break;
-			}
-		}
-
-		Ok(())
-	}
-
-	async fn handle_process_control_stderr_read_request(
-		request: tg::process::control::ReadServerRequestArg,
-		reader: &mut Reader,
-	) -> tg::Result<tg::process::control::ReadClientResponseOutput> {
-		Self::handle_process_control_read_request(request, reader).await
+		Self::run_process_control_reader_task(reader, receiver, sender).await
 	}
 }
