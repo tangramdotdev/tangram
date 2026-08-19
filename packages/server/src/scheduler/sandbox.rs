@@ -808,12 +808,12 @@ impl State {
 		}
 		let Some(placement) = self.find_placement(scheduler, sandbox) else {
 			// Keep the sandbox queued if a runner could satisfy it once it has capacity.
-			if self
+			let placeable = self
 				.runners
 				.entries
 				.values()
-				.any(|runner| placeable(runner, sandbox))
-			{
+				.any(|runner| placeable(runner, sandbox));
+			if placeable {
 				return false;
 			}
 

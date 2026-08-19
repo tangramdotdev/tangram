@@ -251,6 +251,28 @@ impl Session {
 							tg::error!("failed to track the runner heartbeat acknowledgement")
 						})?;
 					}
+
+					// If the message is a sandbox destroyed notification, then publish it to the sandbox destroyed subject.
+					if let tg::runner::control::ClientMessage::Notification(
+						tg::runner::control::ClientNotification::SandboxDestroyed(notification),
+					) = &message
+					{
+						server
+							.messenger
+							.publish(
+								crate::sandbox::control::destroyed_subject(&notification.sandbox),
+								(),
+							)
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									"failed to publish the sandbox destroyed notification"
+								)
+							})?;
+						continue;
+					}
+
 					let subject = match message.clone() {
 						tg::runner::control::ClientMessage::Response(response) => {
 							format!("runners.{runner}.control.client.{}", response.id)

@@ -24,6 +24,10 @@ pub(crate) fn connected_subject(id: &tg::sandbox::Id) -> String {
 	format!("sandboxes.{id}.control.connected")
 }
 
+pub(crate) fn destroyed_subject(id: &tg::sandbox::Id) -> String {
+	format!("sandboxes.{id}.control.destroyed")
+}
+
 pub(crate) fn discarded_subject(id: &tg::sandbox::Id) -> String {
 	format!("sandboxes.{id}.control.discarded")
 }
@@ -57,6 +61,28 @@ impl Session {
 					"failed to subscribe to sandbox discard notifications"
 				)
 			})?;
+		let destroyed_future = {
+			let session = self.clone();
+			let id = id.clone();
+			async move {
+				loop {
+					let arg = tg::sandbox::status::Arg::default();
+					let Some(stream) = session.try_get_sandbox_status_stream(&id, arg).await?
+					else {
+						tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+						continue;
+					};
+					let mut stream = std::pin::pin!(stream);
+					while let Some(event) = stream.try_next().await? {
+						if let tg::sandbox::status::Event::Status(status) = event
+							&& status.is_destroyed()
+						{
+							return Ok::<_, tg::Error>(());
+						}
+					}
+				}
+			}
+		};
 		let id = id.clone();
 		let future = async move {
 			tokio::select! {
@@ -104,6 +130,11 @@ impl Session {
 					})?;
 
 					Err(tg::error!(!error, sandbox = %id, "failed to create the sandbox"))
+				},
+				result = destroyed_future => {
+					result?;
+
+					Err(tg::error!(sandbox = %id, "the sandbox was destroyed before it connected"))
 				},
 			}
 		}
