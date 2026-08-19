@@ -225,9 +225,9 @@ impl Provider {
 						})
 					},
 					vfs::Request::OpenDir { id } => self
-						.opendir(id)
+						.opendir_inner(id)
 						.await
-						.map(|handle| vfs::Response::OpenDir { handle }),
+						.map(|(handle, immutable)| vfs::Response::OpenDir { handle, immutable }),
 					vfs::Request::Read {
 						handle,
 						position,
@@ -272,97 +272,153 @@ impl Provider {
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
-			let transaction = match store.env().read_txn() {
-				Ok(transaction) => transaction,
-				Err(error) => {
-					tracing::error!(?error, "failed to begin an lmdb read transaction");
-					return (0..requests.len())
-						.map(|_| Err(std::io::Error::from_raw_os_error(libc::EIO)))
-						.collect();
-				},
-			};
-			return self.handle_batch_sync_inner(requests, Some(&transaction));
-		}
-
-		self.handle_batch_sync_inner(requests, None)
-	}
-
-	fn handle_batch_sync_inner(
-		&self,
-		requests: Vec<vfs::Request>,
-		transaction: Option<&Transaction<'_>>,
-	) -> Vec<std::io::Result<vfs::Response>> {
+		let mut transaction = None;
+		let mut requests = requests.into_iter();
 		let mut responses = Vec::with_capacity(requests.len());
-		for request in requests {
-			let response = match request {
-				vfs::Request::Close { handle } => {
-					self.close_sync(handle);
-					Ok(vfs::Response::Unit)
-				},
-				vfs::Request::Forget { id, nlookup } => {
-					self.forget_sync(id, nlookup);
-					Ok(vfs::Response::Unit)
-				},
-				vfs::Request::GetAttr { id } => self
-					.getattr_sync_inner(id, transaction)
-					.map(|attrs| vfs::Response::GetAttr { attrs }),
-				vfs::Request::GetXattr { id, name } => self
-					.getxattr_sync_inner(id, &name, transaction)
-					.map(|value| vfs::Response::GetXattr { value }),
-				vfs::Request::ListXattrs { id } => self
-					.listxattrs_sync_inner(id, transaction)
-					.map(|names| vfs::Response::ListXattrs { names }),
-				vfs::Request::Lookup { id, name } => self
-					.lookup_sync_inner(id, &name, transaction, false)
-					.map(|id| vfs::Response::Lookup { attrs: None, id }),
-				vfs::Request::LookupAndRemember { id, name } => self
-					.lookup_and_remember_sync_inner(id, &name, transaction)
-					.map(|entry| {
-						let (id, attrs) = entry.unzip();
-						vfs::Response::Lookup { attrs, id }
-					}),
-				vfs::Request::LookupParent { id } => self
-					.lookup_parent_sync(id)
-					.map(|id| vfs::Response::LookupParent { id }),
-				vfs::Request::Open { id } => self
-					.open_sync_inner(id, transaction)
-					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
-				vfs::Request::OpenDir { id } => self
-					.opendir_sync_inner(id, transaction)
-					.map(|handle| vfs::Response::OpenDir { handle }),
-				vfs::Request::Read {
-					handle,
-					position,
-					length,
-				} => self
-					.read_sync_inner(handle, position, length, transaction)
-					.map(|bytes| vfs::Response::Read { bytes }),
-				vfs::Request::ReadDir {
-					handle,
-					length,
-					offset,
-				} => self
-					.readdir_sync(handle, offset, length)
-					.map(|entries| vfs::Response::ReadDir { entries }),
-				vfs::Request::ReadDirPlus {
-					handle,
-					length,
-					offset,
-				} => self
-					.readdirplus_sync_inner(handle, offset, length, transaction)
-					.map(|entries| vfs::Response::ReadDirPlus { entries }),
-				vfs::Request::ReadLink { id } => self
-					.readlink_sync_inner(id, transaction)
-					.map(|target| vfs::Response::ReadLink { target }),
-				vfs::Request::Remember { id } => {
-					self.remember_sync(id);
-					Ok(vfs::Response::Unit)
-				},
+		while let Some(request) = requests.next() {
+			// Defer a named node request before opening an object store transaction.
+			if let Some(response) = self.try_defer_named_request_sync(&request) {
+				responses.push(response);
+				continue;
+			}
+
+			#[cfg(feature = "lmdb")]
+			let transaction = if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+				if transaction.is_none() {
+					transaction = match store.env().read_txn() {
+						Ok(transaction) => Some(transaction),
+						Err(error) => {
+							tracing::error!(?error, "failed to begin an lmdb read transaction");
+							responses.push(Err(std::io::Error::from_raw_os_error(libc::EIO)));
+							responses.extend(
+								requests.map(|_| Err(std::io::Error::from_raw_os_error(libc::EIO))),
+							);
+							return responses;
+						},
+					};
+				}
+				transaction.as_deref()
+			} else {
+				None
 			};
+			#[cfg(not(feature = "lmdb"))]
+			let transaction: Option<&Transaction<'_>> = None;
+
+			let response = self.handle_request_sync_inner(request, transaction);
 			responses.push(response);
 		}
+
 		responses
+	}
+
+	fn try_defer_named_request_sync(
+		&self,
+		request: &vfs::Request,
+	) -> Option<std::io::Result<vfs::Response>> {
+		let named = match request {
+			vfs::Request::Lookup { id, name } | vfs::Request::LookupAndRemember { id, name } => {
+				if name == "." || name == ".." {
+					return None;
+				}
+				let named_component = matches!(
+					tg::store::path::parse_component(name),
+					Ok(tg::store::path::Component::Tag { .. })
+				);
+				if !named_component {
+					return None;
+				}
+				if *id == vfs::ROOT_NODE_ID {
+					Ok(true)
+				} else {
+					self.get_sync(*id).map(|node| {
+						node.named
+							.is_some_and(|named_node| named_node.target.is_none())
+					})
+				}
+			},
+			vfs::Request::ReadDir { handle, .. } | vfs::Request::ReadDirPlus { handle, .. } => self
+				.directory_handle(*handle)
+				.map(|snapshot| snapshot.named_directory),
+			vfs::Request::ReadLink { id } => self.get_sync(*id).map(|node| node.named.is_some()),
+			_ => return None,
+		};
+		match named {
+			Err(error) => Some(Err(error)),
+			Ok(false) => None,
+			Ok(true) => Some(Err(std::io::Error::from_raw_os_error(libc::ENOSYS))),
+		}
+	}
+
+	fn handle_request_sync_inner(
+		&self,
+		request: vfs::Request,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<vfs::Response> {
+		match request {
+			vfs::Request::Close { handle } => {
+				self.close_sync(handle);
+				Ok(vfs::Response::Unit)
+			},
+			vfs::Request::Forget { id, nlookup } => {
+				self.forget_sync(id, nlookup);
+				Ok(vfs::Response::Unit)
+			},
+			vfs::Request::GetAttr { id } => self
+				.getattr_sync_inner(id, transaction)
+				.map(|attrs| vfs::Response::GetAttr { attrs }),
+			vfs::Request::GetXattr { id, name } => self
+				.getxattr_sync_inner(id, &name, transaction)
+				.map(|value| vfs::Response::GetXattr { value }),
+			vfs::Request::ListXattrs { id } => self
+				.listxattrs_sync_inner(id, transaction)
+				.map(|names| vfs::Response::ListXattrs { names }),
+			vfs::Request::Lookup { id, name } => self
+				.lookup_sync_inner(id, &name, transaction, false)
+				.map(|id| vfs::Response::Lookup { attrs: None, id }),
+			vfs::Request::LookupAndRemember { id, name } => self
+				.lookup_and_remember_sync_inner(id, &name, transaction)
+				.map(|entry| {
+					let (id, attrs) = entry.unzip();
+					vfs::Response::Lookup { attrs, id }
+				}),
+			vfs::Request::LookupParent { id } => self
+				.lookup_parent_sync(id)
+				.map(|id| vfs::Response::LookupParent { id }),
+			vfs::Request::Open { id } => self
+				.open_sync_inner(id, transaction)
+				.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
+			vfs::Request::OpenDir { id } => self
+				.opendir_sync_inner(id, transaction)
+				.map(|(handle, immutable)| vfs::Response::OpenDir { handle, immutable }),
+			vfs::Request::Read {
+				handle,
+				position,
+				length,
+			} => self
+				.read_sync_inner(handle, position, length, transaction)
+				.map(|bytes| vfs::Response::Read { bytes }),
+			vfs::Request::ReadDir {
+				handle,
+				length,
+				offset,
+			} => self
+				.readdir_sync_inner(handle, offset, length, transaction)
+				.map(|entries| vfs::Response::ReadDir { entries }),
+			vfs::Request::ReadDirPlus {
+				handle,
+				length,
+				offset,
+			} => self
+				.readdirplus_sync_inner(handle, offset, length, transaction)
+				.map(|entries| vfs::Response::ReadDirPlus { entries }),
+			vfs::Request::ReadLink { id } => self
+				.readlink_sync_inner(id, transaction)
+				.map(|target| vfs::Response::ReadLink { target }),
+			vfs::Request::Remember { id } => {
+				self.remember_sync(id);
+				Ok(vfs::Response::Unit)
+			},
+		}
 	}
 
 	pub async fn close(&self, id: u64) {
@@ -1172,25 +1228,35 @@ impl Provider {
 	}
 
 	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
-		let snapshot = self.directory_snapshot(id).await?;
-		let handle = self.insert_directory_handle(&snapshot);
+		let (handle, _) = self.opendir_inner(id).await?;
 
 		Ok(handle)
 	}
 
+	async fn opendir_inner(&self, id: u64) -> std::io::Result<(u64, bool)> {
+		let snapshot = self.directory_snapshot(id).await?;
+		let handle = self.insert_directory_handle(&snapshot);
+		let immutable = !snapshot.named_directory;
+
+		Ok((handle, immutable))
+	}
+
 	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
-		self.opendir_sync_inner(id, None)
+		let (handle, _) = self.opendir_sync_inner(id, None)?;
+
+		Ok(handle)
 	}
 
 	fn opendir_sync_inner(
 		&self,
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<u64> {
+	) -> std::io::Result<(u64, bool)> {
 		let snapshot = self.directory_snapshot_sync_inner(id, transaction)?;
 		let handle = self.insert_directory_handle(&snapshot);
+		let immutable = !snapshot.named_directory;
 
-		Ok(handle)
+		Ok((handle, immutable))
 	}
 
 	async fn directory_snapshot(&self, id: u64) -> std::io::Result<DirectorySnapshot> {
@@ -1566,9 +1632,19 @@ impl Provider {
 		offset: u64,
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
+		self.readdir_sync_inner(handle, offset, length, None)
+	}
+
+	fn readdir_sync_inner(
+		&self,
+		handle: u64,
+		offset: u64,
+		length: u64,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		let snapshot = self.directory_handle(handle)?;
 
-		self.read_directory_snapshot_sync_inner(&snapshot, offset, length, None)
+		self.read_directory_snapshot_sync_inner(&snapshot, offset, length, transaction)
 	}
 
 	pub async fn readdir_node(
@@ -3562,10 +3638,6 @@ impl vfs::Provider for Provider {
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
 		Provider::handle_batch_sync(self, requests)
-	}
-
-	fn supports_no_opendir(&self) -> bool {
-		true
 	}
 
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {

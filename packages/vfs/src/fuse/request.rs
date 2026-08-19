@@ -396,7 +396,7 @@ where
 	#[must_use]
 	fn provider_response_handle(response: &ProviderResponse) -> Option<u64> {
 		match response {
-			ProviderResponse::Open { handle, .. } | ProviderResponse::OpenDir { handle } => {
+			ProviderResponse::Open { handle, .. } | ProviderResponse::OpenDir { handle, .. } => {
 				Some(*handle)
 			},
 			_ => None,
@@ -536,13 +536,18 @@ where
 				Ok(Response::Open(out))
 			},
 			RequestData::OpenDir(_) => {
-				let ProviderResponse::OpenDir { handle } = response else {
+				let ProviderResponse::OpenDir { handle, immutable } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let open_flags = if immutable {
+					sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE
+				} else {
+					0
 				};
 				let out = fuse_open_out {
 					backing_id: -1,
 					fh: handle,
-					open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
+					open_flags,
 				};
 				Ok(Response::OpenDir(out))
 			},

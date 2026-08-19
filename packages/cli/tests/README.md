@@ -6,6 +6,35 @@ Run them with `nu packages/cli/test.nu [pattern]`, where `pattern` is an
 optional regex matched against each test's path. Pass `--accept` to accept new
 or changed snapshots.
 
+## Cloud databases
+
+Cloud database tests are supported on Linux. Install `cockroach`, `fdbcli`,
+`fdbserver`, `scylla`, and `nats-server`, then start the shared databases in a
+separate terminal:
+
+```sh
+nu packages/cli/test.nu --databases
+```
+
+The command runs all four databases in the foreground on localhost, waits for
+them to become ready, and removes their temporary state after Ctrl-C. Existing
+services or processes must not be using ports 26257, 4500, 9042, or 4222.
+Database output is written to the log directory shown at startup and tailed
+automatically if startup fails or a database exits unexpectedly.
+The runner builds and uses `tangram_scylla_client` from
+`packages/scylla/client` for ScyllaDB administration.
+
+In another terminal, pass `--cloud` to run tests against the shared databases:
+
+```sh
+nu packages/cli/test.nu --cloud [pattern]
+```
+
+Each test receives an isolated CockroachDB database, FoundationDB key prefixes,
+ScyllaDB keyspace, and NATS subject prefix. The runner removes these resources
+when the test finishes. Use `--clean` while the databases are running to remove
+resources left behind by interrupted test runs.
+
 ## Conventions
 
 ### 1. Every test begins with an intent comment

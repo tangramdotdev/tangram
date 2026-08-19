@@ -102,6 +102,8 @@ pub enum Response {
 	},
 	OpenDir {
 		handle: u64,
+		/// Whether the directory contents are immutable.
+		immutable: bool,
 	},
 	Read {
 		bytes: Bytes,
@@ -450,7 +452,7 @@ pub trait Provider {
 				.next()
 				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
-				Response::OpenDir { handle } => Ok(handle),
+				Response::OpenDir { handle, .. } => Ok(handle),
 				_ => Err(Error::other("unexpected response variant")),
 			}
 		}
@@ -464,7 +466,7 @@ pub trait Provider {
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
-			Response::OpenDir { handle } => Ok(handle),
+			Response::OpenDir { handle, .. } => Ok(handle),
 			_ => Err(Error::other("unexpected response variant")),
 		}
 	}

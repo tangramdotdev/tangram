@@ -144,6 +144,16 @@ fn open_request(unique: u64) -> Request {
 	}
 }
 
+fn opendir_request(unique: u64) -> Request {
+	Request {
+		data: RequestData::OpenDir(fuse_open_in {
+			flags: 0,
+			open_flags: 0,
+		}),
+		header: request_header(sys::fuse_opcode_FUSE_OPENDIR, unique),
+	}
+}
+
 fn request_header(opcode: sys::fuse_opcode, unique: u64) -> fuse_in_header {
 	fuse_in_header {
 		gid: 0,
@@ -392,6 +402,39 @@ fn required_passthrough_failure_closes_provider_handle() {
 
 	assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
 	assert_eq!(closes.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn directory_cache_flags_follow_immutability() {
+	let server = server();
+	let fd = test_fd();
+	let request = opendir_request(1);
+	let response = ProviderResponse::OpenDir {
+		handle: 7,
+		immutable: true,
+	};
+	let response = server
+		.map_provider_response_sync(&fd, &request, response)
+		.unwrap();
+	let Response::OpenDir(response) = response else {
+		panic!("expected an opendir response");
+	};
+	assert_eq!(
+		response.open_flags,
+		sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE
+	);
+
+	let response = ProviderResponse::OpenDir {
+		handle: 8,
+		immutable: false,
+	};
+	let response = server
+		.map_provider_response_sync(&fd, &request, response)
+		.unwrap();
+	let Response::OpenDir(response) = response else {
+		panic!("expected an opendir response");
+	};
+	assert_eq!(response.open_flags, 0);
 }
 
 #[tokio::test]

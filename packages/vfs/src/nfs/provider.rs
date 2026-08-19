@@ -172,10 +172,14 @@ where
 							backing_fd: None,
 						})
 					},
-					crate::Request::OpenDir { id } => self
-						.opendir(id)
-						.await
-						.map(|handle| crate::Response::OpenDir { handle }),
+					crate::Request::OpenDir { id } => {
+						self.opendir(id)
+							.await
+							.map(|handle| crate::Response::OpenDir {
+								handle,
+								immutable: false,
+							})
+					},
 					crate::Request::Read {
 						handle,
 						position,

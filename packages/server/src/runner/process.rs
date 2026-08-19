@@ -701,7 +701,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
 		let result = match result {
 			Ok(output) => {
-				session
+				let context = crate::Context {
+					origin: crate::Origin::Sandbox(sandbox.index()),
+					..session.context.clone()
+				};
+				let output_session = session.server.session(&context);
+				output_session
 					.collect_process_output(CollectProcessOutputArg {
 						exit: output.exit,
 						path: output.path,
@@ -724,52 +729,30 @@ impl Session {
 			let id = id.clone();
 			let server = session.server.clone();
 			move |_| async move {
-				let result = async {
-					let log_buffered = match log_buffered_receiver.await {
-						Ok(result) => {
-							result?;
-							true
-						},
-						Err(_) => false,
-					};
-					let stderr_buffered = match stderr_buffered_receiver.await {
-						Ok(result) => {
-							result?;
-							true
-						},
-						Err(_) => false,
-					};
-					let stdout_buffered = match stdout_buffered_receiver.await {
-						Ok(result) => {
-							result?;
-							true
-						},
-						Err(_) => false,
-					};
-					let buffered = log_buffered && stderr_buffered && stdout_buffered;
+				let log_buffered = log_buffered_receiver
+					.await
+					.is_ok_and(|result| result.is_ok());
+				let stderr_buffered = stderr_buffered_receiver
+					.await
+					.is_ok_and(|result| result.is_ok());
+				let stdout_buffered = stdout_buffered_receiver
+					.await
+					.is_ok_and(|result| result.is_ok());
+				let buffered = log_buffered && stderr_buffered && stdout_buffered;
+				let event = if buffered {
+					crate::checkpoint!(
+						server,
+						"runner.process.buffered",
+						process = %id,
+					)
+					.await;
+					Event::Buffered
+				} else {
+					Event::Released
+				};
+				event_sender.send(Ok(event)).ok();
 
-					Ok::<_, tg::Error>(buffered)
-				}
-				.await;
-				match &result {
-					Ok(true) => {
-						crate::checkpoint!(
-							server,
-							"runner.process.buffered",
-							process = %id,
-						)
-						.await;
-						event_sender.send(Ok(Event::Buffered)).ok();
-					},
-					Ok(false) => {
-						event_sender.send(Ok(Event::Released)).ok();
-					},
-					Err(error) => {
-						event_sender.send(Err(error.clone())).ok();
-					},
-				}
-
-				result.map(|_| ())
+				Ok::<_, tg::Error>(())
 			}
 		});
 		let arg = FinishProcessTaskArg {

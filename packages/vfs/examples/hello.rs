@@ -133,10 +133,14 @@ impl tangram_vfs::Provider for Provider {
 									backing_fd: None,
 								})
 						},
-						tangram_vfs::Request::OpenDir { id } => self
-							.opendir(id)
-							.await
-							.map(|handle| tangram_vfs::Response::OpenDir { handle }),
+						tangram_vfs::Request::OpenDir { id } => {
+							self.opendir(id)
+								.await
+								.map(|handle| tangram_vfs::Response::OpenDir {
+									handle,
+									immutable: true,
+								})
+						},
 						tangram_vfs::Request::Read {
 							handle,
 							position,

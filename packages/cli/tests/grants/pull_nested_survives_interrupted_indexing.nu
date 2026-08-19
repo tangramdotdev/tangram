@@ -8,8 +8,8 @@ let producer = spawn --name producer --directory $directory --config {
 	roles: [cleaner http runner scheduler],
 }
 
-let directory_id = tg --url $producer.url put 'tg.directory({ "sub": tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") }) })' | str trim
-let nested_id = tg --url $producer.url children $directory_id | from json | get 0
+let nested_id = tg --url $producer.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let directory_id = tg --url $producer.url put ('tg.directory({ "sub": ' + $nested_id + ' })') | str trim
 tg --url $producer.url grant public object_subtree $nested_id | ignore
 
 let pid = open ($producer.directory | path join 'lock') | into int

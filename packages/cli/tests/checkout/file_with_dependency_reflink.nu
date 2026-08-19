@@ -45,4 +45,5 @@ assert ('user.tangram.dependencies' in (xattr_list $warm_path))
 
 # Stop the server and unmount its sandbox before removing its custom directory.
 cleanup_background_jobs $env.TMPDIR
+try { chmod -R u+rwx $tmp }
 rm -rf $tmp

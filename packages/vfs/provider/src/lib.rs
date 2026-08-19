@@ -1086,7 +1086,7 @@ extern "system" fn tg_response_opendir(response: TgResponse, out_handle: *mut u6
 		// SAFETY: The response handle contract guarantees a live response of the expected allocation type.
 		let response = unsafe { &*response.cast::<Response>() };
 		match response {
-			Response::OpenDir { handle } => {
+			Response::OpenDir { handle, .. } => {
 				// SAFETY: The null check guarantees that the output pointer is writable under the C API contract.
 				unsafe { *out_handle = *handle };
 				Status::Ok

@@ -24,11 +24,12 @@ let path = artifact {
 		export default async function () {
 			const process = await tg.spawn({
 				args: ["group", "create", "--remote", "forbidden"],
-				executable: "tg",
-			})
-				.stderr("pipe")
-				.stdout("null")
-				.sandbox();
+			executable: "tg",
+		})
+			.stderr("pipe")
+			.stdin("null")
+			.stdout("null")
+			.sandbox();
 			const [stderr, wait] = await Promise.all([process.stderr.text(), process.wait()]);
 			return wait.exit !== 0 && stderr.includes("network access is disabled for the origin sandbox");
 		}

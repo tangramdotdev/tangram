@@ -291,7 +291,7 @@ impl Inner {
 				vfs::Request::OpenDir { id } => self
 					.opendir(id)
 					.await
-					.map(|handle| vfs::Response::OpenDir { handle }),
+					.map(|(handle, immutable)| vfs::Response::OpenDir { handle, immutable }),
 				vfs::Request::Read {
 					handle,
 					length,
@@ -813,14 +813,16 @@ impl Inner {
 		Ok(handle)
 	}
 
-	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
+	async fn opendir(&self, id: u64) -> std::io::Result<(u64, bool)> {
 		let NodeInfo { artifact, .. } = self.nodes.get(id)?;
-		if let Some(artifact) = artifact
+		let immutable = artifact.is_some();
+		if let Some(artifact) = &artifact
 			&& !matches!(artifact.kind(), tg::artifact::Kind::Directory)
 		{
 			return Err(std::io::Error::other("expected a directory"));
 		}
-		Ok(id)
+
+		Ok((id, immutable))
 	}
 
 	async fn read(&self, handle: u64, position: u64, length: u64) -> std::io::Result<Bytes> {

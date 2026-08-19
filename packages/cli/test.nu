@@ -7,12 +7,14 @@ export use std/assert
 
 const repository_path = path self '../../'
 const harness_path = path self
+const database_pool_directory_name = 'tangram_test_database_pool'
 const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
-	--clean # Clean up leftover test resources from cockroach, scylla, and nats.
-	--cloud # Enable cloud database backends (cockroach, scylla, nats) for spawn --cloud.
+	--clean # Clean up leftover test resources from CockroachDB, FoundationDB, and ScyllaDB.
+	--cloud # Enable the shared CockroachDB, FoundationDB, ScyllaDB, and NATS backends for spawn --cloud.
+	--databases # Run the shared cloud databases in the foreground. This is supported on Linux only.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
@@ -31,6 +33,18 @@ def main [
 	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
+	# Run the databases in a separate terminal.
+	if $databases {
+		if $nu.os-info.name != 'linux' {
+			error make { msg: '--databases is supported on Linux only' }
+		}
+		let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
+		path add ($scylla_client_path | path dirname)
+		run_databases
+
+		return
+	}
+
 	# Validate the --vm/--kernel-path flag combination.
 	if $vm and $kernel_path == null {
 		error make { msg: '--kernel-path is required when --vm is set' }
@@ -57,6 +71,9 @@ def main [
 	}
 	# Clean up leftover test resources if requested.
 	if $clean {
+		let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
+		path add ($scylla_client_path | path dirname)
+
 		let fskit_temp_paths = if (fskit_temp_root | path exists) {
 			ls (fskit_temp_root) | where name =~ 'tangram_test_' and type == dir | get name
 		} else {
@@ -75,22 +92,41 @@ def main [
 			print -e $"removed ($path)"
 		}
 
-		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in starts-with 'database_' }
-		for db in $cockroach_dbs {
-			print -e $"dropping cockroach database ($db)"
-			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
+		let cockroach_output = (^timeout 5 cockroach sql --insecure --host=127.0.0.1:26257 --format=csv -e 'show databases;' | complete)
+		if $cockroach_output.exit_code == 0 {
+			let databases = $cockroach_output.stdout | from csv | get database_name | where { $in starts-with 'database_' }
+			for database in $databases {
+				print -e $"dropping cockroach database ($database)"
+				try { cockroach sql --insecure --host=127.0.0.1:26257 -e $'drop database if exists ($database) cascade' }
+			}
+		} else {
+			print -e 'skipping CockroachDB cleanup because it is not ready'
 		}
 
-		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'objects']
-		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'objects_' }
-		for keyspace in $keyspaces {
-			print -e $"dropping scylla keyspace ($keyspace)"
-			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
+		let scylla_output = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | complete)
+		if $scylla_output.exit_code == 0 {
+			let keyspaces = $scylla_output.stdout | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'objects_' }
+			for keyspace in $keyspaces {
+				print -e $"dropping scylla keyspace ($keyspace)"
+				try { tangram_scylla_client 127.0.0.1 9042 -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
+			}
+		} else {
+			print -e 'skipping ScyllaDB cleanup because it is not ready'
 		}
 
-		print -e "clearing fdb data"
 		let cluster = fdb_cluster
-		try { ^timeout 10 fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
+		let foundationdb_output = (^timeout 10 fdbcli -C $cluster --exec 'writemode on; clearrange "index_" "index_\xff"; clearrange "logs_" "logs_\xff"' | complete)
+		if $foundationdb_output.exit_code == 0 {
+			print -e 'cleared FoundationDB test prefixes'
+		} else {
+			print -e 'skipping FoundationDB cleanup because it is not ready'
+		}
+
+		let database_pool_path = database_pool_path
+		if ($database_pool_path | path exists) {
+			rm -rf $database_pool_path
+		}
+		mkdir $database_pool_path
 
 		let tangram_processes = count_tangram_processes
 		if $tangram_processes > 0 {
@@ -130,17 +166,34 @@ def main [
 		let tangram_path = $tangram_path | path expand
 		let tg_dir = mktemp -d -t tangram_test_tg_XXXXXX
 		ln -sf $tangram_path ($tg_dir | path join 'tg')
+		if $cloud {
+			let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
+			ln -sf $scylla_client_path ($tg_dir | path join 'tangram_scylla_client')
+		}
 		path add ($tangram_path | path dirname)
 		path add $tg_dir
 	} else if $release {
-		cargo build --release --all-features
+		if $cloud {
+			cargo build --release --all-features --package tangram_cli --package tangram_scylla_client
+		} else {
+			cargo build --release --all-features
+		}
 		ln -sf tangram target/release/tg
 		path add ($repository_path | path join 'target/release')
 	} else {
-		cargo build --all-features
+		if $cloud {
+			cargo build --all-features --package tangram_cli --package tangram_scylla_client
+		} else {
+			cargo build --all-features
+		}
 		ln -sf tangram target/debug/tg
 		path add ($repository_path | path join 'target/debug')
 	}
+
+	if $cloud {
+		check_databases
+	}
+	let database_pool_path = if $cloud { database_pool_path } else { '' }
 
 	# Get the matching tests.
 	let filter = if ($filters | is-empty) {
@@ -170,6 +223,7 @@ def main [
 
 	let options = {
 		cloud: $cloud,
+		database_pool_path: $database_pool_path,
 		fskit: $fskit,
 		kernel_path: ($kernel_path | default "" | into string),
 		no_capture: $no_capture,
@@ -465,6 +519,386 @@ def main [
 	}
 }
 
+def build_scylla_client [--release] {
+	let args = if $release { ['--release'] } else { [] }
+	cargo build --package tangram_scylla_client ...$args
+	let profile = if $release { 'release' } else { 'debug' }
+
+	$repository_path | path join target $profile tangram_scylla_client
+}
+
+def database_pool_path [] {
+	($nu.temp-dir? | default $nu.temp-path?) | path join $database_pool_directory_name | path expand
+}
+
+def acquire_database_id [pool_path: string] {
+	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
+	let scylla_schema_path = $repository_path | path join packages/stores/object/src/scylla.cql
+	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
+	if $result.exit_code != 0 {
+		error make {
+			msg: 'failed to acquire a database pool ID'
+			help: ($result.stderr | str trim)
+		}
+	}
+	let id = $result.stdout | str trim
+	if ($id | is-empty) {
+		error make { msg: 'the acquired database pool ID is empty' }
+	}
+
+	$id
+}
+
+def database_pool_acquire [] {
+	r#'
+set -euo pipefail
+
+pool_path=$1
+postgres_schema_path=$2
+scylla_schema_path=$3
+mkdir -p -- "$pool_path"
+
+try_lease_existing() {
+	for slot_path in "$pool_path"/pool[0-9]*; do
+		if [ ! -d "$slot_path" ]; then
+			continue
+		fi
+		if mkdir "$slot_path/lease" 2>/dev/null; then
+			basename "$slot_path"
+			return 0
+		fi
+	done
+	return 1
+}
+
+if id=$(try_lease_existing); then
+	echo "$id"
+	exit 0
+fi
+
+exec 9>"$pool_path/provision.lock"
+flock 9
+
+if id=$(try_lease_existing); then
+	echo "$id"
+	exit 0
+fi
+
+index=0
+while true; do
+	id=$(printf 'pool%04d' "$index")
+	slot_path="$pool_path/$id"
+	if [ ! -e "$slot_path" ]; then
+		break
+	fi
+	index=$((index + 1))
+done
+temporary_slot_path="$pool_path/.provisioning.$$"
+cockroach_created=false
+scylla_created=false
+
+cleanup_provision() {
+	status=$?
+	trap - EXIT
+	rm -rf -- "$temporary_slot_path"
+	if $scylla_created; then
+		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"objects_$id\";" >/dev/null 2>&1 || true
+	fi
+	if $cockroach_created; then
+		cockroach sql --insecure --host=127.0.0.1:26257 -e "drop database if exists database_$id cascade" >/dev/null 2>&1 || true
+	fi
+	exit "$status"
+}
+trap cleanup_provision EXIT
+
+mkdir -p -- "$temporary_slot_path/lease"
+cockroach sql --insecure --host=127.0.0.1:26257 -e "create database database_$id" >/dev/null
+cockroach_created=true
+{
+	echo 'set autocommit_before_ddl = off;'
+	echo 'begin;'
+	cat -- "$postgres_schema_path"
+	echo 'commit;'
+} | cockroach sql --insecure --host=127.0.0.1:26257 -d "database_$id" >/dev/null
+
+tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$id\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
+scylla_created=true
+tangram_scylla_client 127.0.0.1 9042 -k "objects_$id" -f "$scylla_schema_path" >/dev/null
+
+mv -- "$temporary_slot_path" "$slot_path"
+trap - EXIT
+echo "$id"
+'#
+}
+
+def run_databases [] {
+	# Check the required programs.
+	let commands = [bash cockroach fdbcli fdbserver flock nats-server scylla sed setsid tail tangram_scylla_client timeout]
+	let missing = $commands | where { |command| which $command | is-empty }
+	if not ($missing | is-empty) {
+		error make {
+			msg: $"the following database programs are missing from PATH: ($missing | str join ', ')"
+			help: 'install the missing programs, then run this command again'
+		}
+	}
+
+	# Check that the database ports are available.
+	let endpoints = [
+		{ name: CockroachDB, port: 26257 },
+		{ name: FoundationDB, port: 4500 },
+		{ name: NATS, port: 4222 },
+		{ name: ScyllaDB, port: 9042 },
+	]
+	let occupied = $endpoints | where { |endpoint| tcp_port_open $endpoint.port }
+	if not ($occupied | is-empty) {
+		let addresses = $occupied | each { |endpoint| $"($endpoint.name) at 127.0.0.1:($endpoint.port)" } | str join ', '
+		error make {
+			msg: $"the following database endpoints are already in use: ($addresses)"
+			help: 'stop the existing services or processes, then run this command again'
+		}
+	}
+
+	# Create the temporary state.
+	let state_path = mktemp -d -t tangram_databases_XXXXXX | path expand
+	let cluster_path = $state_path | path join 'fdb.cluster'
+	let database_pool_path = database_pool_path
+	if ($database_pool_path | path exists) {
+		rm -rf $database_pool_path
+	}
+	mkdir $database_pool_path
+	'local:local@127.0.0.1:4500' | save -f $cluster_path
+	'cluster_name: tangram_test' | save -f ($state_path | path join 'scylla.yaml')
+
+	print -e $"starting the cloud databases with temporary state in ($state_path)"
+	print -e $"database logs will be written to ($state_path | path join 'logs')"
+	print -e 'waiting for CockroachDB, FoundationDB, ScyllaDB, and NATS to become ready...'
+
+	# Run the supervisor in the foreground.
+	exec bash -c (database_supervisor) _ $state_path $cluster_path $database_pool_path
+}
+
+def check_databases [] {
+	# Check the client programs before attempting the readiness commands.
+	let commands = [cockroach fdbcli flock tangram_scylla_client timeout]
+	let missing = $commands | where { |command| which $command | is-empty }
+	if not ($missing | is-empty) {
+		error make {
+			msg: $"the following database clients are missing from PATH: ($missing | str join ', ')"
+			help: 'install the database programs, then run `nu packages/cli/test.nu --databases` in another terminal'
+		}
+	}
+
+	# Check each database independently so the error names every unavailable service.
+	let cluster = fdb_cluster
+	let cockroach_ready = (^timeout 5 cockroach sql --insecure --host=127.0.0.1:26257 -e 'select 1' | complete).exit_code == 0
+	let database_pool_ready = (database_pool_path) | path exists
+	let fdb_ready = (^timeout 5 fdbcli -C $cluster --exec 'status minimal' | complete).exit_code == 0
+	let nats_ready = nats_ready
+	let scylla_ready = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local' | complete).exit_code == 0
+	let unavailable = [
+		{ name: CockroachDB, ready: $cockroach_ready },
+		{ name: 'database pool', ready: $database_pool_ready },
+		{ name: FoundationDB, ready: $fdb_ready },
+		{ name: NATS, ready: $nats_ready },
+		{ name: ScyllaDB, ready: $scylla_ready },
+	] | where not ready | get name
+	if not ($unavailable | is-empty) {
+		error make {
+			msg: $"the following cloud databases are not ready: ($unavailable | str join ', ')"
+			help: 'run `nu packages/cli/test.nu --databases` in another terminal'
+		}
+	}
+}
+
+def tcp_port_open [port: int] {
+	(^bash -c 'exec 3<>/dev/tcp/127.0.0.1/"$1"' _ $port | complete).exit_code == 0
+}
+
+def nats_ready [] {
+	let command = 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
+	(^timeout 2 bash -c $command | complete).exit_code == 0
+}
+
+def database_supervisor [] {
+	r#'
+set -u
+
+state_path=$1
+cluster_path=$2
+database_pool_path=$3
+declare -a logs=()
+declare -a names=()
+declare -a pids=()
+
+cleanup() {
+	trap - EXIT HUP INT TERM
+	for pid in "${pids[@]}"; do
+		kill -TERM -- "-$pid" 2>/dev/null || true
+	done
+	for ((attempt = 0; attempt < 100; attempt++)); do
+		alive=false
+		for pid in "${pids[@]}"; do
+			if kill -0 "$pid" 2>/dev/null; then
+				alive=true
+			fi
+		done
+		if ! $alive; then
+			break
+		fi
+		sleep 0.05
+	done
+	for pid in "${pids[@]}"; do
+		kill -KILL -- "-$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+	done
+	rm -rf -- "$state_path" "$database_pool_path"
+}
+
+handle_signal() {
+	exit 130
+}
+
+show_log() {
+	index=$1
+	log_path=${logs[$index]}
+	if [ -s "$log_path" ]; then
+		echo "last 40 lines from ${names[$index]} ($log_path):" >&2
+		tail -n 40 -- "$log_path" | sed -u "s/^/[${names[$index]}] /" >&2
+	fi
+}
+
+show_logs() {
+	for index in "${!logs[@]}"; do
+		show_log "$index"
+	done
+}
+
+ensure_running() {
+	for index in "${!pids[@]}"; do
+		if ! kill -0 "${pids[$index]}" 2>/dev/null; then
+			echo "${names[$index]} exited before all databases became ready" >&2
+			show_log "$index"
+			exit 1
+		fi
+	done
+}
+
+start() {
+	name=$1
+	shift
+	log_path="$state_path/logs/$name.log"
+	logs+=("$log_path")
+	names+=("$name")
+	(
+		cd "$state_path"
+		exec setsid "$@"
+	) >"$log_path" 2>&1 &
+	pids+=("$!")
+}
+
+wait_for() {
+	name=$1
+	attempts=$2
+	shift 2
+	for ((attempt = 0; attempt < attempts; attempt++)); do
+		if timeout 2 "$@" >/dev/null 2>&1; then
+			echo "$name is ready" >&2
+			return
+		fi
+		ensure_running
+		sleep 0.1
+	done
+	echo "timed out waiting for $name" >&2
+	show_logs
+	exit 1
+}
+
+configure_foundationdb() {
+	for ((attempt = 0; attempt < 60; attempt++)); do
+		if timeout 2 fdbcli -C "$cluster_path" --exec 'status minimal' >/dev/null 2>&1; then
+			echo 'FoundationDB is ready' >&2
+			return
+		fi
+		if timeout 10 fdbcli -C "$cluster_path" --exec 'configure new single memory' >/dev/null 2>&1; then
+			echo 'FoundationDB is configured' >&2
+			return
+		fi
+		ensure_running
+		sleep 0.1
+	done
+	echo 'timed out configuring FoundationDB' >&2
+	show_logs
+	exit 1
+}
+
+trap cleanup EXIT
+trap handle_signal HUP INT TERM
+
+mkdir -p \
+	"$state_path/fdb/data" \
+	"$state_path/fdb/logs" \
+	"$state_path/logs" \
+	"$state_path/scylla"
+
+start cockroach \
+	cockroach start-single-node \
+	--cache=128MiB \
+	--http-addr=127.0.0.1:0 \
+	--insecure \
+	--listen-addr=127.0.0.1:26257 \
+	--max-sql-memory=128MiB \
+	--store=type=mem,size=1GiB
+start foundationdb \
+	fdbserver \
+	--cluster-file="$cluster_path" \
+	--datadir="$state_path/fdb/data" \
+	--listen-address=127.0.0.1:4500 \
+	--logdir="$state_path/fdb/logs" \
+	--public-address=127.0.0.1:4500 \
+	--storage-memory=256MB
+start nats \
+	nats-server \
+	--addr=127.0.0.1 \
+	--port=4222
+start scylla \
+	scylla \
+	--api-address=127.0.0.1 \
+	--default-log-level=warn \
+	--developer-mode=1 \
+	--listen-address=127.0.0.1 \
+	--max-partition-key-restrictions-per-query=1024 \
+	--memory=1G \
+	--options-file="$state_path/scylla.yaml" \
+	--overprovisioned \
+	--rpc-address=127.0.0.1 \
+	--smp=1 \
+	--workdir="$state_path/scylla"
+
+wait_for CockroachDB 600 cockroach sql --insecure --host=127.0.0.1:26257 -e 'select 1'
+configure_foundationdb
+wait_for FoundationDB 600 fdbcli -C "$cluster_path" --exec 'status minimal'
+wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
+wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
+
+echo 'all cloud databases are ready; press Ctrl-C to stop them' >&2
+
+set +e
+wait -n "${pids[@]}"
+status=$?
+set -e
+echo 'a database process exited; stopping the remaining databases' >&2
+for index in "${!pids[@]}"; do
+	if ! kill -0 "${pids[$index]}" 2>/dev/null; then
+		show_log "$index"
+	fi
+done
+if [ "$status" -eq 0 ]; then
+	status=1
+fi
+exit "$status"
+'#
+}
+
 # Report whether a result represents a failure. Exit code 77 means the test was skipped.
 def is_failed [result: record] {
 	$result.output.exit_code != 0 and $result.output.exit_code != 77
@@ -524,12 +958,27 @@ def run_test [test: record, options: record] {
 	if not ($config | is-empty) {
 		$config | to json | save -f ($temp_path | path join "config.json")
 	}
+	let fdb_cluster_path = if $options.cloud {
+		let cluster_path = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
+		if ($cluster_path | is-empty) {
+			let cluster_path = $temp_path | path join 'fdb.cluster'
+			'local:local@127.0.0.1:4500' | save -f $cluster_path
+
+			$cluster_path
+		} else {
+			$cluster_path
+		}
+	} else {
+		''
+	}
 	let output = with-env {
 		SHELL: "/bin/sh",
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $options.cloud { "1" } else { "" }),
+		TANGRAM_TEST_DATABASE_POOL: $options.database_pool_path,
+		TANGRAM_TEST_FDB_CLUSTER: $fdb_cluster_path,
 		TANGRAM_TEST_FSKIT: (if $options.fskit { "1" } else { "" }),
 		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
@@ -566,9 +1015,6 @@ def run_test [test: record, options: record] {
 			{ exit_code: $exit_code, stdout: '', stderr: $stderr }
 		}
 	}
-	let end = date now
-	let duration = $end - $start
-
 	# If the test passed, delete snapshots which were not touched and remove touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	if $output.exit_code == 0 and not $options.stress {
 		let parent_path = $test.path | path dirname
@@ -583,18 +1029,18 @@ def run_test [test: record, options: record] {
 		}
 	}
 
-	# Clean up the cloud resource.
+	# Stop the servers before removing their cloud resources.
+	cleanup_background_jobs $temp_path
+
+	# Clean up the cloud resources.
 	let ids_path = $temp_path | path join 'ids'
 	let ids = if ($ids_path | path exists) {
-		open $ids_path | lines | where { $in != '' }
+		open $ids_path | lines | where { $in != '' } | uniq
 	} else {
 		[]
 	}
-	for id in $ids {
-		clean_databases $id
-	}
-
-	cleanup_background_jobs $temp_path
+	$ids | par-each { |id| reset_database_id $id $fdb_cluster_path $options.database_pool_path } | ignore
+	let duration = (date now) - $start
 
 	# Clean up the temp directory.
 	if not $options.preserve_temps {
@@ -945,7 +1391,7 @@ export def --env spawn [
 		$'/tg-((random chars) | str lowercase | str substring 0..7)'
 	}
 
-	mut default_config = {
+	mut default_config: any = {
 		advanced: {
 			disable_version_check: true
 			internal_error_locations: false
@@ -1020,20 +1466,31 @@ export def --env spawn [
 		}
 	}
 
+	# Create the directory before provisioning cloud resources so a restart with the same directory can reuse them.
+	let directory_path = $directory | default (mktemp -d)
+	try { mkdir $directory_path }
+
 	mut id: any = null
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
 	if $use_cloud {
-		$id = ((random chars) | str lowercase)
-		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
-		print -e $id
-
-		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
-		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
-
+		let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
+		if ($pool_path | is-empty) {
+			error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
+		}
 		let cluster = fdb_cluster
+		let id_path = $directory_path | path join '.tangram_test_cloud_id'
+		$id = if not ($id_path | path exists) {
+			let id = acquire_database_id $pool_path
+			$id | save -f $id_path
 
-		cqlsh -e $"create keyspace \"objects_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
+			$id
+		} else {
+			open --raw $id_path | str trim
+		}
+		if ($id | is-empty) {
+			error make { msg: $"the cloud resource ID is empty: ($id_path)" }
+		}
+		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 
 		let config = {
 			database: {
@@ -1041,7 +1498,7 @@ export def --env spawn [
 				pool: {
 					max: 1,
 				},
-				url: $'postgres://root@localhost:26257/database_($id)?sslmode=disable',
+				url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
 			},
 			index: {
 				cluster: $cluster,
@@ -1058,11 +1515,11 @@ export def --env spawn [
 			messenger: {
 				id: $id,
 				kind: 'nats',
-				url: 'nats://localhost',
+				url: 'nats://127.0.0.1:4222',
 			},
 			object: {
 				store: {
-					addr: 'localhost:9042',
+					addr: '127.0.0.1:9042',
 					connections: 1,
 					keyspace: $'objects_($id)',
 					kind: 'scylla',
@@ -1072,9 +1529,6 @@ export def --env spawn [
 		}
 		$default_config = $default_config | merge $config
 	}
-
-	# Create the directory.
-	let directory_path = $directory | default (mktemp -d)
 
 	# Write the config.
 	let config = $default_config | merge deep --strategy append ($config | default {})
@@ -1308,16 +1762,53 @@ export def server_errors [server: record] {
 		| sort
 }
 
-def clean_databases [id: string] {
-	# Drop the Cockroach database.
-	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
+def reset_database_id [id: string, cluster: string, pool_path: string] {
+	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
+	let postgres_tables = open --raw $postgres_schema_path
+		| lines
+		| parse --regex '^create table (?<table>[a-z_]+) \('
+		| get table
+	let postgres_query = $postgres_tables
+		| reverse
+		| each { |table| $'delete from ($table);' }
+		| prepend 'begin;'
+		| append 'commit;'
+		| str join "\n"
+	let results = ['cockroach' 'foundationdb' 'scylla'] | par-each { |database|
+		let output = match $database {
+			'cockroach' => {
+				(cockroach sql --insecure --host=127.0.0.1:26257 -d $'database_($id)' -e $postgres_query | complete)
+			},
+			'foundationdb' => {
+				(^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' | complete)
+			},
+			'scylla' => {
+				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($id)' -e 'truncate objects; truncate outbox;' | complete)
+			},
+		}
 
-	# Clear the fdb key range.
-	let cluster = fdb_cluster
-	try { ^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
+		{ database: $database, output: $output }
+	}
+	let failures = $results | where { |result| $result.output.exit_code != 0 }
+	if not ($failures | is-empty) {
+		let details = $failures | each { |failure|
+			let message = [$failure.output.stderr $failure.output.stdout]
+				| each { str trim }
+				| where { not ($in | is-empty) }
+				| str join "\n"
 
-	# Drop the scylla keyspace.
-	try { cqlsh -e $"drop keyspace \"objects_($id)\";" }
+			$'($failure.database): ($message)'
+		} | str join "\n"
+		error make {
+			msg: $'failed to reset database pool ID ($id):\n($details)'
+		}
+	}
+
+	let lease_path = $pool_path | path join $id lease
+	if not ($lease_path | path exists) {
+		error make { msg: $'the lease for database pool ID ($id) does not exist' }
+	}
+	^rmdir $lease_path
 }
 
 def diff [old: string, new: string, --path] {
@@ -1635,18 +2126,8 @@ def fdb_cluster [] {
 		return $env_cluster
 	}
 
-	let system_cluster = '/etc/foundationdb/fdb.cluster'
-	if ($system_cluster | path exists) {
-		return $system_cluster
-	}
-
-	let user_cluster = ($nu.home-dir | path join '.foundationdb/fdb.cluster')
-	if ($user_cluster | path exists) {
-		return $user_cluster
-	}
-
 	let cluster = mktemp -t
-	"local:local@localhost:4500" | save -f $cluster
+	"local:local@127.0.0.1:4500" | save -f $cluster
 	$cluster
 }
 

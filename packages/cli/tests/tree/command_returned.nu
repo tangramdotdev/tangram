@@ -26,10 +26,10 @@ snapshot $output '{"exit":0,"output":42}'
 
 let output = tg view $id --mode inline --expand-processes --depth 1
 
-snapshot $output '
-	✓ fil_01xsrqantfb8nhj3548jm5dpt9ywkw6z0p0yv6y2mt1458t0pnx6ng#default
+snapshot --normalize-ids $output '
+	✓ fil_010000000000000000000000000000000000000000000000000000#default
 	├╴output: 42
-	├╴command: cmd_01ks36mz40hqts0tbhandtzt25z8na9ftdd8p882ssdhsrs2st6js0
+	├╴command: cmd_010000000000000000000000000000000000000000000000000000
 	├╴✓ ../b.tg.ts#default
-	└╴✓ fil_01m7bw9grpp30bmdtac61mgg2sp9kd2nqz6qpn6a8fhs594h9n7bbg#default
+	└╴✓ fil_011111111111111111111111111111111111111111111111111111#default
 '

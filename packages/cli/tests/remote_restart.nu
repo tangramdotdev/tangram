@@ -6,6 +6,7 @@ use ../test.nu *
 let root_token = random chars
 let config =  { 
 	advanced: {
+		single_directory: false,
 		single_process: false,
 	}
 	authentication: { root: { token: $root_token } },

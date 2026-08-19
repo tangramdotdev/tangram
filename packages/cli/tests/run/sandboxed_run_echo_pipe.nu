@@ -16,5 +16,4 @@ let path = artifact {
 
 let output = tg run $path | complete
 success $output
-$output.stdout | hexyl
 assert equal $output.stdout "hello\n\n"
