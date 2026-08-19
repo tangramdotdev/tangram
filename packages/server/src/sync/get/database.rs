@@ -9,7 +9,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::stream::TryExt as _,
 };
 
 const SYNC_GET_DATABASE_BATCH_SIZE: usize = 128;
@@ -214,7 +213,7 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		// Inspect the local namespace after waiting for pending mutations when replacement is possible.
+		// Read existing IDs and specifiers from Cockroach so a missing named node does not wait for indexing.
 		let ids = nodes
 			.iter()
 			.map(Self::sync_get_database_node_id)
@@ -223,73 +222,67 @@ impl Session {
 			.iter()
 			.map(|node| Self::sync_get_database_node_specifier(node).cloned())
 			.collect::<tg::Result<Vec<_>>>()?;
-		let output = if replacement_ids.is_empty() {
-			self.try_get_nodes_from_index(&ids, &specifiers).await?
-		} else {
-			self.index()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index"))?
-				.try_last()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index"))?;
-			self.try_get_nodes_once_from_index(&ids, &specifiers)
-				.await?
-		};
+		let nodes = nodes.to_vec();
+		let existing_named_nodes = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let nodes = nodes.clone();
+				async move {
+					Self::sync_get_database_existing_named_nodes_with_transaction(
+						transaction,
+						&nodes,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
 
 		// Validate the conflicts and collect all required authorizations.
 		let mut authorization = BTreeMap::new();
 		let mut parent_write_specifiers = BTreeSet::new();
 		let mut replacement_roots = BTreeMap::new();
-		for (((id, specifier), by_id), by_specifier) in std::iter::zip(
-			std::iter::zip(std::iter::zip(ids, specifiers), output.specifiers),
-			output.ids,
-		) {
+		for (id, specifier) in std::iter::zip(ids, specifiers) {
+			let by_id = existing_named_nodes.ids.get(&id);
+			let by_specifier = existing_named_nodes.specifiers.get(&specifier);
 			let replace = replacement_ids.contains(&id);
 			if !replace {
 				Self::sync_get_database_validate_id_and_specifier(
 					&id,
 					&specifier,
-					by_id.as_ref(),
-					by_specifier.as_ref(),
+					by_id,
+					by_specifier,
 				)?;
 			}
-			let cross_kind_replacement = replace
-				&& by_specifier
-					.as_ref()
-					.is_some_and(|candidate| candidate.kind() != id.kind());
+			let cross_kind_replacement =
+				replace && by_specifier.is_some_and(|candidate| candidate.kind() != id.kind());
 			if cross_kind_replacement {
 				if let Some(parent) = specifier.parent() {
 					parent_write_specifiers.insert(parent);
 				}
-			} else {
+			} else if by_specifier.is_some() {
 				let permission = Self::write_permission_for_resource(&id)?;
 				let permissions = tg::authorization::permission::Set::from_permission(permission);
 				let resource = tg::Selector::Specifier(specifier.clone());
-				let allow_missing = by_specifier.is_none();
-				authorization.insert(resource, (allow_missing, permissions));
+				authorization.insert(resource, permissions);
 			}
 			if replace {
-				let roots = Self::sync_get_database_replacement_roots(
-					&id,
-					&specifier,
-					by_id.as_ref(),
-					by_specifier.as_ref(),
-				);
+				let roots =
+					Self::sync_get_database_replacement_roots(&id, &specifier, by_id, by_specifier);
 				replacement_roots.extend(roots);
 			}
 		}
-		let parent_write_specifiers = parent_write_specifiers.into_iter().collect::<Vec<_>>();
-		if !parent_write_specifiers.is_empty() {
-			let output = self
-				.try_get_nodes_once_from_index(&[], &parent_write_specifiers)
-				.await?;
-			for (specifier, id) in std::iter::zip(parent_write_specifiers, output.ids) {
-				let id = id.ok_or_else(|| tg::error!(%specifier, "failed to find the parent"))?;
-				let permission = Self::write_permission_for_resource(&id)?;
-				let permissions = tg::authorization::permission::Set::from_permission(permission);
-				let resource = tg::Selector::Specifier(specifier);
-				authorization.insert(resource, (false, permissions));
-			}
+		for specifier in parent_write_specifiers {
+			let id = existing_named_nodes
+				.specifiers
+				.get(&specifier)
+				.cloned()
+				.ok_or_else(|| tg::error!(%specifier, "failed to find the parent"))?;
+			let permission = Self::write_permission_for_resource(&id)?;
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+			let resource = tg::Selector::Specifier(specifier);
+			authorization.insert(resource, permissions);
 		}
 
 		// Authorize recursive deletion at each minimal conflicting root.
@@ -298,7 +291,7 @@ impl Session {
 			let permission = Self::delete_permission_for_resource(&root)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::Id(root);
-			authorization.insert(resource, (false, permissions));
+			authorization.insert(resource, permissions);
 		}
 
 		// Authorize the writes and recursive deletions.
@@ -306,16 +299,11 @@ impl Session {
 		for authorization in authorization.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
 			let args = authorization
 				.iter()
-				.map(|(resource, (_, permissions))| (resource.clone(), *permissions))
+				.map(|(resource, permissions)| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
 			let outputs = self.authorize_batch(args).await?;
-			for ((_, (allow_missing, permissions)), output) in
-				std::iter::zip(authorization, outputs)
-			{
-				let authorized = match output {
-					None => *allow_missing,
-					Some(output) => output.contains(*permissions),
-				};
+			for ((_, permissions), output) in std::iter::zip(authorization, outputs) {
+				let authorized = output.is_some_and(|output| output.contains(*permissions));
 				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -323,6 +311,19 @@ impl Session {
 		}
 
 		Ok(())
+	}
+
+	async fn sync_get_database_existing_named_nodes_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
+		let existing_named_nodes =
+			match Self::sync_get_database_namespace_with_transaction(transaction, nodes).await? {
+				ControlFlow::Break(existing_named_nodes) => existing_named_nodes,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+
+		Ok(ControlFlow::Break(existing_named_nodes))
 	}
 
 	fn sync_get_database_minimize_replacement_roots(
