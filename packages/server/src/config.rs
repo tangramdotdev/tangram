@@ -292,9 +292,16 @@ pub struct DatabaseOutbox {
 pub struct PostgresDatabase {
 	pub outbox: DatabaseOutbox,
 
-	pub pool: DatabasePool,
+	pub read: PostgresDatabaseConnection,
 
 	pub retry: Retry,
+
+	pub write: PostgresDatabaseConnection,
+}
+
+#[derive(Clone, Debug)]
+pub struct PostgresDatabaseConnection {
+	pub pool: DatabasePool,
 
 	pub url: Uri,
 }
@@ -1224,10 +1231,20 @@ impl Default for DatabaseOutbox {
 
 impl Default for PostgresDatabase {
 	fn default() -> Self {
+		let connection = PostgresDatabaseConnection::default();
 		Self {
 			outbox: DatabaseOutbox::default(),
-			pool: DatabasePool::default(),
+			read: connection.clone(),
 			retry: database_retry_default(),
+			write: connection,
+		}
+	}
+}
+
+impl Default for PostgresDatabaseConnection {
+	fn default() -> Self {
+		Self {
+			pool: DatabasePool::default(),
 			url: "postgres://localhost:5432".parse().unwrap(),
 		}
 	}

@@ -24,9 +24,15 @@ pub enum Error {
 
 #[derive(Clone, Debug)]
 pub struct DatabaseOptions {
+	pub read: PoolOptions,
+	pub retry: tangram_futures::retry::Options,
+	pub write: PoolOptions,
+}
+
+#[derive(Clone, Debug)]
+pub struct PoolOptions {
 	pub max: usize,
 	pub min: usize,
-	pub retry: tangram_futures::retry::Options,
 	pub ttl: Option<Duration>,
 	pub url: Uri,
 }
@@ -36,14 +42,15 @@ pub struct ConnectionOptions {
 	pub url: Uri,
 }
 
+pub struct Database {
+	read_pool: Pool<Connection, Error>,
+	retry: tangram_futures::retry::Options,
+	write_pool: Pool<Connection, Error>,
+}
+
 #[derive(Default)]
 pub struct Cache {
 	statements: tokio::sync::Mutex<HashMap<CacheKey, postgres::Statement, fnv::FnvBuildHasher>>,
-}
-
-pub struct Database {
-	pool: Pool<Connection, Error>,
-	retry: tangram_futures::retry::Options,
 }
 
 pub struct Connection {
@@ -75,39 +82,25 @@ impl Cache {
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
-		let connection_options = ConnectionOptions {
-			url: options.url.clone(),
-		};
-		let create = {
-			let connection_options = connection_options.clone();
-			move || {
-				let connection_options = connection_options.clone();
-				async move { Connection::connect(connection_options).await }
-			}
-		};
-		let pool = Pool::new(
-			pool::Options {
-				min: options.min,
-				max: options.max,
-				shared: 1,
-				ttl: options.ttl,
-			},
-			create,
-		);
-		for _ in 0..options.min {
-			let connection = Connection::connect(connection_options.clone()).await?;
-			pool.add(connection);
-		}
+		let read_pool = create_pool(options.read).await?;
+		let write_pool = create_pool(options.write).await?;
 		let database = Self {
-			pool,
+			read_pool,
 			retry: options.retry,
+			write_pool,
 		};
+
 		Ok(database)
 	}
 
 	#[must_use]
-	pub fn pool(&self) -> &Pool<Connection, Error> {
-		&self.pool
+	pub fn read_pool(&self) -> &Pool<Connection, Error> {
+		&self.read_pool
+	}
+
+	#[must_use]
+	pub fn write_pool(&self) -> &Pool<Connection, Error> {
+		&self.write_pool
 	}
 
 	pub async fn sync(&self) -> Result<(), Error> {
@@ -123,7 +116,10 @@ impl Database {
 	{
 		let options = self.retry.clone();
 		tangram_futures::retry::retry(&options, || async {
-			let mut connection = self.pool.get_exclusive(pool::Priority::default()).await?;
+			let mut connection = self
+				.write_pool
+				.get_exclusive(pool::Priority::default())
+				.await?;
 			if connection.client.is_closed() {
 				connection.reconnect().await?;
 			}
@@ -144,6 +140,34 @@ impl Database {
 		})
 		.await
 	}
+}
+
+async fn create_pool(options: PoolOptions) -> Result<Pool<Connection, Error>, Error> {
+	let connection_options = ConnectionOptions {
+		url: options.url.clone(),
+	};
+	let create = {
+		let connection_options = connection_options.clone();
+		move || {
+			let connection_options = connection_options.clone();
+			async move { Connection::connect(connection_options).await }
+		}
+	};
+	let pool = Pool::new(
+		pool::Options {
+			min: options.min,
+			max: options.max,
+			shared: 1,
+			ttl: options.ttl,
+		},
+		create,
+	);
+	for _ in 0..options.min {
+		let connection = Connection::connect(connection_options.clone()).await?;
+		pool.add(connection);
+	}
+
+	Ok(pool)
 }
 
 impl Connection {
@@ -233,7 +257,11 @@ impl super::Database for Database {
 		&self,
 		options: super::ConnectionOptions,
 	) -> Result<Self::Connection, Self::Error> {
-		let mut connection = self.pool.get_exclusive(options.priority).await?;
+		let pool = match options.kind {
+			crate::ConnectionKind::Read => &self.read_pool,
+			crate::ConnectionKind::Write => &self.write_pool,
+		};
+		let mut connection = pool.get_exclusive(options.priority).await?;
 		if connection.client.is_closed() {
 			connection.reconnect().await?;
 		}

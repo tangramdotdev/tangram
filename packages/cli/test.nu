@@ -1517,10 +1517,18 @@ export def --env spawn [
 			advanced: $advanced,
 			database: {
 				kind: 'postgres',
-				pool: {
-					max: 1,
+				read: {
+					pool: {
+						max: 1,
+					},
+					url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
 				},
-				url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
+				write: {
+					pool: {
+						max: 1,
+					},
+					url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
+				},
 			},
 			index: {
 				cluster: $cluster,

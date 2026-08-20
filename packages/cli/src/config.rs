@@ -440,10 +440,20 @@ pub struct PostgresDatabase {
 	pub outbox: Option<DatabaseOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub pool: Option<DatabasePool>,
+	pub read: Option<PostgresDatabaseConnection>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write: Option<PostgresDatabaseConnection>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresDatabaseConnection {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<DatabasePool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
@@ -2318,11 +2328,24 @@ fn resolve_postgres_database(source: PostgresDatabase) -> server::PostgresDataba
 	if let Some(source) = source.outbox {
 		target.outbox = resolve_database_outbox(source);
 	}
-	if let Some(source) = source.pool {
-		target.pool = resolve_database_pool(source);
+	if let Some(source) = source.read {
+		target.read = resolve_postgres_database_connection(source, target.read);
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(source) = source.write {
+		target.write = resolve_postgres_database_connection(source, target.write);
+	}
+	target
+}
+
+fn resolve_postgres_database_connection(
+	source: PostgresDatabaseConnection,
+	mut target: server::PostgresDatabaseConnection,
+) -> server::PostgresDatabaseConnection {
+	if let Some(source) = source.pool {
+		target.pool = resolve_database_pool(source);
 	}
 	if let Some(value) = source.url {
 		target.url = value;
@@ -3553,6 +3576,33 @@ mod tests {
 		assert_eq!(target.primary_region.as_deref(), Some("ash0"));
 		assert_eq!(target.region.as_deref(), Some("ewr0"));
 		assert!(!target.is_primary_region());
+	}
+
+	#[test]
+	fn parses_postgres_read_and_write_connections() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"database": {
+				"kind": "postgres",
+				"read": {
+					"pool": { "max": 8 },
+					"url": "postgres://read.local:5432/tangram",
+				},
+				"write": {
+					"pool": { "max": 4 },
+					"url": "postgres://write.primary:5432/tangram",
+				},
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let server::Database::Postgres(database) = target.database else {
+			panic!("expected postgres");
+		};
+
+		assert_eq!(database.read.pool.max, Some(8));
+		assert_eq!(database.read.url.host(), Some("read.local"));
+		assert_eq!(database.write.pool.max, Some(4));
+		assert_eq!(database.write.url.host(), Some("write.primary"));
 	}
 
 	#[test]

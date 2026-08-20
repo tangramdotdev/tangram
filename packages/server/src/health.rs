@@ -57,20 +57,28 @@ impl Session {
 		};
 
 		let database = if include_database {
-			let available_connections = match &self.server.database {
-				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
-				#[cfg(feature = "sqlite")]
-				Database::Sqlite(database) => {
-					database.read_pool().available().to_u64().unwrap()
-						+ database.write_pool().available().to_u64().unwrap()
-				},
-				#[cfg(feature = "turso")]
-				Database::Turso(database) => database.pool().available().to_u64().unwrap(),
-			};
+			let (available_connections, read_available_connections, write_available_connections) =
+				match &self.server.database {
+					#[cfg(feature = "postgres")]
+					Database::Postgres(database) => {
+						let read = database.read_pool().available().to_u64().unwrap();
+						let write = database.write_pool().available().to_u64().unwrap();
+						(read + write, Some(read), Some(write))
+					},
+					#[cfg(feature = "sqlite")]
+					Database::Sqlite(database) => {
+						let read = database.read_pool().available().to_u64().unwrap();
+						let write = database.write_pool().available().to_u64().unwrap();
+						(read + write, Some(read), Some(write))
+					},
+					#[cfg(feature = "turso")]
+					Database::Turso(database) => (database.pool().available().to_u64().unwrap(), None, None),
+				};
 
 			Some(tg::health::Database {
 				available_connections,
+				read_available_connections,
+				write_available_connections,
 			})
 		} else {
 			None
