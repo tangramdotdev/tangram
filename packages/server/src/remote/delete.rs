@@ -11,23 +11,14 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn delete_remote(
+	pub(crate) async fn try_delete_remote(
 		&self,
 		name: &str,
 		arg: tg::remote::delete::Arg,
-	) -> tg::Result<()> {
-		let deleted = self.delete_remote_inner(name, arg).await?;
-		if !deleted {
-			return Err(tg::error!("failed to find the remote"));
+	) -> tg::Result<Option<()>> {
+		if !self.server.is_primary_region() {
+			return self.delete_remote_primary_region(name, arg).await;
 		}
-		Ok(())
-	}
-
-	async fn delete_remote_inner(
-		&self,
-		name: &str,
-		arg: tg::remote::delete::Arg,
-	) -> tg::Result<bool> {
 		self.verify_request_can_mutate_remotes()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
@@ -49,11 +40,28 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete the remote"))?;
-		if n != 0 {
-			self.delete_remote_cache(&name).await?;
+		if n == 0 {
+			return Ok(None);
 		}
+		self.delete_remote_cache(&name).await?;
 
-		Ok(n != 0)
+		Ok(Some(()))
+	}
+
+	async fn delete_remote_primary_region(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let deleted = client.try_delete_remote(name, arg).await.map_err(|error| {
+			tg::error!(!error, "failed to delete the remote in the primary region")
+		})?;
+
+		Ok(deleted)
 	}
 
 	async fn delete_remote_with_transaction(
@@ -97,10 +105,10 @@ impl Session {
 
 		// Delete the remote.
 		let deleted = self
-			.delete_remote_inner(name, arg)
+			.try_delete_remote(name, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %name, "failed to delete the remote"))?;
-		if !deleted {
+		if deleted.is_none() {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

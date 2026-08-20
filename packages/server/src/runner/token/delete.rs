@@ -13,8 +13,13 @@ impl Session {
 		&self,
 		runner: &tg::runner::Id,
 		token: &tg::token::Id,
-		_arg: tg::runner::token::delete::Arg,
+		arg: tg::runner::token::delete::Arg,
 	) -> tg::Result<Option<()>> {
+		if !self.server.is_primary_region() {
+			return self
+				.try_delete_runner_token_primary_region(runner, token, arg)
+				.await;
+		}
 		self.get_authorized_runner(runner).await?;
 		let runner = runner.clone();
 		let token = token.clone();
@@ -32,6 +37,29 @@ impl Session {
 			.await?;
 
 		Ok(deleted.then_some(()))
+	}
+
+	async fn try_delete_runner_token_primary_region(
+		&self,
+		runner: &tg::runner::Id,
+		token: &tg::token::Id,
+		arg: tg::runner::token::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client
+			.try_delete_runner_token(runner, token, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to delete the runner token in the primary region"
+				)
+			})?;
+
+		Ok(output)
 	}
 
 	async fn delete_runner_token_with_transaction(

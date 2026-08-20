@@ -20,6 +20,9 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(_) if !self.server.is_primary_region() => {
+				self.manage_user_billing_primary_region(arg).await
+			},
 			tg::Location::Local(_) => self.manage_user_billing_local().await,
 			tg::Location::Remote(remote) => self.manage_user_billing_remote(arg, remote).await,
 		}
@@ -129,6 +132,25 @@ impl Session {
 		};
 
 		Ok(ControlFlow::Break(stripe_customer_id))
+	}
+
+	async fn manage_user_billing_primary_region(
+		&self,
+		mut arg: tg::user::billing::manage::Arg,
+	) -> tg::Result<tg::user::billing::manage::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let output = client.manage_user_billing(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to manage user billing in the primary region"
+			)
+		})?;
+
+		Ok(output)
 	}
 
 	async fn manage_user_billing_remote(

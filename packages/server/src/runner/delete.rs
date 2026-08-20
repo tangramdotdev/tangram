@@ -11,8 +11,11 @@ impl Session {
 	pub(crate) async fn try_delete_runner(
 		&self,
 		runner: &tg::runner::Id,
-		_arg: tg::runner::delete::Arg,
+		arg: tg::runner::delete::Arg,
 	) -> tg::Result<Option<()>> {
+		if !self.server.is_primary_region() {
+			return self.try_delete_runner_primary_region(runner, arg).await;
+		}
 		let Some(data) = self.try_get_runner_data(runner).await? else {
 			return Ok(None);
 		};
@@ -29,6 +32,25 @@ impl Session {
 			.await?;
 
 		Ok(Some(()))
+	}
+
+	async fn try_delete_runner_primary_region(
+		&self,
+		runner: &tg::runner::Id,
+		arg: tg::runner::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client
+			.try_delete_runner(runner, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to delete the runner in the primary region")
+			})?;
+
+		Ok(output)
 	}
 
 	async fn delete_runner_with_transaction(

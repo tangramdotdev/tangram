@@ -11,8 +11,11 @@ use {
 impl Session {
 	pub(crate) async fn create_user_token(
 		&self,
-		_arg: tg::user::token::create::Arg,
+		arg: tg::user::token::create::Arg,
 	) -> tg::Result<tg::user::token::create::Output> {
+		if !self.server.is_primary_region() {
+			return self.create_user_token_primary_region(arg).await;
+		}
 		let user = self.authenticated_user()?.clone();
 		let (id, token) = crate::token::create();
 		let created_at = self.server.clock.unix_timestamp()?;
@@ -38,6 +41,24 @@ impl Session {
 			.await?;
 		let data = tg::user::token::Data { created_at, id };
 		let output = tg::user::token::create::Output { data, token };
+
+		Ok(output)
+	}
+
+	async fn create_user_token_primary_region(
+		&self,
+		arg: tg::user::token::create::Arg,
+	) -> tg::Result<tg::user::token::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client.create_user_token(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to create the user token in the primary region"
+			)
+		})?;
 
 		Ok(output)
 	}

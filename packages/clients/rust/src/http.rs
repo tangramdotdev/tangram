@@ -515,7 +515,7 @@ impl tg::Session {
 		}
 	}
 
-	pub(crate) async fn send<B>(
+	pub async fn send<B>(
 		&self,
 		mut request: http::Request<B>,
 	) -> tg::Result<http::Response<tangram_http::body::Boxed>>

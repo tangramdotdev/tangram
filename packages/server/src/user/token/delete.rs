@@ -12,8 +12,11 @@ impl Session {
 	pub(crate) async fn try_delete_user_token(
 		&self,
 		token: &tg::token::Id,
-		_arg: tg::user::token::delete::Arg,
+		arg: tg::user::token::delete::Arg,
 	) -> tg::Result<Option<()>> {
+		if !self.server.is_primary_region() {
+			return self.try_delete_user_token_primary_region(token, arg).await;
+		}
 		let user = self.authenticated_user()?.clone();
 		let token = token.clone();
 		let deleted = self
@@ -30,6 +33,28 @@ impl Session {
 			.await?;
 
 		Ok(deleted.then_some(()))
+	}
+
+	async fn try_delete_user_token_primary_region(
+		&self,
+		token: &tg::token::Id,
+		arg: tg::user::token::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client
+			.try_delete_user_token(token, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to delete the user token in the primary region"
+				)
+			})?;
+
+		Ok(output)
 	}
 
 	async fn delete_user_token_with_transaction(

@@ -23,6 +23,9 @@ impl Session {
 
 		// Start the login.
 		match location {
+			tg::Location::Local(_) if !self.server.is_primary_region() => {
+				self.create_login_primary_region(arg).await
+			},
 			tg::Location::Local(_) => self.create_login_local(arg).await,
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
@@ -33,6 +36,22 @@ impl Session {
 				client.create_login(arg).await
 			},
 		}
+	}
+
+	async fn create_login_primary_region(
+		&self,
+		mut arg: tg::user::login::create::Arg,
+	) -> tg::Result<tg::user::login::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let output = client.create_login(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to create the login in the primary region")
+		})?;
+
+		Ok(output)
 	}
 
 	async fn create_login_local(

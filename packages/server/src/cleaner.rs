@@ -67,7 +67,13 @@ impl Server {
 				})
 			});
 
-			let clean_database_future = self.clean_stripe_webhooks(now);
+			let clean_database_future = async {
+				if self.is_primary_region() {
+					self.clean_stripe_webhooks(now).await?;
+				}
+
+				Ok(())
+			};
 			let clean_index_future = future::try_join_all(futures);
 			let clean_usage_future = self.index.clean_usage(tangram_index::usage::clean::Arg {
 				batch_size: n,

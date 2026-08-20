@@ -10,6 +10,9 @@ use {
 
 impl Session {
 	pub(crate) async fn logout(&self) -> tg::Result<()> {
+		if !self.server.is_primary_region() {
+			return self.logout_primary_region().await;
+		}
 		let tg::Principal::User(user) = &self.context.principal else {
 			return Err(tg::error!("not logged in"));
 		};
@@ -29,6 +32,19 @@ impl Session {
 					.boxed()
 			})
 			.await?;
+
+		Ok(())
+	}
+
+	async fn logout_primary_region(&self) -> tg::Result<()> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		client
+			.logout()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to log out in the primary region"))?;
 
 		Ok(())
 	}
