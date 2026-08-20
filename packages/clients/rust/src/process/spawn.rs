@@ -414,9 +414,12 @@ impl<O: 'static> tg::Process<O> {
 				}
 			};
 		let mut tty = match arg.tty.take() {
-			Some(tg::Either::Left(true)) => {
-				super::stdio::get_tty_size().map(|size| tg::process::Tty { size })
-			},
+			Some(tg::Either::Left(true)) => tangram_util::tty::get_controlling_tty_size()
+				.map(|size| tg::process::tty::Size {
+					cols: size.cols,
+					rows: size.rows,
+				})
+				.map(|size| tg::process::Tty { size }),
 			Some(tg::Either::Right(tty)) => Some(tty),
 			_ => None,
 		};
@@ -445,7 +448,12 @@ impl<O: 'static> tg::Process<O> {
 				|| stdout.as_ref().is_some_and(tg::process::Stdio::is_tty)
 				|| stderr.as_ref().is_some_and(tg::process::Stdio::is_tty))
 		{
-			tty = super::stdio::get_tty_size().map(|size| tg::process::Tty { size });
+			tty = tangram_util::tty::get_controlling_tty_size()
+				.map(|size| tg::process::tty::Size {
+					cols: size.cols,
+					rows: size.rows,
+				})
+				.map(|size| tg::process::Tty { size });
 		}
 		let local_tty = tty.is_some()
 			&& (stdin_is_foreground_controlling_tty

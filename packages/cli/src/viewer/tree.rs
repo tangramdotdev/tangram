@@ -1692,31 +1692,32 @@ impl Tree {
 		let mut children = process.children_with_handle(client, options).await?;
 		let referent_module = command
 			.object_with_handle(client)
-			.await?
-			.args
-			.iter()
-			.find_map(|arg| match arg {
-				tg::command::Value::Value(tg::Value::Module(module)) => Some(module.to_data()),
-				_ => None,
+			.await
+			.ok()
+			.and_then(|object| {
+				object.args.iter().find_map(|arg| match arg {
+					tg::command::Value::Value(tg::Value::Module(module)) => Some(module.to_data()),
+					_ => None,
+				})
 			});
 
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
 
-			// Inherit from the referent.
-			let child_module = {
-				let command = child.node.command_with_handle(client).await?;
-				command
+			let child_module = match child.node.command_with_handle(client).await {
+				Ok(command) => command
 					.object_with_handle(client)
-					.await?
-					.args
-					.iter()
-					.find_map(|arg| match arg {
-						tg::command::Value::Value(tg::Value::Module(module)) => {
-							Some(module.to_data())
-						},
-						_ => None,
-					})
+					.await
+					.ok()
+					.and_then(|object| {
+						object.args.iter().find_map(|arg| match arg {
+							tg::command::Value::Value(tg::Value::Module(module)) => {
+								Some(module.to_data())
+							},
+							_ => None,
+						})
+					}),
+				Err(_) => None,
 			};
 			let same_module = match (&referent_module, &child_module) {
 				(Some(parent), Some(child)) => parent.referent.node == child.referent.node,
@@ -1729,13 +1730,16 @@ impl Tree {
 			}
 
 			// Check the status of the process.
-			let finished = child
+			let status = match child
 				.node
 				.status_with_handle(client, tg::process::status::Options::default())
-				.await?
-				.try_next()
-				.await?
-				.is_none_or(|status| matches!(status, tg::process::Status::Finished));
+				.await
+			{
+				Ok(mut status) => status.try_next().await.ok().flatten(),
+				Err(_) => None,
+			};
+			let finished =
+				status.is_none_or(|status| matches!(status, tg::process::Status::Finished));
 
 			// Post the update.
 			let client = client.clone();
