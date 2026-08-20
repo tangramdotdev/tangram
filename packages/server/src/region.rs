@@ -4,6 +4,15 @@ use {
 };
 
 impl Session {
+	pub(crate) async fn get_primary_region_session(&self) -> tg::Result<tg::Session> {
+		let region = self
+			.server
+			.config()
+			.primary_region()
+			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
+		self.get_region_session(region).await
+	}
+
 	pub(crate) async fn get_region_session(&self, region: &str) -> tg::Result<tg::Session> {
 		self.verify_request_with_network_access()?;
 		self.get_region_session_inner(region).await
