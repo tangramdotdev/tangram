@@ -1190,7 +1190,16 @@ impl Index {
 				matches.then_some(object)
 			})
 			.collect::<Vec<_>>();
-		if objects.is_empty() {
+		let process = crate::fdb::propagate!(
+			Self::try_get_process_with_transaction(context.txn, context.subspace, &process).await
+		);
+		let aspect_is_set = process.is_some_and(|process| match kind {
+			crate::process::object::Kind::Command => true,
+			crate::process::object::Kind::Error => process.set.error,
+			crate::process::object::Kind::Log => process.set.log,
+			crate::process::object::Kind::Output => process.set.output,
+		});
+		if !aspect_is_set || (kind.is_command() && objects.is_empty()) {
 			return Ok(ControlFlow::Break(false));
 		}
 		let subtree = tg::authorization::Permission::Object(

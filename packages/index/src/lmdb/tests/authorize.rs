@@ -91,12 +91,22 @@ fn put_process(
 	process: &tg::process::Id,
 	sandbox: &tg::sandbox::Id,
 ) {
+	put_process_with_set(index, txn, process, sandbox, crate::process::Set::default());
+}
+
+fn put_process_with_set(
+	index: &Index,
+	txn: &mut lmdb::RwTxn<'_>,
+	process: &tg::process::Id,
+	sandbox: &tg::sandbox::Id,
+	set: crate::process::Set,
+) {
 	let value = crate::process::Process {
 		data: None,
 		metadata: tg::process::Metadata::default(),
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
-		set: crate::process::Set::default(),
+		set,
 		stored: crate::process::Stored::default(),
 		touched_at: 0,
 	}
@@ -544,8 +554,20 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
-	put_process(&index, &mut txn, &child, &sandbox);
-	put_process(&index, &mut txn, &parent, &sandbox);
+	for process in [&child, &parent] {
+		put_process_with_set(
+			&index,
+			&mut txn,
+			process,
+			&sandbox,
+			crate::process::Set {
+				children: true,
+				error: true,
+				log: true,
+				output: true,
+			},
+		);
+	}
 	put_process_child(&index, &mut txn, &parent, &child);
 	let node = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Node,
