@@ -3,7 +3,7 @@ use ../../test.nu *
 # Pulling through a secondary region writes database nodes in the primary region while keeping
 # objects, processes, and sandboxes in the secondary region.
 
-let source = spawn --cloud --name source --config { advanced: { checkpoints: true } }
+let source = spawn --name source --config { advanced: { checkpoints: true } }
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("regional output"); }'
 }

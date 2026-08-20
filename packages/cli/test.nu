@@ -846,6 +846,7 @@ start postgres \
 	postgres \
 	-D "$state_path/postgres" \
 	-h 127.0.0.1 \
+	-k "$state_path/postgres" \
 	-p 5432 \
 	-c fsync=off \
 	-c full_page_writes=off \
