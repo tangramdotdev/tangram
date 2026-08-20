@@ -50,7 +50,7 @@ impl Session {
 			.await
 	}
 
-	async fn usage_account_with_transaction(
+	pub(crate) async fn usage_account_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		principal: &tg::Principal,

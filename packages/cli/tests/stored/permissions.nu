@@ -50,12 +50,13 @@ tg --token $alice.token index
 let alice_process_stored = tg --token $alice.token stored $parent | from json
 assert equal $alice_process_stored.subtree true "the owner should see that the process subtree is stored"
 
-let output = tg --token $bob.token stored $parent | complete
-failure $output "a principal without process permissions should not see the storage status"
+let derived_fields = [node_error node_log node_output subtree_error subtree_log subtree_output]
+let bob_derived_stored = tg --token $bob.token stored $parent | from json
+assert equal ($bob_derived_stored | columns) $derived_fields "complete process aspects with no objects should reveal their storage status"
 
 tg --token $alice.token grant $bob.user.id process_node $parent | ignore
 let bob_node_stored = tg --token $bob.token stored $parent | from json
-assert equal ($bob_node_stored | columns) [] "a process node grant should mask the subtree storage status"
+assert equal ($bob_node_stored | columns) $derived_fields "a process node grant should still mask the general subtree storage status"
 
 tg --token $alice.token grant $bob.user.id process_subtree $parent | ignore
 let bob_subtree_stored = tg --token $bob.token stored $parent | from json

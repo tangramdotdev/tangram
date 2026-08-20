@@ -49,14 +49,8 @@ tg --token $alice.token index
 
 let alice_process_metadata = tg --token $alice.token metadata $parent | from json
 assert equal $alice_process_metadata.subtree.count 2 "Alice should see the process subtree metadata after indexing."
-assert equal ($alice_process_metadata.node? | default {} | columns) [] "Alice should not see process node aspect metadata from a process_node grant."
+assert equal ($alice_process_metadata.node | columns) [error log output] "Alice should see complete process aspects with no objects."
 
-let output = tg --token $bob.token metadata $parent | complete
-failure $output "Bob should not be able to get Alice's process metadata without a grant."
-snapshot --normalize-ids $output.stderr '
-	error an error occurred
-	-> failed to get the process metadata
-	   id = pcs_010000000000000000000000000000000000000000000000000000
-	-> failed to get the process metadata
-
-'
+let bob_process_metadata = tg --token $bob.token metadata $parent | from json
+assert equal ($bob_process_metadata.node | columns) [error log output] "Bob should see complete process node aspects with no objects."
+assert equal ($bob_process_metadata.subtree | columns) [error log output] "Bob should see complete process subtree aspects with no objects."

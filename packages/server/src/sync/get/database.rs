@@ -228,14 +228,15 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		// Pipeline the independent named-node writes.
-		let (groups, organizations, tags, users) = futures::join!(
+		// Pipeline the independent named-node writes and accounting lookup.
+		let (groups, organizations, tag_accounts, tags, users) = futures::join!(
 			Self::sync_get_database_put_groups_with_transaction(transaction, nodes, batch_size),
 			Self::sync_get_database_put_organizations_with_transaction(
 				transaction,
 				nodes,
 				batch_size,
 			),
+			self.sync_get_database_tag_accounts_with_transaction(transaction, nodes, &namespace,),
 			Self::sync_get_database_put_tags_with_transaction(
 				transaction,
 				nodes,
@@ -252,6 +253,10 @@ impl Session {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
+		let tag_accounts = match tag_accounts? {
+			ControlFlow::Break(tag_accounts) => tag_accounts,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		let tag_permissions = match tags? {
 			ControlFlow::Break(tag_permissions) => tag_permissions,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -260,15 +265,6 @@ impl Session {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-
-		// Resolve tag accounts after the complete namespace has been written.
-		let tag_accounts = match self
-			.sync_get_database_tag_accounts_with_transaction(transaction, nodes)
-			.await?
-		{
-			ControlFlow::Break(tag_accounts) => tag_accounts,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
 
 		// Create the index batch.
 		let batch = self.sync_get_database_batch(
@@ -578,9 +574,7 @@ impl Session {
 			let specifier = Self::sync_get_database_node_specifier(node)?;
 			ids.insert(id.to_string());
 			specifiers.insert(specifier.to_string());
-			if let Some(parent) = specifier.parent() {
-				specifiers.insert(parent.to_string());
-			}
+			specifiers.extend(specifier.ancestors().map(|specifier| specifier.to_string()));
 		}
 
 		// Load the namespace in batches.
@@ -1008,6 +1002,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
+		namespace: &Namespace,
 	) -> tg::Result<
 		ControlFlow<BTreeMap<tg::tag::Id, Option<tg::usage::Account>>, crate::database::Error>,
 	> {
@@ -1015,32 +1010,69 @@ impl Session {
 		if !self.server.config.usage.enabled {
 			return Ok(ControlFlow::Break(accounts));
 		}
-		let mut root_accounts = BTreeMap::<tg::Specifier, Option<tg::usage::Account>>::new();
-		for message in nodes.iter().filter_map(|node| {
-			let tg::sync::PutNodeMessage::Tag(message) = node else {
-				return None;
-			};
+		let tags = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::Tag(message) = node else {
+					return None;
+				};
 
-			Some(message)
-		}) {
+				Some(message)
+			})
+			.collect::<Vec<_>>();
+		let roots = tags
+			.iter()
+			.map(|message| {
+				message
+					.specifier
+					.prefixes()
+					.next()
+					.expect("a specifier should have a component")
+			})
+			.collect::<BTreeSet<_>>();
+		let fallback_required = roots.iter().any(|root| {
+			!matches!(
+				namespace.specifiers.get(root).map(tg::Id::kind),
+				Some(tg::id::Kind::Organization | tg::id::Kind::User)
+			)
+		});
+		let fallback = if fallback_required {
+			match self
+				.usage_account_with_transaction(transaction, &self.context.principal)
+				.await?
+			{
+				ControlFlow::Break(account) => account,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		} else {
+			None
+		};
+		let root_accounts = roots
+			.into_iter()
+			.map(|root| {
+				let account = match namespace.specifiers.get(&root) {
+					Some(id) if id.kind() == tg::id::Kind::Organization => {
+						Some(tg::usage::Account::Organization(id.clone().try_into()?))
+					},
+					Some(id) if id.kind() == tg::id::Kind::User => {
+						Some(tg::usage::Account::User(id.clone().try_into()?))
+					},
+					Some(_) | None => fallback.clone(),
+				};
+
+				Ok((root, account))
+			})
+			.collect::<tg::Result<BTreeMap<_, _>>>()?;
+		for message in tags {
 			let root = message
 				.specifier
 				.prefixes()
 				.next()
 				.expect("a specifier should have a component");
-			let account = if let Some(account) = root_accounts.get(&root) {
-				account.clone()
-			} else {
-				let account = match self
-					.usage_account_for_specifier_with_transaction(transaction, &root)
-					.await?
-				{
-					ControlFlow::Break(account) => account,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				root_accounts.insert(root, account.clone());
-				account
-			};
+			let account = root_accounts
+				.get(&root)
+				.cloned()
+				.ok_or_else(|| tg::error!("missing the tag account"))?;
 			accounts.insert(message.id.clone(), account);
 		}
 
