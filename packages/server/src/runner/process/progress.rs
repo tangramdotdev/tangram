@@ -88,9 +88,7 @@ impl Session {
 						if indicator.is_empty() {
 							continue;
 						}
-						if progress.send(format!("{indicator}\n").into()).is_err() {
-							return Err(tg::error!("failed to write the progress stream"));
-						}
+						progress.send(format!("{indicator}\n").into()).ok();
 					}
 				},
 				tg::progress::Event::Output(output) => return Ok(output),
@@ -152,9 +150,7 @@ impl Session {
 		let stderr_task = Task::spawn(|_| async move {
 			let mut receiver = pin!(ReceiverStream::new(receiver));
 			while let Some(bytes) = receiver.next().await {
-				if progress.send(bytes).is_err() {
-					return Err(tg::error!("failed to write the progress stream"));
-				}
+				progress.send(bytes).ok();
 			}
 			Ok::<_, tg::Error>(())
 		});
