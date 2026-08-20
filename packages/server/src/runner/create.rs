@@ -13,6 +13,9 @@ impl Session {
 		&self,
 		arg: tg::runner::create::Arg,
 	) -> tg::Result<tg::runner::create::Output> {
+		if !self.server.is_primary_region() {
+			return self.create_runner_primary_region(arg).await;
+		}
 		let owner = match arg.owner {
 			Some(owner) => Some(self.resolve_runner_owner(&owner).await?),
 			None => None,
@@ -56,6 +59,21 @@ impl Session {
 		let token = tg::runner::token::create::Output { data, token };
 
 		Ok(tg::runner::create::Output { runner, token })
+	}
+
+	async fn create_runner_primary_region(
+		&self,
+		arg: tg::runner::create::Arg,
+	) -> tg::Result<tg::runner::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client.create_runner(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to create the runner in the primary region")
+		})?;
+
+		Ok(output)
 	}
 
 	async fn create_runner_with_transaction(

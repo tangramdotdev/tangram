@@ -31,6 +31,9 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		if !self.server.is_primary_region() {
+			return self.forward_request_to_primary_region(request).await;
+		}
 		self.verify_request_with_network_access()?;
 
 		// Get the GitHub config.
@@ -127,6 +130,9 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		if !self.server.is_primary_region() {
+			return self.forward_request_to_primary_region(request).await;
+		}
 		self.verify_request_with_network_access()?;
 
 		// Get the GitHub config.

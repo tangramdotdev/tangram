@@ -12,6 +12,9 @@ use {
 
 impl Session {
 	pub(crate) async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
+		if !self.server.is_primary_region() {
+			return self.put_remote_primary_region(name, arg).await;
+		}
 		self.verify_request_can_mutate_remotes()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
@@ -40,6 +43,22 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote"))?;
 		self.delete_remote_cache(&name).await?;
+
+		Ok(())
+	}
+
+	async fn put_remote_primary_region(
+		&self,
+		name: &str,
+		arg: tg::remote::put::Arg,
+	) -> tg::Result<()> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		client.put_remote(name, arg).await.map_err(|error| {
+			tg::error!(!error, "failed to put the remote in the primary region")
+		})?;
 
 		Ok(())
 	}

@@ -33,6 +33,24 @@ impl Session {
 		let session = client.session(&context);
 		Ok(session)
 	}
+
+	pub(crate) async fn forward_request_to_primary_region(
+		&self,
+		request: http::Request<tangram_http::body::Boxed>,
+	) -> tg::Result<http::Response<tangram_http::body::Boxed>> {
+		let region = self
+			.server
+			.config()
+			.primary_region()
+			.ok_or_else(|| tg::error!("the primary region is not configured"))?;
+		let client = self.server.get_region_client(region).await?;
+		let context = client.context().clone();
+		context.set_token(self.context.token.clone());
+		let session = client.session(&context);
+		let response = session.send(request).await?;
+
+		Ok(response)
+	}
 }
 
 impl Server {

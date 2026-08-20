@@ -24,11 +24,11 @@ impl tg::handle::Remote for tg::Session {
 		self.put_remote(name, arg)
 	}
 
-	fn delete_remote(
+	fn try_delete_remote(
 		&self,
 		name: &str,
 		arg: tg::remote::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.delete_remote(name, arg)
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_delete_remote(name, arg)
 	}
 }

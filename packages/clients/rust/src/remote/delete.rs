@@ -11,7 +11,11 @@ pub struct Arg {
 }
 
 impl tg::Session {
-	pub async fn delete_remote(&self, name: &str, arg: tg::remote::delete::Arg) -> tg::Result<()> {
+	pub async fn try_delete_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
 		let path = format!("/remotes/{name}");
 		let uri = Uri::builder()
@@ -30,7 +34,7 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {
-			return Err(tg::error!("failed to find the remote"));
+			return Ok(None);
 		}
 		if !response.status().is_success() {
 			let status = response.status();
@@ -41,6 +45,7 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		Ok(())
+
+		Ok(Some(()))
 	}
 }

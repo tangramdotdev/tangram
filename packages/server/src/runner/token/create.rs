@@ -12,8 +12,11 @@ impl Session {
 	pub(crate) async fn create_runner_token(
 		&self,
 		runner: &tg::runner::Id,
-		_arg: tg::runner::token::create::Arg,
+		arg: tg::runner::token::create::Arg,
 	) -> tg::Result<tg::runner::token::create::Output> {
+		if !self.server.is_primary_region() {
+			return self.create_runner_token_primary_region(runner, arg).await;
+		}
 		self.get_authorized_runner(runner).await?;
 		let created_at = self.server.clock.unix_timestamp()?;
 		let (id, token) = crate::token::create();
@@ -41,6 +44,28 @@ impl Session {
 		let data = tg::runner::token::Data { created_at, id };
 
 		Ok(tg::runner::token::create::Output { data, token })
+	}
+
+	async fn create_runner_token_primary_region(
+		&self,
+		runner: &tg::runner::Id,
+		arg: tg::runner::token::create::Arg,
+	) -> tg::Result<tg::runner::token::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client
+			.create_runner_token(runner, arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to create the runner token in the primary region"
+				)
+			})?;
+
+		Ok(output)
 	}
 
 	async fn create_runner_token_with_transaction(

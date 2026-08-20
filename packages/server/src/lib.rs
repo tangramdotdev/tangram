@@ -967,7 +967,9 @@ impl Server {
 		}
 
 		// Set the remotes if specified in the config.
-		if let Some(remotes) = &server.config.remotes {
+		if server.is_primary_region()
+			&& let Some(remotes) = &server.config.remotes
+		{
 			let remotes = remotes.clone();
 			server
 				.database

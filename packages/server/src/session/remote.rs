@@ -20,7 +20,11 @@ impl tg::handle::Remote for Session {
 		self.put_remote(name, arg).await
 	}
 
-	async fn delete_remote(&self, name: &str, arg: tg::remote::delete::Arg) -> tg::Result<()> {
-		self.delete_remote(name, arg).await
+	async fn try_delete_remote(
+		&self,
+		name: &str,
+		arg: tg::remote::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.try_delete_remote(name, arg).await
 	}
 }
