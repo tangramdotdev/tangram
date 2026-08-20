@@ -67,6 +67,9 @@ pub struct Config {
 	pub object: Option<Object>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub primary_region: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process: Option<Process>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1971,6 +1974,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.object {
 		target.object = resolve_object(source)?;
 	}
+	if let Some(primary_region) = source.primary_region {
+		target.primary_region = Some(primary_region);
+	}
 	if let Some(source) = source.process {
 		target.process = resolve_process(source);
 	}
@@ -3534,6 +3540,20 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn parses_primary_region() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"primary_region": "ash0",
+			"region": "ewr0",
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+
+		assert_eq!(target.primary_region.as_deref(), Some("ash0"));
+		assert_eq!(target.region.as_deref(), Some("ewr0"));
+		assert!(!target.is_primary_region());
+	}
 
 	#[test]
 	fn parses_bool_or_configs() {

@@ -413,12 +413,34 @@ impl Server {
 		if config.region.as_ref().is_some_and(String::is_empty) {
 			return Err(tg::error!("the region must not be empty"));
 		}
+		if config.primary_region.as_ref().is_some_and(String::is_empty) {
+			return Err(tg::error!("the primary region must not be empty"));
+		}
 		if config
 			.regions
 			.as_ref()
 			.is_some_and(|regions| regions.iter().any(|region| region.name.is_empty()))
 		{
 			return Err(tg::error!("the region name must not be empty"));
+		}
+		if config
+			.regions
+			.as_ref()
+			.is_some_and(|regions| !regions.is_empty())
+			&& config.primary_region.is_none()
+		{
+			return Err(tg::error!(
+				"the primary region must be configured when regions are configured"
+			));
+		}
+		if let Some(primary_region) = &config.primary_region {
+			let primary_region_is_configured = config.region.as_ref() == Some(primary_region)
+				|| config.regions.as_ref().is_some_and(|regions| {
+					regions.iter().any(|region| &region.name == primary_region)
+				});
+			if !primary_region_is_configured {
+				return Err(tg::error!("the primary region is not configured"));
+			}
 		}
 
 		if config.roles.contains(&self::config::Role::Scheduler) {

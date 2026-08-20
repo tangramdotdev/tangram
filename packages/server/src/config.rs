@@ -41,6 +41,8 @@ pub struct Config {
 
 	pub object: Object,
 
+	pub primary_region: Option<String>,
+
 	pub process: Process,
 
 	pub region: Option<String>,
@@ -1080,6 +1082,18 @@ pub struct Write {
 
 impl Config {
 	#[must_use]
+	pub fn is_primary_region(&self) -> bool {
+		self.primary_region
+			.as_ref()
+			.is_none_or(|primary_region| self.region.as_ref() == Some(primary_region))
+	}
+
+	#[must_use]
+	pub fn primary_region(&self) -> Option<&str> {
+		self.primary_region.as_deref()
+	}
+
+	#[must_use]
 	pub fn with_directory(directory: PathBuf) -> Self {
 		Self {
 			directory: Some(directory),
@@ -1106,6 +1120,7 @@ impl Default for Config {
 			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
+			primary_region: None,
 			process: Process::default(),
 			region: None,
 			regions: None,
