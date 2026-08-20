@@ -179,6 +179,22 @@ impl Session {
 			source,
 		} = inner_arg;
 
+		// Select the source tokens for the sync protocol.
+		let get = get
+			.into_iter()
+			.map(|mut node| {
+				node.options.tokens = node.options.tokens.for_location(&source);
+				node
+			})
+			.collect::<Vec<_>>();
+		let put = put
+			.into_iter()
+			.map(|mut node| {
+				node.options.tokens = node.options.tokens.for_location(&source);
+				node
+			})
+			.collect::<Vec<_>>();
+
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
 		for name in [

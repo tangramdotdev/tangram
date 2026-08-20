@@ -2739,9 +2739,9 @@ impl Tree {
 							},
 							Item::Process(process) => {
 								let options = tg::process::get::Options {
+									availability: false,
 									location: None,
 									metadata: true,
-									stored: false,
 								};
 								process
 									.try_get_with_handle(&client, options)

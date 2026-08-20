@@ -3,7 +3,10 @@ use {
 	crate::{Session, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	num::ToPrimitive as _,
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::BTreeSet,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_object_store::prelude::*,
@@ -150,15 +153,15 @@ impl Session {
 			crate::checkpoint!(self.server, "sync.get.index.object.filter", id = %node.id).await;
 		}
 
-		// Separate the visible nodes. Missing nodes still need the local index as a fallback.
-		let (visible_nodes, nodes): (Vec<_>, Vec<_>) = {
+		// Separate the available nodes. Missing nodes still need the local index as a fallback.
+		let (available_nodes, nodes): (Vec<_>, Vec<_>) = {
 			let graph = state.graph.lock().unwrap();
-			nodes
-				.into_iter()
-				.partition(|node| !node.missing && graph.get_object_local_visible(&node.id).subtree)
+			nodes.into_iter().partition(|node| {
+				!node.missing && graph.get_object_local_availability(&node.id).subtree
+			})
 		};
-		for node in visible_nodes {
-			Self::sync_get_index_send_object_stored(state, &node.id).await?;
+		for node in available_nodes {
+			Self::sync_get_index_send_object_available(state, &node.id).await?;
 		}
 		if nodes.is_empty() {
 			Self::sync_get_index_close_queue_if_end(state);
@@ -173,7 +176,7 @@ impl Session {
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
-		// Authorize and touch the objects, then get stored and metadata.
+		// Authorize and touch the objects, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
@@ -208,18 +211,18 @@ impl Session {
 				metadata: output.as_ref().map(|object| object.metadata.clone()),
 				permissions,
 				requested: None,
-				stored: output.as_ref().map(|object| object.stored.clone()),
+				storage: output.as_ref().map(|object| object.storage.clone()),
 			};
 			state.graph.lock().unwrap().update_object_local(arg);
-			let visible = state
+			let availability = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_object_local_visible(&node.id);
+				.get_object_local_availability(&node.id);
 
-			// If the object is visible, then send a stored message.
-			if visible.subtree {
-				Self::sync_get_index_send_object_stored(state, &node.id).await?;
+			// Send the object's availability.
+			if availability.subtree {
+				Self::sync_get_index_send_object_available(state, &node.id).await?;
 			}
 
 			if node.missing {
@@ -228,8 +231,8 @@ impl Session {
 					return Err(tg::error!(id = %node.id, "failed to find the object"));
 				}
 
-				// If the object's subtree is not visible, then enqueue the children.
-				if !visible.subtree {
+				// If the object's subtree is unavailable, then enqueue the children.
+				if !availability.subtree {
 					// Get the object.
 					let bytes = self
 						.server
@@ -252,7 +255,7 @@ impl Session {
 						metadata: None,
 						permissions: None,
 						requested: None,
-						stored: None,
+						storage: None,
 					};
 					state.graph.lock().unwrap().update_object_local(arg);
 
@@ -267,18 +270,18 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_send_object_stored(
+	async fn sync_get_index_send_object_available(
 		state: &State,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
-		let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
-			tg::sync::GetStoredObjectMessage { id: id.clone() },
+		let message = tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(
+			tg::sync::GetAvailableObjectMessage { id: id.clone() },
 		));
 		state
 			.sender
 			.send(Ok(message))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the available message"))?;
 
 		Ok(())
 	}
@@ -289,25 +292,25 @@ impl Session {
 		nodes: Vec<ProcessNode>,
 		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
 	) -> tg::Result<()> {
-		// Separate the visible nodes. Missing nodes still need the local index as a fallback.
-		let (visible_nodes, nodes): (Vec<_>, Vec<_>) = {
+		// Separate the available nodes. Missing nodes still need the local index as a fallback.
+		let (available_nodes, nodes): (Vec<_>, Vec<_>) = {
 			let graph = state.graph.lock().unwrap();
 			nodes.into_iter().partition(|node| {
 				if node.missing {
 					return false;
 				}
-				let visible = graph.get_process_local_visible(&node.id);
+				let availability = graph.get_process_local_availability(&node.id);
 
-				graph.process_visible(&visible)
+				graph.process_available(&availability)
 			})
 		};
-		for node in visible_nodes {
-			let visible = state
+		for node in available_nodes {
+			let availability = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_visible(&node.id);
-			Self::sync_get_index_send_process_stored(state, &node.id, &visible).await?;
+				.get_process_local_availability(&node.id);
+			Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
 		}
 		if nodes.is_empty() {
 			Self::sync_get_index_close_queue_if_end(state);
@@ -322,7 +325,7 @@ impl Session {
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
-		// Authorize and touch the processes, then get stored and metadata.
+		// Authorize and touch the processes, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (mut outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
@@ -370,17 +373,17 @@ impl Session {
 				metadata: output.as_ref().map(|p| p.metadata.clone()),
 				permissions,
 				requested: None,
-				stored: output.as_ref().map(|p| p.stored.clone()),
+				storage: output.as_ref().map(|p| p.storage.clone()),
 			};
 			state.graph.lock().unwrap().update_process_local(arg);
-			let visible = state
+			let availability = state
 				.graph
 				.lock()
 				.unwrap()
-				.get_process_local_visible(&node.id);
+				.get_process_local_availability(&node.id);
 
-			// If the process is visible, then send a stored message.
-			Self::sync_get_index_send_process_stored(state, &node.id, &visible).await?;
+			// Send the process's availability.
+			Self::sync_get_index_send_process_available(state, &node.id, &availability).await?;
 
 			if node.missing {
 				// If the process is not stored, then error.
@@ -403,7 +406,7 @@ impl Session {
 					metadata: None,
 					permissions: None,
 					requested: None,
-					stored: None,
+					storage: None,
 				};
 				state.graph.lock().unwrap().update_process_local(arg);
 
@@ -412,7 +415,7 @@ impl Session {
 					state,
 					&node.id,
 					&data,
-					Some(&visible),
+					Some(&availability),
 					None,
 				);
 			}
@@ -423,33 +426,33 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_send_process_stored(
+	async fn sync_get_index_send_process_available(
 		state: &State,
 		id: &tg::process::Id,
-		visible: &tangram_index::process::Stored,
+		availability: &tg::process::Availability,
 	) -> tg::Result<()> {
-		if !Graph::process_visible_any(visible) {
+		if !Graph::process_any_available(availability) {
 			return Ok(());
 		}
-		let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
-			tg::sync::GetStoredProcessMessage {
+		let message = tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Process(
+			tg::sync::GetAvailableProcessMessage {
 				id: id.clone(),
-				node_command_stored: visible.node_command,
-				node_error_stored: visible.node_error,
-				node_log_stored: visible.node_log,
-				node_output_stored: visible.node_output,
-				subtree_command_stored: visible.subtree_command,
-				subtree_error_stored: visible.subtree_error,
-				subtree_log_stored: visible.subtree_log,
-				subtree_output_stored: visible.subtree_output,
-				subtree_stored: visible.subtree,
+				node_command_available: availability.node_command,
+				node_error_available: availability.node_error,
+				node_log_available: availability.node_log,
+				node_output_available: availability.node_output,
+				subtree_available: availability.subtree,
+				subtree_command_available: availability.subtree_command,
+				subtree_error_available: availability.subtree_error,
+				subtree_log_available: availability.subtree_log,
+				subtree_output_available: availability.subtree_output,
 			},
 		));
 		state
 			.sender
 			.send(Ok(message))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the stored message"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the available message"))?;
 
 		Ok(())
 	}
@@ -491,6 +494,34 @@ impl Session {
 			.flush()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
+
+		// Authorize process objects whose subtrees were already stored locally.
+		let process_objects = {
+			let graph = graph.lock().unwrap();
+			let mut process_objects = BTreeSet::new();
+			for (_, node) in &graph.nodes {
+				let Node::Process(process) = node else {
+					continue;
+				};
+				if !process.marked {
+					continue;
+				}
+				for (object_index, _) in process.objects.as_deref().unwrap_or_default() {
+					let (id, object) = graph.nodes.get_index(*object_index).unwrap();
+					let stored = object
+						.unwrap_object_ref()
+						.local_storage
+						.as_ref()
+						.is_some_and(|storage| storage.subtree);
+					if stored {
+						process_objects.insert(tg::object::Id::try_from(id.clone())?);
+					}
+				}
+			}
+			process_objects.into_iter().collect::<Vec<_>>()
+		};
+		self.sync_get_authorize_objects(&graph, &process_objects)
+			.await?;
 
 		// Create the index args and update the graph with the permissions being granted.
 		let account = self.usage_account(&self.context.principal).await?;
@@ -616,7 +647,7 @@ impl Session {
 					return Err(tg::error!("unauthorized"));
 				}
 			} else if let Some(arg) =
-				self.sync_get_create_temporary_grant(&message.id.clone().into())?
+				self.sync_get_create_implicit_grant(&message.id.clone().into())?
 			{
 				put_grant_args.push(arg);
 			}
@@ -650,7 +681,7 @@ impl Session {
 		}
 		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
 
-		// Set stored and metadata.
+		// Set the storage and metadata.
 		for index in indices.iter().copied() {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
@@ -1277,22 +1308,22 @@ impl Session {
 					| Node::Tag(_)
 					| Node::User(_) => {},
 					Node::Object(node) => {
-						let visible = node
-							.local_visible
+						let availability = node
+							.local_availability
 							.as_ref()
-							.is_some_and(|visible| visible.subtree);
+							.is_some_and(|availability| availability.subtree);
 						let mut subtree = false;
 						if node.marked && !object_covered[index] {
-							let permission = if visible {
+							let permission = if availability {
 								tg::authorization::permission::object::Permission::Subtree
 							} else {
 								tg::authorization::permission::object::Permission::Node
 							};
-							subtree = visible;
+							subtree = availability;
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
-								expires_at: Some(object_expires_at),
+								implicit: Some(Some(object_expires_at)),
 								permissions: tg::authorization::permission::Set::Object(
 									tg::authorization::permission::object::Set::from_permission(
 										permission,
@@ -1311,9 +1342,9 @@ impl Session {
 						}
 					},
 					Node::Process(node) => {
-						let visible = node.local_visible.clone().unwrap_or_default();
+						let availability = node.local_availability.clone().unwrap_or_default();
 						let mut permissions = if node.marked {
-							Self::sync_get_index_process_grant_permissions(&visible)
+							Self::sync_get_index_process_grant_permissions(&availability)
 						} else {
 							tg::authorization::permission::process::Set::empty()
 						};
@@ -1325,7 +1356,7 @@ impl Session {
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
-								expires_at: Some(process_expires_at),
+								implicit: Some(Some(process_expires_at)),
 								permissions: tg::authorization::permission::Set::Process(
 									permissions,
 								),
@@ -1345,6 +1376,43 @@ impl Session {
 						}
 					},
 				}
+			}
+		}
+
+		// Create non-expiring implicit grants for the process objects proven locally.
+		for index in indices.iter().copied() {
+			let (id, node) = graph.nodes.get_index(index).unwrap();
+			let Node::Process(node) = node else {
+				continue;
+			};
+			if !node.marked {
+				continue;
+			}
+			let process = tg::process::Id::try_from(id.clone())?;
+			let creator = tg::Principal::Process(process.clone());
+			let subject = tg::authorization::Subject::Process(process);
+			for (object_index, _) in node.objects.as_deref().unwrap_or_default() {
+				let (object, node) = graph.nodes.get_index(*object_index).unwrap();
+				let availability = node
+					.unwrap_object_ref()
+					.local_availability
+					.as_ref()
+					.is_some_and(|availability| availability.subtree);
+				if !availability {
+					continue;
+				}
+				put_grant_args.push(tangram_index::grant::put::Arg {
+					created_at: touched_at,
+					creator: Some(creator.clone()),
+					implicit: Some(None),
+					permissions: tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					)
+					.into(),
+					resource: tg::object::Id::try_from(object.clone())?.into(),
+					subject: subject.clone(),
+					time_to_touch: None,
+				});
 			}
 		}
 
@@ -1386,13 +1454,13 @@ impl Session {
 							})
 							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
 						let metadata = node.metadata.clone().unwrap();
-						let stored = node.local_stored.clone().unwrap();
+						let storage = node.local_storage.clone().unwrap();
 						let arg = tangram_index::object::put::Arg {
 							checkout: None,
 							children,
 							id,
 							metadata,
-							stored,
+							storage,
 							time_to_touch: self.server.config.object.time_to_touch,
 							touched_at,
 						};
@@ -1410,7 +1478,7 @@ impl Session {
 							.as_ref()
 							.and_then(|data| data.children.clone())
 							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
-						let stored = node.local_stored.clone().unwrap();
+						let storage = node.local_storage.clone().unwrap();
 						let metadata = node.metadata.clone().unwrap();
 						let objects = node
 							.objects
@@ -1462,7 +1530,7 @@ impl Session {
 							output: Some((!output.is_empty()).then_some(output)),
 							parent: None,
 							sandbox: None,
-							stored,
+							storage,
 							time_to_touch: self.server.config.process.time_to_touch,
 							touched_at,
 						};
@@ -1482,32 +1550,32 @@ impl Session {
 	}
 
 	fn sync_get_index_process_grant_permissions(
-		visible: &tangram_index::process::Stored,
+		availability: &tg::process::Availability,
 	) -> tg::authorization::permission::process::Set {
 		let mut permissions = tg::authorization::permission::process::Set::empty();
-		if visible.subtree {
+		if availability.subtree {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		} else {
 			permissions.insert(tg::authorization::permission::process::Set::NODE);
 		}
-		if visible.subtree_command {
+		if availability.subtree_command {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
-		} else if visible.node_command {
+		} else if availability.node_command {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND);
 		}
-		if visible.subtree_error {
+		if availability.subtree_error {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
-		} else if visible.node_error {
+		} else if availability.node_error {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
 		}
-		if visible.subtree_log {
+		if availability.subtree_log {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
-		} else if visible.node_log {
+		} else if availability.node_log {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
 		}
-		if visible.subtree_output {
+		if availability.subtree_output {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
-		} else if visible.node_output {
+		} else if availability.node_output {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
 		}
 		permissions

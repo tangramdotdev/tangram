@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A pull computes whether each object's subtree is fully stored from the children as they arrive, and
 # the local index reports the same thing, but can be behind: a plain get stores a single object and
-# indexes it with `stored.subtree` false. A stale false must not replace a computed true, because the
+# indexes it with `storage.subtree` false. A stale false must not replace a computed true, because the
 # computed value is recomputed only when a child changes, and every child has already arrived. If it
 # did, the root would never count as stored, and the pull would never finish, even though every
 # object arrived and nothing failed.
@@ -35,10 +35,10 @@ tg --url $remote.url index
 # index entry that the pull later reads.
 tg --url $client.url get $file | ignore
 tg --url $client.url index
-assert equal (tg --url $client.url stored --local $file | from json) {} "the index must report that the file's subtree is not stored"
+assert equal (tg --url $client.url availability --local $file | from json) {} "the index must report that the file's subtree is unavailable"
 
 # Hold the file's blob so that the index task selects the stale lookup before the graph computes the
-# file as visible.
+# file as available.
 let file_blob_input_watch = (
 	tg --url $client.url checkpoint watch sync.get.input.object --params ({ id: $file_blob } | to json)
 	| from json
@@ -59,7 +59,7 @@ let filter_watch = (
 	| get watch
 )
 
-# Hold the stale index request until the file has become visible in the graph.
+# Hold the stale index request until the file has become available in the graph.
 let index_watch = (
 	tg --url $client.url checkpoint watch sync.get.index.object --params ({ id: $file } | to json)
 	| from json
@@ -73,7 +73,7 @@ let pull = job spawn {
 }
 
 # Wait until the file's blob and the index task are both held, then let the index task select the
-# lookup while the file is not yet visible.
+# lookup while the file is not yet available.
 tg --url $client.url checkpoint wait sync.get.input.object $file_blob_input_watch 0 | ignore
 tg --url $client.url checkpoint wait sync.get.index.object.filter $filter_watch 0 | ignore
 tg --url $client.url checkpoint continue sync.get.index.object.filter $filter_watch 0
@@ -81,7 +81,7 @@ tg --url $client.url checkpoint unwatch sync.get.index.object.filter $filter_wat
 tg --url $client.url checkpoint wait sync.get.index.object $index_watch 0 | ignore
 
 # Let the file's blob arrive, then wait until every object except the deeper branch's blob has
-# arrived. The graph has now computed that the file is visible.
+# arrived. The graph has now computed that the file is available.
 tg --url $client.url checkpoint continue sync.get.input.object $file_blob_input_watch 0
 tg --url $client.url checkpoint unwatch sync.get.input.object $file_blob_input_watch
 tg --url $client.url checkpoint wait sync.get.input.object $deep_blob_input_watch 0 | ignore

@@ -26,13 +26,13 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn try_get_process_stored(
+	async fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> tg::Result<Option<tg::process::Stored>> {
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
 		self.session(&self.context)
-			.try_get_process_stored(id, arg)
+			.try_get_process_availability(id, arg)
 			.await
 	}
 

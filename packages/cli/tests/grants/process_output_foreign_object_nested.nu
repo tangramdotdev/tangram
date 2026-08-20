@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A process cannot return an object that contains an object it cannot read as its output.
+# A process can return a readable wrapper around an unreadable object without gaining access to the child.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -21,13 +21,18 @@ let source = 'export default function () { return tg.directory({ "leak": tg.File
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
 let wait = tg --token $eve.token wait $eve_process | from json
-assert equal $wait.exit 1 "a process must fail when it cannot authorize its output."
-assert equal $wait.error.message "failed to authorize the process output"
-assert equal $wait.output? null
+assert equal $wait.exit 0 "a process may return a readable wrapper around an unreadable object."
+let directory = $wait.output.value | split row '?' | first
 
-# The rejected object is not stored as the process output.
+# The relationship is stored on the process, and Eve can read the wrapper node.
 let process = tg --token $eve.token get $eve_process | from json
-assert equal $process.output? null
+assert equal ($process.output.value | split row '?' | first) $directory
+let wrapper = tg --token $eve.token get $directory | complete
+success $wrapper "Eve should be able to read the wrapper node."
+
+# Reading the wrapper's full subtree fails only when Eve requests the unreadable child.
+let nested = tg --token $eve.token get $directory --depth inf | complete
+failure $nested "Eve must not read Alice's private file through the wrapper."
 
 # Eve must not gain read access to Alice's private file by nesting it in her process output.
 let leaked = tg --token $eve.token get $file | complete

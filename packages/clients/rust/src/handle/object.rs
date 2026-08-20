@@ -19,11 +19,11 @@ pub trait Object: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::object::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> + Send;
 
-	fn try_get_object_stored(
+	fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Stored>>> + Send;
+		arg: tg::object::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Availability>>> + Send;
 
 	fn get_object(
 		&self,
@@ -84,13 +84,13 @@ impl tg::handle::Object for tg::Client {
 			.await
 	}
 
-	async fn try_get_object_stored(
+	async fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> tg::Result<Option<tg::object::Stored>> {
+		arg: tg::object::availability::Arg,
+	) -> tg::Result<Option<tg::object::Availability>> {
 		self.session(&self.context)
-			.try_get_object_stored(id, arg)
+			.try_get_object_availability(id, arg)
 			.await
 	}
 

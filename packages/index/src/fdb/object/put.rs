@@ -42,11 +42,11 @@ impl Index {
 				.and_then(|existing| existing.checkout.clone())
 		});
 
-		let stored = crate::object::Stored {
-			subtree: arg.stored.subtree
+		let storage = crate::object::Storage {
+			subtree: arg.storage.subtree
 				|| existing
 					.as_ref()
-					.is_some_and(|existing| existing.stored.subtree),
+					.is_some_and(|existing| existing.storage.subtree),
 		};
 
 		let mut metadata = arg.metadata.clone();
@@ -56,7 +56,7 @@ impl Index {
 		let changed = existing.as_ref().is_none_or(|existing| {
 			existing.checkout != checkout
 				|| existing.metadata != metadata
-				|| existing.stored != stored
+				|| existing.storage != storage
 		});
 		if !changed && !touch {
 			return Ok(ControlFlow::Break(()));
@@ -66,7 +66,7 @@ impl Index {
 			checkout,
 			metadata,
 			reference_count: 0,
-			stored,
+			storage,
 			touched_at,
 		}
 		.serialize()?;

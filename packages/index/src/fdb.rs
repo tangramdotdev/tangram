@@ -119,6 +119,7 @@ impl Index {
 		});
 
 		// Spawn the writer task.
+		let authorize = options.authorize;
 		let max_process_depth = options.max_process_depth;
 		let write_operation_batch_size = options.write_operation_batch_size;
 		let write_transaction_concurrency = options.write_transaction_concurrency;
@@ -128,6 +129,7 @@ impl Index {
 			let subspace = subspace.clone();
 			async move {
 				let arg = writer::Arg {
+					authorize,
 					database,
 					max_process_depth,
 					metrics,

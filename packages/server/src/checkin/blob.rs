@@ -131,7 +131,7 @@ impl Session {
 					children,
 					id: id.clone(),
 					metadata,
-					stored: tangram_index::object::Stored { subtree: true },
+					storage: tangram_index::object::Storage { subtree: true },
 					time_to_touch: self.server.config.object.time_to_touch,
 					touched_at,
 				};

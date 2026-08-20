@@ -3,6 +3,7 @@ mod authorize;
 mod batch;
 mod clean;
 mod log;
+mod process_object_grant;
 mod reader;
 mod storage;
 mod update;

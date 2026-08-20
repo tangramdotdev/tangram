@@ -71,15 +71,12 @@ impl Session {
 			let session = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				// Ensure the artifacts are stored and authorized.
+				// Ensure the artifacts are available.
 				let result = session
-					.checkout_internal_ensure_stored_and_authorized(&artifacts, &progress)
+					.checkout_internal_ensure_available(&artifacts, &progress)
 					.await
 					.map_err(|error| {
-						tg::error!(
-							!error,
-							"failed to ensure the artifacts are stored and authorized"
-						)
+						tg::error!(!error, "failed to ensure the artifacts are available")
 					});
 				if let Err(error) = result {
 					tracing::warn!(error = %error.trace());
@@ -514,7 +511,7 @@ impl Session {
 		Ok(entries)
 	}
 
-	async fn checkout_internal_ensure_stored_and_authorized(
+	async fn checkout_internal_ensure_available(
 		&self,
 		artifacts: &[tg::Referent<tg::artifact::Id>],
 		progress: &crate::progress::Handle<()>,
@@ -529,7 +526,7 @@ impl Session {
 			.try_get_objects(&ids)
 			.await?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
+			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
@@ -575,14 +572,9 @@ impl Session {
 			.index
 			.try_get_objects(&ids)
 			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					"failed to check if the artifacts are stored and authorized"
-				)
-			})?
+			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
+			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
@@ -648,14 +640,9 @@ impl Session {
 			.index
 			.try_get_objects(&ids)
 			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					"failed to check if the artifacts are stored and authorized"
-				)
-			})?
+			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
+			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,

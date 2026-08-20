@@ -2,6 +2,7 @@ use {
 	super::child::AddProcessChildArg,
 	crate::Session,
 	futures::{FutureExt as _, future},
+	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
 };
@@ -11,6 +12,7 @@ pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
+	pub command_options: tg::referent::Options,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
 	pub lease: Option<String>,
@@ -167,35 +169,20 @@ impl Session {
 		}
 	}
 
-	pub(super) async fn spawn_process_authorize_command(
+	pub(super) async fn spawn_process_get_command(
 		&self,
 		command: &tg::Referent<tg::command::Id>,
-	) -> tg::Result<()> {
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let command = command.clone().map(tg::object::Id::from);
-		if !self
-			.authorize(command, permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission))
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		Ok(())
-	}
-
-	pub(super) async fn spawn_process_get_command_host(
-		&self,
-		command: &tg::Referent<tg::command::Id>,
-	) -> tg::Result<String> {
+	) -> tg::Result<(String, tg::Referent<tg::command::Id>)> {
 		let command = tg::Command::with_referent(command.clone());
-		let host = command
-			.host_with_handle(self)
+		let object = command
+			.object_with_handle(self)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command host"))?
-			.to_string();
-		Ok(host)
+			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
+		let host = object.host.clone();
+		let command = command.to_referent();
+		let output = (host, command);
+
+		Ok(output)
 	}
 
 	pub(super) fn spawn_process_is_cacheable(arg: &tg::process::spawn::Arg) -> bool {
@@ -228,11 +215,19 @@ impl Session {
 		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
+		grant_command: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
-			let host = self.spawn_process_get_command_host(command).await?;
+			let (host, command) = self.spawn_process_get_command(command).await?;
 			return self
-				.spawn_process_create_local_process(arg, command, parent_sandbox, cacheable, &host)
+				.spawn_process_create_local_process(
+					arg,
+					&command,
+					parent_sandbox,
+					cacheable,
+					grant_command,
+					&host,
+				)
 				.boxed()
 				.await
 				.map(Some);
@@ -249,6 +244,7 @@ impl Session {
 		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
+		grant_command: bool,
 		host: &str,
 	) -> tg::Result<Output> {
 		let requested_owner = match &arg.sandbox {
@@ -381,8 +377,9 @@ impl Session {
 		let output = Output {
 			allocation: None,
 			cached: false,
+			command_options: command.options.clone(),
 			data,
-			id,
+			id: id.clone(),
 			lease: None,
 			parent: arg.parent.clone(),
 			parent_sandbox: parent_sandbox.cloned(),
@@ -392,6 +389,30 @@ impl Session {
 			scheduler: arg.scheduler.clone(),
 			token,
 		};
+		if grant_command {
+			let grant_expires_at = now
+				+ self
+					.server
+					.config
+					.object
+					.grant_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let command = command.clone().map(Into::into);
+			let grant_arg = self
+				.create_process_object_grant_arg(&id, [command], now, Some(grant_expires_at))
+				.await?;
+			self.server
+				.index_batch(tangram_index::batch::Arg {
+					items: vec![tangram_index::batch::Item::PutProcessObjectGrants(
+						grant_arg,
+					)],
+				})
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to grant the process command"))?;
+		}
+
 		Ok(output)
 	}
 

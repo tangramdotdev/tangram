@@ -21,12 +21,15 @@ struct State {
 impl Session {
 	pub(crate) async fn write_progress_stream<T: Send + std::fmt::Debug + 'static>(
 		&self,
-		command: &tg::Command,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stderr: &tg::process::Stdio,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		if self.progress_is_quiet(command).await? {
+		let quiet = std::env::var("TANGRAM_QUIET")
+			.ok()
+			.and_then(|value| value.parse().ok())
+			.unwrap_or(false);
+		if quiet {
 			return self.write_progress_stream_to_null(stream).await;
 		}
 		let output = match stderr {
@@ -40,25 +43,6 @@ impl Session {
 			},
 		};
 		Ok(output)
-	}
-
-	async fn progress_is_quiet(&self, command: &tg::Command) -> tg::Result<bool> {
-		let command = command
-			.load_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to load the command"))?;
-		let quiet = match command.env.get("TANGRAM_QUIET") {
-			Some(
-				tg::command::Value::String(tg::Value::String(value))
-				| tg::command::Value::Value(tg::Value::String(value)),
-			) => value.parse().unwrap_or(false),
-			Some(
-				tg::command::Value::String(tg::Value::Bool(value))
-				| tg::command::Value::Value(tg::Value::Bool(value)),
-			) => *value,
-			_ => false,
-		};
-		Ok(quiet)
 	}
 
 	async fn write_progress_stream_to_null<T>(

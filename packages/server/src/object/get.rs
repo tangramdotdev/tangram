@@ -34,10 +34,10 @@ pub(crate) struct CheckoutFile {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct TaskKey {
+	pub availability: bool,
 	pub id: tg::object::Id,
 	pub location: tg::Location,
 	pub metadata: bool,
-	pub stored: bool,
 	pub tokens: tg::authorization::Tokens,
 }
 
@@ -55,7 +55,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_object_local(id, arg.metadata, arg.stored, arg.tokens.local())
+					.try_get_object_local(id, arg.metadata, arg.availability, arg.tokens.local())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			{
@@ -63,7 +63,13 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_get_object_regions(id, &local.regions, arg.metadata, arg.stored, &arg.tokens)
+				.try_get_object_regions(
+					id,
+					&local.regions,
+					arg.metadata,
+					arg.availability,
+					&arg.tokens,
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the object from another region"),
@@ -77,7 +83,7 @@ impl Session {
 				id,
 				&locations.remotes,
 				arg.metadata,
-				arg.stored,
+				arg.availability,
 				&arg.tokens,
 			)
 			.await
@@ -93,7 +99,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
@@ -130,8 +136,8 @@ impl Session {
 		if let Some(metadata) = output.metadata {
 			output.metadata = self.mask_object_metadata(id, metadata, token).await?;
 		}
-		if stored && let Some(stored) = self.server.try_get_object_stored_local(id).await? {
-			output.stored = self.mask_object_stored(id, stored, token).await?;
+		if availability && let Some(storage) = self.server.try_get_object_storage_local(id).await? {
+			output.availability = self.compute_object_availability(id, storage, token).await?;
 		}
 		Ok(Some(output))
 	}
@@ -232,12 +238,12 @@ impl Session {
 		id: &tg::object::Id,
 		regions: &[String],
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_object_region(id, region, metadata, stored, tokens))
+			.map(|region| self.try_get_object_region(id, region, metadata, availability, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -265,14 +271,14 @@ impl Session {
 		id: &tg::object::Id,
 		region: &str,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
 		let Some(output) = self
-			.try_get_object_location(id, location, metadata, stored, tokens)
+			.try_get_object_location(id, location, metadata, availability, tokens)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, region = %region, "failed to get the object"),
@@ -288,12 +294,12 @@ impl Session {
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_object_remote(id, remote, metadata, stored, tokens))
+			.map(|remote| self.try_get_object_remote(id, remote, metadata, availability, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -322,7 +328,7 @@ impl Session {
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Remote(tg::location::Remote {
@@ -330,7 +336,7 @@ impl Session {
 			region: None,
 		});
 		let Some(output) = self
-			.try_get_object_location(id, location, metadata, stored, tokens)
+			.try_get_object_location(id, location, metadata, availability, tokens)
 			.await
 			.map_err(|error| {
 				tg::error!(
@@ -351,14 +357,14 @@ impl Session {
 		id: &tg::object::Id,
 		location: tg::Location,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let key = TaskKey {
+			availability,
 			id: id.clone(),
 			location,
 			metadata,
-			stored,
 			tokens: tokens.clone(),
 		};
 		self.try_get_object_from_location_task(key).await
@@ -385,10 +391,10 @@ impl Session {
 		key: TaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let TaskKey {
+			availability,
 			id,
 			location,
 			metadata,
-			stored,
 			tokens,
 		} = key;
 		let source = location.clone();
@@ -406,9 +412,9 @@ impl Session {
 					region: Some(region.to_owned()),
 				});
 				let arg = tg::object::get::Arg {
+					availability,
 					location: Some(location.into()),
 					metadata,
-					stored,
 					tokens,
 				};
 				client.try_get_object(&id, arg).await.map_err(
@@ -427,6 +433,7 @@ impl Session {
 						)
 					})?;
 				let arg = tg::object::get::Arg {
+					availability,
 					location: Some(remote.region.as_deref().map_or_else(
 						|| tg::Location::Local(tg::location::Local::default()).into(),
 						|region| {
@@ -437,7 +444,6 @@ impl Session {
 						},
 					)),
 					metadata,
-					stored,
 					tokens,
 				};
 				client.try_get_object(&id, arg).await.map_err(
@@ -537,10 +543,10 @@ impl Session {
 				.header_json(tg::object::get::METADATA_HEADER, metadata)
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 		}
-		if let Some(stored) = &output.stored {
+		if let Some(availability) = &output.availability {
 			response = response
-				.header_json(tg::object::get::STORED_HEADER, stored)
-				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
+				.header_json(tg::object::get::AVAILABILITY_HEADER, availability)
+				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
 		}
 		if !output.tokens.is_empty() {
 			response = response
@@ -582,9 +588,9 @@ impl Server {
 
 		// Create the output.
 		let output = tg::object::get::Output {
+			availability: None,
 			bytes,
 			metadata,
-			stored: None,
 			tokens: tg::authorization::Tokens::default(),
 		};
 
@@ -617,9 +623,9 @@ impl Server {
 			return Ok(None);
 		};
 		let output = tg::object::get::Output {
+			availability: None,
 			bytes,
 			metadata: None,
-			stored: None,
 			tokens: tg::authorization::Tokens::default(),
 		};
 		Ok(Some(output))
@@ -653,9 +659,9 @@ impl Server {
 		let outputs = std::iter::zip(bytes, metadata)
 			.map(|(bytes, metadata)| {
 				bytes.map(|bytes| tg::object::get::Output {
+					availability: None,
 					bytes,
 					metadata,
-					stored: None,
 					tokens: tg::authorization::Tokens::default(),
 				})
 			})

@@ -14,6 +14,10 @@ pub struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
+	/// Get the process's availability.
+	#[arg(long)]
+	pub availability: bool,
+
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
@@ -23,10 +27,6 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	/// Get the process's storage status.
-	#[arg(long)]
-	pub stored: bool,
 }
 
 impl Cli {
@@ -51,9 +51,9 @@ impl Cli {
 		let location = options.locations.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options_ = tg::process::get::Options {
+			availability: options.availability,
 			location,
 			metadata: options.metadata,
-			stored: options.stored,
 		};
 		let output = process
 			.get_with_handle(&client, options_)
@@ -64,10 +64,10 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 			self.print_info_message(&metadata);
 		}
-		if let Some(stored) = output.stored {
-			let stored = serde_json::to_string(&stored)
-				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
-			self.print_info_message(&stored);
+		if let Some(availability) = output.availability {
+			let availability = serde_json::to_string(&availability)
+				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
+			self.print_info_message(&availability);
 		}
 		self.print_serde(output.data, options.print).await?;
 		Ok(())

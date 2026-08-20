@@ -158,7 +158,6 @@ impl Permission {
 				| process::Permission::NodeError
 				| process::Permission::NodeLog
 				| process::Permission::NodeOutput
-				| process::Permission::Read
 				| process::Permission::Subtree
 				| process::Permission::SubtreeCommand
 				| process::Permission::SubtreeError
@@ -172,7 +171,7 @@ impl Permission {
 			| Self::Organization(
 				organization::Permission::Admin | organization::Permission::Write,
 			)
-			| Self::Process(process::Permission::Write)
+			| Self::Process(process::Permission::Parent)
 			| Self::Sandbox(sandbox::Permission::Write)
 			| Self::Tag(tag::Permission::Admin | tag::Permission::Write)
 			| Self::User(user::Permission::Admin | user::Permission::Write) => false,
@@ -351,13 +350,13 @@ impl Set {
 				Self::process_entry(permissions, process::Permission::NodeError),
 				Self::process_entry(permissions, process::Permission::NodeLog),
 				Self::process_entry(permissions, process::Permission::NodeOutput),
-				Self::process_entry(permissions, process::Permission::Read),
+				Self::process_entry(permissions, process::Permission::Parent),
 				Self::process_entry(permissions, process::Permission::Subtree),
 				Self::process_entry(permissions, process::Permission::SubtreeCommand),
 				Self::process_entry(permissions, process::Permission::SubtreeError),
 				Self::process_entry(permissions, process::Permission::SubtreeLog),
 				Self::process_entry(permissions, process::Permission::SubtreeOutput),
-				Self::process_entry(permissions, process::Permission::Write),
+				None,
 			],
 			Self::Sandbox(permissions) => Self::sandbox_entries(permissions),
 			Self::Tag(permissions) => Self::tag_entries(permissions),
@@ -634,8 +633,8 @@ mod tests {
 				"process_node_output",
 			),
 			(
-				Permission::Process(process::Permission::Read),
-				"process_read",
+				Permission::Process(process::Permission::Parent),
+				"process_parent",
 			),
 			(
 				Permission::Process(process::Permission::Subtree),
@@ -656,10 +655,6 @@ mod tests {
 			(
 				Permission::Process(process::Permission::SubtreeOutput),
 				"process_subtree_output",
-			),
-			(
-				Permission::Process(process::Permission::Write),
-				"process_write",
 			),
 			(
 				Permission::Sandbox(sandbox::Permission::Read),
@@ -725,28 +720,20 @@ mod tests {
 				.implies(Permission::Process(process::Permission::NodeOutput))
 		);
 		assert!(
-			Permission::Process(process::Permission::Read)
+			Permission::Process(process::Permission::Parent)
 				.implies(Permission::Process(process::Permission::NodeOutput))
 		);
 		assert!(
-			Permission::Process(process::Permission::Read)
+			Permission::Process(process::Permission::Parent)
 				.implies(Permission::Process(process::Permission::SubtreeOutput))
 		);
 		assert!(
-			!Permission::Process(process::Permission::Read)
-				.implies(Permission::Process(process::Permission::Write))
-		);
-		assert!(
-			Permission::Process(process::Permission::Write)
-				.implies(Permission::Process(process::Permission::Write))
-		);
-		assert!(
-			Permission::Process(process::Permission::Write)
-				.implies(Permission::Process(process::Permission::Read))
+			Permission::Process(process::Permission::Parent)
+				.implies(Permission::Process(process::Permission::Parent))
 		);
 		assert!(
 			!Permission::Process(process::Permission::Subtree)
-				.implies(Permission::Process(process::Permission::Write))
+				.implies(Permission::Process(process::Permission::Parent))
 		);
 		assert!(
 			!Permission::Group(group::Permission::Read)

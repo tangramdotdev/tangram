@@ -139,7 +139,7 @@ impl Session {
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
-		// Authorize and touch the objects, then get stored and metadata.
+		// Authorize and touch the objects, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_objects(
@@ -173,7 +173,7 @@ impl Session {
 								metadata: None,
 								permissions: None,
 								requested: Some(requested),
-								stored: None,
+								storage: None,
 							};
 							graph.update_object_local(arg);
 							false
@@ -197,10 +197,10 @@ impl Session {
 				},
 
 				Some(object) => {
-					let stored = object.stored;
+					let storage = object.storage;
 					let metadata = object.metadata;
 
-					// Update the graph with stored and metadata.
+					// Update the graph with the storage and metadata.
 					let arg = UpdateObjectLocalArg {
 						data: None,
 						id: &node.id,
@@ -208,22 +208,23 @@ impl Session {
 						metadata: Some(metadata.clone()),
 						permissions,
 						requested: None,
-						stored: Some(stored.clone()),
+						storage: Some(storage.clone()),
 					};
 					state.graph.lock().unwrap().update_object_local(arg);
-					let visible = state
+					let availability = state
 						.graph
 						.lock()
 						.unwrap()
-						.get_object_local_visible(&node.id);
+						.get_object_local_availability(&node.id);
 
-					if visible.subtree {
-						// If the object is visible, then send a stored message.
-						let message = tg::sync::GetMessage::Stored(
-							tg::sync::GetStoredMessage::Object(tg::sync::GetStoredObjectMessage {
-								id: node.id.clone(),
-							}),
-						);
+					if availability.subtree {
+						// Send the object's availability.
+						let message =
+							tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(
+								tg::sync::GetAvailableObjectMessage {
+									id: node.id.clone(),
+								},
+							));
 						state
 							.sender
 							.send(Ok(message))
@@ -235,7 +236,7 @@ impl Session {
 						let bytes = metadata.subtree.size.unwrap_or(metadata.node.size);
 						state.progress.increment_skipped(0, objects, bytes);
 					} else {
-						// If the object is stored but its subtree is not visible, then enqueue the children.
+						// If the subtree is unavailable, then enqueue the children.
 						let bytes = self
 							.server
 							.try_get_object_local(&node.id, false)
@@ -255,7 +256,7 @@ impl Session {
 							metadata: None,
 							permissions: None,
 							requested: None,
-							stored: None,
+							storage: None,
 						};
 						state.graph.lock().unwrap().update_object_local(arg);
 
@@ -301,7 +302,7 @@ impl Session {
 		// Get the ids.
 		let ids = nodes.iter().map(|node| node.id.clone()).collect::<Vec<_>>();
 
-		// Authorize and touch the processes, then get stored and metadata.
+		// Authorize and touch the processes, then get their storage and metadata.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (outputs, permissions) = self
 			.sync_get_touch_authorized_processes(
@@ -336,7 +337,7 @@ impl Session {
 								metadata: None,
 								permissions: None,
 								requested: Some(requested),
-								stored: None,
+								storage: None,
 							};
 							graph.update_process_local(arg);
 							false
@@ -359,9 +360,9 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 				},
 
-				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
+				// If the process is present, enqueue its dependencies and send its availability.
 				Some(process) => {
-					let stored = &process.stored;
+					let storage = &process.storage;
 					let metadata = &process.metadata;
 					// Get the process.
 					let mut data = self
@@ -379,8 +380,8 @@ impl Session {
 					}
 					let log_needs_compaction = Self::process_log_needs_compaction(&data);
 
-					// Update the graph with stored and metadata and data.
-					let (request, visible) = {
+					// Update the graph with the storage, metadata, and data.
+					let (request, availability) = {
 						let mut graph = state.graph.lock().unwrap();
 						let request = state.arg.process_logs
 							&& log_needs_compaction
@@ -392,12 +393,12 @@ impl Session {
 							metadata: Some(metadata.clone()),
 							permissions,
 							requested: request.then_some(Requested { eager: node.eager }),
-							stored: Some(stored.clone()),
+							storage: Some(storage.clone()),
 						};
 						graph.update_process_local(arg);
-						let visible = graph.get_process_local_visible(&node.id);
+						let availability = graph.get_process_local_availability(&node.id);
 
-						(request, visible)
+						(request, availability)
 					};
 
 					// Enqueue the children as necessary.
@@ -405,7 +406,7 @@ impl Session {
 						state,
 						&node.id,
 						&data,
-						Some(&visible),
+						Some(&availability),
 						node.token.as_ref(),
 					);
 
@@ -424,25 +425,26 @@ impl Session {
 							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
 					}
 
-					// Send a stored message if the process is visible.
-					if Graph::process_visible_any(&visible) {
-						let message =
-							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
-								tg::sync::GetStoredProcessMessage {
+					// Send the available portions of the process.
+					if Graph::process_any_available(&availability) {
+						let message = tg::sync::GetMessage::Available(
+							tg::sync::GetAvailableMessage::Process(
+								tg::sync::GetAvailableProcessMessage {
 									id: node.id.clone(),
-									node_command_stored: visible.node_command,
-									node_error_stored: visible.node_error,
-									node_log_stored: visible.node_log,
-									node_output_stored: visible.node_output,
-									subtree_command_stored: visible.subtree_command,
-									subtree_error_stored: visible.subtree_error,
-									subtree_log_stored: visible.subtree_log,
-									subtree_output_stored: visible.subtree_output,
-									subtree_stored: visible.subtree,
+									node_command_available: availability.node_command,
+									node_error_available: availability.node_error,
+									node_log_available: availability.node_log,
+									node_output_available: availability.node_output,
+									subtree_available: availability.subtree,
+									subtree_command_available: availability.subtree_command,
+									subtree_error_available: availability.subtree_error,
+									subtree_log_available: availability.subtree_log,
+									subtree_output_available: availability.subtree_output,
 								},
-							));
+							),
+						);
 						state.sender.send(Ok(message)).await.map_err(|error| {
-							tg::error!(!error, "failed to send the stored message")
+							tg::error!(!error, "failed to send the available message")
 						})?;
 					}
 					state.set_root_presence(&node.id.clone().into(), true);
@@ -483,18 +485,20 @@ impl Session {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		stored: Option<&tangram_index::process::Stored>,
+		availability: Option<&tg::process::Availability>,
 		token: Option<&tg::authorization::Token>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.process_children
-			&& (!stored.is_some_and(|stored| stored.subtree)
+			&& (!availability.is_some_and(|availability| availability.subtree)
 				|| (state.arg.process_commands
-					&& !stored.is_some_and(|stored| stored.subtree_command))
-				|| (state.arg.process_errors && !stored.is_some_and(|stored| stored.subtree_error))
-				|| (state.arg.process_logs && !stored.is_some_and(|stored| stored.subtree_log))
+					&& !availability.is_some_and(|availability| availability.subtree_command))
+				|| (state.arg.process_errors
+					&& !availability.is_some_and(|availability| availability.subtree_error))
+				|| (state.arg.process_logs
+					&& !availability.is_some_and(|availability| availability.subtree_log))
 				|| (state.arg.process_outputs
-					&& !stored.is_some_and(|stored| stored.subtree_output)))
+					&& !availability.is_some_and(|availability| availability.subtree_output)))
 			&& let Some(children) = &data.children
 		{
 			for child in children {
@@ -509,7 +513,9 @@ impl Session {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.process_commands && !stored.is_some_and(|stored| stored.node_command) {
+		if state.arg.process_commands
+			&& !availability.is_some_and(|availability| availability.node_command)
+		{
 			let node = ObjectNode {
 				descendants: true,
 				eager: state.arg.eager,
@@ -523,7 +529,7 @@ impl Session {
 
 		// Enqueue the error if necessary.
 		if state.arg.process_errors
-			&& !stored.is_some_and(|stored| stored.node_error)
+			&& !availability.is_some_and(|availability| availability.node_error)
 			&& let Some(error) = &data.error
 		{
 			match error {
@@ -557,7 +563,7 @@ impl Session {
 
 		// Enqueue the log if necessary.
 		if state.arg.process_logs
-			&& !stored.is_some_and(|stored| stored.node_log)
+			&& !availability.is_some_and(|availability| availability.node_log)
 			&& let Some(log) = data.log.clone()
 		{
 			let node = ObjectNode {
@@ -572,7 +578,8 @@ impl Session {
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.process_outputs && !stored.is_some_and(|stored| stored.node_output))
+		if (state.arg.process_outputs
+			&& !availability.is_some_and(|availability| availability.node_output))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();

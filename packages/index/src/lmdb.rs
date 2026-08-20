@@ -144,6 +144,7 @@ impl Index {
 
 		// Spawn the writer task.
 		let writer_handle = std::thread::spawn({
+			let authorize = config.authorize;
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
@@ -151,6 +152,7 @@ impl Index {
 			let write_operation_batch_size = config.write_operation_batch_size;
 			move || {
 				Self::writer_task(writer::Arg {
+					authorize,
 					db: &db,
 					env: &env,
 					max_process_depth,

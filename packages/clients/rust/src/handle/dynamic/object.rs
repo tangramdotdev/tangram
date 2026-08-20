@@ -11,12 +11,14 @@ impl tg::handle::Object for Handle {
 		}
 	}
 
-	fn try_get_object_stored(
+	fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Stored>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_object_stored(id, arg)) }
+		arg: tg::object::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Availability>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_object_availability(id, arg))
+		}
 	}
 
 	fn try_get_object(

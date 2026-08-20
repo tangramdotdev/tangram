@@ -127,7 +127,7 @@ impl Session {
 					metadata: None,
 					permissions: None,
 					requested: None,
-					stored: None,
+					storage: None,
 				};
 				state.graph.lock().unwrap().update_object_local(update);
 			}
@@ -307,7 +307,7 @@ impl Session {
 					metadata: None,
 					permissions: None,
 					requested: None,
-					stored: None,
+					storage: None,
 				};
 				state.graph.lock().unwrap().update_process_local(update);
 			}

@@ -118,7 +118,7 @@ pub(crate) fn write_permission_for_resource(
 			tg::authorization::permission::organization::Permission::Write,
 		)),
 		tg::id::Kind::Process => Ok(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Write,
+			tg::authorization::permission::process::Permission::Parent,
 		)),
 		tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Write,
@@ -130,6 +130,32 @@ pub(crate) fn write_permission_for_resource(
 			tg::authorization::permission::user::Permission::Write,
 		)),
 		_ => Err(tg::error!(%resource, "invalid resource")),
+	}
+}
+
+pub(crate) fn process_object_permission(
+	kind: crate::process::object::Kind,
+	permission: tg::authorization::permission::object::Permission,
+) -> tg::authorization::permission::process::Permission {
+	let process_permission = match kind {
+		crate::process::object::Kind::Command => {
+			tg::authorization::permission::process::Permission::NodeCommand
+		},
+		crate::process::object::Kind::Error => {
+			tg::authorization::permission::process::Permission::NodeError
+		},
+		crate::process::object::Kind::Log => {
+			tg::authorization::permission::process::Permission::NodeLog
+		},
+		crate::process::object::Kind::Output => {
+			tg::authorization::permission::process::Permission::NodeOutput
+		},
+	};
+	match permission {
+		tg::authorization::permission::object::Permission::Node => process_permission,
+		tg::authorization::permission::object::Permission::Subtree => {
+			process_permission.to_subtree()
+		},
 	}
 }
 

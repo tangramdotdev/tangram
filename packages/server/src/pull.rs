@@ -86,7 +86,7 @@ impl Session {
 			futures::try_join!(touch_objects_future, touch_processes_future)?;
 		let objects_stored = objects
 			.into_iter()
-			.all(|object| object.is_some_and(|object| object.stored.subtree));
+			.all(|object| object.is_some_and(|object| object.storage.subtree));
 		let processes_stored = processes.into_iter().all(|process| {
 			let Some(process) = process else {
 				return false;
@@ -94,18 +94,18 @@ impl Session {
 			if process.data.is_none() {
 				return false;
 			}
-			let stored = process.stored;
+			let storage = process.storage;
 			if arg.process_children {
-				stored.subtree
-					&& (!arg.process_commands || stored.subtree_command)
-					&& (!arg.process_errors || stored.subtree_error)
-					&& (!arg.process_logs || stored.subtree_log)
-					&& (!arg.process_outputs || stored.subtree_output)
+				storage.subtree
+					&& (!arg.process_commands || storage.subtree_command)
+					&& (!arg.process_errors || storage.subtree_error)
+					&& (!arg.process_logs || storage.subtree_log)
+					&& (!arg.process_outputs || storage.subtree_output)
 			} else {
-				(!arg.process_commands || stored.node_command)
-					&& (!arg.process_errors || stored.node_error)
-					&& (!arg.process_logs || stored.node_log)
-					&& (!arg.process_outputs || stored.node_output)
+				(!arg.process_commands || storage.node_command)
+					&& (!arg.process_errors || storage.node_error)
+					&& (!arg.process_logs || storage.node_log)
+					&& (!arg.process_outputs || storage.node_output)
 			}
 		});
 		let stored = objects_stored && processes_stored;

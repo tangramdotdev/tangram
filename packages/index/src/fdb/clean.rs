@@ -356,7 +356,7 @@ impl Index {
 				args.push((
 					crate::grant::delete::Arg {
 						creator,
-						expires_at: Some(expires_at),
+						implicit: Some(Some(expires_at)),
 						permissions: permission.into(),
 						subject,
 						resource,
@@ -374,7 +374,7 @@ impl Index {
 						subspace,
 						&crate::fdb::grant::GrantIndexEntry {
 							creator: arg.creator.as_ref(),
-							expires_at: arg.expires_at,
+							expires_at: arg.implicit.flatten(),
 							permission,
 							subject: &arg.subject,
 							resource: &arg.resource,
@@ -844,6 +844,10 @@ impl Index {
 			)
 			.await
 		);
+		let subject = tg::authorization::Subject::Process(id.clone());
+		crate::fdb::propagate!(
+			Self::delete_grants_for_subject(txn, subspace, &subject, partition_total).await
+		);
 
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -963,6 +967,82 @@ impl Index {
 			crate::fdb::propagate!(
 				Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total,)
 					.await
+			);
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn delete_grants_for_subject(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		subject: &tg::authorization::Subject,
+		partition_total: u64,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let prefix = (Kind::SubjectGrant.to_i32().unwrap(), subject.to_string());
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let result = txn.get_range(&range, 1, false).await;
+		let values = crate::fdb::retry!(result);
+		let entries = values
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())?;
+				let crate::fdb::Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+					creator,
+					permission,
+					resource,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("expected a subject grant key"));
+				};
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let entries = [
+					crate::fdb::grant::GrantSource::Explicit,
+					crate::fdb::grant::GrantSource::Implicit,
+					crate::fdb::grant::GrantSource::Materialized,
+				]
+				.into_iter()
+				.filter_map(|source| {
+					value.source_expires_at(source).map(|expires_at| {
+						(
+							creator.clone(),
+							expires_at,
+							permission,
+							resource.clone(),
+							source,
+						)
+					})
+				})
+				.collect::<Vec<_>>();
+				Ok(entries)
+			})
+			.collect::<tg::Result<Vec<_>>>()?
+			.into_iter()
+			.flatten()
+			.collect::<Vec<_>>();
+
+		for (creator, expires_at, permission, resource, source) in entries {
+			crate::fdb::propagate!(
+				Self::delete_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: creator.as_ref(),
+						expires_at,
+						permission,
+						resource: &resource,
+						subject,
+					},
+					source,
+					partition_total,
+				)
+				.await
 			);
 		}
 

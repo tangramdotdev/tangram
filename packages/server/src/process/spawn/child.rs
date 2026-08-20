@@ -129,7 +129,7 @@ impl Session {
 				output: None,
 				parent: None,
 				sandbox: Some(parent_data.sandbox),
-				stored: tangram_index::process::Stored::default(),
+				storage: tangram_index::process::Storage::default(),
 				time_to_touch: self.server.config.process.time_to_touch,
 				touched_at: now,
 			}
@@ -147,7 +147,7 @@ impl Session {
 			output,
 			parent: Some(parent.clone()),
 			sandbox: sandbox.cloned(),
-			stored: tangram_index::process::Stored::default(),
+			storage: tangram_index::process::Storage::default(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

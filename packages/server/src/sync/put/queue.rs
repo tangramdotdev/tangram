@@ -34,20 +34,20 @@ pub(super) struct DatabaseNode {
 }
 
 pub(super) struct ObjectNode {
+	pub available: bool,
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
 	pub send: bool,
-	pub stored: bool,
 }
 
 pub(super) struct ProcessNode {
+	pub available: bool,
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub send: bool,
-	pub stored: bool,
 }
 
 pub(super) struct SandboxNode {
@@ -300,18 +300,18 @@ impl Queue {
 		let parent = node.parent.clone();
 		let (action, _) =
 			graph.update_object_remote(node.descendants, &node.id, parent, node.kind, None);
-		let stored = graph.object_remote_stored(&node.id);
-		let skip = !action.descendants && !action.send && node.parent.is_none() && !stored;
+		let available = graph.object_remote_available(&node.id);
+		let skip = !action.descendants && !action.send && node.parent.is_none() && !available;
 		if skip {
 			return Ok(());
 		}
 		let node = ObjectNode {
+			available,
 			descendants: action.descendants,
 			eager: node.eager,
 			id: node.id,
 			kind: node.kind,
 			send: action.send,
-			stored,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.object.force_send(node).is_err() {
@@ -332,17 +332,17 @@ impl Queue {
 		}
 		let parent = node.parent.clone().map(Into::into);
 		let (action, _) = graph.update_process_remote(node.descendants, &node.id, parent, None);
-		let stored = graph.process_remote_stored(&node.id);
-		let skip = !action.descendants && !action.send && node.parent.is_none() && !stored;
+		let available = graph.process_remote_available(&node.id);
+		let skip = !action.descendants && !action.send && node.parent.is_none() && !available;
 		if skip {
 			return Ok(());
 		}
 		let node = ProcessNode {
+			available,
 			descendants: action.descendants,
 			eager: node.eager,
 			id: node.id,
 			send: action.send,
-			stored,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.process.force_send(node).is_err() {
@@ -518,10 +518,14 @@ impl Session {
 		index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectNode>,
 		store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
 	) -> tg::Result<()> {
-		// Refresh the destination's stored state.
+		// Refresh the destination's availability.
 		for node in &mut nodes {
-			node.stored = state.graph.lock().unwrap().object_remote_stored(&node.id);
-			if node.stored {
+			node.available = state
+				.graph
+				.lock()
+				.unwrap()
+				.object_remote_available(&node.id);
+			if node.available {
 				node.descendants = false;
 				node.send = false;
 			}
@@ -602,7 +606,7 @@ impl Session {
 				state.queue.finish_node();
 				continue;
 			}
-			if (!node.descendants && !node.send) || node.stored {
+			if (!node.descendants && !node.send) || node.available {
 				let node = super::index::ObjectNode { id: node.id };
 				index_object_sender
 					.send(node)
@@ -637,10 +641,14 @@ impl Session {
 		index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessNode>,
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessNode>,
 	) -> tg::Result<()> {
-		// Refresh the destination's stored state.
+		// Refresh the destination's availability.
 		for node in &mut nodes {
-			node.stored = state.graph.lock().unwrap().process_remote_stored(&node.id);
-			if node.stored {
+			node.available = state
+				.graph
+				.lock()
+				.unwrap()
+				.process_remote_available(&node.id);
+			if node.available {
 				node.descendants = false;
 				node.send = false;
 			}
@@ -721,7 +729,7 @@ impl Session {
 				state.queue.finish_node();
 				continue;
 			}
-			if (!node.descendants && !node.send) || node.stored {
+			if (!node.descendants && !node.send) || node.available {
 				let node = super::index::ProcessNode { id: node.id };
 				index_process_sender
 					.send(node)

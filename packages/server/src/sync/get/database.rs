@@ -206,7 +206,7 @@ impl Session {
 					break;
 				},
 				tg::sync::Message::Get(
-					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Stored(_),
+					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Available(_),
 				)
 				| tg::sync::Message::Put(
 					tg::sync::PutMessage::Missing(_) | tg::sync::PutMessage::Node(_),
@@ -622,6 +622,7 @@ impl Session {
 			graph,
 			objects.into_iter().map(tg::Id::from),
 			object_permissions,
+			object_permissions,
 		)
 		.await?;
 
@@ -642,6 +643,7 @@ impl Session {
 		self.sync_get_authorize(
 			graph,
 			processes.into_iter().map(tg::Id::from),
+			process_permissions,
 			process_permissions,
 		)
 		.await?;
@@ -1346,7 +1348,7 @@ impl Session {
 			};
 			batch.items.push(item);
 			if created.contains(&id)
-				&& let Some(arg) = self.sync_get_create_temporary_grant(&id)?
+				&& let Some(arg) = self.sync_get_create_implicit_grant(&id)?
 			{
 				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
 			}

@@ -25,48 +25,48 @@ pub struct Arg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Stored {
-	/// Whether this node's command's subtree is stored.
+pub struct Availability {
+	/// Whether this node's command's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub node_command: bool,
 
-	/// Whether this node's error's subtree is stored.
+	/// Whether this node's error's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
 	pub node_error: bool,
 
-	/// Whether this node's log's subtree is stored.
+	/// Whether this node's log's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub node_log: bool,
 
-	/// Whether this node's outputs' subtrees are stored.
+	/// Whether this node's outputs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
 	pub node_output: bool,
 
-	/// Whether this node's subtree is stored.
+	/// Whether this node's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
 	pub subtree: bool,
 
-	/// Whether this node's subtree's commands' subtrees are stored.
+	/// Whether this node's subtree's commands' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
 	pub subtree_command: bool,
 
-	/// Whether this node's subtree's errors' subtrees are stored.
+	/// Whether this node's subtree's errors' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
 	pub subtree_error: bool,
 
-	/// Whether this node's subtree's logs' subtrees are stored.
+	/// Whether this node's subtree's logs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
 	pub subtree_log: bool,
 
-	/// Whether this node's subtree's outputs' subtrees are stored.
+	/// Whether this node's subtree's outputs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
 	pub subtree_output: bool,
@@ -77,7 +77,7 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 }
 
-impl Stored {
+impl Availability {
 	pub fn merge(&mut self, other: &Self) {
 		self.node_command = self.node_command || other.node_command;
 		self.node_error = self.node_error || other.node_error;
@@ -92,64 +92,64 @@ impl Stored {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn stored(
+	pub async fn availability(
 		&self,
-		options: tg::process::stored::Options,
-	) -> tg::Result<tg::process::Stored> {
+		options: tg::process::availability::Options,
+	) -> tg::Result<tg::process::Availability> {
 		let handle = tg::handle()?;
-		self.stored_with_handle(handle, options).await
+		self.availability_with_handle(handle, options).await
 	}
 
-	pub async fn stored_with_handle<H>(
+	pub async fn availability_with_handle<H>(
 		&self,
 		handle: &H,
-		options: tg::process::stored::Options,
-	) -> tg::Result<tg::process::Stored>
+		options: tg::process::availability::Options,
+	) -> tg::Result<tg::process::Availability>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_stored_with_handle(handle, options)
+		self.try_get_availability_with_handle(handle, options)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the process storage status"))
+			.ok_or_else(|| tg::error!("failed to get the process availability"))
 	}
 
-	pub async fn try_get_stored(
+	pub async fn try_get_availability(
 		&self,
-		options: tg::process::stored::Options,
-	) -> tg::Result<Option<tg::process::Stored>> {
+		options: tg::process::availability::Options,
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let handle = tg::handle()?;
-		self.try_get_stored_with_handle(handle, options).await
+		self.try_get_availability_with_handle(handle, options).await
 	}
 
-	pub async fn try_get_stored_with_handle<H>(
+	pub async fn try_get_availability_with_handle<H>(
 		&self,
 		handle: &H,
-		options: tg::process::stored::Options,
-	) -> tg::Result<Option<tg::process::Stored>>
+		options: tg::process::availability::Options,
+	) -> tg::Result<Option<tg::process::Availability>>
 	where
 		H: tg::Handle,
 	{
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
-				"getting the process storage status is not supported for unsandboxed processes"
+				"getting the process availability is not supported for unsandboxed processes"
 			));
 		};
-		let arg = tg::process::stored::Arg {
+		let arg = tg::process::availability::Arg {
 			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
-		handle.try_get_process_stored(id, arg).await
+		handle.try_get_process_availability(id, arg).await
 	}
 }
 
 impl tg::Session {
-	pub async fn try_get_process_stored(
+	pub async fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> tg::Result<Option<tg::process::Stored>> {
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let method = http::Method::GET;
-		let path = format!("/processes/{id}/stored");
+		let path = format!("/processes/{id}/availability");
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params_strict(&arg)
@@ -178,11 +178,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let stored = response
+		let availability = response
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 
-		Ok(Some(stored))
+		Ok(Some(availability))
 	}
 }

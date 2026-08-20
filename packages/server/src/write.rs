@@ -583,7 +583,7 @@ impl Session {
 				children,
 				id,
 				metadata: blob.metadata.clone(),
-				stored: tangram_index::object::Stored { subtree: true },
+				storage: tangram_index::object::Storage { subtree: true },
 				time_to_touch,
 				touched_at,
 			};
@@ -606,7 +606,7 @@ impl Session {
 			.map(|principal| tangram_index::grant::put::Arg {
 				created_at: touched_at,
 				creator: Some(principal.clone()),
-				expires_at: Some(grant_expires_at),
+				implicit: Some(Some(grant_expires_at)),
 				permissions: tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				)

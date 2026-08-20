@@ -6,12 +6,16 @@ use {
 	tangram_util::serde::is_false,
 };
 
+pub const AVAILABILITY_HEADER: &str = "x-tg-process-availability";
 pub const METADATA_HEADER: &str = "x-tg-process-metadata";
-pub const STORED_HEADER: &str = "x-tg-process-stored";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub availability: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
@@ -19,16 +23,15 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub stored: bool,
-
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub availability: Option<tg::process::Availability>,
+
 	pub data: tg::process::Data,
 
 	pub id: tg::process::Id,
@@ -39,18 +42,15 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stored: Option<tg::process::Stored>,
-
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub availability: bool,
 	pub location: Option<tg::location::Arg>,
 	pub metadata: bool,
-	pub stored: bool,
 }
 
 impl<O> tg::Process<O> {
@@ -97,9 +97,9 @@ impl<O> tg::Process<O> {
 			));
 		};
 		let arg = tg::process::get::Arg {
+			availability: options.availability,
 			location: options.location.or_else(|| self.location()),
 			metadata: options.metadata,
-			stored: options.stored,
 			tokens: self.tokens(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {
@@ -159,10 +159,10 @@ impl tg::Session {
 			.header_json(METADATA_HEADER)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the metadata header"))?;
-		let stored = response
-			.header_json(STORED_HEADER)
+		let availability = response
+			.header_json(AVAILABILITY_HEADER)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the stored header"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the availability header"))?;
 		let mut output = response
 			.json::<tg::process::get::Output>()
 			.await
@@ -170,8 +170,8 @@ impl tg::Session {
 		if let Some(metadata) = metadata {
 			output.metadata = Some(metadata);
 		}
-		if let Some(stored) = stored {
-			output.stored = Some(stored);
+		if let Some(availability) = availability {
+			output.availability = Some(availability);
 		}
 		Ok(Some(output))
 	}

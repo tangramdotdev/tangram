@@ -26,7 +26,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_process_local(id, arg.metadata, arg.stored, arg.tokens.local())
+					.try_get_process_local(id, arg.metadata, arg.availability, arg.tokens.local())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			{
@@ -34,7 +34,13 @@ impl Session {
 			}
 
 			if let Some(output) = self
-				.try_get_process_regions(id, &local.regions, arg.metadata, arg.stored, &arg.tokens)
+				.try_get_process_regions(
+					id,
+					&local.regions,
+					arg.metadata,
+					arg.availability,
+					&arg.tokens,
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process from another region"),
@@ -48,7 +54,7 @@ impl Session {
 				id,
 				&locations.remotes,
 				arg.metadata,
-				arg.stored,
+				arg.availability,
 				&arg.tokens,
 			)
 			.await
@@ -71,9 +77,9 @@ impl Session {
 			.iter()
 			.map(|process| {
 				let arg = tg::process::get::Arg {
+					availability: false,
 					location: Some(location.clone()),
 					metadata,
-					stored: false,
 					tokens: process.options.tokens.clone(),
 				};
 				self.try_get_process(&process.node, arg)
@@ -89,7 +95,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
@@ -130,8 +136,11 @@ impl Session {
 				.boxed()
 				.await?;
 		}
-		if stored && let Some(stored) = self.server.try_get_process_stored_local(id).await? {
-			output.stored = self.mask_process_stored(id, stored, token).await?;
+		if availability && let Some(storage) = self.server.try_get_process_storage_local(id).await?
+		{
+			output.availability = self
+				.compute_process_availability(id, storage, token)
+				.await?;
 		}
 		Ok(Some(output))
 	}
@@ -360,11 +369,11 @@ impl Session {
 			},
 		);
 		tg::process::get::Output {
+			availability: None,
 			data,
 			id: id.clone(),
 			location: Some(location),
 			metadata,
-			stored: None,
 			tokens: tg::authorization::Tokens::default(),
 		}
 	}
@@ -374,12 +383,12 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_region(id, region, metadata, stored, tokens))
+			.map(|region| self.try_get_process_region(id, region, metadata, availability, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -405,7 +414,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
@@ -415,9 +424,9 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::process::get::Arg {
+			availability,
 			location: Some(location.clone().into()),
 			metadata,
-			stored,
 			tokens: tokens.for_location(&location),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -437,12 +446,12 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_remote(id, remote, metadata, stored, tokens))
+			.map(|remote| self.try_get_process_remote(id, remote, metadata, availability, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -541,7 +550,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		metadata: bool,
-		stored: bool,
+		availability: bool,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
@@ -556,9 +565,9 @@ impl Session {
 			},
 		)]);
 		let arg = tg::process::get::Arg {
+			availability,
 			location: Some(location),
 			metadata,
-			stored,
 			tokens: tokens.for_location(&tg::Location::Remote(tg::location::Remote {
 				name: remote.name.clone(),
 				region: None,
@@ -657,10 +666,10 @@ impl Session {
 				serde_json::to_string(metadata).unwrap(),
 			);
 		}
-		if let Some(stored) = &output.stored {
+		if let Some(availability) = &output.availability {
 			response = response.header(
-				tg::process::get::STORED_HEADER,
-				serde_json::to_string(stored).unwrap(),
+				tg::process::get::AVAILABILITY_HEADER,
+				serde_json::to_string(availability).unwrap(),
 			);
 		}
 		let response = response.body(body).unwrap();
@@ -706,11 +715,11 @@ impl Server {
 				let data = data.without_location_and_tokens();
 				let metadata = metadata.then_some(process.metadata);
 				Some(tg::process::get::Output {
+					availability: None,
 					data,
 					id: id.clone(),
 					location: Some(location.clone()),
 					metadata,
-					stored: None,
 					tokens: tg::authorization::Tokens::default(),
 				})
 			})

@@ -20,11 +20,11 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::metadata::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::process::Metadata>>>;
 
-	fn try_get_process_stored<'a>(
+	fn try_get_process_availability<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::Stored>>>;
+		arg: tg::process::availability::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>>;
 
 	fn try_get_process<'a>(
 		&'a self,
@@ -146,12 +146,12 @@ where
 		self.try_get_process_metadata(id, arg).boxed()
 	}
 
-	fn try_get_process_stored<'a>(
+	fn try_get_process_availability<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::Stored>>> {
-		self.try_get_process_stored(id, arg).boxed()
+		arg: tg::process::availability::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>> {
+		self.try_get_process_availability(id, arg).boxed()
 	}
 
 	fn try_get_process<'a>(

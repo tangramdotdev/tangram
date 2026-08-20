@@ -25,7 +25,7 @@ pub struct Arg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Stored {
+pub struct Availability {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub subtree: bool,
@@ -36,69 +36,69 @@ pub struct Options {
 	pub location: Option<tg::location::Arg>,
 }
 
-impl Stored {
+impl Availability {
 	pub fn merge(&mut self, other: &Self) {
 		self.subtree = self.subtree || other.subtree;
 	}
 }
 
 impl tg::Object {
-	pub async fn stored(
+	pub async fn availability(
 		&self,
-		options: tg::object::stored::Options,
-	) -> tg::Result<tg::object::Stored> {
+		options: tg::object::availability::Options,
+	) -> tg::Result<tg::object::Availability> {
 		let handle = tg::handle()?;
-		self.stored_with_handle(handle, options).await
+		self.availability_with_handle(handle, options).await
 	}
 
-	pub async fn stored_with_handle<H>(
+	pub async fn availability_with_handle<H>(
 		&self,
 		handle: &H,
-		options: tg::object::stored::Options,
-	) -> tg::Result<tg::object::Stored>
+		options: tg::object::availability::Options,
+	) -> tg::Result<tg::object::Availability>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_stored_with_handle(handle, options)
+		self.try_get_availability_with_handle(handle, options)
 			.await?
-			.ok_or_else(|| tg::error!("failed to get the object storage status"))
+			.ok_or_else(|| tg::error!("failed to get the object availability"))
 	}
 
-	pub async fn try_get_stored(
+	pub async fn try_get_availability(
 		&self,
-		options: tg::object::stored::Options,
-	) -> tg::Result<Option<tg::object::Stored>> {
+		options: tg::object::availability::Options,
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let handle = tg::handle()?;
-		self.try_get_stored_with_handle(handle, options).await
+		self.try_get_availability_with_handle(handle, options).await
 	}
 
-	pub async fn try_get_stored_with_handle<H>(
+	pub async fn try_get_availability_with_handle<H>(
 		&self,
 		handle: &H,
-		options: tg::object::stored::Options,
-	) -> tg::Result<Option<tg::object::Stored>>
+		options: tg::object::availability::Options,
+	) -> tg::Result<Option<tg::object::Availability>>
 	where
 		H: tg::Handle,
 	{
 		let state = self.state();
-		let arg = tg::object::stored::Arg {
+		let arg = tg::object::availability::Arg {
 			location: options
 				.location
 				.or_else(|| state.location().map(Into::into)),
 			tokens: state.tokens(),
 		};
-		handle.try_get_object_stored(&self.id(), arg).await
+		handle.try_get_object_availability(&self.id(), arg).await
 	}
 }
 
 impl tg::Session {
-	pub async fn try_get_object_stored(
+	pub async fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> tg::Result<Option<tg::object::Stored>> {
+		arg: tg::object::availability::Arg,
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let method = http::Method::GET;
-		let path = format!("/objects/{id}/stored");
+		let path = format!("/objects/{id}/availability");
 		let uri = Uri::builder()
 			.path(&path)
 			.query_params_strict(&arg)
@@ -127,11 +127,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let stored = response
+		let availability = response
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the response"))?;
 
-		Ok(Some(stored))
+		Ok(Some(availability))
 	}
 }

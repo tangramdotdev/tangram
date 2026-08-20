@@ -26,6 +26,7 @@ pub struct Metrics {
 }
 
 pub(super) struct Arg {
+	pub authorize: crate::fdb::AuthorizeConfig,
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
 	pub metrics: Metrics,
@@ -50,6 +51,15 @@ struct Batch {
 	trackers: Vec<Arc<Mutex<RequestTracker>>>,
 }
 
+#[derive(Clone, Copy)]
+struct ExecutionConfig<'a> {
+	authorize: crate::fdb::AuthorizeConfig,
+	max_process_depth: Option<u64>,
+	metrics: &'a Metrics,
+	partition_total: u64,
+	usage_partition_total: u64,
+}
+
 enum TransactionError {
 	FoundationDb(fdb::FdbError),
 	Tangram(tg::Error),
@@ -58,6 +68,7 @@ enum TransactionError {
 impl Index {
 	pub(super) async fn writer_task(arg: Arg) {
 		let Arg {
+			authorize,
 			database,
 			max_process_depth,
 			metrics,
@@ -143,16 +154,14 @@ impl Index {
 			let metrics = metrics.clone();
 			let subspace = subspace.clone();
 			async move {
-				Self::execute_batch(
-					&database,
-					&subspace,
-					batch,
+				let config = ExecutionConfig {
+					authorize,
 					max_process_depth,
+					metrics: &metrics,
 					partition_total,
 					usage_partition_total,
-					&metrics,
-				)
-				.await;
+				};
+				Self::execute_batch(&database, &subspace, batch, config).await;
 			}
 		})
 		.await;
@@ -868,21 +877,9 @@ impl Index {
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		batch: Batch,
-		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
-		metrics: &Metrics,
+		config: ExecutionConfig<'_>,
 	) {
-		let result = Self::execute_transaction(
-			database,
-			subspace,
-			&batch.requests,
-			max_process_depth,
-			partition_total,
-			usage_partition_total,
-			metrics,
-		)
-		.await;
+		let result = Self::execute_transaction(database, subspace, &batch.requests, config).await;
 
 		match result {
 			Ok(responses) => {
@@ -902,26 +899,8 @@ impl Index {
 						requests: right_requests,
 						trackers: right_trackers,
 					};
-					Box::pin(Self::execute_batch(
-						database,
-						subspace,
-						left,
-						max_process_depth,
-						partition_total,
-						usage_partition_total,
-						metrics,
-					))
-					.await;
-					Box::pin(Self::execute_batch(
-						database,
-						subspace,
-						right,
-						max_process_depth,
-						partition_total,
-						usage_partition_total,
-						metrics,
-					))
-					.await;
+					Box::pin(Self::execute_batch(database, subspace, left, config)).await;
+					Box::pin(Self::execute_batch(database, subspace, right, config)).await;
 					return;
 				}
 
@@ -929,16 +908,7 @@ impl Index {
 				let tracker = batch.trackers.into_iter().next().unwrap();
 				let result = match request {
 					Request::Batch(arg) if arg.items.len() > 1 => {
-						Self::execute_ordered_batch(
-							database,
-							subspace,
-							arg,
-							max_process_depth,
-							partition_total,
-							usage_partition_total,
-							metrics,
-						)
-						.await
+						Self::execute_ordered_batch(database, subspace, arg, config).await
 					},
 					_ => Err(tg::error!(!error, "transaction too large")),
 				};
@@ -965,10 +935,7 @@ impl Index {
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		arg: crate::batch::Arg,
-		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
-		metrics: &Metrics,
+		config: ExecutionConfig<'_>,
 	) -> tg::Result<()> {
 		let Some((left, right)) = Self::try_split_batch_arg(arg) else {
 			return Err(tg::error!(
@@ -983,10 +950,7 @@ impl Index {
 				database,
 				subspace,
 				std::slice::from_ref(&request),
-				max_process_depth,
-				partition_total,
-				usage_partition_total,
-				metrics,
+				config,
 			)
 			.await;
 			match result {
@@ -1027,10 +991,7 @@ impl Index {
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
-		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
-		metrics: &Metrics,
+		config: ExecutionConfig<'_>,
 	) -> std::result::Result<Vec<Response>, TransactionError> {
 		let start = std::time::Instant::now();
 		let mut attempt_count = 0;
@@ -1071,9 +1032,7 @@ impl Index {
 						&transaction,
 						subspace,
 						requests,
-						max_process_depth,
-						partition_total,
-						usage_partition_total,
+						config,
 						priority_batch,
 					)
 					.await;
@@ -1112,11 +1071,12 @@ impl Index {
 		};
 
 		let duration = start.elapsed().as_secs_f64();
-		metrics.commit_duration.record(duration, &[]);
-		metrics.transactions.add(1, &[]);
+		config.metrics.commit_duration.record(duration, &[]);
+		config.metrics.transactions.add(1, &[]);
 
 		if attempt_count > 1 {
-			metrics
+			config
+				.metrics
 				.transaction_conflict_retry
 				.add(attempt_count - 1, &[]);
 		}
@@ -1124,7 +1084,7 @@ impl Index {
 			&result,
 			Err(TransactionError::FoundationDb(error)) if Self::is_transaction_too_large(*error)
 		) {
-			metrics.transaction_too_large.add(1, &[]);
+			config.metrics.transaction_too_large.add(1, &[]);
 		}
 
 		result
@@ -1134,9 +1094,7 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
-		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
+		config: ExecutionConfig<'_>,
 		priority_batch: bool,
 	) -> tg::Result<ControlFlow<Vec<Response>, fdb::FdbError>> {
 		if priority_batch {
@@ -1145,15 +1103,7 @@ impl Index {
 		}
 		let mut responses = Vec::with_capacity(requests.len());
 		for request in requests {
-			let result = Self::execute_request(
-				txn,
-				subspace,
-				request,
-				max_process_depth,
-				partition_total,
-				usage_partition_total,
-			)
-			.await;
+			let result = Self::execute_request(txn, subspace, request, config).await;
 			let response = crate::fdb::propagate!(result);
 			responses.push(response);
 		}
@@ -1165,18 +1115,23 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &Request,
-		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
+		config: ExecutionConfig<'_>,
 	) -> tg::Result<ControlFlow<Response, fdb::FdbError>> {
+		let ExecutionConfig {
+			max_process_depth,
+			partition_total,
+			usage_partition_total,
+			..
+		} = config;
 		let response = match request {
 			Request::Batch(arg) => {
 				let result = Self::batch_with_transaction(
+					config.authorize,
 					txn,
 					subspace,
 					arg,
-					partition_total,
-					usage_partition_total,
+					config.partition_total,
+					config.usage_partition_total,
 				)
 				.await;
 				crate::fdb::propagate!(result);

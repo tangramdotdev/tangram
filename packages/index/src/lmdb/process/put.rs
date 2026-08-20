@@ -52,9 +52,9 @@ impl Index {
 			set.merge(&existing.set);
 		}
 
-		let mut stored = arg.stored.clone();
+		let mut storage = arg.storage.clone();
 		if merge && let Some(ref existing) = existing {
-			stored.merge(&existing.stored);
+			storage.merge(&existing.storage);
 		}
 
 		let mut metadata = arg.metadata.clone();
@@ -85,7 +85,7 @@ impl Index {
 				existing.metadata != metadata
 					|| existing.sandbox != sandbox
 					|| existing.set != set
-					|| existing.stored != stored
+					|| existing.storage != storage
 			});
 		if !changed && !touch {
 			return Ok(());
@@ -97,7 +97,7 @@ impl Index {
 			reference_count: 0,
 			sandbox: sandbox.clone(),
 			set,
-			stored,
+			storage,
 			touched_at,
 		}
 		.serialize()?;
@@ -316,13 +316,23 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the process object"))?;
 
 			let key = Key::Object(crate::lmdb::object::Key::ObjectProcess {
-				object,
+				object: object.clone(),
 				kind,
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the object process"))?;
+
+			Self::enqueue_update_with_kind(
+				db,
+				subspace,
+				transaction,
+				tg::Either::Left(object),
+				crate::lmdb::update::Kind::Grant(tg::authorization::Subject::Process(id.clone())),
+				crate::lmdb::update::Source::Put,
+				None,
+			)?;
 		}
 
 		let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Process {

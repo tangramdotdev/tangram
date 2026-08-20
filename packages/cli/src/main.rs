@@ -9,6 +9,7 @@ use {
 };
 
 mod archive;
+mod availability;
 mod browser;
 mod builtin;
 mod bundle;
@@ -61,7 +62,6 @@ mod runner;
 mod sandbox;
 mod server;
 mod shell;
-mod stored;
 mod tag;
 mod tangram;
 mod telemetry;
@@ -243,6 +243,8 @@ enum Mode {
 enum Command {
 	Archive(self::archive::Args),
 
+	Availability(self::availability::Args),
+
 	#[command(alias = "b")]
 	Build(self::process::build::Args),
 
@@ -379,8 +381,6 @@ enum Command {
 	Signal(self::process::signal::Args),
 
 	Spawn(self::process::spawn::Args),
-
-	Stored(self::stored::Args),
 
 	Tag(self::tag::Args),
 
@@ -633,6 +633,7 @@ impl Cli {
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			Command::Archive(args) => self.command_archive(args).boxed_local(),
+			Command::Availability(args) => self.command_availability(args).boxed_local(),
 			Command::Build(args) => self.command_build(args).boxed_local(),
 			Command::Builtin(args) => self.command_builtin(args).boxed_local(),
 			Command::Bundle(args) => self.command_bundle(args).boxed_local(),
@@ -693,7 +694,6 @@ impl Cli {
 			Command::Server(args) => self.command_server(args).boxed_local(),
 			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
 			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
-			Command::Stored(args) => self.command_stored(args).boxed_local(),
 			Command::Tag(args) => self.command_tag(args).boxed_local(),
 			Command::Touch(args) => self.command_touch(args).boxed_local(),
 			Command::Tree(args) => self.command_tree(args).boxed_local(),

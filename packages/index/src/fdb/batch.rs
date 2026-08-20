@@ -20,6 +20,7 @@ impl Index {
 	}
 
 	pub(crate) async fn batch_with_transaction(
+		authorize: crate::fdb::AuthorizeConfig,
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
@@ -212,6 +213,18 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
+							partition_total,
+						)
+						.await
+					);
+				},
+				crate::batch::Item::PutProcessObjectGrants(arg) => {
+					crate::fdb::propagate!(
+						Self::put_process_object_grants_with_transaction(
+							authorize,
+							txn,
+							subspace,
+							arg,
 							partition_total,
 						)
 						.await

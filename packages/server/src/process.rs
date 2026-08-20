@@ -8,6 +8,9 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+mod grant;
+
+pub mod availability;
 pub mod cancel;
 pub mod children;
 pub mod control;
@@ -18,7 +21,7 @@ pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod stdio;
-pub mod stored;
+pub mod storage;
 pub mod touch;
 pub mod tty;
 pub mod wait;

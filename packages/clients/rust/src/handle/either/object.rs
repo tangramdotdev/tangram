@@ -16,14 +16,14 @@ where
 		}
 	}
 
-	fn try_get_object_stored(
+	fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Stored>>> {
+		arg: tg::object::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Availability>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_object_stored(id, arg).left_future(),
-			tg::Either::Right(s) => s.try_get_object_stored(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_object_availability(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_get_object_availability(id, arg).right_future(),
 		}
 	}
 

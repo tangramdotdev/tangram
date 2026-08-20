@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Storage status can be requested from a specific peer region.
+# Availability can be requested from a specific peer region.
 
 let region_a_directory = mktemp -d
 let region_b_directory = mktemp -d
@@ -23,8 +23,8 @@ let region_b = spawn --name region-b --directory $region_b_directory --url $regi
 let directory = tg --url $region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
 tg --url $region_a.url index
 
-let stored = tg --url $region_b.url object stored $directory --location='local(a)' | from json
-assert equal $stored.subtree true "the peer region should report that the object subtree is stored"
+let availability = tg --url $region_b.url object availability $directory --location='local(a)' | from json
+assert equal $availability.subtree true "the peer region should report that the object subtree is available"
 
-let local = tg --url $region_b.url object stored $directory --location='local(b)' | complete
-failure $local "the object's storage status should be absent from the current region"
+let local = tg --url $region_b.url object availability $directory --location='local(b)' | complete
+failure $local "the object's availability should be absent from the current region"

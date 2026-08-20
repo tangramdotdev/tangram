@@ -69,6 +69,9 @@ pub enum Item {
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
 
+	#[tangram_serialize(id = 23)]
+	PutProcessObjectGrants(crate::process::object::grant::Arg),
+
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
 
@@ -103,6 +106,7 @@ mod tests {
 	#[test]
 	fn serialization_roundtrip() {
 		let group = tg::group::Id::new();
+		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 		let organization = tg::organization::Id::new();
 		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
@@ -134,7 +138,7 @@ mod tests {
 				Item::DeleteCheckout(tag.clone().into()),
 				Item::DeleteGrant(crate::grant::delete::Arg {
 					creator: Some(tg::Principal::Root),
-					expires_at: None,
+					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
@@ -145,11 +149,11 @@ mod tests {
 				Item::DeleteOrganization(organization.clone()),
 				Item::DeleteTag(tag),
 				Item::DeleteUser(user.clone()),
-				Item::EnqueueLogCompaction(process),
+				Item::EnqueueLogCompaction(process.clone()),
 				Item::PutGrant(crate::grant::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
-					expires_at: None,
+					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
@@ -165,6 +169,22 @@ mod tests {
 					member: tg::organization::Member::User(user),
 					organization,
 				}),
+				Item::PutProcessObjectGrants(crate::process::object::grant::Arg {
+					created_at: 1,
+					expires_at: None,
+					principal: tg::Principal::Process(process.clone()),
+					process,
+					roots: vec![crate::process::object::grant::Root {
+						object,
+						permissions: Some(
+							tg::authorization::Permission::Object(
+								tg::authorization::permission::object::Permission::Node,
+							)
+							.into(),
+						),
+					}],
+					time_to_touch: None,
+				}),
 				Item::PutSandbox(crate::sandbox::put::Arg {
 					account: None,
 					created_at: 1,
@@ -177,7 +197,7 @@ mod tests {
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert_eq!(arg.items.len(), 11);
+		assert_eq!(arg.items.len(), 12);
 		assert!(matches!(&arg.items[6], Item::EnqueueLogCompaction(_)));
 		let Item::PutGrant(grant_arg) = &arg.items[7] else {
 			panic!();
@@ -188,7 +208,8 @@ mod tests {
 		);
 		assert!(matches!(&arg.items[8], Item::PutGroupMember(_)));
 		assert!(matches!(&arg.items[9], Item::PutOrganizationMember(_)));
-		let Item::PutSandbox(sandbox_arg) = &arg.items[10] else {
+		assert!(matches!(&arg.items[10], Item::PutProcessObjectGrants(_)));
+		let Item::PutSandbox(sandbox_arg) = &arg.items[11] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();

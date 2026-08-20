@@ -4,6 +4,10 @@ use {crate::Cli, futures::FutureExt as _, std::time::Duration, tangram_client::p
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Get the availability.
+	#[arg(long)]
+	pub availability: bool,
+
 	/// Get the object's raw bytes.
 	#[arg(long)]
 	pub bytes: bool,
@@ -24,10 +28,6 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	/// Get the storage status.
-	#[arg(long)]
-	pub stored: bool,
 
 	#[command(flatten)]
 	pub ttl: Ttl,
@@ -102,11 +102,11 @@ impl Cli {
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
 			let options = crate::object::get::Options {
+				availability: args.availability,
 				bytes: args.bytes,
 				locations: locations.clone(),
 				metadata: args.metadata,
 				print,
-				stored: args.stored,
 			};
 			self.command_object_get_inner(object, options).await?;
 
@@ -118,10 +118,10 @@ impl Cli {
 				tg::get::Node::Pointer(_) => unreachable!(),
 			})?;
 			let options = crate::process::get::Options {
+				availability: args.availability,
 				locations: locations.clone(),
 				metadata: args.metadata,
 				print,
-				stored: args.stored,
 			};
 			self.command_process_get_inner(process, options).await?;
 

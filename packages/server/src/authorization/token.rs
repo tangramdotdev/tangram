@@ -61,6 +61,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[allow(clippy::unnecessary_wraps, clippy::unused_self)]
 	pub(crate) fn update_tokens_for_location(
 		&self,
 		tokens: &mut tg::authorization::Tokens,
@@ -72,12 +73,7 @@ impl Session {
 		let Some(token) = tokens.remove_local() else {
 			return Ok(());
 		};
-		let body = token.body.clone();
 		tokens.insert(location.clone(), token);
-		let token = self.create_token(body.resource, body.permissions, body.expires_at)?;
-		if let Some(token) = token {
-			tokens.insert_local(token);
-		}
 		Ok(())
 	}
 

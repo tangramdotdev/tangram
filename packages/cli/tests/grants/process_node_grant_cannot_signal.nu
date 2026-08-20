@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Granting process_node to a principal should not allow that prinicipal to singal the process.
+# Granting process_node to a principal should not allow that principal to signal the process.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
@@ -14,12 +14,12 @@ let process = tg --token $alice.token run --network=true --detach $path | str tr
 let masked = tg --token $eve.token process signal $process --signal KILL | complete
 failure $masked "Eve should not signal a process she cannot see."
 
-# Alice grants Eve only read (process_node) on the process.
+# Alice grants Eve only process_node on the process.
 tg --token $alice.token grant $eve.user.id process_node $process
 
-# A read grant must not confer the ability to signal (control) the running process.
+# A process_node grant must not confer the ability to signal the running process.
 let signaled = tg --token $eve.token process signal $process --signal KILL | complete
-failure $signaled "a read grant must not confer the ability to signal the process."
+failure $signaled "a process_node grant must not confer the ability to signal the process."
 
 # The process must remain running, not be terminated by Eve's signal.
 let status = tg --token $alice.token process status $process | from json | get 0

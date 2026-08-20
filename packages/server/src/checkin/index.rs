@@ -76,7 +76,7 @@ impl Session {
 			tangram_index::grant::put::Arg {
 				created_at: touched_at,
 				creator: Some(self.context.principal.clone()),
-				expires_at: Some(grant_expires_at),
+				implicit: Some(Some(grant_expires_at)),
 				permissions: tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				)

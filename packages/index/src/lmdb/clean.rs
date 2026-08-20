@@ -261,7 +261,7 @@ impl Index {
 			args.push((
 				crate::grant::delete::Arg {
 					creator,
-					expires_at: Some(expires_at),
+					implicit: Some(Some(expires_at)),
 					permissions: permission.into(),
 					subject,
 					resource,
@@ -278,7 +278,7 @@ impl Index {
 					transaction,
 					&crate::lmdb::grant::GrantIndexEntry {
 						creator: arg.creator.as_ref(),
-						expires_at: arg.expires_at,
+						expires_at: arg.implicit.flatten(),
 						permission,
 						subject: &arg.subject,
 						resource: &arg.resource,
@@ -745,6 +745,8 @@ impl Index {
 	) -> tg::Result<()> {
 		let resource = id.clone().into();
 		Self::delete_materialized_grants_for_resource(db, subspace, transaction, &resource)?;
+		let subject = tg::authorization::Subject::Process(id.clone());
+		Self::delete_grants_for_subject(db, subspace, transaction, &subject)?;
 
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -865,6 +867,68 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to delete sandbox process"))?;
 
 			Self::decrement_sandbox_reference_count(db, subspace, transaction, &sandbox)?;
+		}
+
+		Ok(())
+	}
+
+	fn delete_grants_for_subject(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<()> {
+		let prefix = &(Kind::SubjectGrant.to_i32().unwrap(), subject.to_string());
+		let prefix = Self::pack(subspace, prefix);
+		let iter = db
+			.prefix_iter(&*transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to iterate the subject grant keys"))?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key, value) = result
+				.map_err(|error| tg::error!(!error, "failed to read the subject grant key"))?;
+			let key = Self::unpack(subspace, key)?;
+			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
+				creator,
+				permission,
+				resource,
+				..
+			}) = key
+			else {
+				return Err(tg::error!("expected a subject grant key"));
+			};
+			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			for source in [
+				crate::lmdb::grant::GrantSource::Explicit,
+				crate::lmdb::grant::GrantSource::Implicit,
+				crate::lmdb::grant::GrantSource::Materialized,
+			] {
+				if let Some(expires_at) = value.source_expires_at(source) {
+					entries.push((
+						creator.clone(),
+						expires_at,
+						permission,
+						resource.clone(),
+						source,
+					));
+				}
+			}
+		}
+
+		for (creator, expires_at, permission, resource, source) in entries {
+			Self::delete_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					creator: creator.as_ref(),
+					expires_at,
+					permission,
+					resource: &resource,
+					subject,
+				},
+				source,
+			)?;
 		}
 
 		Ok(())

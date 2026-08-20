@@ -1,5 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
+pub mod availability;
 pub mod build;
 pub mod cancel;
 pub mod children;
@@ -13,7 +14,6 @@ pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod stdio;
-pub mod stored;
 pub mod touch;
 pub mod wait;
 
@@ -27,6 +27,7 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	Availability(self::availability::Args),
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
 	Exec(self::exec::Args),
@@ -41,7 +42,6 @@ pub enum Command {
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
 	Stdio(self::stdio::Args),
-	Stored(self::stored::Args),
 	Touch(self::touch::Args),
 	Wait(self::wait::Args),
 }
@@ -49,6 +49,9 @@ pub enum Command {
 impl Cli {
 	pub async fn command_process(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Availability(args) => {
+				self.command_process_availability(args).await?;
+			},
 			Command::Cancel(args) => {
 				self.command_process_cancel(args).await?;
 			},
@@ -84,9 +87,6 @@ impl Cli {
 			},
 			Command::Stdio(args) => {
 				self.command_process_stdio(args).await?;
-			},
-			Command::Stored(args) => {
-				self.command_process_stored(args).await?;
 			},
 			Command::Touch(args) => {
 				self.command_process_touch(args).await?;

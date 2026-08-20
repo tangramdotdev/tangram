@@ -1,4 +1,5 @@
 pub use self::{
+	availability::Availability,
 	data::Object as Data,
 	handle::Object as Handle,
 	id::Id,
@@ -6,10 +7,10 @@ pub use self::{
 	metadata::Metadata,
 	object::Object,
 	state::State,
-	stored::Stored,
 	visit::{Visitor, visit},
 };
 
+pub mod availability;
 pub mod batch;
 pub mod data;
 pub mod get;
@@ -21,6 +22,5 @@ pub mod metadata;
 pub mod object;
 pub mod put;
 pub mod state;
-pub mod stored;
 pub mod touch;
 pub mod visit;

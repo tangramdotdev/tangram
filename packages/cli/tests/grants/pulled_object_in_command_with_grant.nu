@@ -1,11 +1,9 @@
 use ../../test.nu *
 
-# A process can use an object that its own child build pulled from a remote.
+# A process can use an object from its own remote cache-hit child after receiving a local grant.
 #
-# The tool build is a remote cache hit, so the file the command reads arrives by pull. Caching it
-# requires Object(Subtree) on it, and a pulled object carries no grant, was produced by no process
-# here, and is named by no tag. Granting object_subtree on it publicly makes this build succeed, so
-# the missing grant is the only thing in the way.
+# Pulling the file stores its bytes but does not grant it to later processes. The explicit public
+# grant supplies the local authorization that may flow through the cache-hit child.
 
 let remote = spawn --busybox --name remote
 
@@ -35,8 +33,9 @@ tg --url $cold.url pull $output
 tg --url $cold.url index
 
 # With the object stored, the only way to fail below is the authorization check.
-assert equal (tg --url $cold.url stored --local $output | from json) { subtree: true } "the pulled object should be stored on the cold client."
+assert equal (tg --url $cold.url availability --local $output | from json) { subtree: true } "the pulled object should be available on the cold client."
+tg --url $cold.url grant public object_subtree $output
 
 let result = tg --url $cold.url build $path | complete
-success $result "a process should be able to use an object its own child build pulled."
+success $result "a process should be able to use a locally granted object from its cache-hit child."
 assert equal (tg --url $cold.url cat ($result.stdout | str trim) | str trim) "hello" "the process should read the pulled file."

@@ -15,6 +15,10 @@ pub struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
+	/// Get the object's availability.
+	#[arg(long)]
+	pub availability: bool,
+
 	/// Get the object's raw bytes.
 	#[arg(long)]
 	pub bytes: bool,
@@ -28,10 +32,6 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	/// Get the object's storage status.
-	#[arg(long)]
-	pub stored: bool,
 }
 
 impl Cli {
@@ -57,15 +57,15 @@ impl Cli {
 		let tokens = object.options.tokens.clone();
 		if options.bytes {
 			let arg = tg::object::get::Arg {
+				availability: options.availability,
 				location: location.clone(),
 				metadata: options.metadata,
-				stored: options.stored,
 				tokens: tokens.clone(),
 			};
 			let tg::object::get::Output {
+				availability,
 				bytes,
 				metadata,
-				stored,
 				tokens: _,
 			} = client
 				.try_get_object(&id, arg)
@@ -77,11 +77,10 @@ impl Cli {
 					.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 				self.print_info_message(&metadata);
 			}
-			if let Some(stored) = stored {
-				let stored = serde_json::to_string(&stored).map_err(|error| {
-					tg::error!(!error, "failed to serialize the storage status")
-				})?;
-				self.print_info_message(&stored);
+			if let Some(availability) = availability {
+				let availability = serde_json::to_string(&availability)
+					.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
+				self.print_info_message(&availability);
 			}
 			tokio::io::stdout()
 				.write_all(&bytes)
@@ -106,16 +105,19 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
 			self.print_info_message(&metadata);
 		}
-		if options.stored {
-			let options_ = tg::object::stored::Options {
+		if options.availability {
+			let options_ = tg::object::availability::Options {
 				location: location.clone(),
 			};
-			let stored = object.stored_with_handle(&client, options_).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get the object's storage status"),
-			)?;
-			let stored = serde_json::to_string(&stored)
-				.map_err(|error| tg::error!(!error, "failed to serialize the storage status"))?;
-			self.print_info_message(&stored);
+			let availability = object
+				.availability_with_handle(&client, options_)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to get the object's availability"),
+				)?;
+			let availability = serde_json::to_string(&availability)
+				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
+			self.print_info_message(&availability);
 		}
 		let value = tg::Value::Object(object);
 		self.print_value(&value, options.print, location).await?;

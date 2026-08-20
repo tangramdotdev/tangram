@@ -298,13 +298,9 @@ impl Session {
 		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Authorize the command if a process may be created.
-		if arg.cached != Some(true) {
-			self.spawn_process_authorize_command(&command).await?;
-		}
-
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
+		let grant_command = cache_location.is_none_or(|location| !location.is_remote());
 
 		// Authorize the sandbox owner.
 		self.spawn_process_authorize_sandbox_owner(&arg).await?;
@@ -316,6 +312,7 @@ impl Session {
 				&command,
 				parent_sandbox.as_ref(),
 				cacheable,
+				grant_command,
 			)
 			.boxed()
 			.await?;
@@ -383,17 +380,9 @@ impl Session {
 				.unwrap();
 		self.create_token(
 			id.clone().into(),
-			vec![
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Node,
-				),
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeError,
-				),
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeOutput,
-				),
-			],
+			vec![tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Parent,
+			)],
 			expires_at,
 		)
 	}

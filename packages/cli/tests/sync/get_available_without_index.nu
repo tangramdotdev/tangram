@@ -1,7 +1,7 @@
 use ../../test.nu *
 
 # A pull omits local index requests for incoming objects and processes whose requested fields are
-# already visible in the sync graph.
+# already available in the sync graph.
 
 let remote = spawn --cloud --name remote
 let client = spawn --name client --config {
@@ -13,12 +13,12 @@ let client = spawn --name client --config {
 # has updated the graph while still keeping the pull open.
 let directory = (
 	tg --url $remote.url put 'tg.directory({
-		"f": tg.file("visible"),
+		"f": tg.file("available"),
 		"z": tg.directory({ "v": tg.file("later") }),
 	})'
 	| str trim
 )
-let file = tg --url $remote.url put 'tg.file("visible")' | str trim
+let file = tg --url $remote.url put 'tg.file("available")' | str trim
 let deep_blob = tg --url $remote.url put 'tg.blob("later")' | str trim
 tg --url $remote.url index
 
@@ -44,7 +44,7 @@ let object_pull = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# Wait until the file is visible and the final blob is held before letting the index task check the
+# Wait until the file is available and the final blob is held before letting the index task check the
 # graph.
 tg --url $client.url checkpoint wait sync.get.index.object.filter $object_filter_watch 0 | ignore
 tg --url $client.url checkpoint wait sync.get.input.object $object_input_watch 0 | ignore
@@ -56,10 +56,10 @@ tg --url $client.url checkpoint unwatch sync.get.input.object $object_input_watc
 
 # The pull can finish only if the file bypasses the blocked local index request.
 let object_output = job recv --tag $object_pull --timeout 10sec
-success $object_output "the visible object must bypass the local index request"
+success $object_output "the available object must bypass the local index request"
 tg --url $client.url checkpoint unwatch sync.get.index.object $object_index_watch
 
-# A process with no object output becomes visible as soon as its data enters the graph.
+# A process with no object output becomes available as soon as its data enters the graph.
 let process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
 let process_data = {
 	children: [],
@@ -88,5 +88,5 @@ let process_pull = job spawn {
 
 # The pull can finish only if the process bypasses the blocked local index request.
 let process_output = job recv --tag $process_pull --timeout 10sec
-success $process_output "the visible process must bypass the local index request"
+success $process_output "the available process must bypass the local index request"
 tg --url $client.url checkpoint unwatch sync.get.index.process $process_index_watch

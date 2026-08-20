@@ -25,12 +25,12 @@ impl tg::handle::Process for tg::Session {
 		self.try_get_process_metadata(id, arg)
 	}
 
-	fn try_get_process_stored(
+	fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> {
-		self.try_get_process_stored(id, arg)
+		arg: tg::process::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Availability>>> {
+		self.try_get_process_availability(id, arg)
 	}
 
 	fn try_get_process(

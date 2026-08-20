@@ -107,7 +107,7 @@ impl Session {
 				children,
 				id: object.id.clone(),
 				metadata,
-				stored: tangram_index::object::Stored::default(),
+				storage: tangram_index::object::Storage::default(),
 				time_to_touch: self.server.config.object.time_to_touch,
 				touched_at: now,
 			};
@@ -161,7 +161,7 @@ impl Session {
 				put_grant_args.push(tangram_index::grant::put::Arg {
 					created_at: now,
 					creator: Some(self.context.principal.clone()),
-					expires_at: Some(grant_expires_at),
+					implicit: Some(Some(grant_expires_at)),
 					permissions: tg::authorization::Permission::Object(permission).into(),
 					subject: grant_subject.clone(),
 					resource: object.id.clone().into(),

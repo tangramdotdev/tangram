@@ -410,7 +410,7 @@ mod tests {
 			(
 				tg::id::Kind::Process,
 				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Read,
+					tg::authorization::permission::process::Permission::Node,
 				),
 			),
 			(

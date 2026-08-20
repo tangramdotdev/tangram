@@ -7,7 +7,8 @@ pub struct Arg {
 	#[tangram_serialize(id = 1)]
 	pub creator: Option<tg::Principal>,
 	#[tangram_serialize(id = 2)]
-	pub expires_at: Option<i64>,
+	#[allow(clippy::option_option)]
+	pub implicit: Option<Option<i64>>,
 	#[tangram_serialize(id = 3)]
 	pub permissions: tg::authorization::permission::Set,
 	#[tangram_serialize(id = 4)]

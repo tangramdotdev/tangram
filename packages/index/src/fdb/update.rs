@@ -1160,12 +1160,12 @@ impl Index {
 		};
 		let mut changed = false;
 
-		if !object.stored.subtree {
+		if !object.storage.subtree {
 			let value = child_objects
 				.iter()
-				.all(|child| child.as_ref().is_some_and(|object| object.stored.subtree));
+				.all(|child| child.as_ref().is_some_and(|object| object.storage.subtree));
 			if value {
-				object.stored.subtree = true;
+				object.storage.subtree = true;
 				changed = true;
 			}
 		}
@@ -1331,16 +1331,118 @@ impl Index {
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
-		Self::reconcile_materialized_grants(
-			txn,
-			subspace,
-			&resource,
-			&entries,
-			&expected,
-			&managed,
-			partition_total,
-		)
-		.await
+		let materialized_changed = crate::fdb::propagate!(
+			Self::reconcile_materialized_grants(
+				txn,
+				subspace,
+				&resource,
+				&entries,
+				&expected,
+				&managed,
+				partition_total,
+			)
+			.await
+		);
+		let entries = crate::fdb::propagate!(
+			Self::get_resource_grant_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		let implicit_changed = crate::fdb::propagate!(
+			Self::promote_process_implicit_grants_for_subject(
+				txn,
+				subspace,
+				id,
+				subject,
+				&entries,
+				partition_total,
+			)
+			.await
+		);
+
+		Ok(ControlFlow::Break(implicit_changed || materialized_changed))
+	}
+
+	async fn promote_process_implicit_grants_for_subject(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+		entries: &[crate::fdb::grant::GrantEntry],
+		partition_total: u64,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let tg::authorization::Subject::Process(process) = subject else {
+			return Ok(ControlFlow::Break(false));
+		};
+		let processes = crate::fdb::propagate!(
+			Self::get_object_processes_with_transaction(txn, subspace, id).await
+		);
+		let direct = processes
+			.into_iter()
+			.any(|(candidate, _)| candidate == *process);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let mut anchored = direct;
+		if !anchored {
+			let parents = crate::fdb::propagate!(
+				Self::get_object_parents_with_transaction(txn, subspace, id).await
+			);
+			for parent in parents {
+				let resource = tg::Id::from(parent);
+				let entries = crate::fdb::propagate!(
+					Self::get_resource_grant_entries_for_subject_with_transaction(
+						txn, subspace, &resource, subject,
+					)
+					.await
+				);
+				if entries
+					.iter()
+					.any(|entry| entry.is_process_implicit() && entry.permission.implies(node))
+				{
+					anchored = true;
+					break;
+				}
+			}
+		}
+		if !anchored {
+			return Ok(ControlFlow::Break(false));
+		}
+
+		let permissions = entries
+			.iter()
+			.filter(|entry| {
+				entry.explicit || entry.implicit.is_some() || entry.materialized.is_some()
+			})
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		let creator = tg::Principal::Process(process.clone());
+		let resource = tg::Id::from(id.clone());
+		let mut changed = false;
+		for permission in permissions {
+			if crate::fdb::propagate!(
+				Self::put_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: Some(&creator),
+						expires_at: None,
+						permission,
+						resource: &resource,
+						subject,
+					},
+					crate::fdb::grant::GrantSource::Implicit,
+					None,
+					partition_total,
+				)
+				.await
+			) {
+				changed = true;
+			}
+		}
+
+		Ok(ControlFlow::Break(changed))
 	}
 
 	async fn reconcile_materialized_grants(
@@ -2506,98 +2608,100 @@ impl Index {
 		}
 
 		if let Some(object) = &command_object
-			&& !process.stored.node_command
-			&& object.stored.subtree
+			&& !process.storage.node_command
+			&& object.storage.subtree
 		{
-			process.stored.node_command = true;
+			process.storage.node_command = true;
 			changed = true;
 		}
 
-		if process.set.error && !process.stored.node_error {
+		if process.set.error && !process.storage.node_error {
 			let value = error_objects
 				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.stored.subtree));
+				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
 			if value {
-				process.stored.node_error = true;
+				process.storage.node_error = true;
 				changed = true;
 			}
 		}
 
 		if process.set.log {
 			if let Some(Some(object)) = &log_object {
-				if !process.stored.node_log && object.stored.subtree {
-					process.stored.node_log = true;
+				if !process.storage.node_log && object.storage.subtree {
+					process.storage.node_log = true;
 					changed = true;
 				}
-			} else if log_object.is_none() && !process.stored.node_log {
-				process.stored.node_log = true;
+			} else if log_object.is_none() && !process.storage.node_log {
+				process.storage.node_log = true;
 				changed = true;
 			}
 		}
 
-		if process.set.output && !process.stored.node_output {
+		if process.set.output && !process.storage.node_output {
 			let value = output_objects
 				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.stored.subtree));
+				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
 			if value {
-				process.stored.node_output = true;
+				process.storage.node_output = true;
 				changed = true;
 			}
 		}
 
-		if process.set.children && !process.stored.subtree {
+		if process.set.children && !process.storage.subtree {
 			let value = children
 				.iter()
-				.all(|child| child.as_ref().is_some_and(|child| child.stored.subtree));
+				.all(|child| child.as_ref().is_some_and(|child| child.storage.subtree));
 			if value {
-				process.stored.subtree = true;
+				process.storage.subtree = true;
 				changed = true;
 			}
 		}
 
 		if process.set.children {
-			if !process.stored.subtree_command && process.stored.node_command {
+			if !process.storage.subtree_command && process.storage.node_command {
 				let value = children.iter().all(|child| {
 					child
 						.as_ref()
-						.is_some_and(|child| child.stored.subtree_command)
+						.is_some_and(|child| child.storage.subtree_command)
 				});
 				if value {
-					process.stored.subtree_command = true;
+					process.storage.subtree_command = true;
 					changed = true;
 				}
 			}
 
-			if !process.stored.subtree_error && process.stored.node_error {
+			if !process.storage.subtree_error && process.storage.node_error {
 				let value = children.iter().all(|child| {
 					child
 						.as_ref()
-						.is_some_and(|child| child.stored.subtree_error)
+						.is_some_and(|child| child.storage.subtree_error)
 				});
 				if value {
-					process.stored.subtree_error = true;
+					process.storage.subtree_error = true;
 					changed = true;
 				}
 			}
 
-			if !process.stored.subtree_log && process.stored.node_log {
-				let value = children
-					.iter()
-					.all(|child| child.as_ref().is_some_and(|child| child.stored.subtree_log));
+			if !process.storage.subtree_log && process.storage.node_log {
+				let value = children.iter().all(|child| {
+					child
+						.as_ref()
+						.is_some_and(|child| child.storage.subtree_log)
+				});
 				if value {
-					process.stored.subtree_log = true;
+					process.storage.subtree_log = true;
 					changed = true;
 				}
 			}
 
-			if !process.stored.subtree_output && process.stored.node_output {
+			if !process.storage.subtree_output && process.storage.node_output {
 				let value = children.iter().all(|child| {
 					child
 						.as_ref()
-						.is_some_and(|child| child.stored.subtree_output)
+						.is_some_and(|child| child.storage.subtree_output)
 				});
 				if value {
-					process.stored.subtree_output = true;
+					process.storage.subtree_output = true;
 					changed = true;
 				}
 			}

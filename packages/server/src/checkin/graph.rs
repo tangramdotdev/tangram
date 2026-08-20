@@ -29,7 +29,7 @@ pub struct Node {
 	pub referrers: SmallVec<[usize; 1]>,
 	pub solvable: bool,
 	pub solved: bool,
-	pub stored: tangram_index::object::Stored,
+	pub storage: tangram_index::object::Storage,
 	pub variant: Variant,
 }
 
@@ -193,12 +193,12 @@ pub struct File {
 
 #[derive(Clone, Debug)]
 pub enum Contents {
-	Write(Box<crate::write::Output>),
 	Id {
 		id: tg::blob::Id,
-		stored: tangram_index::object::Stored,
 		metadata: Option<tg::object::Metadata>,
+		storage: tangram_index::object::Storage,
 	},
+	Write(Box<crate::write::Output>),
 }
 
 #[derive(Clone, Debug)]
