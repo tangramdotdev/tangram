@@ -171,7 +171,7 @@ impl Session {
 			.all(|permission| token.body.grants(permission))
 	}
 
-	fn verify_token(&self, token: &tg::authorization::Token) -> bool {
+	pub(crate) fn verify_token(&self, token: &tg::authorization::Token) -> bool {
 		let Ok(now) = self.server.clock.unix_timestamp() else {
 			return false;
 		};
