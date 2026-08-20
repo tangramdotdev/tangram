@@ -290,9 +290,6 @@ pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::tag::Id,
 
-	#[tangram_serialize(id = 1)]
-	pub target: tg::Id,
-
 	#[tangram_serialize(id = 2)]
 	pub name: String,
 
@@ -301,6 +298,12 @@ pub struct PutNodeTagMessage {
 
 	#[tangram_serialize(id = 4)]
 	pub specifier: tg::Specifier,
+
+	#[tangram_serialize(id = 1)]
+	pub target: tg::Id,
+
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

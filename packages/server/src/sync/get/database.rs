@@ -372,6 +372,10 @@ impl Session {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
+			if message.token.is_some() {
+				self.sync_get_database_tag_permissions_from_token(message)?;
+				continue;
+			}
 			if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
 				objects.insert(id);
 			} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
@@ -428,6 +432,10 @@ impl Session {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
+			if let Some(permissions) = self.sync_get_database_tag_permissions_from_token(message)? {
+				outputs.insert(message.id.clone(), permissions);
+				continue;
+			}
 			let (aspects, permissions) = if let Ok(id) =
 				tg::object::Id::try_from(message.target.clone())
 			{
@@ -478,6 +486,50 @@ impl Session {
 		}
 
 		Ok(outputs)
+	}
+
+	fn sync_get_database_tag_permissions_from_token(
+		&self,
+		message: &tg::sync::PutNodeTagMessage,
+	) -> tg::Result<Option<Vec<tg::authorization::Permission>>> {
+		let Some(token) = &message.token else {
+			return Ok(None);
+		};
+		if token.body.resource != message.target || !self.verify_token(token) {
+			return Err(tg::error!("invalid tag target token"));
+		}
+		let valid =
+			if message.target.kind().is_object() {
+				token.body.permissions.iter().all(|permission| {
+					matches!(permission, tg::authorization::Permission::Object(_))
+				})
+			} else if message.target.kind() == tg::id::Kind::Process {
+				token.body.permissions.iter().all(|permission| {
+					matches!(
+						permission,
+						tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::Node
+								| tg::authorization::permission::process::Permission::NodeCommand
+								| tg::authorization::permission::process::Permission::NodeError
+								| tg::authorization::permission::process::Permission::NodeLog
+								| tg::authorization::permission::process::Permission::NodeOutput
+								| tg::authorization::permission::process::Permission::Subtree
+								| tg::authorization::permission::process::Permission::SubtreeCommand
+								| tg::authorization::permission::process::Permission::SubtreeError
+								| tg::authorization::permission::process::Permission::SubtreeLog
+								| tg::authorization::permission::process::Permission::SubtreeOutput
+						)
+					)
+				})
+			} else {
+				false
+			};
+		if !valid {
+			return Err(tg::error!("invalid tag target token permissions"));
+		}
+		let permissions = token.body.permissions.clone();
+
+		Ok(Some(permissions))
 	}
 
 	async fn sync_get_database_namespace_with_transaction(

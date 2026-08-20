@@ -257,6 +257,7 @@ impl Session {
 						parent: data.parent,
 						specifier: data.specifier,
 						target,
+						token: None,
 					})
 				},
 				tg::id::Kind::User => {
