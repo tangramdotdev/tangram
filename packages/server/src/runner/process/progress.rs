@@ -80,19 +80,15 @@ impl Session {
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let mut stream = pin!(stream);
-		let mut closed = false;
 		while let Some(event) = stream.try_next().await? {
 			match event {
-				tg::progress::Event::Indicators(indicators) if !closed => {
+				tg::progress::Event::Indicators(indicators) => {
 					for indicator in indicators {
 						let indicator = indicator.to_string();
 						if indicator.is_empty() {
 							continue;
 						}
-						if progress.send(format!("{indicator}\n").into()).is_err() {
-							closed = true;
-							break;
-						}
+						progress.send(format!("{indicator}\n").into()).ok();
 					}
 				},
 				tg::progress::Event::Output(output) => return Ok(output),
@@ -154,9 +150,7 @@ impl Session {
 		let stderr_task = Task::spawn(|_| async move {
 			let mut receiver = pin!(ReceiverStream::new(receiver));
 			while let Some(bytes) = receiver.next().await {
-				if progress.send(bytes).is_err() {
-					break;
-				}
+				progress.send(bytes).ok();
 			}
 			Ok::<_, tg::Error>(())
 		});
