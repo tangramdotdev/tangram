@@ -36,6 +36,14 @@ impl Session {
 }
 
 impl Server {
+	#[must_use]
+	pub fn is_primary_region(&self) -> bool {
+		let config = self.config();
+		config
+			.primary_region()
+			.is_none_or(|primary_region| config.region.as_deref() == Some(primary_region))
+	}
+
 	pub async fn get_region_client(&self, region: &str) -> tg::Result<tg::Client> {
 		self.try_get_region_client(region)
 			.await?

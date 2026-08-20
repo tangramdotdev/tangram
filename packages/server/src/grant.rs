@@ -12,6 +12,9 @@ use {
 
 impl Session {
 	pub(crate) async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
+		if !self.server.is_primary_region() {
+			return self.create_grant_primary_region(arg).await;
+		}
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
 		let authorization_resource = tg::Referent::with_node_and_tokens(
@@ -73,6 +76,21 @@ impl Session {
 		Ok(grant)
 	}
 
+	async fn create_grant_primary_region(
+		&self,
+		arg: tg::grant::create::Arg,
+	) -> tg::Result<tg::Grant> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let grant = client.create_grant(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to create the grant in the primary region")
+		})?;
+
+		Ok(grant)
+	}
+
 	async fn create_grant_local_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
@@ -104,6 +122,9 @@ impl Session {
 	}
 
 	pub(crate) async fn delete_grant(&self, arg: tg::grant::delete::Arg) -> tg::Result<Option<()>> {
+		if !self.server.is_primary_region() {
+			return self.delete_grant_primary_region(arg).await;
+		}
 		let resource = self.resolve_resource(&arg.resource.node).await?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions.clone())?;
 		let authorization_resource = tg::Referent::with_node_and_tokens(
@@ -143,6 +164,21 @@ impl Session {
 			.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
+		Ok(output)
+	}
+
+	async fn delete_grant_primary_region(
+		&self,
+		arg: tg::grant::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		let output = client.delete_grant(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to delete the grant in the primary region")
+		})?;
+
 		Ok(output)
 	}
 

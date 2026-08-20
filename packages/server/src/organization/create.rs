@@ -18,6 +18,9 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(_) if !self.server.is_primary_region() => {
+				self.create_organization_primary_region(arg).await
+			},
 			tg::Location::Local(_) => self.create_organization_local(arg).await,
 			tg::Location::Remote(remote) => self.create_organization_remote(arg, remote).await,
 		}
@@ -74,6 +77,25 @@ impl Session {
 		let output = tg::organization::create::Output { organization };
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn create_organization_primary_region(
+		&self,
+		mut arg: tg::organization::create::Arg,
+	) -> tg::Result<tg::organization::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let output = client.create_organization(arg).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to create the organization in the primary region"
+			)
+		})?;
+
+		Ok(output)
 	}
 
 	async fn create_organization_remote(

@@ -18,6 +18,9 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(_) if !self.server.is_primary_region() => {
+				self.create_group_primary_region(arg).await
+			},
 			tg::Location::Local(_) => self.create_group_local(arg).await,
 			tg::Location::Remote(remote) => self.create_group_remote(arg, remote).await,
 		}
@@ -88,6 +91,22 @@ impl Session {
 		let output = tg::group::create::Output { group };
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn create_group_primary_region(
+		&self,
+		mut arg: tg::group::create::Arg,
+	) -> tg::Result<tg::group::create::Output> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let output = client.create_group(arg).await.map_err(|error| {
+			tg::error!(!error, "failed to create the group in the primary region")
+		})?;
+
+		Ok(output)
 	}
 
 	async fn create_group_remote(
