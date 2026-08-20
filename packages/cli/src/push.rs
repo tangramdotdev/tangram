@@ -240,17 +240,20 @@ impl Cli {
 
 	pub(crate) fn print_push_or_pull_amounts(&self, action: &str, amounts: &tg::push::Amounts) {
 		let mut values = [
-			(amounts.users, "users"),
-			(amounts.organizations, "organizations"),
-			(amounts.groups, "groups"),
-			(amounts.tags, "tags"),
-			(amounts.sandboxes, "sandboxes"),
-			(amounts.processes, "processes"),
-			(amounts.objects, "objects"),
+			(amounts.users, "user", "users"),
+			(amounts.organizations, "organization", "organizations"),
+			(amounts.groups, "group", "groups"),
+			(amounts.tags, "tag", "tags"),
+			(amounts.sandboxes, "sandbox", "sandboxes"),
+			(amounts.processes, "process", "processes"),
+			(amounts.objects, "object", "objects"),
 		]
 		.into_iter()
-		.filter(|(amount, _)| *amount > 0)
-		.map(|(amount, name)| format!("{amount} {name}"))
+		.filter(|(amount, _, _)| *amount > 0)
+		.map(|(amount, singular, plural)| {
+			let name = if amount == 1 { singular } else { plural };
+			format!("{amount} {name}")
+		})
 		.collect::<Vec<_>>();
 		if amounts.bytes > 0 {
 			let bytes = byte_unit::Byte::from_u64(amounts.bytes)

@@ -24,7 +24,7 @@ let local_parent = tg --url $local.url group get foo/bar | from json
 assert equal $local_root.id $root.id
 assert equal $local_parent.id $remote_parent.id
 
-# Always continues past a remote that is missing an existing local parent.
+# Always continues past a remote that is missing an existing local parent, then rejects conflicts.
 let remote_refresh = tg --url $second.url group create refresh | from json
 let remote_refresh_parent = tg --url $second.url group create refresh/parent | from json
 let local_refresh = tg --url $local.url group create refresh | from json
@@ -32,9 +32,12 @@ let local_refresh_parent = tg --url $local.url group create refresh/parent | fro
 assert not equal $local_refresh.id $remote_refresh.id
 assert not equal $local_refresh_parent.id $remote_refresh_parent.id
 
-tg --url $local.url tag put -p --pull-ancestors=always refresh/parent/tag $node
+let output = tg --url $local.url tag put -p --pull-ancestors=always refresh/parent/tag $node | complete
+failure $output "always should reject a conflicting ancestor from a later remote"
+assert ($output.stderr | str contains "the specifier is already in use")
 
 let actual_refresh = tg --url $local.url group get refresh | from json
 let actual_refresh_parent = tg --url $local.url group get refresh/parent | from json
-assert equal $actual_refresh.id $remote_refresh.id
-assert equal $actual_refresh_parent.id $remote_refresh_parent.id
+assert equal $actual_refresh.id $local_refresh.id
+assert equal $actual_refresh_parent.id $local_refresh_parent.id
+failure (tg --url $local.url tag get refresh/parent/tag | complete)

@@ -43,14 +43,18 @@ assert not equal $local_parent.id $remote_parent.id
 failure (tg --url $local.url pull --ancestors=missing parent/child | complete)
 assert equal (tg --url $local.url group get parent | from json | get id) $local_parent.id
 
-# Always replaces overlapping conflicting roots and deletes their old subtree.
-tg --url $local.url pull --ancestors=always parent/child
-assert equal (tg --url $local.url group get parent | from json | get id) $remote_parent.id
-assert equal (tg --url $local.url group get parent/child | from json | get id) $remote_child.id
-failure (tg --url $local.url group get parent/child/local | complete)
-failure (tg --url $local.url group get $local_child.id | complete)
-failure (tg --url $local.url group get $local_descendant.id | complete)
-failure (tg --url $local.url group get $local_parent.id | complete)
+# Always rejects overlapping conflicting roots and preserves their old subtree.
+let output = tg --url $local.url pull --ancestors=always parent/child | complete
+failure $output "always should reject a conflicting ancestor"
+assert ($output.stderr | str contains "the specifier is already in use")
+assert equal (tg --url $local.url group get parent | from json | get id) $local_parent.id
+assert equal (tg --url $local.url group get parent/child | from json | get id) $local_child.id
+assert equal (
+	tg --url $local.url group get parent/child/local | from json | get id
+) $local_descendant.id
+success (tg --url $local.url group get $local_child.id | complete)
+success (tg --url $local.url group get $local_descendant.id | complete)
+success (tg --url $local.url group get $local_parent.id | complete)
 
 # A recursive request upgrades an earlier non-recursive ancestor request without resending the node.
 let database_watch = (
@@ -118,12 +122,14 @@ assert equal (
 	tg --url $coalesced.url group get --local coalesced/child/other | from json | get id
 ) $remote_coalesced_other.id
 
-# Pulling children replaces a conflicting descendant when the requested root already matches.
+# Pulling children rejects a conflicting descendant when the requested root already matches.
 tg --url $recursive.url pull parent
 let local_child = tg --url $recursive.url group create parent/child | from json
 assert not equal $local_child.id $remote_child.id
-tg --url $recursive.url pull --group-children parent
-assert equal (tg --url $recursive.url group get parent/child | from json | get id) $remote_child.id
+let output = tg --url $recursive.url pull --group-children parent | complete
+failure $output "pulling children should reject a conflicting descendant"
+assert ($output.stderr | str contains "the specifier is already in use")
+assert equal (tg --url $recursive.url group get parent/child | from json | get id) $local_child.id
 
 # Pulling a subtree does not pull siblings through a dynamically requested ancestor.
 tg --url $scoped.url pull --group-children parent/child

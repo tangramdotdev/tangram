@@ -11,7 +11,8 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-const SYNC_GET_DATABASE_BATCH_SIZE: usize = 128;
+#[cfg(test)]
+mod tests;
 
 #[derive(Default)]
 struct Namespace {
@@ -135,6 +136,7 @@ impl Session {
 				Ok::<_, tg::Error>(tg::sync::Message::Put(tg::sync::PutMessage::Node(node)))
 			})
 			.chain([
+				Ok(tg::sync::Message::Get(tg::sync::GetMessage::End)),
 				Ok(tg::sync::Message::Put(tg::sync::PutMessage::End)),
 				Ok(tg::sync::Message::End),
 			]);
@@ -185,8 +187,7 @@ impl Session {
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>, crate::database::Error>> {
-		let mut batch = tangram_index::batch::Arg::default();
-		let mut tag_accounts = BTreeMap::new();
+		let batch_size = self.server.config.sync.get.database.batch_size;
 		let invalidated_specifiers = nodes
 			.iter()
 			.filter_map(|node| match node {
@@ -194,71 +195,89 @@ impl Session {
 				_ => None,
 			})
 			.collect::<BTreeSet<_>>();
-		let mut namespace =
-			match Self::sync_get_database_namespace_with_transaction(transaction, nodes).await? {
-				ControlFlow::Break(namespace) => namespace,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-		for node in nodes {
-			if let tg::sync::PutNodeMessage::Tag(message) = node {
-				let account = match self
-					.usage_account_for_specifier_with_transaction(transaction, &message.specifier)
-					.await?
-				{
-					ControlFlow::Break(account) => account,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				tag_accounts.insert(message.id.clone(), account);
-			}
-			let created = match self
-				.sync_get_database_node_with_transaction(
-					transaction,
-					node,
-					&mut namespace,
-					&tag_accounts,
-					tag_permissions,
-					&mut batch,
-				)
-				.await?
-			{
-				ControlFlow::Break(created) => created,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			if created
-				&& let Some(arg) =
-					self.sync_get_create_temporary_grant(&Self::sync_get_database_node_id(node)?)?
-			{
-				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
-			}
+		let mut namespace = match Self::sync_get_database_namespace_with_transaction(
+			transaction,
+			nodes,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(namespace) => namespace,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let created = Self::sync_get_database_validate_nodes(&mut namespace, nodes)?;
+		let specifiers = nodes
+			.iter()
+			.map(|node| {
+				let id = Self::sync_get_database_node_id(node)?;
+				let specifier = Self::sync_get_database_node_specifier(node)?;
+				Ok((id, specifier.clone()))
+			})
+			.collect::<tg::Result<Vec<_>>>()?
+			.into_iter()
+			.filter(|(id, _)| created.contains(id))
+			.collect::<Vec<_>>();
+		match Self::sync_get_database_insert_specifiers_with_transaction(
+			transaction,
+			&specifiers,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		for node in nodes {
-			let tg::sync::PutNodeMessage::Tag(message) = node else {
-				continue;
-			};
-			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
-				continue;
-			};
-			let item = if let Ok(object) = message.target.clone().try_into() {
-				tangram_index::batch::Item::PutAccountObject(
-					tangram_index::usage::storage::put::ObjectArg {
-						account,
-						object,
-						touched_at,
-					},
-				)
-			} else if let Ok(process) = message.target.clone().try_into() {
-				tangram_index::batch::Item::PutAccountProcess(
-					tangram_index::usage::storage::put::ProcessArg {
-						account,
-						process,
-						touched_at,
-					},
-				)
-			} else {
-				return Err(tg::error!("invalid tag target"));
-			};
-			batch.items.push(item);
+
+		// Pipeline the independent named-node writes.
+		let (groups, organizations, tags, users) = futures::join!(
+			Self::sync_get_database_put_groups_with_transaction(transaction, nodes, batch_size),
+			Self::sync_get_database_put_organizations_with_transaction(
+				transaction,
+				nodes,
+				batch_size,
+			),
+			Self::sync_get_database_put_tags_with_transaction(
+				transaction,
+				nodes,
+				tag_permissions,
+				batch_size,
+			),
+			Self::sync_get_database_put_users_with_transaction(transaction, nodes, batch_size),
+		);
+		match groups? {
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
+		match organizations? {
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		let tag_permissions = match tags? {
+			ControlFlow::Break(tag_permissions) => tag_permissions,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		match users? {
+			ControlFlow::Break(()) => (),
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+
+		// Resolve tag accounts after the complete namespace has been written.
+		let tag_accounts = match self
+			.sync_get_database_tag_accounts_with_transaction(transaction, nodes)
+			.await?
+		{
+			ControlFlow::Break(tag_accounts) => tag_accounts,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+
+		// Create the index batch.
+		let batch = self.sync_get_database_batch(
+			nodes,
+			&created,
+			&tag_accounts,
+			&tag_permissions,
+			touched_at,
+		)?;
 		match self
 			.server
 			.enqueue_database_outbox_with_transaction(transaction, &batch)
@@ -280,6 +299,7 @@ impl Session {
 		}
 
 		// Read existing IDs and specifiers from the database.
+		let batch_size = self.server.config.sync.get.database.batch_size;
 		let ids = nodes
 			.iter()
 			.map(Self::sync_get_database_node_id)
@@ -302,6 +322,7 @@ impl Session {
 					Self::sync_get_database_existing_named_nodes_with_transaction(
 						transaction,
 						&nodes,
+						batch_size,
 					)
 					.await
 				}
@@ -320,24 +341,31 @@ impl Session {
 				by_id,
 				by_specifier,
 			)?;
-			if by_specifier.is_some() {
-				let permission = Self::write_permission_for_resource(&id)?;
-				let permissions = tg::authorization::permission::Set::from_permission(permission);
-				let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
-				authorization.insert(resource, permissions);
-			}
+			let allow_unclaimed = by_specifier.is_none()
+				&& specifier
+					.ancestors()
+					.all(|specifier| !existing_named_nodes.specifiers.contains_key(&specifier));
+			let permission = Self::write_permission_for_resource(&id)?;
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+			let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
+			authorization.insert(resource, (allow_unclaimed, permissions));
 		}
 
 		// Authorize the writes.
 		let authorization = authorization.into_iter().collect::<Vec<_>>();
-		for authorization in authorization.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
+		for authorization in authorization.chunks(batch_size) {
 			let args = authorization
 				.iter()
-				.map(|(resource, permissions)| (resource.clone(), *permissions))
+				.map(|(resource, (_, permissions))| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
 			let outputs = self.authorize_batch(args).await?;
-			for ((_, permissions), output) in std::iter::zip(authorization, outputs) {
-				let authorized = output.is_some_and(|output| output.contains(*permissions));
+			for ((_, (allow_unclaimed, permissions)), output) in
+				std::iter::zip(authorization, outputs)
+			{
+				let authorized = match output {
+					Some(output) => output.contains(*permissions),
+					None => *allow_unclaimed,
+				};
 				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -350,12 +378,18 @@ impl Session {
 	async fn sync_get_database_existing_named_nodes_with_transaction(
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
 	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
-		let existing_named_nodes =
-			match Self::sync_get_database_namespace_with_transaction(transaction, nodes).await? {
-				ControlFlow::Break(existing_named_nodes) => existing_named_nodes,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
+		let existing_named_nodes = match Self::sync_get_database_namespace_with_transaction(
+			transaction,
+			nodes,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(existing_named_nodes) => existing_named_nodes,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 
 		Ok(ControlFlow::Break(existing_named_nodes))
 	}
@@ -534,6 +568,7 @@ impl Session {
 	async fn sync_get_database_namespace_with_transaction(
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
 	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
 		// Collect the relevant IDs and specifiers.
 		let mut ids = BTreeSet::new();
@@ -556,6 +591,7 @@ impl Session {
 			&mut namespace,
 			"id",
 			&ids,
+			batch_size,
 		)
 		.await?
 		{
@@ -568,6 +604,7 @@ impl Session {
 			&mut namespace,
 			"specifier",
 			&specifiers,
+			batch_size,
 		)
 		.await?
 		{
@@ -583,6 +620,7 @@ impl Session {
 		namespace: &mut Namespace,
 		column: &str,
 		values: &[String],
+		batch_size: usize,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
@@ -592,7 +630,7 @@ impl Session {
 			specifier: tg::Specifier,
 		}
 
-		for values in values.chunks(SYNC_GET_DATABASE_BATCH_SIZE) {
+		for values in values.chunks(batch_size) {
 			let p = transaction.p();
 			let placeholders = (1..=values.len())
 				.map(|index| format!("{p}{index}"))
@@ -618,258 +656,62 @@ impl Session {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn sync_get_database_node_with_transaction(
-		&self,
-		transaction: &Transaction<'_>,
-		node: &tg::sync::PutNodeMessage,
+	fn sync_get_database_validate_nodes(
 		namespace: &mut Namespace,
-		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
-		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
-		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
-		match node {
-			tg::sync::PutNodeMessage::Group(message) => {
-				let created = match Self::sync_get_database_validate_node_with_transaction(
-					transaction,
-					namespace,
-					&message.id.clone().into(),
-					&message.name,
+		nodes: &[tg::sync::PutNodeMessage],
+	) -> tg::Result<BTreeSet<tg::Id>> {
+		let mut created = BTreeSet::new();
+		for node in nodes {
+			let (id, name, parent, specifier) = match node {
+				tg::sync::PutNodeMessage::Group(message) => (
+					message.id.clone().into(),
+					message.name.as_str(),
 					message.parent.as_ref(),
 					&message.specifier,
-				)
-				.await?
-				{
-					ControlFlow::Break(created) => created,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						insert into groups (id, name, parent)
-						values ({p}1, {p}2, {p}3)
-						on conflict (id) do update
-						set name = excluded.name, parent = excluded.parent;
-					"
-				);
-				let result = transaction
-					.execute(
-						statement.into(),
-						db::params![
-							message.id.to_string(),
-							message.name.clone(),
-							message.parent.as_ref().map(ToString::to_string)
-						],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-				batch.items.push(tangram_index::batch::Item::PutGroup(
-					tangram_index::group::put::Arg {
-						id: message.id.clone(),
-						parent: message.parent.clone(),
-						specifier: message.specifier.clone(),
-					},
-				));
-
-				Ok(ControlFlow::Break(created))
-			},
-			tg::sync::PutNodeMessage::Object(_)
-			| tg::sync::PutNodeMessage::Process(_)
-			| tg::sync::PutNodeMessage::Sandbox(_) => Err(tg::error!("invalid sync node kind")),
-			tg::sync::PutNodeMessage::Organization(message) => {
-				let created = match Self::sync_get_database_validate_node_with_transaction(
-					transaction,
-					namespace,
-					&message.id.clone().into(),
-					&message.name,
+				),
+				tg::sync::PutNodeMessage::Object(_)
+				| tg::sync::PutNodeMessage::Process(_)
+				| tg::sync::PutNodeMessage::Sandbox(_) => {
+					return Err(tg::error!("invalid sync node kind"));
+				},
+				tg::sync::PutNodeMessage::Organization(message) => (
+					message.id.clone().into(),
+					message.name.as_str(),
 					None,
 					&message.specifier,
-				)
-				.await?
-				{
-					ControlFlow::Break(created) => created,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						insert into organizations (id, name)
-						values ({p}1, {p}2)
-						on conflict (id) do update
-						set name = excluded.name;
-					"
-				);
-				let result = transaction
-					.execute(
-						statement.into(),
-						db::params![message.id.to_string(), message.name.clone()],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-				batch
-					.items
-					.push(tangram_index::batch::Item::PutOrganization(
-						tangram_index::organization::put::Arg {
-							billing: None,
-							id: message.id.clone(),
-							specifier: message.specifier.clone(),
-						},
-					));
-
-				Ok(ControlFlow::Break(created))
-			},
-			tg::sync::PutNodeMessage::Tag(message) => {
-				let created = match Self::sync_get_database_validate_node_with_transaction(
-					transaction,
-					namespace,
-					&message.id.clone().into(),
-					&message.name,
+				),
+				tg::sync::PutNodeMessage::Tag(message) => (
+					message.id.clone().into(),
+					message.name.as_str(),
 					message.parent.as_ref(),
 					&message.specifier,
-				)
-				.await?
-				{
-					ControlFlow::Break(created) => created,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let target = if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
-					tg::Either::Left(id)
-				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
-					tg::Either::Right(id)
-				} else {
-					return Err(tg::error!("invalid tag target"));
-				};
-				let target_string = target.to_string();
-				let permissions = tag_permissions
-					.get(&message.id)
-					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-				let permissions = serde_json::to_string(permissions)
-					.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						insert into tags (id, name, parent, target, permissions)
-						values ({p}1, {p}2, {p}3, {p}4, {p}5)
-						on conflict (id) do update
-						set name = excluded.name, parent = excluded.parent, target = excluded.target,
-							permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end;
-					"
-				);
-				let result = transaction
-					.execute(
-						statement.into(),
-						db::params![
-							message.id.to_string(),
-							message.name.clone(),
-							message.parent.as_ref().map(ToString::to_string),
-							target_string,
-							permissions
-						],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-				#[derive(db::row::Deserialize)]
-				struct Row {
-					permissions: String,
-				}
-				let statement = formatdoc!(
-					"
-						select permissions
-						from tags
-						where id = {p}1;
-					"
-				);
-				let result = transaction
-					.query_one_into::<Row>(statement.into(), db::params![message.id.to_string()])
-					.await;
-				let row = crate::database::retry!(result, "failed to execute the statement");
-				let permissions = serde_json::from_str(&row.permissions)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
-				batch.items.push(tangram_index::batch::Item::PutTag(
-					tangram_index::tag::put::Arg {
-						account: tag_accounts.get(&message.id).cloned().flatten(),
-						id: message.id.clone(),
-						name: message.name.clone(),
-						parent: message.parent.clone(),
-						permissions,
-						specifier: message.specifier.clone(),
-						target,
-					},
-				));
-
-				Ok(ControlFlow::Break(created))
-			},
-			tg::sync::PutNodeMessage::User(message) => {
-				let created = match Self::sync_get_database_validate_node_with_transaction(
-					transaction,
-					namespace,
-					&message.id.clone().into(),
-					&message.name,
+				),
+				tg::sync::PutNodeMessage::User(message) => (
+					message.id.clone().into(),
+					message.name.as_str(),
 					None,
 					&message.specifier,
-				)
-				.await?
-				{
-					ControlFlow::Break(created) => created,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let p = transaction.p();
-				let statement = formatdoc!(
-					"
-						insert into users (id, name)
-						values ({p}1, {p}2)
-						on conflict (id) do update
-						set name = excluded.name;
-					"
-				);
-				let result = transaction
-					.execute(
-						statement.into(),
-						db::params![message.id.to_string(), message.name.clone()],
-					)
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-				let statement = format!(r#"delete from user_emails where "user" = {p}1;"#);
-				let result = transaction
-					.execute(statement.into(), db::params![message.id.to_string()])
-					.await;
-				crate::database::retry!(result, "failed to execute the statement");
-				for email in &message.emails {
-					let statement = formatdoc!(
-						r#"
-							insert into user_emails ("user", email)
-							values ({p}1, {p}2);
-						"#
-					);
-					let result = transaction
-						.execute(
-							statement.into(),
-							db::params![message.id.to_string(), email.clone()],
-						)
-						.await;
-					crate::database::retry!(result, "failed to execute the statement");
-				}
-				batch.items.push(tangram_index::batch::Item::PutUser(
-					tangram_index::user::put::Arg {
-						billing: None,
-						id: message.id.clone(),
-						specifier: message.specifier.clone(),
-					},
-				));
-
-				Ok(ControlFlow::Break(created))
-			},
+				),
+			};
+			if Self::sync_get_database_validate_node(namespace, &id, name, parent, specifier)? {
+				created.insert(id);
+			}
 		}
+
+		Ok(created)
 	}
 
-	async fn sync_get_database_validate_node_with_transaction(
-		transaction: &Transaction<'_>,
+	fn sync_get_database_validate_node(
 		namespace: &mut Namespace,
 		id: &tg::Id,
 		name: &str,
 		parent: Option<&tg::Id>,
 		specifier: &tg::Specifier,
-	) -> tg::Result<ControlFlow<bool, crate::database::Error>> {
+	) -> tg::Result<bool> {
 		// Validate the ID and specifier.
+		if specifier.components().next().is_none() {
+			return Err(tg::error!("invalid specifier"));
+		}
 		let by_id = namespace.ids.get(id);
 		let by_specifier = namespace.specifiers.get(specifier);
 		Self::sync_get_database_validate_id_and_specifier(id, specifier, by_id, by_specifier)?;
@@ -903,16 +745,431 @@ impl Session {
 			return Err(tg::error!("the parent does not match the specifier"));
 		}
 
-		// Create the specifier.
+		// Update the namespace.
 		if created {
-			match Self::insert_specifier_with_transaction(transaction, id, specifier).await? {
-				ControlFlow::Break(()) => (),
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
 			namespace.insert(id.clone(), specifier.clone());
 		}
 
-		Ok(ControlFlow::Break(created))
+		Ok(created)
+	}
+
+	async fn sync_get_database_insert_specifiers_with_transaction(
+		transaction: &Transaction<'_>,
+		specifiers: &[(tg::Id, tg::Specifier)],
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		for specifiers in specifiers.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, specifiers.len(), 2);
+			let statement = formatdoc!(
+				"
+					insert into specifiers (id, specifier)
+					values {values};
+				"
+			);
+			let params = specifiers
+				.iter()
+				.flat_map(|(id, specifier)| db::params![id.to_string(), specifier.to_string()])
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to insert the specifiers");
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn sync_get_database_put_groups_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let groups = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::Group(message) = node else {
+					return None;
+				};
+
+				Some(message)
+			})
+			.collect::<Vec<_>>();
+		for groups in groups.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, groups.len(), 3);
+			let statement = formatdoc!(
+				"
+					insert into groups (id, name, parent)
+					values {values}
+					on conflict (id) do update
+					set name = excluded.name, parent = excluded.parent;
+				"
+			);
+			let params = groups
+				.iter()
+				.flat_map(|message| {
+					db::params![
+						message.id.to_string(),
+						message.name.clone(),
+						message.parent.as_ref().map(ToString::to_string)
+					]
+				})
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to put the groups");
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn sync_get_database_put_organizations_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let organizations = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::Organization(message) = node else {
+					return None;
+				};
+
+				Some(message)
+			})
+			.collect::<Vec<_>>();
+		for organizations in organizations.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, organizations.len(), 2);
+			let statement = formatdoc!(
+				"
+					insert into organizations (id, name)
+					values {values}
+					on conflict (id) do update
+					set name = excluded.name;
+				"
+			);
+			let params = organizations
+				.iter()
+				.flat_map(|message| db::params![message.id.to_string(), message.name.clone()])
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to put the organizations");
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn sync_get_database_put_tags_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+		batch_size: usize,
+	) -> tg::Result<
+		ControlFlow<
+			BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+			crate::database::Error,
+		>,
+	> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::tag::Id,
+			permissions: String,
+		}
+
+		let tags = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::Tag(message) = node else {
+					return None;
+				};
+
+				Some(message)
+			})
+			.collect::<Vec<_>>();
+		let mut outputs = BTreeMap::new();
+		for tags in tags.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, tags.len(), 5);
+			let statement = formatdoc!(
+				"
+					insert into tags (id, name, parent, target, permissions)
+					values {values}
+					on conflict (id) do update
+					set name = excluded.name, parent = excluded.parent, target = excluded.target,
+						permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end
+					returning id, permissions;
+				"
+			);
+			let mut params = Vec::with_capacity(tags.len() * 5);
+			for message in tags {
+				let target = Self::sync_get_database_tag_target(&message.target)?;
+				let permissions = tag_permissions
+					.get(&message.id)
+					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
+				let permissions = serde_json::to_string(permissions)
+					.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
+				params.extend(db::params![
+					message.id.to_string(),
+					message.name.clone(),
+					message.parent.as_ref().map(ToString::to_string),
+					target.to_string(),
+					permissions
+				]);
+			}
+			let result = transaction
+				.query_all_into::<Row>(statement.into(), params)
+				.await;
+			let rows = crate::database::retry!(result, "failed to put the tags");
+			for row in rows {
+				let permissions = serde_json::from_str(&row.permissions).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the tag permissions")
+				})?;
+				outputs.insert(row.id, permissions);
+			}
+		}
+
+		Ok(ControlFlow::Break(outputs))
+	}
+
+	async fn sync_get_database_put_users_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+		let users = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::User(message) = node else {
+					return None;
+				};
+
+				Some(message)
+			})
+			.collect::<Vec<_>>();
+		for users in users.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, users.len(), 2);
+			let statement = formatdoc!(
+				"
+					insert into users (id, name)
+					values {values}
+					on conflict (id) do update
+					set name = excluded.name;
+				"
+			);
+			let params = users
+				.iter()
+				.flat_map(|message| db::params![message.id.to_string(), message.name.clone()])
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to put the users");
+		}
+		for users in users.chunks(batch_size) {
+			let p = transaction.p();
+			let placeholders = Self::sync_get_database_placeholders(p, users.len(), 1);
+			let statement = format!(r#"delete from user_emails where "user" in ({placeholders});"#);
+			let params = users
+				.iter()
+				.map(|message| db::Value::from(message.id.to_string()))
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to delete the user emails");
+		}
+		let emails = users
+			.iter()
+			.flat_map(|message| {
+				message
+					.emails
+					.iter()
+					.map(|email| (message.id.to_string(), email.clone()))
+			})
+			.collect::<Vec<_>>();
+		for emails in emails.chunks(batch_size) {
+			let p = transaction.p();
+			let values = Self::sync_get_database_placeholders(p, emails.len(), 2);
+			let statement = formatdoc!(
+				r#"
+					insert into user_emails ("user", email)
+					values {values};
+				"#
+			);
+			let params = emails
+				.iter()
+				.flat_map(|(user, email)| db::params![user.clone(), email.clone()])
+				.collect();
+			let result = transaction.execute(statement.into(), params).await;
+			crate::database::retry!(result, "failed to insert the user emails");
+		}
+
+		Ok(ControlFlow::Break(()))
+	}
+
+	async fn sync_get_database_tag_accounts_with_transaction(
+		&self,
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+	) -> tg::Result<
+		ControlFlow<BTreeMap<tg::tag::Id, Option<tg::usage::Account>>, crate::database::Error>,
+	> {
+		let mut accounts = BTreeMap::new();
+		if !self.server.config.usage.enabled {
+			return Ok(ControlFlow::Break(accounts));
+		}
+		let mut root_accounts = BTreeMap::<tg::Specifier, Option<tg::usage::Account>>::new();
+		for message in nodes.iter().filter_map(|node| {
+			let tg::sync::PutNodeMessage::Tag(message) = node else {
+				return None;
+			};
+
+			Some(message)
+		}) {
+			let root = message
+				.specifier
+				.prefixes()
+				.next()
+				.expect("a specifier should have a component");
+			let account = if let Some(account) = root_accounts.get(&root) {
+				account.clone()
+			} else {
+				let account = match self
+					.usage_account_for_specifier_with_transaction(transaction, &root)
+					.await?
+				{
+					ControlFlow::Break(account) => account,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				root_accounts.insert(root, account.clone());
+				account
+			};
+			accounts.insert(message.id.clone(), account);
+		}
+
+		Ok(ControlFlow::Break(accounts))
+	}
+
+	fn sync_get_database_batch(
+		&self,
+		nodes: &[tg::sync::PutNodeMessage],
+		created: &BTreeSet<tg::Id>,
+		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
+		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+		touched_at: i64,
+	) -> tg::Result<tangram_index::batch::Arg> {
+		let mut batch = tangram_index::batch::Arg::default();
+		for node in nodes {
+			let id = Self::sync_get_database_node_id(node)?;
+			let item = match node {
+				tg::sync::PutNodeMessage::Group(message) => {
+					tangram_index::batch::Item::PutGroup(tangram_index::group::put::Arg {
+						id: message.id.clone(),
+						parent: message.parent.clone(),
+						specifier: message.specifier.clone(),
+					})
+				},
+				tg::sync::PutNodeMessage::Object(_)
+				| tg::sync::PutNodeMessage::Process(_)
+				| tg::sync::PutNodeMessage::Sandbox(_) => {
+					return Err(tg::error!("invalid sync node kind"));
+				},
+				tg::sync::PutNodeMessage::Organization(message) => {
+					tangram_index::batch::Item::PutOrganization(
+						tangram_index::organization::put::Arg {
+							billing: None,
+							id: message.id.clone(),
+							specifier: message.specifier.clone(),
+						},
+					)
+				},
+				tg::sync::PutNodeMessage::Tag(message) => {
+					let permissions = tag_permissions
+						.get(&message.id)
+						.cloned()
+						.ok_or_else(|| tg::error!("missing the tag permissions"))?;
+					let target = Self::sync_get_database_tag_target(&message.target)?;
+					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+						account: tag_accounts.get(&message.id).cloned().flatten(),
+						id: message.id.clone(),
+						name: message.name.clone(),
+						parent: message.parent.clone(),
+						permissions,
+						specifier: message.specifier.clone(),
+						target,
+					})
+				},
+				tg::sync::PutNodeMessage::User(message) => {
+					tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
+						billing: None,
+						id: message.id.clone(),
+						specifier: message.specifier.clone(),
+					})
+				},
+			};
+			batch.items.push(item);
+			if created.contains(&id)
+				&& let Some(arg) = self.sync_get_create_temporary_grant(&id)?
+			{
+				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
+			}
+		}
+		for message in nodes.iter().filter_map(|node| {
+			let tg::sync::PutNodeMessage::Tag(message) = node else {
+				return None;
+			};
+
+			Some(message)
+		}) {
+			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
+				continue;
+			};
+			let target = Self::sync_get_database_tag_target(&message.target)?;
+			let item = match target {
+				tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
+					tangram_index::usage::storage::put::ObjectArg {
+						account,
+						object,
+						touched_at,
+					},
+				),
+				tg::Either::Right(process) => tangram_index::batch::Item::PutAccountProcess(
+					tangram_index::usage::storage::put::ProcessArg {
+						account,
+						process,
+						touched_at,
+					},
+				),
+			};
+			batch.items.push(item);
+		}
+
+		Ok(batch)
+	}
+
+	fn sync_get_database_tag_target(
+		target: &tg::Id,
+	) -> tg::Result<tg::Either<tg::object::Id, tg::process::Id>> {
+		let target = if let Ok(id) = tg::object::Id::try_from(target.clone()) {
+			tg::Either::Left(id)
+		} else if let Ok(id) = tg::process::Id::try_from(target.clone()) {
+			tg::Either::Right(id)
+		} else {
+			return Err(tg::error!("invalid tag target"));
+		};
+
+		Ok(target)
+	}
+
+	fn sync_get_database_placeholders(p: &str, rows: usize, columns: usize) -> String {
+		(0..rows)
+			.map(|row| {
+				let offset = row * columns;
+				let values = (1..=columns)
+					.map(|column| format!("{p}{}", offset + column))
+					.collect::<Vec<_>>()
+					.join(", ");
+				format!("({values})")
+			})
+			.collect::<Vec<_>>()
+			.join(", ")
 	}
 
 	fn sync_get_database_node_depth(node: &tg::sync::PutNodeMessage) -> usize {

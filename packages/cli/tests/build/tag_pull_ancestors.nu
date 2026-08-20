@@ -61,16 +61,18 @@ for pull in $pulls {
 
 # Missing should keep a conflicting local root, leaving the tag's parent missing.
 let local_root = tg --url $local.url group create conflict | from json
-let version = create_remote_ancestors $remote conflict
+create_remote_ancestors $remote conflict | ignore
 assert not equal $local_root.id (tg --url $remote.url group get conflict | from json | get id)
 let refused = tg --url $local.url build --tag conflict/builds/1.0.0/default $path | complete
 failure $refused "building should fail while a conflicting local root shadows the remote ancestors"
 assert equal (tg --url $local.url group get --local conflict | from json | get id) $local_root.id
 
-# Always should replace the conflicting local root with the remote's.
+# Always should reject the conflicting local root without replacing it.
 let output = tg --url $local.url build '--pull-tag-ancestors=always' --tag conflict/builds/1.0.0/default $path | complete
-success $output "building should replace a conflicting local root when always pulling"
-assert equal (tg --url $local.url group get --local conflict/builds/1.0.0 | from json | get id) $version.id
+failure $output "building should reject a conflicting local root when always pulling"
+assert ($output.stderr | str contains "the specifier is already in use")
+assert equal (tg --url $local.url group get --local conflict | from json | get id) $local_root.id
+failure (tg --url $local.url group get --local conflict/builds/1.0.0 | complete)
 
 # Creating should not consult the remote when pulling is disabled.
 let version = create_remote_ancestors $remote created

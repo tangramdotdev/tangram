@@ -1361,6 +1361,9 @@ pub struct SyncOptions {
 #[serde(deny_unknown_fields)]
 pub struct SyncGet {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub database: Option<SyncGetDatabase>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index: Option<SyncGetIndex>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1368,6 +1371,14 @@ pub struct SyncGet {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub store: Option<SyncGetStore>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncGetDatabase {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
 }
 
 #[serde_as]
@@ -3242,6 +3253,9 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 
 fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 	let mut target = server::SyncGet::default();
+	if let Some(source) = source.database {
+		target.database = resolve_sync_get_database(source);
+	}
 	if let Some(source) = source.index {
 		target.index = resolve_sync_get_index(source);
 	}
@@ -3250,6 +3264,14 @@ fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 	}
 	if let Some(source) = source.store {
 		target.store = resolve_sync_get_store(source);
+	}
+	target
+}
+
+fn resolve_sync_get_database(source: SyncGetDatabase) -> server::SyncGetDatabase {
+	let mut target = server::SyncGetDatabase::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
 	}
 	target
 }

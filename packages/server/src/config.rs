@@ -885,11 +885,18 @@ pub struct Sync {
 
 #[derive(Clone, Debug, Default)]
 pub struct SyncGet {
+	pub database: SyncGetDatabase,
+
 	pub index: SyncGetIndex,
 
 	pub queue: SyncGetQueue,
 
 	pub store: SyncGetStore,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SyncGetDatabase {
+	pub batch_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1612,6 +1619,12 @@ impl Default for Sync {
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
 		}
+	}
+}
+
+impl Default for SyncGetDatabase {
+	fn default() -> Self {
+		Self { batch_size: 128 }
 	}
 }
 

@@ -384,6 +384,13 @@ impl Server {
 			));
 		}
 
+		// Validate the sync configuration.
+		if config.sync.get.database.batch_size == 0 {
+			return Err(tg::error!(
+				"the sync get database batch size must be greater than zero"
+			));
+		}
+
 		// Validate the process wakeup intervals.
 		for (name, interval) in [
 			("children", config.process.children_wakeup_interval),

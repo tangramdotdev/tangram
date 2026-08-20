@@ -12,7 +12,7 @@ const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
-	--clean # Clean up leftover test resources from CockroachDB, FoundationDB, and ScyllaDB.
+	--clean # Clean up leftover test resources from FoundationDB, PostgreSQL, and ScyllaDB.
 	--databases # Run the shared cloud databases in the foreground. This is supported on Linux only.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
@@ -94,15 +94,15 @@ def main [
 			print -e $"removed ($path)"
 		}
 
-		let cockroach_output = (^timeout 5 cockroach sql --insecure --host=127.0.0.1:26257 --format=csv -e 'show databases;' | complete)
-		if $cockroach_output.exit_code == 0 {
-			let databases = $cockroach_output.stdout | from csv | get database_name | where { $in starts-with 'database_' }
+		let postgres_output = (^timeout 5 psql --host=127.0.0.1 --username=postgres --dbname=postgres --tuples-only --no-align --command 'select datname from pg_database' | complete)
+		if $postgres_output.exit_code == 0 {
+			let databases = $postgres_output.stdout | lines | str trim | where { $in starts-with 'database_' }
 			for database in $databases {
-				print -e $"dropping cockroach database ($database)"
-				try { cockroach sql --insecure --host=127.0.0.1:26257 -e $'drop database if exists ($database) cascade' }
+				print -e $"dropping PostgreSQL database ($database)"
+				try { ^dropdb --host=127.0.0.1 --username=postgres --if-exists --force $database }
 			}
 		} else {
-			print -e 'skipping CockroachDB cleanup because it is not ready'
+			print -e 'skipping PostgreSQL cleanup because it is not ready'
 		}
 
 		let scylla_output = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | complete)
@@ -599,7 +599,7 @@ while true; do
 	index=$((index + 1))
 done
 temporary_slot_path="$pool_path/.provisioning.$$"
-cockroach_created=false
+postgres_created=false
 scylla_created=false
 
 cleanup_provision() {
@@ -609,22 +609,17 @@ cleanup_provision() {
 	if $scylla_created; then
 		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"objects_$id\";" >/dev/null 2>&1 || true
 	fi
-	if $cockroach_created; then
-		cockroach sql --insecure --host=127.0.0.1:26257 -e "drop database if exists database_$id cascade" >/dev/null 2>&1 || true
+	if $postgres_created; then
+		dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$id" >/dev/null 2>&1 || true
 	fi
 	exit "$status"
 }
 trap cleanup_provision EXIT
 
 mkdir -p -- "$temporary_slot_path/lease"
-cockroach sql --insecure --host=127.0.0.1:26257 -e "create database database_$id" >/dev/null
-cockroach_created=true
-{
-	echo 'set autocommit_before_ddl = off;'
-	echo 'begin;'
-	cat -- "$postgres_schema_path"
-	echo 'commit;'
-} | cockroach sql --insecure --host=127.0.0.1:26257 -d "database_$id" >/dev/null
+createdb --host=127.0.0.1 --username=postgres "database_$id"
+postgres_created=true
+psql --host=127.0.0.1 --username=postgres --dbname="database_$id" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
 
 tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$id\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
 scylla_created=true
@@ -638,7 +633,7 @@ echo "$id"
 
 def run_databases [] {
 	# Check the required programs.
-	let commands = [bash cockroach fdbcli fdbserver flock nats-server scylla sed setsid tail tangram_scylla_client timeout]
+	let commands = [bash createdb dropdb fdbcli fdbserver flock initdb nats-server pg_isready postgres psql scylla sed setsid tail tangram_scylla_client timeout]
 	let missing = $commands | where { |command| which $command | is-empty }
 	if not ($missing | is-empty) {
 		error make {
@@ -649,7 +644,7 @@ def run_databases [] {
 
 	# Check that the database ports are available.
 	let endpoints = [
-		{ name: CockroachDB, port: 26257 },
+		{ name: PostgreSQL, port: 5432 },
 		{ name: FoundationDB, port: 4500 },
 		{ name: NATS, port: 4222 },
 		{ name: ScyllaDB, port: 9042 },
@@ -676,7 +671,7 @@ def run_databases [] {
 
 	print -e $"starting the cloud databases with temporary state in ($state_path)"
 	print -e $"database logs will be written to ($state_path | path join 'logs')"
-	print -e 'waiting for CockroachDB, FoundationDB, ScyllaDB, and NATS to become ready...'
+	print -e 'waiting for FoundationDB, NATS, PostgreSQL, and ScyllaDB to become ready...'
 
 	# Run the supervisor in the foreground.
 	exec bash -c (database_supervisor) _ $state_path $cluster_path $database_pool_path
@@ -684,7 +679,7 @@ def run_databases [] {
 
 def check_databases [] {
 	# Check the client programs before attempting the readiness commands.
-	let commands = [cockroach fdbcli flock tangram_scylla_client timeout]
+	let commands = [bash createdb dropdb fdbcli flock pg_isready psql tangram_scylla_client timeout]
 	let missing = $commands | where { |command| which $command | is-empty }
 	if not ($missing | is-empty) {
 		error make {
@@ -695,13 +690,13 @@ def check_databases [] {
 
 	# Check each database independently so the error names every unavailable service.
 	let cluster = fdb_cluster
-	let cockroach_ready = (^timeout 5 cockroach sql --insecure --host=127.0.0.1:26257 -e 'select 1' | complete).exit_code == 0
+	let postgres_ready = (^timeout 5 pg_isready --host=127.0.0.1 --port=5432 --username=postgres | complete).exit_code == 0
 	let database_pool_ready = (database_pool_path) | path exists
 	let fdb_ready = (^timeout 5 fdbcli -C $cluster --exec 'status minimal' | complete).exit_code == 0
 	let nats_ready = nats_ready
 	let scylla_ready = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local' | complete).exit_code == 0
 	let unavailable = [
-		{ name: CockroachDB, ready: $cockroach_ready },
+		{ name: PostgreSQL, ready: $postgres_ready },
 		{ name: 'database pool', ready: $database_pool_ready },
 		{ name: FoundationDB, ready: $fdb_ready },
 		{ name: NATS, ready: $nats_ready },
@@ -818,16 +813,6 @@ wait_for() {
 	exit 1
 }
 
-configure_cockroachdb() {
-	if timeout 10 cockroach sql --insecure --host=127.0.0.1:26257 -e 'set cluster setting timeseries.storage.enabled = false' >/dev/null 2>&1; then
-		echo 'CockroachDB is configured' >&2
-		return
-	fi
-	echo 'failed to configure CockroachDB' >&2
-	show_logs
-	exit 1
-}
-
 configure_foundationdb() {
 	for ((attempt = 0; attempt < 60; attempt++)); do
 		if timeout 2 fdbcli -C "$cluster_path" --exec 'status minimal' >/dev/null 2>&1; then
@@ -853,17 +838,19 @@ mkdir -p \
 	"$state_path/fdb/data" \
 	"$state_path/fdb/logs" \
 	"$state_path/logs" \
+	"$state_path/postgres" \
 	"$state_path/scylla"
 
-start cockroach \
-	cockroach start-single-node \
-	--cache=128MiB \
-	--http-addr=127.0.0.1:0 \
-	--insecure \
-	--listen-addr=127.0.0.1:26257 \
-	--max-go-memory=2GiB \
-	--max-sql-memory=128MiB \
-	--store=type=mem,size=1GiB
+initdb --auth=trust --no-instructions --pgdata="$state_path/postgres" --username=postgres >/dev/null
+start postgres \
+	postgres \
+	-D "$state_path/postgres" \
+	-h 127.0.0.1 \
+	-p 5432 \
+	-c fsync=off \
+	-c full_page_writes=off \
+	-c max_connections=256 \
+	-c synchronous_commit=off
 start foundationdb \
 	fdbserver \
 	--cluster-file="$cluster_path" \
@@ -890,11 +877,10 @@ start scylla \
 	--smp=1 \
 	--workdir="$state_path/scylla"
 
-wait_for CockroachDB 600 cockroach sql --insecure --host=127.0.0.1:26257 -e 'select 1'
-configure_cockroachdb
 configure_foundationdb
 wait_for FoundationDB 600 fdbcli -C "$cluster_path" --exec 'status minimal'
 wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
+wait_for PostgreSQL 600 pg_isready --host=127.0.0.1 --port=5432 --username=postgres
 wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
 
 echo 'all cloud databases are ready; press Ctrl-C to stop them' >&2
@@ -1521,13 +1507,13 @@ export def --env spawn [
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($id)?sslmode=disable',
 				},
 				write: {
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://root@127.0.0.1:26257/database_($id)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($id)?sslmode=disable',
 				},
 			},
 			index: {
@@ -1810,13 +1796,13 @@ def reset_database_id [id: string, cluster: string, pool_path: string] {
 		| append 'insert into outbox_batch (next) values (0);'
 		| append 'commit;'
 		| str join "\n"
-	let results = ['cockroach' 'foundationdb' 'scylla'] | par-each { |database|
+	let results = ['foundationdb' 'postgres' 'scylla'] | par-each { |database|
 		let output = match $database {
-			'cockroach' => {
-				(cockroach sql --insecure --host=127.0.0.1:26257 -d $'database_($id)' -e $postgres_query | complete)
-			},
 			'foundationdb' => {
 				(^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' | complete)
+			},
+			'postgres' => {
+				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($id)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
 				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($id)' -e 'truncate objects; truncate outbox;' | complete)

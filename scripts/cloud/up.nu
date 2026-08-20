@@ -3,7 +3,6 @@ def main [context?: string] {
 	let context_args = if $context == null { [] } else { ["--context", $context] }
 	kubectl ...$context_args apply -f scripts/cloud/kubernetes.yaml
 	kubectl ...$context_args apply -f scripts/cloud/observability.yaml
-	kubectl ...$context_args wait --for=condition=ready pod -l app=cockroach --timeout=60s
 	kubectl ...$context_args wait --for=condition=ready pod -l app=fdb --timeout=60s
 	kubectl ...$context_args wait --for=condition=ready pod -l app=nats --timeout=60s
 	kubectl ...$context_args wait --for=condition=ready pod -l app=postgres --timeout=60s

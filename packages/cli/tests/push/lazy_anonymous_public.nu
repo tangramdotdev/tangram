@@ -32,5 +32,5 @@ let output = tg --url $directory_source.url --no-quiet push --lazy $directory | 
 success $output "A later anonymous push should rely on the public file subtree."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
 	info skipped 2 objects, 51 B
-	info transferred 1 objects, 62 B
+	info transferred 1 object, 62 B
 '

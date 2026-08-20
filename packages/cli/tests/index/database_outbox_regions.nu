@@ -25,6 +25,7 @@ let regions = [
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
 	indexer: { database_outbox_wakeup_interval: 0.01 },
+	primary_region: 'east',
 	regions: $regions,
 }
 let producer = $common | merge { roles: [cleaner http runner scheduler] }

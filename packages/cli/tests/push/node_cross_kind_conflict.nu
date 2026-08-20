@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Replacing a node with a different kind requires write permission on its parent.
+# A node cannot replace a different kind at the same specifier.
 
 let destination = spawn --cloud --name destination --config {
 	authentication: { users: { providers: { insecure: true } } }
@@ -21,15 +21,19 @@ let source = spawn --name source --config {
 }
 tg --url $source.url pull parent
 let group = tg --url $source.url group create parent/child | from json
+assert not equal $group.id $tag.id
 
 let output = tg --url $source.url push --ancestors=missing parent/child | complete
-failure $output "tag write must not authorize creating a replacement group"
+failure $output "a group must not replace a tag at the same specifier"
+assert ($output.stderr | str contains "the specifier is already in use")
 success (tg --url $destination.url --token $alice.token tag get $tag.id | complete)
 
 tg --url $destination.url --token $alice.token grant $bob.user.id write parent | ignore
 tg --url $destination.url index
-tg --url $source.url push --ancestors=missing parent/child
+let output = tg --url $source.url push --ancestors=missing parent/child | complete
+failure $output "parent write must not authorize replacing a tag with a group"
+assert ($output.stderr | str contains "the specifier is already in use")
 assert equal (
-	tg --url $destination.url --token $alice.token group get parent/child | from json | get id
-) $group.id
-failure (tg --url $destination.url --token $alice.token tag get $tag.id | complete)
+	tg --url $destination.url --token $alice.token tag get parent/child | from json | get id
+) $tag.id
+success (tg --url $destination.url --token $alice.token tag get $tag.id | complete)

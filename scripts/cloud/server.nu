@@ -9,10 +9,10 @@ let config = {
 	database: {
 		kind: 'postgres',
 		read: {
-			url: 'postgres://root@localhost:26257/database?sslmode=disable',
+			url: 'postgres://postgres@localhost:5432/database?sslmode=disable',
 		},
 		write: {
-			url: 'postgres://root@localhost:26257/database?sslmode=disable',
+			url: 'postgres://postgres@localhost:5432/database?sslmode=disable',
 		},
 	},
 	checkouts: false,

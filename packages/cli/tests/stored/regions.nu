@@ -14,6 +14,7 @@ let regions = [
 ]
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
+	primary_region: 'a',
 	regions: $regions,
 }
 let region_a = spawn --name region-a --directory $region_a_directory --url $region_a_url --config ($common | merge { region: 'a' })
