@@ -524,11 +524,19 @@ impl Server {
 				#[cfg(feature = "postgres")]
 				{
 					let options = db::postgres::DatabaseOptions {
-						max: options.pool.max.unwrap_or(parallelism),
-						min: options.pool.min.unwrap_or(0),
+						read: db::postgres::PoolOptions {
+							max: options.read.pool.max.unwrap_or(parallelism),
+							min: options.read.pool.min.unwrap_or(0),
+							ttl: options.read.pool.ttl,
+							url: options.read.url.clone(),
+						},
 						retry: options.retry.clone().into(),
-						ttl: options.pool.ttl,
-						url: options.url.clone(),
+						write: db::postgres::PoolOptions {
+							max: options.write.pool.max.unwrap_or(parallelism),
+							min: options.write.pool.min.unwrap_or(0),
+							ttl: options.write.pool.ttl,
+							url: options.write.url.clone(),
+						},
 					};
 					let database = db::postgres::Database::new(options)
 						.await

@@ -8,7 +8,12 @@ let config = {
 	},
 	database: {
 		kind: 'postgres',
-		url: 'postgres://root@localhost:26257/database?sslmode=disable',
+		read: {
+			url: 'postgres://root@localhost:26257/database?sslmode=disable',
+		},
+		write: {
+			url: 'postgres://root@localhost:26257/database?sslmode=disable',
+		},
 	},
 	checkouts: false,
 	http: {

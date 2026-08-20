@@ -40,6 +40,12 @@ pub struct Processes {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Database {
 	pub available_connections: u64,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_available_connections: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_available_connections: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
