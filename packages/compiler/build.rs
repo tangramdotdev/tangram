@@ -65,7 +65,8 @@ mod library {
 			"rootDir": client_path.join("src"),
 		});
 		if let Ok(node_path) = std::env::var("NODE_PATH") {
-			compiler_options.as_object_mut().unwrap().insert(
+			let compiler_options = compiler_options.as_object_mut().unwrap();
+			compiler_options.insert(
 				"paths".into(),
 				json!({
 					"*": [
@@ -74,6 +75,8 @@ mod library {
 					],
 				}),
 			);
+			// The client's tsconfig resolves type roots relative to itself, which has no node_modules under NODE_PATH.
+			compiler_options.insert("typeRoots".into(), json!([format!("{node_path}/@types")]));
 		}
 		let tsconfig_path = out_dir_path.join("tangram.tsconfig.json");
 		let tsconfig = json!({
@@ -104,23 +107,34 @@ mod library {
 			Ok(path) => PathBuf::from(path),
 			Err(_) => PathBuf::from("../../node_modules"),
 		};
-		let typescript_lib_path = node_modules_path.join("typescript/../old/lib");
+		// The typescript package aliases @typescript/typescript6, whose sibling old package bun's two linkers place differently.
+		let typescript_lib_path = [
+			node_modules_path.join("typescript/../old/lib"),
+			node_modules_path.join("@typescript/old/lib"),
+		]
+		.into_iter()
+		.find(|path| path.exists())
+		.expect("failed to find the typescript libraries");
 		let paths =
 			glob::glob(&typescript_lib_path.join("lib.es*.d.ts").to_string_lossy()).unwrap();
 		for path in paths {
 			let path = path.unwrap();
-			std::fs::copy(&path, lib_path.join(path.file_name().unwrap())).unwrap();
+			copy(&path, &lib_path.join(path.file_name().unwrap()));
 		}
-		std::fs::copy(
-			typescript_lib_path.join("lib.decorators.d.ts"),
-			lib_path.join("lib.decorators.d.ts"),
-		)
-		.unwrap();
-		std::fs::copy(
-			typescript_lib_path.join("lib.decorators.legacy.d.ts"),
-			lib_path.join("lib.decorators.legacy.d.ts"),
-		)
-		.unwrap();
+		copy(
+			&typescript_lib_path.join("lib.decorators.d.ts"),
+			&lib_path.join("lib.decorators.d.ts"),
+		);
+		copy(
+			&typescript_lib_path.join("lib.decorators.legacy.d.ts"),
+			&lib_path.join("lib.decorators.legacy.d.ts"),
+		);
+	}
+
+	// Remove the destination first, because `std::fs::copy` preserves the source's permissions and the libraries may be read only.
+	fn copy(from: &Path, to: &Path) {
+		std::fs::remove_file(to).ok();
+		std::fs::copy(from, to).unwrap();
 	}
 }
 
