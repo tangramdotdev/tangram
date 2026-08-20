@@ -16,23 +16,6 @@ pub(super) struct SyncGetInputArg {
 	pub stream: BoxStream<'static, tg::sync::PutMessage>,
 }
 
-enum NodeAction {
-	Ignore {
-		resolution: NodeResolution,
-	},
-	Store {
-		replace: bool,
-		resolution: NodeResolution,
-	},
-}
-
-#[derive(Clone, Copy)]
-enum NodeResolution {
-	Missing,
-	None,
-	Resolve { replace: bool },
-}
-
 impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(&self, arg: SyncGetInputArg) -> tg::Result<()> {
@@ -283,7 +266,7 @@ impl Session {
 		state: &State,
 		message: tg::sync::PutNodeMessage,
 	) -> tg::Result<()> {
-		let (ancestor, id) = match &message {
+		let (ancestor, id): (Option<(Option<tg::Id>, tg::Specifier)>, tg::Id) = match &message {
 			tg::sync::PutNodeMessage::Group(message) => (
 				Some((message.parent.clone(), message.specifier.clone())),
 				message.id.clone().into(),
@@ -305,29 +288,6 @@ impl Session {
 				message.id.clone().into(),
 			),
 		};
-		let action = if let Some((_, specifier)) = &ancestor {
-			Self::sync_get_input_node_selector(state, &id, specifier)?
-		} else {
-			NodeAction::Store {
-				replace: false,
-				resolution: NodeResolution::None,
-			}
-		};
-		let (replace, resolution) = match action {
-			NodeAction::Ignore { resolution } => {
-				let (_, specifier) = ancestor.as_ref().unwrap();
-				Self::sync_get_input_node_resolve(state, &id, specifier, resolution);
-				if state.graph.lock().unwrap().end_local() {
-					state.queue.close();
-				}
-
-				return Ok(());
-			},
-			NodeAction::Store {
-				replace,
-				resolution,
-			} => (replace, resolution),
-		};
 		if let Some((parent, specifier)) = &ancestor {
 			crate::checkpoint!(
 				self.server,
@@ -342,11 +302,9 @@ impl Session {
 		{
 			let mut graph = state.graph.lock().unwrap();
 			if let Some((_, specifier)) = &ancestor {
-				Self::sync_get_input_node_resolve_with_graph(
-					&mut graph, &id, specifier, resolution,
-				);
+				graph.resolve_local_selector(specifier, id.clone());
 			}
-			graph.update_node_local_message(message, replace)?;
+			graph.update_node_local_message(message)?;
 		}
 		state.progress.increment_transferred_node(&id);
 		if state.graph.lock().unwrap().end_local() {
@@ -354,76 +312,6 @@ impl Session {
 		}
 
 		Ok(())
-	}
-
-	fn sync_get_input_node_selector(
-		state: &State,
-		id: &tg::Id,
-		specifier: &tg::Specifier,
-	) -> tg::Result<NodeAction> {
-		if !state.graph.lock().unwrap().has_local_selector(specifier) {
-			return Ok(NodeAction::Store {
-				replace: true,
-				resolution: NodeResolution::None,
-			});
-		}
-		match state.arg.ancestors {
-			tg::node::AncestorsPull::Always | tg::node::AncestorsPull::Never => {
-				Ok(NodeAction::Store {
-					replace: true,
-					resolution: NodeResolution::Resolve { replace: true },
-				})
-			},
-			tg::node::AncestorsPull::Missing => {
-				let local = state.graph.lock().unwrap().local_selector_id(specifier)?;
-				match local {
-					None => Ok(NodeAction::Store {
-						replace: false,
-						resolution: NodeResolution::Resolve { replace: false },
-					}),
-					Some(local) if local == *id => {
-						let requested = state.graph.lock().unwrap().has_local_node(id);
-						if requested {
-							return Ok(NodeAction::Store {
-								replace: true,
-								resolution: NodeResolution::Missing,
-							});
-						}
-						Ok(NodeAction::Ignore {
-							resolution: NodeResolution::Missing,
-						})
-					},
-					Some(_) => Err(tg::error!(%specifier, "the node has a different ID")),
-				}
-			},
-		}
-	}
-
-	fn sync_get_input_node_resolve(
-		state: &State,
-		id: &tg::Id,
-		specifier: &tg::Specifier,
-		resolution: NodeResolution,
-	) {
-		let mut graph = state.graph.lock().unwrap();
-		Self::sync_get_input_node_resolve_with_graph(&mut graph, id, specifier, resolution);
-	}
-
-	fn sync_get_input_node_resolve_with_graph(
-		graph: &mut crate::sync::graph::Graph,
-		id: &tg::Id,
-		specifier: &tg::Specifier,
-		resolution: NodeResolution,
-	) {
-		match resolution {
-			NodeResolution::Missing => {
-				graph.resolve_local_selector_missing(specifier);
-			},
-			NodeResolution::None => {},
-			NodeResolution::Resolve { replace } => {
-				graph.resolve_local_selector(specifier, id.clone(), replace);
-			},
-		}
 	}
 
 	async fn sync_get_input_node_ancestor(
@@ -460,14 +348,6 @@ impl Session {
 					.try_get_ids_for_specifiers_from_index(&ancestor_specifiers)
 					.await?;
 				let local = ids.last().cloned().flatten();
-				state
-					.graph
-					.lock()
-					.unwrap()
-					.set_local_selector_ids(std::iter::zip(
-						ancestor_specifiers.iter().cloned(),
-						ids,
-					));
 				match local {
 					None => {},
 					Some(local) if local == *parent => return Ok(()),

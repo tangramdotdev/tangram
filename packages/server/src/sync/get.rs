@@ -59,27 +59,6 @@ impl Session {
 			sender,
 		});
 
-		// Resolve all initial specifiers through one index batch.
-		if state.arg.ancestors == tg::node::AncestorsPull::Missing {
-			let specifiers = state
-				.arg
-				.get
-				.iter()
-				.filter_map(|node| match &node.node {
-					tg::Selector::Id(_) => None,
-					tg::Selector::Specifier(specifier) => Some(specifier.clone()),
-				})
-				.collect::<Vec<_>>();
-			let ids = self
-				.try_get_ids_for_specifiers_from_index(&specifiers)
-				.await?;
-			state
-				.graph
-				.lock()
-				.unwrap()
-				.set_local_selector_ids(std::iter::zip(specifiers, ids));
-		}
-
 		// Enqueue the nodes.
 		for node in &state.arg.get {
 			let tokens = node.options.tokens.clone();
@@ -194,7 +173,7 @@ impl Session {
 		// Await the futures.
 		futures::try_join!(index_future, input_future, queue_future, store_future)?;
 
-		// Index the objects, processes, and sandboxes and finalize the graph permissions.
+		// Index the objects, processes, and sandboxes and update the graph permissions.
 		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
 		self.sync_get_index_put(graph.clone()).await?;
 

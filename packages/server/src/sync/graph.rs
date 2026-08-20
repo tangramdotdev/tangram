@@ -10,9 +10,7 @@ use {
 pub struct Graph {
 	pub get_end_received: bool,
 	local_pending_roots: usize,
-	local_replacements: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
-	local_selector_ids: HashMap<tg::Specifier, Option<tg::Id>, fnv::FnvBuildHasher>,
 	local_selectors: HashSet<tg::Specifier, fnv::FnvBuildHasher>,
 	pub nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
 	process_children: bool,
@@ -181,17 +179,7 @@ impl Graph {
 		let mut graph = Graph {
 			get_end_received: false,
 			local_pending_roots: 0,
-			local_replacements: arg
-				.get
-				.iter()
-				.filter_map(|node| match &node.node {
-					tg::Selector::Id(id) => Some(id.clone()),
-					tg::Selector::Specifier(_) => None,
-				})
-				.filter(Self::is_database_node)
-				.collect(),
 			local_roots: HashSet::default(),
-			local_selector_ids: HashMap::default(),
 			local_selectors: arg
 				.get
 				.iter()
@@ -216,7 +204,7 @@ impl Graph {
 			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
-			graph.insert_local_root(id.clone(), false);
+			graph.insert_local_root(id.clone());
 		}
 		for root in &arg.put {
 			graph.insert_remote_root(root.node.clone());
@@ -259,24 +247,11 @@ impl Graph {
 		}
 	}
 
-	fn is_database_node(id: &tg::Id) -> bool {
-		matches!(
-			id.kind(),
-			tg::id::Kind::Group
-				| tg::id::Kind::Organization
-				| tg::id::Kind::Tag
-				| tg::id::Kind::User
-		)
-	}
-
 	pub fn mark_get_end_received(&mut self) {
 		self.get_end_received = true;
 	}
 
-	pub fn insert_local_root(&mut self, id: tg::Id, replace: bool) -> bool {
-		if replace {
-			self.local_replacements.insert(id.clone());
-		}
+	pub fn insert_local_root(&mut self, id: tg::Id) -> bool {
 		if !self.local_roots.insert(id.clone()) {
 			return false;
 		}
@@ -298,20 +273,6 @@ impl Graph {
 
 	pub fn insert_local_selector(&mut self, specifier: tg::Specifier) -> bool {
 		self.local_selectors.insert(specifier)
-	}
-
-	pub fn local_selector_id(&self, specifier: &tg::Specifier) -> tg::Result<Option<tg::Id>> {
-		self.local_selector_ids
-			.get(specifier)
-			.cloned()
-			.ok_or_else(|| tg::error!(%specifier, "the selector was not resolved"))
-	}
-
-	pub fn set_local_selector_ids(
-		&mut self,
-		nodes: impl IntoIterator<Item = (tg::Specifier, Option<tg::Id>)>,
-	) {
-		self.local_selector_ids.extend(nodes);
 	}
 
 	pub fn insert_remote_root(&mut self, id: tg::Id) {
@@ -347,16 +308,11 @@ impl Graph {
 		false
 	}
 
-	pub fn resolve_local_selector(
-		&mut self,
-		specifier: &tg::Specifier,
-		id: tg::Id,
-		replace: bool,
-	) -> bool {
+	pub fn resolve_local_selector(&mut self, specifier: &tg::Specifier, id: tg::Id) -> bool {
 		if !self.local_selectors.remove(specifier) {
 			return false;
 		}
-		self.insert_local_root(id, replace);
+		self.insert_local_root(id);
 		true
 	}
 
@@ -400,15 +356,9 @@ impl Graph {
 			.collect()
 	}
 
-	#[must_use]
-	pub fn local_replacements(&self) -> &HashSet<tg::Id, fnv::FnvBuildHasher> {
-		&self.local_replacements
-	}
-
 	pub fn update_node_local_message(
 		&mut self,
 		message: tg::sync::PutNodeMessage,
-		replace: bool,
 	) -> tg::Result<()> {
 		let id = match &message {
 			tg::sync::PutNodeMessage::Group(message) => message.id.clone().into(),
@@ -420,9 +370,6 @@ impl Graph {
 			tg::sync::PutNodeMessage::Tag(message) => message.id.clone().into(),
 			tg::sync::PutNodeMessage::User(message) => message.id.clone().into(),
 		};
-		if replace && Self::is_database_node(&id) {
-			self.local_replacements.insert(id.clone());
-		}
 		let entry = self.nodes.entry(id);
 		let index = entry.index();
 		let node = entry.or_insert_with_key(Node::for_id).unwrap_database_mut();
