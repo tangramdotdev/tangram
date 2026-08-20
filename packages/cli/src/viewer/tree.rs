@@ -1704,9 +1704,6 @@ impl Tree {
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
 
-			// Inherit from the referent. A command that fails to load only costs the
-			// module comparison below, so fall back to `None` instead of failing the
-			// entire expansion.
 			let child_module = match child.node.command_with_handle(client).await {
 				Ok(command) => command
 					.object_with_handle(client)

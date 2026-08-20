@@ -141,16 +141,6 @@ pub fn get_controlling_tty_size() -> Option<Size> {
 }
 
 #[cfg(unix)]
-#[must_use]
-pub fn get_tty_size_with_fallback() -> Size {
-	get_controlling_tty_size()
-		.or_else(|| get_tty_size(libc::STDOUT_FILENO))
-		.or_else(|| get_tty_size(libc::STDERR_FILENO))
-		.or_else(|| get_tty_size(libc::STDIN_FILENO))
-		.unwrap_or(Size { cols: 64, rows: 64 })
-}
-
-#[cfg(unix)]
 fn parse_cursor_position_response(bytes: &[u8]) -> Option<(u16, u16)> {
 	let mut index = bytes.len();
 	while let Some(escape) = bytes[..index].iter().rposition(|byte| *byte == b'\x1b') {

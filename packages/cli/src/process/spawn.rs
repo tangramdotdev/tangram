@@ -928,15 +928,12 @@ impl Cli {
 
 		// Get the tty.
 		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
-			(Some(tg::Either::Left(true)), _) => {
-				let size = tangram_util::tty::get_tty_size_with_fallback();
-				let size = tg::process::tty::Size {
-					rows: size.rows,
+			(Some(tg::Either::Left(true)), _) => tangram_util::tty::get_controlling_tty_size()
+				.map(|size| tg::process::tty::Size {
 					cols: size.cols,
-				};
-				let tty = tg::process::Tty { size };
-				Some(tg::Either::Right(tty))
-			},
+					rows: size.rows,
+				})
+				.map(|size| tg::Either::Right(tg::process::Tty { size })),
 			(Some(tg::Either::Right(size)), _) => {
 				let tty = tg::process::Tty { size };
 				Some(tg::Either::Right(tty))
