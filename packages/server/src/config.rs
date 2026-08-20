@@ -1089,13 +1089,6 @@ pub struct Write {
 
 impl Config {
 	#[must_use]
-	pub fn is_primary_region(&self) -> bool {
-		self.primary_region
-			.as_ref()
-			.is_none_or(|primary_region| self.region.as_ref() == Some(primary_region))
-	}
-
-	#[must_use]
 	pub fn primary_region(&self) -> Option<&str> {
 		self.primary_region.as_deref()
 	}

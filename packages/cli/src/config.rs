@@ -3575,7 +3575,6 @@ mod tests {
 
 		assert_eq!(target.primary_region.as_deref(), Some("ash0"));
 		assert_eq!(target.region.as_deref(), Some("ewr0"));
-		assert!(!target.is_primary_region());
 	}
 
 	#[test]

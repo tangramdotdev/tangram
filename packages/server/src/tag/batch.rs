@@ -18,6 +18,9 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(_) if !self.server.is_primary_region() => {
+				self.post_tag_batch_primary_region(arg).await
+			},
 			tg::Location::Local(_) => self.post_tag_batch_local(arg).await,
 			tg::Location::Remote(remote) => self.post_tag_batch_remote(arg, remote).await,
 		}
@@ -156,6 +159,20 @@ impl Session {
 		}
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn post_tag_batch_primary_region(&self, mut arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		let client = self
+			.get_primary_region_session()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the primary region session"))?;
+		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		client
+			.post_tag_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the tags in the primary region"))?;
+
+		Ok(())
 	}
 
 	async fn post_tag_batch_remote(
