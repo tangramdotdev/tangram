@@ -20,14 +20,181 @@ export type Arg = cargo.Arg & {
 	postgres?: boolean;
 	scylla?: boolean;
 };
+
+// Developer workflow targets.
+
+export const check = async () => {
+	await tg.run`cargo clippy --all-features --all-targets --workspace`;
+	await tg.run`cd packages/clients/js && bunx tsgo && bunx oxlint src`;
+	await tg.run`cd packages/js && bunx tsgo && bunx oxlint ./src/main.ts`;
+	await tg.run`cd packages/typescript && bunx tsgo && bunx oxlint src`;
+	await tg.run`cd packages/vscode && bunx tsgo && bunx oxlint extension.ts`;
+};
+
+export const format = async () => {
+	await tg.run`cargo fmt --all`;
+	await tg.run`bunx oxfmt --write packages/clients/js/src packages/js/src/tangram.d.ts packages/js/src/main.ts packages/typescript/src packages/vscode/extension.ts`;
+};
+
+export const run = async (...args: tg.Args<Arg>) => {
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a ?? null, b ?? null),
+			features: "append",
+			sdk: (a, b) => std.sdk.mergeArg(a, b),
+		},
+	});
+	const {
+		env: env_,
+		foundationdb: useFoundationdb = false,
+		host: host_,
+		nats = false,
+		postgres = false,
+		proxy = true,
+		scylla = false,
+		source: source_ = source,
+	} = merged;
+	const host = host_ ?? std.triple.host();
+
+	// Configure features.
+	const features = [];
+	if (nats) {
+		features.push("nats");
+	}
+	if (postgres) {
+		features.push("postgres");
+	} else {
+		features.push("sqlite");
+	}
+	if (scylla) {
+		features.push("scylla");
+	}
+	if (!useFoundationdb) {
+		features.push("lmdb");
+	}
+	if (useFoundationdb) {
+		features.push("foundationdb");
+	}
+
+	// Set up the environment with bun and node_modules so that build scripts can find them. Build scripts run on the host in hybrid mode, which shares a target directory with bare cargo, so this omits every variable they watch with `rerun-if-env-changed` that bare cargo does not set: NODE_PATH, and the V8 archive from `librustyv8`, which only the sandboxed `build` export needs.
+	const runNodeModules = nodeModules(host);
+	const bunArt = bun({ host });
+	const env = await std.env.arg(env_ ?? null, bunEnvArg(host), {
+		WATERMARK: "9",
+		TGRUSTC_RUNNER_PASSTHROUGH: "v8",
+		TGRUSTC_RUNNER_EXTRA_PATH: tg`${bunArt}/bin:${runNodeModules}/node_modules/.bin`,
+	});
+
+	// Call cargo.run() with the source, features, and env.
+	return cargo.run({
+		env,
+		features,
+		host,
+		proxy,
+		source: source_,
+	});
+};
+
+// Bisect helpers for debugging the proxy=true segfault.
+export const runNightlyNoProxy = async () =>
+	cargo.run({
+		source,
+		channel: "nightly",
+		proxy: false,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+	});
+
+export const runStableWithProxy = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+	});
+
+// Proxy on, but selectively unset env vars to find which one crashes cargo.
+export const runProxyNoRustcWrapper = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: "unset RUSTC_WRAPPER",
+	});
+
+export const runProxyNoRustc = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: "unset RUSTC",
+	});
+
+export const runProxyNoTgrustcVars = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: "for v in $(env | awk -F= '/^TGRUSTC_/{print $1}'); do unset $v; done",
+	});
+
+export const runProxyNoCargoHostRunner = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: "unset CARGO_HOST_RUNNER",
+	});
+
+// Same proxy env, but skip the execLine and run cargo with no extra flags.
+export const runProxyMinimalCargo = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: 'exec "$TGRUSTC_CARGO" --version',
+	});
+
+// Same proxy env, but skip RUSTC_WRAPPER specifically AND use minimal cargo args.
+export const runProxyMinimalNoWrapper = async () =>
+	cargo.run({
+		source,
+		channel: "stable",
+		proxy: true,
+		host: std.triple.host(),
+		features: ["sqlite", "lmdb"],
+		pre: 'unset RUSTC_WRAPPER\nexec "$TGRUSTC_CARGO" --version',
+	});
+
 // Build targets.
 
 export const build = async (...args: tg.Args<Arg>) => {
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a ?? null, b ?? null),
+			features: "append",
+			sdk: (a, b) => std.sdk.mergeArg(a, b),
+		},
+	});
 	const {
 		build: build_,
 		captureStderr = false,
 		env: env_,
-		features: features_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
 		nats = false,
@@ -36,7 +203,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 		sdk,
 		scylla = false,
 		source: source_ = source,
-	} = await arg(...args);
+	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
@@ -63,21 +230,40 @@ export const build = async (...args: tg.Args<Arg>) => {
 	});
 
 	// Configure features.
-	const features = [
-		...(features_ ?? []),
-		...cargoFeatures({ foundationdb: useFoundationdb, nats, postgres, scylla }),
-	];
+	const features = [];
+	if (nats) {
+		features.push("nats");
+	}
+	if (postgres) {
+		features.push("postgres");
+	} else {
+		features.push("sqlite");
+	}
+	if (scylla) {
+		features.push("scylla");
+	}
+	if (!useFoundationdb) {
+		features.push("lmdb");
+	}
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
 	if (useFoundationdb) {
-		const { env: foundationdbEnv, pre: foundationdbPre } =
-			await foundationdbArg({ build, host, sdk });
-		envs.push(foundationdbEnv);
-		pre = foundationdbPre;
+		features.push("foundationdb");
+		const fdbArtifact = foundationdb({ build, host });
+		envs.push(fdbArtifact, {
+			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
+			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
+		});
+		if (std.triple.os(host) === "linux") {
+			pre = tg`
+				export LD_LIBRARY_PATH=$LIBRARY_PATH
+				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+			`;
+		}
 	}
 
 	// Build tangram.
 	const env = std.env.arg(...envs, env_ ?? null);
-	const output = cargo.build({
+	let output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures: true,
@@ -116,10 +302,17 @@ export const build = async (...args: tg.Args<Arg>) => {
 	});
 };
 
-export default build;
+export default run;
 
 export const cloud = async (...args: tg.Args<Arg>) => {
-	const merged = await arg(...args);
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a ?? null, b ?? null),
+			sdk: (a, b) => std.sdk.mergeArg(a, b),
+		},
+	});
 	const host = merged.host ?? std.triple.host();
 	if (std.triple.os(host) !== "linux") {
 		throw new Error(
@@ -135,6 +328,56 @@ export const cloud = async (...args: tg.Args<Arg>) => {
 		},
 		merged,
 	);
+};
+
+export const image = async (...args: tg.Args<Arg>) => {
+	const dir = await build(...args);
+	return await std.image(dir, {
+		entrypoint: ["/bin/tangram"],
+	});
+};
+
+export const release = async () => {
+	const targets = [
+		"aarch64-apple-darwin",
+		"aarch64-unknown-linux-gnu",
+		"x86_64-apple-darwin",
+		"x86_64-unknown-linux-gnu",
+	];
+	const archives: Record<string, tg.File> = {};
+	for (const target of targets) {
+		// Build tangram for this target.
+		const output = await build({ host: target });
+
+		// Determine the archive name.
+		const arch = std.triple.arch(target);
+		let os: string;
+		if (std.triple.os(target) === "darwin") {
+			os = "darwin";
+		} else {
+			os = "linux";
+		}
+		const archiveName = `tangram_${arch}-${os}.tar.gz`;
+
+		// Add a tgx wrapper script alongside the tangram binary.
+		const tgx = tg.file("#!/bin/sh\ntg run -b $@", { executable: true });
+		const releaseDir = await tg.directory(output, {
+			["bin/tgx"]: tgx,
+		});
+
+		// Create a tar.gz archive.
+		const archive = await $`
+			mkdir -p $OUTPUT
+			tar -czf $OUTPUT/${archiveName} -C ${releaseDir}/bin tangram tg tgx
+		`
+			.env(dash({ build: std.triple.host() }))
+			.then(tg.Directory.expect)
+			.then((d) => d.get(archiveName))
+			.then(tg.File.expect);
+
+		archives[archiveName] = archive;
+	}
+	return tg.directory(archives);
 };
 
 // Test targets.
@@ -230,58 +473,6 @@ export const testProxyCacheHit = async () => {
 };
 
 // Internal helpers.
-
-const arg = async (...args: tg.Args<Arg>) =>
-	std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a ?? null, b ?? null),
-			features: "append",
-			sdk: (a, b) => std.sdk.mergeArg(a, b),
-		},
-	});
-
-/** Select the cargo features for the requested backends. */
-const cargoFeatures = (arg: {
-	foundationdb: boolean;
-	nats: boolean;
-	postgres: boolean;
-	scylla: boolean;
-}) => {
-	const features = [];
-	if (arg.nats) {
-		features.push("nats");
-	}
-	features.push(arg.postgres ? "postgres" : "sqlite");
-	if (arg.scylla) {
-		features.push("scylla");
-	}
-	features.push(arg.foundationdb ? "foundationdb" : "lmdb");
-	return features;
-};
-
-/** The environment the `foundationdb` feature needs to compile its bindings and link its client library. */
-const foundationdbArg = async (arg: {
-	build: string;
-	host: string;
-	sdk: std.sdk.Arg | undefined;
-}) => {
-	const { build, host, sdk } = arg;
-	const artifact = foundationdb({ build, host });
-	const env = std.env.arg(artifact, {
-		FDB_LIB_PATH: tg`${artifact}/lib`,
-		LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
-	});
-	const pre =
-		std.triple.os(host) === "linux"
-			? tg`
-				export LD_LIBRARY_PATH=$LIBRARY_PATH
-				export CPATH=$CPATH:$(gcc -print-sysroot)/include
-			`
-			: null;
-	return { env, pre };
-};
 
 const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
@@ -420,7 +611,7 @@ const bunEnvArg = async (hostArg?: string) => {
 	);
 };
 
-const sandboxRootfs = async (host?: string) => {
+export const sandboxRootfs = async (host?: string) => {
 	const h = host ?? std.triple.host();
 	if (std.triple.os(h) !== "linux") {
 		return {};
@@ -446,33 +637,67 @@ const sandboxRootfs = async (host?: string) => {
 	return { TANGRAM_SANDBOX_ROOTFS: rootfs };
 };
 
-const librustyv8 = async (lockfile: tg.File, host: string) => {
+const librustyv8 = async (lockfile: tg.File, ...hosts: Array<string>) => {
+	const hostList = hosts.length > 0 ? hosts : [std.triple.host()];
 	const version = await getRustyV8Version(lockfile);
-	let os: string;
-	if (std.triple.os(host) === "darwin") {
-		os = "apple-darwin";
-	} else if (std.triple.os(host) === "linux") {
-		os = "unknown-linux-gnu";
-	} else {
-		throw new Error(`unsupported host ${host}`);
+
+	const downloads = await Promise.all(
+		hostList.map(async (host) => {
+			let os;
+			if (std.triple.os(host) === "darwin") {
+				os = "apple-darwin";
+			} else if (std.triple.os(host) === "linux") {
+				os = "unknown-linux-gnu";
+			} else {
+				throw new Error(`unsupported host ${host}`);
+			}
+			const checksum = "sha256:any";
+			const triple = `${std.triple.arch(host)}-${os}`;
+			const file = `librusty_v8_release_${triple}.a.gz`;
+			const lib = await std
+				.download({
+					checksum,
+					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
+				})
+				.then((b) => {
+					tg.assert(b instanceof tg.Blob);
+					return tg.file(b);
+				});
+			// Also download the src binding file. The v8 build script downloads
+			// this from RUSTY_V8_MIRROR when RUSTY_V8_SRC_BINDING_PATH is not
+			// set. With --target, cargo may invoke the build script twice
+			// concurrently with different OUT_DIRs, causing a race on the shared
+			// gen/ directory. Providing the binding path avoids the download and
+			// the race entirely.
+			const bindingFile = `src_binding_release_${triple}.rs`;
+			const binding = await std
+				.download({
+					checksum,
+					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${bindingFile}`,
+				})
+				.then((b) => {
+					tg.assert(b instanceof tg.Blob);
+					return tg.file(b);
+				});
+			const envVarSuffix = triple.replace(/-/g, "_");
+			const key =
+				hostList.length === 1
+					? "RUSTY_V8_ARCHIVE"
+					: `RUSTY_V8_ARCHIVE_${envVarSuffix}`;
+			return { key, value: lib, binding };
+		}),
+	);
+
+	const result: Record<string, tg.File> = {};
+	for (const { key, value, binding } of downloads) {
+		result[key] = value;
+		// Set the src binding path to avoid the download race condition.
+		if (binding) {
+			result["RUSTY_V8_SRC_BINDING_PATH"] = binding;
+		}
 	}
-	const triple = `${std.triple.arch(host)}-${os}`;
-	const download = (name: string) =>
-		std
-			.download({
-				checksum: "sha256:any",
-				url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${name}`,
-			})
-			.then((blob) => {
-				tg.assert(blob instanceof tg.Blob);
-				return tg.file(blob);
-			});
-	const archive = await download(`librusty_v8_release_${triple}.a.gz`);
 
-	// The v8 build script downloads the src binding from RUSTY_V8_MIRROR when RUSTY_V8_SRC_BINDING_PATH is not set. With `--target`, cargo may invoke the build script twice concurrently with different out dirs, which races on the shared gen directory, so providing the path avoids both the download and the race.
-	const binding = await download(`src_binding_release_${triple}.rs`);
-
-	return { RUSTY_V8_ARCHIVE: archive, RUSTY_V8_SRC_BINDING_PATH: binding };
+	return result;
 };
 
 const getRustyV8Version = async (lockfile: tg.File) => {
