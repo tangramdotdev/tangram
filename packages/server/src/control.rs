@@ -282,6 +282,7 @@ impl Session {
 				Ok(Ok(response)) => return Ok(response),
 				Ok(Err(error)) => return Err(error),
 				Err(_) => {
+					tracing::error!(subject = %server_subject, "PROBE control request timeout");
 					crate::checkpoint!(
 						server,
 						"control.request.timeout",

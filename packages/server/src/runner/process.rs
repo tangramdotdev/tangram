@@ -573,6 +573,7 @@ impl Session {
 		let server_for_cleanup = session.server.clone();
 		let id_for_cleanup = id.clone();
 		scopeguard::defer! {
+			tracing::error!(id = %id_for_cleanup, "PROBE runner process state removed");
 			server_for_cleanup.runner.state.processes.remove(&id_for_cleanup);
 			if let Some(mut sandbox) = server_for_cleanup
 				.runner

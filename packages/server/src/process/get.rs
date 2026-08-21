@@ -144,7 +144,10 @@ impl Session {
 		let output = self
 			.try_get_process_local_inner(id, metadata)
 			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+			.ok_or_else(|| {
+				tracing::error!(%id, "PROBE get process local not found");
+				tg::error!(%id, "failed to find the process")
+			})?;
 
 		Ok(output)
 	}

@@ -136,12 +136,15 @@ impl Session {
 			.boxed();
 		let (permissions, process) = future::try_join(authorize_future, get_future).await?;
 		let Some(permissions) = permissions else {
+			tracing::error!(%id, "PROBE wait local none: unauthorized");
 			return Ok(None);
 		};
 		let Some(process) = process else {
+			tracing::error!(%id, "PROBE wait local none: process not found");
 			return Ok(None);
 		};
 		if !permissions.contains(permission) {
+			tracing::error!(%id, "PROBE wait local none: missing node permission");
 			return Ok(None);
 		}
 		let initial = process.data.status;
@@ -488,6 +491,7 @@ impl Session {
 
 		// Get the stream.
 		let Some(stream) = self.try_wait_process_stream(&id, arg).await? else {
+			tracing::error!(%id, "PROBE wait request 404");
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

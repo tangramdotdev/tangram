@@ -318,7 +318,10 @@ impl Session {
 		self.try_cancel_process_local(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
-			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
+			.ok_or_else(|| {
+				tracing::error!(%id, "PROBE candidate cancel not found");
+				tg::error!(process = %id, "failed to find the process")
+			})?;
 		crate::checkpoint!(
 			self.server,
 			"process.spawn.candidate.cancelled",

@@ -204,6 +204,7 @@ impl Session {
 				(error, output)
 			},
 			Err(error) => {
+				tracing::error!(%id, error = %error.trace(), "PROBE runner control error response");
 				let error = Some(tg::error::Data {
 					message: Some(error.to_string()),
 					..Default::default()
