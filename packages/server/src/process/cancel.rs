@@ -91,6 +91,7 @@ impl Session {
 				let Some(process) = process
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 				else {
+					tracing::error!(%id, "PROBE cancel local none: get won and returned none");
 					return Ok(None);
 				};
 				if process.data.status.is_finished() {

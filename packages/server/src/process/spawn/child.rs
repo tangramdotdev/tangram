@@ -46,6 +46,7 @@ impl Session {
 			return Err(tg::error!("the parent process was finished"));
 		}
 		if parent_process.children.contains_key(&child) {
+			tracing::error!(%child, %parent, "PROBE child add duplicate: returning without indexing");
 			let lease = arg.lease.map(ToOwned::to_owned);
 			let location = arg.location.cloned().map(Into::into);
 			drop(parent_sandbox);
@@ -79,6 +80,13 @@ impl Session {
 			)?;
 
 		// Index the child.
+		crate::checkpoint!(
+			self.server,
+			"process.spawn.child.index",
+			child = %child,
+			parent = %parent,
+		)
+		.await;
 		self.index_process_child(
 			&parent,
 			&data,

@@ -100,15 +100,18 @@ impl Session {
 		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(permissions) = permissions else {
+			tracing::error!(%id, "PROBE get local none: unauthorized");
 			return Ok(None);
 		};
 		let node = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
 		if !permissions.contains(node) {
+			tracing::error!(%id, "PROBE get local none: missing node permission");
 			return Ok(None);
 		}
 		let Some(mut output) = output else {
+			tracing::error!(%id, "PROBE get local none: inner returned none");
 			return Ok(None);
 		};
 		let created_at = self.server.clock.unix_timestamp()?;
@@ -240,6 +243,7 @@ impl Session {
 		let output = match future::select(index_future, control_future).await {
 			future::Either::Left((indexed, control_future)) => {
 				let Some(indexed) = indexed? else {
+					tracing::error!(%id, "PROBE get inner none: index miss beat control");
 					return Ok(None);
 				};
 				if indexed
@@ -253,6 +257,7 @@ impl Session {
 					let data = control_future.await?;
 					if data.status.is_finished() {
 						let Some(indexed) = self.try_get_process_from_index(id).await? else {
+							tracing::error!(%id, "PROBE get inner none: finished via control but index miss (left)");
 							return Ok(None);
 						};
 						let data = indexed
@@ -276,6 +281,7 @@ impl Session {
 				let data = data?;
 				if data.status.is_finished() {
 					let Some(indexed) = self.try_get_process_from_index(id).await? else {
+						tracing::error!(%id, "PROBE get inner none: finished via control but index miss (right)");
 						return Ok(None);
 					};
 					let data = indexed
