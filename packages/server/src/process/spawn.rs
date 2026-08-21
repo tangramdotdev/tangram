@@ -329,6 +329,24 @@ impl Session {
 			&& let Some(output) = &mut output
 			&& !output.cached
 		{
+			let parent_task = output
+				.parent
+				.as_ref()
+				.zip(output.parent_sandbox.as_ref())
+				.and_then(|(parent, sandbox)| {
+					let state = self.server.runner.state();
+					let sandbox = state.sandboxes().get_by_id(sandbox)?;
+					sandbox
+						.processes
+						.get_by_id(parent)?
+						.command_push_task
+						.clone()
+				});
+			output.command_push_task_arg = Some(crate::process::CommandPushTaskArg {
+				command: command.clone(),
+				parent_task,
+				session: self.clone(),
+			});
 			output.process_token = None;
 			output.sandbox_token = None;
 			output.token = None;

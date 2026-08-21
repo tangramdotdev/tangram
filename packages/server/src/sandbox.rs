@@ -2,10 +2,7 @@ use {
 	crate::{Origin, Server},
 	dashmap::DashMap,
 	futures::future::BoxFuture,
-	std::{
-		collections::{BTreeMap, HashMap},
-		sync::Arc,
-	},
+	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 };
@@ -29,8 +26,9 @@ pub struct Sandboxes {
 
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
+	pub command_push_tasks: BTreeMap<u64, crate::process::CommandPushTask>,
 	pub data: tg::sandbox::get::Output,
-	pub processes: HashMap<tg::process::Id, crate::process::State>,
+	pub processes: crate::process::Processes,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub token: Option<String>,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,

@@ -475,6 +475,7 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
+			command_push_task_arg: None,
 			data,
 			id,
 			lease: None,
@@ -566,6 +567,7 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
+			command_push_task_arg: None,
 			data,
 			id,
 			lease: None,

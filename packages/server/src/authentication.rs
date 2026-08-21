@@ -59,7 +59,7 @@ impl Session {
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
 			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox)
-			&& let Some(process) = sandbox.processes.get(id)
+			&& let Some(process) = sandbox.processes.get_by_id(id)
 		{
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
@@ -349,7 +349,7 @@ impl Server {
 			| tg::Principal::Root
 			| tg::Principal::Runner(_)
 			| tg::Principal::User(_) => false,
-			tg::Principal::Process(id) => sandbox.processes.contains_key(id),
+			tg::Principal::Process(id) => sandbox.processes.get_by_id(id).is_some(),
 			tg::Principal::Sandbox(id) => sandbox.data.id == *id,
 		};
 
@@ -401,7 +401,7 @@ impl Server {
 				.and_then(|sandbox| {
 					sandbox
 						.processes
-						.get(id)
+						.get_by_id(id)
 						.map(|process| process.inner_token == value)
 				})
 				.unwrap_or(false),
