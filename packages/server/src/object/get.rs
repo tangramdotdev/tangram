@@ -92,7 +92,76 @@ impl Session {
 			return Ok(Some(output));
 		}
 
+		// Wait for any outstanding command push tasks and retry.
+		if self.wait_for_command_push_tasks(id).await {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_get_object_regions(
+						id,
+						&local.regions,
+						arg.metadata,
+						arg.stored,
+						&arg.tokens,
+					)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the object from another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			if let Some(output) = self
+				.try_get_object_remotes(
+					id,
+					&locations.remotes,
+					arg.metadata,
+					arg.stored,
+					&arg.tokens,
+				)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to get the object from a remote"),
+				)? {
+				return Ok(Some(output));
+			}
+		}
+
 		Ok(None)
+	}
+
+	async fn wait_for_command_push_tasks(&self, id: &tg::object::Id) -> bool {
+		// Collect the outstanding command push tasks for the requesting sandbox and process sessions.
+		let state = self.server.runner.state();
+		let mut command_push_tasks = Vec::new();
+		if let Ok(index) = self.context.origin.try_unwrap_sandbox()
+			&& let Some(sandbox) = state.sandboxes().get(index)
+		{
+			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+		}
+		if let tg::Principal::Sandbox(sandbox) = &self.context.principal
+			&& let Some(sandbox) = state.sandboxes().get_by_id(sandbox)
+		{
+			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+		}
+		if let tg::Principal::Process(process) = &self.context.principal
+			&& let Some(sandbox) = state
+				.processes()
+				.get(process)
+				.map(|entry| entry.value().clone())
+			&& let Some(sandbox) = state.sandboxes().get_by_id(&sandbox)
+		{
+			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+		}
+		if command_push_tasks.is_empty() {
+			return false;
+		}
+
+		// Wait for the tasks.
+		crate::checkpoint!(self.server, "object.get.command.push.wait", object = %id).await;
+		for command_push_task in command_push_tasks {
+			command_push_task.wait().await.ok();
+		}
+
+		true
 	}
 
 	pub(crate) async fn try_get_object_local(

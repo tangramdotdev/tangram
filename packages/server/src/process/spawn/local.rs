@@ -13,6 +13,8 @@ pub(super) struct Output {
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
 	pub command_options: tg::referent::Options,
+	#[debug(ignore)]
+	pub command_push_task_arg: Option<crate::process::CommandPushTaskArg>,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
 	pub lease: Option<String>,
@@ -125,7 +127,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
 			.processes
-			.get(parent)
+			.get_by_id(parent)
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
@@ -378,6 +380,7 @@ impl Session {
 			allocation: None,
 			cached: false,
 			command_options: command.options.clone(),
+			command_push_task_arg: None,
 			data,
 			id: id.clone(),
 			lease: None,

@@ -912,6 +912,20 @@ impl Provider {
 		tokens
 	}
 
+	fn session(&self) -> Session {
+		// Fetch as root, but carry the sandbox origin.
+		let context = Context {
+			billing: false,
+			id: None,
+			origin: self.origin,
+			principal: tg::Principal::Root,
+			stopper: None,
+			token: None,
+		};
+
+		Session::new(self.server.clone(), context)
+	}
+
 	fn named_node_session(&self) -> Option<Session> {
 		let principal = self.principal.lock().unwrap().clone()?;
 		// The provider is a host service acting as the mount's principal.
@@ -1555,7 +1569,7 @@ impl Provider {
 			},
 		};
 		let stream = self
-			.server
+			.session()
 			.try_read(arg)
 			.await
 			.map_err(|error| {
@@ -2577,7 +2591,7 @@ impl Provider {
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<tg::object::Data>> {
 		let output = self
-			.server
+			.session()
 			.try_get_object(id, tg::object::get::Arg::default())
 			.await
 			.map_err(|error| {

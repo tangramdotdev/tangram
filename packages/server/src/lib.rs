@@ -111,6 +111,7 @@ pub struct State {
 	checkout_tasks: self::checkout::internal::Tasks,
 	checkpoints: Option<self::checkpoint::State>,
 	clock: self::clock::Clock,
+	command_push_tasks: self::process::CommandPushTasks,
 	config: Config,
 	context: Context,
 	database: Database,
@@ -761,6 +762,9 @@ impl Server {
 		// Create the regions.
 		let regions = DashMap::default();
 
+		// Create the command push tasks.
+		let command_push_tasks = tangram_futures::task::Map::default();
+
 		// Create the object get tasks.
 		let object_get_tasks = tangram_futures::task::Map::default();
 
@@ -916,6 +920,7 @@ impl Server {
 			checkout_tasks,
 			checkpoints,
 			clock,
+			command_push_tasks,
 			config,
 			context,
 			database,
@@ -1359,6 +1364,18 @@ impl Server {
 				}
 				tracing::trace!("checkout tasks");
 
+				// Abort the command push tasks.
+				server.command_push_tasks.abort_all();
+				let results = server.command_push_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a command push task panicked");
+					}
+				}
+				tracing::trace!("command push tasks");
+
 				// Abort the object get tasks.
 				server.object_get_tasks.abort_all();
 				let results = server.object_get_tasks.wait().await;
@@ -1659,6 +1676,7 @@ impl Drop for Owned {
 		self.checkout_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
+		self.command_push_tasks.abort_all();
 		self.object_get_tasks.abort_all();
 		self.remote_object_put_tasks.abort_all();
 		self.remote_process_put_tasks.abort_all();
