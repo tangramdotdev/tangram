@@ -103,7 +103,7 @@ async fn process_children_are_stored_separately_from_data() {
 		actual_checksum: None,
 		cacheable: false,
 		children: Some(expected.clone()),
-		command: command.clone(),
+		command: tg::Referent::with_node(command.clone()),
 		created_at: 0,
 		debug: None,
 		error: None,

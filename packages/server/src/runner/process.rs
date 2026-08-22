@@ -1,6 +1,6 @@
 use {
 	self::control::RunProcessControlTaskArg,
-	crate::Session,
+	crate::{Context, Origin, Session},
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _,
@@ -24,7 +24,12 @@ use {
 mod control;
 mod progress;
 
-type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::command::Data>>>;
+type CommandFuture = Shared<BoxFuture<'static, tg::Result<(tg::command::Data, Session)>>>;
+
+struct CommandPushTaskContext {
+	parent_task: Option<crate::process::CommandPushTask>,
+	session: Session,
+}
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -32,6 +37,7 @@ pub(super) struct SpawnProcessTaskArg<'a> {
 	pub process: tg::runner::control::Process,
 	pub process_stopper: &'a Stopper,
 	pub process_tasks: &'a mut JoinSet<tg::Result<()>>,
+	pub processes: Arc<crate::process::Processes>,
 	pub retention_stopper: Stopper,
 	pub sandbox: &'a tangram_sandbox::Sandbox,
 	pub sandbox_id_receiver: Option<tokio::sync::oneshot::Receiver<tg::sandbox::Id>>,
@@ -47,6 +53,7 @@ struct ProcessTaskArg {
 	guest_url: tangram_uri::Uri,
 	location: tg::Location,
 	process: tg::runner::control::Process,
+	processes: Arc<crate::process::Processes>,
 	retention_stopper: Stopper,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_id_receiver: Option<tokio::sync::oneshot::Receiver<tg::sandbox::Id>>,
@@ -62,8 +69,9 @@ struct FinishProcessTaskArg {
 	log_write_task: Option<Task<tg::Result<()>>>,
 	output: tg::Result<Output>,
 	process: tg::Process,
+	process_index: u64,
+	processes: Arc<crate::process::Processes>,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
-	sandbox: tg::sandbox::Id,
 }
 
 struct CollectProcessOutputArg<'a> {
@@ -95,10 +103,11 @@ struct Output {
 }
 
 struct RunProcessArg {
-	command: CommandFuture,
+	command: tg::command::Data,
 	guest_url: tangram_uri::Uri,
-	id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
+	process_index: u64,
 	process_stopper: Stopper,
+	processes: Arc<crate::process::Processes>,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
 	sandbox_process_sender: tokio::sync::watch::Sender<Option<Arc<tangram_sandbox::Process>>>,
@@ -135,6 +144,7 @@ impl Session {
 		let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let session = self.clone();
 		let process = arg.process;
+		let processes = arg.processes;
 		let sandbox = arg.sandbox.clone();
 		let guest_url = arg.guest_url.clone();
 		let location = arg.location;
@@ -147,6 +157,7 @@ impl Session {
 				guest_url,
 				location,
 				process,
+				processes,
 				retention_stopper,
 				sandbox,
 				sandbox_id_receiver,
@@ -169,6 +180,7 @@ impl Session {
 			guest_url,
 			location,
 			process,
+			processes,
 			retention_stopper,
 			sandbox,
 			sandbox_id_receiver,
@@ -213,6 +225,53 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 
+		// Store the process state before starting the process or connecting control.
+		let mut data = state.to_data();
+		let mut children = indexmap::IndexMap::default();
+		for child in data.children.take().unwrap_or_default() {
+			let id = child.process.node.clone();
+			let child = crate::process::Child {
+				data: child,
+				lease: None,
+				location: None,
+			};
+			if children.insert(id, child).is_some() {
+				return Err(tg::error!("the process children must be unique"));
+			}
+		}
+		let process_index = session.server.runner.state.create_process_index();
+		processes.insert(
+			process_index,
+			crate::process::State {
+				children,
+				command_push_task: None,
+				control: control_sender.clone(),
+				data,
+				finish: None,
+				id: None,
+				inner_token: inner_token.clone(),
+				leases: BTreeSet::from([lease.clone()]),
+				process: None,
+				stopper: process_stopper.clone(),
+			},
+		);
+		let processes_for_cleanup = processes.clone();
+		let server_for_cleanup = session.server.clone();
+		scopeguard::defer! {
+			if let Some(process) = processes_for_cleanup.remove(process_index)
+				&& let Some(id) = process.id
+			{
+				server_for_cleanup.runner.state.processes.remove(&id);
+			}
+		}
+		crate::checkpoint!(
+			session.server,
+			"runner.process.state.inserted",
+			process = ?expected_id,
+			process_index,
+		)
+		.await;
+
 		// Register the token before starting the process.
 		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(None);
 		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
@@ -235,49 +294,59 @@ impl Session {
 			server_for_token_cleanup.runner.state.process_tokens.remove(&token_for_cleanup);
 		}
 
-		// Create a process-principal session after the process is assigned.
-		let process_session = {
+		// Load the command concurrently with the control stream.
+		let command: CommandFuture = {
+			// Ignore the source-relative location when loading the command on the runner.
+			let mut command = state.command.to_referent();
+			command.options.location = None;
+			let command = tg::Command::with_referent(command);
 			let context = self.context.clone();
 			let mut process_id_receiver = process_id_receiver.clone();
 			let process_stopper = process_stopper.clone();
+			let runner_session = self.clone();
 			let server = self.server.clone();
 			async move {
-				let id = loop {
-					if let Some(id) = process_id_receiver.borrow().clone() {
-						break id;
-					}
-					tokio::select! {
-						result = process_id_receiver.changed() => {
-							result.map_err(|error| tg::error!(!error, "failed to receive the process ID"))?;
-						},
-						() = process_stopper.wait() => {
-							return Err(tg::error!("the process was stopped before its ID was assigned"));
-						},
-					}
-				};
-				let context = crate::Context {
-					principal: tg::Principal::Process(id),
-					token: None,
-					..context
-				};
-				let session = server.session(&context);
+				// Check whether the command is available locally.
+				let command_id: tg::object::Id = command.id().into();
+				let local = runner_session
+					.server
+					.try_get_object_local(&command_id, false)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the local command"))?
+					.is_some();
 
-				Ok::<_, tg::Error>(session)
-			}
-			.boxed()
-			.shared()
-		};
+				// Select the execution session.
+				let session = if local {
+					runner_session
+				} else {
+					let id = loop {
+						if let Some(id) = process_id_receiver.borrow().clone() {
+							break id;
+						}
+						tokio::select! {
+							result = process_id_receiver.changed() => {
+								result.map_err(|error| tg::error!(!error, "failed to receive the process ID"))?;
+							},
+							() = process_stopper.wait() => {
+								return Err(tg::error!("the process was stopped before its ID was assigned"));
+							},
+						}
+					};
+					let context = crate::Context {
+						principal: tg::Principal::Process(id),
+						token: None,
+						..context
+					};
+					server.session(&context)
+				};
 
-		// Load the command concurrently with the control stream.
-		let command = {
-			let command = state.command.clone();
-			let process_session = process_session.clone();
-			async move {
-				let session = process_session.await?;
-				command
+				// Load the command.
+				let data = command
 					.data_with_handle(&session)
 					.await
-					.map_err(|error| tg::error!(!error, "failed to get the command data"))
+					.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
+
+				Ok((data, session))
 			}
 			.boxed()
 			.shared()
@@ -401,22 +470,22 @@ impl Session {
 		let mut run_task = Some(Task::spawn({
 			let command = command.clone();
 			let guest_url = guest_url.clone();
-			let process_id_receiver = process_id_receiver.clone();
+			let processes = processes.clone();
 			let process_stopper = process_stopper.clone();
 			let progress_sender = progress_sender.clone();
-			let process_session = process_session.clone();
 			let sandbox = sandbox.clone();
 			let state = state.clone();
 			let stopper = sandbox_stopper.clone();
 			let token = token.clone();
 			move |_| async move {
-				let session = process_session.await?;
+				let (command, session) = command.await?;
 				session
 					.run_process(RunProcessArg {
 						command,
 						guest_url,
-						id_receiver: process_id_receiver,
+						process_index,
 						process_stopper,
+						processes,
 						progress_sender,
 						sandbox,
 						sandbox_process_sender,
@@ -427,7 +496,6 @@ impl Session {
 					.await
 			}
 		}));
-
 		// Wait for the sandbox ID before connecting the control stream.
 		if let Some(sandbox_id_receiver) = sandbox_id_receiver {
 			let sandbox_id = match sandbox_id_receiver.await {
@@ -453,6 +521,37 @@ impl Session {
 			state.sandbox = sandbox_id;
 		}
 		let sandbox_id = state.sandbox.clone();
+		processes
+			.get_mut(process_index)
+			.expect("the process state was not found")
+			.data
+			.sandbox = sandbox_id.clone();
+
+		// Push the command to the remote concurrently with the control stream.
+		let command_push_task = expected_id.is_none().then(|| {
+			let command = state.command.to_referent();
+			let command_push_task_context = parent
+				.as_ref()
+				.and_then(|parent| session.try_get_command_push_task_context(parent))
+				.unwrap_or_else(|| CommandPushTaskContext {
+					parent_task: None,
+					session: session.clone(),
+				});
+			Self::spawn_command_push_task(command, &location, command_push_task_context)
+		});
+		if let Some(command_push_task) = &command_push_task {
+			processes
+				.get_mut(process_index)
+				.expect("the process state was not found")
+				.command_push_task = Some(command_push_task.clone());
+		}
+
+		crate::checkpoint!(
+			session.server,
+			"runner.process.control.connect",
+			process = ?expected_id,
+		)
+		.await;
 
 		// Create the control stream.
 		let control_responses = ReceiverStream::new(control_responses).map(Ok).boxed();
@@ -501,6 +600,18 @@ impl Session {
 
 			return Err(tg::error!(%id, "missing the process authentication token"));
 		};
+		processes
+			.get_mut(process_index)
+			.expect("the process state was not found")
+			.inner_token = Some(inner_token.clone());
+		processes.set_id(process_index, id.clone());
+		session
+			.server
+			.runner
+			.state
+			.processes
+			.insert(id.clone(), sandbox_id.clone());
+		process_id_sender.send_replace(Some(id.clone()));
 		let process = tg::Process::new(
 			id.clone(),
 			tg::process::Options {
@@ -515,74 +626,6 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let Some(mut sandbox_state) = session
-			.server
-			.runner
-			.state
-			.sandboxes
-			.get_mut_by_id(&sandbox_id)
-		else {
-			process_stopper.stop();
-			run_task.take().unwrap().wait().await.ok();
-
-			return Err(tg::error!(%sandbox_id, "failed to find the sandbox"));
-		};
-		let mut data = state.to_data();
-		let mut children = indexmap::IndexMap::default();
-		for child in data.children.take().unwrap_or_default() {
-			let id = child.process.node.clone();
-			let child = crate::process::Child {
-				data: child,
-				lease: None,
-				location: None,
-			};
-			if children.insert(id, child).is_some() {
-				return Err(tg::error!("the process children must be unique"));
-			}
-		}
-		sandbox_state.processes.insert(
-			id.clone(),
-			crate::process::State {
-				children,
-				control: control_sender.clone(),
-				data,
-				finish: None,
-				inner_token: inner_token.clone(),
-				leases: BTreeSet::from([lease.clone()]),
-				process: sandbox_process_receiver.borrow().as_deref().cloned(),
-				stopper: process_stopper.clone(),
-			},
-		);
-		drop(sandbox_state);
-		session
-			.server
-			.runner
-			.state
-			.processes
-			.insert(id.clone(), sandbox_id.clone());
-		process_id_sender.send_replace(Some(id.clone()));
-		if let Some(process) = sandbox_process_receiver.borrow().as_deref().cloned() {
-			session
-				.server
-				.runner
-				.state
-				.try_update_process(&id, |state| {
-					state.process = Some(process);
-				});
-		}
-		let server_for_cleanup = session.server.clone();
-		let id_for_cleanup = id.clone();
-		scopeguard::defer! {
-			server_for_cleanup.runner.state.processes.remove(&id_for_cleanup);
-			if let Some(mut sandbox) = server_for_cleanup
-				.runner
-				.state
-				.sandboxes
-				.get_mut_by_id(&sandbox_id)
-			{
-				sandbox.processes.remove(&id_for_cleanup);
-			}
-		}
 		session
 			.server
 			.messenger
@@ -640,7 +683,7 @@ impl Session {
 			.clone()
 			.await
 			.ok()
-			.and_then(|command| command.stdin.map(tg::Blob::with_id));
+			.and_then(|(command, _)| command.stdin.map(tg::Blob::with_id));
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let sandbox = sandbox.clone();
@@ -764,8 +807,9 @@ impl Session {
 			log_write_task,
 			output: result,
 			process,
+			process_index,
+			processes: processes.clone(),
 			progress_sender,
-			sandbox: sandbox_id.clone(),
 		};
 
 		session.finish_process_task(arg).boxed().await
@@ -781,25 +825,17 @@ impl Session {
 			log_write_task,
 			output: result,
 			process,
+			process_index,
+			processes,
 			progress_sender,
-			sandbox: sandbox_id,
 		} = arg;
 		let session = self;
 
-		let finish = {
-			let mut sandbox = session
-				.server
-				.runner
-				.state
-				.sandboxes
-				.get_mut_by_id(&sandbox_id)
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			let process = sandbox
-				.processes
-				.get_mut(&id)
-				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-			process.finish.take()
-		};
+		let finish = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?
+			.finish
+			.take();
 		let output = if let Some(finish) = finish {
 			let error = finish
 				.error
@@ -870,6 +906,27 @@ impl Session {
 			else {
 				return Ok::<_, tg::Error>(());
 			};
+
+			// Wait for the sandbox's outstanding command push tasks.
+			let own_command_push_task = processes
+				.get(process_index)
+				.and_then(|process| process.command_push_task.clone());
+			let command_push_tasks = processes
+				.iter()
+				.filter(|process| *process.key() != process_index)
+				.filter_map(|process| process.command_push_task.clone())
+				.collect::<Vec<_>>();
+			for command_push_task in command_push_tasks {
+				command_push_task.wait().await.ok();
+			}
+			if let Some(command_push_task) = own_command_push_task {
+				command_push_task
+					.wait()
+					.await
+					.map_err(|error| tg::error!(!error, "the command push task panicked"))?
+					.map_err(|error| tg::error!(!error, "failed to push the process command"))?;
+			}
+
 			let mut objects = Vec::new();
 			if let Some(value) = &value {
 				value.children_with_tokens(&mut objects);
@@ -972,22 +1029,8 @@ impl Session {
 		}
 
 		let id = process.id().unwrap_right();
-		let sandbox = session
-			.server
-			.runner
-			.state
-			.try_get_process_sandbox(id)
-			.ok_or_else(|| tg::error!(%id, "failed to find the process sandbox"))?;
-		let mut sandbox = session
-			.server
-			.runner
-			.state
-			.sandboxes
-			.get_mut_by_id(&sandbox)
-			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-		let process_state = sandbox
-			.processes
-			.get_mut(id)
+		let mut process_state = processes
+			.get_mut(process_index)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 		if matches!(
 			error_code,
@@ -1036,7 +1079,7 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		let data = process_state.data();
-		drop(sandbox);
+		drop(process_state);
 
 		child_leases
 			.into_iter()
@@ -1077,6 +1120,95 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %id, "the process control task panicked"))??;
 
 		Ok::<_, tg::Error>(())
+	}
+
+	fn try_get_command_push_task_context(
+		&self,
+		id: &tg::process::Id,
+	) -> Option<CommandPushTaskContext> {
+		let state = self.server.runner.state();
+		let sandbox_id = state.processes().get(id)?.value().clone();
+		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
+		let origin = Origin::Sandbox(*sandbox.key());
+		let process = sandbox.processes.get_by_id(id)?;
+		let parent_task = process.command_push_task.clone();
+		let token = process.inner_token.clone()?;
+		drop(process);
+		drop(sandbox);
+		let context = Context {
+			origin,
+			principal: tg::Principal::Process(id.clone()),
+			token: Some(token),
+			..self.context.clone()
+		};
+		let session = self.server.session(&context);
+		let output = CommandPushTaskContext {
+			parent_task,
+			session,
+		};
+
+		Some(output)
+	}
+
+	fn spawn_command_push_task(
+		command: tg::Referent<tg::command::Id>,
+		location: &tg::Location,
+		context: CommandPushTaskContext,
+	) -> crate::process::CommandPushTask {
+		let CommandPushTaskContext {
+			parent_task,
+			mut session,
+		} = context;
+		session.context.stopper = None;
+
+		// Spawn the push task.
+		let location = location.clone();
+		crate::process::CommandPushTask::spawn(move |_| async move {
+			// Wait for the parent's command push task.
+			if let Some(parent_task) = parent_task {
+				parent_task.wait().await.ok();
+			}
+
+			crate::checkpoint!(
+				session.server,
+				"runner.process.command.push.started",
+				command = %command.node,
+			)
+			.await;
+			let arg = tg::push::Arg {
+				destination: Some(location),
+				nodes: vec![tg::Referent::with_node_and_tokens(
+					command.node.clone().into(),
+					command.options.tokens.clone(),
+				)],
+				process_commands: true,
+				..Default::default()
+			};
+			let result = async {
+				let stream = session.push_for_process(arg).await?;
+				let mut stream = std::pin::pin!(stream);
+				while let Some(event) = stream.try_next().await? {
+					if event.is_output() {
+						return Ok(());
+					}
+				}
+				Err(tg::error!("expected an output"))
+			}
+			.await
+			.map_err(
+				|error| tg::error!(!error, command = %command.node, "failed to push the command"),
+			);
+			if let Err(error) = &result {
+				tracing::error!(error = %error.trace(), "failed to push the command");
+			}
+			crate::checkpoint!(
+				session.server,
+				"runner.process.command.push.finished",
+				command = %command.node,
+			)
+			.await;
+			result
+		})
 	}
 
 	async fn spawn_grant_process_command_task(
@@ -1128,8 +1260,9 @@ impl Session {
 		let RunProcessArg {
 			command,
 			guest_url,
-			id_receiver,
+			process_index,
 			process_stopper,
+			processes,
 			progress_sender,
 			sandbox,
 			sandbox_process_sender,
@@ -1137,8 +1270,6 @@ impl Session {
 			stopper,
 			token,
 		} = arg;
-		let command = command.await?;
-		let command = &command;
 		let state = &state;
 
 		// Run the process.
@@ -1290,11 +1421,10 @@ impl Session {
 
 			// Provide the sandbox process to the control task.
 			sandbox_process_sender.send_replace(Some(sandbox_process.clone()));
-			if let Some(id) = id_receiver.borrow().clone() {
-				self.server.runner.state.try_update_process(&id, |state| {
-					state.process = Some(sandbox_process.as_ref().clone());
-				});
-			}
+			processes
+				.get_mut(process_index)
+				.expect("the process state was not found")
+				.process = Some(sandbox_process.as_ref().clone());
 
 			let arg = WaitForProcessArg {
 				process_stopper,

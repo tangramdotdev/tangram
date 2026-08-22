@@ -33,6 +33,7 @@ pub struct Child {
 
 impl State {
 	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
+		self.command.state().inherit_location(location);
 		if let Some(children) = &self.children {
 			for child in children {
 				child
@@ -77,7 +78,7 @@ impl State {
 			.children
 			.as_ref()
 			.map(|children| children.iter().map(Child::to_data).collect());
-		let command = self.command.id().clone();
+		let command = self.command.to_referent();
 		let created_at = self.created_at;
 		let debug = self.debug.clone();
 		let error = self
@@ -89,9 +90,9 @@ impl State {
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
 		let log = self.log.as_ref().map(tg::Blob::to_referent);
-		let sandbox = self.sandbox.clone();
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
+		let sandbox = self.sandbox.clone();
 		let started_at = self.started_at;
 		let status = self.status;
 		let stderr = self.stderr.clone();
@@ -111,9 +112,9 @@ impl State {
 			finished_at,
 			host,
 			log,
-			sandbox,
 			output,
 			retry,
+			sandbox,
 			started_at,
 			status,
 			stderr,
@@ -135,7 +136,7 @@ impl State {
 					.collect::<tg::Result<Vec<_>>>()
 			})
 			.transpose()?;
-		let command = tg::Command::with_id(value.command);
+		let command = tg::Command::with_referent(value.command);
 		let created_at = value.created_at;
 		let debug = value.debug;
 		let error = value

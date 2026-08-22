@@ -31,16 +31,16 @@ impl Session {
 				.await?;
 			return Ok(());
 		};
-		let mut parent_sandbox = self
+		let parent_sandbox = self
 			.server
 			.runner
 			.state()
 			.sandboxes()
-			.get_mut_by_id(&parent_sandbox)
+			.get_by_id(&parent_sandbox)
 			.ok_or_else(|| tg::error!("the parent sandbox was not found"))?;
-		let parent_process = parent_sandbox
+		let mut parent_process = parent_sandbox
 			.processes
-			.get_mut(&parent)
+			.get_mut_by_id(&parent)
 			.ok_or_else(|| tg::error!("the parent process was not found"))?;
 		if parent_process.data.status.is_finished() {
 			return Err(tg::error!("the parent process was finished"));
@@ -48,6 +48,7 @@ impl Session {
 		if parent_process.children.contains_key(&child) {
 			let lease = arg.lease.map(ToOwned::to_owned);
 			let location = arg.location.cloned().map(Into::into);
+			drop(parent_process);
 			drop(parent_sandbox);
 			if let Some(lease) = lease {
 				let arg = tg::process::cancel::Arg { lease, location };
@@ -66,6 +67,7 @@ impl Session {
 		parent_process.children.insert(child.clone(), child_state);
 		let parent_data = parent_process.data.clone();
 		let control = parent_process.control.clone();
+		drop(parent_process);
 		drop(parent_sandbox);
 
 		// Notify the server that the child was spawned.
@@ -119,7 +121,7 @@ impl Session {
 			tangram_index::process::put::Arg {
 				cached: false,
 				children: None,
-				command: parent_data.command.clone().into(),
+				command: parent_data.command.node.clone().into(),
 				data: Some(parent_data.clone()),
 				error: None,
 				id: parent.clone(),

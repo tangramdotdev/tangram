@@ -4,12 +4,7 @@ use {
 	},
 	crate::{Context, Origin, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future},
-	std::{
-		collections::{BTreeMap, HashMap},
-		pin::pin,
-		sync::Arc,
-		time::Instant,
-	},
+	std::{collections::BTreeMap, pin::pin, sync::Arc, time::Instant},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -95,6 +90,7 @@ struct SandboxTaskInnerArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox_id_sender: tokio::sync::oneshot::Sender<tg::sandbox::Id>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
@@ -113,6 +109,7 @@ struct RunSandboxTaskArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
 	started_at: Instant,
@@ -304,6 +301,7 @@ impl Session {
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
+		let processes = Arc::new(crate::process::Processes::default());
 		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::oneshot::channel();
 		let process_task_output = process.map(|process| {
 			self.spawn_process_task(SpawnProcessTaskArg {
@@ -312,6 +310,7 @@ impl Session {
 				process,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
+				processes: processes.clone(),
 				retention_stopper: stopper.clone(),
 				sandbox: &create_output.sandbox,
 				sandbox_id_receiver: Some(sandbox_id_receiver),
@@ -383,6 +382,7 @@ impl Session {
 				process_stopper,
 				process_task_output,
 				process_tasks,
+				processes,
 				sandbox_id_sender,
 				state,
 				stopper,
@@ -703,6 +703,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox_id_sender,
 			state,
 			stopper,
@@ -728,7 +729,7 @@ impl Session {
 			crate::sandbox::State {
 				allocation: Some(allocation),
 				data: state.clone(),
-				processes: HashMap::new(),
+				processes: processes.clone(),
 				sandbox: Some(sandbox.clone()),
 				token: Some(token.clone()),
 				tokens: BTreeMap::new(),
@@ -757,6 +758,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -795,6 +797,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			mut process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -867,16 +870,16 @@ impl Session {
 								message: Some("the process was canceled".into()),
 								..Default::default()
 							});
-							let mut sandbox = self
+							let sandbox = self
 								.server
 								.runner
 								.state
 								.sandboxes
-								.get_mut_by_id(&id)
+								.get_by_id(&id)
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							for process in sandbox.processes.values_mut() {
-								if !process.data.status.is_finished() {
-									process.finish.get_or_insert(
+							for mut process in sandbox.processes.iter_mut() {
+								if !process.value().data.status.is_finished() {
+									process.value_mut().finish.get_or_insert(
 										tg::process::control::FinishServerRequestArg {
 											error: Some(error.clone()),
 											exit: 1,
@@ -913,6 +916,7 @@ impl Session {
 								process,
 								process_stopper: &process_stopper,
 								process_tasks: &mut process_tasks,
+								processes: processes.clone(),
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
 								sandbox_id_receiver: None,

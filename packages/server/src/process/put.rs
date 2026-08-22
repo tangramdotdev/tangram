@@ -150,7 +150,7 @@ impl Session {
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
-			command: arg.data.command.clone().into(),
+			command: arg.data.command.node.clone().into(),
 			data: Some(arg.data.clone()),
 			error: Some(error),
 			id: id.clone(),
@@ -324,8 +324,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the process.
-		let output = self
-			.put_process(&id, arg)
+		let output = Box::pin(self.put_process(&id, arg))
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 

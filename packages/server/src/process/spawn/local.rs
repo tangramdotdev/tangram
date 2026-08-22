@@ -123,7 +123,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
 			.processes
-			.get(parent)
+			.get_by_id(parent)
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
@@ -359,7 +359,7 @@ impl Session {
 			actual_checksum: None,
 			cacheable,
 			children: None,
-			command: command.node.clone(),
+			command: command.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,

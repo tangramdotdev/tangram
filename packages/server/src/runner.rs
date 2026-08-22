@@ -43,6 +43,7 @@ pub struct Runner {
 pub struct State {
 	capacity: self::capacity::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
+	next_process_index: AtomicU64,
 	next_sandbox_index: AtomicU64,
 	process_tokens: dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
 	processes: crate::process::Map,
@@ -58,6 +59,7 @@ impl Runner {
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
+			next_process_index: AtomicU64::new(1),
 			next_sandbox_index: AtomicU64::new(1),
 			process_tokens: dashmap::DashMap::new(),
 			processes: crate::process::Map::default(),
@@ -571,6 +573,14 @@ impl State {
 	}
 
 	#[must_use]
+	pub(crate) fn create_process_index(&self) -> u64 {
+		let index = self.next_process_index.fetch_add(1, Ordering::Relaxed);
+		assert_ne!(index, u64::MAX, "exhausted the process indexes");
+
+		index
+	}
+
+	#[must_use]
 	fn create_sandbox_index(&self) -> u64 {
 		let index = self.next_sandbox_index.fetch_add(1, Ordering::Relaxed);
 		assert_ne!(index, u64::MAX, "exhausted the sandbox indexes");
@@ -590,8 +600,8 @@ impl State {
 			.map(|sandbox| {
 				sandbox
 					.processes
-					.values()
-					.filter(|process| process.data.status == tg::process::Status::Started)
+					.iter()
+					.filter(|process| process.value().data.status == tg::process::Status::Started)
 					.count()
 			})
 			.sum::<usize>()
@@ -614,7 +624,7 @@ impl State {
 		length: u64,
 	) -> Option<crate::sandbox::processes::Output> {
 		let sandbox = self.sandboxes.get_by_id(id)?;
-		let mut processes = sandbox.processes.keys().cloned().collect::<Vec<_>>();
+		let mut processes = sandbox.processes.ids();
 		processes.sort();
 		let processes_length = u64::try_from(processes.len()).unwrap();
 		let start = usize::try_from(position.min(processes_length)).unwrap();
@@ -630,7 +640,7 @@ impl State {
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get(id)?;
+		let process = sandbox.processes.get_by_id(id)?;
 		Some(process.data())
 	}
 
@@ -643,7 +653,7 @@ impl State {
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get(id)?;
+		let process = sandbox.processes.get_by_id(id)?;
 		let children_length = u64::try_from(process.children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
 		let end = usize::try_from(position.saturating_add(length).min(children_length)).unwrap();
@@ -667,9 +677,9 @@ impl State {
 		update: impl FnOnce(&mut crate::process::State) -> T,
 	) -> Option<T> {
 		let sandbox = self.try_get_process_sandbox(id)?;
-		let mut sandbox = self.sandboxes.get_mut_by_id(&sandbox)?;
-		let process = sandbox.processes.get_mut(id)?;
-		Some(update(process))
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let mut process = sandbox.processes.get_mut_by_id(id)?;
+		Some(update(&mut process))
 	}
 
 	#[must_use]

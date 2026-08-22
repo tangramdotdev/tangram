@@ -748,7 +748,7 @@ impl Graph {
 		let objects = if let Some(data) = data {
 			let mut objects: Vec<(usize, tangram_index::process::object::Kind)> = Vec::new();
 
-			let command: tg::object::Id = data.command.clone().into();
+			let command: tg::object::Id = data.command.node.clone().into();
 			let command_entry = self.nodes.entry(command.into());
 			let command_index = command_entry.index();
 			let command_node = command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
