@@ -27,8 +27,9 @@ pub struct Data {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<tg::process::data::Child>>,
 
+	#[serde_as(as = "DisplayFromStr")]
 	#[tangram_serialize(id = 3)]
-	pub command: tg::command::Id,
+	pub command: tg::Referent<tg::command::Id>,
 
 	#[tangram_serialize(id = 4)]
 	pub created_at: i64,
@@ -62,9 +63,6 @@ pub struct Data {
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::Referent<tg::blob::Id>>,
 
-	#[tangram_serialize(id = 11)]
-	pub sandbox: tg::sandbox::Id,
-
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
@@ -81,6 +79,9 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 13, skip_serializing_if = "is_false")]
 	pub retry: bool,
+
+	#[tangram_serialize(id = 11)]
+	pub sandbox: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
@@ -130,6 +131,7 @@ struct Error;
 impl Data {
 	#[must_use]
 	pub fn without_location_and_tokens(mut self) -> Self {
+		self.command.options.clear_location_and_tokens();
 		self.children = self.children.map(|children| {
 			children
 				.into_iter()

@@ -121,7 +121,7 @@ impl Session {
 			tangram_index::process::put::Arg {
 				cached: false,
 				children: None,
-				command: parent_data.command.clone().into(),
+				command: parent_data.command.node.clone().into(),
 				data: Some(parent_data.clone()),
 				error: None,
 				id: parent.clone(),

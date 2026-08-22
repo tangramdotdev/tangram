@@ -376,7 +376,7 @@ impl Session {
 				let node = crate::sync::queue::ObjectNode {
 					descendants: true,
 					eager: node.eager,
-					id: output.data.command.clone().into(),
+					id: output.data.command.node.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
 					parent: Some(node.id.clone().into()),
 					token: None,

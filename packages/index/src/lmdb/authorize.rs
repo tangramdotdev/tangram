@@ -1394,7 +1394,7 @@ impl Index {
 		}
 		let command = Self::try_get_process_with_transaction(db, subspace, transaction, process)?
 			.and_then(|process| process.data)
-			.map(|data| data.command.into());
+			.map(|data| data.command.node.into());
 		cache
 			.process_commands
 			.insert(process.clone(), command.clone());

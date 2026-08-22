@@ -11,8 +11,6 @@ pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
-	#[debug(ignore)]
-	pub command_push_task_arg: Option<crate::process::CommandPushTaskArg>,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
 	pub lease: Option<String>,
@@ -361,7 +359,7 @@ impl Session {
 			actual_checksum: None,
 			cacheable,
 			children: None,
-			command: command.node.clone(),
+			command: command.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,
@@ -383,7 +381,6 @@ impl Session {
 		let output = Output {
 			allocation: None,
 			cached: false,
-			command_push_task_arg: None,
 			data,
 			id,
 			lease: None,
