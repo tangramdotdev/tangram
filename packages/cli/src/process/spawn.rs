@@ -135,12 +135,8 @@ pub struct Options {
 	#[arg(id = "spawn.stdout", long = "stdout")]
 	pub stdout: Option<tg::process::Stdio>,
 
-	/// Tag the process.
-	#[arg(id = "spawn.tag", long = "tag")]
-	pub tag: Option<tg::Specifier>,
-
 	#[command(flatten)]
-	pub tag_ancestors: crate::node::TagAncestors,
+	pub tag: crate::tag::Tag,
 
 	#[command(flatten)]
 	pub tty: Tty,
@@ -355,8 +351,7 @@ pub(crate) struct InnerOutput {
 	pub location: Option<tg::location::Arg>,
 	pub referent: tg::Referent<tg::graph::Edge<tg::Object>>,
 	pub sandboxed: bool,
-	pub tag: Option<tg::Specifier>,
-	pub tag_ancestors: tg::node::Ancestors,
+	pub tag: crate::tag::Tag,
 }
 
 impl Cli {
@@ -437,7 +432,6 @@ impl Cli {
 			referent,
 			sandboxed,
 			tag,
-			tag_ancestors,
 		} = self.spawn_inner(options, reference, trailing).await?;
 
 		let process = tg::Process::spawn_with_progress_with_handle(&client, arg, |stream| {
@@ -455,23 +449,26 @@ impl Cli {
 		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		// Tag the process if requested.
-		if let Some(tag) = tag {
+		let ancestors = tag.ancestors();
+		let force = tag.force;
+		if let Some(specifier) = tag.specifier {
 			let id = process
 				.id()
 				.right()
 				.cloned()
 				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
 			let arg = tg::tag::put::Arg {
-				ancestors: tag_ancestors,
-				target: id.into(),
+				ancestors,
+				force,
 				location: location.clone(),
 				public: false,
-				specifier: tag.clone(),
+				specifier: specifier.clone(),
+				target: id.into(),
 			};
 			client
 				.put_tag(arg)
 				.await
-				.map_err(|error| tg::error!(!error, %tag, "failed to tag the process"))?;
+				.map_err(|error| tg::error!(!error, %specifier, "failed to tag the process"))?;
 		}
 
 		let process = referent.replace(process).0;
@@ -968,7 +965,6 @@ impl Cli {
 			tty,
 			..Default::default()
 		};
-
 		Ok(InnerOutput {
 			arg,
 			client,
@@ -976,7 +972,6 @@ impl Cli {
 			referent,
 			sandboxed,
 			tag: options.tag,
-			tag_ancestors: options.tag_ancestors.get(),
 		})
 	}
 }

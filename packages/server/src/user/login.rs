@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -26,35 +26,127 @@ pub(super) struct LoginIdentity {
 
 impl Session {
 	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::User> {
-		// Finish the login.
-		let current = self.clone();
+		let session = self.clone();
 		let now = self.server.clock.unix_timestamp()?;
-		let user = self
-			.server
-			.database
-			.run(|transaction| {
-				let arg = arg.clone();
-				let current = current.clone();
-				async move {
-					current
-						.finish_login_with_transaction(transaction, &arg, now)
-						.await
+		let options = tangram_futures::retry::Options::default();
+		let user = tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			let session = session.clone();
+			async move {
+				match session.finish_login_attempt(&arg, now).await? {
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
 				}
-				.boxed()
-			})
-			.await?;
+			}
+		})
+		.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
 
 		Ok(user)
 	}
 
+	async fn finish_login_attempt(
+		&self,
+		arg: &FinishLoginArg,
+		now: i64,
+	) -> tg::Result<ControlFlow<tg::User>> {
+		let specifier = self.login_user_specifier(arg).await?;
+		let ids_by_specifier = self
+			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&specifier))
+			.await?;
+		let session = self.clone();
+		let user = self
+			.server
+			.database
+			.run(|transaction| {
+				let arg = arg.clone();
+				let ids_by_specifier = ids_by_specifier.clone();
+				let session = session.clone();
+				async move {
+					session
+						.finish_login_with_transaction(transaction, &arg, &ids_by_specifier, now)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(user)
+	}
+
+	async fn login_user_specifier(&self, arg: &FinishLoginArg) -> tg::Result<tg::Specifier> {
+		let arg = arg.clone();
+		let specifier = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let arg = arg.clone();
+				async move { Self::login_user_specifier_with_transaction(transaction, &arg).await }
+					.boxed()
+			})
+			.await?;
+
+		Ok(specifier)
+	}
+
+	async fn login_user_specifier_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		arg: &FinishLoginArg,
+	) -> tg::Result<ControlFlow<tg::Specifier, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			name: Option<String>,
+		}
+
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select name
+				from logins
+				where code = {p}1;
+			"
+		);
+		let result = transaction
+			.query_one_into::<Row>(statement.into(), db::params![arg.code.clone()])
+			.await;
+		let row = crate::database::retry!(result, "failed to execute the statement");
+		let specifier = row
+			.name
+			.as_deref()
+			.map(str::parse)
+			.transpose()?
+			.unwrap_or_else(|| arg.default_specifier.clone());
+		if specifier.components().count() != 1 {
+			return Err(tg::error!("invalid user specifier"));
+		}
+
+		Ok(ControlFlow::Break(specifier))
+	}
+
 	async fn finish_login_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: &FinishLoginArg,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
 		now: i64,
-	) -> tg::Result<ControlFlow<tg::User, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<tg::User>, crate::database::Error>> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		let user = match self
 			.upsert_login_user_with_transaction(transaction, arg, &mut batch)
@@ -124,7 +216,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(user))
+		Ok(ControlFlow::Break(ControlFlow::Break(user)))
 	}
 
 	async fn upsert_login_user_with_transaction(
@@ -166,34 +258,11 @@ impl Session {
 			}
 		}
 
-		// Get the login.
-		#[derive(db::row::Deserialize)]
-		struct LoginRow {
-			name: Option<String>,
-		}
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select name
-				from logins
-				where code = {p}1;
-			"
-		);
-		let result = transaction
-			.query_one_into::<LoginRow>(statement.into(), db::params![arg.code.clone()])
-			.await;
-		let login = crate::database::retry!(result, "failed to execute the statement");
-
 		// Get the specifier.
-		let specifier = login
-			.name
-			.as_deref()
-			.map(str::parse)
-			.transpose()?
-			.unwrap_or_else(|| arg.default_specifier.clone());
-		if specifier.components().count() != 1 {
-			return Err(tg::error!("invalid user specifier"));
-		}
+		let specifier = match Self::login_user_specifier_with_transaction(transaction, arg).await? {
+			ControlFlow::Break(specifier) => specifier,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 
 		// Get or create the user.
 		let id =

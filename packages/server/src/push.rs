@@ -420,6 +420,7 @@ impl Session {
 				let push_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
+					force: arg.force,
 					get: Vec::new(),
 					group_children: arg.group_children,
 					location: Some(source.clone().into()),
@@ -453,6 +454,7 @@ impl Session {
 				let pull_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
+					force: arg.force,
 					get: get.clone(),
 					group_children: arg.group_children,
 					location: Some(destination.clone().into()),

@@ -28,6 +28,6 @@ let output = tg --url $bob_local.url push --remote=destination alice/denied | co
 failure $output "Bob should not be able to push a tag under Alice's user."
 
 tg --url $bob_local.url pull --remote=source alice/allowed
-tg --url $bob_local.url tag put alice/allowed $bob_file
-let output = tg --url $bob_local.url push --remote=destination alice/allowed | complete
+tg --url $bob_local.url tag put --force alice/allowed $bob_file
+let output = tg --url $bob_local.url push --force --remote=destination alice/allowed | complete
 failure $output "Bob should not be able to replace Alice's existing tag."

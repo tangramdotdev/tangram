@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -30,40 +30,97 @@ impl Session {
 	}
 
 	async fn try_delete_group_local(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
-		let permission = tg::authorization::Permission::Group(
-			tg::authorization::permission::group::Permission::Admin,
-		);
-		match self.authorize(group.clone(), permission).await? {
-			None => return Ok(None),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
+		let group = group.clone();
+		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
-		let output = self
-			.server
-			.database
-			.run(|transaction| {
-				let group = group.clone();
-				let session = session.clone();
-				async move {
-					session
-						.try_delete_group_local_with_transaction(transaction, &group)
-						.await
+		let output = tangram_futures::retry(&options, || {
+			let group = group.clone();
+			let session = session.clone();
+			async move {
+				match session.try_delete_group_local_attempt(&group).await? {
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
 				}
-				.boxed()
-			})
-			.await?;
+			}
+		})
+		.await?;
 		self.server
 			.spawn_publish_database_outbox_notification_task();
 		self.checkout_index_barrier().await?;
 		Ok(output)
 	}
 
+	async fn try_delete_group_local_attempt(
+		&self,
+		group: &tg::group::Selector,
+	) -> tg::Result<ControlFlow<Option<()>>> {
+		let selector = match group {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some((id, specifier)) = self.try_resolve_named_node(&selector).await? else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let Ok(group) = tg::group::Id::try_from(id.clone()) else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let permission = tg::authorization::Permission::Group(
+			tg::authorization::permission::group::Permission::Admin,
+		);
+		match self
+			.authorize(tg::Selector::Id(group.clone()), permission)
+			.await?
+		{
+			None => return Ok(ControlFlow::Break(None)),
+			Some(permissions) if permissions.contains(permission) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
+		}
+		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
+		let session = self.clone();
+		let output = self
+			.server
+			.database
+			.run(|transaction| {
+				let group = group.clone();
+				let ids_by_specifier = ids_by_specifier.clone();
+				let session = session.clone();
+				async move {
+					session
+						.try_delete_group_local_with_transaction(
+							transaction,
+							&group,
+							&ids_by_specifier,
+						)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+		Ok(output)
+	}
+
 	async fn try_delete_group_local_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
-		group: &tg::group::Selector,
-	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
+		group: &tg::group::Id,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+	) -> tg::Result<ControlFlow<ControlFlow<Option<()>>, crate::database::Error>> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		let output = match self
 			.delete_group_with_transaction(transaction, group, &mut batch)
@@ -81,7 +138,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(output))
+		Ok(ControlFlow::Break(ControlFlow::Break(output)))
 	}
 
 	async fn try_delete_group_primary_region(
@@ -122,33 +179,17 @@ impl Session {
 	async fn delete_group_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
-		group: &tg::group::Selector,
+		group: &tg::group::Id,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<Option<()>, crate::database::Error>> {
-		let id = match group {
-			tg::Selector::Id(id) => Some(id.clone()),
-			tg::Selector::Specifier(specifier) => {
-				let id =
-					match Self::try_get_id_for_specifier_with_transaction(transaction, specifier)
-						.await?
-					{
-						ControlFlow::Break(id) => id,
-						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-					};
-				id.and_then(|id| id.try_into().ok())
-			},
-		};
-		let Some(id) = id else {
-			return Ok(ControlFlow::Break(None));
-		};
-		let group = match Self::try_get_group_with_transaction(transaction, &id).await? {
+		let data = match Self::try_get_group_with_transaction(transaction, group).await? {
 			ControlFlow::Break(group) => group,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		if group.is_none() {
+		if data.is_none() {
 			return Ok(ControlFlow::Break(None));
 		}
-		let id: tg::Id = id.into();
+		let id: tg::Id = group.clone().into();
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"

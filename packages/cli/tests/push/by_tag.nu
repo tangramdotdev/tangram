@@ -34,13 +34,18 @@ let local_group = tg group get test | from json
 let remote_group = tg --url $remote.url group get test | from json
 assert equal $remote_group.id $local_group.id "the remote group should keep its id"
 
-# A later push overwrites a remote change without a revision check.
+# A later push requires force to overwrite a remote change.
 let local_id = tg put 'tg.file("local update")' | str trim
-tg tag put test/1.0.0 $local_id
+tg tag put --force test/1.0.0 $local_id
 let remote_id = tg --url $remote.url put 'tg.file("remote update")' | str trim
-tg --url $remote.url tag put test/1.0.0 $remote_id
+tg --url $remote.url tag put --force test/1.0.0 $remote_id
 failure (tg --url $remote.url object get $local_id | complete)
-tg push test/1.0.0
+let output = tg push test/1.0.0 | complete
+failure $output "a push should not retarget an existing tag without force"
+assert ($output.stderr | str contains "the tag already has a different target")
+let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
+assert equal $remote_tag.target.id $remote_id "the failed push should preserve the remote tag"
+tg push --force test/1.0.0
 let remote_tag = tg --url $remote.url tag get test/1.0.0 | from json
 assert equal $remote_tag.target.id $local_id "the local tag should overwrite the remote tag"
 success (tg --url $remote.url object get $local_id | complete)

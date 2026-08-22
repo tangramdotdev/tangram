@@ -15,7 +15,7 @@ assert (($tag_path | path exists --no-symlink)) "expected checkout to create the
 assert equal (open $tag_path) 'first' "expected the tag path to contain the first artifact"
 
 let second = artifact 'second'
-tg tag dep $second
+tg tag --force dep $second
 assert (not ($tag_path | path exists --no-symlink)) "expected replacing the tag to invalidate its store entry"
 
 let path = tg checkout dep | str trim

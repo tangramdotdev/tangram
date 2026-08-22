@@ -3,6 +3,8 @@ use {
 	tangram_futures::stream::TryExt as _, tangram_index::Index as _,
 };
 
+mod named;
+
 const NODE_INDEX_BATCH_SIZE: usize = 128;
 
 pub(crate) struct IndexOutput {

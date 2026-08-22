@@ -13,7 +13,7 @@ impl Cli {
 		let options: Options = options;
 		let output = self.spawn_inner(options, reference, trailing).await?;
 
-		if output.tag.is_some() {
+		if output.tag.specifier.is_some() {
 			return Err(tg::error!("a tag is not supported for an exec"));
 		}
 

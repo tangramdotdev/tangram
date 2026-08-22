@@ -14,9 +14,10 @@ process.stdout.write(`t=${timestamp},v1=${signature}`);
 '#
 const stripe_path = path self stripe.ts
 
-export def spawn_stripe [] {
+export def spawn_stripe [--customer-delay: duration = 0sec] {
 	let port_path = mktemp
 	let requests_path = mktemp
+	let customer_delay_ms = $customer_delay / 1ms | into int
 	let job = job spawn -d stripe {
 		bash -c $"
 			PARENT_PID=\$PPID
@@ -27,7 +28,7 @@ export def spawn_stripe [] {
 				done
 				kill -TERM -\$SELF_PID 2>/dev/null || true
 			\) &
-			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\"
+			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\" \"($customer_delay_ms)\"
 		"
 	}
 	wait_until {

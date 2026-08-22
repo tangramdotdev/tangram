@@ -650,7 +650,9 @@ impl Session {
 			"
 				select creator, resource, permissions, subject
 				from grants
-				where resource in ({placeholders}) or subject in ({placeholders});
+				where creator in ({placeholders})
+					or resource in ({placeholders})
+					or subject in ({placeholders});
 			"
 		);
 		let result = transaction
@@ -671,7 +673,9 @@ impl Session {
 		let statement = formatdoc!(
 			"
 				delete from grants
-				where resource in ({placeholders}) or subject in ({placeholders});
+				where creator in ({placeholders})
+					or resource in ({placeholders})
+					or subject in ({placeholders});
 			"
 		);
 		let result = transaction.execute(statement.into(), params).await;

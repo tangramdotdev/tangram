@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::FutureExt as _,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -30,36 +30,61 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let permission = tg::authorization::Permission::Tag(
-			tg::authorization::permission::tag::Permission::Write,
-		);
-		let permissions = tg::authorization::permission::Set::from_permission(permission);
-		let authorizations = arg
+		let specifiers = arg
 			.tags
 			.iter()
-			.map(|item| {
-				(
-					tg::Selector::<tg::Id>::Specifier(item.specifier.clone()),
-					permissions,
-				)
-			})
+			.map(|item| item.specifier.clone())
 			.collect::<Vec<_>>();
-		let authorized = self.authorize_batch(authorizations).await?;
-		if authorized.into_iter().any(|permissions| {
-			permissions.is_some_and(|permissions| !permissions.contains(permission))
-		}) {
-			return Err(tg::error!("unauthorized"));
-		}
 		let mut permissions = Vec::with_capacity(arg.tags.len());
 		for item in &arg.tags {
 			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
 		}
 		let touched_at = self.server.clock.unix_timestamp()?;
+		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
+		tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			let permissions = permissions.clone();
+			let session = session.clone();
+			let specifiers = specifiers.clone();
+			async move {
+				match session
+					.post_tag_batch_local_attempt(arg, permissions, &specifiers, touched_at)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
 		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
+		Ok(())
+	}
+
+	async fn post_tag_batch_local_attempt(
+		&self,
+		arg: tg::tag::batch::Arg,
+		permissions: Vec<Vec<tg::authorization::Permission>>,
+		specifiers: &[tg::Specifier],
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<()>> {
+		let ids_by_specifier = self
+			.try_get_ids_and_ancestors_for_specifiers(specifiers)
+			.await?;
+		self.authorize_tag_puts(specifiers, arg.force, &ids_by_specifier)
+			.await?;
+		let session = self.clone();
+		let output = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
+				let ids_by_specifier = ids_by_specifier.clone();
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
@@ -67,6 +92,7 @@ impl Session {
 						.post_tag_batch_local_with_transaction(
 							transaction,
 							arg,
+							ids_by_specifier,
 							permissions,
 							touched_at,
 						)
@@ -75,19 +101,32 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		self.server
-			.spawn_publish_database_outbox_notification_task();
-		self.checkout_index_barrier().await?;
-		Ok(())
+
+		Ok(output)
 	}
 
 	async fn post_tag_batch_local_with_transaction(
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::tag::batch::Arg,
+		ids_by_specifier: BTreeMap<tg::Specifier, Option<tg::Id>>,
 		permissions: Vec<Vec<tg::authorization::Permission>>,
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<()>, crate::database::Error>> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			&ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 			let arg = tg::tag::put::Arg {
@@ -95,6 +134,7 @@ impl Session {
 					create: arg.parents,
 					pull: tg::node::AncestorsPull::Never,
 				},
+				force: arg.force,
 				location: None,
 				public: false,
 				specifier: item.specifier,
@@ -158,7 +198,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(ControlFlow::Break(())))
 	}
 
 	async fn post_tag_batch_primary_region(&self, mut arg: tg::tag::batch::Arg) -> tg::Result<()> {

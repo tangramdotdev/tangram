@@ -40,6 +40,12 @@ failure $output "a conflicting group should be rejected"
 assert ($output.stderr | str contains "the specifier is already in use")
 let root = tg --url $destination.url --token $alice.token group get root-only | from json
 assert equal $root.id $local_root.id
+let output = tg --url $source.url push --force --ancestors=always root-only | complete
+failure $output "group write should not authorize a forced replacement"
+assert ($output.stderr | str contains "unauthorized")
+assert equal (
+	tg --url $destination.url --token $alice.token group get root-only | from json | get id
+) $local_root.id
 
 let output = tg --url $source.url push --ancestors=always tree | complete
 failure $output "group admin must not authorize destructive replacement"
@@ -48,6 +54,15 @@ let tree = tg --url $destination.url --token $bob.token group get tree | from js
 assert equal $tree.id $local_tree.id
 success (tg --url $destination.url --token $alice.token group get $local_tree.id | complete)
 success (tg --url $destination.url --token $alice.token tag get $local_tag.id | complete)
+
+# Authorizing the conflicting root authorizes replacement of its complete subtree.
+tg --url $source.url push --force --ancestors=always tree
+assert equal (
+	tg --url $destination.url --token $bob.token group get tree | from json | get id
+) $source_tree.id
+failure (
+	tg --url $destination.url --token $alice.token tag get $local_tag.id | complete
+) "the protected descendant should be deleted with the authorized root"
 
 let output = tg --url $source.url push --ancestors=always groups | complete
 failure $output "group admin must not authorize replacing descendant groups"

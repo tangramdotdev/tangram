@@ -23,7 +23,7 @@ let path2 = artifact 'Final version'
 let id2 = tg --url $source.url checkin $path2
 tg --url $source.url push $id2
 let new = tg --url $remote.url get $id2 | str trim
-tg --url $remote.url tag put -p "a/b" $id2
+tg --url $remote.url tag put --force -p "a/b" $id2
 
 # Busting the cache for the child specifically returns the new node.
 let b = tg --url $local.url get --ttl 0 "a/b?follow=true" | str trim

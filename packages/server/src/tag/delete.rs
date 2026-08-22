@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::FutureExt as _,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -40,10 +40,49 @@ impl Session {
 			));
 		}
 
+		let options = tangram_futures::retry::Options::default();
+		let session = self.clone();
+		let output = tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			let session = session.clone();
+			async move {
+				match session.delete_tags_local_attempt(&arg).await? {
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
+
+		Ok(output)
+	}
+
+	async fn delete_tags_local_attempt(
+		&self,
+		arg: &tg::tag::delete::Arg,
+	) -> tg::Result<ControlFlow<tg::tag::delete::Output>> {
 		// List the tags before acquiring the write transaction.
 		let tags = self
 			.list_tags_to_delete(&arg.pattern, arg.recursive)
 			.await?;
+		let specifiers = tags
+			.iter()
+			.map(|tag| tag.specifier.clone())
+			.collect::<Vec<_>>();
+		let ids_by_specifier = self
+			.try_get_ids_and_ancestors_for_specifiers(&specifiers)
+			.await?;
+		for tag in &tags {
+			let expected = Some(tg::Id::from(tag.id.clone()));
+			if ids_by_specifier.get(&tag.specifier) != Some(&expected) {
+				return Ok(ControlFlow::Continue(()));
+			}
+		}
 
 		// Authorize the tags.
 		for tag in &tags {
@@ -70,19 +109,17 @@ impl Session {
 			.server
 			.database
 			.run(|transaction| {
+				let ids_by_specifier = ids_by_specifier.clone();
 				let session = session.clone();
 				let tags = tags.clone();
 				async move {
 					session
-						.delete_tags_local_with_transaction(transaction, tags)
+						.delete_tags_local_with_transaction(transaction, tags, &ids_by_specifier)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
-		self.server
-			.spawn_publish_database_outbox_notification_task();
-		self.checkout_index_barrier().await?;
 
 		Ok(output)
 	}
@@ -91,7 +128,22 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		tags: Vec<tg::tag::Data>,
-	) -> tg::Result<ControlFlow<tg::tag::delete::Output, crate::database::Error>> {
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+	) -> tg::Result<ControlFlow<ControlFlow<tg::tag::delete::Output>, crate::database::Error>> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		match self
 			.delete_tags_with_transaction(transaction, &tags, &mut batch)
@@ -114,7 +166,7 @@ impl Session {
 		}
 		let output = tg::tag::delete::Output { deleted: tags };
 
-		Ok(ControlFlow::Break(output))
+		Ok(ControlFlow::Break(ControlFlow::Break(output)))
 	}
 
 	async fn list_tags_to_delete(

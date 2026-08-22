@@ -18,6 +18,10 @@ pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
 
+	/// Replace conflicting named nodes and their descendants.
+	#[arg(long, short)]
+	pub force: bool,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -153,10 +157,11 @@ impl Cli {
 							create: true,
 							..Default::default()
 						},
-						target: id.into(),
+						force: args.force,
 						location: None,
 						public: false,
 						specifier: tag.clone(),
+						target: id.into(),
 					};
 					client.put_tag(arg).await.map_err(
 						|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
@@ -176,10 +181,11 @@ impl Cli {
 								create: true,
 								..Default::default()
 							},
-							target: id.into(),
+							force: args.force,
 							location: None,
 							public: false,
 							specifier: item.tag.clone(),
+							target: id.into(),
 						};
 						client.put_tag(arg).await.map_err(
 							|error| tg::error!(!error, tag = %item.tag, "failed to put local tag"),
@@ -198,10 +204,11 @@ impl Cli {
 								create: true,
 								..Default::default()
 							},
-							target: id.into(),
+							force: true,
 							location: None,
 							public: false,
 							specifier: tag.clone(),
+							target: id.into(),
 						};
 						client.put_tag(arg).await.map_err(
 							|error| tg::error!(!error, tag = %tag, "failed to put local tag"),
@@ -220,12 +227,14 @@ impl Cli {
 		});
 
 		// Push the tag ancestors.
-		self.push_tag_ancestors(&client, &location, &tags).await?;
+		self.push_tag_ancestors(&client, &location, &tags, args.force)
+			.await?;
 
 		// Push.
 		let arg = tg::push::Arg {
 			destination: Some(location.clone()),
 			eager: true,
+			force: args.force,
 			nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
 			metadata: false,
 			process_errors: true,
@@ -264,6 +273,7 @@ impl Cli {
 			})
 			.collect::<Vec<_>>();
 		let arg = tg::tag::batch::Arg {
+			force: args.force,
 			location: Some(location.into()),
 			parents: true,
 			tags: tags.clone(),
@@ -285,6 +295,7 @@ impl Cli {
 		client: &tg::Client,
 		destination: &tg::Location,
 		tags: &[(tg::Specifier, tg::object::Id)],
+		force: bool,
 	) -> tg::Result<()> {
 		if destination.is_local() {
 			return Ok(());
@@ -326,6 +337,7 @@ impl Cli {
 			}
 			let arg = tg::push::Arg {
 				destination: Some(destination.clone()),
+				force,
 				nodes: items,
 				source: Some(tg::Location::Local(tg::location::Local::default())),
 				tag_targets: false,

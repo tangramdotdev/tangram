@@ -1,7 +1,7 @@
 #[cfg(feature = "tls")]
 use rustls_platform_verifier::BuilderVerifierExt as _;
 use {
-	crate::{CacheKey, Connection as _, Error as _, Transaction as _},
+	crate::{CacheKey, Error as _, Transaction as _},
 	futures::{Stream, TryStreamExt as _, future, future::BoxFuture},
 	indexmap::IndexMap,
 	std::{borrow::Cow, collections::HashMap, ops::ControlFlow, time::Duration},
@@ -123,7 +123,16 @@ impl Database {
 			if connection.client.is_closed() {
 				connection.reconnect().await?;
 			}
-			let transaction = connection.transaction().await?;
+			let Connection { cache, client, .. } = &mut *connection;
+			let inner = client
+				.build_transaction()
+				.isolation_level(postgres::IsolationLevel::Serializable)
+				.start()
+				.await?;
+			let transaction = Transaction {
+				cache,
+				transaction: inner,
+			};
 			let value = match f(&transaction).await {
 				Ok(ControlFlow::Break(value)) => value,
 				Ok(ControlFlow::Continue(error)) => {
@@ -282,7 +291,12 @@ impl super::Connection for Connection {
 		Self: 't;
 
 	async fn transaction(&mut self) -> Result<Self::Transaction<'_>, Self::Error> {
-		let transaction = self.client.transaction().await?;
+		let transaction = self
+			.client
+			.build_transaction()
+			.isolation_level(postgres::IsolationLevel::Serializable)
+			.start()
+			.await?;
 		let cache = &self.cache;
 		Ok(Transaction { transaction, cache })
 	}

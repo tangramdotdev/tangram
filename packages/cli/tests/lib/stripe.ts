@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 
 const portPath = process.argv[2];
 const requestsPath = process.argv[3];
+const customerDelay = Number(process.argv[4] ?? 0);
 
 if (portPath === undefined || requestsPath === undefined) {
 	throw new Error("expected the port and requests paths");
@@ -21,6 +22,7 @@ const server = Bun.serve({
 		};
 		appendFileSync(requestsPath, `${JSON.stringify(record)}\n`);
 		if (request.method === "POST" && url.pathname === "/v1/customers") {
+			await Bun.sleep(customerDelay);
 			return Response.json({ id: "cus_mock" });
 		}
 		if (

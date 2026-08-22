@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
@@ -33,23 +33,53 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
+		let options = tangram_futures::retry::Options::default();
+		let session = self.clone();
+		let output = tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			let session = session.clone();
+			async move {
+				match session.create_organization_local_attempt(arg).await? {
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
+		Ok(output)
+	}
+
+	async fn create_organization_local_attempt(
+		&self,
+		arg: tg::organization::create::Arg,
+	) -> tg::Result<ControlFlow<tg::organization::create::Output>> {
+		let ids_by_specifier = self
+			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&arg.specifier))
+			.await?;
 		let session = self.clone();
 		let output = self
 			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
+				let ids_by_specifier = ids_by_specifier.clone();
 				let session = session.clone();
 				async move {
 					session
-						.create_organization_local_with_transaction(transaction, arg)
+						.create_organization_local_with_transaction(
+							transaction,
+							arg,
+							&ids_by_specifier,
+						)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
-		self.server
-			.spawn_publish_database_outbox_notification_task();
 		Ok(output)
 	}
 
@@ -57,7 +87,24 @@ impl Session {
 		&self,
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::organization::create::Arg,
-	) -> tg::Result<ControlFlow<tg::organization::create::Output, crate::database::Error>> {
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+	) -> tg::Result<
+		ControlFlow<ControlFlow<tg::organization::create::Output>, crate::database::Error>,
+	> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		let organization = match self
 			.create_organization_with_transaction(transaction, arg, &mut batch)
@@ -76,7 +123,7 @@ impl Session {
 		}
 		let output = tg::organization::create::Output { organization };
 
-		Ok(ControlFlow::Break(output))
+		Ok(ControlFlow::Break(ControlFlow::Break(output)))
 	}
 
 	async fn create_organization_primary_region(

@@ -62,6 +62,8 @@ impl tg::handle::Remote for tg::Client {
 		name: &str,
 		arg: tg::remote::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		self.session(&self.context).try_delete_remote(name, arg).await
+		self.session(&self.context)
+			.try_delete_remote(name, arg)
+			.await
 	}
 }

@@ -20,6 +20,9 @@ pub struct Arg {
 	pub eager: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub force: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
@@ -153,6 +156,7 @@ impl Default for Arg {
 				region: None,
 			})),
 			eager: true,
+			force: false,
 			group_children: false,
 			nodes: Vec::new(),
 			metadata: false,

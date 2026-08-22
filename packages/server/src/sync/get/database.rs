@@ -14,21 +14,31 @@ use {
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
-struct Namespace {
-	ids: BTreeMap<tg::Id, tg::Specifier>,
-	specifiers: BTreeMap<tg::Specifier, tg::Id>,
+#[derive(Clone, Default, Eq, PartialEq)]
+struct Specifiers {
+	ids_by_specifier: BTreeMap<tg::Specifier, tg::Id>,
+	specifiers_by_id: BTreeMap<tg::Id, tg::Specifier>,
 }
 
-impl Namespace {
+impl Specifiers {
 	fn insert(&mut self, id: tg::Id, specifier: tg::Specifier) {
-		self.ids.insert(id.clone(), specifier.clone());
-		self.specifiers.insert(specifier, id);
+		self.ids_by_specifier.insert(specifier.clone(), id.clone());
+		self.specifiers_by_id.insert(id, specifier);
+	}
+
+	fn remove_id(&mut self, id: &tg::Id) {
+		if let Some(specifier) = self.specifiers_by_id.remove(id) {
+			self.ids_by_specifier.remove(&specifier);
+		}
 	}
 }
 
 impl Session {
-	pub(super) async fn sync_get_database(&self, graph: &Arc<Mutex<Graph>>) -> tg::Result<()> {
+	pub(super) async fn sync_get_database(
+		&self,
+		graph: &Arc<Mutex<Graph>>,
+		force: bool,
+	) -> tg::Result<()> {
 		// Get the staged nodes.
 		let mut nodes = {
 			let graph = graph.lock().unwrap();
@@ -48,13 +58,11 @@ impl Session {
 				.await?;
 			let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
 			self.sync_get_database_add_tag_target_tokens(&mut nodes, &tag_permissions)?;
-			self.sync_get_database_to_primary_region(nodes).await?;
+			self.sync_get_database_to_primary_region(nodes, force)
+				.await?;
 
 			return Ok(());
 		}
-
-		// Authorize the writes.
-		self.sync_get_database_authorize(&nodes).await?;
 
 		// Update the tag target permissions in the graph.
 		self.sync_get_database_update_tag_target_permissions(graph, &nodes)
@@ -65,13 +73,48 @@ impl Session {
 		// Sort the nodes so that parents are written before their children.
 		nodes.sort_by_key(Self::sync_get_database_node_depth);
 
-		// Write all of the nodes and enqueue their index mutations atomically.
+		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
-		let _invalidated_specifiers = self
+		let _invalidated_specifiers = tangram_futures::retry(&options, || {
+			let nodes = nodes.clone();
+			let session = session.clone();
+			let tag_permissions = tag_permissions.clone();
+			async move {
+				match session
+					.sync_get_database_attempt(&nodes, force, &tag_permissions, touched_at)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
+		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
+
+		Ok(())
+	}
+
+	async fn sync_get_database_attempt(
+		&self,
+		nodes: &[tg::sync::PutNodeMessage],
+		force: bool,
+		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>>> {
+		let authorized_state = self.sync_get_database_authorize(nodes, force).await?;
+		crate::checkpoint!(self.server, "sync.get.database.authorized").await;
+		let session = self.clone();
+		let output = self
 			.server
 			.database
 			.run(|transaction| {
-				let nodes = nodes.clone();
+				let authorized_state = authorized_state.clone();
+				let nodes = nodes.to_vec();
 				let session = session.clone();
 				let tag_permissions = tag_permissions.clone();
 				async move {
@@ -79,6 +122,8 @@ impl Session {
 						.sync_get_database_with_transaction(
 							transaction,
 							&nodes,
+							force,
+							&authorized_state,
 							&tag_permissions,
 							touched_at,
 						)
@@ -87,11 +132,8 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		self.server
-			.spawn_publish_database_outbox_notification_task();
-		self.checkout_index_barrier().await?;
 
-		Ok(())
+		Ok(output)
 	}
 
 	fn sync_get_database_add_tag_target_tokens(
@@ -119,10 +161,12 @@ impl Session {
 	async fn sync_get_database_to_primary_region(
 		&self,
 		mut nodes: Vec<tg::sync::PutNodeMessage>,
+		force: bool,
 	) -> tg::Result<()> {
 		// Start a sync to the primary region.
 		let primary_region_arg = tg::sync::Arg {
 			ancestors: tg::node::AncestorsPull::Missing,
+			force,
 			..Default::default()
 		};
 		let client = self
@@ -184,9 +228,16 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
+		force: bool,
+		authorized_state: &(
+			Specifiers,
+			BTreeMap<tg::Id, tg::Specifier>,
+			BTreeMap<tg::tag::Id, tg::Id>,
+		),
 		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<BTreeSet<tg::Specifier>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<BTreeSet<tg::Specifier>>, crate::database::Error>> {
+		let (specifiers, replacement_roots, tag_targets) = authorized_state;
 		let batch_size = self.server.config.sync.get.database.batch_size;
 		let invalidated_specifiers = nodes
 			.iter()
@@ -195,17 +246,62 @@ impl Session {
 				_ => None,
 			})
 			.collect::<BTreeSet<_>>();
-		let mut namespace = match Self::sync_get_database_namespace_with_transaction(
-			transaction,
-			nodes,
-			batch_size,
-		)
-		.await?
-		{
-			ControlFlow::Break(namespace) => namespace,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		let (mut stored_specifiers, actual_tag_targets) =
+			match Self::sync_get_database_specifiers_and_tag_targets_with_transaction(
+				transaction,
+				nodes,
+				batch_size,
+			)
+			.await?
+			{
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+		if &stored_specifiers != specifiers || &actual_tag_targets != tag_targets {
+			return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+		}
+
+		// Recheck and delete the authorized replacement subtrees.
+		let actual_replacement_roots = if force {
+			Self::sync_get_database_replacement_roots(&stored_specifiers, nodes)?
+		} else {
+			BTreeMap::new()
 		};
-		let created = Self::sync_get_database_validate_nodes(&mut namespace, nodes)?;
+		if &actual_replacement_roots != replacement_roots {
+			return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+		}
+		let mut batch = tangram_index::batch::Arg::default();
+		if !replacement_roots.is_empty() {
+			let roots = replacement_roots.keys().cloned().collect::<Vec<_>>();
+			let replaced_ids_and_specifiers = match Self::collect_named_subtrees_with_transaction(
+				transaction,
+				&roots,
+				batch_size,
+			)
+			.await?
+			{
+				ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			match self
+				.delete_named_nodes_with_transaction(
+					transaction,
+					&replaced_ids_and_specifiers,
+					&mut batch,
+					batch_size,
+				)
+				.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+			for (id, _) in replaced_ids_and_specifiers {
+				stored_specifiers.remove_id(&id);
+			}
+		}
+
+		// Validate the incoming specifiers and insert their new entries.
+		let created = Self::sync_get_database_validate_nodes(&mut stored_specifiers, nodes)?;
 		let specifiers = nodes
 			.iter()
 			.map(|node| {
@@ -236,7 +332,11 @@ impl Session {
 				nodes,
 				batch_size,
 			),
-			self.sync_get_database_tag_accounts_with_transaction(transaction, nodes, &namespace,),
+			self.sync_get_database_tag_accounts_with_transaction(
+				transaction,
+				nodes,
+				&stored_specifiers,
+			),
 			Self::sync_get_database_put_tags_with_transaction(
 				transaction,
 				nodes,
@@ -267,13 +367,14 @@ impl Session {
 		}
 
 		// Create the index batch.
-		let batch = self.sync_get_database_batch(
+		let put_batch = self.sync_get_database_batch(
 			nodes,
 			&created,
 			&tag_accounts,
 			&tag_permissions,
 			touched_at,
 		)?;
+		batch.items.extend(put_batch.items);
 		match self
 			.server
 			.enqueue_database_outbox_with_transaction(transaction, &batch)
@@ -283,39 +384,38 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(invalidated_specifiers))
+		Ok(ControlFlow::Break(ControlFlow::Break(
+			invalidated_specifiers,
+		)))
 	}
 
 	async fn sync_get_database_authorize(
 		&self,
 		nodes: &[tg::sync::PutNodeMessage],
-	) -> tg::Result<()> {
+		force: bool,
+	) -> tg::Result<(
+		Specifiers,
+		BTreeMap<tg::Id, tg::Specifier>,
+		BTreeMap<tg::tag::Id, tg::Id>,
+	)> {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		// Read existing IDs and specifiers from the database.
+		// Read the existing IDs, specifiers, and tag targets from the database.
 		let batch_size = self.server.config.sync.get.database.batch_size;
-		let ids = nodes
-			.iter()
-			.map(Self::sync_get_database_node_id)
-			.collect::<tg::Result<Vec<_>>>()?;
-		let specifiers = nodes
-			.iter()
-			.map(|node| Self::sync_get_database_node_specifier(node).cloned())
-			.collect::<tg::Result<Vec<_>>>()?;
 		let nodes = nodes.to_vec();
 		let connection_options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			..Default::default()
 		};
-		let existing_named_nodes = self
+		let (existing_specifiers, tag_targets) = self
 			.server
 			.database
 			.run_with_options(connection_options, |transaction| {
 				let nodes = nodes.clone();
 				async move {
-					Self::sync_get_database_existing_named_nodes_with_transaction(
+					Self::sync_get_database_specifiers_and_tag_targets_with_transaction(
 						transaction,
 						&nodes,
 						batch_size,
@@ -327,36 +427,74 @@ impl Session {
 			.await?;
 
 		// Validate the conflicts and collect all required authorizations.
-		let mut authorization = BTreeMap::new();
-		for (id, specifier) in std::iter::zip(ids, specifiers) {
-			let by_id = existing_named_nodes.ids.get(&id);
-			let by_specifier = existing_named_nodes.specifiers.get(&specifier);
-			Self::sync_get_database_validate_id_and_specifier(
-				&id,
-				&specifier,
-				by_id,
-				by_specifier,
-			)?;
+		let replacement_roots = if force {
+			Self::sync_get_database_replacement_roots(&existing_specifiers, &nodes)?
+		} else {
+			BTreeMap::new()
+		};
+		let mut authorizations = Vec::new();
+		for node in &nodes {
+			let id = Self::sync_get_database_node_id(node)?;
+			let specifier = Self::sync_get_database_node_specifier(node)?;
+			let by_id = existing_specifiers.specifiers_by_id.get(&id);
+			let by_specifier = existing_specifiers.ids_by_specifier.get(specifier);
+			if !force {
+				Self::sync_get_database_validate_id_and_specifier(
+					&id,
+					specifier,
+					by_id,
+					by_specifier,
+				)?;
+				if let tg::sync::PutNodeMessage::Tag(message) = node
+					&& by_id == Some(specifier)
+					&& tag_targets
+						.get(&message.id)
+						.is_some_and(|target| target != &message.target)
+				{
+					return Err(tg::error!("the tag already has a different target"));
+				}
+			}
+			let cross_kind_replacement = by_specifier
+				.is_some_and(|existing| existing != &id && existing.kind() != id.kind());
+			if cross_kind_replacement {
+				if let Some(parent) = specifier.parent()
+					&& let Some(parent) = existing_specifiers.ids_by_specifier.get(&parent)
+				{
+					let permission = Self::write_permission_for_resource(parent)?;
+					let permissions =
+						tg::authorization::permission::Set::from_permission(permission);
+					let resource = tg::Selector::<tg::Id>::Id(parent.clone());
+					authorizations.push((resource, false, permissions));
+				}
+				continue;
+			}
 			let allow_unclaimed = by_specifier.is_none()
-				&& specifier
-					.ancestors()
-					.all(|specifier| !existing_named_nodes.specifiers.contains_key(&specifier));
+				&& specifier.ancestors().all(|specifier| {
+					!existing_specifiers
+						.ids_by_specifier
+						.contains_key(&specifier)
+				});
 			let permission = Self::write_permission_for_resource(&id)?;
 			let permissions = tg::authorization::permission::Set::from_permission(permission);
 			let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
-			authorization.insert(resource, (allow_unclaimed, permissions));
+			authorizations.push((resource, allow_unclaimed, permissions));
+		}
+		for id in replacement_roots.keys() {
+			let permission = Self::delete_permission_for_named_node(id)?;
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+			let resource = tg::Selector::<tg::Id>::Id(id.clone());
+			authorizations.push((resource, false, permissions));
 		}
 
 		// Authorize the writes.
-		let authorization = authorization.into_iter().collect::<Vec<_>>();
-		for authorization in authorization.chunks(batch_size) {
-			let args = authorization
+		for authorizations in authorizations.chunks(batch_size) {
+			let args = authorizations
 				.iter()
-				.map(|(resource, (_, permissions))| (resource.clone(), *permissions))
+				.map(|(resource, _, permissions)| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
 			let outputs = self.authorize_batch(args).await?;
-			for ((_, (allow_unclaimed, permissions)), output) in
-				std::iter::zip(authorization, outputs)
+			for ((_, allow_unclaimed, permissions), output) in
+				std::iter::zip(authorizations, outputs)
 			{
 				let authorized = match output {
 					Some(output) => output.contains(*permissions),
@@ -368,26 +506,87 @@ impl Session {
 			}
 		}
 
-		Ok(())
+		Ok((existing_specifiers, replacement_roots, tag_targets))
 	}
 
-	async fn sync_get_database_existing_named_nodes_with_transaction(
+	async fn sync_get_database_specifiers_and_tag_targets_with_transaction(
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
 		batch_size: usize,
-	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
-		let existing_named_nodes = match Self::sync_get_database_namespace_with_transaction(
+	) -> tg::Result<ControlFlow<(Specifiers, BTreeMap<tg::tag::Id, tg::Id>), crate::database::Error>>
+	{
+		let specifiers = match Self::sync_get_database_specifiers_with_transaction(
 			transaction,
 			nodes,
 			batch_size,
 		)
 		.await?
 		{
-			ControlFlow::Break(existing_named_nodes) => existing_named_nodes,
+			ControlFlow::Break(specifiers) => specifiers,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let tag_targets = match Self::sync_get_database_tag_targets_with_transaction(
+			transaction,
+			nodes,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(tag_targets) => tag_targets,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 
-		Ok(ControlFlow::Break(existing_named_nodes))
+		Ok(ControlFlow::Break((specifiers, tag_targets)))
+	}
+
+	async fn sync_get_database_tag_targets_with_transaction(
+		transaction: &Transaction<'_>,
+		nodes: &[tg::sync::PutNodeMessage],
+		batch_size: usize,
+	) -> tg::Result<ControlFlow<BTreeMap<tg::tag::Id, tg::Id>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::tag::Id,
+			#[tangram_database(as = "db::value::FromStr")]
+			target: tg::Id,
+		}
+
+		let ids = nodes
+			.iter()
+			.filter_map(|node| {
+				let tg::sync::PutNodeMessage::Tag(message) = node else {
+					return None;
+				};
+
+				Some(message.id.clone())
+			})
+			.collect::<BTreeSet<_>>()
+			.into_iter()
+			.collect::<Vec<_>>();
+		let mut tag_targets = BTreeMap::new();
+		for ids in ids.chunks(batch_size) {
+			let p = transaction.p();
+			let placeholders = (1..=ids.len())
+				.map(|index| format!("{p}{index}"))
+				.collect::<Vec<_>>()
+				.join(", ");
+			let statement = format!("select id, target from tags where id in ({placeholders});");
+			let params = ids
+				.iter()
+				.map(ToString::to_string)
+				.map(db::Value::from)
+				.collect();
+			let result = transaction
+				.query_all_into::<Row>(statement.into(), params)
+				.await;
+			let rows = crate::database::retry!(result, "failed to read the tag targets");
+			for row in rows {
+				tag_targets.insert(row.id, row.target);
+			}
+		}
+
+		Ok(ControlFlow::Break(tag_targets))
 	}
 
 	async fn sync_get_database_update_tag_target_permissions(
@@ -561,11 +760,11 @@ impl Session {
 		Ok(Some(permissions))
 	}
 
-	async fn sync_get_database_namespace_with_transaction(
+	async fn sync_get_database_specifiers_with_transaction(
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
 		batch_size: usize,
-	) -> tg::Result<ControlFlow<Namespace, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Specifiers, crate::database::Error>> {
 		// Collect the relevant IDs and specifiers.
 		let mut ids = BTreeSet::new();
 		let mut specifiers = BTreeSet::new();
@@ -577,12 +776,12 @@ impl Session {
 			specifiers.extend(specifier.ancestors().map(|specifier| specifier.to_string()));
 		}
 
-		// Load the namespace in batches.
-		let mut namespace = Namespace::default();
+		// Load the specifiers in batches.
+		let mut stored_specifiers = Specifiers::default();
 		let ids = ids.into_iter().collect::<Vec<_>>();
-		match Self::sync_get_database_load_namespace_column_with_transaction(
+		match Self::sync_get_database_load_specifiers_column_with_transaction(
 			transaction,
-			&mut namespace,
+			&mut stored_specifiers,
 			"id",
 			&ids,
 			batch_size,
@@ -593,9 +792,9 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 		let specifiers = specifiers.into_iter().collect::<Vec<_>>();
-		match Self::sync_get_database_load_namespace_column_with_transaction(
+		match Self::sync_get_database_load_specifiers_column_with_transaction(
 			transaction,
-			&mut namespace,
+			&mut stored_specifiers,
 			"specifier",
 			&specifiers,
 			batch_size,
@@ -606,12 +805,12 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(namespace))
+		Ok(ControlFlow::Break(stored_specifiers))
 	}
 
-	async fn sync_get_database_load_namespace_column_with_transaction(
+	async fn sync_get_database_load_specifiers_column_with_transaction(
 		transaction: &Transaction<'_>,
-		namespace: &mut Namespace,
+		stored_specifiers: &mut Specifiers,
 		column: &str,
 		values: &[String],
 		batch_size: usize,
@@ -643,7 +842,7 @@ impl Session {
 				.await;
 			let rows = crate::database::retry!(result, "failed to execute the statement");
 			for row in rows {
-				namespace.insert(row.id, row.specifier);
+				stored_specifiers.insert(row.id, row.specifier);
 			}
 		}
 
@@ -651,7 +850,7 @@ impl Session {
 	}
 
 	fn sync_get_database_validate_nodes(
-		namespace: &mut Namespace,
+		stored_specifiers: &mut Specifiers,
 		nodes: &[tg::sync::PutNodeMessage],
 	) -> tg::Result<BTreeSet<tg::Id>> {
 		let mut created = BTreeSet::new();
@@ -687,7 +886,13 @@ impl Session {
 					&message.specifier,
 				),
 			};
-			if Self::sync_get_database_validate_node(namespace, &id, name, parent, specifier)? {
+			if Self::sync_get_database_validate_node(
+				stored_specifiers,
+				&id,
+				name,
+				parent,
+				specifier,
+			)? {
 				created.insert(id);
 			}
 		}
@@ -696,7 +901,7 @@ impl Session {
 	}
 
 	fn sync_get_database_validate_node(
-		namespace: &mut Namespace,
+		stored_specifiers: &mut Specifiers,
 		id: &tg::Id,
 		name: &str,
 		parent: Option<&tg::Id>,
@@ -706,8 +911,8 @@ impl Session {
 		if specifier.components().next().is_none() {
 			return Err(tg::error!("invalid specifier"));
 		}
-		let by_id = namespace.ids.get(id);
-		let by_specifier = namespace.specifiers.get(specifier);
+		let by_id = stored_specifiers.specifiers_by_id.get(id);
+		let by_specifier = stored_specifiers.ids_by_specifier.get(specifier);
 		Self::sync_get_database_validate_id_and_specifier(id, specifier, by_id, by_specifier)?;
 		let created = by_id.is_none();
 
@@ -723,8 +928,8 @@ impl Session {
 			));
 		}
 		let actual_parent = if let Some(parent_specifier) = specifier.parent() {
-			let parent = namespace
-				.specifiers
+			let parent = stored_specifiers
+				.ids_by_specifier
 				.get(&parent_specifier)
 				.cloned()
 				.ok_or_else(|| tg::error!("the parent does not exist"))?;
@@ -739,9 +944,9 @@ impl Session {
 			return Err(tg::error!("the parent does not match the specifier"));
 		}
 
-		// Update the namespace.
+		// Record the new specifier.
 		if created {
-			namespace.insert(id.clone(), specifier.clone());
+			stored_specifiers.insert(id.clone(), specifier.clone());
 		}
 
 		Ok(created)
@@ -1002,7 +1207,7 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		nodes: &[tg::sync::PutNodeMessage],
-		namespace: &Namespace,
+		stored_specifiers: &Specifiers,
 	) -> tg::Result<
 		ControlFlow<BTreeMap<tg::tag::Id, Option<tg::usage::Account>>, crate::database::Error>,
 	> {
@@ -1032,7 +1237,10 @@ impl Session {
 			.collect::<BTreeSet<_>>();
 		let fallback_required = roots.iter().any(|root| {
 			!matches!(
-				namespace.specifiers.get(root).map(tg::Id::kind),
+				stored_specifiers
+					.ids_by_specifier
+					.get(root)
+					.map(tg::Id::kind),
 				Some(tg::id::Kind::Organization | tg::id::Kind::User)
 			)
 		});
@@ -1050,7 +1258,7 @@ impl Session {
 		let root_accounts = roots
 			.into_iter()
 			.map(|root| {
-				let account = match namespace.specifiers.get(&root) {
+				let account = match stored_specifiers.ids_by_specifier.get(&root) {
 					Some(id) if id.kind() == tg::id::Kind::Organization => {
 						Some(tg::usage::Account::Organization(id.clone().try_into()?))
 					},
@@ -1251,6 +1459,45 @@ impl Session {
 		};
 
 		Ok(specifier)
+	}
+
+	fn sync_get_database_replacement_roots(
+		stored_specifiers: &Specifiers,
+		nodes: &[tg::sync::PutNodeMessage],
+	) -> tg::Result<BTreeMap<tg::Id, tg::Specifier>> {
+		let mut candidates = BTreeMap::new();
+		for node in nodes {
+			let id = Self::sync_get_database_node_id(node)?;
+			let specifier = Self::sync_get_database_node_specifier(node)?;
+			if let Some(existing_specifier) = stored_specifiers.specifiers_by_id.get(&id)
+				&& existing_specifier != specifier
+			{
+				candidates.insert(id.clone(), existing_specifier.clone());
+			}
+			if let Some(existing_id) = stored_specifiers.ids_by_specifier.get(specifier)
+				&& existing_id != &id
+			{
+				candidates.insert(existing_id.clone(), specifier.clone());
+			}
+		}
+		let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+		candidates.sort_by(|(_, a), (_, b)| {
+			a.components()
+				.count()
+				.cmp(&b.components().count())
+				.then_with(|| a.cmp(b))
+		});
+		let mut replacement_roots = BTreeMap::new();
+		for (id, specifier) in candidates {
+			let covered = replacement_roots.values().any(|root| {
+				root == &specifier || specifier.ancestors().any(|ancestor| &ancestor == root)
+			});
+			if !covered {
+				replacement_roots.insert(id, specifier);
+			}
+		}
+
+		Ok(replacement_roots)
 	}
 
 	fn sync_get_database_validate_id_and_specifier(

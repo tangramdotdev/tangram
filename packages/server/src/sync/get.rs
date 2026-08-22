@@ -185,7 +185,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		// Commit the database nodes.
-		self.sync_get_database(&graph).await?;
+		self.sync_get_database(&graph, state.arg.force).await?;
 
 		Ok(())
 	}

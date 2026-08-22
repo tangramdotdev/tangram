@@ -10,6 +10,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
 
+	/// Replace a conflicting named node and its descendants.
+	#[arg(long, short)]
+	pub force: bool,
+
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
@@ -50,13 +54,14 @@ impl Cli {
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
 			ancestors: args.ancestors.get(),
-			target,
+			force: args.force,
 			location: args.location.get(),
 			public: args.public,
 			specifier: args
 				.specifier
 				.clone()
 				.ok_or_else(|| tg::error!("expected a specifier"))?,
+			target,
 		};
 		client
 			.put_tag(arg)

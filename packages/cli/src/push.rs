@@ -13,6 +13,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub eager: Eager,
 
+	/// Replace conflicting named nodes and their descendants.
+	#[arg(long, short)]
+	pub force: bool,
+
 	#[arg(long)]
 	pub group_children: bool,
 
@@ -212,6 +216,7 @@ impl Cli {
 			ancestors: args.ancestors.get(),
 			destination: destination.clone(),
 			eager: args.eager.get(),
+			force: args.force,
 			group_children: args.group_children,
 			nodes,
 			metadata: args.metadata,

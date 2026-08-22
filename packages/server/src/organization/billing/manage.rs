@@ -37,42 +37,31 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 	) -> tg::Result<tg::organization::billing::manage::Output> {
-		// Authorize the organization.
-		let permission = tg::authorization::Permission::Organization(
-			tg::authorization::permission::organization::Permission::Admin,
-		);
-		match self.authorize(organization.clone(), permission).await? {
-			None => return Err(tg::error!("failed to find the organization")),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
-
-		// Get the billing provider.
 		let stripe = self
 			.server
 			.billing
 			.clone()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
-
-		// Get or create the Stripe customer.
 		let organization = organization.clone();
-		let stripe_customer_id = self
-			.server
-			.database
-			.run(|transaction| {
-				let organization = organization.clone();
-				let stripe = stripe.clone();
-				async move {
-					Self::manage_organization_billing_local_with_transaction(
-						transaction,
-						&organization,
-						&stripe,
-					)
-					.await
+		let options = tangram_futures::retry::Options::default();
+		let session = self.clone();
+		let stripe_customer_id = tangram_futures::retry(&options, || {
+			let organization = organization.clone();
+			let session = session.clone();
+			let stripe = stripe.clone();
+			async move {
+				match session
+					.manage_organization_billing_local_attempt(&organization, &stripe)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
 				}
-				.boxed()
-			})
-			.await?;
+			}
+		})
+		.await?;
 
 		// Create the Stripe portal session.
 		let url = stripe
@@ -83,28 +72,94 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn manage_organization_billing_local_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
+	async fn manage_organization_billing_local_attempt(
+		&self,
 		organization: &tg::organization::Selector,
 		stripe: &crate::billing::Stripe,
-	) -> tg::Result<ControlFlow<String, crate::database::Error>> {
-		let id = match organization {
-			tg::Selector::Id(id) => Some(id.clone()),
-			tg::Selector::Specifier(specifier) => {
-				let id = match Session::try_get_id_for_specifier_with_transaction(
-					transaction,
-					specifier,
-				)
-				.await?
-				{
-					ControlFlow::Break(id) => id,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				id.and_then(|id| id.try_into().ok())
-			},
-		}
-		.ok_or_else(|| tg::error!("failed to find the organization"))?;
+	) -> tg::Result<ControlFlow<String>> {
+		let selector = match organization {
+			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
+			tg::Selector::Specifier(specifier) => tg::Selector::Specifier(specifier.clone()),
+		};
+		let Some((id, specifier)) = self.try_resolve_named_node(&selector).await? else {
+			return Err(tg::error!("failed to find the organization"));
+		};
+		let organization = tg::organization::Id::try_from(id.clone())
+			.map_err(|_| tg::error!("failed to find the organization"))?;
 
+		// Authorize the organization.
+		let permission = tg::authorization::Permission::Organization(
+			tg::authorization::permission::organization::Permission::Admin,
+		);
+		match self
+			.authorize(tg::Selector::Id(organization.clone()), permission)
+			.await?
+		{
+			None => return Err(tg::error!("failed to find the organization")),
+			Some(permissions) if permissions.contains(permission) => (),
+			Some(_) => return Err(tg::error!("unauthorized")),
+		}
+		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
+		let data = self
+			.server
+			.database
+			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let organization = organization.clone();
+				async move {
+					Self::get_organization_billing_data_with_transaction(transaction, &organization)
+						.await
+				}
+				.boxed()
+			})
+			.await?;
+		let Some((name, stripe_customer_id)) = data else {
+			return Ok(ControlFlow::Continue(()));
+		};
+		let stripe_customer_id = if let Some(stripe_customer_id) = stripe_customer_id {
+			stripe_customer_id
+		} else {
+			let metadata = BTreeMap::from([(
+				"tangram_organization_id".to_owned(),
+				organization.to_string(),
+			)]);
+			stripe
+				.create_customer(CreateCustomerArg {
+					email: None,
+					idempotency_key: format!("tangram-organization-{organization}"),
+					metadata,
+					name,
+				})
+				.await?
+		};
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		let stripe_customer_id = self
+			.server
+			.database
+			.run(|transaction| {
+				let ids_by_specifier = ids_by_specifier.clone();
+				let organization = organization.clone();
+				let stripe_customer_id = stripe_customer_id.clone();
+				async move {
+					Self::store_organization_stripe_customer_id_with_transaction(
+						transaction,
+						&organization,
+						&ids_by_specifier,
+						batch_size,
+						stripe_customer_id,
+					)
+					.await
+				}
+				.boxed()
+			})
+			.await?;
+
+		Ok(stripe_customer_id)
+	}
+
+	async fn get_organization_billing_data_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		organization: &tg::organization::Id,
+	) -> tg::Result<ControlFlow<Option<(String, Option<String>)>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -120,28 +175,56 @@ impl Session {
 			"
 		);
 		let result = transaction
-			.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
+			.query_optional_into::<Row>(statement.into(), db::params![organization.to_string()])
+			.await;
+		let row = crate::database::retry!(result, "failed to get the organization");
+		let Some(row) = row else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let output = (row.name, row.stripe_customer_id);
+
+		Ok(ControlFlow::Break(Some(output)))
+	}
+
+	async fn store_organization_stripe_customer_id_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		organization: &tg::organization::Id,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+		batch_size: usize,
+		stripe_customer_id: String,
+	) -> tg::Result<ControlFlow<ControlFlow<String>, crate::database::Error>> {
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			stripe_customer_id: Option<String>,
+		}
+		let p = transaction.p();
+		let statement = format!("select stripe_customer_id from organizations where id = {p}1;");
+		let result = transaction
+			.query_one_into::<Row>(statement.into(), db::params![organization.to_string()])
 			.await;
 		let row = crate::database::retry!(result, "failed to get the organization");
 		let stripe_customer_id = if let Some(stripe_customer_id) = row.stripe_customer_id {
 			stripe_customer_id
 		} else {
-			let metadata = BTreeMap::from([("tangram_organization_id".to_owned(), id.to_string())]);
-			let stripe_customer_id = stripe
-				.create_customer(CreateCustomerArg {
-					email: None,
-					idempotency_key: format!("tangram-organization-{id}"),
-					metadata,
-					name: row.name,
-				})
-				.await?;
-
 			let statement =
 				format!("update organizations set stripe_customer_id = {p}1 where id = {p}2;");
 			let result = transaction
 				.execute(
 					statement.into(),
-					db::params![stripe_customer_id.clone(), id.to_string()],
+					db::params![stripe_customer_id.clone(), organization.to_string()],
 				)
 				.await;
 			crate::database::retry!(result, "failed to manage the Stripe customer ID");
@@ -149,7 +232,7 @@ impl Session {
 			stripe_customer_id
 		};
 
-		Ok(ControlFlow::Break(stripe_customer_id))
+		Ok(ControlFlow::Break(ControlFlow::Break(stripe_customer_id)))
 	}
 
 	async fn manage_organization_billing_primary_region(

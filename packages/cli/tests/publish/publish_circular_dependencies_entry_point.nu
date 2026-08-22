@@ -35,7 +35,7 @@ tg publish ($root | path join "packages/a")
 let a_from_a = tg tag get a/0 | from json | get target.id
 
 # Publish from B (without deleting tags).
-tg publish ($root | path join "packages/b")
+tg publish --force ($root | path join "packages/b")
 let a_from_b = tg tag get a/0 | from json | get target.id
 
 # A should have the same ID regardless of entry point.

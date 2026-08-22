@@ -32,7 +32,7 @@ let checkout = job spawn {
 tg checkpoint wait checkout.named.materialize $checkout_watch 0 | ignore
 let replacement = job spawn {
 	let job_id = job id
-	let output = tg tag dep $second | complete
+	let output = tg tag --force dep $second | complete
 	$output | job send --tag $job_id 0
 }
 tg checkpoint wait indexer.database_outbox.named_node $indexer_watch 0 | ignore

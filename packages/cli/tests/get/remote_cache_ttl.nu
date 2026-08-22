@@ -16,11 +16,11 @@ tg --url $remote.url tag foo $first
 assert equal (tg --url $local.url tag get foo | from json | get target.id) $first
 
 # The configured default of zero bypasses the cache.
-tg --url $remote.url tag foo $second
+tg --url $remote.url tag --force foo $second
 assert equal (tg --url $local.url tag get foo | from json | get target.id) $second
 
 # A finite override accepts the cached response.
-tg --url $remote.url tag foo $third
+tg --url $remote.url tag --force foo $third
 assert equal (tg --url $local.url tag get --ttl 1h foo | from json | get target.id) $second
 
 # An infinite override also accepts the cached response.

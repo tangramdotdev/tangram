@@ -19,6 +19,9 @@ pub struct Arg {
 	pub eager: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub force: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub group_children: bool,
 
 	#[serde_as(as = "Vec<DisplayFromStr>")]
@@ -66,6 +69,7 @@ impl Default for Arg {
 			ancestors: tg::node::AncestorsPull::default(),
 			destination: Some(tg::Location::Local(tg::location::Local::default())),
 			eager: true,
+			force: false,
 			group_children: false,
 			nodes: Vec::new(),
 			metadata: false,
@@ -92,6 +96,7 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			ancestors: value.ancestors,
 			destination: value.destination,
 			eager: value.eager,
+			force: value.force,
 			group_children: value.group_children,
 			nodes: value.nodes,
 			metadata: value.metadata,

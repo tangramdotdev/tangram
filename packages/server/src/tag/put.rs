@@ -2,7 +2,7 @@ use {
 	crate::{Session, database::Transaction},
 	futures::FutureExt as _,
 	indoc::formatdoc,
-	std::ops::ControlFlow,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{
@@ -32,40 +32,152 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
-		let permission = tg::authorization::Permission::Tag(
-			tg::authorization::permission::tag::Permission::Write,
-		);
-		let authorized = self
-			.authorize(
-				tg::Selector::<tg::Id>::Specifier(arg.specifier.clone()),
-				permission,
-			)
-			.await?;
-		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
-			return Err(tg::error!("unauthorized"));
-		}
 		self.pull_ancestors(&arg.specifier, arg.ancestors.pull)
 			.await?;
 		let permissions = self.recorded_tag_target_permissions(&arg.target).await?;
 		let touched_at = self.server.clock.unix_timestamp()?;
+		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
+		tangram_futures::retry(&options, || {
+			let arg = arg.clone();
+			let permissions = permissions.clone();
+			let session = session.clone();
+			async move {
+				match session
+					.put_tag_local_attempt(arg, permissions, touched_at)
+					.await?
+				{
+					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
+					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
+						"the named node ids kept changing while authorizing the write"
+					))),
+				}
+			}
+		})
+		.await?;
 		self.server
+			.spawn_publish_database_outbox_notification_task();
+		self.checkout_index_barrier().await?;
+		Ok(())
+	}
+
+	async fn put_tag_local_attempt(
+		&self,
+		arg: tg::tag::put::Arg,
+		permissions: Vec<tg::authorization::Permission>,
+		touched_at: i64,
+	) -> tg::Result<ControlFlow<()>> {
+		let specifiers = std::slice::from_ref(&arg.specifier);
+		let ids_by_specifier = self
+			.try_get_ids_and_ancestors_for_specifiers(specifiers)
+			.await?;
+		self.authorize_tag_puts(specifiers, arg.force, &ids_by_specifier)
+			.await?;
+		crate::checkpoint!(self.server, "tag.put.authorized", specifier = %arg.specifier).await;
+		let session = self.clone();
+		let output = self
+			.server
 			.database
 			.run(|transaction| {
 				let arg = arg.clone();
+				let ids_by_specifier = ids_by_specifier.clone();
 				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
 					session
-						.put_tag_local_with_transaction(transaction, arg, permissions, touched_at)
+						.put_tag_local_with_transaction(
+							transaction,
+							arg,
+							&ids_by_specifier,
+							permissions,
+							touched_at,
+						)
 						.await
 				}
 				.boxed()
 			})
 			.await?;
-		self.server
-			.spawn_publish_database_outbox_notification_task();
-		self.checkout_index_barrier().await?;
+
+		Ok(output)
+	}
+
+	pub(crate) async fn authorize_tag_puts(
+		&self,
+		specifiers: &[tg::Specifier],
+		force: bool,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
+	) -> tg::Result<()> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+
+		// Collect the required write and replacement authorizations.
+		let mut authorizations = Vec::new();
+		for specifier in specifiers {
+			let existing = ids_by_specifier
+				.get(specifier)
+				.and_then(std::option::Option::as_ref);
+			let parent = specifier
+				.parent()
+				.and_then(|specifier| ids_by_specifier.get(&specifier))
+				.and_then(std::option::Option::as_ref);
+			match existing {
+				Some(id) if id.kind() == tg::id::Kind::Tag => {
+					let permission = tg::authorization::Permission::Tag(
+						tg::authorization::permission::tag::Permission::Write,
+					);
+					let permissions =
+						tg::authorization::permission::Set::from_permission(permission);
+					let resource = tg::Selector::<tg::Id>::Id(id.clone());
+					authorizations.push((resource, false, permissions));
+				},
+				Some(id) => {
+					if !force {
+						return Err(tg::error!("specifier is already in use"));
+					}
+					let permission = Self::delete_permission_for_named_node(id)?;
+					let permissions =
+						tg::authorization::permission::Set::from_permission(permission);
+					let resource = tg::Selector::<tg::Id>::Id(id.clone());
+					authorizations.push((resource, false, permissions));
+					if let Some(parent) = parent {
+						let permission = Self::write_permission_for_resource(parent)?;
+						let permissions =
+							tg::authorization::permission::Set::from_permission(permission);
+						let resource = tg::Selector::<tg::Id>::Id(parent.clone());
+						authorizations.push((resource, false, permissions));
+					}
+				},
+				None => {
+					let permission = tg::authorization::Permission::Tag(
+						tg::authorization::permission::tag::Permission::Write,
+					);
+					let permissions =
+						tg::authorization::permission::Set::from_permission(permission);
+					let resource = tg::Selector::<tg::Id>::Specifier(specifier.clone());
+					authorizations.push((resource, true, permissions));
+				},
+			}
+		}
+
+		// Authorize the operations in batches.
+		for authorizations in authorizations.chunks(batch_size) {
+			let args = authorizations
+				.iter()
+				.map(|(resource, _, permissions)| (resource.clone(), *permissions))
+				.collect::<Vec<_>>();
+			let outputs = self.authorize_batch(args).await?;
+			for ((_, allow_unclaimed, permissions), output) in
+				std::iter::zip(authorizations, outputs)
+			{
+				let authorized = match output {
+					Some(output) => output.contains(*permissions),
+					None => *allow_unclaimed,
+				};
+				if !authorized {
+					return Err(tg::error!("unauthorized"));
+				}
+			}
+		}
+
 		Ok(())
 	}
 
@@ -73,9 +185,24 @@ impl Session {
 		&self,
 		transaction: &Transaction<'_>,
 		arg: tg::tag::put::Arg,
+		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
 		permissions: Vec<tg::authorization::Permission>,
 		touched_at: i64,
-	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<()>, crate::database::Error>> {
+		let batch_size = self.server.config.sync.get.database.batch_size;
+		match Self::verify_ids_for_specifiers_with_transaction(
+			transaction,
+			ids_by_specifier,
+			batch_size,
+		)
+		.await?
+		{
+			ControlFlow::Break(true) => (),
+			ControlFlow::Break(false) => {
+				return Ok(ControlFlow::Break(ControlFlow::Continue(())));
+			},
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		}
 		let mut batch = tangram_index::batch::Arg::default();
 		let data = match self
 			.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
@@ -134,7 +261,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(ControlFlow::Break(())))
 	}
 
 	pub(crate) async fn put_tag_with_transaction(
@@ -144,6 +271,54 @@ impl Session {
 		permissions: Vec<tg::authorization::Permission>,
 		batch: &mut tangram_index::batch::Arg,
 	) -> tg::Result<ControlFlow<tg::tag::Data, crate::database::Error>> {
+		let existing =
+			match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
+				.await?
+			{
+				ControlFlow::Break(existing) => existing,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+
+		// Delete a conflicting non-tag node and its subtree.
+		let existing = if existing
+			.as_ref()
+			.is_some_and(|existing| existing.kind() != tg::id::Kind::Tag)
+		{
+			if !arg.force {
+				return Err(tg::error!("specifier is already in use"));
+			}
+			let existing = existing
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the existing named node"))?;
+			let batch_size = self.server.config.sync.get.database.batch_size;
+			let replaced_ids_and_specifiers = match Self::collect_named_subtrees_with_transaction(
+				transaction,
+				std::slice::from_ref(existing),
+				batch_size,
+			)
+			.await?
+			{
+				ControlFlow::Break(ids_and_specifiers) => ids_and_specifiers,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			match self
+				.delete_named_nodes_with_transaction(
+					transaction,
+					&replaced_ids_and_specifiers,
+					batch,
+					batch_size,
+				)
+				.await?
+			{
+				ControlFlow::Break(()) => (),
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+			None
+		} else {
+			existing
+		};
+
+		// Resolve the parent.
 		let parent = if arg.ancestors.create {
 			match self
 				.create_parent_groups_with_transaction(transaction, &arg.specifier, batch)
@@ -160,27 +335,44 @@ impl Session {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		};
-		let existing =
-			match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
-				.await?
-			{
-				ControlFlow::Break(existing) => existing,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
+
+		// Put the tag.
 		let target = Self::tag_target_to_string(&arg.target);
-		let permissions_json = serde_json::to_string(&permissions)
-			.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 		let (id, permissions) = if let Some(id) = existing {
-			let Ok(id) = tg::tag::Id::try_from(id) else {
-				return Err(tg::error!("specifier is already in use"));
-			};
+			let id =
+				tg::tag::Id::try_from(id).map_err(|_| tg::error!("specifier is already in use"))?;
+			#[derive(db::row::Deserialize)]
+			struct Row {
+				permissions: String,
+				target: String,
+			}
 			let p = transaction.p();
-			// Keep the recorded permissions when the target is unchanged, and record the new permissions when the target is replaced.
+			let statement = formatdoc!(
+				"
+					select permissions, target
+					from tags
+					where id = {p}1;
+				"
+			);
+			let result = transaction
+				.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
+				.await;
+			let row = crate::database::retry!(result, "failed to execute the statement");
+			let permissions = if row.target == target {
+				serde_json::from_str(&row.permissions)
+					.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?
+			} else if arg.force {
+				permissions
+			} else {
+				return Err(tg::error!("the tag already has a different target"));
+			};
+			let permissions_json = serde_json::to_string(&permissions)
+				.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
+			let p = transaction.p();
 			let statement = formatdoc!(
 				"
 					update tags
-					set permissions = case when target = {p}1 then permissions else {p}3 end,
-						target = {p}1
+					set permissions = {p}3, target = {p}1
 					where id = {p}2;
 				"
 			);
@@ -191,26 +383,11 @@ impl Session {
 				)
 				.await;
 			crate::database::retry!(result, "failed to execute the statement");
-			#[derive(db::row::Deserialize)]
-			struct Row {
-				permissions: String,
-			}
-			let statement = formatdoc!(
-				"
-					select permissions
-					from tags
-					where id = {p}1;
-				"
-			);
-			let result = transaction
-				.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
-				.await;
-			let row = crate::database::retry!(result, "failed to execute the statement");
-			let permissions = serde_json::from_str(&row.permissions)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 			(id, permissions)
 		} else {
 			let id = tg::tag::Id::new();
+			let permissions_json = serde_json::to_string(&permissions)
+				.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 			match Self::insert_specifier_with_transaction(
 				transaction,
 				&id.clone().into(),
