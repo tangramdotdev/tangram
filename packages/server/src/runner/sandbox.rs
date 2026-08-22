@@ -26,7 +26,6 @@ type SandboxControlSender = crate::control::Sender<
 pub(crate) struct SpawnSandboxTaskArg {
 	pub allocation: crate::runner::capacity::Allocation,
 	pub arg: tg::sandbox::create::Arg,
-	pub command_push_task_arg: Option<crate::process::CommandPushTaskArg>,
 	pub creator: Option<tg::Principal>,
 	pub id: Option<tg::sandbox::Id>,
 	pub location: tg::Location,
@@ -42,7 +41,6 @@ pub(crate) struct SpawnSandboxTaskOutput {
 struct SandboxTaskArg {
 	allocation: crate::runner::capacity::Allocation,
 	arg: tg::sandbox::create::Arg,
-	command_push_task_arg: Option<crate::process::CommandPushTaskArg>,
 	creator: Option<tg::Principal>,
 	event_sender: tokio::sync::mpsc::UnboundedSender<tg::Result<Event>>,
 	id: Option<tg::sandbox::Id>,
@@ -92,6 +90,7 @@ struct SandboxTaskInnerArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox_id_sender: tokio::sync::oneshot::Sender<tg::sandbox::Id>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
@@ -110,6 +109,7 @@ struct RunSandboxTaskArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
 	started_at: Instant,
@@ -140,7 +140,6 @@ impl Server {
 				let arg = SandboxTaskArg {
 					allocation: arg.allocation,
 					arg: arg.arg,
-					command_push_task_arg: arg.command_push_task_arg,
 					creator: arg.creator,
 					event_sender: event_sender.clone(),
 					id: arg.id,
@@ -232,7 +231,6 @@ impl Session {
 		let SandboxTaskArg {
 			allocation,
 			arg,
-			command_push_task_arg,
 			creator,
 			event_sender,
 			id: expected_id,
@@ -303,15 +301,16 @@ impl Session {
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
+		let processes = Arc::new(crate::process::Processes::default());
 		let (sandbox_id_sender, sandbox_id_receiver) = tokio::sync::oneshot::channel();
 		let process_task_output = process.map(|process| {
 			self.spawn_process_task(SpawnProcessTaskArg {
-				command_push_task_arg,
 				guest_url: &create_output.guest_url,
 				location: location.clone(),
 				process,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
+				processes: processes.clone(),
 				retention_stopper: stopper.clone(),
 				sandbox: &create_output.sandbox,
 				sandbox_id_receiver: Some(sandbox_id_receiver),
@@ -383,6 +382,7 @@ impl Session {
 				process_stopper,
 				process_task_output,
 				process_tasks,
+				processes,
 				sandbox_id_sender,
 				state,
 				stopper,
@@ -713,6 +713,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox_id_sender,
 			state,
 			stopper,
@@ -737,9 +738,8 @@ impl Session {
 			id.clone(),
 			crate::sandbox::State {
 				allocation: Some(allocation),
-				command_push_tasks: BTreeMap::new(),
 				data: state.clone(),
-				processes: crate::process::Processes::default(),
+				processes: processes.clone(),
 				sandbox: Some(sandbox.clone()),
 				token: Some(token.clone()),
 				tokens: BTreeMap::new(),
@@ -768,6 +768,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -806,6 +807,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			mut process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -919,12 +921,12 @@ impl Session {
 							// Spawn the process task.
 							let process = Self::prepare_process(request.process, &id)?;
 							let task = self.spawn_process_task(SpawnProcessTaskArg {
-								command_push_task_arg: None,
 								guest_url: &guest_url,
 								location: location.clone(),
 								process,
 								process_stopper: &process_stopper,
 								process_tasks: &mut process_tasks,
+								processes: processes.clone(),
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
 								sandbox_id_receiver: None,

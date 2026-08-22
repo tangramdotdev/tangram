@@ -64,7 +64,7 @@ impl Session {
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
 				host: process.data.host.clone(),
-				inner_token: Some(process.inner_token.clone()),
+				inner_token: process.inner_token.clone(),
 				location: sandbox.data.location.clone(),
 				retry: process.data.retry,
 				sandbox: process.data.sandbox.clone(),
@@ -402,7 +402,7 @@ impl Server {
 					sandbox
 						.processes
 						.get_by_id(id)
-						.map(|process| process.inner_token == value)
+						.map(|process| process.inner_token.as_deref() == Some(value))
 				})
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => self

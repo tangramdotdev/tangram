@@ -49,7 +49,7 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<tg::process::put::Output> {
-		self.session(&self.context).put_process(id, arg).await
+		Box::pin(self.session(&self.context).put_process(id, arg)).await
 	}
 
 	async fn try_cancel_process(

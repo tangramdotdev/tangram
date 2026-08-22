@@ -475,8 +475,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_options: tg::referent::Options::default(),
-			command_push_task_arg: None,
 			data,
 			id,
 			lease: None,
@@ -529,13 +527,15 @@ impl Session {
 			actual_checksum: Some(actual_checksum),
 			cacheable: true,
 			children: source.children,
-			command: arg
-				.command
-				.node
-				.as_ref()
-				.right()
-				.cloned()
-				.ok_or_else(|| tg::error!("expected a stored command"))?,
+			command: tg::Referent::new(
+				arg.command
+					.node
+					.as_ref()
+					.right()
+					.cloned()
+					.ok_or_else(|| tg::error!("expected a stored command"))?,
+				arg.command.options.clone(),
+			),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),
@@ -568,8 +568,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_options: tg::referent::Options::default(),
-			command_push_task_arg: None,
 			data,
 			id,
 			lease: None,

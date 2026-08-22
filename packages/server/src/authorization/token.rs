@@ -130,6 +130,7 @@ impl Session {
 		data: &mut tg::process::Data,
 		location: &tg::Location,
 	) -> tg::Result<()> {
+		self.update_referent_options_for_location(&mut data.command.options, location)?;
 		if let Some(children) = &mut data.children {
 			for child in children {
 				self.update_referent_options_for_location(&mut child.process.options, location)?;

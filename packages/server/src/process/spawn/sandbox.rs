@@ -69,15 +69,6 @@ impl Session {
 				process.lease = Some(connected.lease);
 			},
 			Some(tg::Either::Right(_)) => {
-				// The spawn request cannot carry the command tokens, so spawn the push here.
-				if let Some(command_push_task_arg) = process.command_push_task_arg.take() {
-					let location = self.server.location(arg.location.as_ref())?;
-					self.spawn_command_push_task(
-						command_push_task_arg,
-						&location,
-						&process.data.sandbox,
-					)?;
-				}
 				let connected_event = self.spawn_process_in_existing_sandbox(process).await?;
 				Self::spawn_process_apply_connected(process, connected_event)?;
 			},
@@ -157,12 +148,14 @@ impl Session {
 	}
 
 	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
+		let data = output.data.clone();
 		let id = output.process_token.as_ref().map(|_| output.id.clone());
-		let options = output.command_options.clone();
+		let mut options = data.command.options.clone();
+		options.tokens.clear();
 		let parent = output.parent.clone();
 		let token = output.process_token.clone();
 		tg::runner::control::Process {
-			data: output.data.clone(),
+			data,
 			id,
 			options,
 			parent,
@@ -233,7 +226,6 @@ impl Session {
 			let spawn_sandbox_task_arg = crate::runner::sandbox::SpawnSandboxTaskArg {
 				allocation,
 				arg,
-				command_push_task_arg: output.command_push_task_arg.take(),
 				creator: Some(self.context.principal.clone()),
 				id,
 				location,

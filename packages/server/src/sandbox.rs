@@ -26,9 +26,8 @@ pub struct Sandboxes {
 
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
-	pub command_push_tasks: BTreeMap<u64, crate::process::CommandPushTask>,
 	pub data: tg::sandbox::get::Output,
-	pub processes: crate::process::Processes,
+	pub processes: Arc<crate::process::Processes>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub token: Option<String>,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,

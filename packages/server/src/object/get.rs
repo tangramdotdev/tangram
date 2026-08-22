@@ -135,12 +135,12 @@ impl Session {
 		if let Ok(index) = self.context.origin.try_unwrap_sandbox()
 			&& let Some(sandbox) = state.sandboxes().get(index)
 		{
-			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+			command_push_tasks.extend(sandbox.processes.command_push_tasks());
 		}
 		if let tg::Principal::Sandbox(sandbox) = &self.context.principal
 			&& let Some(sandbox) = state.sandboxes().get_by_id(sandbox)
 		{
-			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+			command_push_tasks.extend(sandbox.processes.command_push_tasks());
 		}
 		if let tg::Principal::Process(process) = &self.context.principal
 			&& let Some(sandbox) = state
@@ -149,7 +149,7 @@ impl Session {
 				.map(|entry| entry.value().clone())
 			&& let Some(sandbox) = state.sandboxes().get_by_id(&sandbox)
 		{
-			command_push_tasks.extend(sandbox.command_push_tasks.values().cloned());
+			command_push_tasks.extend(sandbox.processes.command_push_tasks());
 		}
 		if command_push_tasks.is_empty() {
 			return false;

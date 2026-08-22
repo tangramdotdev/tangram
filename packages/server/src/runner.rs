@@ -43,7 +43,6 @@ pub struct Runner {
 pub struct State {
 	capacity: self::capacity::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
-	next_command_push_task_index: AtomicU64,
 	next_process_index: AtomicU64,
 	next_sandbox_index: AtomicU64,
 	process_tokens: dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
@@ -60,7 +59,6 @@ impl Runner {
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
-			next_command_push_task_index: AtomicU64::new(1),
 			next_process_index: AtomicU64::new(1),
 			next_sandbox_index: AtomicU64::new(1),
 			process_tokens: dashmap::DashMap::new(),
@@ -405,7 +403,6 @@ impl Session {
 				.spawn_sandbox_task(self::sandbox::SpawnSandboxTaskArg {
 					allocation,
 					arg: request.arg,
-					command_push_task_arg: None,
 					creator: request.creator,
 					id: Some(sandbox.clone()),
 					location: location.clone(),
@@ -573,12 +570,6 @@ impl State {
 
 	pub fn set_scheduler(&self, scheduler: Option<tg::scheduler::Id>) {
 		self.scheduler.send_replace(scheduler);
-	}
-
-	#[must_use]
-	pub(crate) fn create_command_push_task_index(&self) -> u64 {
-		self.next_command_push_task_index
-			.fetch_add(1, Ordering::Relaxed)
 	}
 
 	#[must_use]
