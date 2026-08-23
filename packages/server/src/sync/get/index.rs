@@ -3,7 +3,10 @@ use {
 	crate::{Session, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	num::ToPrimitive as _,
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::BTreeSet,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_object_store::prelude::*,
@@ -492,6 +495,34 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
+		// Authorize process objects whose subtrees were already stored locally.
+		let process_objects = {
+			let graph = graph.lock().unwrap();
+			let mut process_objects = BTreeSet::new();
+			for (_, node) in &graph.nodes {
+				let Node::Process(process) = node else {
+					continue;
+				};
+				if !process.marked {
+					continue;
+				}
+				for (object_index, _) in process.objects.as_deref().unwrap_or_default() {
+					let (id, object) = graph.nodes.get_index(*object_index).unwrap();
+					let stored = object
+						.unwrap_object_ref()
+						.local_stored
+						.as_ref()
+						.is_some_and(|stored| stored.subtree);
+					if stored {
+						process_objects.insert(tg::object::Id::try_from(id.clone())?);
+					}
+				}
+			}
+			process_objects.into_iter().collect::<Vec<_>>()
+		};
+		self.sync_get_authorize_objects(&graph, &process_objects)
+			.await?;
+
 		// Create the index args and update the graph with the permissions being granted.
 		let account = self.usage_account(&self.context.principal).await?;
 		let (put_grant_args, put_object_args, put_process_args, storage_roots) = {
@@ -616,7 +647,7 @@ impl Session {
 					return Err(tg::error!("unauthorized"));
 				}
 			} else if let Some(arg) =
-				self.sync_get_create_temporary_grant(&message.id.clone().into())?
+				self.sync_get_create_implicit_grant(&message.id.clone().into())?
 			{
 				put_grant_args.push(arg);
 			}
@@ -1292,7 +1323,7 @@ impl Session {
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
-								expires_at: Some(object_expires_at),
+								implicit: Some(Some(object_expires_at)),
 								permissions: tg::authorization::permission::Set::Object(
 									tg::authorization::permission::object::Set::from_permission(
 										permission,
@@ -1325,7 +1356,7 @@ impl Session {
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
-								expires_at: Some(process_expires_at),
+								implicit: Some(Some(process_expires_at)),
 								permissions: tg::authorization::permission::Set::Process(
 									permissions,
 								),
@@ -1345,6 +1376,43 @@ impl Session {
 						}
 					},
 				}
+			}
+		}
+
+		// Create non-expiring implicit grants for the process objects proven locally.
+		for index in indices.iter().copied() {
+			let (id, node) = graph.nodes.get_index(index).unwrap();
+			let Node::Process(node) = node else {
+				continue;
+			};
+			if !node.marked {
+				continue;
+			}
+			let process = tg::process::Id::try_from(id.clone())?;
+			let creator = tg::Principal::Process(process.clone());
+			let subject = tg::authorization::Subject::Process(process);
+			for (object_index, _) in node.objects.as_deref().unwrap_or_default() {
+				let (object, node) = graph.nodes.get_index(*object_index).unwrap();
+				let visible = node
+					.unwrap_object_ref()
+					.local_visible
+					.as_ref()
+					.is_some_and(|visible| visible.subtree);
+				if !visible {
+					continue;
+				}
+				put_grant_args.push(tangram_index::grant::put::Arg {
+					created_at: touched_at,
+					creator: Some(creator.clone()),
+					implicit: Some(None),
+					permissions: tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					)
+					.into(),
+					resource: tg::object::Id::try_from(object.clone())?.into(),
+					subject: subject.clone(),
+					time_to_touch: None,
+				});
 			}
 		}
 

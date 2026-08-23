@@ -383,17 +383,9 @@ impl Session {
 				.unwrap();
 		self.create_token(
 			id.clone().into(),
-			vec![
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Node,
-				),
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeError,
-				),
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeOutput,
-				),
-			],
+			vec![tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Parent,
+			)],
 			expires_at,
 		)
 	}

@@ -144,6 +144,18 @@ impl Session {
 		let data = arg.data;
 		let lease = arg.lease;
 		let mut options = arg.options;
+		let command_grants_subtree = if let Some(data) = &data {
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
+			let command =
+				tg::Referent::new(tg::object::Id::from(data.command.clone()), options.clone());
+			self.authorize(command, permission)
+				.await?
+				.is_some_and(|permissions| permissions.contains(permission))
+		} else {
+			false
+		};
 		options.tokens.clear();
 		let parent = arg.parent;
 		let (sender, receiver) = tokio::sync::mpsc::channel(512);
@@ -310,6 +322,19 @@ impl Session {
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
 			let touched_at = self.server.clock.unix_timestamp()?;
+			let put_command_grant =
+				command_grants_subtree.then(|| tangram_index::grant::put::Arg {
+					created_at: touched_at,
+					creator: Some(tg::Principal::Process(id.clone())),
+					implicit: Some(None),
+					permissions: tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					)
+					.into(),
+					resource: tg::object::Id::from(data.command.clone()).into(),
+					subject: tg::authorization::Subject::Process(id.clone()),
+					time_to_touch: None,
+				});
 			let index_arg = tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(
 					tangram_index::process::put::Arg {
@@ -330,6 +355,7 @@ impl Session {
 						touched_at,
 					},
 				))
+				.chain(put_command_grant.map(tangram_index::batch::Item::PutGrant))
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(
 						tangram_index::usage::storage::put::ProcessArg {

@@ -9,8 +9,13 @@ impl Session {
 		let mut data = arg.data;
 		Self::validate_process_data(&data)?;
 		let mut authorization = self.authorize_process_data(&data).await?;
-		let authorization_error = (data.output.is_some() && !authorization.output_grants_subtree)
-			.then(|| tg::error!("failed to authorize the process output"));
+		let authorization_error = if data.error.is_some() && !authorization.error_grants_subtree {
+			Some(tg::error!("failed to authorize the process error"))
+		} else if data.output.is_some() && !authorization.output_grants_subtree {
+			Some(tg::error!("failed to authorize the process output"))
+		} else {
+			None
+		};
 
 		// Fail the process without storing the unauthorized output.
 		if let Some(error) = &authorization_error {

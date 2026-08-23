@@ -161,6 +161,15 @@ fn put_process_object(
 			process: process.clone(),
 		}),
 	);
+	put(
+		index,
+		txn,
+		&Key::Object(ObjectKey::ObjectProcess {
+			kind,
+			object: object.clone(),
+			process: process.clone(),
+		}),
+	);
 }
 
 fn put_resource_grant(
@@ -170,7 +179,13 @@ fn put_resource_grant(
 	subject: tg::authorization::Subject,
 	permission: tg::authorization::Permission,
 ) {
-	put(
+	let value = super::super::grant::GrantValue {
+		explicit: true,
+		..Default::default()
+	}
+	.serialize()
+	.unwrap();
+	put_value(
 		index,
 		txn,
 		&Key::Grant(GrantKey::ResourceGrant {
@@ -179,6 +194,33 @@ fn put_resource_grant(
 			resource,
 			subject,
 		}),
+		&value,
+	);
+}
+
+fn put_process_implicit_grant(
+	index: &Index,
+	txn: &mut lmdb::RwTxn<'_>,
+	resource: tg::Id,
+	process: &tg::process::Id,
+	permission: tg::authorization::Permission,
+) {
+	let value = super::super::grant::GrantValue {
+		implicit: Some(None),
+		..Default::default()
+	}
+	.serialize()
+	.unwrap();
+	put_value(
+		index,
+		txn,
+		&Key::Grant(GrantKey::ResourceGrant {
+			creator: Some(tg::Principal::Process(process.clone())),
+			permission,
+			resource,
+			subject: tg::authorization::Subject::Process(process.clone()),
+		}),
+		&value,
 	);
 }
 
@@ -371,14 +413,14 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 }
 
 #[tokio::test]
-async fn authorize_inherits_a_process_grant_through_its_sandbox() {
+async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 	let (_dir, index) = new_index();
 	let node_reader = tg::user::Id::new();
 	let object = object_id(0);
 	let outsider = tg::user::Id::new();
 	let process = tg::process::Id::new();
-	let process_reader = tg::user::Id::new();
-	let process_writer = tg::user::Id::new();
+	let process_node_holder = tg::user::Id::new();
+	let process_parent_holder = tg::user::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 	let sandbox_reader = tg::user::Id::new();
 	let sandbox_writer = tg::user::Id::new();
@@ -387,11 +429,8 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	let node = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Node,
 	);
-	let process_read = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Read,
-	);
-	let process_write = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Write,
+	let process_parent = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
 	);
 	let sandbox_read = tg::authorization::Permission::Sandbox(
 		tg::authorization::permission::sandbox::Permission::Read,
@@ -408,18 +447,12 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_sandbox(&index, &mut txn, &target);
 	put_process(&index, &mut txn, &process, &sandbox);
-	put_resource_grant(
-		&index,
-		&mut txn,
-		object.clone().into(),
-		tg::authorization::Subject::Process(process.clone()),
-		subtree,
-	);
-	put_resource_grant(
+	put_process_implicit_grant(&index, &mut txn, object.clone().into(), &process, subtree);
+	put_process_implicit_grant(
 		&index,
 		&mut txn,
 		target.clone().into(),
-		tg::authorization::Subject::Process(process.clone()),
+		&process,
 		sandbox_write,
 	);
 	put_resource_grant(
@@ -438,8 +471,8 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	);
 	for (user, permission) in [
 		(node_reader.clone(), node),
-		(process_reader.clone(), process_read),
-		(process_writer.clone(), process_write),
+		(process_node_holder.clone(), node),
+		(process_parent_holder.clone(), process_parent),
 		(subtree_reader.clone(), process_subtree),
 	] {
 		put_resource_grant(
@@ -455,12 +488,12 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 	for (principal, expected_read, expected_write) in [
 		(tg::Principal::Process(process), true, true),
 		(tg::Principal::Sandbox(sandbox), true, true),
-		(tg::Principal::User(sandbox_reader), true, false),
+		(tg::Principal::User(sandbox_reader), false, false),
 		(tg::Principal::User(sandbox_writer), true, true),
 		(tg::Principal::User(node_reader), false, false),
 		(tg::Principal::User(subtree_reader), false, false),
-		(tg::Principal::User(process_reader), true, false),
-		(tg::Principal::User(process_writer), true, true),
+		(tg::Principal::User(process_node_holder), false, false),
+		(tg::Principal::User(process_parent_holder), true, true),
 		(tg::Principal::User(outsider), false, false),
 	] {
 		assert_eq!(
@@ -472,6 +505,203 @@ async fn authorize_inherits_a_process_grant_through_its_sandbox() {
 			expected_write,
 		);
 	}
+}
+
+#[tokio::test]
+async fn authorize_process_objects_only_through_process_implicit_grants() {
+	let (_dir, index) = new_index();
+	let command_holder = tg::user::Id::new();
+	let object = object_id(0);
+	let output_holder = tg::user::Id::new();
+	let parent = tg::user::Id::new();
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let subtree_command = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::SubtreeCommand,
+	);
+	let subtree_output = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::SubtreeOutput,
+	);
+	let process_parent = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &object);
+	put_sandbox(&index, &mut txn, &sandbox);
+	put_process(&index, &mut txn, &process, &sandbox);
+	put_process_object(
+		&index,
+		&mut txn,
+		&process,
+		&object,
+		crate::process::object::Kind::Output,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		process.clone().into(),
+		tg::authorization::Subject::User(command_holder.clone()),
+		subtree_command,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		process.clone().into(),
+		tg::authorization::Subject::User(output_holder.clone()),
+		subtree_output,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		process.clone().into(),
+		tg::authorization::Subject::User(parent.clone()),
+		process_parent,
+	);
+	txn.commit().unwrap();
+
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::Process(process.clone()),
+		)
+		.await
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(output_holder.clone()),
+		)
+		.await
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(parent.clone()),
+		)
+		.await
+	);
+
+	let mut txn = index.env.write_txn().unwrap();
+	put_resource_grant(
+		&index,
+		&mut txn,
+		object.clone().into(),
+		tg::authorization::Subject::Process(process.clone()),
+		subtree,
+	);
+	txn.commit().unwrap();
+	assert!(
+		is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::Process(process.clone()),
+		)
+		.await
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(parent.clone()),
+		)
+		.await
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(output_holder.clone()),
+		)
+		.await
+	);
+
+	let mut txn = index.env.write_txn().unwrap();
+	put_process_implicit_grant(&index, &mut txn, object.clone().into(), &process, subtree);
+	txn.commit().unwrap();
+	assert!(
+		!is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(command_holder),
+		)
+		.await
+	);
+	assert!(
+		is_authorized(
+			&index,
+			object.clone().into(),
+			subtree,
+			&tg::Principal::User(output_holder),
+		)
+		.await
+	);
+	assert!(is_authorized(&index, object.into(), subtree, &tg::Principal::User(parent),).await);
+}
+
+#[tokio::test]
+async fn authorize_parent_permission_flows_to_process_children() {
+	let (_dir, index) = new_index();
+	let child = tg::process::Id::new();
+	let node_reader = tg::user::Id::new();
+	let parent = tg::process::Id::new();
+	let parent_user = tg::user::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let node = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	let parent_permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	let mut txn = index.env.write_txn().unwrap();
+	put_sandbox(&index, &mut txn, &sandbox);
+	put_process(&index, &mut txn, &child, &sandbox);
+	put_process(&index, &mut txn, &parent, &sandbox);
+	put_process_child(&index, &mut txn, &parent, &child);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		parent.clone().into(),
+		tg::authorization::Subject::User(parent_user.clone()),
+		parent_permission,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		parent.into(),
+		tg::authorization::Subject::User(node_reader.clone()),
+		node,
+	);
+	txn.commit().unwrap();
+
+	assert!(
+		is_authorized(
+			&index,
+			child.clone().into(),
+			parent_permission,
+			&tg::Principal::User(parent_user),
+		)
+		.await
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			child.into(),
+			parent_permission,
+			&tg::Principal::User(node_reader),
+		)
+		.await
+	);
 }
 
 #[tokio::test]
@@ -512,7 +742,6 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 		tg::authorization::permission::process::Permission::NodeError,
 		tg::authorization::permission::process::Permission::NodeLog,
 		tg::authorization::permission::process::Permission::NodeOutput,
-		tg::authorization::permission::process::Permission::Read,
 		tg::authorization::permission::process::Permission::Subtree,
 		tg::authorization::permission::process::Permission::SubtreeCommand,
 		tg::authorization::permission::process::Permission::SubtreeError,
@@ -530,19 +759,19 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 			.await
 		);
 	}
-	let write = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Write,
+	let parent = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
 	);
 	assert!(
 		!is_authorized(
 			&index,
 			process.clone().into(),
-			write,
+			parent,
 			&tg::Principal::User(reader),
 		)
 		.await
 	);
-	assert!(is_authorized(&index, process.into(), write, &tg::Principal::User(writer),).await);
+	assert!(is_authorized(&index, process.into(), parent, &tg::Principal::User(writer),).await);
 }
 
 #[tokio::test]
@@ -1048,17 +1277,12 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		],
 	)
 	.unwrap();
-	put(
+	put_resource_grant(
 		&index,
 		&mut txn,
-		&Key::Grant(GrantKey::ResourceGrant {
-			creator: None,
-			permission: tg::authorization::Permission::Tag(
-				tg::authorization::permission::tag::Permission::Read,
-			),
-			resource: parent_tag.into(),
-			subject: tg::authorization::Subject::User(user.clone()),
-		}),
+		parent_tag.into(),
+		tg::authorization::Subject::User(user.clone()),
+		tg::authorization::Permission::Tag(tg::authorization::permission::tag::Permission::Read),
 	);
 	txn.commit().unwrap();
 
@@ -1134,15 +1358,12 @@ async fn authorize_uses_cached_subject_membership() {
 			organization: organization.clone(),
 		}),
 	);
-	put(
+	put_resource_grant(
 		&index,
 		&mut txn,
-		&Key::Grant(GrantKey::ResourceGrant {
-			creator: None,
-			permission: object_permission(tg::authorization::permission::object::Permission::Node),
-			resource: object.clone().into(),
-			subject: tg::authorization::Subject::Organization(organization),
-		}),
+		object.clone().into(),
+		tg::authorization::Subject::Organization(organization),
+		object_permission(tg::authorization::permission::object::Permission::Node),
 	);
 	txn.commit().unwrap();
 

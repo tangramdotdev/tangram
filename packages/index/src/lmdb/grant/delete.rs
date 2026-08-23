@@ -29,10 +29,9 @@ impl Index {
 	) -> tg::Result<()> {
 		for arg in args {
 			for permission in arg.permissions.iter() {
-				let source = if arg.expires_at.is_some() {
-					GrantSource::Temporary
-				} else {
-					GrantSource::Explicit
+				let (expires_at, source) = match arg.implicit {
+					None => (None, GrantSource::Explicit),
+					Some(expires_at) => (expires_at, GrantSource::Implicit),
 				};
 				let changed = Self::delete_grant_index_entry(
 					db,
@@ -40,7 +39,7 @@ impl Index {
 					transaction,
 					&GrantIndexEntry {
 						creator: arg.creator.as_ref(),
-						expires_at: arg.expires_at,
+						expires_at,
 						permission,
 						subject: &arg.subject,
 						resource: &arg.resource,

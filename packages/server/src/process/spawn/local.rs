@@ -2,6 +2,7 @@ use {
 	super::child::AddProcessChildArg,
 	crate::Session,
 	futures::{FutureExt as _, future},
+	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
 };
@@ -382,7 +383,7 @@ impl Session {
 			allocation: None,
 			cached: false,
 			data,
-			id,
+			id: id.clone(),
 			lease: None,
 			parent: arg.parent.clone(),
 			parent_sandbox: parent_sandbox.cloned(),
@@ -392,6 +393,34 @@ impl Session {
 			scheduler: arg.scheduler.clone(),
 			token,
 		};
+		let grant_expires_at = now
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let grant = tangram_index::grant::put::Arg {
+			created_at: now,
+			creator: Some(self.context.principal.clone()),
+			implicit: Some(Some(grant_expires_at)),
+			permissions: tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)
+			.into(),
+			resource: tg::object::Id::from(command.node.clone()).into(),
+			subject: tg::authorization::Subject::Process(id.clone()),
+			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+		};
+		self.server
+			.index_batch(tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutGrant(grant)],
+			})
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to grant the process command"))?;
+
 		Ok(output)
 	}
 

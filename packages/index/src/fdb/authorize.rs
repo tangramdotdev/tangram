@@ -28,8 +28,14 @@ struct Cache {
 	process_objects: HashMap<tg::process::Id, Vec<(tg::object::Id, crate::process::object::Kind)>>,
 	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
-	resource_grants:
-		HashMap<tg::Id, Vec<(tg::authorization::Subject, tg::authorization::Permission)>>,
+	resource_grants: HashMap<
+		tg::Id,
+		Vec<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			bool,
+		)>,
+	>,
 	sandbox_owners: HashMap<tg::sandbox::Id, Option<tg::Principal>>,
 }
 
@@ -815,7 +821,7 @@ impl Index {
 			)
 			.await
 		);
-		for (granted_subject, granted_permission) in grants {
+		for (granted_subject, granted_permission, _) in grants {
 			if granted_permission.implies(permission)
 				&& crate::fdb::propagate!(
 					Self::subject_contains_requester_with_transaction(
@@ -1250,28 +1256,25 @@ impl Index {
 	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::authorization::Permission)>, fdb::FdbError>> {
 		let mut dependencies = Vec::new();
 
-		// Add the process subject grant relationships.
+		// Add the non-expiring process implicit grant relationships.
 		let grants = crate::fdb::propagate!(
 			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache).await
 		);
-		for (subject, granted_permission) in grants {
-			if !granted_permission.implies(permission) {
+		for (subject, granted_permission, process_implicit) in &grants {
+			if !process_implicit || !granted_permission.implies(permission) {
 				continue;
 			}
 			let tg::authorization::Subject::Process(process) = subject else {
 				continue;
 			};
-			let permission = if permission.is_read() {
-				tg::authorization::permission::process::Permission::Read
-			} else {
-				tg::authorization::permission::process::Permission::Write
-			};
-			let permission = tg::authorization::Permission::Process(permission);
-			dependencies.push((process.into(), permission));
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Parent,
+			);
+			dependencies.push((process.clone().into(), permission));
 		}
 
 		match permission {
-			tg::authorization::Permission::Object(_) => {
+			tg::authorization::Permission::Object(object_permission) => {
 				let object = tg::object::Id::try_from(resource.clone())?;
 				let cached_parents = cache.object_parents.get(&object).cloned();
 				let cached_processes = cache.object_processes.get(&object).cloned();
@@ -1284,7 +1287,7 @@ impl Index {
 						Self::get_object_parents_with_transaction(txn, subspace, &object).await
 					}
 				};
-				let processes = async {
+				let object_processes = async {
 					if let Some(processes) = cached_processes {
 						Ok(ControlFlow::Break(processes))
 					} else {
@@ -1306,13 +1309,9 @@ impl Index {
 						.await
 					}
 				};
-				let (object_parents, processes, tags) =
-					futures::try_join!(object_parents, processes, tags)?;
+				let (object_parents, object_processes, tags) =
+					futures::try_join!(object_parents, object_processes, tags)?;
 				let object_parents = match object_parents {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let processes = match processes {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
@@ -1320,36 +1319,38 @@ impl Index {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
+				let object_processes = match object_processes {
+					ControlFlow::Break(value) => value,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
 				cache
 					.object_parents
 					.insert(object.clone(), object_parents.clone());
-				cache.object_processes.insert(object, processes.clone());
+				cache
+					.object_processes
+					.insert(object, object_processes.clone());
 				cache.target_tags.insert(tag_key, tags.clone());
+				for (process, kind) in object_processes {
+					let subject = tg::authorization::Subject::Process(process.clone());
+					let granted = grants.iter().any(
+						|(granted_subject, granted_permission, process_implicit)| {
+							*process_implicit
+								&& granted_subject == &subject
+								&& granted_permission.implies(permission)
+						},
+					);
+					if granted {
+						let permission = tg::authorization::Permission::Process(
+							crate::authorize::process_object_permission(kind, object_permission),
+						);
+						dependencies.push((process.into(), permission));
+					}
+				}
 				for parent in object_parents {
 					let permission = tg::authorization::Permission::Object(
 						tg::authorization::permission::object::Permission::Subtree,
 					);
 					dependencies.push((parent.into(), permission));
-				}
-				for (process, kind) in processes {
-					let permission = match kind {
-						crate::process::object::Kind::Command => {
-							tg::authorization::permission::process::Permission::NodeCommand
-						},
-						crate::process::object::Kind::Error => {
-							tg::authorization::permission::process::Permission::NodeError
-						},
-						crate::process::object::Kind::Log => {
-							tg::authorization::permission::process::Permission::NodeLog
-						},
-						crate::process::object::Kind::Output => {
-							tg::authorization::permission::process::Permission::NodeOutput
-						},
-					};
-					dependencies.push((
-						process.into(),
-						tg::authorization::Permission::Process(permission),
-					));
 				}
 				dependencies.extend(tags);
 			},
@@ -1417,7 +1418,7 @@ impl Index {
 				cache.target_tags.insert(tag_key, tags.clone());
 				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
-						tg::authorization::permission::process::Permission::Write => {
+						tg::authorization::permission::process::Permission::Parent => {
 							tg::authorization::permission::sandbox::Permission::Write
 						},
 						_ => tg::authorization::permission::sandbox::Permission::Read,
@@ -1700,7 +1701,11 @@ impl Index {
 		cache: &mut Cache,
 	) -> tg::Result<
 		ControlFlow<
-			Vec<(tg::authorization::Subject, tg::authorization::Permission)>,
+			Vec<(
+				tg::authorization::Subject,
+				tg::authorization::Permission,
+				bool,
+			)>,
 			fdb::FdbError,
 		>,
 	> {

@@ -497,7 +497,7 @@ impl Index {
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
-		Self::reconcile_materialized_grants(
+		let materialized_changed = Self::reconcile_materialized_grants(
 			db,
 			subspace,
 			transaction,
@@ -505,7 +505,98 @@ impl Index {
 			&entries,
 			&expected,
 			&managed,
-		)
+		)?;
+		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+			db,
+			subspace,
+			transaction,
+			&resource,
+			subject,
+		)?;
+		let implicit_changed = Self::promote_process_implicit_grants_for_subject(
+			db,
+			subspace,
+			transaction,
+			id,
+			subject,
+			&entries,
+		)?;
+
+		Ok(implicit_changed || materialized_changed)
+	}
+
+	fn promote_process_implicit_grants_for_subject(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+		entries: &[crate::lmdb::grant::GrantEntry],
+	) -> tg::Result<bool> {
+		let tg::authorization::Subject::Process(process) = subject else {
+			return Ok(false);
+		};
+		let direct = Self::get_object_processes_with_transaction(db, subspace, transaction, id)?
+			.into_iter()
+			.any(|(candidate, _)| candidate == *process);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let mut anchored = direct;
+		if !anchored {
+			let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
+			for parent in parents {
+				let resource = tg::Id::from(parent);
+				let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&resource,
+					subject,
+				)?;
+				if entries
+					.iter()
+					.any(|entry| entry.is_process_implicit() && entry.permission.implies(node))
+				{
+					anchored = true;
+					break;
+				}
+			}
+		}
+		if !anchored {
+			return Ok(false);
+		}
+
+		let permissions = entries
+			.iter()
+			.filter(|entry| {
+				entry.explicit || entry.implicit.is_some() || entry.materialized.is_some()
+			})
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		let creator = tg::Principal::Process(process.clone());
+		let resource = tg::Id::from(id.clone());
+		let mut changed = false;
+		for permission in permissions {
+			if Self::put_grant_index_entry(
+				db,
+				subspace,
+				transaction,
+				&crate::lmdb::grant::GrantIndexEntry {
+					creator: Some(&creator),
+					expires_at: None,
+					permission,
+					resource: &resource,
+					subject,
+				},
+				crate::lmdb::grant::GrantSource::Implicit,
+				None,
+			)? {
+				changed = true;
+			}
+		}
+
+		Ok(changed)
 	}
 
 	fn reconcile_materialized_grants(

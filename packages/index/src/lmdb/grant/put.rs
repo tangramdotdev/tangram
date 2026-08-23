@@ -28,19 +28,43 @@ impl Index {
 		args: &[crate::grant::put::Arg],
 	) -> tg::Result<()> {
 		for arg in args {
-			for permission in arg.permissions.iter() {
-				let source = if arg.expires_at.is_some() {
-					GrantSource::Temporary
-				} else {
-					GrantSource::Explicit
+			let (expires_at, source) = match arg.implicit {
+				None => (None, GrantSource::Explicit),
+				Some(expires_at) => (expires_at, GrantSource::Implicit),
+			};
+			let non_expiring_implicit = arg.implicit == Some(None);
+			if non_expiring_implicit {
+				let tg::authorization::Subject::Process(process) = &arg.subject else {
+					return Err(tg::error!(
+						"a non-expiring implicit grant must have a process subject"
+					));
 				};
+				if arg.creator.as_ref() != Some(&tg::Principal::Process(process.clone())) {
+					return Err(tg::error!(
+						"a non-expiring implicit grant must be created by its process"
+					));
+				}
+				if tg::object::Id::try_from(arg.resource.clone()).is_err() {
+					return Err(tg::error!(
+						"a non-expiring implicit grant must target an object"
+					));
+				}
+			}
+			for permission in arg.permissions.iter() {
+				if non_expiring_implicit
+					&& !matches!(permission, tg::authorization::Permission::Object(_))
+				{
+					return Err(tg::error!(
+						"a non-expiring implicit grant must contain object permissions"
+					));
+				}
 				let changed = Self::put_grant_index_entry(
 					db,
 					subspace,
 					transaction,
 					&GrantIndexEntry {
 						creator: arg.creator.as_ref(),
-						expires_at: arg.expires_at,
+						expires_at,
 						permission,
 						subject: &arg.subject,
 						resource: &arg.resource,

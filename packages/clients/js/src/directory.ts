@@ -63,6 +63,9 @@ export class Directory {
 		let resolved: Array<tg.Directory.Arg>;
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]!);
+			if (arg instanceof tg.Directory) {
+				return arg;
+			}
 			if (tg.Graph.Arg.Pointer.is(arg)) {
 				return tg.Directory.withObject(tg.Graph.Pointer.fromArg(arg));
 			}

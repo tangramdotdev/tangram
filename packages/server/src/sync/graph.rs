@@ -1581,7 +1581,7 @@ impl Graph {
 		permission: tg::authorization::Permission,
 	) -> Option<tg::authorization::Permission> {
 		match parent {
-			Parent::Node(_) => None,
+			Parent::Node(_) | Parent::ProcessObject { .. } => None,
 			Parent::Object(_) => match permission {
 				tg::authorization::Permission::Object(_) => {
 					Some(tg::authorization::Permission::Object(
@@ -1591,17 +1591,8 @@ impl Graph {
 				_ => None,
 			},
 			Parent::Process(_) => match permission {
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Write,
-				) => None,
 				tg::authorization::Permission::Process(permission) => Some(
 					tg::authorization::Permission::Process(permission.to_subtree()),
-				),
-				_ => None,
-			},
-			Parent::ProcessObject { kind, .. } => match permission {
-				tg::authorization::Permission::Object(_) => Some(
-					tg::authorization::Permission::Process(Self::process_object_permission(kind)),
 				),
 				_ => None,
 			},
@@ -1613,7 +1604,7 @@ impl Graph {
 		permission: tg::authorization::Permission,
 	) -> tg::authorization::Permission {
 		match parent {
-			Parent::Node(_) => unreachable!(),
+			Parent::Node(_) | Parent::ProcessObject { .. } => unreachable!(),
 			Parent::Object(_) => match permission {
 				tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
@@ -1622,7 +1613,7 @@ impl Graph {
 			},
 			Parent::Process(_) => match permission {
 				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Read
+					tg::authorization::permission::process::Permission::Parent
 					| tg::authorization::permission::process::Permission::Subtree
 					| tg::authorization::permission::process::Permission::SubtreeCommand
 					| tg::authorization::permission::process::Permission::SubtreeError
@@ -1631,15 +1622,19 @@ impl Graph {
 				) => permission,
 				_ => unreachable!(),
 			},
-			Parent::ProcessObject { .. } => tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			),
 		}
 	}
 
 	fn normalize_permissions(
 		mut permissions: tg::authorization::permission::Set,
 	) -> tg::authorization::permission::Set {
+		if permissions.contains(tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		)) {
+			permissions.insert(tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::all(),
+			));
+		}
 		let implied = permissions
 			.iter()
 			.filter_map(|permission| match permission {
@@ -1649,8 +1644,7 @@ impl Graph {
 					tg::authorization::permission::object::Permission::Node,
 				)),
 				tg::authorization::Permission::Process(permission) => match permission {
-					tg::authorization::permission::process::Permission::Subtree
-					| tg::authorization::permission::process::Permission::Write => {
+					tg::authorization::permission::process::Permission::Subtree => {
 						Some(tg::authorization::Permission::Process(
 							tg::authorization::permission::process::Permission::Node,
 						))
@@ -1712,25 +1706,6 @@ impl Graph {
 			tangram_index::process::object::Kind::Error => crate::sync::queue::ObjectKind::Error,
 			tangram_index::process::object::Kind::Log => crate::sync::queue::ObjectKind::Log,
 			tangram_index::process::object::Kind::Output => crate::sync::queue::ObjectKind::Output,
-		}
-	}
-
-	fn process_object_permission(
-		kind: crate::sync::queue::ObjectKind,
-	) -> tg::authorization::permission::process::Permission {
-		match kind {
-			crate::sync::queue::ObjectKind::Command => {
-				tg::authorization::permission::process::Permission::NodeCommand
-			},
-			crate::sync::queue::ObjectKind::Error => {
-				tg::authorization::permission::process::Permission::NodeError
-			},
-			crate::sync::queue::ObjectKind::Log => {
-				tg::authorization::permission::process::Permission::NodeLog
-			},
-			crate::sync::queue::ObjectKind::Output => {
-				tg::authorization::permission::process::Permission::NodeOutput
-			},
 		}
 	}
 

@@ -11,7 +11,13 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<Vec<(tg::authorization::Subject, tg::authorization::Permission)>> {
+	) -> tg::Result<
+		Vec<(
+			tg::authorization::Subject,
+			tg::authorization::Permission,
+			bool,
+		)>,
+	> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
 			Kind::ResourceGrant.to_i32().unwrap(),
@@ -23,18 +29,22 @@ impl Index {
 			.prefix_iter(transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
 		for entry in iter {
-			let (key, _) = entry
+			let (key, value) = entry
 				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-				subject,
+				creator,
 				permission,
+				subject,
 				..
 			}) = key
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			grants.push((subject, permission));
+			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			let process_implicit =
+				crate::lmdb::grant::is_process_implicit(creator.as_ref(), value.implicit, &subject);
+			grants.push((subject, permission, process_implicit));
 		}
 		Ok(grants)
 	}
@@ -62,8 +72,9 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-				subject,
+				creator,
 				permission,
+				subject,
 				..
 			}) = key
 			else {
@@ -71,11 +82,12 @@ impl Index {
 			};
 			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
 			grants.push(crate::lmdb::grant::GrantEntry {
+				creator,
 				explicit: value.explicit,
+				implicit: value.implicit,
 				materialized: value.materialized,
 				permission,
 				subject,
-				temporary: value.temporary,
 			});
 		}
 		Ok(grants)

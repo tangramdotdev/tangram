@@ -1331,16 +1331,118 @@ impl Index {
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
-		Self::reconcile_materialized_grants(
-			txn,
-			subspace,
-			&resource,
-			&entries,
-			&expected,
-			&managed,
-			partition_total,
-		)
-		.await
+		let materialized_changed = crate::fdb::propagate!(
+			Self::reconcile_materialized_grants(
+				txn,
+				subspace,
+				&resource,
+				&entries,
+				&expected,
+				&managed,
+				partition_total,
+			)
+			.await
+		);
+		let entries = crate::fdb::propagate!(
+			Self::get_resource_grant_entries_for_subject_with_transaction(
+				txn, subspace, &resource, subject,
+			)
+			.await
+		);
+		let implicit_changed = crate::fdb::propagate!(
+			Self::promote_process_implicit_grants_for_subject(
+				txn,
+				subspace,
+				id,
+				subject,
+				&entries,
+				partition_total,
+			)
+			.await
+		);
+
+		Ok(ControlFlow::Break(implicit_changed || materialized_changed))
+	}
+
+	async fn promote_process_implicit_grants_for_subject(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		subject: &tg::authorization::Subject,
+		entries: &[crate::fdb::grant::GrantEntry],
+		partition_total: u64,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let tg::authorization::Subject::Process(process) = subject else {
+			return Ok(ControlFlow::Break(false));
+		};
+		let processes = crate::fdb::propagate!(
+			Self::get_object_processes_with_transaction(txn, subspace, id).await
+		);
+		let direct = processes
+			.into_iter()
+			.any(|(candidate, _)| candidate == *process);
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let mut anchored = direct;
+		if !anchored {
+			let parents = crate::fdb::propagate!(
+				Self::get_object_parents_with_transaction(txn, subspace, id).await
+			);
+			for parent in parents {
+				let resource = tg::Id::from(parent);
+				let entries = crate::fdb::propagate!(
+					Self::get_resource_grant_entries_for_subject_with_transaction(
+						txn, subspace, &resource, subject,
+					)
+					.await
+				);
+				if entries
+					.iter()
+					.any(|entry| entry.is_process_implicit() && entry.permission.implies(node))
+				{
+					anchored = true;
+					break;
+				}
+			}
+		}
+		if !anchored {
+			return Ok(ControlFlow::Break(false));
+		}
+
+		let permissions = entries
+			.iter()
+			.filter(|entry| {
+				entry.explicit || entry.implicit.is_some() || entry.materialized.is_some()
+			})
+			.map(|entry| entry.permission)
+			.collect::<BTreeSet<_>>();
+		let creator = tg::Principal::Process(process.clone());
+		let resource = tg::Id::from(id.clone());
+		let mut changed = false;
+		for permission in permissions {
+			if crate::fdb::propagate!(
+				Self::put_grant_index_entry(
+					txn,
+					subspace,
+					&crate::fdb::grant::GrantIndexEntry {
+						creator: Some(&creator),
+						expires_at: None,
+						permission,
+						resource: &resource,
+						subject,
+					},
+					crate::fdb::grant::GrantSource::Implicit,
+					None,
+					partition_total,
+				)
+				.await
+			) {
+				changed = true;
+			}
+		}
+
+		Ok(ControlFlow::Break(changed))
 	}
 
 	async fn reconcile_materialized_grants(

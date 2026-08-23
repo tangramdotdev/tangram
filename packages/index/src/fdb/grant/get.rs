@@ -14,7 +14,11 @@ impl Index {
 		resource: &tg::Id,
 	) -> tg::Result<
 		ControlFlow<
-			Vec<(tg::authorization::Subject, tg::authorization::Permission)>,
+			Vec<(
+				tg::authorization::Subject,
+				tg::authorization::Permission,
+				bool,
+			)>,
 			fdb::FdbError,
 		>,
 	> {
@@ -35,14 +39,21 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					subject,
+					creator,
 					permission,
+					subject,
 					..
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((subject, permission))
+				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let process_implicit = crate::fdb::grant::is_process_implicit(
+					creator.as_ref(),
+					value.implicit,
+					&subject,
+				);
+				Ok((subject, permission, process_implicit))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
@@ -76,8 +87,9 @@ impl Index {
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
 				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					subject,
+					creator,
 					permission,
+					subject,
 					..
 				}) = key
 				else {
@@ -85,11 +97,12 @@ impl Index {
 				};
 				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
 				Ok(crate::fdb::grant::GrantEntry {
+					creator,
 					explicit: value.explicit,
+					implicit: value.implicit,
 					materialized: value.materialized,
 					permission,
 					subject,
-					temporary: value.temporary,
 				})
 			})
 			.collect::<tg::Result<Vec<_>>>()?;

@@ -137,7 +137,7 @@ impl Session {
 		let put_grant = grant_subject.map(|grant_subject| tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(self.context.principal.clone()),
-			expires_at: Some(grant_expires_at),
+			implicit: Some(Some(grant_expires_at)),
 			permissions: tg::authorization::Permission::Object(permission).into(),
 			subject: grant_subject,
 			resource: id.clone().into(),

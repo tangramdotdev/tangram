@@ -12,7 +12,7 @@ pub(crate) enum GrantSource {
 	#[tangram_serialize(id = 0)]
 	Explicit,
 	#[tangram_serialize(id = 1)]
-	Temporary,
+	Implicit,
 	#[tangram_serialize(id = 2)]
 	Materialized,
 }
@@ -33,24 +33,30 @@ pub(crate) struct GrantValue {
 
 	#[tangram_serialize(
 		default,
+		id = 1,
+		skip_serializing_if = "Option::is_none",
+		with = "tangram_serialize::with::unwrap_or_skip"
+	)]
+	pub implicit: Option<Option<i64>>,
+
+	#[tangram_serialize(
+		default,
 		id = 2,
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
 	pub materialized: Option<Option<i64>>,
-
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub temporary: Option<i64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::option_option)]
 pub(crate) struct GrantEntry {
+	pub creator: Option<tangram_client::Principal>,
 	pub explicit: bool,
+	pub implicit: Option<Option<i64>>,
 	pub materialized: Option<Option<i64>>,
 	pub permission: tangram_client::authorization::Permission,
 	pub subject: tangram_client::authorization::Subject,
-	pub temporary: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -70,7 +76,7 @@ impl GrantValue {
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
-		!self.explicit && self.temporary.is_none() && self.materialized.is_none()
+		!self.explicit && self.implicit.is_none() && self.materialized.is_none()
 	}
 
 	pub(crate) fn serialize(&self) -> tangram_client::Result<Vec<u8>> {
@@ -82,7 +88,7 @@ impl GrantValue {
 	pub(crate) fn source_expires_at(&self, source: GrantSource) -> Option<Option<i64>> {
 		match source {
 			GrantSource::Explicit => self.explicit.then_some(None),
-			GrantSource::Temporary => self.temporary.map(Some),
+			GrantSource::Implicit => self.implicit,
 			GrantSource::Materialized => self.materialized,
 		}
 	}
@@ -102,21 +108,20 @@ impl GrantValue {
 					true
 				}
 			},
-			GrantSource::Temporary => {
-				let Some(expires_at) = expires_at else {
+			GrantSource::Implicit => {
+				if self.implicit == Some(None) {
 					return false;
-				};
+				}
 				let time_to_touch = time_to_touch
 					.map(|value| i64::try_from(value.as_secs()).unwrap())
 					.unwrap_or_default();
-				if self.temporary.is_some_and(|current| {
-					current >= expires_at || expires_at.saturating_sub(current) < time_to_touch
-				}) {
-					false
-				} else {
-					self.temporary = Some(expires_at);
-					true
+				if let (Some(Some(current)), Some(expires_at)) = (self.implicit, expires_at)
+					&& (current >= expires_at || expires_at.saturating_sub(current) < time_to_touch)
+				{
+					return false;
 				}
+				self.implicit = Some(expires_at);
+				true
 			},
 			GrantSource::Materialized => {
 				if self.materialized == Some(expires_at) {
@@ -139,9 +144,9 @@ impl GrantValue {
 					true
 				}
 			},
-			GrantSource::Temporary => {
-				if self.temporary == expires_at {
-					self.temporary = None;
+			GrantSource::Implicit => {
+				if self.implicit == Some(expires_at) {
+					self.implicit = None;
 					true
 				} else {
 					false
@@ -163,7 +168,7 @@ impl GrantSource {
 	pub(crate) fn from_i32(value: i32) -> Option<Self> {
 		match value {
 			0 => Some(Self::Explicit),
-			1 => Some(Self::Temporary),
+			1 => Some(Self::Implicit),
 			2 => Some(Self::Materialized),
 			_ => None,
 		}
@@ -172,7 +177,7 @@ impl GrantSource {
 	pub(crate) fn to_i32(self) -> i32 {
 		match self {
 			Self::Explicit => 0,
-			Self::Temporary => 1,
+			Self::Implicit => 1,
 			Self::Materialized => 2,
 		}
 	}
@@ -185,10 +190,10 @@ impl GrantEntry {
 		if self.explicit {
 			output = Some(None);
 		}
-		if let Some(expires_at) = self.temporary {
+		if let Some(expires_at) = self.implicit {
 			output = Some(match output {
-				Some(output) => max_expires_at(output, Some(expires_at)),
-				None => Some(expires_at),
+				Some(output) => max_expires_at(output, expires_at),
+				None => expires_at,
 			});
 		}
 		if let Some(expires_at) = self.materialized {
@@ -202,15 +207,67 @@ impl GrantEntry {
 
 	pub(crate) fn has_non_materialized_cover(&self, expires_at: Option<i64>) -> bool {
 		self.explicit
-			|| self.temporary.is_some_and(|temporary| {
-				max_expires_at(Some(temporary), expires_at) == Some(temporary)
-			})
+			|| self
+				.implicit
+				.is_some_and(|implicit| max_expires_at(implicit, expires_at) == implicit)
 	}
+
+	pub(crate) fn is_process_implicit(&self) -> bool {
+		is_process_implicit(self.creator.as_ref(), self.implicit, &self.subject)
+	}
+}
+
+#[allow(clippy::option_option)]
+pub(crate) fn is_process_implicit(
+	creator: Option<&tangram_client::Principal>,
+	implicit: Option<Option<i64>>,
+	subject: &tangram_client::authorization::Subject,
+) -> bool {
+	implicit == Some(None)
+		&& matches!(
+			(creator, subject),
+			(
+				Some(tangram_client::Principal::Process(creator)),
+				tangram_client::authorization::Subject::Process(subject),
+			) if creator == subject
+		)
 }
 
 pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
 	match (left, right) {
 		(None, _) | (_, None) => None,
 		(Some(left), Some(right)) => Some(left.max(right)),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{GrantSource, GrantValue};
+
+	#[test]
+	fn grant_source_ids_are_alphabetical() {
+		for (id, source) in [
+			GrantSource::Explicit,
+			GrantSource::Implicit,
+			GrantSource::Materialized,
+		]
+		.into_iter()
+		.enumerate()
+		{
+			let id = i32::try_from(id).unwrap();
+			assert_eq!(source.to_i32(), id);
+			assert_eq!(GrantSource::from_i32(id), Some(source));
+		}
+	}
+
+	#[test]
+	fn implicit_grants_upgrade_to_non_expiring() {
+		let mut value = GrantValue::default();
+		assert!(value.put(GrantSource::Implicit, Some(10), None));
+		assert_eq!(value.implicit, Some(Some(10)));
+		assert!(value.put(GrantSource::Implicit, None, None));
+		assert_eq!(value.implicit, Some(None));
+		assert!(!value.put(GrantSource::Implicit, Some(20), None));
+		assert_eq!(value.implicit, Some(None));
 	}
 }

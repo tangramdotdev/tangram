@@ -173,12 +173,13 @@ impl Session {
 		let arg = tg::write::Arg::default();
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 		data.log = Some(tg::Referent::with_node(blob.clone()));
+		let touched_at = self.server.clock.unix_timestamp()?;
 
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutProcess(
-					tangram_index::process::put::Arg {
+				items: vec![
+					tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 						cached: false,
 						children: None,
 						command: data.command.clone().into(),
@@ -193,9 +194,21 @@ impl Session {
 						sandbox: Some(data.sandbox.clone()),
 						stored: indexed.stored,
 						time_to_touch: self.server.config.process.time_to_touch,
-						touched_at: self.server.clock.unix_timestamp()?,
-					},
-				)],
+						touched_at,
+					}),
+					tangram_index::batch::Item::PutGrant(tangram_index::grant::put::Arg {
+						created_at: touched_at,
+						creator: Some(tg::Principal::Process(process.clone())),
+						implicit: Some(None),
+						permissions: tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
+						)
+						.into(),
+						resource: tg::object::Id::from(blob.clone()).into(),
+						subject: tg::authorization::Subject::Process(process.clone()),
+						time_to_touch: None,
+					}),
+				],
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %process, "failed to update the process log"))?;

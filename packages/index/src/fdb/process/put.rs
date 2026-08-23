@@ -315,12 +315,21 @@ impl Index {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectProcess {
-				object,
+				object: object.clone(),
 				kind,
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
+
+			Self::enqueue_update_with_kind(
+				txn,
+				subspace,
+				&tg::Either::Left(object),
+				&crate::fdb::update::Kind::Grant(tg::authorization::Subject::Process(id.clone())),
+				crate::fdb::update::Source::Put,
+				partition_total,
+			);
 		}
 
 		let id_bytes = id.to_bytes();

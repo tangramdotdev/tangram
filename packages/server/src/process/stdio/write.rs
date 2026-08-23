@@ -200,7 +200,7 @@ impl Session {
 		match (stdin, output) {
 			(_, false) => {
 				let permission = tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Write,
+					tg::authorization::permission::process::Permission::Parent,
 				);
 				let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 				let authorized = self.authorize(resource, permission).await?;

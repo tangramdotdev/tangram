@@ -231,7 +231,7 @@ impl Session {
 		Ok(())
 	}
 
-	fn sync_get_create_temporary_grant(
+	fn sync_get_create_implicit_grant(
 		&self,
 		id: &tg::Id,
 	) -> tg::Result<Option<tangram_index::grant::put::Arg>> {
@@ -250,7 +250,7 @@ impl Session {
 		let arg = tangram_index::grant::put::Arg {
 			created_at,
 			creator: Some(self.context.principal.clone()),
-			expires_at: Some(expires_at),
+			implicit: Some(Some(expires_at)),
 			permissions,
 			resource: id.clone(),
 			subject,

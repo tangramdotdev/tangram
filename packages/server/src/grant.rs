@@ -323,7 +323,7 @@ impl Session {
 			tangram_index::grant::put::Arg {
 				created_at,
 				creator: output_creator.clone(),
-				expires_at: None,
+				implicit: None,
 				permissions,
 				subject: subject.clone(),
 				resource: resource.clone(),
@@ -452,7 +452,7 @@ impl Session {
 			batch.items.push(tangram_index::batch::Item::DeleteGrant(
 				tangram_index::grant::delete::Arg {
 					creator: Some(creator),
-					expires_at: None,
+					implicit: None,
 					permissions: deleted,
 					subject,
 					resource,
@@ -534,7 +534,7 @@ impl Session {
 				tg::authorization::permission::organization::Permission::Read,
 			)),
 			tg::id::Kind::Process => Ok(tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Read,
+				tg::authorization::permission::process::Permission::Node,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
 				tg::authorization::permission::sandbox::Permission::Read,
@@ -583,7 +583,7 @@ impl Session {
 				tg::authorization::permission::organization::Permission::Write,
 			)),
 			tg::id::Kind::Process => Ok(tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Write,
+				tg::authorization::permission::process::Permission::Parent,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
 				tg::authorization::permission::sandbox::Permission::Write,
@@ -663,7 +663,7 @@ impl Session {
 			batch.items.push(tangram_index::batch::Item::DeleteGrant(
 				tangram_index::grant::delete::Arg {
 					creator: Some(row.creator),
-					expires_at: None,
+					implicit: None,
 					permissions: row.permissions,
 					subject: row.subject,
 					resource: row.resource,

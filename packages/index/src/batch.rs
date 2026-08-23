@@ -134,7 +134,7 @@ mod tests {
 				Item::DeleteCheckout(tag.clone().into()),
 				Item::DeleteGrant(crate::grant::delete::Arg {
 					creator: Some(tg::Principal::Root),
-					expires_at: None,
+					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
@@ -149,7 +149,7 @@ mod tests {
 				Item::PutGrant(crate::grant::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
-					expires_at: None,
+					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),

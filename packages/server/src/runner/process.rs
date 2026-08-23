@@ -1106,7 +1106,7 @@ impl Session {
 		let put_grant = tangram_index::grant::put::Arg {
 			created_at: now,
 			creator: Some(tg::Principal::Process(id.clone())),
-			expires_at: Some(expires_at),
+			implicit: Some(Some(expires_at)),
 			permissions,
 			resource: command.id().into(),
 			subject,
