@@ -8,6 +8,8 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+mod grant;
+
 pub mod cancel;
 pub mod children;
 pub mod control;

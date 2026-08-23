@@ -168,24 +168,6 @@ impl Session {
 		}
 	}
 
-	pub(super) async fn spawn_process_authorize_command(
-		&self,
-		command: &tg::Referent<tg::command::Id>,
-	) -> tg::Result<()> {
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let command = command.clone().map(tg::object::Id::from);
-		if !self
-			.authorize(command, permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission))
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-		Ok(())
-	}
-
 	pub(super) async fn spawn_process_get_command_host(
 		&self,
 		command: &tg::Referent<tg::command::Id>,
@@ -402,21 +384,16 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let grant = tangram_index::grant::put::Arg {
-			created_at: now,
-			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(grant_expires_at)),
-			permissions: tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			)
-			.into(),
-			resource: tg::object::Id::from(command.node.clone()).into(),
-			subject: tg::authorization::Subject::Process(id.clone()),
-			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-		};
+		let command = command.clone().map(tg::object::Id::from);
+		let grants = self
+			.create_process_object_grant_args(&id, [command], now, Some(grant_expires_at))
+			.await?;
 		self.server
 			.index_batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutGrant(grant)],
+				items: grants
+					.into_iter()
+					.map(tangram_index::batch::Item::PutGrant)
+					.collect(),
 			})
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to grant the process command"))?;

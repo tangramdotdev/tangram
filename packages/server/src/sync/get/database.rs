@@ -622,6 +622,7 @@ impl Session {
 			graph,
 			objects.into_iter().map(tg::Id::from),
 			object_permissions,
+			object_permissions,
 		)
 		.await?;
 
@@ -642,6 +643,7 @@ impl Session {
 		self.sync_get_authorize(
 			graph,
 			processes.into_iter().map(tg::Id::from),
+			process_permissions,
 			process_permissions,
 		)
 		.await?;

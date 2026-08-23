@@ -462,7 +462,7 @@ impl Session {
 			lease: lease.clone(),
 			location: Some(location.clone().into()),
 			options,
-			parent,
+			parent: parent.clone(),
 		};
 		let connection =
 			Box::pin(session.try_get_process_control_stream_all(arg, control_responses))
@@ -595,7 +595,7 @@ impl Session {
 				)
 			})?;
 		if let Err(error) = session
-			.spawn_grant_process_command_task(&process, &id, &location)
+			.spawn_grant_process_command_task(&process, &id, &location, parent.as_ref())
 			.await
 		{
 			process_stopper.stop();
@@ -1084,6 +1084,7 @@ impl Session {
 		process: &tg::Process,
 		id: &tg::process::Id,
 		location: &tg::Location,
+		parent: Option<&tg::process::Id>,
 	) -> tg::Result<()> {
 		if !location.is_remote() {
 			return Ok(());
@@ -1093,28 +1094,44 @@ impl Session {
 			.command_with_handle(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
+		let command = command.to_referent();
+		let session = if let Some(parent) = parent {
+			let context = crate::Context {
+				principal: tg::Principal::Process(parent.clone()),
+				token: None,
+				..self.context.clone()
+			};
+			self.server.session(&context)
+		} else {
+			let arg = tg::push::Arg {
+				destination: Some(tg::Location::Local(tg::location::Local::default())),
+				eager: false,
+				nodes: vec![command.clone().map(Into::into)],
+				source: Some(location.clone()),
+				..Default::default()
+			};
+			self.push_for_process(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to pull the command node"))?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to pull the command node"))?;
+			self.clone()
+		};
 
 		let now = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 		let expires_at = now + time_to_live;
-		let subject = tg::authorization::Subject::Process(id.clone());
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let permissions = tg::authorization::permission::Set::from_permission(permission);
-		let put_grant = tangram_index::grant::put::Arg {
-			created_at: now,
-			creator: Some(tg::Principal::Process(id.clone())),
-			implicit: Some(Some(expires_at)),
-			permissions,
-			resource: command.id().into(),
-			subject,
-			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-		};
-
+		let command = command.map(tg::object::Id::from);
+		let grants = session
+			.create_process_object_grant_args(id, [command], now, Some(expires_at))
+			.await?;
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutGrant(put_grant)],
+			items: grants
+				.into_iter()
+				.map(tangram_index::batch::Item::PutGrant)
+				.collect(),
 		};
 		self.server
 			.index_batch(arg)

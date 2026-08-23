@@ -9,6 +9,7 @@ use {
 	tangram_index::prelude::*,
 };
 
+#[derive(Default)]
 pub(super) struct Authorization {
 	pub(super) command_grants_subtree: bool,
 	pub(super) error_grants_subtree: bool,
@@ -50,7 +51,7 @@ impl Session {
 		Self::validate_process_data(&arg.data)?;
 		let authorization = self.authorize_process_data(&arg.data).await?;
 		let output = self
-			.put_process_local_inner(id, arg, authorization, enqueue_log_compaction)
+			.put_process_local_inner(id, arg, authorization, Vec::new(), enqueue_log_compaction)
 			.await?;
 
 		Ok(output)
@@ -119,6 +120,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
 		authorization: Authorization,
+		process_object_grant_args: Vec<tangram_index::grant::put::Arg>,
 		enqueue_log_compaction: bool,
 	) -> tg::Result<tg::process::put::Output> {
 		let Authorization {
@@ -205,6 +207,7 @@ impl Session {
 				subject: process_subject.clone(),
 				time_to_touch: None,
 			})
+			.chain(process_object_grant_args)
 			.collect::<Vec<_>>();
 		let grant_expires_at = now
 			+ self

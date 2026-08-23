@@ -301,15 +301,22 @@ impl Session {
 		graph: &Arc<Mutex<Graph>>,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
-		let required = Self::sync_get_object_permissions();
-		self.sync_get_authorize(graph, ids.iter().cloned().map(tg::Id::from), required)
-			.await
-	}
-
-	fn sync_get_object_permissions() -> tg::authorization::permission::Set {
-		tg::authorization::permission::Set::from_permission(tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		))
+		let mut requested = tg::authorization::permission::object::Set::empty();
+		requested.insert(tg::authorization::permission::object::Set::NODE);
+		requested.insert(tg::authorization::permission::object::Set::SUBTREE);
+		let requested = tg::authorization::permission::Set::Object(requested);
+		let required = tg::authorization::permission::Set::from_permission(
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
+		);
+		self.sync_get_authorize(
+			graph,
+			ids.iter().cloned().map(tg::Id::from),
+			requested,
+			required,
+		)
+		.await
 	}
 
 	async fn sync_get_touch_authorized_processes(
@@ -361,8 +368,13 @@ impl Session {
 			return Ok(vec![None; ids.len()]);
 		};
 
-		self.sync_get_authorize(graph, ids.iter().cloned().map(tg::Id::from), required)
-			.await
+		self.sync_get_authorize(
+			graph,
+			ids.iter().cloned().map(tg::Id::from),
+			required,
+			required,
+		)
+		.await
 	}
 
 	fn sync_get_process_permissions(
@@ -411,6 +423,7 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		ids: impl IntoIterator<Item = tg::Id>,
+		requested: tg::authorization::permission::Set,
 		required: tg::authorization::permission::Set,
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
 		let ids = ids.into_iter().collect::<Vec<_>>();
@@ -424,16 +437,16 @@ impl Session {
 			for (position, id) in ids.iter().enumerate() {
 				let authorization = match id.kind() {
 					tg::id::Kind::Process => {
-						graph.get_process_local_authorization(&id.clone().try_into()?, required)
+						graph.get_process_local_authorization(&id.clone().try_into()?, requested)
 					},
-					_ => graph.get_object_local_authorization(&id.clone().try_into()?, required),
+					_ => graph.get_object_local_authorization(&id.clone().try_into()?, requested),
 				};
-				if authorization.permissions.contains(required) {
+				if authorization.permissions.contains(requested) {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
 				let resource = tg::Referent::with_node_and_token(id.clone(), authorization.token);
-				args.push((resource, required));
+				args.push((resource, requested));
 				positions.push(position);
 			}
 		}
@@ -465,9 +478,9 @@ impl Session {
 		for (position, id) in ids.iter().enumerate() {
 			let authorization = match id.kind() {
 				tg::id::Kind::Process => {
-					graph.get_process_local_authorization(&id.clone().try_into()?, required)
+					graph.get_process_local_authorization(&id.clone().try_into()?, requested)
 				},
-				_ => graph.get_object_local_authorization(&id.clone().try_into()?, required),
+				_ => graph.get_object_local_authorization(&id.clone().try_into()?, requested),
 			};
 			if authorization.permissions.contains(required) {
 				outputs[position] = Some(authorization.permissions);

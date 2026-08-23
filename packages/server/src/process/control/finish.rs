@@ -1,4 +1,7 @@
-use {crate::Session, tangram_client::prelude::*};
+use {
+	super::super::put::Authorization, crate::Session, std::collections::BTreeSet,
+	tangram_client::prelude::*,
+};
 
 impl Session {
 	pub(super) async fn finish_process_control_request(
@@ -6,26 +9,33 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
-		let mut data = arg.data;
+		let data = arg.data;
 		Self::validate_process_data(&data)?;
-		let mut authorization = self.authorize_process_data(&data).await?;
-		let authorization_error = if data.error.is_some() && !authorization.error_grants_subtree {
-			Some(tg::error!("failed to authorize the process error"))
-		} else if data.output.is_some() && !authorization.output_grants_subtree {
-			Some(tg::error!("failed to authorize the process output"))
-		} else {
-			None
-		};
-
-		// Fail the process without storing the unauthorized output.
-		if let Some(error) = &authorization_error {
-			data.actual_checksum = None;
-			data.cacheable = false;
-			data.error = Some(error.to_data_or_id().map_right(tg::Referent::with_node));
-			data.exit = Some(1);
-			data.output = None;
-			authorization = self.authorize_process_data(&data).await?;
+		let mut roots = vec![tg::Referent::with_node(tg::object::Id::from(
+			data.command.clone(),
+		))];
+		if let Some(error) = &data.error {
+			match error {
+				tg::Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					roots.extend(children.into_iter().map(tg::Referent::with_node));
+				},
+				tg::Either::Right(error) => {
+					roots.push(error.clone().map(tg::object::Id::Error));
+				},
+			}
 		}
+		if let Some(log) = &data.log {
+			roots.push(log.clone().map(tg::object::Id::from));
+		}
+		if let Some(output) = &data.output {
+			output.children_with_tokens(&mut roots);
+		}
+		let created_at = self.server.clock.unix_timestamp()?;
+		let process_object_grant_args = self
+			.create_process_object_grant_args(id, roots, created_at, None)
+			.await?;
 
 		self.put_process_local_inner(
 			id,
@@ -33,15 +43,13 @@ impl Session {
 				data,
 				location: None,
 			},
-			authorization,
+			Authorization::default(),
+			process_object_grant_args,
 			true,
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
 		self.spawn_process_finish_tasks(id);
-		if let Some(error) = authorization_error {
-			return Err(error);
-		}
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
 	}

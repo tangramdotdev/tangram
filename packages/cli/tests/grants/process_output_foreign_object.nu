@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A process cannot return an object it cannot read as its output.
+# A process can name an unreadable object as its output without gaining access to it.
 
 let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -21,15 +21,14 @@ let source = 'export default function () { return tg.File.withId("FILE_ID"); }' 
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
 let wait = tg --token $eve.token wait $eve_process | from json
-assert equal $wait.exit 1 "a process must fail when it cannot authorize its output."
-assert equal $wait.error.message "failed to authorize the process output"
-assert equal $wait.output? null
+assert equal $wait.exit 0 "a process may name an unreadable object as its output."
+assert equal ($wait.output.value | split row '?' | first) $file
 
-# The rejected object is not stored as the process output.
+# The relationship is stored on the process.
 let process = tg --token $eve.token get $eve_process | from json
-assert equal $process.output? null
+assert equal ($process.output.value | split row '?' | first) $file
 
-# Eve must not gain read access to Alice's private file by naming it as her process output.
+# Reading the output fails only when Eve requests the object.
 let leaked = tg --token $eve.token get $file | complete
 failure $leaked "Eve must not read Alice's private file after naming it as her process output."
 snapshot --normalize-ids $leaked.stderr '

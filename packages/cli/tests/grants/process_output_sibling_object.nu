@@ -1,8 +1,13 @@
 use ../../test.nu *
 
-# A child process cannot return a sibling's output when it received only the output's id as a string.
+# A child can name a sibling's output without gaining access to it.
 
-let server = spawn --config { advanced: { single_process: false } }
+let server = spawn --config {
+	advanced: { single_process: false },
+	authentication: { users: { providers: { insecure: true } } },
+}
+let alice = tg login --verbose --name alice | from json
+let eve = tg login --verbose --name eve | from json
 
 let path = artifact {
 	tangram.ts: '
@@ -19,13 +24,18 @@ let path = artifact {
 	'
 }
 
-let build = tg build --detach --verbose $path | from json
-let wait = tg wait $build.process | from json
-assert equal $wait.exit 1 "the parent must fail when its child returns an unauthorized output."
+let build = tg --token $alice.token build --detach --verbose $path | from json
+let wait = tg --token $alice.token wait $build.process | from json
+assert equal $wait.exit 0 "the parent may return the output it received from the consumer."
 
-# The consumer must fail while handling its finish request without storing the output.
-let consumer = tg process children $build.process | from json | get 1.process
-let wait = tg wait $consumer | from json
-assert equal $wait.exit 1
-assert equal $wait.error.message "failed to authorize the process output"
-assert equal $wait.output? null
+# Give Eve access only to the consumer process.
+let consumer = tg --token $alice.token process children $build.process | from json | get 1.process
+tg --token $alice.token grant $eve.user.id process_parent $consumer
+tg --token $alice.token index
+
+# Eve can read the consumer's return value, but not the object it merely named.
+let wait = tg --token $eve.token wait $consumer | from json
+assert equal $wait.exit 0
+let file = $wait.output.value | split row '?' | first
+let leaked = tg --token $eve.token get $file | complete
+failure $leaked "the consumer must not gain access to its sibling's output by naming its id."

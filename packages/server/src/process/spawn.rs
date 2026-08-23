@@ -298,11 +298,6 @@ impl Session {
 		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Authorize the command if a process may be created.
-		if arg.cached != Some(true) {
-			self.spawn_process_authorize_command(&command).await?;
-		}
-
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
 
