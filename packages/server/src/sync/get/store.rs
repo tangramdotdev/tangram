@@ -229,7 +229,7 @@ impl Session {
 	) -> tg::Result<()> {
 		// Deserialize all processes.
 		let count = nodes.len();
-		let batch: Vec<(
+		let mut batch: Vec<(
 			tg::process::Id,
 			tg::process::Data,
 			Option<tg::process::Metadata>,
@@ -243,6 +243,34 @@ impl Session {
 				Ok((node.id, data, node.metadata))
 			})
 			.collect::<tg::Result<_>>()?;
+
+		// Do not replace an existing compacted log and its metadata with an uncompacted copy.
+		let ids = batch
+			.iter()
+			.map(|(id, _, _)| id.clone())
+			.collect::<Vec<_>>();
+		let existing = self
+			.server
+			.index
+			.try_get_processes(&ids)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the existing processes"))?;
+		for ((_, data, metadata), existing) in std::iter::zip(&mut batch, existing) {
+			let Some(existing) = existing else {
+				continue;
+			};
+			if data.log.is_some() {
+				continue;
+			}
+			let Some(log) = existing.data.and_then(|data| data.log) else {
+				continue;
+			};
+			data.log = Some(log);
+			match metadata {
+				Some(metadata) => metadata.merge(&existing.metadata),
+				None => *metadata = Some(existing.metadata),
+			}
+		}
 
 		// Write the processes to the index.
 		let now = self.server.clock.unix_timestamp()?;

@@ -14,6 +14,7 @@ impl Session {
 		while let Some(message) = stream.next().await {
 			match message {
 				tg::sync::GetMessage::Node(message) => {
+					crate::checkpoint!(self.server, "sync.put.input.node").await;
 					tracing::trace!(selector = %message.selector, "received get node");
 					match message.selector {
 						tg::Selector::Id(id) => {

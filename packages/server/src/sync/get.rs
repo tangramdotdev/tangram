@@ -2,7 +2,10 @@ use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
 	futures::stream::BoxStream,
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::HashMap,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
@@ -20,7 +23,44 @@ struct State {
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
+	root_presence: Mutex<HashMap<tg::Id, tokio::sync::watch::Sender<Option<bool>>>>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
+}
+
+impl State {
+	fn set_root_presence(&self, id: &tg::Id, present: bool) {
+		if !self.graph.lock().unwrap().local_roots.contains(id) {
+			return;
+		}
+		let presence_sender = self
+			.root_presence
+			.lock()
+			.unwrap()
+			.entry(id.clone())
+			.or_insert_with(|| tokio::sync::watch::channel(None).0)
+			.clone();
+		presence_sender.send_replace(Some(present));
+	}
+
+	async fn wait_for_root_presence(&self, id: &tg::Id) -> bool {
+		let mut presence_receiver = self
+			.root_presence
+			.lock()
+			.unwrap()
+			.entry(id.clone())
+			.or_insert_with(|| tokio::sync::watch::channel(None).0)
+			.subscribe();
+		loop {
+			let present = *presence_receiver.borrow_and_update();
+			if let Some(present) = present {
+				return present;
+			}
+			presence_receiver
+				.changed()
+				.await
+				.expect("the root presence sender should remain open");
+		}
+	}
 }
 
 impl Session {
@@ -56,6 +96,7 @@ impl Session {
 			graph,
 			progress,
 			queue,
+			root_presence: Mutex::new(HashMap::new()),
 			sender,
 		});
 

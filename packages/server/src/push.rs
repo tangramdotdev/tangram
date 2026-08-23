@@ -16,12 +16,23 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+struct PushOrPullInnerArg<'a> {
+	arg: &'a tg::push::Arg,
+	destination: tg::Location,
+	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+	process: bool,
+	put: Vec<tg::Referent<tg::Id>>,
+	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
+	source: tg::Location,
+}
+
 struct PushOrPullTaskArg {
 	arg: tg::push::Arg,
 	destination: tg::Location,
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
+	put: Vec<tg::Referent<tg::Id>>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: tg::Location,
 }
@@ -43,7 +54,12 @@ impl Session {
 				region: None,
 			})
 		});
-		let stream = self.push_or_pull(&arg, source, destination).await?;
+		let put = if arg.eager {
+			arg.nodes.clone()
+		} else {
+			Vec::new()
+		};
+		let stream = self.push_or_pull(&arg, put, source, destination).await?;
 		Ok(stream)
 	}
 
@@ -72,6 +88,7 @@ impl Session {
 	pub(crate) async fn push_or_pull(
 		&self,
 		arg: &tg::push::Arg,
+		put: Vec<tg::Referent<tg::Id>>,
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
@@ -81,8 +98,16 @@ impl Session {
 			.cloned()
 			.map(|node| node.map(tg::Selector::Id))
 			.collect();
-		self.push_or_pull_inner(arg, false, get, None, source, destination)
-			.await
+		let inner_arg = PushOrPullInnerArg {
+			arg,
+			destination,
+			get,
+			process: false,
+			put,
+			received_specifiers: None,
+			source,
+		};
+		self.push_or_pull_inner(inner_arg).await
 	}
 
 	pub(crate) async fn push_or_pull_with_selectors(
@@ -96,16 +121,16 @@ impl Session {
 		Arc<Mutex<BTreeSet<tg::Specifier>>>,
 	)> {
 		let received_specifiers = Arc::new(Mutex::new(BTreeSet::new()));
-		let stream = self
-			.push_or_pull_inner(
-				arg,
-				false,
-				get,
-				Some(received_specifiers.clone()),
-				source,
-				destination,
-			)
-			.await?;
+		let inner_arg = PushOrPullInnerArg {
+			arg,
+			destination,
+			get,
+			process: false,
+			put: Vec::new(),
+			received_specifiers: Some(received_specifiers.clone()),
+			source,
+		};
+		let stream = self.push_or_pull_inner(inner_arg).await?;
 		let output = (stream, received_specifiers);
 
 		Ok(output)
@@ -123,19 +148,37 @@ impl Session {
 			.cloned()
 			.map(|node| node.map(tg::Selector::Id))
 			.collect();
-		self.push_or_pull_inner(arg, true, get, None, source, destination)
-			.await
+		let put = if arg.eager {
+			arg.nodes.clone()
+		} else {
+			Vec::new()
+		};
+		let inner_arg = PushOrPullInnerArg {
+			arg,
+			destination,
+			get,
+			process: true,
+			put,
+			received_specifiers: None,
+			source,
+		};
+		self.push_or_pull_inner(inner_arg).await
 	}
 
 	async fn push_or_pull_inner(
 		&self,
-		arg: &tg::push::Arg,
-		process: bool,
-		get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
-		received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
-		source: tg::Location,
-		destination: tg::Location,
+		inner_arg: PushOrPullInnerArg<'_>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+		let PushOrPullInnerArg {
+			arg,
+			destination,
+			get,
+			process,
+			put,
+			received_specifiers,
+			source,
+		} = inner_arg;
+
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
 		for name in [
@@ -189,6 +232,7 @@ impl Session {
 			let destination = destination.clone();
 			let get = get.clone();
 			let progress = progress.clone();
+			let put = put.clone();
 			let received_specifiers = received_specifiers.clone();
 			let arg = arg.clone();
 			let source = source.clone();
@@ -199,6 +243,7 @@ impl Session {
 					get,
 					process,
 					progress: progress.clone(),
+					put,
 					received_specifiers,
 					source: source.clone(),
 				};
@@ -373,6 +418,7 @@ impl Session {
 			get,
 			process,
 			progress,
+			put,
 			received_specifiers,
 			source,
 		} = task_arg;
@@ -389,6 +435,7 @@ impl Session {
 			let destination = destination.clone();
 			let get = get.clone();
 			let progress = progress.clone();
+			let put = put.clone();
 			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
 			let source = source.clone();
@@ -413,11 +460,13 @@ impl Session {
 				progress.set("bytes", 0);
 
 				// Create the channels.
-				let (push_output_sender, push_output_receiver) = tokio::sync::mpsc::channel(1024);
-				let (pull_output_sender, pull_output_receiver) = tokio::sync::mpsc::channel(1024);
+				let (destination_output_sender, destination_output_receiver) =
+					tokio::sync::mpsc::channel(1024);
+				let (source_output_sender, source_output_receiver) =
+					tokio::sync::mpsc::channel(1024);
 
-				// Start the push.
-				let push_arg = tg::sync::Arg {
+				// Create the source arg and input stream.
+				let source_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
 					force: arg.force,
@@ -431,27 +480,17 @@ impl Session {
 					process_errors: arg.process_errors,
 					process_logs: arg.process_logs,
 					process_outputs: arg.process_outputs,
-					put: Vec::new(),
+					put,
 					sandbox_processes: arg.sandbox_processes,
 					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
-				let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
-				let push_output_stream = if process {
-					session
-						.sync_for_process(push_arg, push_input_stream)
-						.await
-						.map(futures::StreamExt::boxed)
-				} else {
-					session
-						.sync(push_arg, push_input_stream)
-						.await
-						.map(futures::StreamExt::boxed)
-				}
-				.map_err(|error| tg::error!(!error, "failed to create the push stream"))?;
+				let source_input_stream = ReceiverStream::new(destination_output_receiver)
+					.map(Ok)
+					.boxed();
 
-				// Start the pull.
-				let pull_arg = tg::sync::Arg {
+				// Create the destination arg and input stream.
+				let destination_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
 					force: arg.force,
@@ -470,24 +509,25 @@ impl Session {
 					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
-				let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
-				let pull_output_stream = if process {
-					session
-						.sync_for_process(pull_arg, pull_input_stream)
-						.await
-						.map(futures::StreamExt::boxed)
-				} else {
-					session
-						.sync(pull_arg, pull_input_stream)
-						.await
-						.map(futures::StreamExt::boxed)
-				}
-				.map_err(|error| tg::error!(!error, "failed to create the pull stream"))?;
+				let destination_input_stream =
+					ReceiverStream::new(source_output_receiver).map(Ok).boxed();
 
-				// Create the push future.
-				let push_future = async {
-					let mut push_output_stream = pin!(push_output_stream);
-					while let Some(message) = push_output_stream.try_next().await? {
+				// Create the source future.
+				let source_future = async {
+					let source_output_stream = if process {
+						session
+							.sync_for_process(source_arg, source_input_stream)
+							.await
+							.map(futures::StreamExt::boxed)
+					} else {
+						session
+							.sync(source_arg, source_input_stream)
+							.await
+							.map(futures::StreamExt::boxed)
+					}
+					.map_err(|error| tg::error!(!error, "failed to create the source stream"))?;
+					let mut source_output_stream = pin!(source_output_stream);
+					while let Some(message) = source_output_stream.try_next().await? {
 						match message {
 							tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
 								Self::push_or_pull_increment_progress(&progress, &message);
@@ -501,7 +541,7 @@ impl Session {
 									&message,
 									received_specifiers.as_ref(),
 								);
-								push_output_sender
+								source_output_sender
 									.send(message.clone())
 									.await
 									.map_err(|_| tg::error!("failed to send the message"))?;
@@ -511,10 +551,24 @@ impl Session {
 					Ok(false)
 				};
 
-				// Create the pull future.
-				let pull_future = async {
-					let mut pull_output_stream = pin!(pull_output_stream);
-					while let Some(message) = pull_output_stream.try_next().await? {
+				// Create the destination future.
+				let destination_future = async {
+					let destination_output_stream = if process {
+						session
+							.sync_for_process(destination_arg, destination_input_stream)
+							.await
+							.map(futures::StreamExt::boxed)
+					} else {
+						session
+							.sync(destination_arg, destination_input_stream)
+							.await
+							.map(futures::StreamExt::boxed)
+					}
+					.map_err(|error| {
+						tg::error!(!error, "failed to create the destination stream")
+					})?;
+					let mut destination_output_stream = pin!(destination_output_stream);
+					while let Some(message) = destination_output_stream.try_next().await? {
 						match message {
 							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
 								Self::push_or_pull_increment_progress(&progress, &message);
@@ -524,7 +578,7 @@ impl Session {
 								return Ok::<_, tg::Error>(true);
 							},
 							_ => {
-								pull_output_sender
+								destination_output_sender
 									.send(message.clone())
 									.await
 									.map_err(|_| tg::error!("failed to send the message"))?;
@@ -534,17 +588,17 @@ impl Session {
 					Ok(false)
 				};
 
-				let (push_completed, pull_completed) =
-					future::try_join(push_future, pull_future).await?;
+				let (source_completed, destination_completed) =
+					future::try_join(source_future, destination_future).await?;
 
-				if push_completed && pull_completed {
+				if source_completed && destination_completed {
 					let mut output = output.lock().unwrap().clone();
 					output.nodes = session.create_sync_output_nodes(&arg)?;
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
-						push_completed = %push_completed,
-						pull_completed = %pull_completed,
+						destination_completed = %destination_completed,
+						source_completed = %source_completed,
 						"sync ended before receiving all end messages"
 					)))
 				}

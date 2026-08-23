@@ -52,6 +52,11 @@ let secondary_watch = (
 	| from json
 	| get watch
 )
+let primary_response_watch = (
+	tg --url $primary.url checkpoint watch sync.request.response
+	| from json
+	| get watch
+)
 let primary_watch = (
 	tg --url $primary.url checkpoint watch sync.get.input.node.ancestor --params ({ id: $tag.id } | to json)
 	| from json
@@ -68,9 +73,12 @@ tg --url $source.url checkpoint unwatch sync.put.database.node.send $source_watc
 tg --url $secondary.url checkpoint wait sync.get.input.node.ancestor $secondary_watch 0 | ignore
 tg --url $secondary.url checkpoint continue sync.get.input.node.ancestor $secondary_watch 0
 tg --url $secondary.url checkpoint unwatch sync.get.input.node.ancestor $secondary_watch
+tg --url $primary.url checkpoint wait sync.request.response $primary_response_watch 0 | ignore
 tg --url $primary.url checkpoint wait sync.get.input.node.ancestor $primary_watch 0 | ignore
 tg --url $primary.url checkpoint continue sync.get.input.node.ancestor $primary_watch 0
 tg --url $primary.url checkpoint unwatch sync.get.input.node.ancestor $primary_watch
+tg --url $primary.url checkpoint continue sync.request.response $primary_response_watch 0
+tg --url $primary.url checkpoint unwatch sync.request.response $primary_response_watch
 success (job recv --tag $pull)
 
 # The primary region records the tag and its permissions from the secondary region's token.

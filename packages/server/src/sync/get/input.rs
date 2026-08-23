@@ -53,6 +53,15 @@ impl Session {
 						));
 					}
 
+					// Wait for the local availability check of a speculative root.
+					let id = tg::Id::from(message.id.clone());
+					let local_root = state.graph.lock().unwrap().local_roots.contains(&id);
+					let present = if local_root {
+						Some(state.wait_for_root_presence(&id).await)
+					} else {
+						None
+					};
+
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();
 					let arg = UpdateObjectLocalArg {
@@ -78,7 +87,7 @@ impl Session {
 						.get_object_requested(&message.id)
 						.is_none_or(|requested| requested.eager);
 
-					if eager {
+					if present != Some(true) && eager {
 						// Send to the index task.
 						let node = super::index::ObjectNode {
 							id: message.id.clone(),
@@ -87,7 +96,7 @@ impl Session {
 						index_object_sender.send(node).await.map_err(|_| {
 							tg::error!("failed to send the object to the index task")
 						})?;
-					} else {
+					} else if present != Some(true) {
 						// Enqueue the children.
 						Self::sync_get_enqueue_object_children(
 							state,
@@ -116,12 +125,30 @@ impl Session {
 				},
 
 				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Process(message)) => {
-					let eager = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_process_requested(&message.id)
-						.is_none_or(|requested| requested.eager);
+					crate::checkpoint!(self.server, "sync.get.input.process", id = %message.id)
+						.await;
+
+					// Wait for the local availability check of a speculative root.
+					let id = tg::Id::from(message.id.clone());
+					let local_root = state.graph.lock().unwrap().local_roots.contains(&id);
+					let present = if local_root {
+						Some(state.wait_for_root_presence(&id).await)
+					} else {
+						None
+					};
+					let (eager, requested) = {
+						let graph = state.graph.lock().unwrap();
+						let requested = graph.get_process_requested(&message.id);
+						let eager = requested.as_ref().map_or(
+							!graph.local_roots.contains(&id) || state.arg.eager,
+							|requested| requested.eager,
+						);
+
+						(eager, requested.is_some())
+					};
+					if present == Some(true) && !requested {
+						continue;
+					}
 					let data: tg::process::Data = serde_json::from_slice(&message.bytes)
 						.map_err(|error| tg::error!(!error, "failed to deserialize the process"))?;
 					let data = data.without_location_and_tokens();

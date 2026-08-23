@@ -18,7 +18,7 @@ let output = tg push $id | complete
 failure $output
 snapshot --normalize --redact [$id $remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
-	-> failed to create the pull stream
+	-> failed to create the destination stream
 	-> failed to sync
 	   remote = default
 	-> failed to send the request

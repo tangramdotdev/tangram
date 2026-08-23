@@ -39,7 +39,9 @@ impl Session {
 			.clone()
 			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let arg: tg::push::Arg = arg.clone().into();
-		let stream = self.push_or_pull(&arg, source, destination).await?;
+		let stream = self
+			.push_or_pull(&arg, Vec::new(), source, destination)
+			.await?;
 		Ok(stream.boxed())
 	}
 

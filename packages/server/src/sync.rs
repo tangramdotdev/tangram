@@ -354,6 +354,7 @@ impl Session {
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
+		crate::checkpoint!(self.server, "sync.request.response").await;
 
 		// Validate the accept header.
 		let sync_content_type: mime::Mime = tg::sync::CONTENT_TYPE.parse().unwrap();

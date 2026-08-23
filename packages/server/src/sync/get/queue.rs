@@ -179,6 +179,7 @@ impl Session {
 							false
 						}
 					};
+					state.set_root_presence(&node.id.clone().into(), false);
 					if requested {
 						continue;
 					}
@@ -269,6 +270,7 @@ impl Session {
 						// Increment the progress.
 						state.progress.increment_skipped(0, 1, metadata.node.size);
 					}
+					state.set_root_presence(&node.id.clone().into(), true);
 				},
 			}
 		}
@@ -340,6 +342,7 @@ impl Session {
 							false
 						}
 					};
+					state.set_root_presence(&node.id.clone().into(), false);
 					if requested {
 						continue;
 					}
@@ -442,6 +445,7 @@ impl Session {
 							tg::error!(!error, "failed to send the stored message")
 						})?;
 					}
+					state.set_root_presence(&node.id.clone().into(), true);
 				},
 			}
 		}
