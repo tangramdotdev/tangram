@@ -55,6 +55,7 @@ struct ProcessTaskArg {
 
 struct FinishProcessTaskArg {
 	buffered_task: Task<tg::Result<()>>,
+	command: CommandFuture,
 	control_task: Task<tg::Result<()>>,
 	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
 	id: tg::process::Id,
@@ -182,6 +183,24 @@ impl Session {
 			token: inner_token,
 		} = process;
 		let mut state = tg::process::State::try_from_data(data)?;
+		let mut command_options = options.clone();
+		let local = command_options
+			.tokens
+			.local()
+			.is_some_and(|token| self.verify_local_token(token));
+		if local {
+			command_options.location = Some(tg::Location::Local(tg::location::Local::default()));
+		} else {
+			self.update_referent_options_for_location(&mut command_options, &location)?;
+		}
+		state
+			.command
+			.state()
+			.inherit_location(command_options.location.as_ref());
+		state
+			.command
+			.state()
+			.inherit_tokens(&command_options.tokens);
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let (control_sender, control_responses) = tokio::sync::mpsc::channel(512);
@@ -595,7 +614,13 @@ impl Session {
 				)
 			})?;
 		if let Err(error) = session
-			.spawn_grant_process_command_task(&process, &id, &location, parent.as_ref())
+			.spawn_grant_process_command_task(
+				command.clone(),
+				state.command.to_referent(),
+				&id,
+				&location,
+				parent.as_ref(),
+			)
 			.await
 		{
 			process_stopper.stop();
@@ -757,6 +782,7 @@ impl Session {
 		});
 		let arg = FinishProcessTaskArg {
 			buffered_task,
+			command,
 			control_task,
 			finish_sender,
 			id,
@@ -774,6 +800,7 @@ impl Session {
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
 		let FinishProcessTaskArg {
 			buffered_task,
+			command,
 			control_task,
 			finish_sender,
 			id,
@@ -901,9 +928,10 @@ impl Session {
 				.load_with_handle(session)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to load the process"))?;
+			let command = command.await?;
 			session
-				.write_progress_stream(
-					&state.command,
+				.write_progress_stream_with_command_data(
+					&command,
 					progress_sender.clone(),
 					&state.stderr,
 					stream,
@@ -1081,7 +1109,8 @@ impl Session {
 
 	async fn spawn_grant_process_command_task(
 		&self,
-		process: &tg::Process,
+		command_data: CommandFuture,
+		command: tg::Referent<tg::command::Id>,
 		id: &tg::process::Id,
 		location: &tg::Location,
 		parent: Option<&tg::process::Id>,
@@ -1090,51 +1119,47 @@ impl Session {
 			return Ok(());
 		}
 
-		let command = process
-			.command_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
-		let command = command.to_referent();
-		let session = if let Some(parent) = parent {
+		let now = self.server.clock.unix_timestamp()?;
+		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = now + time_to_live;
+		let index_arg = if let Some(parent) = parent {
 			let context = crate::Context {
 				principal: tg::Principal::Process(parent.clone()),
 				token: None,
 				..self.context.clone()
 			};
-			self.server.session(&context)
+			let session = self.server.session(&context);
+			let command = command.map(tg::object::Id::from);
+			let grant_arg = session
+				.create_process_object_grant_arg(id, [command], now, Some(expires_at))
+				.await?;
+			tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutProcessObjectGrants(
+					grant_arg,
+				)],
+			}
 		} else {
-			let arg = tg::push::Arg {
-				destination: Some(tg::Location::Local(tg::location::Local::default())),
-				eager: false,
-				nodes: vec![command.clone().map(Into::into)],
-				source: Some(location.clone()),
-				..Default::default()
+			// A successful direct read proves node permission on the command.
+			command_data.await?;
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			);
+			let grant_arg = tangram_index::grant::put::Arg {
+				created_at: now,
+				creator: Some(self.context.principal.clone()),
+				implicit: Some(Some(expires_at)),
+				permissions: permission.into(),
+				resource: command.node.into(),
+				subject: tg::authorization::Subject::Process(id.clone()),
+				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			};
-			self.push_for_process(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to pull the command node"))?
-				.try_last()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to pull the command node"))?;
-			self.clone()
-		};
-
-		let now = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
-		let expires_at = now + time_to_live;
-		let command = command.map(tg::object::Id::from);
-		let grants = session
-			.create_process_object_grant_args(id, [command], now, Some(expires_at))
-			.await?;
-		let arg = tangram_index::batch::Arg {
-			items: grants
-				.into_iter()
-				.map(tangram_index::batch::Item::PutGrant)
-				.collect(),
+			tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutGrant(grant_arg)],
+			}
 		};
 		self.server
-			.index_batch(arg)
+			.index_batch(index_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to index the process command grant"))?;
 

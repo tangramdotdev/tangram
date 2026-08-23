@@ -9,12 +9,16 @@ use {
 	tangram_index::prelude::*,
 };
 
-#[derive(Default)]
 pub(super) struct Authorization {
 	pub(super) command_grants_subtree: bool,
 	pub(super) error_grants_subtree: bool,
 	pub(super) log_grants_subtree: bool,
 	pub(super) output_grants_subtree: bool,
+}
+
+pub(super) enum ObjectGrants {
+	Authorized(Authorization),
+	Discover(tangram_index::process::object::grant::Arg),
 }
 
 impl Session {
@@ -51,7 +55,12 @@ impl Session {
 		Self::validate_process_data(&arg.data)?;
 		let authorization = self.authorize_process_data(&arg.data).await?;
 		let output = self
-			.put_process_local_inner(id, arg, authorization, Vec::new(), enqueue_log_compaction)
+			.put_process_local_inner(
+				id,
+				arg,
+				ObjectGrants::Authorized(authorization),
+				enqueue_log_compaction,
+			)
 			.await?;
 
 		Ok(output)
@@ -119,16 +128,9 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
-		authorization: Authorization,
-		process_object_grant_args: Vec<tangram_index::grant::put::Arg>,
+		object_grants: ObjectGrants,
 		enqueue_log_compaction: bool,
 	) -> tg::Result<tg::process::put::Output> {
-		let Authorization {
-			command_grants_subtree,
-			error_grants_subtree,
-			log_grants_subtree,
-			output_grants_subtree,
-		} = authorization;
 		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
@@ -160,19 +162,52 @@ impl Session {
 		let log: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
-		let mut implicit_grant_objects = BTreeSet::new();
-		if command_grants_subtree {
-			implicit_grant_objects.insert(tg::object::Id::from(arg.data.command.clone()));
-		}
-		if error_grants_subtree && let Some(error) = &error {
-			implicit_grant_objects.extend(error.iter().cloned());
-		}
-		if log_grants_subtree && let Some(Some(log)) = &log {
-			implicit_grant_objects.insert(log.clone());
-		}
-		if output_grants_subtree && let Some(output) = &output {
-			implicit_grant_objects.extend(output.iter().cloned());
-		}
+		let put_object_grants = match object_grants {
+			ObjectGrants::Authorized(authorization) => {
+				let Authorization {
+					command_grants_subtree,
+					error_grants_subtree,
+					log_grants_subtree,
+					output_grants_subtree,
+				} = authorization;
+				let mut objects = BTreeSet::new();
+				if command_grants_subtree {
+					objects.insert(tg::object::Id::from(arg.data.command.clone()));
+				}
+				if error_grants_subtree && let Some(error) = &error {
+					objects.extend(error.iter().cloned());
+				}
+				if log_grants_subtree && let Some(Some(log)) = &log {
+					objects.insert(log.clone());
+				}
+				if output_grants_subtree && let Some(output) = &output {
+					objects.extend(output.iter().cloned());
+				}
+				let creator = tg::Principal::Process(id.clone());
+				let permissions = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)
+				.into();
+				let subject = tg::authorization::Subject::Process(id.clone());
+				objects
+					.into_iter()
+					.map(|resource| {
+						tangram_index::batch::Item::PutGrant(tangram_index::grant::put::Arg {
+							created_at: now,
+							creator: Some(creator.clone()),
+							implicit: Some(None),
+							permissions,
+							resource: resource.into(),
+							subject: subject.clone(),
+							time_to_touch: None,
+						})
+					})
+					.collect::<Vec<_>>()
+			},
+			ObjectGrants::Discover(arg) => {
+				vec![tangram_index::batch::Item::PutProcessObjectGrants(arg)]
+			},
+		};
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
@@ -190,25 +225,6 @@ impl Session {
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let process_creator = tg::Principal::Process(id.clone());
-		let process_subject = tg::authorization::Subject::Process(id.clone());
-		let process_permissions = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		)
-		.into();
-		let put_implicit_grants = implicit_grant_objects
-			.into_iter()
-			.map(|resource| tangram_index::grant::put::Arg {
-				created_at: now,
-				creator: Some(process_creator.clone()),
-				implicit: Some(None),
-				permissions: process_permissions,
-				resource: resource.into(),
-				subject: process_subject.clone(),
-				time_to_touch: None,
-			})
-			.chain(process_object_grant_args)
-			.collect::<Vec<_>>();
 		let grant_expires_at = now
 			+ self
 				.server
@@ -242,11 +258,7 @@ impl Session {
 			.index
 			.batch(tangram_index::batch::Arg {
 				items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
-					.chain(
-						put_implicit_grants
-							.into_iter()
-							.map(tangram_index::batch::Item::PutGrant),
-					)
+					.chain(put_object_grants)
 					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
 					.chain(
 						enqueue_log_compaction

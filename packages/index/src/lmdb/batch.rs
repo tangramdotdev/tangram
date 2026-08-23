@@ -19,6 +19,7 @@ impl Index {
 	}
 
 	pub(crate) fn batch_with_transaction(
+		authorize: crate::lmdb::AuthorizeConfig,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -186,6 +187,15 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
+					)?;
+				},
+				crate::batch::Item::PutProcessObjectGrants(arg) => {
+					Self::put_process_object_grants_with_transaction(
+						authorize,
+						db,
+						subspace,
+						transaction,
+						arg,
 					)?;
 				},
 				crate::batch::Item::PutSandbox(arg) => {

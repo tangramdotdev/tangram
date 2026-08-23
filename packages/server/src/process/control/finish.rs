@@ -1,5 +1,5 @@
 use {
-	super::super::put::Authorization, crate::Session, std::collections::BTreeSet,
+	super::super::put::ObjectGrants, crate::Session, std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
 
@@ -33,8 +33,8 @@ impl Session {
 			output.children_with_tokens(&mut roots);
 		}
 		let created_at = self.server.clock.unix_timestamp()?;
-		let process_object_grant_args = self
-			.create_process_object_grant_args(id, roots, created_at, None)
+		let process_object_grant_arg = self
+			.create_process_object_grant_arg(id, roots, created_at, None)
 			.await?;
 
 		self.put_process_local_inner(
@@ -43,8 +43,7 @@ impl Session {
 				data,
 				location: None,
 			},
-			Authorization::default(),
-			process_object_grant_args,
+			ObjectGrants::Discover(process_object_grant_arg),
 			true,
 		)
 		.await

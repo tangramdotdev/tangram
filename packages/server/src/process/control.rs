@@ -144,20 +144,6 @@ impl Session {
 		let data = arg.data;
 		let lease = arg.lease;
 		let mut options = arg.options;
-		let process_object_grant_args = if let Some(data) = &data {
-			let created_at = self.server.clock.unix_timestamp()?;
-			let time_to_live = i64::try_from(
-				self.server.config.object.grant_time_to_live.as_secs(),
-			)
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
-			let expires_at = created_at + time_to_live;
-			let command =
-				tg::Referent::new(tg::object::Id::from(data.command.clone()), options.clone());
-			self.create_process_object_grant_args(&id, [command], created_at, Some(expires_at))
-				.await?
-		} else {
-			Vec::new()
-		};
 		options.tokens.clear();
 		let parent = arg.parent;
 		let (sender, receiver) = tokio::sync::mpsc::channel(512);
@@ -344,11 +330,6 @@ impl Session {
 						touched_at,
 					},
 				))
-				.chain(
-					process_object_grant_args
-						.into_iter()
-						.map(tangram_index::batch::Item::PutGrant),
-				)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(
 						tangram_index::usage::storage::put::ProcessArg {

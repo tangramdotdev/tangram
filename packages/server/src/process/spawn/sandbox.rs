@@ -17,7 +17,7 @@ impl Session {
 		match &arg.sandbox {
 			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
 				let ready_event = self
-					.spawn_process_in_new_sandbox(process, &arg.command.options)
+					.spawn_process_in_new_sandbox(process)
 					.await?
 					.ok_or_else(|| tg::error!("expected the sandbox to be ready"))?;
 				let connected_event = ready_event
@@ -32,8 +32,7 @@ impl Session {
 				let sandbox = process.data.sandbox.clone();
 				let mut sandbox_connection_future =
 					self.subscribe_sandbox_connection(&sandbox).await?;
-				self.spawn_process_in_new_sandbox(process, &arg.command.options)
-					.await?;
+				self.spawn_process_in_new_sandbox(process).await?;
 				if let Some(sender) = scheduler_sender.take() {
 					let scheduler = process
 						.scheduler
@@ -70,9 +69,7 @@ impl Session {
 				process.lease = Some(connected.lease);
 			},
 			Some(tg::Either::Right(_)) => {
-				let connected_event = self
-					.spawn_process_in_existing_sandbox(process, &arg.command.options)
-					.await?;
+				let connected_event = self.spawn_process_in_existing_sandbox(process).await?;
 				Self::spawn_process_apply_connected(process, connected_event)?;
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
@@ -150,13 +147,9 @@ impl Session {
 		Ok(())
 	}
 
-	fn spawn_process_runner_arg(
-		output: &Output,
-		child_options: &tg::referent::Options,
-	) -> tg::runner::control::Process {
+	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
 		let id = output.process_token.as_ref().map(|_| output.id.clone());
-		let mut options = child_options.clone();
-		options.tokens.clear();
+		let options = output.command_options.clone();
 		let parent = output.parent.clone();
 		let token = output.process_token.clone();
 		tg::runner::control::Process {
@@ -171,9 +164,8 @@ impl Session {
 	async fn spawn_process_in_existing_sandbox(
 		&self,
 		output: &Output,
-		child_options: &tg::referent::Options,
 	) -> tg::Result<crate::runner::process::ConnectedEvent> {
-		let process = Self::spawn_process_runner_arg(output, child_options);
+		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
 		let assigned = process.id.is_some();
 		let sandbox = output.data.sandbox.clone();
@@ -216,13 +208,12 @@ impl Session {
 	async fn spawn_process_in_new_sandbox(
 		&self,
 		output: &mut Output,
-		child_options: &tg::referent::Options,
 	) -> tg::Result<Option<crate::runner::sandbox::ReadyEvent>> {
 		let arg = output
 			.sandbox_arg
 			.clone()
 			.ok_or_else(|| tg::error!("missing the sandbox arg"))?;
-		let process = Self::spawn_process_runner_arg(output, child_options);
+		let process = Self::spawn_process_runner_arg(output);
 		if let Some(allocation) = output.allocation.take() {
 			let location = self.server.location(arg.location.as_ref())?;
 			let id = output

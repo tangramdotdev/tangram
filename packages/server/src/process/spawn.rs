@@ -300,6 +300,7 @@ impl Session {
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
+		let grant_command = cache_location.is_none_or(|location| !location.is_remote());
 
 		// Authorize the sandbox owner.
 		self.spawn_process_authorize_sandbox_owner(&arg).await?;
@@ -311,6 +312,7 @@ impl Session {
 				&command,
 				parent_sandbox.as_ref(),
 				cacheable,
+				grant_command,
 			)
 			.boxed()
 			.await?;

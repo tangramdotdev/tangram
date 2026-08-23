@@ -43,11 +43,42 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
+		self.authorize_batch_inner(args, None).await
+	}
+
+	pub(crate) async fn authorize_batch_with_required<R, I>(
+		&self,
+		args: I,
+		required: tg::authorization::permission::Set,
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
+	{
+		self.authorize_batch_inner(args, Some(required)).await
+	}
+
+	async fn authorize_batch_inner<R, I>(
+		&self,
+		args: I,
+		required: Option<tg::authorization::permission::Set>,
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
+	{
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();
+		let mut index_required = Vec::new();
 
 		for (position, (resource, permissions)) in args.into_iter().enumerate() {
+			let required = required.unwrap_or(permissions);
+			if !permissions.contains(required) {
+				return Err(tg::error!(
+					"the required permissions must be contained in the requested permissions"
+				));
+			}
 			let (resource, token) = resource.into_authorization_resource();
 			let token = if let Some(token) = token {
 				// Authorize an exact token if there is one.
@@ -84,6 +115,7 @@ impl Session {
 
 			outputs.push(None);
 			index_positions.push(position);
+			index_required.push(required);
 			index_args.push(tangram_index::authorize::Arg {
 				permissions,
 				resource,
@@ -97,12 +129,13 @@ impl Session {
 			.index
 			.authorize_batch(&index_args, &self.context.principal)
 			.await?;
-		// Refresh the index unless every requested permission was already granted.
-		let needs_index = std::iter::zip(&index_args, &index_outputs).any(|(arg, output)| {
-			output
-				.as_ref()
-				.is_none_or(|output| !output.permissions.contains(arg.permissions))
-		});
+		// Refresh the index unless every required permission was already granted.
+		let needs_index =
+			std::iter::zip(&index_outputs, &index_required).any(|(output, required)| {
+				output
+					.as_ref()
+					.is_none_or(|output| !output.permissions.contains(*required))
+			});
 		for (position, output) in std::iter::zip(&index_positions, index_outputs) {
 			if let Some(output) = output {
 				outputs[*position] = Some(output.permissions);
@@ -169,6 +202,15 @@ impl Session {
 		permissions
 			.iter()
 			.all(|permission| token.body.grants(permission))
+	}
+
+	pub(crate) fn verify_local_token(&self, token: &tg::authorization::Token) -> bool {
+		self.server
+			.authorization_tokens
+			.private_key
+			.as_ref()
+			.is_some_and(|private_key| private_key.name == token.metadata.key)
+			&& self.verify_token(token)
 	}
 
 	pub(crate) fn verify_token(&self, token: &tg::authorization::Token) -> bool {
