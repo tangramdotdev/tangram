@@ -236,8 +236,8 @@ impl Session {
 
 			Variant::File(file) => {
 				let contents = match &file.contents {
-					Some(Contents::Write(output)) => output.id.clone(),
 					Some(Contents::Id { id, .. }) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				let dependencies = file
@@ -327,7 +327,7 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.stored = tangram_index::object::Stored { subtree: stored };
+		node.storage = tangram_index::object::Storage { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		node.id.replace(id.clone());
@@ -502,8 +502,8 @@ impl Session {
 			},
 			Variant::File(file) => {
 				let contents = match &file.contents {
-					Some(Contents::Write(output)) => output.id.clone(),
 					Some(Contents::Id { id, .. }) => id.clone(),
+					Some(Contents::Write(output)) => output.id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
 				// Apply path options to dependencies using the paths map.
@@ -658,7 +658,7 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.stored = tangram_index::object::Stored { subtree: stored };
+		node.storage = tangram_index::object::Storage { subtree: stored };
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -685,7 +685,7 @@ impl Session {
 			if let Some(nodes) = graph.ids.get(id) {
 				if let Some(index) = nodes.first() {
 					let node = graph.nodes.get(index).unwrap();
-					(node.stored.subtree, node.metadata.clone())
+					(node.storage.subtree, node.metadata.clone())
 				} else {
 					(false, None)
 				}
@@ -695,14 +695,14 @@ impl Session {
 						let node = graph.nodes.get(&index)?;
 						let file = node.variant.try_unwrap_file_ref().ok()?;
 						file.contents.as_ref().and_then(|contents| match contents {
+							Contents::Id {
+								id: id_,
+								metadata,
+								storage,
+							} if id_ == id => Some((storage.subtree, metadata.clone())),
 							Contents::Write(output) if &output.id == id => {
 								Some((true, Some(output.metadata.clone())))
 							},
-							Contents::Id {
-								id: id_,
-								stored,
-								metadata,
-							} if id_ == id => Some((stored.subtree, metadata.clone())),
 							_ => None,
 						})
 					})
@@ -795,7 +795,7 @@ impl Session {
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
-			stored: tangram_index::object::Stored { subtree: stored },
+			storage: tangram_index::object::Storage { subtree: stored },
 			time_to_touch,
 			touched_at,
 		};
@@ -936,7 +936,7 @@ impl Session {
 			children,
 			id: id.clone(),
 			metadata: node.metadata.clone().unwrap_or_default(),
-			stored: node.stored.clone(),
+			storage: node.storage.clone(),
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
@@ -964,8 +964,8 @@ impl Session {
 		let data = match &node.variant {
 			Variant::File(file) => {
 				let contents = match &file.contents {
-					Some(Contents::Write(output)) => Some(output.id.clone()),
 					Some(Contents::Id { id, .. }) => Some(id.clone()),
+					Some(Contents::Write(output)) => Some(output.id.clone()),
 					None => None,
 				};
 				let dependencies = file
@@ -1360,7 +1360,7 @@ impl Session {
 			children: children_ids,
 			id: id.clone(),
 			metadata,
-			stored: tangram_index::object::Stored { subtree: true },
+			storage: tangram_index::object::Storage { subtree: true },
 			time_to_touch,
 			touched_at,
 		};

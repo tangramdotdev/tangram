@@ -42,37 +42,39 @@ impl Session {
 					}
 				},
 
-				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(message)) => {
-					tracing::trace!(id = %message.id, "received stored object");
+				tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(message)) => {
+					tracing::trace!(id = %message.id, "received available object");
 					state.graph.lock().unwrap().update_object_remote(
 						false,
 						&message.id,
 						None,
 						None,
-						Some(&tangram_index::object::Stored { subtree: true }),
+						Some(&tg::object::Availability { subtree: true }),
 					);
 					state.queue.close_if_end();
 				},
 
-				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
-					tracing::trace!(id = %message.id, "received stored process");
+				tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Process(
+					message,
+				)) => {
+					tracing::trace!(id = %message.id, "received available process");
 					let id = message.id;
-					let stored = tangram_index::process::Stored {
-						subtree: message.subtree_stored,
-						subtree_command: message.subtree_command_stored,
-						subtree_error: message.subtree_error_stored,
-						subtree_log: message.subtree_log_stored,
-						subtree_output: message.subtree_output_stored,
-						node_command: message.node_command_stored,
-						node_error: message.node_error_stored,
-						node_log: message.node_log_stored,
-						node_output: message.node_output_stored,
+					let availability = tg::process::Availability {
+						node_command: message.node_command_available,
+						node_error: message.node_error_available,
+						node_log: message.node_log_available,
+						node_output: message.node_output_available,
+						subtree: message.subtree_available,
+						subtree_command: message.subtree_command_available,
+						subtree_error: message.subtree_error_available,
+						subtree_log: message.subtree_log_available,
+						subtree_output: message.subtree_output_available,
 					};
 					state.graph.lock().unwrap().update_process_remote(
 						false,
 						&id,
 						None,
-						Some(&stored),
+						Some(&availability),
 					);
 					state.queue.close_if_end();
 				},

@@ -33,7 +33,7 @@ tg --url $cold.url pull $output
 tg --url $cold.url index
 
 # With the object stored, the only way to fail below is the authorization check.
-assert equal (tg --url $cold.url stored --local $output | from json) { subtree: true } "the pulled object should be stored on the cold client."
+assert equal (tg --url $cold.url availability --local $output | from json) { subtree: true } "the pulled object should be available on the cold client."
 tg --url $cold.url grant public object_subtree $output
 
 let result = tg --url $cold.url build $path | complete

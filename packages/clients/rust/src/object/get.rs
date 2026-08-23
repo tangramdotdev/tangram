@@ -7,13 +7,17 @@ use {
 	tangram_util::serde::is_false,
 };
 
+pub const AVAILABILITY_HEADER: &str = "x-tg-object-availability";
 pub const METADATA_HEADER: &str = "x-tg-object-metadata";
-pub const STORED_HEADER: &str = "x-tg-object-stored";
 pub const TOKENS_HEADER: &str = "x-tg-object-tokens";
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub availability: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
@@ -21,19 +25,15 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub stored: bool,
-
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]
 pub struct Output {
+	pub availability: Option<tg::object::Availability>,
 	pub bytes: Bytes,
 	pub metadata: Option<tg::object::Metadata>,
-	pub stored: Option<tg::object::Stored>,
 	pub tokens: tg::authorization::Tokens,
 }
 
@@ -85,10 +85,10 @@ impl tg::Session {
 			.header_json(METADATA_HEADER)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to deserialize the metadata header"))?;
-		let stored = response
-			.header_json(STORED_HEADER)
+		let availability = response
+			.header_json(AVAILABILITY_HEADER)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the stored header"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the availability header"))?;
 		let tokens = response
 			.header_json(TOKENS_HEADER)
 			.transpose()
@@ -99,9 +99,9 @@ impl tg::Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the response body"))?;
 		let output = tg::object::get::Output {
+			availability,
 			bytes,
 			metadata,
-			stored,
 			tokens,
 		};
 		Ok(Some(output))

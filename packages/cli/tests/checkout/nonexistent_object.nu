@@ -12,7 +12,7 @@ snapshot --normalize-ids --redact $path $output.stderr '
 	error an error occurred
 	-> failed to check out the artifact
 	   artifact = dir_0000000000000000000000000000
-	-> failed to ensure the artifact is stored and authorized
+	-> failed to ensure the artifact is available
 	   artifact = dir_0000000000000000000000000000
 	-> failed to find the artifact
 

@@ -52,9 +52,9 @@ impl Index {
 			set.merge(&existing.set);
 		}
 
-		let mut stored = arg.stored.clone();
+		let mut storage = arg.storage.clone();
 		if merge && let Some(ref existing) = existing {
-			stored.merge(&existing.stored);
+			storage.merge(&existing.storage);
 		}
 
 		let mut metadata = arg.metadata.clone();
@@ -85,7 +85,7 @@ impl Index {
 				existing.metadata != metadata
 					|| existing.sandbox != sandbox
 					|| existing.set != set
-					|| existing.stored != stored
+					|| existing.storage != storage
 			});
 		if !changed && !touch {
 			return Ok(());
@@ -97,7 +97,7 @@ impl Index {
 			reference_count: 0,
 			sandbox: sandbox.clone(),
 			set,
-			stored,
+			storage,
 			touched_at,
 		}
 		.serialize()?;

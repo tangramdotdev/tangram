@@ -24,7 +24,7 @@ fn object_arg(
 			},
 			..Default::default()
 		},
-		stored: crate::object::Stored::default(),
+		storage: crate::object::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	}
@@ -55,7 +55,7 @@ fn process_arg(
 		output: Some(None),
 		parent: None,
 		sandbox: None,
-		stored: crate::process::Stored::default(),
+		storage: crate::process::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	}
@@ -217,7 +217,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		output: None,
 		parent: None,
 		sandbox: None,
-		stored: crate::process::Stored::default(),
+		storage: crate::process::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	};

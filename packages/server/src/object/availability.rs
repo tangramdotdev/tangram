@@ -1,19 +1,18 @@
 use {
-	crate::{Server, Session},
+	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
-	pub async fn try_get_object_stored(
+	pub async fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> tg::Result<Option<tg::object::Stored>> {
+		arg: tg::object::availability::Arg,
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -21,60 +20,60 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(stored) = self
-					.try_get_object_stored_local(id, arg.tokens.local())
+				&& let Some(availability) = self
+					.try_get_object_availability_local(id, arg.tokens.local())
 					.await
 					.map_err(|error| {
-						tg::error!(!error, "failed to get the object's storage status")
+						tg::error!(!error, "failed to get the object's availability")
 					})? {
-				return Ok(Some(stored));
+				return Ok(Some(availability));
 			}
 
-			if let Some(stored) = self
-				.try_get_object_stored_regions(id, &local.regions, &arg.tokens)
+			if let Some(availability) = self
+				.try_get_object_availability_regions(id, &local.regions, &arg.tokens)
 				.await
 				.map_err(|error| {
 					tg::error!(
 						!error,
-						"failed to get the object's storage status from another region"
+						"failed to get the object's availability from another region"
 					)
 				})? {
-				return Ok(Some(stored));
+				return Ok(Some(availability));
 			}
 		}
 
-		if let Some(stored) = self
-			.try_get_object_stored_remotes(id, &locations.remotes, &arg.tokens)
+		if let Some(availability) = self
+			.try_get_object_availability_remotes(id, &locations.remotes, &arg.tokens)
 			.await
 			.map_err(|error| {
 				tg::error!(
 					!error,
-					"failed to get the object's storage status from a remote"
+					"failed to get the object's availability from a remote"
 				)
 			})? {
-			return Ok(Some(stored));
+			return Ok(Some(availability));
 		}
 
 		Ok(None)
 	}
 
-	pub(crate) async fn try_get_object_stored_local(
+	pub(crate) async fn try_get_object_availability_local(
 		&self,
 		id: &tg::object::Id,
 		token: Option<&tg::authorization::Token>,
-	) -> tg::Result<Option<tg::object::Stored>> {
-		let Some(stored) = self.server.try_get_object_stored_local(id).await? else {
+	) -> tg::Result<Option<tg::object::Availability>> {
+		let Some(storage) = self.server.try_get_object_storage_local(id).await? else {
 			return Ok(None);
 		};
-		self.mask_object_stored(id, stored, token).await
+		self.compute_object_availability(id, storage, token).await
 	}
 
-	pub(crate) async fn mask_object_stored(
+	pub(crate) async fn compute_object_availability(
 		&self,
 		id: &tg::object::Id,
-		stored: tg::object::Stored,
+		storage: tangram_index::object::Storage,
 		token: Option<&tg::authorization::Token>,
-	) -> tg::Result<Option<tg::object::Stored>> {
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -84,7 +83,11 @@ impl Session {
 			.await?
 			.is_some_and(|permissions| permissions.contains(subtree))
 		{
-			return Ok(Some(stored));
+			let availability = tg::object::Availability {
+				subtree: storage.subtree,
+			};
+
+			return Ok(Some(availability));
 		}
 
 		let node = tg::authorization::Permission::Object(
@@ -95,27 +98,27 @@ impl Session {
 			.await?
 			.is_some_and(|permissions| permissions.contains(node))
 		{
-			return Ok(Some(tg::object::Stored::default()));
+			return Ok(Some(tg::object::Availability::default()));
 		}
 
 		Ok(None)
 	}
 
-	async fn try_get_object_stored_regions(
+	async fn try_get_object_availability_regions(
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::object::Stored>> {
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_object_stored_region(id, region, tokens))
+			.map(|region| self.try_get_object_availability_region(id, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
 			match next {
-				Ok(Some(stored)) => {
-					result = Ok(Some(stored));
+				Ok(Some(availability)) => {
+					result = Ok(Some(availability));
 					break;
 				},
 				Ok(None) => (),
@@ -127,42 +130,42 @@ impl Session {
 		result
 	}
 
-	async fn try_get_object_stored_region(
+	async fn try_get_object_availability_region(
 		&self,
 		id: &tg::object::Id,
 		region: &str,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::object::Stored>> {
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let arg = tg::object::stored::Arg {
+		let arg = tg::object::availability::Arg {
 			location: Some(location.clone().into()),
 			tokens: tokens.for_location(&location),
 		};
-		client.try_get_object_stored(id, arg).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to get the object's storage status"),
+		client.try_get_object_availability(id, arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the object's availability"),
 		)
 	}
 
-	async fn try_get_object_stored_remotes(
+	async fn try_get_object_availability_remotes(
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::object::Stored>> {
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_object_stored_remote(id, remote, tokens))
+			.map(|remote| self.try_get_object_availability_remote(id, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
 			match next {
-				Ok(Some(stored)) => {
-					result = Ok(Some(stored));
+				Ok(Some(availability)) => {
+					result = Ok(Some(availability));
 					break;
 				},
 				Ok(None) => (),
@@ -174,12 +177,12 @@ impl Session {
 		result
 	}
 
-	async fn try_get_object_stored_remote(
+	async fn try_get_object_availability_remote(
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::object::Stored>> {
+	) -> tg::Result<Option<tg::object::Availability>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
@@ -187,7 +190,7 @@ impl Session {
 			name: remote.name.clone(),
 			region: None,
 		});
-		let arg = tg::object::stored::Arg {
+		let arg = tg::object::availability::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
@@ -195,12 +198,12 @@ impl Session {
 			])),
 			tokens: tokens.for_location(&location),
 		};
-		client.try_get_object_stored(id, arg).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the object's storage status"),
+		client.try_get_object_availability(id, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the object's availability"),
 		)
 	}
 
-	pub(crate) async fn try_get_object_stored_request(
+	pub(crate) async fn try_get_object_availability_request(
 		&self,
 		request: http::Request<BoxBody>,
 		id: &str,
@@ -223,8 +226,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
-		// Get the object's storage status.
-		let Some(output) = self.try_get_object_stored(&id, arg).await? else {
+		// Get the object's availability.
+		let Some(output) = self.try_get_object_availability(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -253,18 +256,5 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
-	}
-}
-
-impl Server {
-	pub(crate) async fn try_get_object_stored_local(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<tg::object::Stored>> {
-		Ok(self
-			.index
-			.try_get_object(id)
-			.await?
-			.map(|object| object.stored))
 	}
 }

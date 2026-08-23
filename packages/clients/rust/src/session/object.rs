@@ -9,12 +9,12 @@ impl tg::handle::Object for tg::Session {
 		self.try_get_object_metadata(id, arg)
 	}
 
-	fn try_get_object_stored(
+	fn try_get_object_availability(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Stored>>> {
-		self.try_get_object_stored(id, arg)
+		arg: tg::object::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Availability>>> {
+		self.try_get_object_availability(id, arg)
 	}
 
 	fn try_get_object(

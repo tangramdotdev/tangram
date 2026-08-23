@@ -180,7 +180,7 @@ impl Session {
 				metadata: Some(metadata),
 				permissions: None,
 				requested: None,
-				stored: None,
+				storage: None,
 			};
 			graph.update_object_local(arg);
 		}
@@ -289,7 +289,7 @@ impl Session {
 				output: None,
 				parent: None,
 				sandbox: Some(data.sandbox.clone()),
-				stored: tangram_index::process::Stored::default(),
+				storage: tangram_index::process::Storage::default(),
 				time_to_touch: self.server.config.process.time_to_touch,
 				touched_at: now,
 			})
@@ -317,7 +317,7 @@ impl Session {
 					metadata,
 					permissions: None,
 					requested: None,
-					stored: None,
+					storage: None,
 				};
 				graph.update_process_local(arg);
 			}

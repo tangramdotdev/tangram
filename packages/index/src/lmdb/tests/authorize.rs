@@ -107,7 +107,7 @@ fn put_process_with_set(
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
 		set,
-		stored: crate::process::Stored::default(),
+		storage: crate::process::Storage::default(),
 		touched_at: 0,
 	}
 	.serialize()

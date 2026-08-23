@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get an object's storage status.
+/// Get an object's availability.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -22,7 +22,7 @@ pub struct Options {
 }
 
 impl Cli {
-	pub async fn command_object_stored(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_object_availability(&mut self, args: Args) -> tg::Result<()> {
 		let mut options = args.options;
 		options
 			.locations
@@ -30,10 +30,11 @@ impl Cli {
 		let object = self
 			.get_object_with_locations(&args.reference, &options.locations)
 			.await?;
-		self.command_object_stored_inner(object, options).await
+		self.command_object_availability_inner(object, options)
+			.await
 	}
 
-	pub(crate) async fn command_object_stored_inner(
+	pub(crate) async fn command_object_availability_inner(
 		&mut self,
 		object: tg::Referent<tg::object::Id>,
 		options: Options,
@@ -42,10 +43,11 @@ impl Cli {
 		let id = object.node.clone();
 		let location = options.locations.get_for_options(&object);
 		let object = tg::Object::with_referent(object);
-		let options_ = tg::object::stored::Options { location };
-		let output = object.stored_with_handle(&client, options_).await.map_err(
-			|error| tg::error!(!error, %id, "failed to get the object's storage status"),
-		)?;
+		let options_ = tg::object::availability::Options { location };
+		let output = object
+			.availability_with_handle(&client, options_)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object's availability"))?;
 		self.print_serde(output, options.print).await?;
 		Ok(())
 	}

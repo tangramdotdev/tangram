@@ -3,7 +3,9 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
-pub use tangram_client::process::Stored;
+mod storage;
+
+pub use storage::Storage;
 
 pub mod object;
 pub mod put;
@@ -26,7 +28,7 @@ pub struct Process {
 	pub set: Set,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
-	pub stored: Stored,
+	pub storage: Storage,
 
 	#[tangram_serialize(id = 3)]
 	pub touched_at: i64,

@@ -583,7 +583,7 @@ impl Session {
 				children,
 				id,
 				metadata: blob.metadata.clone(),
-				stored: tangram_index::object::Stored { subtree: true },
+				storage: tangram_index::object::Storage { subtree: true },
 				time_to_touch,
 				touched_at,
 			};

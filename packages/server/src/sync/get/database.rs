@@ -206,7 +206,7 @@ impl Session {
 					break;
 				},
 				tg::sync::Message::Get(
-					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Stored(_),
+					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Available(_),
 				)
 				| tg::sync::Message::Put(
 					tg::sync::PutMessage::Missing(_) | tg::sync::PutMessage::Node(_),

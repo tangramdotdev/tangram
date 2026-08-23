@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# A successful lazy push mints a sync grant, so the same principal's next push skips its whole visible subtree and transfers nothing.
+# A successful lazy push mints a sync grant, so the same principal's next push skips its whole available subtree and transfers nothing.
 
 let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 

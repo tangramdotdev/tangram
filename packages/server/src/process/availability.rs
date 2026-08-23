@@ -1,19 +1,18 @@
 use {
-	crate::{Server, Session},
+	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::prelude::*,
 };
 
 impl Session {
-	pub async fn try_get_process_stored(
+	pub async fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> tg::Result<Option<tg::process::Stored>> {
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -21,60 +20,60 @@ impl Session {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(stored) = self
-					.try_get_process_stored_local(id, arg.tokens.local())
+				&& let Some(availability) = self
+					.try_get_process_availability_local(id, arg.tokens.local())
 					.await
 					.map_err(|error| {
-						tg::error!(!error, "failed to get the process's storage status")
+						tg::error!(!error, "failed to get the process's availability")
 					})? {
-				return Ok(Some(stored));
+				return Ok(Some(availability));
 			}
 
-			if let Some(stored) = self
-				.try_get_process_stored_regions(id, &local.regions, &arg.tokens)
+			if let Some(availability) = self
+				.try_get_process_availability_regions(id, &local.regions, &arg.tokens)
 				.await
 				.map_err(|error| {
 					tg::error!(
 						!error,
-						"failed to get the process's storage status from another region"
+						"failed to get the process's availability from another region"
 					)
 				})? {
-				return Ok(Some(stored));
+				return Ok(Some(availability));
 			}
 		}
 
-		if let Some(stored) = self
-			.try_get_process_stored_remotes(id, &locations.remotes, &arg.tokens)
+		if let Some(availability) = self
+			.try_get_process_availability_remotes(id, &locations.remotes, &arg.tokens)
 			.await
 			.map_err(|error| {
 				tg::error!(
 					!error,
-					"failed to get the process's storage status from a remote"
+					"failed to get the process's availability from a remote"
 				)
 			})? {
-			return Ok(Some(stored));
+			return Ok(Some(availability));
 		}
 
 		Ok(None)
 	}
 
-	pub(crate) async fn try_get_process_stored_local(
+	pub(crate) async fn try_get_process_availability_local(
 		&self,
 		id: &tg::process::Id,
 		token: Option<&tg::authorization::Token>,
-	) -> tg::Result<Option<tg::process::Stored>> {
-		let Some(stored) = self.server.try_get_process_stored_local(id).await? else {
+	) -> tg::Result<Option<tg::process::Availability>> {
+		let Some(storage) = self.server.try_get_process_storage_local(id).await? else {
 			return Ok(None);
 		};
-		self.mask_process_stored(id, stored, token).await
+		self.compute_process_availability(id, storage, token).await
 	}
 
-	pub(crate) async fn mask_process_stored(
+	pub(crate) async fn compute_process_availability(
 		&self,
 		id: &tg::process::Id,
-		stored: tg::process::Stored,
+		storage: tangram_index::process::Storage,
 		token: Option<&tg::authorization::Token>,
-	) -> tg::Result<Option<tg::process::Stored>> {
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
 		let requested = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::all(),
@@ -82,102 +81,102 @@ impl Session {
 		let Some(permissions) = self.authorize(resource, requested).await? else {
 			return Ok(None);
 		};
-		Ok(Self::mask_process_stored_with_permissions(
-			&stored,
+		Ok(Self::compute_process_availability_with_permissions(
+			&storage,
 			permissions,
 		))
 	}
 
-	pub(crate) fn mask_process_stored_with_permissions(
-		stored: &tg::process::Stored,
+	pub(crate) fn compute_process_availability_with_permissions(
+		storage: &tangram_index::process::Storage,
 		permissions: tg::authorization::permission::Set,
-	) -> Option<tg::process::Stored> {
-		let mut output = tg::process::Stored::default();
-		let mut authorized = false;
+	) -> Option<tg::process::Availability> {
+		let mut output = tg::process::Availability::default();
+		let mut permitted = false;
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		)) {
-			authorized = true;
+			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Subtree,
 		)) {
-			output.subtree = stored.subtree;
-			authorized = true;
+			output.subtree = storage.subtree;
+			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeCommand,
 		)) {
-			output.node_command = stored.node_command;
-			output.subtree_command = stored.subtree_command;
-			authorized = true;
+			output.node_command = storage.node_command;
+			output.subtree_command = storage.subtree_command;
+			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeCommand,
 		)) {
-			output.node_command = stored.node_command;
-			authorized = true;
+			output.node_command = storage.node_command;
+			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeError,
 		)) {
-			output.node_error = stored.node_error;
-			output.subtree_error = stored.subtree_error;
-			authorized = true;
+			output.node_error = storage.node_error;
+			output.subtree_error = storage.subtree_error;
+			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeError,
 		)) {
-			output.node_error = stored.node_error;
-			authorized = true;
+			output.node_error = storage.node_error;
+			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeLog,
 		)) {
-			output.node_log = stored.node_log;
-			output.subtree_log = stored.subtree_log;
-			authorized = true;
+			output.node_log = storage.node_log;
+			output.subtree_log = storage.subtree_log;
+			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeLog,
 		)) {
-			output.node_log = stored.node_log;
-			authorized = true;
+			output.node_log = storage.node_log;
+			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeOutput,
 		)) {
-			output.node_output = stored.node_output;
-			output.subtree_output = stored.subtree_output;
-			authorized = true;
+			output.node_output = storage.node_output;
+			output.subtree_output = storage.subtree_output;
+			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeOutput,
 		)) {
-			output.node_output = stored.node_output;
-			authorized = true;
+			output.node_output = storage.node_output;
+			permitted = true;
 		}
 
-		authorized.then_some(output)
+		permitted.then_some(output)
 	}
 
-	async fn try_get_process_stored_regions(
+	async fn try_get_process_availability_regions(
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::process::Stored>> {
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_stored_region(id, region, tokens))
+			.map(|region| self.try_get_process_availability_region(id, region, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
 			match next {
-				Ok(Some(stored)) => {
-					result = Ok(Some(stored));
+				Ok(Some(availability)) => {
+					result = Ok(Some(availability));
 					break;
 				},
 				Ok(None) => (),
@@ -189,42 +188,42 @@ impl Session {
 		result
 	}
 
-	async fn try_get_process_stored_region(
+	async fn try_get_process_availability_region(
 		&self,
 		id: &tg::process::Id,
 		region: &str,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::process::Stored>> {
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let arg = tg::process::stored::Arg {
+		let arg = tg::process::availability::Arg {
 			location: Some(location.clone().into()),
 			tokens: tokens.for_location(&location),
 		};
-		client.try_get_process_stored(id, arg).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to get the process's storage status"),
+		client.try_get_process_availability(id, arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the process's availability"),
 		)
 	}
 
-	async fn try_get_process_stored_remotes(
+	async fn try_get_process_availability_remotes(
 		&self,
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::process::Stored>> {
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_stored_remote(id, remote, tokens))
+			.map(|remote| self.try_get_process_availability_remote(id, remote, tokens))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
 			match next {
-				Ok(Some(stored)) => {
-					result = Ok(Some(stored));
+				Ok(Some(availability)) => {
+					result = Ok(Some(availability));
 					break;
 				},
 				Ok(None) => (),
@@ -236,12 +235,12 @@ impl Session {
 		result
 	}
 
-	async fn try_get_process_stored_remote(
+	async fn try_get_process_availability_remote(
 		&self,
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<Option<tg::process::Stored>> {
+	) -> tg::Result<Option<tg::process::Availability>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
 			.await
@@ -252,7 +251,7 @@ impl Session {
 			name: remote.name.clone(),
 			region: None,
 		});
-		let arg = tg::process::stored::Arg {
+		let arg = tg::process::availability::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
@@ -260,12 +259,12 @@ impl Session {
 			])),
 			tokens: tokens.for_location(&location),
 		};
-		client.try_get_process_stored(id, arg).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the process's storage status"),
+		client.try_get_process_availability(id, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the process's availability"),
 		)
 	}
 
-	pub(crate) async fn try_get_process_stored_request(
+	pub(crate) async fn try_get_process_availability_request(
 		&self,
 		request: http::Request<BoxBody>,
 		id: &str,
@@ -288,8 +287,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
-		// Get the process's storage status.
-		let Some(output) = self.try_get_process_stored(&id, arg).await? else {
+		// Get the process's availability.
+		let Some(output) = self.try_get_process_availability(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -318,18 +317,5 @@ impl Session {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
-	}
-}
-
-impl Server {
-	pub(crate) async fn try_get_process_stored_local(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::Stored>> {
-		Ok(self
-			.index
-			.try_get_process(id)
-			.await?
-			.map(|process| process.stored))
 	}
 }

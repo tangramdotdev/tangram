@@ -286,7 +286,7 @@ impl Server {
 								output: None,
 								parent: None,
 								sandbox: Some(data.sandbox.clone()),
-								stored: indexed.stored,
+								storage: indexed.storage,
 								time_to_touch: self.config.process.time_to_touch,
 								touched_at: now,
 							},

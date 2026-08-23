@@ -881,13 +881,13 @@ impl Session {
 						.await
 						.ok()
 						.flatten();
-					let (stored, metadata) = object
-						.map(|object| (object.stored, object.metadata))
+					let (storage, metadata) = object
+						.map(|object| (object.storage, object.metadata))
 						.unwrap_or_default();
 					Some(Contents::Id {
 						id,
-						stored,
 						metadata: Some(metadata),
+						storage,
 					})
 				} else {
 					None
@@ -936,7 +936,7 @@ impl Session {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: tangram_index::object::Stored::default(),
+			storage: tangram_index::object::Storage::default(),
 			variant,
 		};
 
@@ -1032,13 +1032,13 @@ impl Session {
 						.await
 						.ok()
 						.flatten();
-					let (stored, metadata) = object
-						.map(|object| (object.stored, object.metadata))
+					let (storage, metadata) = object
+						.map(|object| (object.storage, object.metadata))
 						.unwrap_or_default();
 					Some(Contents::Id {
 						id,
-						stored,
 						metadata: Some(metadata),
+						storage,
 					})
 				} else {
 					None
@@ -1117,7 +1117,7 @@ impl Session {
 			referrers: SmallVec::new(),
 			solvable: true,
 			solved: false,
-			stored: tangram_index::object::Stored::default(),
+			storage: tangram_index::object::Storage::default(),
 			variant,
 		};
 

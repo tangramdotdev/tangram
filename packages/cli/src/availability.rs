@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get a process's or object's storage status.
+/// Get a process's or object's availability.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -15,7 +15,7 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_stored(&mut self, mut args: Args) -> tg::Result<()> {
+	pub async fn command_availability(&mut self, mut args: Args) -> tg::Result<()> {
 		args.locations.set_from_reference_if_unset(&args.reference);
 		let reference = args.locations.apply_to_reference(&args.reference);
 		let locations = args.locations;
@@ -26,8 +26,9 @@ impl Cli {
 		match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
-				let options = crate::process::stored::Options { locations, print };
-				self.command_process_stored_inner(process, options).await?;
+				let options = crate::process::availability::Options { locations, print };
+				self.command_process_availability_inner(process, options)
+					.await?;
 			},
 			node => {
 				let object = tg::Referent::new(node, referent.options)
@@ -37,8 +38,9 @@ impl Cli {
 							.map(|object| object.id())
 							.map_err(|_| tg::error!("expected an object"))
 					})?;
-				let options = crate::object::stored::Options { locations, print };
-				self.command_object_stored_inner(object, options).await?;
+				let options = crate::object::availability::Options { locations, print };
+				self.command_object_availability_inner(object, options)
+					.await?;
 			},
 		}
 

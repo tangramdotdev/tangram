@@ -99,29 +99,29 @@ pub struct Arg {
 	tangram_serialize::Serialize,
 )]
 pub enum Message {
+	#[tangram_serialize(id = 2)]
+	End,
+
 	#[tangram_serialize(id = 0)]
 	Get(GetMessage),
 
 	#[tangram_serialize(id = 1)]
 	Put(PutMessage),
-
-	#[tangram_serialize(id = 2)]
-	End,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetMessage {
-	#[tangram_serialize(id = 0)]
-	Node(GetNodeMessage),
-
 	#[tangram_serialize(id = 1)]
-	Stored(GetStoredMessage),
-
-	#[tangram_serialize(id = 2)]
-	Progress(ProgressMessage),
+	Available(GetAvailableMessage),
 
 	#[tangram_serialize(id = 3)]
 	End,
+
+	#[tangram_serialize(id = 0)]
+	Node(GetNodeMessage),
+
+	#[tangram_serialize(id = 2)]
+	Progress(ProgressMessage),
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -140,66 +140,66 @@ pub struct GetNodeMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub enum GetStoredMessage {
+pub enum GetAvailableMessage {
 	#[tangram_serialize(id = 0)]
-	Object(GetStoredObjectMessage),
+	Object(GetAvailableObjectMessage),
 
 	#[tangram_serialize(id = 1)]
-	Process(GetStoredProcessMessage),
+	Process(GetAvailableProcessMessage),
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetStoredObjectMessage {
+pub struct GetAvailableObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetStoredProcessMessage {
+pub struct GetAvailableProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub node_command_stored: bool,
+	pub node_command_available: bool,
 
 	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
-	pub node_error_stored: bool,
+	pub node_error_available: bool,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
-	pub node_log_stored: bool,
+	pub node_log_available: bool,
 
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
-	pub node_output_stored: bool,
-
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
-	pub subtree_command_stored: bool,
-
-	#[tangram_serialize(default, id = 9, skip_serializing_if = "is_false")]
-	pub subtree_error_stored: bool,
-
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
-	pub subtree_log_stored: bool,
-
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
-	pub subtree_output_stored: bool,
+	pub node_output_available: bool,
 
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
-	pub subtree_stored: bool,
+	pub subtree_available: bool,
+
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
+	pub subtree_command_available: bool,
+
+	#[tangram_serialize(default, id = 9, skip_serializing_if = "is_false")]
+	pub subtree_error_available: bool,
+
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
+	pub subtree_log_available: bool,
+
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
+	pub subtree_output_available: bool,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutMessage {
-	#[tangram_serialize(id = 0)]
-	Node(PutNodeMessage),
+	#[tangram_serialize(id = 3)]
+	End,
 
 	#[tangram_serialize(id = 1)]
 	Missing(PutMissingMessage),
 
+	#[tangram_serialize(id = 0)]
+	Node(PutNodeMessage),
+
 	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
-
-	#[tangram_serialize(id = 3)]
-	End,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

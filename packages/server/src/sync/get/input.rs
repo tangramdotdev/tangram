@@ -71,7 +71,7 @@ impl Session {
 						metadata,
 						permissions: None,
 						requested: None,
-						stored: None,
+						storage: None,
 					};
 					state.graph.lock().unwrap().update_object_local(arg);
 
@@ -164,11 +164,11 @@ impl Session {
 						metadata,
 						permissions: None,
 						requested: None,
-						stored: None,
+						storage: None,
 					};
 					state.graph.lock().unwrap().update_process_local(arg);
 
-					// Check if all roots are stored and close the queue if so.
+					// Check if all roots are available and close the queue if so.
 					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
@@ -184,16 +184,16 @@ impl Session {
 						})?;
 					} else {
 						// Enqueue the children as necessary.
-						let visible = state
+						let availability = state
 							.graph
 							.lock()
 							.unwrap()
-							.get_process_local_visible(&message.id);
+							.get_process_local_availability(&message.id);
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
 							&data,
-							Some(&visible),
+							Some(&availability),
 							None,
 						);
 					}

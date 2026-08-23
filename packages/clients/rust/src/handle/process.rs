@@ -55,11 +55,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::metadata::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> + Send;
 
-	fn try_get_process_stored(
+	fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> + Send;
+		arg: tg::process::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Availability>>> + Send;
 
 	fn get_process(
 		&self,
@@ -285,13 +285,13 @@ impl tg::handle::Process for tg::Client {
 			.await
 	}
 
-	async fn try_get_process_stored(
+	async fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> tg::Result<Option<tg::process::Stored>> {
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
 		self.session(&self.context)
-			.try_get_process_stored(id, arg)
+			.try_get_process_availability(id, arg)
 			.await
 	}
 

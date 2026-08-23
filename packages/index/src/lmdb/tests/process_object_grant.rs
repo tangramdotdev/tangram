@@ -30,7 +30,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 			children,
 			id,
 			metadata: tg::object::Metadata::default(),
-			stored: crate::object::Stored::default(),
+			storage: crate::object::Storage::default(),
 			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
 		})
@@ -85,7 +85,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					output: Some(Some(vec![root.clone()])),
 					parent: None,
 					sandbox: None,
-					stored: crate::process::Stored::default(),
+					storage: crate::process::Storage::default(),
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),

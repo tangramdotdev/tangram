@@ -28,13 +28,13 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
-	fn try_get_process_stored(
+	fn try_get_process_availability(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stored::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::Stored>>> {
+		arg: tg::process::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Availability>>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_process_stored(id, arg))
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_process_availability(id, arg))
 		}
 	}
 

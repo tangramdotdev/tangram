@@ -325,7 +325,7 @@ impl Session {
 						output: None,
 						parent,
 						sandbox: Some(data.sandbox.clone()),
-						stored: tangram_index::process::Stored::default(),
+						storage: tangram_index::process::Storage::default(),
 						time_to_touch: session.server.config.process.time_to_touch,
 						touched_at,
 					},

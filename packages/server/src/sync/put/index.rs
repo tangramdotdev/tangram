@@ -72,7 +72,7 @@ impl Session {
 			.index
 			.try_get_objects(&ids)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the object stored and metadata"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the object storage and metadata"))?;
 		for output in outputs {
 			let Some(object) = output else {
 				continue;
@@ -100,7 +100,9 @@ impl Session {
 			.index
 			.try_get_processes(&ids)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process stored and metadata"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to get the process storage and metadata")
+			})?;
 		for output in outputs {
 			let Some(process) = output else {
 				continue;
