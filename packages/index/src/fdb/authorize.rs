@@ -1256,7 +1256,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<Vec<(tg::Id, tg::authorization::Permission)>, fdb::FdbError>> {
 		let mut dependencies = Vec::new();
 
-		// Add the non-expiring process implicit grant relationships.
+		// Add the process implicit grant relationships.
 		let grants = crate::fdb::propagate!(
 			Self::get_cached_resource_grants_with_transaction(txn, subspace, resource, cache).await
 		);

@@ -1397,10 +1397,9 @@ impl Index {
 					)
 					.await
 				);
-				if entries
-					.iter()
-					.any(|entry| entry.is_process_implicit() && entry.permission.implies(node))
-				{
+				if entries.iter().any(|entry| {
+					entry.is_non_expiring_process_implicit() && entry.permission.implies(node)
+				}) {
 					anchored = true;
 					break;
 				}

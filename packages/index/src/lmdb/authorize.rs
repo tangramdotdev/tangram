@@ -755,7 +755,7 @@ impl Index {
 	) -> tg::Result<Vec<(tg::Id, tg::authorization::Permission)>> {
 		let mut dependencies = Vec::new();
 
-		// Add the non-expiring process implicit grant relationships.
+		// Add the process implicit grant relationships.
 		let grants = Self::get_cached_resource_grants_with_transaction(
 			db,
 			subspace,

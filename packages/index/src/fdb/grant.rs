@@ -212,8 +212,9 @@ impl GrantEntry {
 				.is_some_and(|implicit| max_expires_at(implicit, expires_at) == implicit)
 	}
 
-	pub(crate) fn is_process_implicit(&self) -> bool {
-		is_process_implicit(self.creator.as_ref(), self.implicit, &self.subject)
+	pub(crate) fn is_non_expiring_process_implicit(&self) -> bool {
+		self.implicit == Some(None)
+			&& is_process_implicit(self.creator.as_ref(), self.implicit, &self.subject)
 	}
 }
 
@@ -223,7 +224,7 @@ pub(crate) fn is_process_implicit(
 	implicit: Option<Option<i64>>,
 	subject: &tangram_client::authorization::Subject,
 ) -> bool {
-	implicit == Some(None)
+	implicit.is_some()
 		&& matches!(
 			(creator, subject),
 			(

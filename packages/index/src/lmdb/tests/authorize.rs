@@ -205,8 +205,19 @@ fn put_process_implicit_grant(
 	process: &tg::process::Id,
 	permission: tg::authorization::Permission,
 ) {
+	put_process_implicit_grant_with_expiration(index, txn, resource, process, permission, None);
+}
+
+fn put_process_implicit_grant_with_expiration(
+	index: &Index,
+	txn: &mut lmdb::RwTxn<'_>,
+	resource: tg::Id,
+	process: &tg::process::Id,
+	permission: tg::authorization::Permission,
+	expires_at: Option<i64>,
+) {
 	let value = super::super::grant::GrantValue {
-		implicit: Some(None),
+		implicit: Some(expires_at),
 		..Default::default()
 	}
 	.serialize()
@@ -415,6 +426,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 #[tokio::test]
 async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 	let (_dir, index) = new_index();
+	let expiring_object = object_id(1);
 	let node_reader = tg::user::Id::new();
 	let object = object_id(0);
 	let outsider = tg::user::Id::new();
@@ -443,10 +455,19 @@ async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 	);
 	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &expiring_object);
 	put_object(&index, &mut txn, &object);
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_sandbox(&index, &mut txn, &target);
 	put_process(&index, &mut txn, &process, &sandbox);
+	put_process_implicit_grant_with_expiration(
+		&index,
+		&mut txn,
+		expiring_object.clone().into(),
+		&process,
+		subtree,
+		Some(i64::MAX),
+	);
 	put_process_implicit_grant(&index, &mut txn, object.clone().into(), &process, subtree);
 	put_process_implicit_grant(
 		&index,
@@ -496,6 +517,10 @@ async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 		(tg::Principal::User(process_parent_holder), true, true),
 		(tg::Principal::User(outsider), false, false),
 	] {
+		assert_eq!(
+			is_authorized(&index, expiring_object.clone().into(), subtree, &principal,).await,
+			expected_read,
+		);
 		assert_eq!(
 			is_authorized(&index, object.clone().into(), subtree, &principal).await,
 			expected_read,
