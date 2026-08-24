@@ -38,11 +38,17 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 	if arg.cgroup_memory.is_some() && arg.cgroup.is_none() {
 		return Err(tg::error!("--cgroup-memory requires --cgroup"));
 	}
+	if arg.cgroup_pids.is_some() && arg.cgroup.is_none() {
+		return Err(tg::error!("--cgroup-pids requires --cgroup"));
+	}
 	if arg.cgroup_cpu == Some(0) {
 		return Err(tg::error!("--cgroup-cpu must be greater than zero"));
 	}
 	if arg.cgroup_memory == Some(0) {
 		return Err(tg::error!("--cgroup-memory must be greater than zero"));
+	}
+	if arg.cgroup_pids == Some(0) {
+		return Err(tg::error!("--cgroup-pids must be greater than zero"));
 	}
 	if arg.nice > 19 {
 		return Err(tg::error!("--nice must be between zero and 19"));

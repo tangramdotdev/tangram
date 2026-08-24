@@ -451,7 +451,17 @@ impl Session {
 
 		let isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
+				let container = self
+					.server
+					.config()
+					.sandbox
+					.isolation
+					.container
+					.as_ref()
+					.ok_or_else(|| tg::error!("container isolation is not configured"))?;
+				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
+					max_pids: container.max_pids,
+				})
 			},
 			Some(tg::sandbox::Isolation::Seatbelt) => {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())

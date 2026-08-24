@@ -120,7 +120,9 @@ pub enum Isolation {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct ContainerIsolation {}
+pub struct ContainerIsolation {
+	pub max_pids: Option<u64>,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SeatbeltIsolation {}
@@ -667,6 +669,13 @@ fn validate_resources(
 }
 
 fn validate_options(arg: &Arg) -> tg::Result<()> {
+	if let Isolation::Container(container) = &arg.isolation
+		&& container.max_pids == Some(0)
+	{
+		return Err(tg::error!(
+			"the maximum number of container sandbox pids must be greater than zero"
+		));
+	}
 	if matches!(arg.isolation, Isolation::Seatbelt(_)) && arg.hostname.is_some() {
 		return Err(tg::error!(
 			"setting a hostname is not supported with seatbelt isolation"

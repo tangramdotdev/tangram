@@ -1095,6 +1095,7 @@ fn build_cloud_hypervisor_mount_arg(
 		cgroup_cpu: None,
 		cgroup_memory: None,
 		cgroup_memory_oom_group: false,
+		cgroup_pids: None,
 		chdir: "/".into(),
 		clearenv: false,
 		command: Vec::new(),

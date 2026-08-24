@@ -415,6 +415,17 @@ impl Server {
 				));
 			}
 		}
+		if config
+			.sandbox
+			.isolation
+			.container
+			.as_ref()
+			.is_some_and(|container| container.max_pids == Some(0))
+		{
+			return Err(tg::error!(
+				"the maximum number of container sandbox pids must be greater than zero"
+			));
+		}
 
 		// Validate the regions.
 		if config.region.as_ref().is_some_and(String::is_empty) {

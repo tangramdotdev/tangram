@@ -15,6 +15,7 @@ pub struct Options {
 	pub cpu: Option<u64>,
 	pub memory: Option<u64>,
 	pub memory_oom_group: bool,
+	pub pids: Option<u64>,
 }
 
 impl Cgroup {
@@ -33,6 +34,9 @@ impl Cgroup {
 			})
 			.unwrap_or_else(|| "/".to_owned());
 		let current = root.join(current.trim_start_matches('/'));
+		if options.pids.is_some() {
+			validate_controller_enabled(&current, "pids")?;
+		}
 		let path = current.join(sanitize_name(name));
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
@@ -41,6 +45,7 @@ impl Cgroup {
 				"failed to create the cgroup"
 			)
 		})?;
+		let cgroup = Self { path: path.clone() };
 
 		if let Some(cpu) = options.cpu {
 			let quota = cpu
@@ -80,7 +85,18 @@ impl Cgroup {
 			}
 		}
 
-		Ok(Self { path })
+		if let Some(pids) = options.pids {
+			let pids_max = path.join("pids.max");
+			write_file(&pids_max, format!("{pids}\n").as_bytes()).map_err(|error| {
+				tg::error!(
+					!error,
+					path = %pids_max.display(),
+					"failed to set pids.max"
+				)
+			})?;
+		}
+
+		Ok(cgroup)
 	}
 
 	pub fn open_fd(&self) -> tg::Result<OwnedFd> {
@@ -115,7 +131,7 @@ impl Drop for Cgroup {
 	fn drop(&mut self) {
 		std::fs::remove_dir(&self.path)
 			.inspect_err(
-				|error| tracing::error!(%error, path = %self.path.display(), "failed to remove cgrup"),
+				|error| tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup"),
 			)
 			.ok();
 	}
@@ -134,6 +150,28 @@ fn sanitize_name(name: &str) -> String {
 		output.push_str("sandbox");
 	}
 	output
+}
+
+fn validate_controller_enabled(path: &Path, controller: &str) -> tg::Result<()> {
+	let path = path.join("cgroup.subtree_control");
+	let controllers = std::fs::read_to_string(&path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to read the enabled cgroup controllers"
+		)
+	})?;
+	if !controllers
+		.split_ascii_whitespace()
+		.any(|value| value == controller)
+	{
+		return Err(tg::error!(
+			path = %path.display(),
+			"the {controller} cgroup controller is not enabled for child cgroups; launch tangram in a cgroup with the controller delegated and enabled"
+		));
+	}
+
+	Ok(())
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {

@@ -806,7 +806,9 @@ pub struct SandboxIsolation {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ContainerSandboxIsolation {}
+pub struct ContainerSandboxIsolation {
+	pub max_pids: Option<u64>,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SandboxIsolationDefault {
@@ -1568,7 +1570,7 @@ impl Default for SandboxIsolation {
 	fn default() -> Self {
 		if cfg!(target_os = "linux") {
 			Self {
-				container: Some(ContainerSandboxIsolation {}),
+				container: Some(ContainerSandboxIsolation::default()),
 				default: None,
 				seatbelt: None,
 				vm: None,

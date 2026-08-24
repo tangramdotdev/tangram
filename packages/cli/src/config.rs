@@ -1261,7 +1261,10 @@ pub enum SandboxIsolationDefault {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerSandboxIsolation {}
+pub struct ContainerSandboxIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pids: Option<u64>,
+}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3148,8 +3151,10 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 
 fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
 	let mut target = server::SandboxIsolation::default();
-	if source.container.is_some() {
-		target.container = Some(server::ContainerSandboxIsolation {});
+	if let Some(source) = source.container {
+		let max_pids = source.max_pids;
+		let container = server::ContainerSandboxIsolation { max_pids };
+		target.container = Some(container);
 	}
 	if source.seatbelt.is_some() {
 		target.seatbelt = Some(server::SeatbeltSandboxIsolation {});
@@ -3646,6 +3651,34 @@ mod tests {
 		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
 		let usage = indexer.usage.unwrap();
 		assert!(matches!(usage.compaction, Some(BoolOr::Bool(true))));
+	}
+
+	#[test]
+	fn parses_and_resolves_container_max_pids() {
+		let source: Sandbox = serde_json::from_value(serde_json::json!({
+			"isolation": {
+				"container": { "max_pids": 1234 },
+			},
+		}))
+		.unwrap();
+		let target = resolve_sandbox(source).unwrap();
+		let container = target.isolation.container.unwrap();
+
+		assert_eq!(container.max_pids, Some(1234));
+	}
+
+	#[test]
+	fn resolves_container_max_pids_as_optional() {
+		let source: Sandbox = serde_json::from_value(serde_json::json!({
+			"isolation": {
+				"container": {},
+			},
+		}))
+		.unwrap();
+		let target = resolve_sandbox(source).unwrap();
+		let container = target.isolation.container.unwrap();
+
+		assert_eq!(container.max_pids, None);
 	}
 
 	#[test]

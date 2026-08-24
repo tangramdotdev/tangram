@@ -27,6 +27,7 @@ pub struct Arg {
 	pub cgroup_cpu: Option<u64>,
 	pub cgroup_memory: Option<u64>,
 	pub cgroup_memory_oom_group: bool,
+	pub cgroup_pids: Option<u64>,
 	pub chdir: PathBuf,
 	pub clearenv: bool,
 	pub command: Vec<OsString>,
@@ -95,6 +96,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					cpu: arg.cgroup_cpu,
 					memory: arg.cgroup_memory,
 					memory_oom_group: arg.cgroup_memory_oom_group,
+					pids: arg.cgroup_pids,
 				},
 			)
 		})

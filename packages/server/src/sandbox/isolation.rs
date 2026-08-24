@@ -5,8 +5,17 @@ impl Server {
 		if let Some(default) = self.config.sandbox.isolation.default {
 			return match default {
 				crate::config::SandboxIsolationDefault::Container => {
+					let container = self
+						.config
+						.sandbox
+						.isolation
+						.container
+						.as_ref()
+						.ok_or_else(|| tg::error!("container isolation is not configured"))?;
 					Ok(tangram_sandbox::Isolation::Container(
-						tangram_sandbox::ContainerIsolation::default(),
+						tangram_sandbox::ContainerIsolation {
+							max_pids: container.max_pids,
+						},
 					))
 				},
 				crate::config::SandboxIsolationDefault::Seatbelt => {
@@ -79,9 +88,11 @@ impl Server {
 		&self,
 		isolation: &crate::config::SandboxIsolation,
 	) -> Option<tangram_sandbox::Isolation> {
-		if isolation.container.is_some() {
+		if let Some(container) = &isolation.container {
 			return Some(tangram_sandbox::Isolation::Container(
-				tangram_sandbox::ContainerIsolation::default(),
+				tangram_sandbox::ContainerIsolation {
+					max_pids: container.max_pids,
+				},
 			));
 		}
 		if isolation.seatbelt.is_some() {

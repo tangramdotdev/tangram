@@ -25,6 +25,9 @@ pub struct Args {
 	#[arg(long)]
 	pub cgroup_memory_oom_group: bool,
 
+	#[arg(long)]
+	pub cgroup_pids: Option<u64>,
+
 	#[arg(default_value = "/", long)]
 	pub chdir: PathBuf,
 
@@ -129,6 +132,7 @@ impl Args {
 			cgroup_cpu: self.cgroup_cpu,
 			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
+			cgroup_pids: self.cgroup_pids,
 			chdir: self.chdir,
 			clearenv: self.clearenv,
 			command: self.command,

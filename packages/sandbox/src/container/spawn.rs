@@ -23,7 +23,7 @@ pub(crate) async fn spawn(
 	serve_arg: &crate::serve::Arg,
 	network: Option<&mut crate::network::Network>,
 ) -> tg::Result<tokio::process::Child> {
-	let crate::Isolation::Container(_) = &arg.isolation else {
+	let crate::Isolation::Container(isolation) = &arg.isolation else {
 		unreachable!()
 	};
 	let network_arg = match network.as_deref() {
@@ -215,7 +215,11 @@ pub(crate) async fn spawn(
 	command
 		.arg("--cgroup")
 		.arg(cgroup_name)
-		.arg("--cgroup-memory-oom-group")
+		.arg("--cgroup-memory-oom-group");
+	if let Some(max_pids) = isolation.max_pids {
+		command.arg("--cgroup-pids").arg(max_pids.to_string());
+	}
+	command
 		.arg("--")
 		.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
 			&arg.tangram_path,
