@@ -8,15 +8,19 @@ export use std/assert
 const repository_path = path self '../../'
 const harness_path = path self
 const database_pool_directory_name = 'tangram_test_database_pool'
+const foundationdb_container_name = 'tangram_test_foundationdb'
+const foundationdb_image = 'foundationdb/foundationdb:7.3.68'
+const scylla_container_name = 'tangram_test_scylla'
+const scylla_image = 'scylladb/scylla:2026.1.1'
 const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from FoundationDB, PostgreSQL, and ScyllaDB.
-	--databases # Run the shared cloud databases in the foreground. This is supported on Linux only.
+	--databases # Run the shared cloud databases in the foreground. This is supported on Linux and macOS.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
-	--no-cloud # Use local backends for spawn --cloud. This is the default on macOS.
+	--no-cloud # Use local backends for spawn --cloud.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--offline # Skip tests which require network access.
@@ -35,8 +39,8 @@ def main [
 ] {
 	# Run the databases in a separate terminal.
 	if $databases {
-		if $nu.os-info.name != 'linux' {
-			error make { msg: '--databases is supported on Linux only' }
+		if $nu.os-info.name not-in ['linux', 'macos'] {
+			error make { msg: '--databases is supported on Linux and macOS only' }
 		}
 		let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
 		path add ($scylla_client_path | path dirname)
@@ -45,7 +49,7 @@ def main [
 		return
 	}
 
-	let cloud = $nu.os-info.name == 'linux' and not $no_cloud
+	let cloud = $nu.os-info.name in ['linux', 'macos'] and not $no_cloud
 
 	# Validate the --vm/--kernel-path flag combination.
 	if $vm and $kernel_path == null {
@@ -116,8 +120,8 @@ def main [
 			print -e 'skipping ScyllaDB cleanup because it is not ready'
 		}
 
-		let cluster = fdb_cluster
-		let foundationdb_output = (^timeout 10 fdbcli -C $cluster --exec 'writemode on; clearrange "index_" "index_\xff"; clearrange "logs_" "logs_\xff"' | complete)
+		let foundationdb_command = foundationdb_command
+		let foundationdb_output = (^timeout 10 ...$foundationdb_command --exec 'writemode on; clearrange "index_" "index_\xff"; clearrange "logs_" "logs_\xff"' | complete)
 		if $foundationdb_output.exit_code == 0 {
 			print -e 'cleared FoundationDB test prefixes'
 		} else {
@@ -582,7 +586,11 @@ if id=$(try_lease_existing); then
 fi
 
 exec 9>"$pool_path/provision.lock"
-flock 9
+if [ "$(uname -s)" = Darwin ]; then
+	lockf 9
+else
+	flock 9
+fi
 
 if id=$(try_lease_existing); then
 	echo "$id"
@@ -633,7 +641,8 @@ echo "$id"
 
 def run_databases [] {
 	# Check the required programs.
-	let commands = [bash createdb dropdb fdbcli fdbserver flock initdb nats-server pg_isready postgres psql scylla sed setsid tail tangram_scylla_client timeout]
+	let lock_command = database_lock_command
+	let commands = [bash createdb docker dropdb initdb $lock_command nats-server pg_isready postgres psql sed tail tangram_scylla_client timeout]
 	let missing = $commands | where { |command| which $command | is-empty }
 	if not ($missing | is-empty) {
 		error make {
@@ -641,6 +650,7 @@ def run_databases [] {
 			help: 'install the missing programs, then run this command again'
 		}
 	}
+	check_docker
 
 	# Check that the database ports are available.
 	let endpoints = [
@@ -658,28 +668,30 @@ def run_databases [] {
 		}
 	}
 
+	# Ensure the Docker images are available.
+	ensure_docker_image $foundationdb_image
+	ensure_docker_image $scylla_image
+
 	# Create the temporary state.
 	let state_path = mktemp -d -t tangram_databases_XXXXXX | path expand
-	let cluster_path = $state_path | path join 'fdb.cluster'
 	let database_pool_path = database_pool_path
 	if ($database_pool_path | path exists) {
 		rm -rf $database_pool_path
 	}
 	mkdir $database_pool_path
-	'local:local@127.0.0.1:4500' | save -f $cluster_path
-	'cluster_name: tangram_test' | save -f ($state_path | path join 'scylla.yaml')
 
 	print -e $"starting the cloud databases with temporary state in ($state_path)"
 	print -e $"database logs will be written to ($state_path | path join 'logs')"
 	print -e 'waiting for FoundationDB, NATS, PostgreSQL, and ScyllaDB to become ready...'
 
 	# Run the supervisor in the foreground.
-	exec bash -c (database_supervisor) _ $state_path $cluster_path $database_pool_path
+	exec bash -c (database_supervisor) _ $state_path $database_pool_path $foundationdb_container_name $foundationdb_image $scylla_container_name $scylla_image
 }
 
 def check_databases [] {
 	# Check the client programs before attempting the readiness commands.
-	let commands = [bash createdb dropdb fdbcli flock pg_isready psql tangram_scylla_client timeout]
+	let lock_command = database_lock_command
+	let commands = [bash createdb docker dropdb $lock_command pg_isready psql tangram_scylla_client timeout]
 	let missing = $commands | where { |command| which $command | is-empty }
 	if not ($missing | is-empty) {
 		error make {
@@ -689,10 +701,10 @@ def check_databases [] {
 	}
 
 	# Check each database independently so the error names every unavailable service.
-	let cluster = fdb_cluster
+	let foundationdb_command = foundationdb_command
 	let postgres_ready = (^timeout 5 pg_isready --host=127.0.0.1 --port=5432 --username=postgres | complete).exit_code == 0
 	let database_pool_ready = (database_pool_path) | path exists
-	let fdb_ready = (^timeout 5 fdbcli -C $cluster --exec 'status minimal' | complete).exit_code == 0
+	let fdb_ready = (^timeout 5 ...$foundationdb_command --exec 'status minimal' | complete).exit_code == 0
 	let nats_ready = nats_ready
 	let scylla_ready = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local' | complete).exit_code == 0
 	let unavailable = [
@@ -710,6 +722,32 @@ def check_databases [] {
 	}
 }
 
+def check_docker [] {
+	let output = (docker info --format '{{.ServerVersion}}' | complete)
+	if $output.exit_code != 0 {
+		error make {
+			msg: 'the Docker daemon is not available'
+			help: ($output.stderr | str trim)
+		}
+	}
+}
+
+def database_lock_command [] {
+	if $nu.os-info.name == 'macos' { 'lockf' } else { 'flock' }
+}
+
+def foundationdb_command [] {
+	[docker exec $foundationdb_container_name fdbcli]
+}
+
+def ensure_docker_image [image: string] {
+	let output = (docker image inspect $image | complete)
+	if $output.exit_code != 0 {
+		print -e $"pulling ($image)..."
+		docker pull $image
+	}
+}
+
 def tcp_port_open [port: int] {
 	(^bash -c 'exec 3<>/dev/tcp/127.0.0.1/"$1"' _ $port | complete).exit_code == 0
 }
@@ -721,17 +759,21 @@ def nats_ready [] {
 
 def database_supervisor [] {
 	r#'
-set -u
+set -mu
 
 state_path=$1
-cluster_path=$2
-database_pool_path=$3
+database_pool_path=$2
+foundationdb_container=$3
+foundationdb_image=$4
+scylla_container=$5
+scylla_image=$6
 declare -a logs=()
 declare -a names=()
 declare -a pids=()
 
 cleanup() {
 	trap - EXIT HUP INT TERM
+	docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 	for pid in "${pids[@]}"; do
 		kill -TERM -- "-$pid" 2>/dev/null || true
 	done
@@ -791,7 +833,7 @@ start() {
 	names+=("$name")
 	(
 		cd "$state_path"
-		exec setsid "$@"
+		exec "$@"
 	) >"$log_path" 2>&1 &
 	pids+=("$!")
 }
@@ -814,12 +856,12 @@ wait_for() {
 }
 
 configure_foundationdb() {
-	for ((attempt = 0; attempt < 60; attempt++)); do
-		if timeout 2 fdbcli -C "$cluster_path" --exec 'status minimal' >/dev/null 2>&1; then
+	for ((attempt = 0; attempt < 600; attempt++)); do
+		if timeout 2 docker exec "$foundationdb_container" fdbcli --exec 'status minimal' >/dev/null 2>&1; then
 			echo 'FoundationDB is ready' >&2
 			return
 		fi
-		if timeout 10 fdbcli -C "$cluster_path" --exec 'configure new single memory' >/dev/null 2>&1; then
+		if timeout 10 docker exec "$foundationdb_container" fdbcli --exec 'configure new single memory' >/dev/null 2>&1; then
 			echo 'FoundationDB is configured' >&2
 			return
 		fi
@@ -831,55 +873,67 @@ configure_foundationdb() {
 	exit 1
 }
 
+wait_for_exit() {
+	while true; do
+		for index in "${!pids[@]}"; do
+			pid=${pids[$index]}
+			if ! kill -0 "$pid" 2>/dev/null; then
+				wait "$pid"
+				return $?
+			fi
+		done
+		sleep 0.1
+	done
+}
+
 trap cleanup EXIT
 trap handle_signal HUP INT TERM
 
 mkdir -p \
-	"$state_path/fdb/data" \
-	"$state_path/fdb/logs" \
 	"$state_path/logs" \
-	"$state_path/postgres" \
-	"$state_path/scylla"
+	"$state_path/postgres"
+
+docker rm --force "$foundationdb_container" "$scylla_container" >/dev/null 2>&1 || true
 
 initdb --auth=trust --no-instructions --pgdata="$state_path/postgres" --username=postgres >/dev/null
 start postgres \
 	postgres \
 	-D "$state_path/postgres" \
 	-h 127.0.0.1 \
-	-k "$state_path/postgres" \
+	-k '' \
 	-p 5432 \
 	-c fsync=off \
 	-c full_page_writes=off \
 	-c max_connections=256 \
 	-c synchronous_commit=off
 start foundationdb \
-	fdbserver \
-	--cluster-file="$cluster_path" \
-	--datadir="$state_path/fdb/data" \
-	--listen-address=127.0.0.1:4500 \
-	--logdir="$state_path/fdb/logs" \
-	--public-address=127.0.0.1:4500 \
+	docker run \
+	--rm \
+	--name "$foundationdb_container" \
+	--publish 127.0.0.1:4500:4500 \
+	--env FDB_NETWORKING_MODE=host \
+	--env FDB_PORT=4500 \
+	"$foundationdb_image" \
 	--storage-memory=256MB
 start nats \
 	nats-server \
 	--addr=127.0.0.1 \
 	--port=4222
 start scylla \
-	scylla \
-	--api-address=127.0.0.1 \
+	docker run \
+	--rm \
+	--name "$scylla_container" \
+	--publish 127.0.0.1:9042:9042 \
+	"$scylla_image" \
 	--default-log-level=warn \
 	--developer-mode=1 \
-	--listen-address=127.0.0.1 \
 	--max-partition-key-restrictions-per-query=1024 \
 	--memory=1280MiB \
-	--options-file="$state_path/scylla.yaml" \
-	--overprovisioned \
-	--rpc-address=127.0.0.1 \
-	--smp=1 \
-	--workdir="$state_path/scylla"
+	--overprovisioned=1 \
+	--smp=1
 
 configure_foundationdb
-wait_for FoundationDB 600 fdbcli -C "$cluster_path" --exec 'status minimal'
+wait_for FoundationDB 600 docker exec "$foundationdb_container" fdbcli --exec 'status minimal'
 wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
 wait_for PostgreSQL 600 pg_isready --host=127.0.0.1 --port=5432 --username=postgres
 wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_version from system.local'
@@ -887,7 +941,7 @@ wait_for ScyllaDB 1200 tangram_scylla_client 127.0.0.1 9042 -e 'select release_v
 echo 'all cloud databases are ready; press Ctrl-C to stop them' >&2
 
 set +e
-wait -n "${pids[@]}"
+wait_for_exit
 status=$?
 set -e
 echo 'a database process exited; stopping the remaining databases' >&2
@@ -966,7 +1020,7 @@ def run_test [test: record, options: record] {
 		let cluster_path = $env.TANGRAM_TEST_FDB_CLUSTER? | default ''
 		if ($cluster_path | is-empty) {
 			let cluster_path = $temp_path | path join 'fdb.cluster'
-			'local:local@127.0.0.1:4500' | save -f $cluster_path
+			'docker:docker@127.0.0.1:4500' | save -f $cluster_path
 
 			$cluster_path
 		} else {
@@ -1043,7 +1097,7 @@ def run_test [test: record, options: record] {
 	} else {
 		[]
 	}
-	$ids | par-each { |id| reset_database_id $id $fdb_cluster_path $options.database_pool_path } | ignore
+	$ids | par-each { |id| reset_database_id $id $options.database_pool_path } | ignore
 	let duration = (date now) - $start
 
 	# Clean up the temp directory.
@@ -1784,7 +1838,7 @@ export def server_errors [server: record] {
 		| sort
 }
 
-def reset_database_id [id: string, cluster: string, pool_path: string] {
+def reset_database_id [id: string, pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
 	let postgres_tables = open --raw $postgres_schema_path
 		| lines
@@ -1797,10 +1851,11 @@ def reset_database_id [id: string, cluster: string, pool_path: string] {
 		| append 'insert into outbox_batch (next) values (0);'
 		| append 'commit;'
 		| str join "\n"
+	let foundationdb_command = foundationdb_command
 	let results = ['foundationdb' 'postgres' 'scylla'] | par-each { |database|
 		let output = match $database {
 			'foundationdb' => {
-				(^timeout 10 fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' | complete)
+				(^timeout 10 ...$foundationdb_command --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' | complete)
 			},
 			'postgres' => {
 				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($id)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
@@ -2150,7 +2205,7 @@ def fdb_cluster [] {
 	}
 
 	let cluster = mktemp -t
-	"local:local@127.0.0.1:4500" | save -f $cluster
+	"docker:docker@127.0.0.1:4500" | save -f $cluster
 	$cluster
 }
 
