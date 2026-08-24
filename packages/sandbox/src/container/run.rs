@@ -28,6 +28,7 @@ pub struct Arg {
 	pub cgroup_memory: Option<u64>,
 	pub cgroup_memory_oom_group: bool,
 	pub chdir: PathBuf,
+	pub clearenv: bool,
 	pub command: Vec<OsString>,
 	pub devs: Vec<PathBuf>,
 	pub die_with_parent: bool,
@@ -81,7 +82,7 @@ pub struct SetEnv {
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	validate(arg)?;
 	if arg.die_with_parent {
-		set_parent_death_signal(libc::SIGKILL)?;
+		crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	}
 
 	let cgroup = arg
@@ -293,7 +294,7 @@ fn child_main(
 		}
 	}
 	if arg.die_with_parent {
-		set_parent_death_signal(libc::SIGKILL)?;
+		crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	}
 	if let Some(cgroup) = cgroup {
 		cgroup.move_self()?;
@@ -379,7 +380,11 @@ fn exec_command(arg: &Arg) -> tg::Result<()> {
 }
 
 fn environment(arg: &Arg) -> tg::Result<BTreeMap<OsString, OsString>> {
-	let mut env = std::env::vars_os().collect::<BTreeMap<_, _>>();
+	let mut env = if arg.clearenv {
+		BTreeMap::new()
+	} else {
+		std::env::vars_os().collect()
+	};
 	for setenv in &arg.setenvs {
 		let key = OsString::from(&setenv.key);
 		let value = OsString::from(&setenv.value);
@@ -412,15 +417,6 @@ fn set_hostname(hostname: &str) -> tg::Result<()> {
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "failed to set the hostname"));
-	}
-	Ok(())
-}
-
-fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
-	let result = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, signal, 0, 0, 0) };
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to set the parent death signal"));
 	}
 	Ok(())
 }
@@ -593,11 +589,14 @@ fn close_non_std_fds_fallback() -> tg::Result<()> {
 }
 
 fn wait_for_child(child: libc::pid_t) -> tg::Result<u8> {
-	unsafe {
+	loop {
 		let mut status = 0;
-		let result = libc::waitpid(child, std::ptr::addr_of_mut!(status), 0);
+		let result = unsafe { libc::waitpid(child, std::ptr::addr_of_mut!(status), 0) };
 		if result < 0 {
 			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::EINTR) {
+				continue;
+			}
 			return Err(tg::error!(!error, "failed to wait for the sandbox child"));
 		}
 		if libc::WIFEXITED(status) {
@@ -607,7 +606,7 @@ fn wait_for_child(child: libc::pid_t) -> tg::Result<u8> {
 			let signal = libc::WTERMSIG(status);
 			return Ok((128 + signal).min(255).to_u8().unwrap());
 		}
-		Ok(1)
+		return Ok(1);
 	}
 }
 

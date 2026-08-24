@@ -83,6 +83,7 @@ pub(crate) async fn spawn(
 		.arg(arg.nice.to_string())
 		.arg("--chdir")
 		.arg("/")
+		.arg("--clearenv")
 		.arg("--overlay-src")
 		.arg(&arg.rootfs_path)
 		.arg("--overlay")

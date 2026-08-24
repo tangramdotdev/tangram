@@ -920,15 +920,6 @@ fn set_no_new_privs() -> tg::Result<()> {
 	Ok(())
 }
 
-fn set_parent_death_signal(signal: libc::c_int) -> tg::Result<()> {
-	let result = unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, signal, 0, 0, 0) };
-	if result != 0 {
-		let error = std::io::Error::last_os_error();
-		return Err(tg::error!(!error, "failed to set the parent death signal"));
-	}
-	Ok(())
-}
-
 fn setresgid(gid: libc::gid_t) -> tg::Result<()> {
 	let result = unsafe { libc::setresgid(gid, gid, gid) };
 	if result != 0 {
@@ -983,7 +974,7 @@ fn cloud_hypervisor_child_main(
 	passt_bin: Option<&Path>,
 	command_args: &[std::ffi::OsString],
 ) -> tg::Result<()> {
-	set_parent_death_signal(libc::SIGKILL)?;
+	crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	enter_user_namespace(user.uid, user.gid)?;
 	unshare(
 		libc::CLONE_NEWNS,
@@ -1105,6 +1096,7 @@ fn build_cloud_hypervisor_mount_arg(
 		cgroup_memory: None,
 		cgroup_memory_oom_group: false,
 		chdir: "/".into(),
+		clearenv: false,
 		command: Vec::new(),
 		devs: Vec::new(),
 		die_with_parent: false,

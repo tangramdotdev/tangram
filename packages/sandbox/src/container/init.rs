@@ -6,6 +6,8 @@ pub struct Arg {
 }
 
 pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
+	// Prevent same-UID workloads from inspecting PID 1 through /proc.
+	crate::util::set_dumpable(false)?;
 	let mut command = std::process::Command::new(&arg.serve.tangram_path);
 	command
 		.arg("sandbox")

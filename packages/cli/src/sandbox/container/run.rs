@@ -28,6 +28,9 @@ pub struct Args {
 	#[arg(default_value = "/", long)]
 	pub chdir: PathBuf,
 
+	#[arg(long)]
+	pub clearenv: bool,
+
 	#[arg(allow_hyphen_values = true, required = true, trailing_var_arg = true)]
 	pub command: Vec<OsString>,
 
@@ -127,6 +130,7 @@ impl Args {
 			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
 			chdir: self.chdir,
+			clearenv: self.clearenv,
 			command: self.command,
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,

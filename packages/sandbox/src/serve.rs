@@ -10,6 +10,9 @@ pub struct Arg {
 }
 
 pub async fn run(arg: &Arg) -> tg::Result<()> {
+	#[cfg(target_os = "linux")]
+	// Prevent same-UID workloads from inspecting the server through /proc.
+	crate::util::set_dumpable(false)?;
 	let server = crate::server::Server::new(crate::server::Arg {
 		library_paths: arg.library_paths.clone(),
 		output_path: arg.output_path.clone(),
