@@ -7,20 +7,12 @@ use {
 #[derive(Clone)]
 pub struct Messenger {
 	client: nats::Client,
-	id: Option<String>,
 }
 
 impl Messenger {
 	#[must_use]
-	pub fn new(client: nats::Client, id: Option<String>) -> Self {
-		Self { client, id }
-	}
-
-	fn subject_name(&self, name: String) -> String {
-		match &self.id {
-			Some(id) => format!("{id}.{name}"),
-			None => name,
-		}
+	pub fn new(client: nats::Client) -> Self {
+		Self { client }
 	}
 }
 
@@ -29,7 +21,6 @@ impl crate::Messenger for Messenger {
 	where
 		T: Payload,
 	{
-		let subject = self.subject_name(subject);
 		let payload = payload.serialize()?;
 		self.client
 			.publish(subject, payload)
@@ -45,7 +36,6 @@ impl crate::Messenger for Messenger {
 	where
 		T: Payload,
 	{
-		let subject = self.subject_name(subject);
 		let subscriber = self.client.subscribe(subject).await.map_err(Error::other)?;
 		let stream = subscriber.map(|message| {
 			T::deserialize(message.payload)
@@ -66,7 +56,6 @@ impl crate::Messenger for Messenger {
 	where
 		T: Payload,
 	{
-		let subject = self.subject_name(subject);
 		let subscriber = self
 			.client
 			.queue_subscribe(subject, queue_group)

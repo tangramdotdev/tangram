@@ -7,7 +7,6 @@ use {
 	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_messenger::Messenger as _,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -76,21 +75,7 @@ impl Server {
 		if arg.is_empty() {
 			return Ok(ControlFlow::Break(()));
 		}
-		let mut regions = self
-			.config
-			.regions
-			.as_ref()
-			.into_iter()
-			.flatten()
-			.map(|region| region.name.clone())
-			.collect::<BTreeSet<_>>();
-		if let Some(region) = &self.config.region {
-			regions.insert(region.clone());
-		}
-		if regions.is_empty() {
-			regions.insert(String::new());
-		}
-		let items = regions
+		let items = database_outbox_regions(&self.config)
 			.into_iter()
 			.map(|region| EnqueueItem { region })
 			.collect::<Vec<_>>();
@@ -136,16 +121,41 @@ impl Server {
 	}
 
 	pub(crate) fn spawn_publish_database_outbox_notification_task(&self) {
-		let subject = crate::indexer::database_outbox_subject();
+		let regions = database_outbox_regions(&self.config);
 		tokio::spawn({
 			let server = self.clone();
 			async move {
-				if let Err(error) = server.messenger.publish(subject, ()).await {
-					tracing::error!(%error, "failed to publish a database outbox notification");
+				for region in regions {
+					let subject = crate::indexer::database_outbox_subject();
+					let target_region = (!region.is_empty()).then_some(region.as_str());
+					if let Err(error) = server
+						.messenger
+						.publish_to_region(target_region, subject, ())
+						.await
+					{
+						tracing::error!(%error, %region, "failed to publish a database outbox notification");
+					}
 				}
 			}
 		});
 	}
+}
+
+fn database_outbox_regions(config: &crate::Config) -> BTreeSet<String> {
+	let mut regions = config
+		.regions
+		.as_ref()
+		.into_iter()
+		.flatten()
+		.map(|region| region.name.clone())
+		.collect::<BTreeSet<_>>();
+	if let Some(region) = &config.region {
+		regions.insert(region.clone());
+	}
+	if regions.is_empty() {
+		regions.insert(String::new());
+	}
+	regions
 }
 
 impl Database {
@@ -173,8 +183,9 @@ impl Database {
 	pub async fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
 		let batch_size = i64::try_from(arg.batch_size)
 			.map_err(|_| tg::error!("the database outbox batch size exceeded an i64"))?;
+		// Read from the write connection so a notification cannot outrun replication.
 		let rows = self
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+			.run(|transaction| {
 				let region = arg.region.clone();
 				async move {
 					Self::dequeue_outbox_with_transaction(transaction, &region, batch_size).await

@@ -540,22 +540,22 @@ def database_pool_path [] {
 	($nu.temp-dir? | default $nu.temp-path?) | path join $database_pool_directory_name | path expand
 }
 
-def acquire_database_id [pool_path: string] {
+def acquire_database_instance [pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
 	let scylla_schema_path = $repository_path | path join packages/stores/object/src/scylla.cql
 	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
 	if $result.exit_code != 0 {
 		error make {
-			msg: 'failed to acquire a database pool ID'
+			msg: 'failed to acquire a database pool instance'
 			help: ($result.stderr | str trim)
 		}
 	}
-	let id = $result.stdout | str trim
-	if ($id | is-empty) {
-		error make { msg: 'the acquired database pool ID is empty' }
+	let instance = $result.stdout | str trim
+	if ($instance | is-empty) {
+		error make { msg: 'the acquired database pool instance is empty' }
 	}
 
-	$id
+	$instance
 }
 
 def database_pool_acquire [] {
@@ -580,8 +580,8 @@ try_lease_existing() {
 	return 1
 }
 
-if id=$(try_lease_existing); then
-	echo "$id"
+if instance=$(try_lease_existing); then
+	echo "$instance"
 	exit 0
 fi
 
@@ -592,15 +592,15 @@ else
 	flock 9
 fi
 
-if id=$(try_lease_existing); then
-	echo "$id"
+if instance=$(try_lease_existing); then
+	echo "$instance"
 	exit 0
 fi
 
 index=0
 while true; do
-	id=$(printf 'pool%04d' "$index")
-	slot_path="$pool_path/$id"
+	instance=$(printf 'pool%04d' "$index")
+	slot_path="$pool_path/$instance"
 	if [ ! -e "$slot_path" ]; then
 		break
 	fi
@@ -615,27 +615,27 @@ cleanup_provision() {
 	trap - EXIT
 	rm -rf -- "$temporary_slot_path"
 	if $scylla_created; then
-		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"objects_$id\";" >/dev/null 2>&1 || true
+		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"objects_$instance\";" >/dev/null 2>&1 || true
 	fi
 	if $postgres_created; then
-		dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$id" >/dev/null 2>&1 || true
+		dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$instance" >/dev/null 2>&1 || true
 	fi
 	exit "$status"
 }
 trap cleanup_provision EXIT
 
 mkdir -p -- "$temporary_slot_path/lease"
-createdb --host=127.0.0.1 --username=postgres "database_$id"
+createdb --host=127.0.0.1 --username=postgres "database_$instance"
 postgres_created=true
-psql --host=127.0.0.1 --username=postgres --dbname="database_$id" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
+psql --host=127.0.0.1 --username=postgres --dbname="database_$instance" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
 
-tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$id\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
 scylla_created=true
-tangram_scylla_client 127.0.0.1 9042 -k "objects_$id" -f "$scylla_schema_path" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -k "objects_$instance" -f "$scylla_schema_path" >/dev/null
 
 mv -- "$temporary_slot_path" "$slot_path"
 trap - EXIT
-echo "$id"
+echo "$instance"
 '#
 }
 
@@ -1091,13 +1091,13 @@ def run_test [test: record, options: record] {
 	cleanup_background_jobs $temp_path
 
 	# Clean up the cloud resources.
-	let ids_path = $temp_path | path join 'ids'
-	let ids = if ($ids_path | path exists) {
-		open $ids_path | lines | where { $in != '' } | uniq
+	let instances_path = $temp_path | path join 'instances'
+	let instances = if ($instances_path | path exists) {
+		open $instances_path | lines | where { $in != '' } | uniq
 	} else {
 		[]
 	}
-	$ids | par-each { |id| reset_database_id $id $options.database_pool_path } | ignore
+	$instances | par-each { |instance| reset_database_instance $instance $options.database_pool_path } | ignore
 	let duration = (date now) - $start
 
 	# Clean up the temp directory.
@@ -1528,7 +1528,7 @@ export def --env spawn [
 	let directory_path = $directory | default (mktemp -d)
 	try { mkdir $directory_path }
 
-	mut id: any = null
+	mut instance: any = null
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
 	if $use_cloud {
 		let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
@@ -1536,19 +1536,19 @@ export def --env spawn [
 			error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
 		}
 		let cluster = fdb_cluster
-		let id_path = $directory_path | path join '.tangram_test_cloud_id'
-		$id = if not ($id_path | path exists) {
-			let id = acquire_database_id $pool_path
-			$id | save -f $id_path
+		let instance_path = $directory_path | path join '.tangram_test_cloud_instance'
+		$instance = if not ($instance_path | path exists) {
+			let instance = acquire_database_instance $pool_path
+			$instance | save -f $instance_path
 
-			$id
+			$instance
 		} else {
-			open --raw $id_path | str trim
+			open --raw $instance_path | str trim
 		}
-		if ($id | is-empty) {
-			error make { msg: $"the cloud resource ID is empty: ($id_path)" }
+		if ($instance | is-empty) {
+			error make { msg: $"the Tangram instance is empty: ($instance_path)" }
 		}
-		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
+		$instance ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'instances')
 
 		let advanced = $default_config.advanced | merge {
 			single_directory: false,
@@ -1562,29 +1562,29 @@ export def --env spawn [
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($id)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($instance)?sslmode=disable',
 				},
 				write: {
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($id)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($instance)?sslmode=disable',
 				},
 			},
+			instance: $instance,
 			index: {
 				cluster: $cluster,
 				kind: 'fdb',
-				prefix: $'index_($id)',
+				prefix: $'index_($instance)',
 			},
 			logs: {
 				store: {
 					cluster: $cluster,
 					kind: 'fdb',
-					prefix: $'logs_($id)',
+					prefix: $'logs_($instance)',
 				},
 			},
 			messenger: {
-				id: $id,
 				kind: 'nats',
 				url: 'nats://127.0.0.1:4222',
 			},
@@ -1592,7 +1592,7 @@ export def --env spawn [
 				store: {
 					addr: '127.0.0.1:9042',
 					connections: 1,
-					keyspace: $'objects_($id)',
+					keyspace: $'objects_($instance)',
 					kind: 'scylla',
 				},
 			},
@@ -1838,7 +1838,7 @@ export def server_errors [server: record] {
 		| sort
 }
 
-def reset_database_id [id: string, pool_path: string] {
+def reset_database_instance [instance: string, pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
 	let postgres_tables = open --raw $postgres_schema_path
 		| lines
@@ -1855,13 +1855,13 @@ def reset_database_id [id: string, pool_path: string] {
 	let results = ['foundationdb' 'postgres' 'scylla'] | par-each { |database|
 		let output = match $database {
 			'foundationdb' => {
-				(^timeout 10 ...$foundationdb_command --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' | complete)
+				(^timeout 10 ...$foundationdb_command --exec $'writemode on; clearrange "index_($instance)" "index_($instance)\xff"; clearrange "logs_($instance)" "logs_($instance)\xff"' | complete)
 			},
 			'postgres' => {
-				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($id)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
+				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($id)' -e 'truncate objects; truncate outbox;' | complete)
+				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($instance)' -e 'truncate objects; truncate outbox;' | complete)
 			},
 		}
 
@@ -1878,13 +1878,13 @@ def reset_database_id [id: string, pool_path: string] {
 			$'($failure.database): ($message)'
 		} | str join "\n"
 		error make {
-			msg: $'failed to reset database pool ID ($id):\n($details)'
+			msg: $'failed to reset database pool instance ($instance):\n($details)'
 		}
 	}
 
-	let lease_path = $pool_path | path join $id lease
+	let lease_path = $pool_path | path join $instance lease
 	if not ($lease_path | path exists) {
-		error make { msg: $'the lease for database pool ID ($id) does not exist' }
+		error make { msg: $'the lease for database pool instance ($instance) does not exist' }
 	}
 	^rmdir $lease_path
 }

@@ -35,6 +35,8 @@ pub struct Config {
 
 	pub indexer: Indexer,
 
+	pub instance: Option<String>,
+
 	pub logs: Logs,
 
 	pub messenger: Messenger,
@@ -541,7 +543,6 @@ pub enum Messenger {
 #[derive(Clone, Debug)]
 pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
-	pub id: Option<String>,
 	pub password: Option<String>,
 
 	pub url: Uri,
@@ -1128,6 +1129,7 @@ impl Default for Config {
 			http: Http::default(),
 			index: Index::default(),
 			indexer: Indexer::default(),
+			instance: None,
 			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
@@ -1428,7 +1430,6 @@ impl Default for NatsMessenger {
 		let url = "nats://localhost:4222".parse().unwrap();
 		Self {
 			credentials: None,
-			id: None,
 			password: None,
 			url,
 			username: None,

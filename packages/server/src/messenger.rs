@@ -1,10 +1,73 @@
-use tangram_messenger as messenger;
+use tangram_messenger::{self as messenger, Messenger as _};
 
-#[derive(derive_more::IsVariant)]
-pub enum Messenger {
+enum Inner {
 	Memory(messenger::memory::Messenger),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Messenger),
+}
+
+pub struct Messenger {
+	inner: Inner,
+	instance: Option<String>,
+	region: Option<String>,
+}
+
+impl Messenger {
+	#[must_use]
+	pub fn memory(instance: Option<String>, region: Option<String>) -> Self {
+		let inner = Inner::Memory(messenger::memory::Messenger::new());
+		Self {
+			inner,
+			instance,
+			region,
+		}
+	}
+
+	#[cfg(feature = "nats")]
+	#[must_use]
+	pub fn nats(
+		client: async_nats::Client,
+		instance: Option<String>,
+		region: Option<String>,
+	) -> Self {
+		let inner = Inner::Nats(messenger::nats::Messenger::new(client));
+		Self {
+			inner,
+			instance,
+			region,
+		}
+	}
+
+	pub async fn publish_to_region<T>(
+		&self,
+		region: Option<&str>,
+		subject: String,
+		payload: T,
+	) -> Result<(), messenger::Error>
+	where
+		T: messenger::Payload,
+	{
+		let subject = self.subject_name(region, subject);
+		match &self.inner {
+			Inner::Memory(messenger) => messenger.publish(subject, payload).await,
+			#[cfg(feature = "nats")]
+			Inner::Nats(messenger) => messenger.publish(subject, payload).await,
+		}
+	}
+
+	fn subject_name(&self, region: Option<&str>, subject: String) -> String {
+		let prefix = [self.instance.as_deref(), region]
+			.into_iter()
+			.flatten()
+			.filter(|component| !component.is_empty())
+			.collect::<Vec<_>>()
+			.join(".");
+		if prefix.is_empty() {
+			subject
+		} else {
+			format!("{prefix}.{subject}")
+		}
+	}
 }
 
 impl messenger::Messenger for Messenger {
@@ -12,11 +75,8 @@ impl messenger::Messenger for Messenger {
 	where
 		T: messenger::Payload,
 	{
-		match self {
-			Self::Memory(messenger) => messenger.publish(subject, payload).await,
-			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger.publish(subject, payload).await,
-		}
+		self.publish_to_region(self.region.as_deref(), subject, payload)
+			.await
 	}
 
 	async fn subscribe<T>(
@@ -29,13 +89,14 @@ impl messenger::Messenger for Messenger {
 	where
 		T: messenger::Payload,
 	{
-		match self {
-			Self::Memory(messenger) => messenger
+		let subject = self.subject_name(self.region.as_deref(), subject);
+		match &self.inner {
+			Inner::Memory(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
 			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
+			Inner::Nats(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
@@ -53,13 +114,14 @@ impl messenger::Messenger for Messenger {
 	where
 		T: messenger::Payload,
 	{
-		match self {
-			Self::Memory(messenger) => messenger
+		let subject = self.subject_name(self.region.as_deref(), subject);
+		match &self.inner {
+			Inner::Memory(messenger) => messenger
 				.queue_subscribe(subject, queue_group)
 				.await
 				.map(futures::StreamExt::boxed),
 			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
+			Inner::Nats(messenger) => messenger
 				.queue_subscribe(subject, queue_group)
 				.await
 				.map(futures::StreamExt::boxed),

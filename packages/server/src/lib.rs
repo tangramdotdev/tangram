@@ -712,10 +712,10 @@ impl Server {
 		let library = Mutex::new(None);
 
 		// Create the messenger.
+		let instance = config.instance.clone();
+		let region = config.region.clone();
 		let messenger = match &config.messenger {
-			self::config::Messenger::Memory => {
-				Messenger::Memory(tangram_messenger::memory::Messenger::new())
-			},
+			self::config::Messenger::Memory => Messenger::memory(instance, region),
 			self::config::Messenger::Nats(nats) => {
 				#[cfg(not(feature = "nats"))]
 				{
@@ -742,10 +742,7 @@ impl Server {
 						.connect(nats.url.to_string())
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the NATS client"))?;
-					Messenger::Nats(tangram_messenger::nats::Messenger::new(
-						client,
-						nats.id.clone(),
-					))
+					Messenger::nats(client, instance, region)
 				}
 			},
 		};

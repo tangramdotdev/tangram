@@ -58,6 +58,9 @@ pub struct Config {
 	pub indexer: Option<Indexer>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub instance: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub logs: Option<Logs>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -814,9 +817,6 @@ pub enum Messenger {
 pub struct NatsMessenger {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub credentials: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub id: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
@@ -2004,6 +2004,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.indexer {
 		target.indexer = resolve_indexer(&source);
 	}
+	if let Some(instance) = source.instance {
+		target.instance = Some(instance);
+	}
 	if let Some(source) = source.logs {
 		target.logs = resolve_logs(source);
 	}
@@ -2782,9 +2785,6 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 	}
 	if let Some(value) = source.credentials {
 		target.credentials = Some(value);
-	}
-	if let Some(value) = source.id {
-		target.id = Some(value);
 	}
 	target.password = source.password;
 	target.username = source.username;
