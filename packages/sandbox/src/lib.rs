@@ -199,10 +199,32 @@ impl Sandbox {
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
 		for mount in &arg.mounts {
+			if !mount.source.is_absolute() {
+				return Err(tg::error!(
+					source = %mount.source.display(),
+					"sandbox mount sources must be absolute paths"
+				));
+			}
+			if !mount.target.is_absolute() {
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"sandbox mount targets must be absolute paths"
+				));
+			}
 			if mount.target == Path::new("/") {
 				return Err(tg::error!(
 					target = %mount.target.display(),
 					"mounting to / is not supported"
+				));
+			}
+			if mount
+				.target
+				.components()
+				.any(|component| component == std::path::Component::ParentDir)
+			{
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"sandbox mount targets may not contain parent directory components"
 				));
 			}
 			if !targets.insert(mount.target.clone()) {

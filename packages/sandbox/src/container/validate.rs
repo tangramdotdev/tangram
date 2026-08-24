@@ -78,6 +78,7 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if bind.target == std::path::Path::new("/") {
 			return Err(tg::error!("bind mounts to / are not supported"));
 		}
+		validate_mount_target(&bind.target)?;
 		if !targets.insert(bind.target.clone()) {
 			return Err(tg::error!(
 				target = %bind.target.display(),
@@ -95,6 +96,7 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if path == std::path::Path::new("/") {
 			return Err(tg::error!("device mounts to / are not supported"));
 		}
+		validate_mount_target(path)?;
 		if !targets.insert(path.clone()) {
 			return Err(tg::error!(
 				target = %path.display(),
@@ -112,6 +114,7 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if path == std::path::Path::new("/") {
 			return Err(tg::error!("proc mounts to / are not supported"));
 		}
+		validate_mount_target(path)?;
 		if !targets.insert(path.clone()) {
 			return Err(tg::error!(
 				target = %path.display(),
@@ -129,6 +132,7 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if path == std::path::Path::new("/") {
 			return Err(tg::error!("tmpfs mounts to / are not supported"));
 		}
+		validate_mount_target(path)?;
 		if !targets.insert(path.clone()) {
 			return Err(tg::error!(
 				target = %path.display(),
@@ -152,12 +156,26 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		{
 			return Err(tg::error!("multiple overlays to / are not supported"));
 		}
+		validate_mount_target(path)?;
 		if path != std::path::Path::new("/") && !targets.insert(path.clone()) {
 			return Err(tg::error!(
 				target = %path.display(),
 				"duplicate mount targets are not supported"
 			));
 		}
+	}
+	Ok(())
+}
+
+fn validate_mount_target(path: &std::path::Path) -> tg::Result<()> {
+	if path
+		.components()
+		.any(|component| component == std::path::Component::ParentDir)
+	{
+		return Err(tg::error!(
+			path = %path.display(),
+			"mount targets may not contain parent directory components"
+		));
 	}
 	Ok(())
 }

@@ -3,15 +3,31 @@ use {
 	bytes::Bytes,
 	num::ToPrimitive,
 	std::{
-		ffi::{CString, OsStr},
+		cmp::Reverse,
+		ffi::{CString, OsStr, OsString},
 		os::{
 			fd::AsRawFd as _,
-			unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
+			unix::{
+				ffi::{OsStrExt as _, OsStringExt as _},
+				fs::OpenOptionsExt as _,
+			},
 		},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
 };
+
+const AT_RECURSIVE: libc::c_uint = 0x8000;
+const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
+const MOUNT_ATTR_NOSUID: u64 = 0x0000_0002;
+const MOUNT_ATTR_RDONLY: u64 = 0x0000_0001;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MountAttributes {
+	nodev: bool,
+	nosuid: bool,
+	readonly: bool,
+}
 
 pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	make_mounts_private()?;
@@ -70,7 +86,12 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	binds.sort_unstable_by_key(|(bind, _)| path_depth(&bind.target));
 	for (bind, readonly) in binds {
 		let target = map_target(root, &bind.target)?;
-		mount_bind(bind, &target, readonly)?;
+		let attributes = MountAttributes {
+			nodev: arg.unshare_all,
+			nosuid: arg.unshare_all,
+			readonly,
+		};
+		mount_bind(bind, &target, attributes)?;
 	}
 
 	Ok(())
@@ -128,13 +149,41 @@ fn map_target(root: Option<&Path>, target: &Path) -> tg::Result<PathBuf> {
 				"expected an absolute target path"
 			)
 		})?;
-		Ok(root.join(suffix))
+		let target = root.join(suffix);
+		validate_target_path(root, &target)?;
+		Ok(target)
 	} else {
 		Ok(target.to_owned())
 	}
 }
 
-fn mount_bind(bind: &Bind, target: &Path, readonly: bool) -> tg::Result<()> {
+fn validate_target_path(root: &Path, target: &Path) -> tg::Result<()> {
+	let suffix = target.strip_prefix(root).unwrap();
+	let mut path = root.to_owned();
+	for component in suffix.components() {
+		path.push(component);
+		match std::fs::symlink_metadata(&path) {
+			Ok(metadata) if metadata.file_type().is_symlink() => {
+				return Err(tg::error!(
+					path = %path.display(),
+					"mount targets may not traverse symbolic links"
+				));
+			},
+			Ok(_) => {},
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					path = %path.display(),
+					"failed to inspect a mount target"
+				));
+			},
+		}
+	}
+	Ok(())
+}
+
+fn mount_bind(bind: &Bind, target: &Path, attributes: MountAttributes) -> tg::Result<()> {
 	create_mountpoint_if_not_exists(&bind.source, target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -146,8 +195,7 @@ fn mount_bind(bind: &Bind, target: &Path, readonly: bool) -> tg::Result<()> {
 	let source = cstring(&bind.source);
 	let target_path = target;
 	let target = cstring(target_path);
-	let mut flags = libc::MS_BIND | libc::MS_REC;
-	flags |= get_existing_mount_flags(&source).unwrap_or(0);
+	let flags = libc::MS_BIND | libc::MS_REC;
 	mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|error| {
 		tg::error!(
 			!error,
@@ -156,18 +204,141 @@ fn mount_bind(bind: &Bind, target: &Path, readonly: bool) -> tg::Result<()> {
 			"failed to create the bind mount"
 		)
 	})?;
-	if readonly {
-		let flags = flags | libc::MS_REMOUNT | libc::MS_RDONLY;
-		mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|error| {
-			tg::error!(
-				!error,
-				error = %bind.source.display(),
-				target = %target_path.display(),
-				"failed to remount the bind mount as read only"
-			)
-		})?;
+	set_mount_attributes(target_path, attributes)?;
+	Ok(())
+}
+
+fn set_mount_attributes(target: &Path, attributes: MountAttributes) -> tg::Result<()> {
+	let mut attribute_set = 0;
+	if attributes.nodev {
+		attribute_set |= MOUNT_ATTR_NODEV;
+	}
+	if attributes.nosuid {
+		attribute_set |= MOUNT_ATTR_NOSUID;
+	}
+	if attributes.readonly {
+		attribute_set |= MOUNT_ATTR_RDONLY;
+	}
+	if attribute_set == 0 {
+		return Ok(());
+	}
+
+	match set_mount_attributes_modern(target, attribute_set) {
+		Ok(()) => Ok(()),
+		Err(error)
+			if matches!(
+				error.raw_os_error(),
+				Some(libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP | libc::EPERM)
+			) =>
+		{
+			set_mount_attributes_legacy(target, attributes)
+		},
+		Err(error) => Err(tg::error!(
+			!error,
+			target = %target.display(),
+			"failed to set recursive mount attributes"
+		)),
+	}
+}
+
+fn set_mount_attributes_modern(target: &Path, attribute_set: u64) -> std::io::Result<()> {
+	let target = cstring(target);
+	// The array matches Linux's mount_attr ABI: attr_set, attr_clr, propagation, and userns_fd.
+	let attributes = [attribute_set, 0, 0, 0];
+	// SAFETY: The target and attribute pointers remain valid for the duration of the syscall.
+	let result = unsafe {
+		libc::syscall(
+			libc::SYS_mount_setattr,
+			libc::AT_FDCWD,
+			target.as_ptr(),
+			AT_RECURSIVE,
+			attributes.as_ptr(),
+			std::mem::size_of_val(&attributes),
+		)
+	};
+	if result != 0 {
+		return Err(std::io::Error::last_os_error());
 	}
 	Ok(())
+}
+
+fn set_mount_attributes_legacy(target: &Path, attributes: MountAttributes) -> tg::Result<()> {
+	let mut mountpoints = mountpoints_under(target)?;
+	mountpoints.sort_unstable_by_key(|path| Reverse(path_depth(path)));
+	if mountpoints.is_empty() {
+		return Err(tg::error!(
+			target = %target.display(),
+			"failed to find the bind mount in mountinfo"
+		));
+	}
+	for mountpoint in mountpoints {
+		let mountpoint_cstring = cstring(&mountpoint);
+		let mut flags = get_existing_mount_flags(&mountpoint_cstring).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %mountpoint.display(),
+				"failed to get the existing mount attributes"
+			)
+		})?;
+		flags |= libc::MS_BIND | libc::MS_REMOUNT;
+		if attributes.nodev {
+			flags |= libc::MS_NODEV;
+		}
+		if attributes.nosuid {
+			flags |= libc::MS_NOSUID;
+		}
+		if attributes.readonly {
+			flags |= libc::MS_RDONLY;
+		}
+		mount_raw(None, &mountpoint_cstring, None, flags, std::ptr::null_mut()).map_err(
+			|error| {
+				tg::error!(
+					!error,
+					path = %mountpoint.display(),
+					"failed to set the mount attributes"
+				)
+			},
+		)?;
+	}
+	Ok(())
+}
+
+fn mountpoints_under(target: &Path) -> tg::Result<Vec<PathBuf>> {
+	let mountinfo = std::fs::read("/proc/self/mountinfo")
+		.map_err(|error| tg::error!(!error, "failed to read mountinfo"))?;
+	let mut mountpoints = Vec::new();
+	for line in mountinfo.split(|byte| *byte == b'\n') {
+		let Some(field) = line.split(|byte| *byte == b' ').nth(4) else {
+			continue;
+		};
+		let mountpoint = PathBuf::from(decode_mountinfo_path(field)?);
+		if mountpoint == target || mountpoint.starts_with(target) {
+			mountpoints.push(mountpoint);
+		}
+	}
+	Ok(mountpoints)
+}
+
+fn decode_mountinfo_path(input: &[u8]) -> tg::Result<OsString> {
+	let mut output = Vec::with_capacity(input.len());
+	let mut index = 0;
+	while index < input.len() {
+		if input[index] != b'\\' {
+			output.push(input[index]);
+			index += 1;
+			continue;
+		}
+		let digits = input
+			.get(index + 1..index + 4)
+			.ok_or_else(|| tg::error!("invalid escape in mountinfo"))?;
+		if !digits.iter().all(|digit| (b'0'..=b'7').contains(digit)) {
+			return Err(tg::error!("invalid escape in mountinfo"));
+		}
+		let byte = (digits[0] - b'0') * 64 + (digits[1] - b'0') * 8 + digits[2] - b'0';
+		output.push(byte);
+		index += 4;
+	}
+	Ok(OsString::from_vec(output))
 }
 
 fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg::Result<()> {
@@ -205,7 +376,7 @@ fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg:
 		Some(&source),
 		&target,
 		Some(&fstype),
-		0,
+		libc::MS_NODEV | libc::MS_NOSUID,
 		data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
 	.map_err(|error| {
@@ -341,7 +512,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 				target: target.clone(),
 			},
 			&target,
-			false,
+			MountAttributes::default(),
 		)?;
 	}
 

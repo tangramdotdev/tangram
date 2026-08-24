@@ -49,6 +49,15 @@ impl std::str::FromStr for Mount {
 		if !target.is_absolute() {
 			return Err(tg::error!(target = %target.display(), "expected an absolute path"));
 		}
+		if target
+			.components()
+			.any(|component| component == std::path::Component::ParentDir)
+		{
+			return Err(tg::error!(
+				target = %target.display(),
+				"mount targets may not contain parent directory components"
+			));
+		}
 		let source = source.into();
 		let readonly = readonly.unwrap_or(false);
 		Ok(Self {
