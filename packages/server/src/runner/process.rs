@@ -55,7 +55,6 @@ struct ProcessTaskArg {
 
 struct FinishProcessTaskArg {
 	buffered_task: Task<tg::Result<()>>,
-	command: CommandFuture,
 	control_task: Task<tg::Result<()>>,
 	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
 	id: tg::process::Id,
@@ -800,7 +799,6 @@ impl Session {
 		});
 		let arg = FinishProcessTaskArg {
 			buffered_task,
-			command,
 			control_task,
 			finish_sender,
 			id,
@@ -818,7 +816,6 @@ impl Session {
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
 		let FinishProcessTaskArg {
 			buffered_task,
-			command,
 			control_task,
 			finish_sender,
 			id,
@@ -950,14 +947,8 @@ impl Session {
 				.load_with_handle(session)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-			let command = command.await?;
 			session
-				.write_progress_stream_with_command_data(
-					&command,
-					progress_sender.clone(),
-					&state.stderr,
-					stream,
-				)
+				.write_progress_stream(progress_sender.clone(), &state.stderr, stream)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
@@ -1620,7 +1611,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
 
 		// Write progress.
-		self.write_progress_stream(command, progress, stderr, stream)
+		self.write_progress_stream(progress, stderr, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
