@@ -4,7 +4,10 @@ use {
 	num::ToPrimitive,
 	std::{
 		ffi::{CString, OsStr},
-		os::unix::ffi::OsStrExt as _,
+		os::{
+			fd::AsRawFd as _,
+			unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
+		},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -261,6 +264,23 @@ fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 }
 
 fn mount_dev(target: &Path) -> tg::Result<()> {
+	let mut devices = Vec::new();
+	for path in [
+		"/dev/null",
+		"/dev/zero",
+		"/dev/full",
+		"/dev/random",
+		"/dev/urandom",
+		"/dev/tty",
+	] {
+		let file = std::fs::File::options()
+			.custom_flags(libc::O_PATH)
+			.read(true)
+			.open(path)
+			.map_err(|error| tg::error!(!error, %path, "failed to open the device"))?;
+		devices.push((path, file));
+	}
+
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -295,25 +315,19 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		pts_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the devpts mount"))?;
-	for source in [
-		"/dev/null",
-		"/dev/zero",
-		"/dev/full",
-		"/dev/random",
-		"/dev/urandom",
-		"/dev/tty",
-	] {
-		let source = Path::new(source);
-		let target = target.join(source.file_name().unwrap());
+	for (path, file) in &devices {
+		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
+		let target = target.join(Path::new(path).file_name().unwrap());
 		mount_bind(
 			&Bind {
-				source: source.to_owned(),
+				source,
 				target: target.clone(),
 			},
 			&target,
 			false,
 		)?;
 	}
+
 	configure_dev(target)
 }
 
