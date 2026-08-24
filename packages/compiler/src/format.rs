@@ -5,7 +5,7 @@ impl Compiler {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();
 		let options = oxc_formatter::JsFormatOptions {
-			indent_style: "tab".parse().unwrap(),
+			indent_style: oxc_formatter_core::IndentStyle::Tab,
 			line_width: 80.try_into().unwrap(),
 			..Default::default()
 		};

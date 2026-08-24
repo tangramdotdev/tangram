@@ -73,7 +73,7 @@ async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.50"
-async_zip = { version = "0.0.18", features = ["full"] }
+async_zip = { version = "0.0.19", features = ["full"] }
 aws-lc-rs = "1"
 axum = { version = "0.8", features = ["ws"] }
 blake3 = "1"
@@ -89,10 +89,10 @@ crossterm = { version = "0.29", features = ["event-stream"] }
 dashmap = "6"
 data-encoding = "2"
 data-encoding-macro = "0.1"
-deno_core_icudata = "0.77"
+deno_core_icudata = "0.78"
 derive_more = { version = "2", features = ["full"] }
 env_logger = "0.11"
-fastcdc = { version = "4", features = ["tokio"] }
+fastcdc = { version = "5", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
 fnv = "1"
@@ -150,6 +150,7 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
+oxc_formatter_core = { git = "https://github.com/oxc-project/oxc" }
 percent-encoding = "2"
 petgraph = "0.8"
 pin-project = "1"
@@ -160,7 +161,7 @@ quote = "1"
 radix_trie = "0.3.0"
 rand = "0.10"
 ratatui = "0.30"
-reedline = "0.49"
+reedline = "0.51"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 regex = "1"

@@ -41,6 +41,7 @@ lsp-types = { workspace = true }
 num = { workspace = true }
 oxc = { workspace = true }
 oxc_formatter = { workspace = true }
+oxc_formatter_core = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

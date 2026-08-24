@@ -1,6 +1,6 @@
 use {
 	crate::js::Engine,
-	crossterm::style::Color,
+	nu_ansi_term::Color,
 	std::{borrow::Cow, path::PathBuf},
 	tangram_client::prelude::*,
 };
@@ -221,7 +221,7 @@ impl reedline::Prompt for Prompt {
 	}
 
 	fn get_indicator_color(&self) -> Color {
-		Color::AnsiValue(244)
+		Color::Fixed(244)
 	}
 }
 
