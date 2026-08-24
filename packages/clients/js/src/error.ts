@@ -124,12 +124,28 @@ export class Error {
 
 	/** Create an error. */
 	static async new(...args: tg.Args<tg.Error.Arg>): Promise<tg.Error> {
+		let resolved = await Promise.all(args.map(tg.resolve));
+		let last = resolved.at(-1);
+		if (last instanceof tg.Error) {
+			let preceding = resolved.slice(0, -1);
+			let onlyStack = preceding.every((arg) => {
+				return (
+					typeof arg === "object" &&
+					arg !== null &&
+					!(arg instanceof tg.Error) &&
+					Object.keys(arg).every((key) => key === "stack")
+				);
+			});
+			if (onlyStack) {
+				return last;
+			}
+		}
 		let stackObject: { stack: Array<tg.Error.Location> | null } = {
 			stack: null,
 		};
 		globalThis.Error.captureStackTrace(stackObject, tg.Error.new);
 		let stack = stackObject.stack;
-		let arg = await tg.Error.arg({ stack }, ...args);
+		let arg = await tg.Error.argResolved({ stack }, ...resolved);
 		let object: tg.Error.Object = {
 			code: arg.code ?? null,
 			diagnostics: arg.diagnostics ?? null,

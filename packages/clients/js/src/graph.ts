@@ -52,7 +52,16 @@ export class Graph {
 
 	/** Create a graph. */
 	static async new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph> {
-		let arg = await tg.Graph.arg(...args);
+		let arg: tg.Graph.Arg.Object;
+		if (args.length === 1) {
+			let resolved = await tg.resolve(args[0]!);
+			if (resolved instanceof tg.Graph) {
+				return resolved;
+			}
+			arg = await tg.Graph.argResolved(resolved);
+		} else {
+			arg = await tg.Graph.arg(...args);
+		}
 		let argNodes = arg.nodes ?? [];
 		let nodes = await Promise.all(
 			argNodes.map(async (node) => {
@@ -128,10 +137,17 @@ export class Graph {
 	static async arg(
 		...args: tg.Args<tg.Graph.Arg>
 	): Promise<tg.Graph.Arg.Object> {
-		let resolved = await Promise.all(args.map(tg.resolve));
+		return await tg.Graph.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.Graph.Arg>>
+	): Promise<tg.Graph.Arg.Object> {
 		let nodes = [];
 		let offset = 0;
-		for (let arg of resolved) {
+		for (let arg of args) {
 			if (arg === undefined) {
 				continue;
 			}

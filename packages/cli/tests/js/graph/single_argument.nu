@@ -1,16 +1,16 @@
 use ../../../test.nu *
 
-# tg.directory preserves a directory passed as its sole argument.
+# tg.graph preserves an unloaded graph passed as its sole argument without loading it.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let input = await tg.directory({ "file": "contents" });
+			let input = await tg.graph({ nodes: [{ kind: "file", contents: "contents" }] });
 			await input.store();
 			input.unload();
-			let output = await tg.directory(input);
+			let output = await tg.graph(input);
 			return input === output && input.state.object === null;
 		}
 	'

@@ -62,7 +62,16 @@ export class Symlink {
 	static async new(
 		...args: Array<tg.Unresolved<tg.Symlink.Arg>>
 	): Promise<tg.Symlink> {
-		let arg = await tg.Symlink.arg(...args);
+		let arg: tg.Symlink.Arg.Object;
+		if (args.length === 1) {
+			let resolved = await tg.resolve(args[0]!);
+			if (resolved instanceof tg.Symlink) {
+				return resolved;
+			}
+			arg = await tg.Symlink.argResolved(resolved);
+		} else {
+			arg = await tg.Symlink.arg(...args);
+		}
 		if (tg.Graph.Arg.Pointer.is(arg)) {
 			return tg.Symlink.withObject(tg.Graph.Pointer.fromArg(arg));
 		}
@@ -79,9 +88,17 @@ export class Symlink {
 	static async arg(
 		...args: Array<tg.Unresolved<tg.Symlink.Arg>>
 	): Promise<tg.Symlink.Arg.Object> {
+		return await tg.Symlink.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.Symlink.Arg>
+	): Promise<tg.Symlink.Arg.Object> {
 		let output: tg.Graph.Arg.Symlink = {};
-		for (let arg_ of args) {
-			let arg = await tg.Symlink.argInner(arg_);
+		for (let resolved of args) {
+			let arg = await tg.Symlink.argResolvedInner(resolved);
 			if (tg.Graph.Arg.Pointer.is(arg)) {
 				if (args.length === 1) {
 					return arg;
@@ -93,10 +110,9 @@ export class Symlink {
 		return output;
 	}
 
-	static async argInner(
-		arg: tg.Unresolved<tg.Symlink.Arg>,
+	static async argResolvedInner(
+		resolved: tg.Symlink.Arg,
 	): Promise<tg.Symlink.Arg.Object> {
-		let resolved = await tg.resolve(arg);
 		if (typeof resolved === "string") {
 			return { path: resolved };
 		} else if (tg.Artifact.is(resolved)) {

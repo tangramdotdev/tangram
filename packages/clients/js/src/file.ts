@@ -72,6 +72,9 @@ export class File {
 		let arg: Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
 		if (args.length === 1) {
 			let resolved = await tg.resolve(args[0]!);
+			if (resolved instanceof tg.File) {
+				return resolved;
+			}
 			if (tg.Graph.Arg.Pointer.is(resolved)) {
 				return tg.File.withObject(tg.Graph.Pointer.fromArg(resolved));
 			}

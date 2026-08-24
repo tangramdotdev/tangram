@@ -64,7 +64,16 @@ export class Blob {
 
 	/** Create a blob. */
 	static async new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
-		let arg = await tg.Blob.arg(...args);
+		let arg: tg.Blob.Arg.Object;
+		if (args.length === 1) {
+			let resolved = await tg.resolve(args[0]!);
+			if (resolved instanceof tg.Blob) {
+				return resolved;
+			}
+			arg = await tg.Blob.argResolved(resolved);
+		} else {
+			arg = await tg.Blob.arg(...args);
+		}
 		let blob: tg.Blob;
 		if (!arg.children || arg.children.length === 0) {
 			blob = tg.Blob.withObject({ bytes: new Uint8Array() });
@@ -87,7 +96,15 @@ export class Blob {
 	}
 
 	static async arg(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob.Arg.Object> {
-		return await tg.Args.apply<
+		return await tg.Blob.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>
+	): Promise<tg.Blob.Arg.Object> {
+		return await tg.Args.applyResolved<
 			tg.Blob.Arg,
 			tg.ValueOrMaybeMutationMap<tg.Blob.Arg.Object>,
 			tg.Blob.Arg.Object

@@ -1,16 +1,16 @@
 use ../../../test.nu *
 
-# tg.directory preserves a directory passed as its sole argument.
+# tg.command preserves an unloaded command passed as its sole argument without loading it.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let input = await tg.directory({ "file": "contents" });
+			let input = await tg.command({ executable: "echo", host: tg.host.current });
 			await input.store();
 			input.unload();
-			let output = await tg.directory(input);
+			let output = await tg.command(input);
 			return input === output && input.state.object === null;
 		}
 	'

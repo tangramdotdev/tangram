@@ -55,7 +55,16 @@ export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		O extends tg.Value = tg.Value,
 	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, O>> {
-		let arg = await tg.Command.arg(...args);
+		let arg: tg.Command.ResolvedArg;
+		if (args.length === 1) {
+			let resolved = await tg.resolve(args[0]!);
+			if (resolved instanceof tg.Command) {
+				return resolved as tg.Command<A, O>;
+			}
+			arg = await tg.Command.argResolved(resolved);
+		} else {
+			arg = await tg.Command.arg(...args);
+		}
 		let args_ = arg.args ?? [];
 		let env = arg.env ?? {};
 		let executable: tg.Command.Executable | undefined;
@@ -95,7 +104,15 @@ export class Command<
 	static async arg(
 		...args: tg.Args<tg.Command.Arg>
 	): Promise<tg.Command.ResolvedArg> {
-		return await tg.Args.apply<
+		return await tg.Command.argResolved(
+			...(await Promise.all(args.map(tg.resolve))),
+		);
+	}
+
+	static async argResolved(
+		...args: Array<tg.ValueOrMaybeMutationMap<tg.Command.Arg>>
+	): Promise<tg.Command.ResolvedArg> {
+		return await tg.Args.applyResolved<
 			tg.Command.Arg,
 			tg.Command.MappedArg,
 			tg.Command.ResolvedArg
@@ -722,13 +739,18 @@ export namespace Command {
 	> extends Function {
 		#args: tg.Args<tg.Command.Arg.Object>;
 		#envMapper: tg.Command.Builder.EnvMapper<E>;
-		#js: Promise<boolean>;
+		#js: () => Promise<boolean>;
 
 		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 			super();
 			this.#envMapper = ((env: tg.Command.Arg.Env) =>
 				env) as tg.Command.Builder.EnvMapper<E>;
-			this.#js = isJsCommandBuilderArg(args);
+			let js: Promise<boolean> | undefined;
+			this.#js = () => {
+				js ??= isJsCommandBuilderArg(args);
+
+				return js;
+			};
 			this.#args = args.map((arg) => this.builderArg(arg));
 			return new Proxy(this, {
 				get(this_: any, prop, _receiver) {
@@ -842,15 +864,18 @@ export namespace Command {
 		private async builderArg(
 			arg: tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Command.Arg.Object>>,
 		): Promise<tg.ValueOrMaybeMutationMap<tg.Command.Arg.Object>> {
-			let [js, arg_] = await Promise.all([this.#js, tg.resolve(arg)]);
+			let arg_ = await tg.resolve(arg);
 			if (
-				!js ||
 				arg_ instanceof tg.Command ||
 				typeof arg_ !== "object" ||
 				arg_ === null ||
 				!("args" in arg_) ||
 				!Array.isArray(arg_.args)
 			) {
+				return arg_;
+			}
+			let js = await this.#js();
+			if (!js) {
 				return arg_;
 			}
 			let args = encodeJsArgs(arg_.args);
@@ -861,7 +886,7 @@ export namespace Command {
 		private async argsArg(
 			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
 		): Promise<tg.Command.Arg.Object> {
-			let [js, args_] = await Promise.all([this.#js, tg.resolve(args)]);
+			let [js, args_] = await Promise.all([this.#js(), tg.resolve(args)]);
 			if (!js || args_ === null) {
 				return { args: args_ };
 			}

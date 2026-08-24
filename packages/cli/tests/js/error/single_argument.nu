@@ -1,16 +1,16 @@
 use ../../../test.nu *
 
-# tg.directory preserves a directory passed as its sole argument.
+# tg.error preserves an unloaded error passed as its sole argument without loading it.
 
 let server = spawn
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let input = await tg.directory({ "file": "contents" });
+			let input = tg.error.sync("message", { stack: null });
 			await input.store();
 			input.unload();
-			let output = await tg.directory(input);
+			let output = await tg.error(input);
 			return input === output && input.state.object === null;
 		}
 	'
