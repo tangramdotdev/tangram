@@ -67,6 +67,16 @@ struct FinishProcessTaskArg {
 	sandbox: tg::sandbox::Id,
 }
 
+struct IndexProcessTaskArg<'a> {
+	command: tg::Referent<tg::command::Id>,
+	command_data: CommandFuture,
+	data: tg::process::Data,
+	id: &'a tg::process::Id,
+	location: &'a tg::Location,
+	options: tg::referent::Options,
+	parent: Option<&'a tg::process::Id>,
+}
+
 struct CollectProcessOutputArg<'a> {
 	exit: u8,
 	path: PathBuf,
@@ -99,6 +109,7 @@ struct RunProcessArg {
 	command: CommandFuture,
 	guest_url: tangram_uri::Uri,
 	id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
+	process_indexed: tokio::sync::oneshot::Receiver<tg::Result<()>>,
 	process_stopper: Stopper,
 	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 	sandbox: tangram_sandbox::Sandbox,
@@ -332,6 +343,7 @@ impl Session {
 		// Start the process task concurrently with the control stream.
 		let (sandbox_process_sender, sandbox_process_receiver) =
 			tokio::sync::watch::channel::<Option<Arc<tangram_sandbox::Process>>>(None);
+		let (process_indexed_sender, process_indexed_receiver) = tokio::sync::oneshot::channel();
 		let (log_buffered_sender, log_buffered_receiver) = tokio::sync::oneshot::channel();
 		let log_task = match log_sender {
 			None => {
@@ -435,6 +447,7 @@ impl Session {
 						command,
 						guest_url,
 						id_receiver: process_id_receiver,
+						process_indexed: process_indexed_receiver,
 						process_stopper,
 						progress_sender,
 						sandbox,
@@ -480,7 +493,7 @@ impl Session {
 			id: expected_id.clone(),
 			lease: lease.clone(),
 			location: Some(location.clone().into()),
-			options,
+			options: options.clone(),
 			parent: parent.clone(),
 		};
 		let connection =
@@ -613,16 +626,21 @@ impl Session {
 					"failed to publish the sandbox process spawned notification"
 				)
 			})?;
-		if let Err(error) = session
-			.spawn_grant_process_command_task(
-				command.clone(),
-				state.command.to_referent(),
-				&id,
-				&location,
-				parent.as_ref(),
-			)
-			.await
-		{
+
+		// Index the remote process before running it.
+		let index_result = session
+			.spawn_index_process_task(IndexProcessTaskArg {
+				command: state.command.to_referent(),
+				command_data: command.clone(),
+				data: state.to_data(),
+				id: &id,
+				location: &location,
+				options,
+				parent: parent.as_ref(),
+			})
+			.await;
+		process_indexed_sender.send(index_result.clone()).ok();
+		if let Err(error) = index_result {
 			process_stopper.stop();
 			run_task.take().unwrap().wait().await.ok();
 
@@ -812,6 +830,10 @@ impl Session {
 			sandbox: sandbox_id,
 		} = arg;
 		let session = self;
+		let remote = process
+			.location()
+			.and_then(|location| location.to_location())
+			.is_some_and(|location| location.is_remote());
 
 		let finish = {
 			let mut sandbox = session
@@ -1066,6 +1088,16 @@ impl Session {
 		let data = process_state.data();
 		drop(sandbox);
 
+		// Store the finished remote process in the runner's local index.
+		if remote {
+			session
+				.store_finished_process_local(id, data.clone())
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to index the finished remote process"),
+				)?;
+		}
+
 		child_leases
 			.into_iter()
 			.map(|(child, lease, location)| {
@@ -1107,23 +1139,50 @@ impl Session {
 		Ok::<_, tg::Error>(())
 	}
 
-	async fn spawn_grant_process_command_task(
-		&self,
-		command_data: CommandFuture,
-		command: tg::Referent<tg::command::Id>,
-		id: &tg::process::Id,
-		location: &tg::Location,
-		parent: Option<&tg::process::Id>,
-	) -> tg::Result<()> {
+	async fn spawn_index_process_task(&self, arg: IndexProcessTaskArg<'_>) -> tg::Result<()> {
+		let IndexProcessTaskArg {
+			command,
+			command_data,
+			data,
+			id,
+			location,
+			mut options,
+			parent,
+		} = arg;
 		if !location.is_remote() {
 			return Ok(());
 		}
 
+		// A successful direct read proves node permission on the command.
+		command_data.await?;
+
+		let data = data.without_location_and_tokens();
+		options.clear_location_and_tokens();
+		let command_id = data.command.clone();
+		let sandbox = data.sandbox.clone();
 		let now = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 		let expires_at = now + time_to_live;
-		let index_arg = if let Some(parent) = parent {
+		let put_process_arg = tangram_index::process::put::Arg {
+			cached: false,
+			children: None,
+			command: command_id.into(),
+			data: Some(data.clone()),
+			error: None,
+			id: id.clone(),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			options,
+			output: None,
+			parent: parent.cloned(),
+			sandbox: Some(sandbox),
+			storage: tangram_index::process::Storage::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
+			touched_at: now,
+		};
+		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
+		let grant_item = if let Some(parent) = parent {
 			let context = crate::Context {
 				principal: tg::Principal::Process(parent.clone()),
 				token: None,
@@ -1132,16 +1191,16 @@ impl Session {
 			let session = self.server.session(&context);
 			let command = command.map(tg::object::Id::from);
 			let grant_arg = session
-				.create_process_object_grant_arg(id, [command], now, Some(expires_at))
+				.create_process_object_grant_arg_with_root_permissions(
+					id,
+					[command],
+					now,
+					Some(expires_at),
+					tg::authorization::permission::object::Set::NODE,
+				)
 				.await?;
-			tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutProcessObjectGrants(
-					grant_arg,
-				)],
-			}
+			tangram_index::batch::Item::PutProcessObjectGrants(grant_arg)
 		} else {
-			// A successful direct read proves node permission on the command.
-			command_data.await?;
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Node,
 			);
@@ -1154,14 +1213,13 @@ impl Session {
 				subject: tg::authorization::Subject::Process(id.clone()),
 				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			};
-			tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutGrant(grant_arg)],
-			}
+			tangram_index::batch::Item::PutGrant(grant_arg)
 		};
+		items.push(grant_item);
 		self.server
-			.index_batch(index_arg)
+			.index_batch(tangram_index::batch::Arg { items })
 			.await
-			.map_err(|error| tg::error!(!error, "failed to index the process command grant"))?;
+			.map_err(|error| tg::error!(!error, "failed to index the remote process"))?;
 
 		Ok(())
 	}
@@ -1171,6 +1229,7 @@ impl Session {
 			command,
 			guest_url,
 			id_receiver,
+			process_indexed,
 			process_stopper,
 			progress_sender,
 			sandbox,
@@ -1180,6 +1239,9 @@ impl Session {
 			token,
 		} = arg;
 		let command = command.await?;
+		process_indexed
+			.await
+			.map_err(|error| tg::error!(!error, "failed to wait for the process index"))??;
 		let command = &command;
 		let state = &state;
 

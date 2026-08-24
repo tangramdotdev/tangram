@@ -12,13 +12,13 @@ let local = spawn --name local --config {
 tg --url $remote.url group create foo
 
 let first = tg --url $local.url get foo | from json
-assert (($first | get --optional tokens.local) != null) "remote get should return a token"
+assert (($first | get --optional tokens.remote) != null) "remote get should return a token"
 
 sleep 2sec
 
 let refreshed = tg --url $local.url get foo | from json
-assert (($refreshed | get --optional tokens.local) != null) "remote get should refresh an expired token"
-assert ($refreshed.tokens.local != $first.tokens.local) "the refreshed token should be new"
+assert (($refreshed | get --optional tokens.remote) != null) "remote get should refresh an expired token"
+assert ($refreshed.tokens.remote != $first.tokens.remote) "the refreshed token should be new"
 
 sleep 2sec
 
@@ -27,4 +27,4 @@ kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let cached = tg --url $local.url get --cached foo | from json
-assert (($cached | get --optional tokens.local) == null) "cached get should omit an expired token"
+assert (($cached | get --optional tokens.remote) == null) "cached get should omit an expired token"

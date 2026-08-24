@@ -9,7 +9,17 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
-		let data = arg.data;
+		self.store_finished_process_local(id, arg.data).await?;
+		self.spawn_process_finish_tasks(id);
+
+		Ok(tg::process::control::FinishServerResponseOutput {})
+	}
+
+	pub(crate) async fn store_finished_process_local(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
 		let mut roots = vec![tg::Referent::with_node(tg::object::Id::from(
 			data.command.clone(),
@@ -48,9 +58,8 @@ impl Session {
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
-		self.spawn_process_finish_tasks(id);
 
-		Ok(tg::process::control::FinishServerResponseOutput {})
+		Ok(())
 	}
 
 	pub(crate) async fn store_process_error(

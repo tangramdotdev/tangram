@@ -12,7 +12,7 @@ let remote_group = tg --url $remote.url group create foo | from json
 let group = tg --url $local.url get foo | from json
 assert equal $group.id $remote_group.id
 assert equal $group.location remote
-assert (($group | get --optional tokens.local) != null) "remote get should return a token"
+assert (($group | get --optional tokens.remote) != null) "remote get should return a token"
 
 let requests = (
 	open ($local.directory | path join database)
@@ -32,4 +32,4 @@ wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 let cached = tg --url $local.url get --cached foo | from json
 assert equal $cached.id $remote_group.id
 assert equal $cached.location remote
-assert (($cached | get --optional tokens.local) != null) "cached get should preserve the token"
+assert (($cached | get --optional tokens.remote) != null) "cached get should preserve the token"
