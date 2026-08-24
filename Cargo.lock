@@ -2866,7 +2866,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "heed"
 version = "0.22.1"
-source = "git+https://github.com/tangramdotdev/heed.git?rev=c5ea26f535702b0973cf9551e025234d6529cc06#c5ea26f535702b0973cf9551e025234d6529cc06"
+source = "git+https://github.com/tangramdotdev/heed.git#c5ea26f535702b0973cf9551e025234d6529cc06"
 dependencies = [
  "bitflags 2.13.1",
  "byteorder",
@@ -2884,12 +2884,12 @@ dependencies = [
 [[package]]
 name = "heed-traits"
 version = "0.20.0"
-source = "git+https://github.com/tangramdotdev/heed.git?rev=c5ea26f535702b0973cf9551e025234d6529cc06#c5ea26f535702b0973cf9551e025234d6529cc06"
+source = "git+https://github.com/tangramdotdev/heed.git#c5ea26f535702b0973cf9551e025234d6529cc06"
 
 [[package]]
 name = "heed-types"
 version = "0.21.0"
-source = "git+https://github.com/tangramdotdev/heed.git?rev=c5ea26f535702b0973cf9551e025234d6529cc06#c5ea26f535702b0973cf9551e025234d6529cc06"
+source = "git+https://github.com/tangramdotdev/heed.git#c5ea26f535702b0973cf9551e025234d6529cc06"
 dependencies = [
  "bincode",
  "byteorder",
@@ -3934,7 +3934,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 [[package]]
 name = "lmdb-master-sys"
 version = "0.2.6"
-source = "git+https://github.com/tangramdotdev/heed.git?rev=c5ea26f535702b0973cf9551e025234d6529cc06#c5ea26f535702b0973cf9551e025234d6529cc06"
+source = "git+https://github.com/tangramdotdev/heed.git#c5ea26f535702b0973cf9551e025234d6529cc06"
 dependencies = [
  "cc",
  "doxygen-rs",
@@ -9879,8 +9879,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "150.1.0"
-source = "git+https://github.com/tangramdotdev/rusty_v8#267aa1019f65df1de67cd282dd321281bde6815f"
+version = "152.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a10fe1a92da5c32c7c7f838ce36c0ccfcfd5edf0865b58bdde820aa64cea9888"
 dependencies = [
  "bindgen 0.72.1",
  "bitflags 2.13.1",
@@ -9961,7 +9962,7 @@ dependencies = [
 [[package]]
 name = "virtiofsd"
 version = "1.14.0"
-source = "git+https://github.com/tangramdotdev/virtiofsd?rev=d0c78f1b1b01f032b575f581b24d901146606abc#d0c78f1b1b01f032b575f581b24d901146606abc"
+source = "git+https://github.com/tangramdotdev/virtiofsd#d0c78f1b1b01f032b575f581b24d901146606abc"
 dependencies = [
  "bitflags 1.3.2",
  "btree-range-map",

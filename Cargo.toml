@@ -61,6 +61,7 @@ too_many_lines = "allow"
 type_complexity = "allow"
 unsafe_derive_deserialize = "allow"
 unused_async = "allow"
+unused_async_trait_impl = "allow"
 
 [profile.client]
 inherits = "release"
@@ -100,7 +101,7 @@ foundationdb-tuple = "0.11"
 futures = "0.3"
 glob = "0.3"
 globset = "0.4"
-heed = { version = "0.22", features = ["posix-sem"] }
+heed = { git = "https://github.com/tangramdotdev/heed.git", features = ["posix-sem"] }
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
@@ -217,7 +218,7 @@ tokio-vsock = "0.7.2"
 toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.7", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
-tracing = "0.1.44"
+tracing = "0.1"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
@@ -225,8 +226,8 @@ turso = "0.7.0"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
-virtiofsd = "1"
+v8 = "152"
+virtiofsd = { git = "https://github.com/tangramdotdev/virtiofsd" }
 vhost = "0.16"
 vhost-user-backend = "0.22"
 vm-memory = { version = "0.17", features = ["backend-atomic", "backend-mmap"] }
@@ -242,7 +243,3 @@ zstd = "0.13"
 ignored = [
 	"liblzma",
 ]
-
-[patch.crates-io]
-virtiofsd = { git = "https://github.com/tangramdotdev/virtiofsd", rev = "d0c78f1b1b01f032b575f581b24d901146606abc" }
-heed = { git = "https://github.com/tangramdotdev/heed.git", rev = "c5ea26f535702b0973cf9551e025234d6529cc06" }

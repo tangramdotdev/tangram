@@ -21,12 +21,12 @@
 		"format": "oxfmt --write extension.ts"
 	},
 	"dependencies": {
-		"vscode-languageclient": "^9.0.1"
+		"vscode-languageclient": "^10.1.0"
 	},
 	"devDependencies": {
-		"@types/node": "^22.5.4",
-		"@types/vscode": "^1.92.0",
-		"@vscode/vsce": "^3.1.0"
+		"@types/node": "^26.2.0",
+		"@types/vscode": "^1.134.0",
+		"@vscode/vsce": "^3.9.2"
 	},
 	"contributes": {
 		"commands": [

@@ -10,6 +10,6 @@
 		"@tangramdotdev/client": "workspace:*"
 	},
 	"devDependencies": {
-		"@types/node": "^22.19.3"
+		"@types/node": "^26.2.0"
 	}
 }

@@ -33,10 +33,10 @@
 		"prepack": "bun run build"
 	},
 	"dependencies": {
-		"@noble/hashes": "^2.2.0",
-		"immutable": "^4.3.7"
+		"@noble/hashes": "^2.3.0",
+		"immutable": "^5.1.9"
 	},
 	"devDependencies": {
-		"@types/node": "^24"
+		"@types/node": "^26.2.0"
 	}
 }

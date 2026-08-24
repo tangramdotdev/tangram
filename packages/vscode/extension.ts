@@ -1,4 +1,4 @@
-import type { OutputChannel } from "vscode";
+import type { LogOutputChannel } from "vscode";
 import * as vscode from "vscode";
 import {
 	LanguageClient,
@@ -44,11 +44,12 @@ export let deactivate = () => {
 
 class TangramLanguageClient {
 	languageClient: LanguageClient | undefined = undefined;
-	outputChannel: OutputChannel;
+	outputChannel: LogOutputChannel;
 
 	constructor() {
 		this.outputChannel = vscode.window.createOutputChannel(
 			"Tangram Language Server",
+			{ log: true },
 		);
 	}
 
