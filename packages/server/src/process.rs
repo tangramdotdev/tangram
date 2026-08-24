@@ -28,6 +28,7 @@ pub mod wait;
 
 pub type CommandPushTask = tangram_futures::task::Shared<tg::Result<()>>;
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connected>>;
+pub type IndexTask = tangram_futures::task::Shared<tg::Result<()>>;
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
 
 #[derive(Default)]
@@ -49,6 +50,8 @@ pub struct State {
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
 	pub id: Option<tg::process::Id>,
+	pub id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
+	pub index_task: IndexTask,
 	pub inner_token: Option<String>,
 	pub leases: BTreeSet<String>,
 	pub process: Option<tangram_sandbox::Process>,

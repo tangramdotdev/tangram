@@ -299,7 +299,7 @@ impl Session {
 		let sandbox = process.sandbox;
 		let owner =
 			if let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox) {
-				sandbox.data.owner.clone()
+				sandbox.data.arg.owner.clone()
 			} else {
 				self.get_sandbox_from_index(&sandbox)
 					.await

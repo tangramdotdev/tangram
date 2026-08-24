@@ -45,7 +45,7 @@ pub struct State {
 	id: Mutex<Option<tg::runner::Id>>,
 	next_process_index: AtomicU64,
 	next_sandbox_index: AtomicU64,
-	process_tokens: dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>>,
+	process_for_token: dashmap::DashMap<String, (u64, u64)>,
 	processes: crate::process::Map,
 	reservations: self::capacity::Reservations,
 	sandboxes: crate::sandbox::Sandboxes,
@@ -61,7 +61,7 @@ impl Runner {
 			id: Mutex::new(None),
 			next_process_index: AtomicU64::new(1),
 			next_sandbox_index: AtomicU64::new(1),
-			process_tokens: dashmap::DashMap::new(),
+			process_for_token: dashmap::DashMap::new(),
 			processes: crate::process::Map::default(),
 			reservations: self::capacity::Reservations::new(),
 			sandboxes: crate::sandbox::Sandboxes::default(),
@@ -527,10 +527,8 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn process_tokens(
-		&self,
-	) -> &dashmap::DashMap<String, tokio::sync::watch::Receiver<Option<tg::process::Id>>> {
-		&self.process_tokens
+	pub(crate) fn process_for_token(&self) -> &dashmap::DashMap<String, (u64, u64)> {
+		&self.process_for_token
 	}
 
 	#[must_use]
@@ -611,9 +609,7 @@ impl State {
 
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
-		self.sandboxes
-			.get_by_id(id)
-			.map(|sandbox| sandbox.data.clone())
+		self.sandboxes.get_by_id(id)?.data()
 	}
 
 	#[must_use]
@@ -632,7 +628,7 @@ impl State {
 		Some(crate::sandbox::processes::Output {
 			length: processes_length,
 			processes: processes[start..end].to_vec(),
-			status: sandbox.data.status,
+			status: sandbox.status,
 		})
 	}
 

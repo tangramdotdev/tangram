@@ -252,8 +252,8 @@ impl Session {
 				let origin_owner = self
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
-					.filter(|origin| origin.data.id == *sandbox)
-					.map(|origin| origin.data.owner.clone());
+					.filter(|origin| origin.id.as_ref() == Some(sandbox))
+					.map(|origin| origin.data.arg.owner.clone());
 				if let Some(owner) = origin_owner {
 					owner
 				} else {
