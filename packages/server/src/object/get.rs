@@ -100,7 +100,7 @@ impl Session {
 						id,
 						&local.regions,
 						arg.metadata,
-						arg.stored,
+						arg.availability,
 						&arg.tokens,
 					)
 					.await
@@ -114,7 +114,7 @@ impl Session {
 					id,
 					&locations.remotes,
 					arg.metadata,
-					arg.stored,
+					arg.availability,
 					&arg.tokens,
 				)
 				.await
