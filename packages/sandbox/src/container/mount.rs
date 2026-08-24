@@ -315,6 +315,23 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 		pts_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the devpts mount"))?;
+
+	let shm = target.join("shm");
+	std::fs::create_dir_all(&shm)
+		.map_err(|error| tg::error!(!error, "failed to create the shm mountpoint"))?;
+	let shm_source = cstring("tmpfs");
+	let shm_target = cstring(&shm);
+	let shm_fstype = cstring("tmpfs");
+	let shm_data = cstring("mode=1777");
+	mount_raw(
+		Some(&shm_source),
+		&shm_target,
+		Some(&shm_fstype),
+		libc::MS_NODEV | libc::MS_NOSUID,
+		shm_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to create the shm mount"))?;
+
 	for (path, file) in &devices {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
 		let target = target.join(Path::new(path).file_name().unwrap());
