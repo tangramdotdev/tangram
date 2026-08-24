@@ -15,7 +15,7 @@ assert (($organization | get --optional tokens.local) != null) "create should re
 # The creator can get the organization.
 let got = tg --token $alice.token organization get acme | from json
 assert ($got.id == $organization.id) "the created organization should be retrievable"
-assert (($got | get --optional tokens.local) != null) "get should return a token"
+assert (($got | get --optional tokens) == null) "get should not print tokens to stdout"
 
 # The creator has admin, so it can list the organization's grants.
 tg --token $alice.token grants list --resource acme

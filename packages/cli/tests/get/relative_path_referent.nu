@@ -12,14 +12,16 @@ let name = $pkg | path basename
 
 let output = with-env { TANGRAM_QUIET: "false" } { do --env { cd $parent; tg get $"./($name)" | complete } }
 success $output
-snapshot $output.stderr '
-	info dir_01v52btwaj8ca7djfp5wewr1g0pvmfg1b5pb4ezm1b59zkbjj1jxc0?path=artifact
-
-'
+assert equal ($output.stderr | lines | length) 1 "get should print one referent info message"
+assert ($output.stderr | str contains "info dir_") "the referent should contain the directory id"
+assert ($output.stderr | str contains "location=local") "the referent should contain the location"
+assert ($output.stderr | str contains "path=artifact") "the referent should contain the relative path"
+assert ($output.stderr | str contains "tokens[local]") "the referent should contain the tokens"
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg get $pkg | complete }
 success $output
-snapshot --normalize --redact $parent $output.stderr '
-	info dir_01v52btwaj8ca7djfp5wewr1g0pvmfg1b5pb4ezm1b59zkbjj1jxc0?path=<redacted>/artifact
-
-'
+assert equal ($output.stderr | lines | length) 1 "get should print one referent info message"
+assert ($output.stderr | str contains "info dir_") "the referent should contain the directory id"
+assert ($output.stderr | str contains "location=local") "the referent should contain the location"
+assert ($output.stderr | str contains $"path=($pkg)") "the referent should contain the absolute path"
+assert ($output.stderr | str contains "tokens[local]") "the referent should contain the tokens"

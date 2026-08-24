@@ -38,7 +38,13 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to get the tag"))?
 			.ok_or_else(|| tg::error!("failed to find the tag"))?;
-		self.print_serde(tag, args.print).await?;
+		let tg::tag::get::Output {
+			data,
+			location,
+			tokens,
+		} = tag;
+		self.print_location_and_tokens(location.as_ref(), &tokens)?;
+		self.print_serde(data, args.print).await?;
 		Ok(())
 	}
 }

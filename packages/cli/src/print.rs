@@ -192,6 +192,25 @@ impl Cli {
 		Ok(())
 	}
 
+	pub(crate) fn print_location_and_tokens(
+		&self,
+		location: Option<&tg::Location>,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<()> {
+		if let Some(location) = location {
+			let location = serde_json::to_string(location)
+				.map_err(|error| tg::error!(!error, "failed to serialize the location"))?;
+			self.print_info_message(&location);
+		}
+		if !tokens.is_empty() {
+			let tokens = serde_json::to_string(tokens)
+				.map_err(|error| tg::error!(!error, "failed to serialize the tokens"))?;
+			self.print_info_message(&tokens);
+		}
+
+		Ok(())
+	}
+
 	pub fn print_info_message(&self, string: &str) {
 		if self.args.quiet.get() {
 			return;

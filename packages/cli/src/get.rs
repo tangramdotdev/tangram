@@ -80,7 +80,7 @@ impl Cli {
 			.map(crate::location::Args::with_location)
 			.unwrap_or_default();
 		let print = args.print;
-		self.print_info_message(&referent.without_location_and_tokens().to_string());
+		self.print_info_message(&referent.to_string());
 		let kind = match referent.node() {
 			tg::get::Node::Id(id) => Some(id.kind()),
 			tg::get::Node::Pointer(_) => None,
@@ -130,48 +130,121 @@ impl Cli {
 		match referent.node {
 			tg::get::Node::Id(id) => match id.kind() {
 				tg::id::Kind::User => {
-					let args = crate::user::get::Args {
+					let client = self.client().await?;
+					let arg = tg::user::get::Arg {
 						cached: args.cached,
-						location: locations,
-						print,
+						location: locations.get(),
 						tokens,
-						ttl: args.ttl,
-						user: tg::user::Selector::Id(id.try_into()?),
+						ttl: args.ttl.get(),
 					};
-					self.command_user_get(args).await?;
+					let user = tg::user::Selector::Id(id.try_into()?);
+					let user = client
+						.try_get_user(&user, arg)
+						.await
+						.map_err(
+							|error| tg::error!(!error, user = %user, "failed to get the user"),
+						)?
+						.ok_or_else(|| tg::error!(user = %user, "failed to find the user"))?;
+					let tg::user::get::Output {
+						emails,
+						id,
+						location: _,
+						name,
+						specifier,
+						tokens: _,
+					} = user;
+					let data = tg::user::Data {
+						emails,
+						id,
+						name,
+						specifier,
+					};
+					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Group => {
-					let args = crate::group::get::Args {
+					let client = self.client().await?;
+					let arg = tg::group::get::Arg {
 						cached: args.cached,
-						group: tg::group::Selector::Id(id.try_into()?),
-						location: locations,
-						print,
+						location: locations.get(),
 						tokens,
-						ttl: args.ttl,
+						ttl: args.ttl.get(),
 					};
-					self.command_group_get(args).await?;
+					let group = tg::group::Selector::Id(id.try_into()?);
+					let group = client
+						.try_get_group(&group, arg)
+						.await
+						.map_err(
+							|error| tg::error!(!error, group = %group, "failed to get the group"),
+						)?
+						.ok_or_else(|| tg::error!(group = %group, "failed to find the group"))?;
+					let tg::group::get::Output {
+						id,
+						location: _,
+						name,
+						parent,
+						specifier,
+						tokens: _,
+					} = group;
+					let data = tg::group::Data {
+						id,
+						name,
+						parent,
+						specifier,
+					};
+					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Organization => {
-					let args = crate::organization::get::Args {
+					let client = self.client().await?;
+					let arg = tg::organization::get::Arg {
 						cached: args.cached,
-						location: locations,
-						organization: tg::organization::Selector::Id(id.try_into()?),
-						print,
+						location: locations.get(),
 						tokens,
-						ttl: args.ttl,
+						ttl: args.ttl.get(),
 					};
-					self.command_organization_get(args).await?;
+					let organization = tg::organization::Selector::Id(id.try_into()?);
+					let organization = client
+						.try_get_organization(&organization, arg)
+						.await
+						.map_err(
+							|error| tg::error!(!error, organization = %organization, "failed to get the organization"),
+						)?
+						.ok_or_else(
+							|| tg::error!(organization = %organization, "failed to find the organization"),
+						)?;
+					let tg::organization::get::Output {
+						id,
+						location: _,
+						name,
+						specifier,
+						tokens: _,
+					} = organization;
+					let data = tg::organization::Data {
+						id,
+						name,
+						specifier,
+					};
+					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Tag => {
-					let args = crate::tag::get::Args {
+					let client = self.client().await?;
+					let arg = tg::tag::get::Arg {
 						cached: args.cached,
-						location: locations,
-						print,
-						tag: tg::tag::Selector::Id(id.try_into()?),
+						location: locations.get(),
 						tokens,
-						ttl: args.ttl,
+						ttl: args.ttl.get(),
 					};
-					self.command_tag_get(args).await?;
+					let tag = tg::tag::Selector::Id(id.try_into()?);
+					let tag = client
+						.try_get_tag(&tag, arg)
+						.await
+						.map_err(|error| tg::error!(!error, tag = %tag, "failed to get the tag"))?
+						.ok_or_else(|| tg::error!(tag = %tag, "failed to find the tag"))?;
+					let tg::tag::get::Output {
+						data,
+						location: _,
+						tokens: _,
+					} = tag;
+					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Sandbox => {
 					let args = crate::sandbox::get::Args {

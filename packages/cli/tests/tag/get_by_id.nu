@@ -14,4 +14,4 @@ let tag_id = $by_specifier.id
 
 # Get the same tag by its id.
 let by_id = tg tag get $tag_id | from json
-assert equal ($by_id | reject tokens) ($by_specifier | reject tokens) "getting a tag by its id should return the same record as by its specifier"
+assert equal $by_id $by_specifier "getting a tag by its id should return the same record as by its specifier"

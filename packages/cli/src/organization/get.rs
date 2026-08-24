@@ -40,7 +40,20 @@ impl Cli {
 				|error| tg::error!(!error, organization = %args.organization, "failed to get the organization"),
 			)?
 			.ok_or_else(|| tg::error!("failed to find the organization"))?;
-		self.print_serde(organization, args.print).await?;
+		let tg::organization::get::Output {
+			id,
+			location,
+			name,
+			specifier,
+			tokens,
+		} = organization;
+		self.print_location_and_tokens(location.as_ref(), &tokens)?;
+		let data = tg::organization::Data {
+			id,
+			name,
+			specifier,
+		};
+		self.print_serde(data, args.print).await?;
 		Ok(())
 	}
 }

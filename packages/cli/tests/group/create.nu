@@ -15,7 +15,7 @@ assert (($group | get --optional tokens.local) != null) "create should return a 
 # The creator can get the group.
 let got = tg --token $alice.token group get project | from json
 assert ($got.id == $group.id) "the created group should be retrievable"
-assert (($got | get --optional tokens.local) != null) "get should return a token"
+assert (($got | get --optional tokens) == null) "get should not print tokens to stdout"
 
 # The creator has admin, so it can list the group's grants.
 tg --token $alice.token grants list --resource project
