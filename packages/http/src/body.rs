@@ -11,10 +11,11 @@ use {
 
 pub mod and_then_frame;
 pub mod arg;
+pub mod coalesce;
 pub mod compression;
 pub mod output;
 
-pub use http_body_util::BodyStream;
+pub use {self::coalesce::Coalesce, http_body_util::BodyStream};
 
 pub trait Ext: hyper::body::Body {
 	fn and_then_frame<F, B>(self, f: F) -> AndThenFrame<Self, F>

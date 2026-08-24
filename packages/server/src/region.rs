@@ -100,6 +100,7 @@ impl Server {
 				max_retries: retry.max_retries,
 			});
 		let client = tg::Client::new(tg::Arg {
+			http: tg::Http::default(),
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
 			token: None,

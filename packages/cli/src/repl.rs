@@ -43,7 +43,9 @@ impl crate::Cli {
 				"<repl>",
 			))),
 		};
-		let client = tg::handle::dynamic::Handle::new(self.client().await?);
+		let client = self.client().await?;
+		let http = client.http();
+		let client = tg::handle::dynamic::Handle::new(client);
 		let host = tg::host::current().to_owned();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -54,6 +56,7 @@ impl crate::Cli {
 			export,
 			handle: client,
 			host: Some(host),
+			http,
 			inspect: None,
 			main_runtime_handle,
 			module,

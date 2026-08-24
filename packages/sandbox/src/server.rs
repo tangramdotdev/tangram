@@ -239,6 +239,9 @@ impl Server {
 				}
 			}
 		});
+		let service = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::coalescing::ResponseCoalescingLayer::default())
+			.service(service);
 		let service = hyper_util::service::TowerToHyperService::new(service);
 		let stream = hyper_util::rt::TokioIo::new(stream);
 		let mut builder =

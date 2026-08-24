@@ -140,10 +140,16 @@ pub struct Arg {
 	pub url: Option<Uri>,
 	pub version: Option<String>,
 	pub token: Option<String>,
+	pub http: Http,
 	pub pool: Option<tangram_pool::Options>,
 	pub reconnect: Option<tangram_futures::retry::Options>,
 	pub retry: Option<tangram_futures::retry::Options>,
 	pub sync: tg::sync::Config,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Http {
+	pub coalescing_target_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -151,6 +157,7 @@ pub struct Client(Arc<State>);
 
 pub struct State {
 	context: Context,
+	http: Http,
 	pool: self::http::Pool,
 	pool_options: tangram_pool::Options,
 	reconnect: tangram_futures::retry::Options,
@@ -192,6 +199,7 @@ impl Context {
 
 impl Client {
 	pub fn new(arg: tg::Arg) -> tg::Result<Self> {
+		let http = arg.http.validate()?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
@@ -205,9 +213,10 @@ impl Client {
 		let sync = arg.sync;
 		let context = Context::new(arg.token);
 		let pool = Self::pool(pool_options, &reconnect, &url);
-		let service = Self::service(&version, &pool, &url);
+		let service = Self::service(&version, &pool, &url, http.coalescing_target_size);
 		let client = Self(Arc::new(State {
 			context,
+			http,
 			pool,
 			pool_options,
 			reconnect,
@@ -239,6 +248,7 @@ impl Client {
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
+		let http = arg.http.validate()?;
 		let url = match arg.url {
 			Some(url) => url,
 			None => Uri::builder()
@@ -266,9 +276,10 @@ impl Client {
 			Err(tg::error!("cannot create a connection for a stream client"))
 		});
 		pool.add(self::http::Connection::new(sender));
-		let service = Self::service(&version, &pool, &url);
+		let service = Self::service(&version, &pool, &url, http.coalescing_target_size);
 		let client = Self(Arc::new(crate::State {
 			context,
+			http,
 			pool,
 			pool_options,
 			reconnect,
@@ -323,6 +334,11 @@ impl Client {
 	}
 
 	#[must_use]
+	pub fn http(&self) -> Http {
+		self.0.http
+	}
+
+	#[must_use]
 	pub fn url(&self) -> &Uri {
 		&self.0.url
 	}
@@ -369,5 +385,24 @@ impl Deref for Client {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+impl Default for Http {
+	fn default() -> Self {
+		Self {
+			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+		}
+	}
+}
+
+impl Http {
+	fn validate(self) -> tg::Result<Self> {
+		if self.coalescing_target_size == 0 {
+			return Err(tg::error!(
+				"expected the HTTP coalescing target size to be greater than zero"
+			));
+		}
+		Ok(self)
 	}
 }

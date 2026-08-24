@@ -141,6 +141,7 @@ impl Client {
 					}
 				})
 			}))
+			.layer(tangram_http::layer::coalescing::RequestCoalescingLayer::default())
 			.service(service);
 		Service::new(service)
 	}

@@ -19,15 +19,15 @@ use {
 };
 
 type BodyFrame = Result<http_body::Frame<Bytes>, std::io::Error>;
-type RequestBody = StreamBody<ReceiverStream<BodyFrame>>;
+type RequestBody = tangram_http::body::Coalesce<StreamBody<ReceiverStream<BodyFrame>>>;
 type Handshake = (
 	hyper::client::conn::http2::SendRequest<RequestBody>,
 	mpsc::Sender<SessionEvent>,
 	mpsc::Receiver<SessionEvent>,
 );
 
-#[derive(Default)]
 pub(crate) struct Http2 {
+	coalescing_target_size: usize,
 	next: AtomicUsize,
 	sessions: DashMap<usize, Arc<Session>>,
 	streams: DashMap<usize, Arc<Stream>>,
@@ -81,6 +81,19 @@ pub enum StreamEvent {
 }
 
 impl Http2 {
+	pub(crate) fn new(coalescing_target_size: usize) -> Self {
+		assert!(
+			coalescing_target_size > 0,
+			"the coalescing target size must be greater than zero"
+		);
+		Self {
+			coalescing_target_size,
+			next: AtomicUsize::new(0),
+			sessions: DashMap::new(),
+			streams: DashMap::new(),
+		}
+	}
+
 	fn token(&self) -> usize {
 		self.next.fetch_add(1, Ordering::Relaxed) + 1
 	}
@@ -185,7 +198,12 @@ impl Http2 {
 
 		let (request_tx, request_rx) = mpsc::channel(16);
 		let (event_tx, event_rx) = mpsc::channel(16);
-		let request = build_request(&session_value, headers, ReceiverStream::new(request_rx))?;
+		let request = build_request(
+			&session_value,
+			headers,
+			ReceiverStream::new(request_rx),
+			self.coalescing_target_size,
+		)?;
 		let token = self.token();
 		let stream = Arc::new(Stream {
 			event_tx,
@@ -416,6 +434,7 @@ fn build_request(
 	session: &Session,
 	headers: Vec<(String, String)>,
 	body: ReceiverStream<BodyFrame>,
+	coalescing_target_size: usize,
 ) -> tg::Result<http::Request<RequestBody>> {
 	let mut method = http::Method::GET;
 	let mut path = "/".to_owned();
@@ -444,7 +463,10 @@ fn build_request(
 	let mut request = http::Request::builder()
 		.method(method)
 		.uri(uri)
-		.body(StreamBody::new(body))
+		.body(tangram_http::body::Coalesce::with_target_size(
+			StreamBody::new(body),
+			coalescing_target_size,
+		))
 		.map_err(|error| tg::error!(!error, "invalid HTTP/2 request"))?;
 	for (name, value) in regular_headers {
 		let name = http::HeaderName::try_from(name)

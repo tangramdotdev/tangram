@@ -339,6 +339,8 @@ pub struct TursoDatabase {
 
 #[derive(Clone, Debug)]
 pub struct Http {
+	pub coalescing_target_size: usize,
+
 	pub idle_timeout: Duration,
 
 	pub listeners: Vec<HttpListener>,
@@ -1277,6 +1279,7 @@ impl Default for TursoDatabase {
 impl Default for Http {
 	fn default() -> Self {
 		Self {
+			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
 			idle_timeout: Duration::from_secs(30),
 			listeners: Vec::new(),
 		}

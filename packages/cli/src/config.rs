@@ -512,6 +512,9 @@ pub struct TursoDatabase {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Http {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub coalescing_target_size: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub idle_timeout: Option<Duration>,
@@ -1685,6 +1688,10 @@ pub struct Write {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Client {
+	/// Configure HTTP behavior.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http: Option<ClientHttp>,
+
 	/// Configure the client connection pool.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<Pool>,
@@ -1696,6 +1703,14 @@ pub struct Client {
 	/// Configure request retry options.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientHttp {
+	/// The target size for coalesced request body frames.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub coalescing_target_size: Option<usize>,
 }
 
 #[serde_as]
@@ -2425,6 +2440,14 @@ fn resolve_database_pool(source: DatabasePool) -> server::DatabasePool {
 
 fn resolve_http(source: Http) -> tg::Result<server::Http> {
 	let mut target = server::Http::default();
+	if let Some(value) = source.coalescing_target_size {
+		if value == 0 {
+			return Err(tg::error!(
+				"expected http.coalescing_target_size to be greater than zero"
+			));
+		}
+		target.coalescing_target_size = value;
+	}
 	if let Some(listeners) = source.listeners {
 		target.listeners = listeners
 			.into_iter()
@@ -2435,6 +2458,19 @@ fn resolve_http(source: Http) -> tg::Result<server::Http> {
 		target.idle_timeout = value;
 	}
 
+	Ok(target)
+}
+
+pub(crate) fn resolve_client_http(source: ClientHttp) -> tg::Result<tg::Http> {
+	let mut target = tg::Http::default();
+	if let Some(value) = source.coalescing_target_size {
+		if value == 0 {
+			return Err(tg::error!(
+				"expected client.http.coalescing_target_size to be greater than zero"
+			));
+		}
+		target.coalescing_target_size = value;
+	}
 	Ok(target)
 }
 
@@ -3691,6 +3727,59 @@ mod tests {
 
 		assert_eq!(target.create_delay, Duration::from_millis(250));
 		assert_eq!(server::Spawn::default().create_delay, Duration::ZERO);
+	}
+
+	#[test]
+	fn parses_and_resolves_http_coalescing_target_size() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"http": { "coalescing_target_size": 32768 },
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+
+		assert_eq!(target.http.coalescing_target_size, 32 * 1024);
+	}
+
+	#[test]
+	fn rejects_zero_http_coalescing_target_size() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"http": { "coalescing_target_size": 0 },
+		}))
+		.unwrap();
+		let error = resolve_server_config(&source).unwrap_err();
+
+		assert_eq!(
+			error.to_string(),
+			"expected http.coalescing_target_size to be greater than zero"
+		);
+	}
+
+	#[test]
+	fn parses_and_resolves_client_http_coalescing_target_size() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"client": {
+				"http": { "coalescing_target_size": 32768 },
+			},
+		}))
+		.unwrap();
+		let source = source.client.unwrap().http.unwrap();
+		let target = resolve_client_http(source).unwrap();
+
+		assert_eq!(target.coalescing_target_size, 32 * 1024);
+	}
+
+	#[test]
+	fn rejects_zero_client_http_coalescing_target_size() {
+		let source: ClientHttp = serde_json::from_value(serde_json::json!({
+			"coalescing_target_size": 0,
+		}))
+		.unwrap();
+		let error = resolve_client_http(source).unwrap_err();
+
+		assert_eq!(
+			error.to_string(),
+			"expected client.http.coalescing_target_size to be greater than zero"
+		);
 	}
 
 	#[test]

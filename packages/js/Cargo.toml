@@ -56,6 +56,7 @@ sourcemap = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_futures = { workspace = true }
+tangram_http = { workspace = true }
 tangram_quickjs = { workspace = true, optional = true }
 tangram_util = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }

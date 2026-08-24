@@ -165,6 +165,7 @@ impl Provider {
 			.build()
 			.map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
 		let arg = tg::Arg {
+			http: tg::Http::default(),
 			pool: None,
 			reconnect: None,
 			retry: None,

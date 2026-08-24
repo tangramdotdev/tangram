@@ -120,6 +120,16 @@ impl Cli {
 		// Get the token.
 		let token = self.user_token();
 
+		// Get the HTTP options.
+		let http = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.http)
+			.map(crate::config::resolve_client_http)
+			.transpose()?
+			.unwrap_or_default();
+
 		// Get the reconnect options.
 		let reconnect = self
 			.config
@@ -167,6 +177,7 @@ impl Cli {
 			url: Some(url),
 			version: Some(version()),
 			token,
+			http,
 			pool,
 			reconnect,
 			retry,

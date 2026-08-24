@@ -8191,6 +8191,7 @@ dependencies = [
  "tangram_client",
  "tangram_compiler",
  "tangram_futures",
+ "tangram_http",
  "tangram_quickjs",
  "tangram_util",
  "tangram_v8",

@@ -104,12 +104,13 @@ impl Cli {
 			.to_data();
 
 		// Create the client.
-		let client = tg::Client::with_env(tg::Arg::default())?;
+		let client = self.create_client()?;
 
 		// Connect the client.
 		client.connect().await?;
 
 		// Create the arg.
+		let http = client.http();
 		let handle = tg::handle::dynamic::Handle::new(client);
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let arg = tangram_js::Arg {
@@ -119,6 +120,7 @@ impl Cli {
 			export: args.export,
 			handle,
 			host: args.host,
+			http,
 			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
 				addr: debug.addr,
 				mode: match debug.mode {

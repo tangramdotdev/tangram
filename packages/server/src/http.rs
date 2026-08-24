@@ -296,6 +296,11 @@ impl Server {
 			))
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
 			.layer(
+				tangram_http::layer::coalescing::ResponseCoalescingLayer::new(
+					self.config.http.coalescing_target_size,
+				),
+			)
+			.layer(
 				tangram_http::layer::compression::ResponseCompressionLayer::new(
 					|accept_encoding, parts, _| {
 						let has_content_length =

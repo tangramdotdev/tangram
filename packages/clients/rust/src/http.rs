@@ -69,7 +69,12 @@ impl tg::Client {
 		})
 	}
 
-	pub(crate) fn service(version: &str, pool: &Pool, url: &Uri) -> Service {
+	pub(crate) fn service(
+		version: &str,
+		pool: &Pool,
+		url: &Uri,
+		coalescing_target_size: usize,
+	) -> Service {
 		let origin = match (url.scheme(), url.authority_raw()) {
 			(Some(scheme @ ("http" | "https")), Some(authority)) => {
 				Some(format!("{scheme}://{authority}"))
@@ -155,6 +160,11 @@ impl tg::Client {
 						None
 					}
 				}),
+			)
+			.layer(
+				tangram_http::layer::coalescing::RequestCoalescingLayer::new(
+					coalescing_target_size,
+				),
 			)
 			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
