@@ -1,7 +1,4 @@
-use {
-	super::super::put::ObjectGrants, crate::Session, std::collections::BTreeSet,
-	tangram_client::prelude::*,
-};
+use {crate::Session, tangram_client::prelude::*};
 
 impl Session {
 	pub(super) async fn finish_process_control_request(
@@ -9,57 +6,10 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
-		self.store_finished_process_local(id, arg.data).await?;
+		self.put_finished_process_local(id, arg.data).await?;
 		self.spawn_process_finish_tasks(id);
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
-	}
-
-	pub(crate) async fn store_finished_process_local(
-		&self,
-		id: &tg::process::Id,
-		data: tg::process::Data,
-	) -> tg::Result<()> {
-		Self::validate_process_data(&data)?;
-		let mut roots = vec![tg::Referent::with_node(tg::object::Id::from(
-			data.command.clone(),
-		))];
-		if let Some(error) = &data.error {
-			match error {
-				tg::Either::Left(data) => {
-					let mut children = BTreeSet::new();
-					data.children(&mut children);
-					roots.extend(children.into_iter().map(tg::Referent::with_node));
-				},
-				tg::Either::Right(error) => {
-					roots.push(error.clone().map(tg::object::Id::Error));
-				},
-			}
-		}
-		if let Some(log) = &data.log {
-			roots.push(log.clone().map(tg::object::Id::from));
-		}
-		if let Some(output) = &data.output {
-			output.children_with_tokens(&mut roots);
-		}
-		let created_at = self.server.clock.unix_timestamp()?;
-		let process_object_grant_arg = self
-			.create_process_object_grant_arg(id, roots, created_at, None)
-			.await?;
-
-		self.put_process_local_inner(
-			id,
-			tg::process::put::Arg {
-				data,
-				location: None,
-			},
-			ObjectGrants::Discover(process_object_grant_arg),
-			true,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
-
-		Ok(())
 	}
 
 	pub(crate) async fn store_process_error(

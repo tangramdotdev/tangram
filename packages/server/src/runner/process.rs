@@ -1091,7 +1091,7 @@ impl Session {
 		// Store the finished remote process in the runner's local index.
 		if remote {
 			session
-				.store_finished_process_local(id, data.clone())
+				.put_finished_process_local(id, data.clone())
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to index the finished remote process"),
