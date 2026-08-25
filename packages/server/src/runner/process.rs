@@ -26,21 +26,6 @@ mod progress;
 
 type CommandFuture = Shared<BoxFuture<'static, tg::Result<(tg::command::Data, Session)>>>;
 
-#[derive(Clone)]
-struct CommandPushTaskContext {
-	parent_command_push_task: Option<crate::process::CommandPushTask>,
-	parent_index_task: Option<crate::process::IndexTask>,
-	session: Session,
-}
-
-struct SpawnCommandPushTaskArg {
-	command: tg::Referent<tg::command::Id>,
-	context: CommandPushTaskContext,
-	index_task: crate::process::IndexTask,
-	location: tg::Location,
-	process_id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
-}
-
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
 	pub location: tg::Location,
@@ -92,7 +77,6 @@ struct IndexProcessTaskArg<'a> {
 	location: &'a tg::Location,
 	options: tg::referent::Options,
 	parent: Option<&'a tg::process::Id>,
-	parent_index_task: Option<crate::process::IndexTask>,
 }
 
 struct CollectProcessOutputArg<'a> {
@@ -291,7 +275,6 @@ impl Session {
 			process_index,
 			crate::process::State {
 				children,
-				command_push_task: None,
 				control: control_sender.clone(),
 				data,
 				finish: None,
@@ -585,35 +568,38 @@ impl Session {
 			.data
 			.sandbox = sandbox_id.clone();
 
-		// Load the parent task context.
-		let parent_task_context = parent
-			.as_ref()
-			.and_then(|parent| session.try_get_command_push_task_context(parent));
-
-		// Push the command to the remote concurrently with the control stream.
-		let command_push_task = id.is_none().then(|| {
+		// Push the command before connecting process control.
+		if id.is_none() {
+			let parent = parent
+				.as_ref()
+				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+			let mut parent_session = session
+				.try_get_process_session(parent)
+				.ok_or_else(|| tg::error!(%parent, "failed to find the parent process session"))?;
+			parent_session.context.stopper = None;
 			let command = state.command.to_referent();
-			let command_push_task_context =
-				parent_task_context
-					.clone()
-					.unwrap_or_else(|| CommandPushTaskContext {
-						parent_command_push_task: None,
-						parent_index_task: None,
-						session: session.clone(),
-					});
-			Self::spawn_command_push_task(SpawnCommandPushTaskArg {
-				command,
-				context: command_push_task_context,
-				index_task: index_task.clone(),
-				location: location.clone(),
-				process_id_receiver: process_id_receiver.clone(),
-			})
-		});
-		if let Some(command_push_task) = &command_push_task {
-			processes
-				.get_mut(process_index)
-				.expect("the process state was not found")
-				.command_push_task = Some(command_push_task.clone());
+			crate::checkpoint!(
+				parent_session.server,
+				"runner.process.command.push.started",
+				command = %command.node,
+			)
+			.await;
+			let result = Self::push_process_command(&parent_session, &command, &location).await;
+			if let Err(error) = &result {
+				tracing::error!(error = %error.trace(), "failed to push the command");
+			}
+			crate::checkpoint!(
+				parent_session.server,
+				"runner.process.command.push.finished",
+				command = %command.node,
+			)
+			.await;
+			if let Err(error) = result {
+				process_stopper.stop();
+				run_task.take().unwrap().wait().await.ok();
+
+				return Err(tg::error!(!error, "failed to push the process command"));
+			}
 		}
 
 		crate::checkpoint!(
@@ -705,9 +691,6 @@ impl Session {
 				location: &location,
 				options,
 				parent: parent.as_ref(),
-				parent_index_task: parent_task_context
-					.as_ref()
-					.and_then(|context| context.parent_index_task.clone()),
 			})
 			.await;
 		index_result_sender.send(index_result.clone()).ok();
@@ -973,24 +956,8 @@ impl Session {
 		};
 		let mut exit = output.exit;
 
-		// Create the command push future.
-		let command_push_task = processes
-			.get(process_index)
-			.and_then(|process| process.command_push_task.clone());
-		let command_push_future = async {
-			if let Some(command_push_task) = command_push_task {
-				command_push_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the command push task panicked"))?
-					.map_err(|error| tg::error!(!error, "failed to push the process command"))?;
-			}
-
-			Ok::<_, tg::Error>(())
-		};
-
-		// Create the output and error push future.
-		let output_push_future = async {
+		// Push the output and error.
+		let push_result = async {
 			let Some(tg::Location::Remote(remote)) = process
 				.location()
 				.and_then(|location| location.to_location())
@@ -1035,10 +1002,8 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
 			Ok(())
-		};
-		let (command_push_result, output_push_result) =
-			future::join(command_push_future, output_push_future).await;
-		let push_result = command_push_result.and(output_push_result);
+		}
+		.await;
 		if let Err(push_error) = push_result {
 			let push_error = tg::error!(
 				!push_error,
@@ -1200,17 +1165,12 @@ impl Session {
 		Ok::<_, tg::Error>(())
 	}
 
-	fn try_get_command_push_task_context(
-		&self,
-		id: &tg::process::Id,
-	) -> Option<CommandPushTaskContext> {
+	fn try_get_process_session(&self, id: &tg::process::Id) -> Option<Session> {
 		let state = self.server.runner.state();
 		let sandbox_id = state.processes().get(id)?.value().clone();
 		let sandbox = state.sandboxes().get_by_id(&sandbox_id)?;
 		let origin = Origin::Sandbox(*sandbox.key());
 		let process = sandbox.processes.get_by_id(id)?;
-		let parent_command_push_task = process.command_push_task.clone();
-		let parent_index_task = Some(process.index_task.clone());
 		let token = process.inner_token.clone()?;
 		drop(process);
 		drop(sandbox);
@@ -1221,121 +1181,8 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let output = CommandPushTaskContext {
-			parent_command_push_task,
-			parent_index_task,
-			session,
-		};
 
-		Some(output)
-	}
-
-	fn spawn_command_push_task(arg: SpawnCommandPushTaskArg) -> crate::process::CommandPushTask {
-		let SpawnCommandPushTaskArg {
-			command,
-			context,
-			index_task,
-			location,
-			process_id_receiver,
-		} = arg;
-		let CommandPushTaskContext {
-			parent_command_push_task,
-			parent_index_task,
-			mut session,
-		} = context;
-		session.context.stopper = None;
-
-		// Spawn the push task.
-		crate::process::CommandPushTask::spawn(move |_| async move {
-			// Create the parent task futures.
-			let wait_for_command_push_task_future = async {
-				if let Some(parent_command_push_task) = parent_command_push_task {
-					parent_command_push_task
-						.wait()
-						.await
-						.map_err(|error| {
-							tg::error!(!error, "the parent command push task panicked")
-						})?
-						.map_err(|error| {
-							tg::error!(!error, "failed to push the parent process command")
-						})?;
-				}
-
-				Ok::<_, tg::Error>(())
-			};
-			let wait_for_index_task_future = async {
-				if let Some(parent_index_task) = parent_index_task {
-					parent_index_task
-						.wait()
-						.await
-						.map_err(|error| tg::error!(!error, "the parent index task panicked"))?
-						.map_err(|error| {
-							tg::error!(!error, "failed to index the parent process")
-						})?;
-				}
-
-				Ok::<_, tg::Error>(())
-			};
-			future::try_join(
-				wait_for_command_push_task_future,
-				wait_for_index_task_future,
-			)
-			.await?;
-
-			crate::checkpoint!(
-				session.server,
-				"runner.process.command.push.started",
-				command = %command.node,
-			)
-			.await;
-			let result = Self::push_process_command(&session, &command, &location).await;
-			let result = match result {
-				Ok(()) => Ok(()),
-				Err(initial_error) => {
-					tracing::debug!(error = %initial_error.trace(), "the initial command push failed");
-
-					// Wait for the process ID and index.
-					let process_id_future = async {
-						let mut process_id_receiver = process_id_receiver;
-						loop {
-							if let Some(id) = process_id_receiver.borrow().clone() {
-								return Ok::<_, tg::Error>(id);
-							}
-							process_id_receiver.changed().await.map_err(|error| {
-								tg::error!(!error, "failed to receive the process ID")
-							})?;
-						}
-					};
-					let index_future = async {
-						index_task
-							.wait()
-							.await
-							.map_err(|error| tg::error!(!error, "the process index task panicked"))?
-							.map_err(|error| tg::error!(!error, "failed to index the process"))
-					};
-					let (id, ()) = future::try_join(process_id_future, index_future).await?;
-
-					// Retry the push as the indexed process.
-					let context = Context {
-						principal: tg::Principal::Process(id),
-						token: None,
-						..session.context.clone()
-					};
-					let session = session.server.session(&context);
-					Self::push_process_command(&session, &command, &location).await
-				},
-			};
-			if let Err(error) = &result {
-				tracing::error!(error = %error.trace(), "failed to push the command");
-			}
-			crate::checkpoint!(
-				session.server,
-				"runner.process.command.push.finished",
-				command = %command.node,
-			)
-			.await;
-			result
-		})
+		Some(session)
 	}
 
 	async fn push_process_command(
@@ -1375,7 +1222,6 @@ impl Session {
 			location,
 			mut options,
 			parent,
-			parent_index_task,
 		} = arg;
 		if !location.is_remote() {
 			return Ok(());
@@ -1386,15 +1232,6 @@ impl Session {
 			process = %id,
 		)
 		.await;
-
-		// Wait for the parent process grants.
-		if let Some(parent_index_task) = parent_index_task {
-			parent_index_task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the parent index task panicked"))?
-				.map_err(|error| tg::error!(!error, "failed to index the parent process"))?;
-		}
 
 		// A successful direct read proves node permission on the command.
 		command_data.await?;

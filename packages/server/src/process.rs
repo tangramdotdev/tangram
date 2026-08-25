@@ -26,7 +26,6 @@ pub mod touch;
 pub mod tty;
 pub mod wait;
 
-pub type CommandPushTask = tangram_futures::task::Shared<tg::Result<()>>;
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connected>>;
 pub type IndexTask = tangram_futures::task::Shared<tg::Result<()>>;
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
@@ -45,7 +44,6 @@ pub struct Child {
 
 pub struct State {
 	pub children: IndexMap<tg::process::Id, Child, tg::id::BuildHasher>,
-	pub command_push_task: Option<CommandPushTask>,
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
@@ -59,14 +57,6 @@ pub struct State {
 }
 
 impl Processes {
-	#[must_use]
-	pub fn command_push_tasks(&self) -> Vec<CommandPushTask> {
-		self.processes
-			.iter()
-			.filter_map(|process| process.command_push_task.clone())
-			.collect()
-	}
-
 	#[must_use]
 	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
 		self.processes.get(&index)

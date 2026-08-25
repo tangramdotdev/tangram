@@ -198,12 +198,19 @@ impl Session {
 			} else {
 				None
 			};
-		let allocation = if runner_matches_location && new_sandbox && arg.cached != Some(true) {
+		let has_parent = arg.parent.is_some() && parent_sandbox.is_some();
+		let shortcut_allowed = !location.is_remote() || has_parent;
+		let allocation = if shortcut_allowed
+			&& runner_matches_location
+			&& new_sandbox
+			&& arg.cached != Some(true)
+		{
 			self.try_acquire_sandbox_capacity(parent_sandbox.as_ref(), requested.unwrap())
 		} else {
 			None
 		};
-		let shortcut = runner_matches_location
+		let shortcut = shortcut_allowed
+			&& runner_matches_location
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
 		if runner_matches_location && new_sandbox && !shortcut && parent_sandbox.is_some() {
