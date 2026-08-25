@@ -39,10 +39,10 @@ fn add_delta_to_partition(
 	transaction.commit().unwrap();
 }
 
-async fn compact(index: &Index, now: jiff::Timestamp) {
+async fn aggregate(index: &Index, now: jiff::Timestamp) {
 	loop {
 		let output = index
-			.compact_usage(crate::usage::compact::Arg {
+			.aggregate_usage(crate::usage::aggregate::Arg {
 				batch_size: 1_000,
 				now,
 				partition_end: 1,
@@ -65,7 +65,7 @@ fn usage_keys_round_trip() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	let mut keys = vec![
-		crate::lmdb::usage::Key::Compaction {
+		crate::lmdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour: 60 * 60,
 			partition: 4,
@@ -335,18 +335,18 @@ async fn aggregates_compute_and_carries_storage_across_empty_hours() {
 }
 
 #[tokio::test]
-async fn compacts_late_storage_deltas_into_future_hours() {
+async fn aggregates_late_storage_deltas_into_future_hours() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::ObjectCount, 1);
 	let now = jiff::Timestamp::new(3 * 60 * 60, 0).unwrap();
-	compact(&index, now).await;
+	aggregate(&index, now).await;
 	let period = hour(60 * 60);
 	let usage = index.get_usage(&account, period, now).await.unwrap();
 	assert_eq!(usage.object_count, 1);
 
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::ObjectCount, 1);
-	compact(&index, now).await;
+	aggregate(&index, now).await;
 	let usage = index.get_usage(&account, period, now).await.unwrap();
 	assert_eq!(usage.object_count, 2);
 }
@@ -412,12 +412,12 @@ async fn aggregates_signed_storage_across_partitions() {
 }
 
 #[tokio::test]
-async fn compacts_parent_periods_without_boundary_usage() {
+async fn aggregates_parent_periods_without_boundary_usage() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::SandboxCpu, 3);
 	let now = jiff::Timestamp::new(32 * 24 * 60 * 60, 0).unwrap();
-	compact(&index, now).await;
+	aggregate(&index, now).await;
 
 	let transaction = index.env.write_txn().unwrap();
 	for period in [
@@ -447,7 +447,7 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 	let now = jiff::Timestamp::new(2 * 60 * 60, 0).unwrap();
 	let period = hour(0);
 	let expected = index.get_usage(&account, period, now).await.unwrap();
-	compact(&index, now).await;
+	aggregate(&index, now).await;
 	let retained = std::time::Duration::new(365 * 86_400, 0);
 	let arg = crate::usage::clean::Arg {
 		batch_size: 1_000,
@@ -473,7 +473,7 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 	assert_eq!(actual, expected);
 
 	let now = jiff::Timestamp::new(24 * 60 * 60, 0).unwrap();
-	compact(&index, now).await;
+	aggregate(&index, now).await;
 	let arg = crate::usage::clean::Arg { now, ..arg };
 	index.clean_usage(arg).await.unwrap();
 	let error = index.get_usage(&account, period, now).await.unwrap_err();
@@ -518,7 +518,7 @@ async fn clean_usage_preserves_a_zero_storage_checkpoint() {
 }
 
 #[tokio::test]
-async fn get_current_usage_does_not_queue_future_compaction() {
+async fn get_current_usage_does_not_queue_future_aggregation() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::ObjectCount, 1);
@@ -527,7 +527,7 @@ async fn get_current_usage_does_not_queue_future_compaction() {
 	assert_eq!(usage.object_count, 1);
 
 	let transaction = index.env.write_txn().unwrap();
-	let next = Index::contains_usage_compaction_with_transaction(
+	let next = Index::contains_usage_aggregation_with_transaction(
 		&index.db,
 		&index.subspace,
 		&transaction,
@@ -538,7 +538,7 @@ async fn get_current_usage_does_not_queue_future_compaction() {
 	.unwrap();
 	let day = crate::usage::Period::day("1970-01-01").unwrap();
 	let closing_hour = crate::usage::closing_hour(day).unwrap();
-	let closing = Index::contains_usage_compaction_with_transaction(
+	let closing = Index::contains_usage_aggregation_with_transaction(
 		&index.db,
 		&index.subspace,
 		&transaction,

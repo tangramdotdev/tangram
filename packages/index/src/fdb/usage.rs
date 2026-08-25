@@ -1,5 +1,5 @@
+mod aggregate;
 mod clean;
-mod compact;
 mod compute;
 mod get;
 mod key;

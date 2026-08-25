@@ -72,7 +72,7 @@ pub enum Kind {
 	ProcessAccount = 54,
 	UsageAggregate = 55,
 	UsageDelta = 56,
-	UsageCompaction = 57,
+	UsageAggregation = 57,
 	GrantUpdate = 58,
 	GrantUpdateVersion = 59,
 	NodeUpdate = 60,
@@ -128,12 +128,12 @@ impl fdbt::TuplePack for Key {
 				account.id().to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Usage(crate::fdb::usage::Key::Compaction {
+			Key::Usage(crate::fdb::usage::Key::Aggregation {
 				account,
 				hour,
 				partition,
 			}) => (
-				Kind::UsageCompaction.to_i32().unwrap(),
+				Kind::UsageAggregation.to_i32().unwrap(),
 				partition,
 				hour,
 				account.id().to_bytes().as_ref(),
@@ -695,7 +695,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				});
 				Ok((input, key))
 			},
-			Kind::UsageCompaction => {
+			Kind::UsageAggregation => {
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, hour): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -703,7 +703,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+				let key = Key::Usage(crate::fdb::usage::Key::Aggregation {
 					account,
 					hour,
 					partition,

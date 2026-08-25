@@ -66,10 +66,10 @@ pub trait Index {
 		arg: crate::usage::clean::Arg,
 	) -> impl Future<Output = tg::Result<crate::usage::clean::Output>> + Send;
 
-	fn compact_usage(
+	fn aggregate_usage(
 		&self,
-		arg: crate::usage::compact::Arg,
-	) -> impl Future<Output = tg::Result<crate::usage::compact::Output>> + Send;
+		arg: crate::usage::aggregate::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::aggregate::Output>> + Send;
 
 	fn visible(
 		&self,

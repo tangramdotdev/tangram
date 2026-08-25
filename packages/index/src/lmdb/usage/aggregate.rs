@@ -16,41 +16,43 @@ struct Deltas {
 }
 
 impl Index {
-	pub async fn compact_usage(
+	pub async fn aggregate_usage(
 		&self,
-		arg: crate::usage::compact::Arg,
-	) -> tg::Result<crate::usage::compact::Output> {
-		let response = self.send_write_request(Request::CompactUsage(arg)).await?;
-		let Response::CompactUsageOutput(output) = response else {
+		arg: crate::usage::aggregate::Arg,
+	) -> tg::Result<crate::usage::aggregate::Output> {
+		let response = self
+			.send_write_request(Request::AggregateUsage(arg))
+			.await?;
+		let Response::AggregateUsageOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(output)
 	}
 
-	pub(crate) fn compact_usage_with_transaction(
+	pub(crate) fn aggregate_usage_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &crate::usage::compact::Arg,
-	) -> tg::Result<crate::usage::compact::Output> {
+		arg: &crate::usage::aggregate::Arg,
+	) -> tg::Result<crate::usage::aggregate::Output> {
 		let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 		let mut candidates = Vec::new();
 		for partition in arg.partition_start..arg.partition_end {
 			let prefix = Self::pack(
 				subspace,
-				&(Kind::UsageCompaction.to_i32().unwrap(), partition),
+				&(Kind::UsageAggregation.to_i32().unwrap(), partition),
 			);
 			let entries = db
 				.prefix_iter(transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to iterate usage compactions"))?;
+				.map_err(|error| tg::error!(!error, "failed to iterate usage aggregations"))?;
 			for entry in entries {
 				if candidates.len() == arg.batch_size {
 					break;
 				}
 				let (key, _) = entry
-					.map_err(|error| tg::error!(!error, "failed to read a usage compaction"))?;
-				let Key::Usage(crate::lmdb::usage::Key::Compaction {
+					.map_err(|error| tg::error!(!error, "failed to read a usage aggregation"))?;
+				let Key::Usage(crate::lmdb::usage::Key::Aggregation {
 					account,
 					hour,
 					partition,
@@ -71,7 +73,7 @@ impl Index {
 		let mut count = 0;
 		for (account, _, partition) in &candidates {
 			let limit = arg.batch_size - count;
-			let value = Self::aggregate_usage_compactions_for_account_with_transaction(
+			let value = Self::aggregate_usage_for_account_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -85,12 +87,12 @@ impl Index {
 				break;
 			}
 		}
-		let output = crate::usage::compact::Output { count };
+		let output = crate::usage::aggregate::Output { count };
 
 		Ok(output)
 	}
 
-	pub(in crate::lmdb) fn aggregate_usage_compactions_for_account_with_transaction(
+	pub(in crate::lmdb) fn aggregate_usage_for_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -104,7 +106,7 @@ impl Index {
 			if limit.is_some_and(|limit| count == limit) {
 				break;
 			}
-			let hour = Self::try_get_usage_compaction_for_account_with_transaction(
+			let hour = Self::try_get_usage_aggregation_for_account_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -137,7 +139,7 @@ impl Index {
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
-		clear_compaction: bool,
+		clear_aggregation: bool,
 	) -> tg::Result<crate::usage::PartitionAggregate> {
 		let period =
 			crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)?;
@@ -188,7 +190,7 @@ impl Index {
 			sandbox_cpu,
 			sandbox_memory,
 		};
-		if !clear_compaction {
+		if !clear_aggregation {
 			return Ok(aggregate);
 		}
 		Self::put_usage_aggregate_with_transaction(
@@ -200,7 +202,7 @@ impl Index {
 			period,
 			aggregate,
 		)?;
-		Self::clear_usage_compaction_with_transaction(
+		Self::clear_usage_aggregation_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -214,7 +216,7 @@ impl Index {
 			let next = hour
 				.checked_add(60 * 60)
 				.ok_or_else(|| tg::error!("the usage hour overflowed"))?;
-			Self::put_usage_compaction_with_transaction(
+			Self::put_usage_aggregation_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -236,7 +238,7 @@ impl Index {
 				hour,
 			)?;
 		} else if changed {
-			Self::put_usage_compaction_with_transaction(
+			Self::put_usage_aggregation_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -301,7 +303,7 @@ impl Index {
 					parent,
 				)?;
 			} else if aggregate != old {
-				Self::put_usage_compaction_with_transaction(
+				Self::put_usage_aggregation_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -367,7 +369,7 @@ impl Index {
 		Ok(aggregate)
 	}
 
-	pub(in crate::lmdb) fn contains_usage_compaction_with_transaction(
+	pub(in crate::lmdb) fn contains_usage_aggregation_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
@@ -375,7 +377,7 @@ impl Index {
 		hour: i64,
 		partition: u64,
 	) -> tg::Result<bool> {
-		let key = Key::Usage(crate::lmdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::lmdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
@@ -383,7 +385,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let contains = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get the usage compaction"))?
+			.map_err(|error| tg::error!(!error, "failed to get the usage aggregation"))?
 			.is_some();
 
 		Ok(contains)
@@ -411,7 +413,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(in crate::lmdb) fn put_usage_compaction_with_transaction(
+	pub(in crate::lmdb) fn put_usage_aggregation_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -419,19 +421,19 @@ impl Index {
 		hour: i64,
 		partition: u64,
 	) -> tg::Result<()> {
-		let key = Key::Usage(crate::lmdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::lmdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|error| tg::error!(!error, "failed to put the usage compaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the usage aggregation"))?;
 
 		Ok(())
 	}
 
-	fn clear_usage_compaction_with_transaction(
+	fn clear_usage_aggregation_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -439,14 +441,14 @@ impl Index {
 		hour: i64,
 		partition: u64,
 	) -> tg::Result<()> {
-		let key = Key::Usage(crate::lmdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::lmdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
 		});
 		let key = Self::pack(subspace, &key);
 		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to delete the usage compaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the usage aggregation"))?;
 
 		Ok(())
 	}
@@ -503,7 +505,7 @@ impl Index {
 		Ok(deltas)
 	}
 
-	fn try_get_usage_compaction_for_account_with_transaction(
+	fn try_get_usage_aggregation_for_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
@@ -513,15 +515,15 @@ impl Index {
 	) -> tg::Result<Option<i64>> {
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::UsageCompaction.to_i32().unwrap(), partition),
+			&(Kind::UsageAggregation.to_i32().unwrap(), partition),
 		);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate usage compactions"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate usage aggregations"))?;
 		for entry in entries {
 			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read a usage compaction"))?;
-			let Key::Usage(crate::lmdb::usage::Key::Compaction {
+				entry.map_err(|error| tg::error!(!error, "failed to read a usage aggregation"))?;
+			let Key::Usage(crate::lmdb::usage::Key::Aggregation {
 				account: candidate,
 				hour,
 				..

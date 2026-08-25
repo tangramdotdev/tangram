@@ -35,14 +35,14 @@ impl Index {
 			.unwrap_or(arg.delta);
 		db.put(transaction, &key, &value.to_le_bytes())
 			.map_err(|error| tg::error!(!error, "failed to put the usage delta"))?;
-		let key = Key::Usage(crate::lmdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::lmdb::usage::Key::Aggregation {
 			account: arg.account.clone(),
 			hour,
 			partition: arg.partition,
 		});
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
-			.map_err(|error| tg::error!(!error, "failed to put the usage compaction"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the usage aggregation"))?;
 
 		Ok(())
 	}

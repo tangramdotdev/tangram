@@ -312,20 +312,20 @@ impl Server {
 					));
 				}
 			}
-			if indexer.usage.compaction.enabled {
-				if indexer.usage.compaction.batch_size == 0 {
+			if indexer.usage.aggregation.enabled {
+				if indexer.usage.aggregation.batch_size == 0 {
 					return Err(tg::error!(
-						"the indexer usage compaction batch size must be greater than zero"
+						"the indexer usage aggregation batch size must be greater than zero"
 					));
 				}
-				if indexer.usage.compaction.concurrency == 0 {
+				if indexer.usage.aggregation.concurrency == 0 {
 					return Err(tg::error!(
-						"the indexer usage compaction concurrency must be greater than zero"
+						"the indexer usage aggregation concurrency must be greater than zero"
 					));
 				}
-				if indexer.usage.compaction.poll_interval.is_zero() {
+				if indexer.usage.aggregation.poll_interval.is_zero() {
 					return Err(tg::error!(
-						"the indexer usage compaction poll interval must be greater than zero"
+						"the indexer usage aggregation poll interval must be greater than zero"
 					));
 				}
 			}

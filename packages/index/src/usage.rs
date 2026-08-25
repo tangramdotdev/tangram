@@ -2,8 +2,8 @@ use tangram_client::prelude::*;
 
 pub use tangram_client::usage::{Account, Aggregate, Period, PeriodKind};
 
+pub mod aggregate;
 pub mod clean;
-pub mod compact;
 pub mod compute;
 pub mod storage;
 

@@ -18,34 +18,36 @@ struct Deltas {
 }
 
 impl Index {
-	pub async fn compact_usage(
+	pub async fn aggregate_usage(
 		&self,
-		arg: crate::usage::compact::Arg,
-	) -> tg::Result<crate::usage::compact::Output> {
-		let response = self.send_write_request(Request::CompactUsage(arg)).await?;
-		let Response::CompactUsageOutput(output) = response else {
+		arg: crate::usage::aggregate::Arg,
+	) -> tg::Result<crate::usage::aggregate::Output> {
+		let response = self
+			.send_write_request(Request::AggregateUsage(arg))
+			.await?;
+		let Response::AggregateUsageOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(output)
 	}
 
-	pub(crate) async fn compact_usage_with_transaction(
+	pub(crate) async fn aggregate_usage_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &crate::usage::compact::Arg,
-	) -> tg::Result<ControlFlow<crate::usage::compact::Output, fdb::FdbError>> {
+		arg: &crate::usage::aggregate::Arg,
+	) -> tg::Result<ControlFlow<crate::usage::aggregate::Output, fdb::FdbError>> {
 		let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 		let mut candidates = Vec::new();
 		for partition in arg.partition_start..arg.partition_end {
 			let start = Self::pack(
 				subspace,
-				&(Kind::UsageCompaction.to_i32().unwrap(), partition),
+				&(Kind::UsageAggregation.to_i32().unwrap(), partition),
 			);
 			let end = Self::pack(
 				subspace,
 				&(
-					Kind::UsageCompaction.to_i32().unwrap(),
+					Kind::UsageAggregation.to_i32().unwrap(),
 					partition,
 					current_hour,
 				),
@@ -61,7 +63,7 @@ impl Index {
 				let Some(entry) = crate::fdb::retry!(result) else {
 					break;
 				};
-				let Key::Usage(crate::fdb::usage::Key::Compaction {
+				let Key::Usage(crate::fdb::usage::Key::Aggregation {
 					account,
 					hour,
 					partition,
@@ -80,7 +82,7 @@ impl Index {
 		for (account, _, partition) in &candidates {
 			let limit = arg.batch_size - count;
 			let value = crate::fdb::propagate!(
-				Self::aggregate_usage_compactions_for_account_with_transaction(
+				Self::aggregate_usage_for_account_with_transaction(
 					txn,
 					subspace,
 					account,
@@ -95,12 +97,12 @@ impl Index {
 				break;
 			}
 		}
-		let output = crate::usage::compact::Output { count };
+		let output = crate::usage::aggregate::Output { count };
 
 		Ok(ControlFlow::Break(output))
 	}
 
-	pub(in crate::fdb) async fn aggregate_usage_compactions_for_account_with_transaction(
+	pub(in crate::fdb) async fn aggregate_usage_for_account_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
@@ -114,7 +116,7 @@ impl Index {
 				break;
 			}
 			let hour = crate::fdb::propagate!(
-				Self::try_get_usage_compaction_for_account_with_transaction(
+				Self::try_get_usage_aggregation_for_account_with_transaction(
 					txn, subspace, account, partition, end_hour,
 				)
 				.await
@@ -140,7 +142,7 @@ impl Index {
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
-		clear_compaction: bool,
+		clear_aggregation: bool,
 	) -> tg::Result<ControlFlow<crate::usage::PartitionAggregate, fdb::FdbError>> {
 		let period =
 			crate::usage::Period::from_kind_and_start(crate::usage::PeriodKind::Hour, hour)?;
@@ -182,20 +184,20 @@ impl Index {
 			sandbox_cpu,
 			sandbox_memory,
 		};
-		if !clear_compaction {
+		if !clear_aggregation {
 			return Ok(ControlFlow::Break(aggregate));
 		}
 		Self::put_usage_aggregate_with_transaction(
 			txn, subspace, account, partition, period, aggregate,
 		);
-		Self::clear_usage_compaction_with_transaction(txn, subspace, account, hour, partition);
+		Self::clear_usage_aggregation_with_transaction(txn, subspace, account, hour, partition);
 
 		let changed = aggregate != old;
 		if storage_changed(old, aggregate) {
 			let next = hour
 				.checked_add(60 * 60)
 				.ok_or_else(|| tg::error!("the usage hour overflowed"))?;
-			Self::put_usage_compaction_with_transaction(txn, subspace, account, next, partition);
+			Self::put_usage_aggregation_with_transaction(txn, subspace, account, next, partition);
 		}
 		let day = crate::usage::Period::containing(crate::usage::PeriodKind::Day, period.start());
 		let closing_hour = crate::usage::closing_hour(day)?;
@@ -207,7 +209,7 @@ impl Index {
 				.await
 			);
 		} else if changed {
-			Self::put_usage_compaction_with_transaction(
+			Self::put_usage_aggregation_with_transaction(
 				txn,
 				subspace,
 				account,
@@ -256,7 +258,7 @@ impl Index {
 					.await
 				);
 			} else if aggregate != old {
-				Self::put_usage_compaction_with_transaction(
+				Self::put_usage_aggregation_with_transaction(
 					txn,
 					subspace,
 					account,
@@ -308,14 +310,14 @@ impl Index {
 		Ok(ControlFlow::Break(aggregate))
 	}
 
-	pub(in crate::fdb) async fn contains_usage_compaction_with_transaction(
+	pub(in crate::fdb) async fn contains_usage_aggregation_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::fdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
@@ -345,14 +347,14 @@ impl Index {
 		txn.set(&key, &value);
 	}
 
-	pub(in crate::fdb) fn put_usage_compaction_with_transaction(
+	pub(in crate::fdb) fn put_usage_aggregation_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
 	) {
-		let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::fdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
@@ -361,14 +363,14 @@ impl Index {
 		txn.set(&key, &[]);
 	}
 
-	fn clear_usage_compaction_with_transaction(
+	fn clear_usage_aggregation_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		hour: i64,
 		partition: u64,
 	) {
-		let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::fdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,
@@ -433,7 +435,7 @@ impl Index {
 		Ok(ControlFlow::Break(deltas))
 	}
 
-	async fn try_get_usage_compaction_for_account_with_transaction(
+	async fn try_get_usage_aggregation_for_account_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
@@ -442,11 +444,15 @@ impl Index {
 	) -> tg::Result<ControlFlow<Option<i64>, fdb::FdbError>> {
 		let start = Self::pack(
 			subspace,
-			&(Kind::UsageCompaction.to_i32().unwrap(), partition),
+			&(Kind::UsageAggregation.to_i32().unwrap(), partition),
 		);
 		let end = Self::pack(
 			subspace,
-			&(Kind::UsageCompaction.to_i32().unwrap(), partition, end_hour),
+			&(
+				Kind::UsageAggregation.to_i32().unwrap(),
+				partition,
+				end_hour,
+			),
 		);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::Iterator,
@@ -458,7 +464,7 @@ impl Index {
 			let Some(entry) = crate::fdb::retry!(result) else {
 				break;
 			};
-			let Key::Usage(crate::fdb::usage::Key::Compaction {
+			let Key::Usage(crate::fdb::usage::Key::Aggregation {
 				account: candidate,
 				hour,
 				..

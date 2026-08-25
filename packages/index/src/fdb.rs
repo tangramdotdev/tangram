@@ -283,11 +283,11 @@ impl crate::Index for Index {
 		self.usage_partition_total()
 	}
 
-	async fn compact_usage(
+	async fn aggregate_usage(
 		&self,
-		arg: crate::usage::compact::Arg,
-	) -> tg::Result<crate::usage::compact::Output> {
-		self.compact_usage(arg).await
+		arg: crate::usage::aggregate::Arg,
+	) -> tg::Result<crate::usage::aggregate::Output> {
+		self.aggregate_usage(arg).await
 	}
 
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {

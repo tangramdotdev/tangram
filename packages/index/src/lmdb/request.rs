@@ -9,10 +9,10 @@ pub(super) enum Priority {
 
 #[derive(Clone)]
 pub(super) enum Request {
+	AggregateUsage(crate::usage::aggregate::Arg),
 	Batch(crate::batch::Arg),
 	Clean(Clean),
 	CleanUsage(crate::usage::clean::Arg),
-	CompactUsage(crate::usage::compact::Arg),
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
@@ -85,9 +85,9 @@ pub(super) struct Update {
 }
 
 pub(super) enum Item {
+	AggregateUsage,
 	Clean,
 	CleanUsage,
-	CompactUsage,
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrant(crate::grant::delete::Arg),
 	DeleteGroup(tg::group::Id),
@@ -117,6 +117,7 @@ pub(super) enum Item {
 }
 
 pub(super) enum Kind {
+	AggregateUsage(crate::usage::aggregate::Arg),
 	Clean {
 		max_object_touched_at: i64,
 		max_process_touched_at: i64,
@@ -124,7 +125,6 @@ pub(super) enum Kind {
 		now: i64,
 	},
 	CleanUsage(crate::usage::clean::Arg),
-	CompactUsage(crate::usage::compact::Arg),
 	CompleteLogCompaction,
 	DeleteGrants,
 	DeleteGroupMembers,
@@ -188,7 +188,7 @@ impl Request {
 			| Self::PutProcesses(_)
 			| Self::PutSandboxes(_)
 			| Self::PutUsers(_) => Priority::Medium,
-			Self::Clean(_) | Self::CleanUsage(_) | Self::CompactUsage(_) | Self::Update(_) => {
+			Self::AggregateUsage(_) | Self::Clean(_) | Self::CleanUsage(_) | Self::Update(_) => {
 				Priority::Low
 			},
 			Self::DeleteGrants(_)

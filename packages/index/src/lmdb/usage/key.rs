@@ -15,7 +15,7 @@ pub enum Key {
 		partition: u64,
 		period: crate::usage::Period,
 	},
-	Compaction {
+	Aggregation {
 		account: crate::usage::Account,
 		hour: i64,
 		partition: u64,

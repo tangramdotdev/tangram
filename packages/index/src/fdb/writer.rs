@@ -285,12 +285,12 @@ impl Index {
 
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
+			Request::AggregateUsage(_) => {
+				Response::AggregateUsageOutput(crate::usage::aggregate::Output::default())
+			},
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
 			Request::CleanUsage(_) => {
 				Response::CleanUsageOutput(crate::usage::clean::Output::default())
-			},
-			Request::CompactUsage(_) => {
-				Response::CompactUsageOutput(crate::usage::compact::Output::default())
 			},
 			Request::Batch(_)
 			| Request::CompleteLogCompaction(_)
@@ -324,6 +324,7 @@ impl Index {
 
 	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
+			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
 			Request::Batch(_) => unreachable!(),
 			Request::Clean(crate::fdb::Clean {
 				batch_size,
@@ -348,7 +349,6 @@ impl Index {
 				)
 			},
 			Request::CleanUsage(arg) => (vec![Item::CleanUsage], Kind::CleanUsage(arg)),
-			Request::CompactUsage(arg) => (vec![Item::CompactUsage], Kind::CompactUsage(arg)),
 			Request::CompleteLogCompaction(entry) => (
 				vec![Item::CompleteLogCompaction(entry)],
 				Kind::CompleteLogCompaction,
@@ -517,6 +517,13 @@ impl Index {
 
 	fn request_from_operations(items: Vec<Item>, kind: &Kind) -> Request {
 		match kind {
+			Kind::AggregateUsage(arg) => {
+				let items: [Item; 1] = items.try_into().ok().unwrap();
+				let [Item::AggregateUsage] = items else {
+					unreachable!();
+				};
+				Request::AggregateUsage(arg.clone())
+			},
 			Kind::Clean {
 				max_object_touched_at,
 				max_process_touched_at,
@@ -539,13 +546,6 @@ impl Index {
 					unreachable!();
 				};
 				Request::CleanUsage(arg.clone())
-			},
-			Kind::CompactUsage(arg) => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::CompactUsage] = items else {
-					unreachable!();
-				};
-				Request::CompactUsage(arg.clone())
 			},
 			Kind::CompleteLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
@@ -841,6 +841,9 @@ impl Index {
 			return;
 		};
 		match (target, source) {
+			(Response::AggregateUsageOutput(existing), Response::AggregateUsageOutput(new)) => {
+				existing.count += new.count;
+			},
 			(Response::Checkouts(existing), Response::Checkouts(new)) => {
 				existing.extend(new);
 			},
@@ -859,9 +862,6 @@ impl Index {
 			},
 			(Response::CleanUsageOutput(existing), Response::CleanUsageOutput(new)) => {
 				*existing = new;
-			},
-			(Response::CompactUsageOutput(existing), Response::CompactUsageOutput(new)) => {
-				existing.count += new.count;
 			},
 			(Response::UpdateOutput(existing), Response::UpdateOutput(new)) => {
 				existing.merge(new);
@@ -999,10 +999,10 @@ impl Index {
 		let priority_batch = requests.iter().all(|request| {
 			matches!(
 				request,
-				Request::Batch(_)
+				Request::AggregateUsage(_)
+					| Request::Batch(_)
 					| Request::Clean(_)
 					| Request::CleanUsage(_)
-					| Request::CompactUsage(_)
 					| Request::CompleteLogCompaction(_)
 					| Request::EnqueueLogCompaction(_)
 					| Request::GetUsage { .. }
@@ -1124,6 +1124,11 @@ impl Index {
 			..
 		} = config;
 		let response = match request {
+			Request::AggregateUsage(arg) => {
+				let result = Self::aggregate_usage_with_transaction(txn, subspace, arg).await;
+				let output = crate::fdb::propagate!(result);
+				Response::AggregateUsageOutput(output)
+			},
 			Request::Batch(arg) => {
 				let result = Self::batch_with_transaction(
 					config.authorize,
@@ -1169,11 +1174,6 @@ impl Index {
 						.await;
 				let output = crate::fdb::propagate!(result);
 				Response::CleanUsageOutput(output)
-			},
-			Request::CompactUsage(arg) => {
-				let result = Self::compact_usage_with_transaction(txn, subspace, arg).await;
-				let output = crate::fdb::propagate!(result);
-				Response::CompactUsageOutput(output)
 			},
 			Request::CompleteLogCompaction(entry) => {
 				let result =

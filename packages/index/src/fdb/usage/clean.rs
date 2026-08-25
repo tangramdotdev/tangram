@@ -111,13 +111,13 @@ impl Index {
 				if period.end() > cutoff {
 					break;
 				}
-				let compacting = crate::fdb::propagate!(
-					Self::contains_usage_compaction_with_transaction(
+				let aggregating = crate::fdb::propagate!(
+					Self::contains_usage_aggregation_with_transaction(
 						txn, subspace, &account, hour, partition,
 					)
 					.await
 				);
-				if compacting {
+				if aggregating {
 					let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 					*pending |= hour < current_hour;
 				} else {
@@ -209,13 +209,13 @@ impl Index {
 							);
 							let closing_hour = crate::usage::closing_hour(day)?;
 							let next = crate::fdb::propagate!(
-								Self::contains_usage_compaction_with_transaction(
+								Self::contains_usage_aggregation_with_transaction(
 									txn, subspace, &account, next_hour, partition,
 								)
 								.await
 							);
 							let closing = crate::fdb::propagate!(
-								Self::contains_usage_compaction_with_transaction(
+								Self::contains_usage_aggregation_with_transaction(
 									txn,
 									subspace,
 									&account,
@@ -239,7 +239,7 @@ impl Index {
 								let parent = crate::usage::Period::containing(kind, period.start());
 								let closing_hour = crate::usage::closing_hour(parent)?;
 								let contains = crate::fdb::propagate!(
-									Self::contains_usage_compaction_with_transaction(
+									Self::contains_usage_aggregation_with_transaction(
 										txn,
 										subspace,
 										&account,

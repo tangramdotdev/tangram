@@ -22,7 +22,7 @@ impl Index {
 		});
 		let key = Self::pack(subspace, &key);
 		txn.atomic_op(&key, &delta.to_le_bytes(), fdb::options::MutationType::Add);
-		let key = Key::Usage(crate::fdb::usage::Key::Compaction {
+		let key = Key::Usage(crate::fdb::usage::Key::Aggregation {
 			account: account.clone(),
 			hour,
 			partition,

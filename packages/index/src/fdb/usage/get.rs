@@ -79,7 +79,7 @@ impl Index {
 		let end_hour = period.end().as_second().min(current_hour);
 		for partition in 0..partition_total {
 			crate::fdb::propagate!(
-				Self::aggregate_usage_compactions_for_account_with_transaction(
+				Self::aggregate_usage_for_account_with_transaction(
 					txn, subspace, account, partition, end_hour, None,
 				)
 				.await

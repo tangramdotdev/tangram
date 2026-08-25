@@ -67,15 +67,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn compact_usage(
+	async fn aggregate_usage(
 		&self,
-		arg: index::usage::compact::Arg,
-	) -> tg::Result<index::usage::compact::Output> {
+		arg: index::usage::aggregate::Arg,
+	) -> tg::Result<index::usage::aggregate::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.compact_usage(arg).await,
+			Self::Fdb(index) => index.aggregate_usage(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.compact_usage(arg).await,
+			Self::Lmdb(index) => index.aggregate_usage(arg).await,
 		}
 	}
 

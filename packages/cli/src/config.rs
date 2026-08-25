@@ -722,7 +722,7 @@ pub struct IndexerLogCompaction {
 #[serde(deny_unknown_fields)]
 pub struct IndexerUsage {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub compaction: Option<BoolOr<IndexerUsageCompaction>>,
+	pub aggregation: Option<BoolOr<IndexerUsageAggregation>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage: Option<IndexerUpdate>,
@@ -731,7 +731,7 @@ pub struct IndexerUsage {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerUsageCompaction {
+pub struct IndexerUsageAggregation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -2683,8 +2683,8 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 
 fn resolve_indexer_usage(source: IndexerUsage) -> server::IndexerUsage {
 	let mut target = server::IndexerUsage::default();
-	if let Some(source) = source.compaction {
-		target.compaction = resolve_indexer_usage_compaction(source);
+	if let Some(source) = source.aggregation {
+		target.aggregation = resolve_indexer_usage_aggregation(source);
 	}
 	if let Some(source) = source.storage {
 		target.storage = resolve_indexer_update(source);
@@ -2692,10 +2692,10 @@ fn resolve_indexer_usage(source: IndexerUsage) -> server::IndexerUsage {
 	target
 }
 
-fn resolve_indexer_usage_compaction(
-	source: BoolOr<IndexerUsageCompaction>,
-) -> server::IndexerUsageCompaction {
-	let mut target = server::IndexerUsageCompaction::default();
+fn resolve_indexer_usage_aggregation(
+	source: BoolOr<IndexerUsageAggregation>,
+) -> server::IndexerUsageAggregation {
+	let mut target = server::IndexerUsageAggregation::default();
 	let (enabled, source) = match source {
 		BoolOr::Bool(enabled) => (enabled, None),
 		BoolOr::Value(source) => (true, Some(source)),
@@ -3673,7 +3673,7 @@ mod tests {
 			"checkouts": false,
 			"indexer": {
 				"log_compaction": false,
-				"usage": { "compaction": true },
+				"usage": { "aggregation": true },
 			},
 			"usage": true,
 		}))
@@ -3686,7 +3686,7 @@ mod tests {
 		let indexer = source.indexer.unwrap();
 		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
 		let usage = indexer.usage.unwrap();
-		assert!(matches!(usage.compaction, Some(BoolOr::Bool(true))));
+		assert!(matches!(usage.aggregation, Some(BoolOr::Bool(true))));
 	}
 
 	#[test]
@@ -3893,10 +3893,10 @@ mod tests {
 	}
 
 	#[test]
-	fn resolves_indexer_usage_compaction() {
+	fn resolves_indexer_usage_aggregation() {
 		let source = Indexer {
 			usage: Some(IndexerUsage {
-				compaction: Some(BoolOr::Value(IndexerUsageCompaction {
+				aggregation: Some(BoolOr::Value(IndexerUsageAggregation {
 					batch_size: Some(11),
 					concurrency: Some(2),
 					poll_interval: Some(Duration::from_millis(250)),
@@ -3907,23 +3907,23 @@ mod tests {
 		};
 		let target = resolve_indexer(&source);
 
-		assert_eq!(target.usage.compaction.batch_size, 11);
-		assert_eq!(target.usage.compaction.concurrency, 2);
-		assert!(target.usage.compaction.enabled);
+		assert_eq!(target.usage.aggregation.batch_size, 11);
+		assert_eq!(target.usage.aggregation.concurrency, 2);
+		assert!(target.usage.aggregation.enabled);
 		assert_eq!(
-			target.usage.compaction.poll_interval,
+			target.usage.aggregation.poll_interval,
 			Duration::from_millis(250)
 		);
 
 		let source = Indexer {
 			usage: Some(IndexerUsage {
-				compaction: Some(BoolOr::Bool(false)),
+				aggregation: Some(BoolOr::Bool(false)),
 				..IndexerUsage::default()
 			}),
 			..Indexer::default()
 		};
 		let target = resolve_indexer(&source);
-		assert!(!target.usage.compaction.enabled);
+		assert!(!target.usage.aggregation.enabled);
 	}
 
 	#[test]

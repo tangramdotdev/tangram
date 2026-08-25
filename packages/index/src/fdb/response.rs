@@ -1,5 +1,6 @@
 #[derive(Clone)]
 pub(super) enum Response {
+	AggregateUsageOutput(crate::usage::aggregate::Output),
 	Unit,
 	Checkouts(Vec<Option<crate::checkout::Checkout>>),
 	Objects(Vec<Option<crate::object::Object>>),
@@ -7,6 +8,5 @@ pub(super) enum Response {
 	Usage(crate::usage::Aggregate),
 	CleanOutput(crate::clean::Output),
 	CleanUsageOutput(crate::usage::clean::Output),
-	CompactUsageOutput(crate::usage::compact::Output),
 	UpdateOutput(crate::update::Output),
 }

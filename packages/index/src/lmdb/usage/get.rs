@@ -59,7 +59,7 @@ impl Index {
 		let current_hour = now.as_second().div_euclid(60 * 60) * 60 * 60;
 		let end_hour = period.end().as_second().min(current_hour);
 		for partition in 0..partition_total {
-			Self::aggregate_usage_compactions_for_account_with_transaction(
+			Self::aggregate_usage_for_account_with_transaction(
 				db,
 				subspace,
 				transaction,

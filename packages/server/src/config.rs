@@ -475,13 +475,13 @@ pub struct IndexerLogCompaction {
 
 #[derive(Clone, Debug, Default)]
 pub struct IndexerUsage {
-	pub compaction: IndexerUsageCompaction,
+	pub aggregation: IndexerUsageAggregation,
 
 	pub storage: IndexerUpdate,
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerUsageCompaction {
+pub struct IndexerUsageAggregation {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
@@ -1381,7 +1381,7 @@ impl Default for IndexerLogCompaction {
 	}
 }
 
-impl Default for IndexerUsageCompaction {
+impl Default for IndexerUsageAggregation {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,

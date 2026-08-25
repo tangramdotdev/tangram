@@ -150,20 +150,21 @@ impl Server {
 			}
 		});
 
-		// Spawn the usage compaction task.
-		let usage_compaction_task = (usage_enabled && config.usage.compaction.enabled).then(|| {
-			let config = config.clone();
-			let indexer = indexer.clone();
-			Task::spawn(move |_| async move {
-				indexer
-					.usage_compaction_task(
-						&config.usage.compaction,
-						config.partition_start,
-						config.partition_end,
-					)
-					.await
-			})
-		});
+		// Spawn the usage aggregation task.
+		let usage_aggregation_task =
+			(usage_enabled && config.usage.aggregation.enabled).then(|| {
+				let config = config.clone();
+				let indexer = indexer.clone();
+				Task::spawn(move |_| async move {
+					indexer
+						.usage_aggregation_task(
+							&config.usage.aggregation,
+							config.partition_start,
+							config.partition_end,
+						)
+						.await
+				})
+			});
 
 		// Spawn the grant update task.
 		let grant_update_task = Task::spawn({
@@ -238,14 +239,14 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the indexer log compaction task panicked"))?
 		};
-		let usage_compaction_future = async move {
-			let Some(usage_compaction_task) = usage_compaction_task else {
+		let usage_aggregation_future = async move {
+			let Some(usage_aggregation_task) = usage_aggregation_task else {
 				return future::pending().await;
 			};
-			usage_compaction_task
+			usage_aggregation_task
 				.wait()
 				.await
-				.map_err(|error| tg::error!(!error, "the usage compaction task panicked"))?
+				.map_err(|error| tg::error!(!error, "the usage aggregation task panicked"))?
 		};
 		let grant_update_future = async move {
 			grant_update_task
@@ -279,7 +280,7 @@ impl Server {
 			future::try_join3(
 				log_compaction_future,
 				update_future,
-				usage_compaction_future,
+				usage_aggregation_future,
 			)
 			.await?;
 
@@ -362,9 +363,9 @@ impl Session {
 }
 
 impl Indexer {
-	async fn usage_compaction_task(
+	async fn usage_aggregation_task(
 		&self,
-		config: &crate::config::IndexerUsageCompaction,
+		config: &crate::config::IndexerUsageAggregation,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
@@ -378,35 +379,36 @@ impl Indexer {
 				partition_start + task_index * partitions_per_task + task_index.min(extra);
 			let task_count = partitions_per_task + u64::from(task_index < extra);
 			let task_end = task_start + task_count;
-			(task_count > 0).then(|| self.usage_compaction_task_inner(config, task_start, task_end))
+			(task_count > 0)
+				.then(|| self.usage_aggregation_task_inner(config, task_start, task_end))
 		});
 		future::try_join_all(futures).await?;
 
 		Ok(())
 	}
 
-	async fn usage_compaction_task_inner(
+	async fn usage_aggregation_task_inner(
 		&self,
-		config: &crate::config::IndexerUsageCompaction,
+		config: &crate::config::IndexerUsageAggregation,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
 		loop {
-			crate::checkpoint!(self.server, "indexer.usage.compaction.batch").await;
+			crate::checkpoint!(self.server, "indexer.usage.aggregation.batch").await;
 			let now = self.server.clock.now()?;
-			let arg = tangram_index::usage::compact::Arg {
+			let arg = tangram_index::usage::aggregate::Arg {
 				batch_size: config.batch_size,
 				now,
 				partition_end,
 				partition_start,
 			};
-			match self.server.index.compact_usage(arg).await {
+			match self.server.index.aggregate_usage(arg).await {
 				Ok(output) if output.count == 0 => {
 					tokio::time::sleep(config.poll_interval).await;
 				},
 				Ok(_) => {},
 				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to compact usage");
+					tracing::error!(error = %error.trace(), "failed to aggregate usage");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},
 			}
