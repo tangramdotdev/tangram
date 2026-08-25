@@ -112,7 +112,17 @@ impl Client {
 				let mut guard = sender.lock().await;
 				let mut sender = match guard.as_ref() {
 					Some(sender) if sender.is_ready() => sender.clone(),
+					Some(sender) if !sender.is_closed() => {
+						let mut sender = sender.clone();
+						sender.ready().await.map_err(Error::Hyper)?;
+						sender
+					},
 					_ => {
+						if url.scheme() == Some("http+stdio") {
+							return Err(Error::Other(tg::error!(
+								"the sandbox connection is closed"
+							)));
+						}
 						let (sender, task) = Self::connect_h2(&url).await.map_err(Error::Other)?;
 						connection.lock().await.replace(task);
 						guard.replace(sender.clone());
