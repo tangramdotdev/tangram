@@ -84,11 +84,8 @@ spec:
           ports:
             - containerPort: 9042
           readinessProbe:
-            exec:
-              command:
-                - cqlsh
-                - -e
-                - DESC KEYSPACES
+            tcpSocket:
+              port: 9042
             initialDelaySeconds: 5
             periodSeconds: 1
             timeoutSeconds: 5

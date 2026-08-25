@@ -1,8 +1,8 @@
 # tangram_scylla_client
 
 `tangram_scylla_client` is the small CQL command-line client used by Tangram's
-test harness. It supports the subset of Apache CQLSH needed to manage test
-ScyllaDB keyspaces:
+test harness and local cloud tooling. It supports the CQL operations needed to
+manage test ScyllaDB keyspaces:
 
 ```sh
 tangram_scylla_client [host] [port] --execute <cql>
