@@ -1441,11 +1441,11 @@ export def --env "server spawn" [
 	--directory (-d): string
 	--instance: record # Spawn the server in this instance.
 	--name (-n): string
-	--no-tokens # Disable authorization token minting and verification.
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
 	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
 	--region: string # Set the server's region.
+	--tokens # Enable authorization token minting and verification even when the test runner was invoked with --no-tokens.
 	--url (-u): string
 ] {
 	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
@@ -1693,8 +1693,8 @@ export def --env "server spawn" [
 		$config
 	}
 
-	# Disable authorization token minting and verification.
-	let no_tokens = $no_tokens or ((($env.TANGRAM_TEST_NO_TOKENS? | default "") | str length) > 0)
+	# Disable authorization token minting and verification, unless the test enables tokens explicitly.
+	let no_tokens = (not $tokens) and ((($env.TANGRAM_TEST_NO_TOKENS? | default "") | str length) > 0)
 	let config = if $no_tokens {
 		let authorization = ($config | get --optional authorization | default {}) | upsert tokens false
 		$config | upsert authorization $authorization
@@ -2163,13 +2163,6 @@ export def --env success [
 export def skip_test [reason: string] {
 	print --stderr $reason
 	exit 77
-}
-
-# Skip the test when the runner was invoked with --no-tokens. Call this at the top of tests which read authorization tokens.
-export def skip_if_no_tokens [] {
-	if (($env.TANGRAM_TEST_NO_TOKENS? | default '') | str length) > 0 {
-		skip_test 'this test requires authorization tokens'
-	}
 }
 
 # Skip the test when the runner was invoked with --offline. Call this at the top of tests which require network access.

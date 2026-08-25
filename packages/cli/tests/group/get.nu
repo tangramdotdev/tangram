@@ -2,9 +2,7 @@ use ../../test.nu *
 
 # A group can be retrieved by its id and by its specifier.
 
-skip_if_no_tokens
-
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --tokens --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

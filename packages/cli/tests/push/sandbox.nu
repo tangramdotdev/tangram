@@ -2,10 +2,8 @@ use ../../test.nu *
 
 # A destroyed sandbox can be pushed without its processes, then pushed again with its processes.
 
-skip_if_no_tokens
-
-let remote = server spawn --cloud --name remote
-let local = server spawn --name local
+let remote = server spawn --cloud --name remote --tokens
+let local = server spawn --name local --tokens
 tg remote put default $remote.url
 
 let path = artifact {

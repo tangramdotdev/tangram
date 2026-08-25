@@ -2,10 +2,8 @@ use ../../test.nu *
 
 # The remote cache stores filtered list responses and honors TTL overrides.
 
-skip_if_no_tokens
-
-let remote = server spawn --cloud --name remote
-let local = server spawn --name local --config {
+let remote = server spawn --cloud --name remote --tokens
+let local = server spawn --name local --tokens --config {
 	remotes: { default: { url: $remote.url } }
 }
 

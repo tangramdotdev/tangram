@@ -2,12 +2,10 @@ use ../../test.nu *
 
 # Expired cached tokens are refreshed when possible and omitted from cached-only responses.
 
-skip_if_no_tokens
-
-let remote = server spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --tokens --config {
 	sync: { grant_time_to_live: 1 }
 }
-let local = server spawn --name local --config {
+let local = server spawn --name local --tokens --config {
 	remotes: { default: { url: $remote.url } }
 }
 
