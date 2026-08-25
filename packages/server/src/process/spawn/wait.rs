@@ -251,7 +251,7 @@ impl Session {
 	) {
 		let session = self.clone();
 		tokio::spawn(async move {
-			let output = session.dequeue_sandbox(&sandbox, &scheduler).await;
+			let output = session.dequeue_sandbox(&sandbox, &scheduler).boxed().await;
 			let destroy_required = match output {
 				Ok(dequeued) => !dequeued,
 				Err(error) => {

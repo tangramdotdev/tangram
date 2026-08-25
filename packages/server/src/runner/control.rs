@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::collections::HashSet,
 	std::sync::{
 		Arc,
@@ -47,7 +47,9 @@ impl Session {
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.get_runner_control_stream_local(arg, stream).await?
+				self.get_runner_control_stream_local(arg, stream)
+					.boxed()
+					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -91,7 +93,7 @@ impl Session {
 				host: arg.host,
 				runner: id.clone(),
 			});
-		let (scheduler, output) = self.send_scheduler_request(request).await?;
+		let (scheduler, output) = self.send_scheduler_request(request).boxed().await?;
 		let output = output?;
 		let output = output
 			.try_unwrap_add_runner()
@@ -280,6 +282,7 @@ impl Session {
 					);
 					session
 						.send_scheduler_request_to(&scheduler, request)
+						.boxed()
 						.await??;
 				}
 				Ok::<_, tg::Error>(())
@@ -405,6 +408,7 @@ impl Session {
 		// Get the server message stream.
 		let (output, stream) = self
 			.get_runner_control_stream_with_context(arg, stream)
+			.boxed()
 			.await?;
 
 		// Create the body.
@@ -477,6 +481,7 @@ impl Session {
 			},
 			server_subject: format!("runners.{runner}.control.server"),
 		})
+		.boxed()
 		.await
 	}
 }

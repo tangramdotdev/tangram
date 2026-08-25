@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::{Stream, stream::BoxStream},
+	futures::{FutureExt as _, Stream, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
@@ -61,6 +61,7 @@ impl tg::handle::Runner for Session {
 		impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 	)> {
 		self.get_runner_control_stream_with_context(arg, stream)
+			.boxed()
 			.await
 	}
 }

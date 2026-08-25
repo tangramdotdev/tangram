@@ -278,7 +278,10 @@ impl Session {
 		);
 
 		// Get the runner control stream.
-		let (output, control) = self.run_get_runner_control_stream(id, &location).await?;
+		let (output, control) = self
+			.run_get_runner_control_stream(id, &location)
+			.boxed()
+			.await?;
 		self.server
 			.runner
 			.state
@@ -321,6 +324,7 @@ impl Session {
 		};
 		let (output, output_stream) = self
 			.get_runner_control_stream_with_context(arg, input_stream)
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the scheduler"))?;
 		let output_stream = output_stream.boxed();
