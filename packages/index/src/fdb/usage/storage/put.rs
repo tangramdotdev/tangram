@@ -68,18 +68,38 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let mut accounts = BTreeSet::new();
-		let parents = crate::fdb::propagate!(
-			Self::get_object_parents_with_transaction(txn, subspace, object).await
+		let object_bytes = object.to_bytes();
+		let required = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
 		);
+		let (parents, processes, accounts) = futures::future::try_join3(
+			Self::get_object_parents_with_transaction(txn, subspace, object),
+			Self::get_object_processes_with_transaction(txn, subspace, object),
+			Self::get_target_tag_accounts_with_transaction(
+				txn,
+				subspace,
+				object_bytes.as_ref(),
+				required,
+			),
+		)
+		.await?;
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let processes = match processes {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let mut accounts = match accounts {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		for parent in parents {
 			accounts.extend(crate::fdb::propagate!(
 				Self::get_object_accounts_with_transaction(txn, subspace, &parent).await
 			));
 		}
-		let processes = crate::fdb::propagate!(
-			Self::get_object_processes_with_transaction(txn, subspace, object).await
-		);
 		for (process, _) in processes {
 			accounts.extend(crate::fdb::propagate!(
 				Self::get_process_accounts_with_transaction(txn, subspace, &process).await
@@ -109,10 +129,28 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let mut accounts = BTreeSet::new();
-		let parents = crate::fdb::propagate!(
-			Self::get_process_parents_with_transaction(txn, subspace, process).await
+		let process_bytes = process.to_bytes();
+		let required = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
 		);
+		let (parents, accounts) = futures::future::try_join(
+			Self::get_process_parents_with_transaction(txn, subspace, process),
+			Self::get_target_tag_accounts_with_transaction(
+				txn,
+				subspace,
+				process_bytes.as_ref(),
+				required,
+			),
+		)
+		.await?;
+		let parents = match parents {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		let mut accounts = match accounts {
+			ControlFlow::Break(value) => value,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
 		for parent in parents {
 			accounts.extend(crate::fdb::propagate!(
 				Self::get_process_accounts_with_transaction(txn, subspace, &parent).await
@@ -133,6 +171,31 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(()))
+	}
+
+	async fn get_target_tag_accounts_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		target: &[u8],
+		required: tg::authorization::Permission,
+	) -> tg::Result<ControlFlow<BTreeSet<crate::usage::Account>, fdb::FdbError>> {
+		let tags = crate::fdb::propagate!(
+			Self::get_target_tags_with_transaction(txn, subspace, target).await
+		);
+		let tags =
+			crate::fdb::propagate!(Self::try_get_tags_with_transaction(txn, subspace, &tags).await);
+		let accounts = tags
+			.into_iter()
+			.flatten()
+			.filter(|tag| {
+				tag.permissions
+					.iter()
+					.any(|permission| permission.implies(required))
+			})
+			.filter_map(|tag| tag.account)
+			.collect();
+
+		Ok(ControlFlow::Break(accounts))
 	}
 
 	pub(crate) async fn enqueue_account_process_relationships(
@@ -258,11 +321,6 @@ impl Index {
 			Self::try_get_object_with_transaction(txn, subspace, &arg.object).await
 		);
 		let Some(object) = object else {
-			if touch_existing {
-				return Err(
-					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
-				);
-			}
 			return Ok(ControlFlow::Break(false));
 		};
 		let entry = crate::usage::storage::Entry {
@@ -348,11 +406,6 @@ impl Index {
 			Self::try_get_process_with_transaction(txn, subspace, &arg.process).await
 		);
 		if process.is_none() {
-			if touch_existing {
-				return Err(
-					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
-				);
-			}
 			return Ok(ControlFlow::Break(false));
 		}
 		let entry = crate::usage::storage::Entry {

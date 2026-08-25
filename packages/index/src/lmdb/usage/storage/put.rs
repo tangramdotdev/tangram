@@ -94,6 +94,17 @@ impl Index {
 				&process,
 			)?);
 		}
+		let object_bytes = object.to_bytes();
+		let required = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		accounts.extend(Self::get_target_tag_accounts_with_transaction(
+			db,
+			subspace,
+			transaction,
+			object_bytes.as_ref(),
+			required,
+		)?);
 		for account in accounts {
 			Self::enqueue_update_with_kind(
 				db,
@@ -130,6 +141,17 @@ impl Index {
 				&parent,
 			)?);
 		}
+		let process_bytes = process.to_bytes();
+		let required = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		accounts.extend(Self::get_target_tag_accounts_with_transaction(
+			db,
+			subspace,
+			transaction,
+			process_bytes.as_ref(),
+			required,
+		)?);
 		for account in accounts {
 			Self::enqueue_update_with_kind(
 				db,
@@ -146,6 +168,29 @@ impl Index {
 		}
 
 		Ok(())
+	}
+
+	fn get_target_tag_accounts_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		target: &[u8],
+		required: tg::authorization::Permission,
+	) -> tg::Result<BTreeSet<crate::usage::Account>> {
+		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
+		let tags = Self::try_get_tags_with_transaction(db, subspace, transaction, &tags)?;
+		let accounts = tags
+			.into_iter()
+			.flatten()
+			.filter(|tag| {
+				tag.permissions
+					.iter()
+					.any(|permission| permission.implies(required))
+			})
+			.filter_map(|tag| tag.account)
+			.collect();
+
+		Ok(accounts)
 	}
 
 	pub(crate) fn enqueue_account_process_relationships(
@@ -290,11 +335,6 @@ impl Index {
 
 		let object = Self::try_get_object_with_transaction(db, subspace, transaction, &arg.object)?;
 		let Some(object) = object else {
-			if touch_existing {
-				return Err(
-					tg::error!(object = %arg.object, "cannot add a missing object to a usage account"),
-				);
-			}
 			return Ok(false);
 		};
 		let entry = crate::usage::storage::Entry {
@@ -394,11 +434,6 @@ impl Index {
 		let process =
 			Self::try_get_process_with_transaction(db, subspace, transaction, &arg.process)?;
 		if process.is_none() {
-			if touch_existing {
-				return Err(
-					tg::error!(process = %arg.process, "cannot add a missing process to a usage account"),
-				);
-			}
 			return Ok(false);
 		}
 		let entry = crate::usage::storage::Entry {

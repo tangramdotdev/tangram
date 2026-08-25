@@ -93,6 +93,25 @@ impl Session {
 		}
 	}
 
+	pub(crate) fn tag_target_permissions_grant_access(
+		permissions: &[tg::authorization::Permission],
+	) -> bool {
+		[
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
+			tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			),
+		]
+		.into_iter()
+		.any(|required| {
+			permissions
+				.iter()
+				.any(|permission| permission.implies(required))
+		})
+	}
+
 	/// Compute the permissions the current principal has on a tag target, to be recorded on the tag.
 	pub(crate) async fn recorded_tag_target_permissions(
 		&self,

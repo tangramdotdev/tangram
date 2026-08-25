@@ -1363,6 +1363,12 @@ impl Session {
 			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
 				continue;
 			};
+			let permissions = tag_permissions
+				.get(&message.id)
+				.ok_or_else(|| tg::error!("missing the tag permissions"))?;
+			if !Self::tag_target_permissions_grant_access(permissions) {
+				continue;
+			}
 			let target = Self::sync_get_database_tag_target(&message.target)?;
 			let item = match target {
 				tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(

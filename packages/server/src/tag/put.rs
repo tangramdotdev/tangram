@@ -218,6 +218,7 @@ impl Session {
 			ControlFlow::Break(account) => account,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
+		let target_access = Self::tag_target_permissions_grant_access(&data.permissions);
 		let target = match data.target {
 			tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 			tg::tag::data::Target::Process(id) => tg::Either::Right(id),
@@ -233,7 +234,7 @@ impl Session {
 				target: target.clone(),
 			},
 		));
-		if let Some(account) = account {
+		if target_access && let Some(account) = account {
 			let item = match target {
 				tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
 					tangram_index::usage::storage::put::ObjectArg {
