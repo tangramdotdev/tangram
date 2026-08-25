@@ -2,6 +2,8 @@ use ../../test.nu *
 
 # Creating an organization returns its record, makes it retrievable, and grants the creator admin.
 
+skip_if_no_tokens
+
 let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json

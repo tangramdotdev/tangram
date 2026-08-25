@@ -2,6 +2,8 @@ use ../../test.nu *
 
 # A single tag put on a checked-in artifact can be listed and retrieved with tg list and tg tag get.
 
+skip_if_no_tokens
+
 let server = server spawn
 
 # Write the artifact to a temp.

@@ -2,6 +2,8 @@ use ../../test.nu *
 
 # A reference token for an ancestor authorizes pattern selection, listing, and following.
 
+skip_if_no_tokens
+
 let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg --url $server.url login --verbose --name alice | from json
 let bob = tg --url $server.url login --verbose --name bob | from json

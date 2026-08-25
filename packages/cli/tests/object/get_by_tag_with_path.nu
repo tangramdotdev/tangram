@@ -2,6 +2,8 @@ use ../../test.nu *
 
 # Getting an object by a tag reference with a get path option resolves to the nested file and reports the resolved referent on stderr.
 
+skip_if_no_tokens
+
 let server = server spawn
 
 # Create a directory with nested structure.
