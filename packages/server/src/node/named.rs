@@ -211,13 +211,13 @@ impl Session {
 						from specifiers
 						where id in ({placeholders})
 						union
-						select groups.id
-						from groups
-						join subtree on groups.parent = subtree.id
-						union
-						select tags.id
-						from tags
-						join subtree on tags.parent = subtree.id
+						select children.id
+						from (
+							select id, parent from groups
+							union all
+							select id, parent from tags
+						) as children
+						join subtree on children.parent = subtree.id
 					)
 					select specifiers.id, specifiers.specifier
 					from subtree
