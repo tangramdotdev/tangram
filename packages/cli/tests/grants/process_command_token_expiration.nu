@@ -25,10 +25,10 @@ tg wait $first.process | complete
 let first_consumer = tg process children $first.process | from json | get 1 | get process
 let first_command = tg process get $first_consumer | from json | get command
 
-# Wait so that a token minted now expires later than the token minted above.
+# Wait so that a token created now expires later than the token created above.
 sleep 2sec
 
-# Edit a module that the consumer does not depend on, so that the default export re-runs and mints a fresh token while the consumer command stays the same.
+# Edit a module that the consumer does not depend on, so that the default export re-runs and creates a fresh token while the consumer command stays the same.
 '
 	import { consumer, producer } from "./build.tg.ts";
 	export const unrelated = "two";

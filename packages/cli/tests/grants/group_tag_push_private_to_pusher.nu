@@ -18,7 +18,7 @@ tg --url $remote.url index
 success (tg --url $remote.url --token $alice.token group get private | complete)
 success (tg --url $remote.url --token $alice.token tag get private/1.0.0 | complete)
 let grants = tg --url $remote.url --token $alice.token grants list --resource private | from json
-assert (($grants | length) == 0) "sync grants should not be persisted in the grants table"
+assert (($grants | length) == 0) "pushing should not persist grants for groups"
 failure (tg --url $remote.url --token $bob.token group get private | complete)
 failure (tg --url $remote.url --token $bob.token tag get private/1.0.0 | complete)
 failure (tg --url $remote.url group get private | complete)
