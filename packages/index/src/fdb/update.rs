@@ -1773,25 +1773,20 @@ impl Index {
 			log_object_entries,
 			output_object_entries,
 		) = object_entries;
-		Self::update_process_grants(
-			txn,
-			subspace,
-			&ProcessGrantInputs {
-				resource: &resource,
-				entries: &entries,
-				child_entries: &child_entries,
-				command_object_entries: command_object_entries.as_deref(),
-				error_object_entries: &error_object_entries,
-				log_object_entries: log_object_entries.as_deref(),
-				output_object_entries: &output_object_entries,
-				set: ProcessGrantSet {
-					error: process.set.error,
-					output: process.set.output,
-				},
+		let entry = ProcessGrantInputs {
+			resource: &resource,
+			entries: &entries,
+			child_entries: &child_entries,
+			command_object_entries: command_object_entries.as_deref(),
+			error_object_entries: &error_object_entries,
+			log_object_entries: log_object_entries.as_deref(),
+			output_object_entries: &output_object_entries,
+			set: ProcessGrantSet {
+				error: process.set.error,
+				output: process.set.output,
 			},
-			partition_total,
-		)
-		.await
+		};
+		Self::update_process_grants(txn, subspace, &entry, partition_total).await
 	}
 
 	fn insert_object_aspect_grants<'a>(

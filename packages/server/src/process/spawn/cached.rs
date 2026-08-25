@@ -554,15 +554,12 @@ impl Session {
 			stdout: arg.stdout.clone(),
 			tty,
 		};
+		let entry = tg::process::put::Arg {
+			data: data.clone(),
+			location: None,
+		};
 		let output = self
-			.put_process_local(
-				&id,
-				tg::process::put::Arg {
-					data: data.clone(),
-					location: None,
-				},
-				false,
-			)
+			.put_process_local(&id, entry, false)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to store the process"))?;
 		Ok(super::local::Output {

@@ -250,15 +250,12 @@ impl Server {
 				let mut context = self.context.clone();
 				context.principal = tg::Principal::Process(process.clone());
 				let session = self.session(&context);
+				let entry = tg::process::put::Arg {
+					data: data.clone(),
+					location: None,
+				};
 				session
-					.put_process_local(
-						&process,
-						tg::process::put::Arg {
-							data: data.clone(),
-							location: None,
-						},
-						true,
-					)
+					.put_process_local(&process, entry, true)
 					.boxed()
 					.await
 					.map_err(

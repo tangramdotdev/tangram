@@ -33,16 +33,11 @@ impl Index {
 			subspace,
 			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
 		);
-		let result = txn
-			.get_range(
-				&fdb::RangeOption {
-					mode: fdb::options::StreamingMode::WantAll,
-					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-				},
-				1,
-				false,
-			)
-			.await;
+		let entry = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn.get_range(&entry, 1, false).await;
 		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()

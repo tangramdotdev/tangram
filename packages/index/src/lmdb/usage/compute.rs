@@ -16,49 +16,37 @@ impl Index {
 		if let Some(cpu) = arg.cpu {
 			let delta =
 				i64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is too large"))?;
-			Self::add_usage_delta(
-				db,
-				subspace,
-				transaction,
-				crate::usage::DeltaArg {
-					account: arg.account,
-					at: arg.at,
-					delta,
-					kind: crate::usage::DeltaKind::SandboxCpu,
-					partition,
-				},
-			)?;
+			let entry = crate::usage::DeltaArg {
+				account: arg.account,
+				at: arg.at,
+				delta,
+				kind: crate::usage::DeltaKind::SandboxCpu,
+				partition,
+			};
+			Self::add_usage_delta(db, subspace, transaction, entry)?;
 		}
 		if let Some(memory) = arg.memory {
 			let delta = i64::try_from(memory)
 				.map_err(|_| tg::error!("the compute memory usage is too large"))?;
-			Self::add_usage_delta(
-				db,
-				subspace,
-				transaction,
-				crate::usage::DeltaArg {
-					account: arg.account,
-					at: arg.at,
-					delta,
-					kind: crate::usage::DeltaKind::SandboxMemory,
-					partition,
-				},
-			)?;
-		}
-		let delta = i64::try_from(arg.sandbox_count)
-			.map_err(|_| tg::error!("the sandbox count usage is too large"))?;
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
+			let entry = crate::usage::DeltaArg {
 				account: arg.account,
 				at: arg.at,
 				delta,
-				kind: crate::usage::DeltaKind::SandboxCount,
+				kind: crate::usage::DeltaKind::SandboxMemory,
 				partition,
-			},
-		)?;
+			};
+			Self::add_usage_delta(db, subspace, transaction, entry)?;
+		}
+		let delta = i64::try_from(arg.sandbox_count)
+			.map_err(|_| tg::error!("the sandbox count usage is too large"))?;
+		let entry = crate::usage::DeltaArg {
+			account: arg.account,
+			at: arg.at,
+			delta,
+			kind: crate::usage::DeltaKind::SandboxCount,
+			partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
 		Ok(())
 	}

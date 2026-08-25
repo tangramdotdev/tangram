@@ -3348,19 +3348,17 @@ impl Drop for PendingNodes<'_> {
 impl Nodes {
 	fn new() -> Self {
 		let mut nodes = BTreeMap::new();
-		nodes.insert(
-			vfs::ROOT_NODE_ID,
-			Node {
-				artifact: None,
-				attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
-				children: BTreeMap::new(),
-				depth: 0,
-				lookup_count: u64::MAX,
-				name: None,
-				named: None,
-				parent: vfs::ROOT_NODE_ID,
-			},
-		);
+		let entry = Node {
+			artifact: None,
+			attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
+			children: BTreeMap::new(),
+			depth: 0,
+			lookup_count: u64::MAX,
+			name: None,
+			named: None,
+			parent: vfs::ROOT_NODE_ID,
+		};
+		nodes.insert(vfs::ROOT_NODE_ID, entry);
 		let state = Mutex::new(State { next: 1000, nodes });
 		Self { state }
 	}
@@ -3559,19 +3557,17 @@ impl Nodes {
 
 		let id = state.next;
 		state.next += 1;
-		state.nodes.insert(
-			id,
-			Node {
-				artifact: Some(artifact),
-				attrs,
-				children: BTreeMap::new(),
-				depth,
-				lookup_count: u64::from(remember),
-				name: Some(name.to_owned()),
-				named: None,
-				parent,
-			},
-		);
+		let entry = Node {
+			artifact: Some(artifact),
+			attrs,
+			children: BTreeMap::new(),
+			depth,
+			lookup_count: u64::from(remember),
+			name: Some(name.to_owned()),
+			named: None,
+			parent,
+		};
+		state.nodes.insert(id, entry);
 		state
 			.nodes
 			.get_mut(&parent)
@@ -3611,19 +3607,17 @@ impl Nodes {
 
 		let id = state.next;
 		state.next += 1;
-		state.nodes.insert(
-			id,
-			Node {
-				artifact: None,
-				attrs: Some(attrs),
-				children: BTreeMap::new(),
-				depth,
-				lookup_count: u64::from(remember),
-				name: Some(name.to_owned()),
-				named: Some(named_node),
-				parent,
-			},
-		);
+		let entry = Node {
+			artifact: None,
+			attrs: Some(attrs),
+			children: BTreeMap::new(),
+			depth,
+			lookup_count: u64::from(remember),
+			name: Some(name.to_owned()),
+			named: Some(named_node),
+			parent,
+		};
+		state.nodes.insert(id, entry);
 		state
 			.nodes
 			.get_mut(&parent)

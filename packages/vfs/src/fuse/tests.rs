@@ -383,13 +383,10 @@ fn malformed_names_fail_individual_batch_requests() {
 #[test]
 fn required_passthrough_failure_closes_provider_handle() {
 	let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-	let server = server_with_provider(
-		PassthroughProvider {
-			closes: closes.clone(),
-		},
-		true,
-		true,
-	);
+	let entry = PassthroughProvider {
+		closes: closes.clone(),
+	};
+	let server = server_with_provider(entry, true, true);
 	let request = open_request(1);
 	let response = ProviderResponse::Open {
 		backing_fd: None,
@@ -440,13 +437,10 @@ fn directory_cache_flags_follow_immutability() {
 #[tokio::test]
 async fn required_passthrough_failure_closes_provider_handle_async() {
 	let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-	let server = server_with_provider(
-		PassthroughProvider {
-			closes: closes.clone(),
-		},
-		true,
-		true,
-	);
+	let entry = PassthroughProvider {
+		closes: closes.clone(),
+	};
+	let server = server_with_provider(entry, true, true);
 	let fd = test_fd();
 	let error = server
 		.handle_request(&fd, open_request(1))
@@ -460,13 +454,10 @@ async fn required_passthrough_failure_closes_provider_handle_async() {
 #[test]
 fn failed_open_response_closes_provider_handle() {
 	let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-	let server = server_with_provider(
-		PassthroughProvider {
-			closes: closes.clone(),
-		},
-		false,
-		false,
-	);
+	let entry = PassthroughProvider {
+		closes: closes.clone(),
+	};
+	let server = server_with_provider(entry, false, false);
 	let result = Ok(Response::Open(fuse_open_out {
 		backing_id: -1,
 		fh: 11,
@@ -528,14 +519,11 @@ async fn read_write_dispatcher_handles_concurrency_and_cancellation() {
 	// Start the dispatcher.
 	let release = Arc::new(tokio::sync::Notify::new());
 	let started = Arc::new(tokio::sync::Notify::new());
-	let server = server_with_provider(
-		SlowProvider {
-			release: release.clone(),
-			started: started.clone(),
-		},
-		false,
-		false,
-	);
+	let entry = SlowProvider {
+		release: release.clone(),
+		started: started.clone(),
+	};
+	let server = server_with_provider(entry, false, false);
 	let (response_reader, response_writer) = rustix::net::socketpair(
 		AddressFamily::UNIX,
 		SocketType::STREAM,

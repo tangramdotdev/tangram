@@ -807,24 +807,22 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		if output.output.is_none() && exists {
-			let artifact = tg::checkin::checkin_with_handle(
-				&handle,
-				tg::checkin::Arg {
-					options: tg::checkin::Options {
-						destructive: true,
-						deterministic: true,
-						ignore: false,
-						lock: None,
-						locked: true,
-						root: true,
-						..Default::default()
-					},
-					path: output_path.clone(),
-					updates: Vec::new(),
+			let entry = tg::checkin::Arg {
+				options: tg::checkin::Options {
+					destructive: true,
+					deterministic: true,
+					ignore: false,
+					lock: None,
+					locked: true,
+					root: true,
+					..Default::default()
 				},
-			)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
+				path: output_path.clone(),
+				updates: Vec::new(),
+			};
+			let artifact = tg::checkin::checkin_with_handle(&handle, entry)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 			output.output = Some(tg::Value::from(artifact).to_data());
 		}
 
@@ -905,19 +903,17 @@ where
 		.cloned()
 		.map(|artifact| tg::Referent::with_node_and_tokens(artifact.into(), tokens.clone()))
 		.collect();
-	let paths = tg::checkout::checkout_with_handle(
-		handle,
-		tg::checkout::Arg {
-			dependencies: true,
-			extension: None,
-			force: false,
-			lock: None,
-			nodes,
-			path: None,
-		},
-	)
-	.await
-	.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
+	let entry = tg::checkout::Arg {
+		dependencies: true,
+		extension: None,
+		force: false,
+		lock: None,
+		nodes,
+		path: None,
+	};
+	let paths = tg::checkout::checkout_with_handle(handle, entry)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
 	if paths.len() != artifacts.len() {
 		return Err(tg::error!(
 			actual = %paths.len(),

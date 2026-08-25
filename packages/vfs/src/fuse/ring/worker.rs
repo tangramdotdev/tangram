@@ -665,20 +665,18 @@ where
 					return Err(Error::other("the io_uring slot request state changed"));
 				}
 				slot_data.state = UringSlotState::Async { opcode, unique };
-				self.server.spawn_async_request(
-					&self.runtime,
-					AsyncRequestContext {
-						async_notification_pending: self.async_notification_pending.clone(),
-						eventfd: self.eventfd.clone(),
-						fd: self.fd.clone(),
-						request,
-						sender: self.sender.clone(),
-						slot,
-						token,
-						worker_event_sender: self.event_sender.clone(),
-						worker_id: self.worker_id,
-					},
-				);
+				let entry = AsyncRequestContext {
+					async_notification_pending: self.async_notification_pending.clone(),
+					eventfd: self.eventfd.clone(),
+					fd: self.fd.clone(),
+					request,
+					sender: self.sender.clone(),
+					slot,
+					token,
+					worker_event_sender: self.event_sender.clone(),
+					worker_id: self.worker_id,
+				};
+				self.server.spawn_async_request(&self.runtime, entry);
 			}
 
 			// Commit the synchronous responses.

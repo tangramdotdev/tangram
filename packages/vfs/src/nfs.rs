@@ -628,24 +628,20 @@ where
 			..
 		} = args;
 		if minorversion != 0 {
-			return rpc::success(
-				verf,
-				COMPOUND4res {
-					status: nfsstat4::NFS4ERR_MINOR_VERS_MISMATCH,
-					tag,
-					resarray: Vec::new(),
-				},
-			);
+			let entry = COMPOUND4res {
+				status: nfsstat4::NFS4ERR_MINOR_VERS_MISMATCH,
+				tag,
+				resarray: Vec::new(),
+			};
+			return rpc::success(verf, entry);
 		}
 		if argarray.len() > MAX_COMPOUND_OPERATIONS {
-			return rpc::success(
-				verf,
-				COMPOUND4res {
-					status: nfsstat4::NFS4ERR_RESOURCE,
-					tag,
-					resarray: Vec::new(),
-				},
-			);
+			let entry = COMPOUND4res {
+				status: nfsstat4::NFS4ERR_RESOURCE,
+				tag,
+				resarray: Vec::new(),
+			};
+			return rpc::success(verf, entry);
 		}
 
 		// Create the context.
@@ -1158,18 +1154,16 @@ where
 		}
 		let index = self.next_open_id();
 		let stateid = stateid4::new(arg.seqid, index, false);
-		self.opens.insert(
-			index,
-			OpenState {
-				active: Arc::new(tokio::sync::RwLock::new(true)),
-				client_id,
-				file_handle: fh,
-				provider_handle,
-				share_access: arg.share_access,
-				share_deny: arg.share_deny,
-				stateid,
-			},
-		);
+		let entry = OpenState {
+			active: Arc::new(tokio::sync::RwLock::new(true)),
+			client_id,
+			file_handle: fh,
+			provider_handle,
+			share_access: arg.share_access,
+			share_deny: arg.share_deny,
+			stateid,
+		};
+		self.opens.insert(index, entry);
 
 		let cinfo = change_info4 {
 			atomic: false,

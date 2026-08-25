@@ -727,13 +727,11 @@ where
 
 		// Track the backing ID for reuse and release.
 		backings.handles.insert(fh, node);
-		backings.nodes.insert(
-			node,
-			PassthroughBacking {
-				id: backing_id_u32,
-				references: 1,
-			},
-		);
+		let entry = PassthroughBacking {
+			id: backing_id_u32,
+			references: 1,
+		};
+		backings.nodes.insert(node, entry);
 
 		Ok(backing_id)
 	}

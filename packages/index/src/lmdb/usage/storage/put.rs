@@ -355,32 +355,24 @@ impl Index {
 		Self::put_account_object_clean_key(db, subspace, transaction, arg)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account: &arg.account,
-				at: arg.touched_at,
-				delta: 1,
-				kind: crate::usage::DeltaKind::ObjectCount,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account: &arg.account,
+			at: arg.touched_at,
+			delta: 1,
+			kind: crate::usage::DeltaKind::ObjectCount,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 		let size = i64::try_from(object.metadata.node.size)
 			.map_err(|_| tg::error!(object = %arg.object, "the object size is too large"))?;
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account: &arg.account,
-				at: arg.touched_at,
-				delta: size,
-				kind: crate::usage::DeltaKind::ObjectSize,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account: &arg.account,
+			at: arg.touched_at,
+			delta: size,
+			kind: crate::usage::DeltaKind::ObjectSize,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
 		let children =
 			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?;
@@ -454,18 +446,14 @@ impl Index {
 		Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account: &arg.account,
-				at: arg.touched_at,
-				delta: 1,
-				kind: crate::usage::DeltaKind::ProcessCount,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account: &arg.account,
+			at: arg.touched_at,
+			delta: 1,
+			kind: crate::usage::DeltaKind::ProcessCount,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
 		let children =
 			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?;

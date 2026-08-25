@@ -25,13 +25,11 @@ impl Cli {
 	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = args.sandbox;
-		let sandbox = tg::Sandbox::new(
-			id.clone(),
-			tg::sandbox::Options {
-				location: args.locations.get(),
-				..Default::default()
-			},
-		);
+		let entry = tg::sandbox::Options {
+			location: args.locations.get(),
+			..Default::default()
+		};
+		let sandbox = tg::Sandbox::new(id.clone(), entry);
 		let options = tg::sandbox::get::Options {
 			cached: args.cached,
 			ttl: args.ttl.get(),

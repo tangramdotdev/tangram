@@ -61,17 +61,12 @@ impl Index {
 				if object.is_none() {
 					continue;
 				}
-				Self::touch_account_object(
-					db,
-					subspace,
-					transaction,
-					&crate::usage::storage::put::ObjectArg {
-						account: account.clone(),
-						object: id.clone(),
-						touched_at,
-					},
-					time_to_touch,
-				)?;
+				let entry = crate::usage::storage::put::ObjectArg {
+					account: account.clone(),
+					object: id.clone(),
+					touched_at,
+				};
+				Self::touch_account_object(db, subspace, transaction, &entry, time_to_touch)?;
 			}
 		}
 

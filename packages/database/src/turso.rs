@@ -96,15 +96,13 @@ impl Database {
 				async move { Connection::connect(&db, &initialize).await }
 			}
 		};
-		let pool = Pool::new(
-			pool::Options {
-				min: options.min,
-				max: options.max,
-				shared: 1,
-				ttl: options.ttl,
-			},
-			create,
-		);
+		let entry = pool::Options {
+			min: options.min,
+			max: options.max,
+			shared: 1,
+			ttl: options.ttl,
+		};
+		let pool = Pool::new(entry, create);
 		for _ in 0..options.min {
 			let connection = Connection::connect(&db, &options.initialize).await?;
 			pool.add(connection);

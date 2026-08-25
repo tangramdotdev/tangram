@@ -493,15 +493,13 @@ impl Session {
 		let node = list_target_to_id(target);
 		let tokens =
 			tg::authorization::Tokens::with_local(self.create_tag_target_token(&id, &node).await?);
-		let referent = tg::Referent::new(
-			tg::get::Node::Id(node),
-			tg::referent::Options {
-				location,
-				tag: Some(specifier),
-				tokens,
-				..tg::referent::Options::default()
-			},
-		);
+		let entry = tg::referent::Options {
+			location,
+			tag: Some(specifier),
+			tokens,
+			..tg::referent::Options::default()
+		};
+		let referent = tg::Referent::new(tg::get::Node::Id(node), entry);
 		let output = tg::get::Output { referent };
 
 		Ok(Some(output))
@@ -622,14 +620,12 @@ impl Session {
 			}
 		}
 		if cached {
-			let referent = tg::Referent::new(
-				tg::get::Node::Id(list_target_to_id(target)),
-				tg::referent::Options {
-					location: Some(tg::Location::Remote(remote)),
-					tag: Some(specifier),
-					..tg::referent::Options::default()
-				},
-			);
+			let entry = tg::referent::Options {
+				location: Some(tg::Location::Remote(remote)),
+				tag: Some(specifier),
+				..tg::referent::Options::default()
+			};
+			let referent = tg::Referent::new(tg::get::Node::Id(list_target_to_id(target)), entry);
 			let output = tg::get::Output { referent };
 			return Ok(Some(output));
 		}
@@ -783,14 +779,12 @@ impl Session {
 							tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 							tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 						};
-						let target = tg::Referent::new(
-							target,
-							tg::referent::Options {
-								location: location.clone(),
-								tokens: tokens.clone(),
-								..Default::default()
-							},
-						);
+						let entry = tg::referent::Options {
+							location: location.clone(),
+							tokens: tokens.clone(),
+							..Default::default()
+						};
+						let target = tg::Referent::new(target, entry);
 						let options = tg::referent::Options {
 							location,
 							tokens,

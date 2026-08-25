@@ -66,6 +66,7 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Use `?` to propagate errors.
 - Use exhaustive `match` expressions.
 - Prefer binding computed field values to local variables before constructing a struct.
+- Bind struct literal arguments to local variables before function or method calls, keeping the binding in the call's parent scope and using a short name such as `entry` when no more specific name is needed. Do not introduce a temporary block solely for this binding. This does not apply to enum variant construction or struct literals passed as enum variant arguments.
 - Use field-init shorthand in struct expressions.
 - Structure complex bodies as a sequence of logical phases.
 - Introduce each phase with a short, active comment such as `// Parse the arg.` or `// Create the response.`.

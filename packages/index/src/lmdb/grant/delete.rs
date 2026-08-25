@@ -33,19 +33,15 @@ impl Index {
 					None => (None, GrantSource::Explicit),
 					Some(expires_at) => (expires_at, GrantSource::Implicit),
 				};
-				let changed = Self::delete_grant_index_entry(
-					db,
-					subspace,
-					transaction,
-					&GrantIndexEntry {
-						creator: arg.creator.as_ref(),
-						expires_at,
-						permission,
-						subject: &arg.subject,
-						resource: &arg.resource,
-					},
-					source,
-				)?;
+				let entry = GrantIndexEntry {
+					creator: arg.creator.as_ref(),
+					expires_at,
+					permission,
+					subject: &arg.subject,
+					resource: &arg.resource,
+				};
+				let changed =
+					Self::delete_grant_index_entry(db, subspace, transaction, &entry, source)?;
 				if changed {
 					Self::enqueue_grant_update(
 						db,

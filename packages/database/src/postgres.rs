@@ -162,15 +162,13 @@ async fn create_pool(options: PoolOptions) -> Result<Pool<Connection, Error>, Er
 			async move { Connection::connect(connection_options).await }
 		}
 	};
-	let pool = Pool::new(
-		pool::Options {
-			min: options.min,
-			max: options.max,
-			shared: 1,
-			ttl: options.ttl,
-		},
-		create,
-	);
+	let entry = pool::Options {
+		min: options.min,
+		max: options.max,
+		shared: 1,
+		ttl: options.ttl,
+	};
+	let pool = Pool::new(entry, create);
 	for _ in 0..options.min {
 		let connection = Connection::connect(connection_options.clone()).await?;
 		pool.add(connection);

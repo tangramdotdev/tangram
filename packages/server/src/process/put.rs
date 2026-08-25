@@ -96,12 +96,13 @@ impl Session {
 			.create_process_object_grant_arg(id, roots, created_at, None)
 			.await?;
 
+		let entry = tg::process::put::Arg {
+			data,
+			location: None,
+		};
 		self.put_process_local_inner(
 			id,
-			tg::process::put::Arg {
-				data,
-				location: None,
-			},
+			entry,
 			ObjectGrants::Discover(process_object_grant_arg),
 			true,
 		)

@@ -23,13 +23,11 @@ pub struct Options {
 
 impl Cli {
 	pub async fn command_sandbox_wait(&mut self, args: Args) -> tg::Result<()> {
-		let sandbox = tg::Sandbox::new(
-			args.sandbox,
-			tg::sandbox::Options {
-				location: args.options.locations.get(),
-				..tg::sandbox::Options::default()
-			},
-		);
+		let entry = tg::sandbox::Options {
+			location: args.options.locations.get(),
+			..tg::sandbox::Options::default()
+		};
+		let sandbox = tg::Sandbox::new(args.sandbox, entry);
 		self.command_sandbox_wait_inner(sandbox, args.options).await
 	}
 

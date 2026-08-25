@@ -570,13 +570,16 @@ impl State {
 					if matches!(placement, Placement::Regular { .. })
 						&& let Some(runner) = self.runners.entries.get(&runner_ref.id)
 					{
-						self.sandboxes.entries.get_mut(&id).unwrap().blocked.insert(
-							runner_ref.id.clone(),
-							Block {
-								connection_index: runner.connection_index,
-								heartbeat_index: runner.heartbeat_index,
-							},
-						);
+						let entry = Block {
+							connection_index: runner.connection_index,
+							heartbeat_index: runner.heartbeat_index,
+						};
+						self.sandboxes
+							.entries
+							.get_mut(&id)
+							.unwrap()
+							.blocked
+							.insert(runner_ref.id.clone(), entry);
 					}
 					self.requeue_sandbox(&id);
 				}
@@ -877,14 +880,12 @@ impl State {
 				ReservationSource::Regular
 			},
 		};
-		runner.reservations.insert(
-			id.clone(),
-			Reservation {
-				capacity,
-				source,
-				state: ReservationState::Pending,
-			},
-		);
+		let entry = Reservation {
+			capacity,
+			source,
+			state: ReservationState::Pending,
+		};
+		runner.reservations.insert(id.clone(), entry);
 		self.sandboxes.entries.get_mut(id).unwrap().state = SandboxState::Creating {
 			placement: placement.clone(),
 		};

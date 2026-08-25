@@ -64,21 +64,24 @@ impl Store {
 				SpeculativeExecution::Percentile {
 					max_retry_count,
 					percentile,
-				} => std::sync::Arc::new(
-					scylla::policies::speculative_execution::PercentileSpeculativeExecutionPolicy {
+				} => {
+					let entry = scylla::policies::speculative_execution::PercentileSpeculativeExecutionPolicy {
 						max_retry_count: *max_retry_count,
 						percentile: *percentile,
-					},
-				),
+					};
+					std::sync::Arc::new(entry)
+				},
 				SpeculativeExecution::Simple {
 					max_retry_count,
 					retry_interval,
-				} => std::sync::Arc::new(
-					scylla::policies::speculative_execution::SimpleSpeculativeExecutionPolicy {
-						max_retry_count: *max_retry_count,
-						retry_interval: *retry_interval,
-					},
-				),
+				} => {
+					let entry =
+						scylla::policies::speculative_execution::SimpleSpeculativeExecutionPolicy {
+							max_retry_count: *max_retry_count,
+							retry_interval: *retry_interval,
+						};
+					std::sync::Arc::new(entry)
+				},
 			};
 			let handle = scylla::client::execution_profile::ExecutionProfile::builder()
 				.speculative_execution_policy(Some(policy))

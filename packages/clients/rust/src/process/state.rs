@@ -211,16 +211,14 @@ impl Child {
 		let options = value.process.options;
 		let location = options.location.clone().map(Into::into);
 		let tokens = options.tokens.clone();
+		let entry = tg::process::Options {
+			cached: Some(value.cached),
+			location,
+			tokens,
+			..Default::default()
+		};
 		Ok(Self {
-			process: tg::Process::new(
-				process,
-				tg::process::Options {
-					cached: Some(value.cached),
-					location,
-					tokens,
-					..Default::default()
-				},
-			),
+			process: tg::Process::new(process, entry),
 			options,
 		})
 	}

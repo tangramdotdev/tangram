@@ -23,19 +23,14 @@ fn add_delta_to_partition(
 	partition: u64,
 ) {
 	let mut transaction = index.env.write_txn().unwrap();
-	Index::add_usage_delta(
-		&index.db,
-		&index.subspace,
-		&mut transaction,
-		crate::usage::DeltaArg {
-			account,
-			at,
-			delta,
-			kind,
-			partition,
-		},
-	)
-	.unwrap();
+	let entry = crate::usage::DeltaArg {
+		account,
+		at,
+		delta,
+		kind,
+		partition,
+	};
+	Index::add_usage_delta(&index.db, &index.subspace, &mut transaction, entry).unwrap();
 	transaction.commit().unwrap();
 }
 
@@ -154,6 +149,10 @@ async fn usage_unavailability_is_scoped_by_account_and_partition() {
 	let other = crate::usage::Account::User(tg::user::Id::new());
 	let period = hour(0);
 	let mut transaction = index.env.write_txn().unwrap();
+	let entry = crate::usage::PartitionAggregate {
+		object_count: 3,
+		..Default::default()
+	};
 	Index::put_usage_aggregate_with_transaction(
 		&index.db,
 		&index.subspace,
@@ -161,12 +160,13 @@ async fn usage_unavailability_is_scoped_by_account_and_partition() {
 		&account,
 		0,
 		period,
-		crate::usage::PartitionAggregate {
-			object_count: 3,
-			..Default::default()
-		},
+		entry,
 	)
 	.unwrap();
+	let entry = crate::usage::PartitionAggregate {
+		object_count: 7,
+		..Default::default()
+	};
 	Index::put_usage_aggregate_with_transaction(
 		&index.db,
 		&index.subspace,
@@ -174,10 +174,7 @@ async fn usage_unavailability_is_scoped_by_account_and_partition() {
 		&account,
 		1,
 		period,
-		crate::usage::PartitionAggregate {
-			object_count: 7,
-			..Default::default()
-		},
+		entry,
 	)
 	.unwrap();
 	transaction.commit().unwrap();

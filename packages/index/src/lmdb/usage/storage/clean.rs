@@ -394,35 +394,27 @@ impl Index {
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the object account"))?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account,
-				at: now,
-				delta: -1,
-				kind: crate::usage::DeltaKind::ObjectCount,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account,
+			at: now,
+			delta: -1,
+			kind: crate::usage::DeltaKind::ObjectCount,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 		let object_value =
 			Self::try_get_object_with_transaction(db, subspace, transaction, object)?
 				.ok_or_else(|| tg::error!(%object, "an object with a storage entry is missing"))?;
 		let size = i64::try_from(object_value.metadata.node.size)
 			.map_err(|_| tg::error!("the object size is too large"))?;
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account,
-				at: now,
-				delta: -size,
-				kind: crate::usage::DeltaKind::ObjectSize,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account,
+			at: now,
+			delta: -size,
+			kind: crate::usage::DeltaKind::ObjectSize,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 		let key = Key::Clean(crate::lmdb::clean::Key::Object {
 			id: object.clone(),
 			touched_at: object_value.touched_at,
@@ -477,18 +469,14 @@ impl Index {
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the process account"))?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
-		Self::add_usage_delta(
-			db,
-			subspace,
-			transaction,
-			crate::usage::DeltaArg {
-				account,
-				at: now,
-				delta: -1,
-				kind: crate::usage::DeltaKind::ProcessCount,
-				partition: usage_partition,
-			},
-		)?;
+		let entry = crate::usage::DeltaArg {
+			account,
+			at: now,
+			delta: -1,
+			kind: crate::usage::DeltaKind::ProcessCount,
+			partition: usage_partition,
+		};
+		Self::add_usage_delta(db, subspace, transaction, entry)?;
 		let process_value =
 			Self::try_get_process_with_transaction(db, subspace, transaction, process)?
 				.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;

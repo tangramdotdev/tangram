@@ -255,32 +255,38 @@ impl Index {
 					account,
 					touched_at,
 				}) => match &id {
-					tg::Either::Left(object) => Self::put_account_object(
-						db,
-						subspace,
-						transaction,
-						&crate::usage::storage::put::ObjectArg {
+					tg::Either::Left(object) => {
+						let entry = crate::usage::storage::put::ObjectArg {
 							account: account.clone(),
 							object: object.clone(),
 							touched_at: *touched_at,
-						},
-						usage_partition_total,
-						false,
-						Some(version),
-					)?,
-					tg::Either::Right(process) => Self::put_account_process(
-						db,
-						subspace,
-						transaction,
-						&crate::usage::storage::put::ProcessArg {
+						};
+						Self::put_account_object(
+							db,
+							subspace,
+							transaction,
+							&entry,
+							usage_partition_total,
+							false,
+							Some(version),
+						)
+					}?,
+					tg::Either::Right(process) => {
+						let entry = crate::usage::storage::put::ProcessArg {
 							account: account.clone(),
 							process: process.clone(),
 							touched_at: *touched_at,
-						},
-						usage_partition_total,
-						false,
-						Some(version),
-					)?,
+						};
+						Self::put_account_process(
+							db,
+							subspace,
+							transaction,
+							&entry,
+							usage_partition_total,
+							false,
+							Some(version),
+						)
+					}?,
 				},
 				Kind::Storage(
 					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
@@ -577,17 +583,18 @@ impl Index {
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
 		for permission in permissions {
+			let entry = crate::lmdb::grant::GrantIndexEntry {
+				creator: Some(&creator),
+				expires_at: None,
+				permission,
+				resource: &resource,
+				subject,
+			};
 			if Self::put_grant_index_entry(
 				db,
 				subspace,
 				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					creator: Some(&creator),
-					expires_at: None,
-					permission,
-					resource: &resource,
-					subject,
-				},
+				&entry,
 				crate::lmdb::grant::GrantSource::Implicit,
 				None,
 			)? {
@@ -622,34 +629,36 @@ impl Index {
 			})
 			.collect::<BTreeSet<_>>();
 		for (subject, permission, expires_at) in current.difference(expected) {
+			let entry = crate::lmdb::grant::GrantIndexEntry {
+				creator: None,
+				expires_at: *expires_at,
+				permission: *permission,
+				subject,
+				resource,
+			};
 			if Self::delete_grant_index_entry(
 				db,
 				subspace,
 				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					creator: None,
-					expires_at: *expires_at,
-					permission: *permission,
-					subject,
-					resource,
-				},
+				&entry,
 				crate::lmdb::grant::GrantSource::Materialized,
 			)? {
 				changed = true;
 			}
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
+			let entry = crate::lmdb::grant::GrantIndexEntry {
+				creator: None,
+				expires_at: *expires_at,
+				permission: *permission,
+				subject,
+				resource,
+			};
 			if Self::put_grant_index_entry(
 				db,
 				subspace,
 				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					creator: None,
-					expires_at: *expires_at,
-					permission: *permission,
-					subject,
-					resource,
-				},
+				&entry,
 				crate::lmdb::grant::GrantSource::Materialized,
 				None,
 			)? {
@@ -952,24 +961,20 @@ impl Index {
 				},
 			}
 		}
-		Self::update_process_grants(
-			db,
-			subspace,
-			transaction,
-			&ProcessGrantInputs {
-				resource: &resource,
-				entries: &entries,
-				child_entries: &child_entries,
-				command_object_entries: command_object_entries.as_deref(),
-				error_object_entries: &error_object_entries,
-				log_object_entries: log_object_entries.as_deref(),
-				output_object_entries: &output_object_entries,
-				set: ProcessGrantSet {
-					error: process.set.error,
-					output: process.set.output,
-				},
+		let entry = ProcessGrantInputs {
+			resource: &resource,
+			entries: &entries,
+			child_entries: &child_entries,
+			command_object_entries: command_object_entries.as_deref(),
+			error_object_entries: &error_object_entries,
+			log_object_entries: log_object_entries.as_deref(),
+			output_object_entries: &output_object_entries,
+			set: ProcessGrantSet {
+				error: process.set.error,
+				output: process.set.output,
 			},
-		)
+		};
+		Self::update_process_grants(db, subspace, transaction, &entry)
 	}
 
 	fn update_process(

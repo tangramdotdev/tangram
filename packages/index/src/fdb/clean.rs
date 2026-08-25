@@ -368,21 +368,16 @@ impl Index {
 		let count = args.len();
 		for (arg, source) in args {
 			for permission in arg.permissions.iter() {
+				let entry = crate::fdb::grant::GrantIndexEntry {
+					creator: arg.creator.as_ref(),
+					expires_at: arg.implicit.flatten(),
+					permission,
+					subject: &arg.subject,
+					resource: &arg.resource,
+				};
 				crate::fdb::propagate!(
-					Self::delete_grant_index_entry(
-						txn,
-						subspace,
-						&crate::fdb::grant::GrantIndexEntry {
-							creator: arg.creator.as_ref(),
-							expires_at: arg.implicit.flatten(),
-							permission,
-							subject: &arg.subject,
-							resource: &arg.resource,
-						},
-						source,
-						partition_total,
-					)
-					.await
+					Self::delete_grant_index_entry(txn, subspace, &entry, source, partition_total,)
+						.await
 				);
 				Self::enqueue_grant_update(
 					txn,

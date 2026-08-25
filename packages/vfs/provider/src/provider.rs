@@ -582,13 +582,12 @@ impl Inner {
 			.to_string()
 			.parse()
 			.map_err(std::io::Error::other)?;
-		let reference = tg::Reference::with_node_and_options(
-			tg::reference::Node::Specifier(pattern),
-			tg::reference::Options {
-				location: location.clone(),
-				..Default::default()
-			},
-		);
+		let entry = tg::reference::Options {
+			location: location.clone(),
+			..Default::default()
+		};
+		let reference =
+			tg::Reference::with_node_and_options(tg::reference::Node::Specifier(pattern), entry);
 		let output = reference.try_get_with_handle(&session).await.map_err(eio)?;
 		let Some(output) = output else {
 			return Ok(None);
@@ -1848,20 +1847,18 @@ impl Fast {
 impl Nodes {
 	fn new() -> Self {
 		let mut nodes = BTreeMap::new();
-		nodes.insert(
-			vfs::ROOT_NODE_ID,
-			Node {
-				accessed: Instant::now(),
-				artifact: None,
-				attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
-				children: BTreeMap::new(),
-				depth: 0,
-				lookup_count: u64::MAX,
-				name: None,
-				named: None,
-				parent: vfs::ROOT_NODE_ID,
-			},
-		);
+		let entry = Node {
+			accessed: Instant::now(),
+			artifact: None,
+			attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
+			children: BTreeMap::new(),
+			depth: 0,
+			lookup_count: u64::MAX,
+			name: None,
+			named: None,
+			parent: vfs::ROOT_NODE_ID,
+		};
+		nodes.insert(vfs::ROOT_NODE_ID, entry);
 		let state = Mutex::new(State { next: 1000, nodes });
 		Self { state }
 	}
@@ -2035,20 +2032,18 @@ impl Nodes {
 		}
 		let id = state.next;
 		state.next += 1;
-		state.nodes.insert(
-			id,
-			Node {
-				accessed: Instant::now(),
-				artifact: Some(artifact),
-				attrs,
-				children: BTreeMap::new(),
-				depth,
-				lookup_count: u64::from(remember),
-				name: Some(name.to_owned()),
-				named: None,
-				parent,
-			},
-		);
+		let entry = Node {
+			accessed: Instant::now(),
+			artifact: Some(artifact),
+			attrs,
+			children: BTreeMap::new(),
+			depth,
+			lookup_count: u64::from(remember),
+			name: Some(name.to_owned()),
+			named: None,
+			parent,
+		};
+		state.nodes.insert(id, entry);
 		state
 			.nodes
 			.get_mut(&parent)
@@ -2088,20 +2083,18 @@ impl Nodes {
 		}
 		let id = state.next;
 		state.next += 1;
-		state.nodes.insert(
-			id,
-			Node {
-				accessed: Instant::now(),
-				artifact: None,
-				attrs: Some(attrs),
-				children: BTreeMap::new(),
-				depth,
-				lookup_count: u64::from(remember),
-				name: Some(name.to_owned()),
-				named: Some(named_node),
-				parent,
-			},
-		);
+		let entry = Node {
+			accessed: Instant::now(),
+			artifact: None,
+			attrs: Some(attrs),
+			children: BTreeMap::new(),
+			depth,
+			lookup_count: u64::from(remember),
+			name: Some(name.to_owned()),
+			named: Some(named_node),
+			parent,
+		};
+		state.nodes.insert(id, entry);
 		state
 			.nodes
 			.get_mut(&parent)

@@ -50,15 +50,13 @@ impl State {
 		let watch = checkpoint.next_watch;
 		checkpoint.next_watch += 1;
 		let (sender, _) = tokio::sync::watch::channel(0);
-		checkpoint.watches.insert(
-			watch,
-			Watch {
-				hits: BTreeMap::new(),
-				next_hit: 0,
-				params,
-				sender,
-			},
-		);
+		let entry = Watch {
+			hits: BTreeMap::new(),
+			next_hit: 0,
+			params,
+			sender,
+		};
+		checkpoint.watches.insert(watch, entry);
 		watch
 	}
 
@@ -121,13 +119,11 @@ impl State {
 				let hit = watch.next_hit;
 				watch.next_hit += 1;
 				let (sender, receiver) = tokio::sync::oneshot::channel();
-				watch.hits.insert(
-					hit,
-					Hit {
-						params: params.clone(),
-						sender: Some(sender),
-					},
-				);
+				let entry = Hit {
+					params: params.clone(),
+					sender: Some(sender),
+				};
+				watch.hits.insert(hit, entry);
 				watch.sender.send_replace(watch.next_hit);
 				receivers.push(receiver);
 			}

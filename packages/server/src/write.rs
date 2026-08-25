@@ -387,41 +387,43 @@ impl Session {
 		let bytes = data.serialize()?;
 		let size = bytes.len().to_u64().unwrap();
 		let id = tg::blob::Id::new(&bytes);
-		let metadata = children.iter().unique_by(|blob| &blob.id).fold(
-			tg::object::Metadata {
-				node: tg::object::metadata::Node {
-					size,
-					solvable: false,
-					solved: true,
-				},
-				subtree: tg::object::metadata::Subtree {
-					count: Some(1),
-					depth: Some(1),
-					size: Some(size),
-					solvable: Some(false),
-					solved: Some(true),
-				},
+		let entry = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size,
+				solvable: false,
+				solved: true,
 			},
-			|mut metadata, child| {
-				let child_subtree = &child.metadata.subtree;
-				metadata.subtree.count = metadata
-					.subtree
-					.count
-					.zip(child_subtree.count)
-					.map(|(a, b)| a + b);
-				metadata.subtree.depth = metadata
-					.subtree
-					.depth
-					.zip(child_subtree.depth)
-					.map(|(a, b)| a.max(1 + b));
-				metadata.subtree.size = metadata
-					.subtree
-					.size
-					.zip(child_subtree.size)
-					.map(|(a, b)| a + b);
-				metadata
+			subtree: tg::object::metadata::Subtree {
+				count: Some(1),
+				depth: Some(1),
+				size: Some(size),
+				solvable: Some(false),
+				solved: Some(true),
 			},
-		);
+		};
+		let metadata =
+			children
+				.iter()
+				.unique_by(|blob| &blob.id)
+				.fold(entry, |mut metadata, child| {
+					let child_subtree = &child.metadata.subtree;
+					metadata.subtree.count = metadata
+						.subtree
+						.count
+						.zip(child_subtree.count)
+						.map(|(a, b)| a + b);
+					metadata.subtree.depth = metadata
+						.subtree
+						.depth
+						.zip(child_subtree.depth)
+						.map(|(a, b)| a.max(1 + b));
+					metadata.subtree.size = metadata
+						.subtree
+						.size
+						.zip(child_subtree.size)
+						.map(|(a, b)| a + b);
+					metadata
+				});
 		let position = children.first().unwrap().position;
 		let length = children.iter().map(|child| child.length).sum();
 		let output = Output {

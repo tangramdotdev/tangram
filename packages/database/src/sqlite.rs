@@ -131,15 +131,15 @@ struct QueryAllMessage {
 
 impl Database {
 	pub async fn new(options: DatabaseOptions) -> Result<Self, Error> {
-		let write_pool = Pool::new(
-			pool::Options {
-				min: 1,
-				max: 1,
-				shared: 1,
-				ttl: None,
-			},
-			|| async { Err(Error::Other("expected a pooled connection".into())) },
-		);
+		let entry = pool::Options {
+			min: 1,
+			max: 1,
+			shared: 1,
+			ttl: None,
+		};
+		let write_pool = Pool::new(entry, || async {
+			Err(Error::Other("expected a pooled connection".into()))
+		});
 		let flags = rusqlite::OpenFlags::default();
 		let options_ = ConnectionOptions {
 			flags,
@@ -168,15 +168,13 @@ impl Database {
 				}
 			}
 		};
-		let read_pool = Pool::new(
-			pool::Options {
-				min: options.min,
-				max: options.max,
-				shared: 1,
-				ttl: options.ttl,
-			},
-			create,
-		);
+		let entry = pool::Options {
+			min: options.min,
+			max: options.max,
+			shared: 1,
+			ttl: options.ttl,
+		};
+		let read_pool = Pool::new(entry, create);
 		for _ in 0..options.min {
 			let mut flags = rusqlite::OpenFlags::default();
 			flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);

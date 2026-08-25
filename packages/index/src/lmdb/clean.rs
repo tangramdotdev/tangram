@@ -272,19 +272,14 @@ impl Index {
 		let count = args.len();
 		for (arg, source) in args {
 			for permission in arg.permissions.iter() {
-				Self::delete_grant_index_entry(
-					db,
-					subspace,
-					transaction,
-					&crate::lmdb::grant::GrantIndexEntry {
-						creator: arg.creator.as_ref(),
-						expires_at: arg.implicit.flatten(),
-						permission,
-						subject: &arg.subject,
-						resource: &arg.resource,
-					},
-					source,
-				)?;
+				let entry = crate::lmdb::grant::GrantIndexEntry {
+					creator: arg.creator.as_ref(),
+					expires_at: arg.implicit.flatten(),
+					permission,
+					subject: &arg.subject,
+					resource: &arg.resource,
+				};
+				Self::delete_grant_index_entry(db, subspace, transaction, &entry, source)?;
 				Self::enqueue_grant_update(
 					db,
 					subspace,
@@ -916,19 +911,14 @@ impl Index {
 		}
 
 		for (creator, expires_at, permission, resource, source) in entries {
-			Self::delete_grant_index_entry(
-				db,
-				subspace,
-				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					creator: creator.as_ref(),
-					expires_at,
-					permission,
-					resource: &resource,
-					subject,
-				},
-				source,
-			)?;
+			let entry = crate::lmdb::grant::GrantIndexEntry {
+				creator: creator.as_ref(),
+				expires_at,
+				permission,
+				resource: &resource,
+				subject,
+			};
+			Self::delete_grant_index_entry(db, subspace, transaction, &entry, source)?;
 		}
 
 		Ok(())
@@ -984,17 +974,18 @@ impl Index {
 
 		// Delete the materialized grants.
 		for (creator, expires_at, permission, subject) in entries {
+			let entry = crate::lmdb::grant::GrantIndexEntry {
+				creator: creator.as_ref(),
+				expires_at,
+				permission,
+				subject: &subject,
+				resource,
+			};
 			Self::delete_grant_index_entry(
 				db,
 				subspace,
 				transaction,
-				&crate::lmdb::grant::GrantIndexEntry {
-					creator: creator.as_ref(),
-					expires_at,
-					permission,
-					subject: &subject,
-					resource,
-				},
+				&entry,
 				crate::lmdb::grant::GrantSource::Materialized,
 			)?;
 		}

@@ -21,14 +21,11 @@ impl Session {
 					return Ok(None);
 				};
 				let selector = tg::user::Selector::Id(user.clone());
-				self.try_get_user(
-					&selector,
-					tg::user::get::Arg {
-						location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-						..Default::default()
-					},
-				)
-				.await
+				let entry = tg::user::get::Arg {
+					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					..Default::default()
+				};
+				self.try_get_user(&selector, entry).await
 			},
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;

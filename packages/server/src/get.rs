@@ -81,16 +81,12 @@ impl Session {
 		}
 		if options.tokens.is_empty() && id.kind() == tg::id::Kind::Sandbox {
 			let id = tg::sandbox::Id::try_from(id.clone())?;
-			let sandbox = self
-				.try_get_sandbox(
-					&id,
-					tg::sandbox::get::Arg {
-						cached: arg.cached,
-						location: options.location.clone(),
-						ttl: arg.ttl,
-					},
-				)
-				.await?;
+			let entry = tg::sandbox::get::Arg {
+				cached: arg.cached,
+				location: options.location.clone(),
+				ttl: arg.ttl,
+			};
+			let sandbox = self.try_get_sandbox(&id, entry).await?;
 			let output = sandbox.map(|sandbox| {
 				let options = tg::referent::Options {
 					location: sandbox.location,

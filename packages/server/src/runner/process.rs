@@ -285,22 +285,20 @@ impl Session {
 		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(id.clone());
 		let process_index = session.server.runner.state.create_process_index();
 		let sandbox_id = state.sandbox.clone();
-		processes.insert(
-			process_index,
-			crate::process::State {
-				children,
-				control: control_sender.clone(),
-				data,
-				finish: None,
-				id: id.clone(),
-				id_receiver: process_id_receiver.clone(),
-				index_task: index_task.clone(),
-				inner_token: inner_token.clone(),
-				leases: BTreeSet::from([lease.clone()]),
-				process: None,
-				stopper: process_stopper.clone(),
-			},
-		);
+		let entry = crate::process::State {
+			children,
+			control: control_sender.clone(),
+			data,
+			finish: None,
+			id: id.clone(),
+			id_receiver: process_id_receiver.clone(),
+			index_task: index_task.clone(),
+			inner_token: inner_token.clone(),
+			leases: BTreeSet::from([lease.clone()]),
+			process: None,
+			stopper: process_stopper.clone(),
+		};
+		processes.insert(process_index, entry);
 		if let Some(id) = &id {
 			session
 				.server
@@ -682,14 +680,12 @@ impl Session {
 				.insert(id.clone(), sandbox_id.clone());
 			process_id_sender.send_replace(Some(id.clone()));
 		}
-		let process = tg::Process::new(
-			id.clone(),
-			tg::process::Options {
-				location: Some(location.clone().into()),
-				state: Some(state.clone()),
-				..Default::default()
-			},
-		);
+		let entry = tg::process::Options {
+			location: Some(location.clone().into()),
+			state: Some(state.clone()),
+			..Default::default()
+		};
+		let process = tg::Process::new(id.clone(), entry);
 		let context = crate::Context {
 			principal: tg::Principal::Process(id.clone()),
 			token: Some(inner_token.clone()),
@@ -728,15 +724,13 @@ impl Session {
 			return Err(error);
 		}
 		if location.is_remote() {
+			let entry = crate::process::control::Connected {
+				lease: lease.clone(),
+			};
 			let result = session
 				.server
 				.messenger
-				.publish(
-					crate::process::control::connected_subject(&id),
-					crate::process::control::Connected {
-						lease: lease.clone(),
-					},
-				)
+				.publish(crate::process::control::connected_subject(&id), entry)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to publish the process control connection"),
@@ -1507,16 +1501,14 @@ impl Session {
 				command = %state.command,
 			)
 			.await;
+			let entry = tangram_sandbox::SpawnArg {
+				command: sandbox_command,
+				token: token.clone(),
+				tty: state.tty,
+				url: guest_url.clone(),
+			};
 			sandbox
-				.spawn(
-					&sandbox_process,
-					tangram_sandbox::SpawnArg {
-						command: sandbox_command,
-						token: token.clone(),
-						tty: state.tty,
-						url: guest_url.clone(),
-					},
-				)
+				.spawn(&sandbox_process, entry)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to spawn the process in the sandbox")

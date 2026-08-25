@@ -306,22 +306,20 @@ impl Session {
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
 		let processes = Arc::new(crate::process::Processes::default());
-		self.server.runner.state.sandboxes.insert(
-			index,
-			crate::sandbox::State {
-				allocation: Some(allocation),
-				authorization_tokens: tg::authorization::Tokens::default(),
-				data: control_data,
-				id: expected_id.clone(),
-				location: location.clone(),
-				processes: processes.clone(),
-				sandbox: Some(create_output.sandbox.clone()),
-				status: tg::sandbox::Status::Started,
-				token: token.clone(),
-				tokens: BTreeMap::new(),
-				usage: None,
-			},
-		);
+		let entry = crate::sandbox::State {
+			allocation: Some(allocation),
+			authorization_tokens: tg::authorization::Tokens::default(),
+			data: control_data,
+			id: expected_id.clone(),
+			location: location.clone(),
+			processes: processes.clone(),
+			sandbox: Some(create_output.sandbox.clone()),
+			status: tg::sandbox::Status::Started,
+			token: token.clone(),
+			tokens: BTreeMap::new(),
+			usage: None,
+		};
+		self.server.runner.state.sandboxes.insert(index, entry);
 		let server = self.server.clone();
 		scopeguard::defer! {
 			server.runner.state.sandboxes.remove(index);

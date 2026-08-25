@@ -809,18 +809,13 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
 	for process in [&child, &parent] {
-		put_process_with_set(
-			&index,
-			&mut txn,
-			process,
-			&sandbox,
-			crate::process::Set {
-				children: true,
-				error: true,
-				log: true,
-				output: true,
-			},
-		);
+		let entry = crate::process::Set {
+			children: true,
+			error: true,
+			log: true,
+			output: true,
+		};
+		put_process_with_set(&index, &mut txn, process, &sandbox, entry);
 	}
 	put_process_child(&index, &mut txn, &parent, &child);
 	let node = tg::authorization::Permission::Process(

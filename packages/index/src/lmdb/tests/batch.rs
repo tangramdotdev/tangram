@@ -213,15 +213,13 @@ async fn incomplete_process_children_have_values() {
 	let child = tg::process::Id::new();
 	let command = tg::command::Id::new(b"command");
 	let parent = tg::process::Id::new();
+	let entry = tg::referent::Options {
+		name: Some("child".into()),
+		..Default::default()
+	};
 	let child_data = tg::process::data::Child {
 		cached: true,
-		process: tg::Referent::new(
-			child.clone(),
-			tg::referent::Options {
-				name: Some("child".into()),
-				..Default::default()
-			},
-		),
+		process: tg::Referent::new(child.clone(), entry),
 	};
 	let arg = crate::batch::Arg {
 		items: vec![

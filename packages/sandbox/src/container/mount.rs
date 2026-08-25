@@ -506,14 +506,11 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	for (path, file) in &devices {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));
 		let target = target.join(Path::new(path).file_name().unwrap());
-		mount_bind(
-			&Bind {
-				source,
-				target: target.clone(),
-			},
-			&target,
-			MountAttributes::default(),
-		)?;
+		let entry = Bind {
+			source,
+			target: target.clone(),
+		};
+		mount_bind(&entry, &target, MountAttributes::default())?;
 	}
 
 	configure_dev(target)

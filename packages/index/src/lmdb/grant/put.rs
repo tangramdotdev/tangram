@@ -58,17 +58,18 @@ impl Index {
 						"a non-expiring implicit grant must contain object permissions"
 					));
 				}
+				let entry = GrantIndexEntry {
+					creator: arg.creator.as_ref(),
+					expires_at,
+					permission,
+					subject: &arg.subject,
+					resource: &arg.resource,
+				};
 				let changed = Self::put_grant_index_entry(
 					db,
 					subspace,
 					transaction,
-					&GrantIndexEntry {
-						creator: arg.creator.as_ref(),
-						expires_at,
-						permission,
-						subject: &arg.subject,
-						resource: &arg.resource,
-					},
+					&entry,
 					source,
 					arg.time_to_touch,
 				)?;

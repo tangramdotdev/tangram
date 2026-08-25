@@ -939,12 +939,10 @@ impl Indexer {
 				Event::Message(ServerMessage::Request(request)) => match request.arg {
 					RequestArg::Index => {
 						let id = request.id.clone();
-						state.requests.insert(
-							request.id,
-							IndexRequest {
-								state: IndexRequestState::Tasks,
-							},
-						);
+						let entry = IndexRequest {
+							state: IndexRequestState::Tasks,
+						};
+						state.requests.insert(request.id, entry);
 						crate::checkpoint!(self.server, "indexer.request.receive", request = id,)
 							.await;
 						state.start_barrier(&self.server);

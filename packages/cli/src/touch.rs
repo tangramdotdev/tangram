@@ -21,11 +21,8 @@ impl Cli {
 		match referent.node {
 			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
 				let process = tg::Referent::new(id.try_into()?, referent.options);
-				self.command_process_touch_inner(
-					process,
-					crate::process::touch::Options { locations },
-				)
-				.await?;
+				let entry = crate::process::touch::Options { locations };
+				self.command_process_touch_inner(process, entry).await?;
 			},
 			tg::get::Node::Id(id) => {
 				let object = tg::Referent::new(id.try_into()?, referent.options);

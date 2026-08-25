@@ -56,16 +56,11 @@ impl Index {
 		subspace: &Subspace,
 	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(Kind::Sandbox.to_i32().unwrap(),));
-		let result = txn
-			.get_range(
-				&fdb::RangeOption {
-					mode: fdb::options::StreamingMode::WantAll,
-					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-				},
-				1,
-				false,
-			)
-			.await;
+		let entry = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn.get_range(&entry, 1, false).await;
 		let entries = crate::fdb::retry!(result);
 		let sandboxes = entries
 			.iter()
@@ -89,16 +84,11 @@ impl Index {
 		kind: Kind,
 	) -> tg::Result<ControlFlow<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>, fdb::FdbError>> {
 		let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), principal.to_string()));
-		let result = txn
-			.get_range(
-				&fdb::RangeOption {
-					mode: fdb::options::StreamingMode::WantAll,
-					..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
-				},
-				1,
-				false,
-			)
-			.await;
+		let entry = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
+		let result = txn.get_range(&entry, 1, false).await;
 		let entries = crate::fdb::retry!(result);
 		let sandboxes = entries
 			.iter()

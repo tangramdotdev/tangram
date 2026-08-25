@@ -90,15 +90,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.cgroup
 		.as_deref()
 		.map(|name| {
-			cgroup::Cgroup::new(
-				name,
-				cgroup::Options {
-					cpu: arg.cgroup_cpu,
-					memory: arg.cgroup_memory,
-					memory_oom_group: arg.cgroup_memory_oom_group,
-					pids: arg.cgroup_pids,
-				},
-			)
+			let entry = cgroup::Options {
+				cpu: arg.cgroup_cpu,
+				memory: arg.cgroup_memory,
+				memory_oom_group: arg.cgroup_memory_oom_group,
+				pids: arg.cgroup_pids,
+			};
+			cgroup::Cgroup::new(name, entry)
 		})
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;

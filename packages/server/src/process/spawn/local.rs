@@ -257,17 +257,15 @@ impl Session {
 				if let Some(owner) = origin_owner {
 					owner
 				} else {
-					self.try_get_sandbox(
-						sandbox,
-						tg::sandbox::get::Arg {
-							location: arg.location.clone(),
-							..tg::sandbox::get::Arg::default()
-						},
-					)
-					.boxed()
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the sandbox"))?
-					.owner
+					let entry = tg::sandbox::get::Arg {
+						location: arg.location.clone(),
+						..tg::sandbox::get::Arg::default()
+					};
+					self.try_get_sandbox(sandbox, entry)
+						.boxed()
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the sandbox"))?
+						.owner
 				}
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
