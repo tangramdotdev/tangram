@@ -162,44 +162,15 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 
 /// Rename a file or directory atomically, failing if the destination already exists.
 pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-	// #[cfg(target_os = "macos")]
-	// {
-	// 	let src = std::ffi::CString::new(src.as_ref().as_os_str().as_encoded_bytes())
-	// 		.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-	// 	let dst = std::ffi::CString::new(dst.as_ref().as_os_str().as_encoded_bytes())
-	// 		.map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
-	// 	const RENAME_EXCL: libc::c_uint = 1;
-	// 	let result = unsafe {
-	// 		libc::renameatx_np(
-	// 			libc::AT_FDCWD,
-	// 			src.as_ptr(),
-	// 			libc::AT_FDCWD,
-	// 			dst.as_ptr(),
-	// 			RENAME_EXCL,
-	// 		)
-	// 	};
-	// 	if result != 0 {
-	// 		let err = std::io::Error::last_os_error();
-	// 		return Err(err);
-	// 	}
-	// }
-
-	#[cfg(target_os = "macos")]
-	{
-		std::fs::rename(src, dst)?;
-	}
-
-	#[cfg(target_os = "linux")]
-	{
-		rustix::fs::renameat_with(
-			rustix::fs::CWD,
-			src.as_ref(),
-			rustix::fs::CWD,
-			dst.as_ref(),
-			rustix::fs::RenameFlags::NOREPLACE,
-		)
-		.map_err(std::io::Error::from)?;
-	}
+	// On macOS, rustix maps NOREPLACE to renameatx_np's RENAME_EXCL, so both platforms report EEXIST when the destination exists.
+	rustix::fs::renameat_with(
+		rustix::fs::CWD,
+		src.as_ref(),
+		rustix::fs::CWD,
+		dst.as_ref(),
+		rustix::fs::RenameFlags::NOREPLACE,
+	)
+	.map_err(std::io::Error::from)?;
 
 	Ok(())
 }

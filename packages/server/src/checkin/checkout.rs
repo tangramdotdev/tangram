@@ -131,8 +131,22 @@ impl Session {
 				|error| tg::error!(!error, path = %src.display(), "failed to set permissions"),
 			)?;
 		}
+		crate::checkpoint!(
+			self.server,
+			"checkin.checkout.destructive.rename",
+			id = %id,
+		)
+		.await;
 		let done = match tangram_util::fs::rename_noreplace(src, &dst).await {
-			Ok(()) => false,
+			Ok(()) => {
+				crate::checkpoint!(
+					self.server,
+					"checkin.checkout.destructive.renamed",
+					id = %id,
+				)
+				.await;
+				false
+			},
 			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
 				self.checkin_checkout_destructive_copy(src, &dst).await?
 			},
