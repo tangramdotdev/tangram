@@ -1003,6 +1003,11 @@ impl Session {
 				() = current_timer_future => {
 					break;
 				},
+
+				// If the server is terminating, then break and destroy the sandbox.
+				() = self.server.terminate.wait() => {
+					break;
+				},
 			}
 		}
 
@@ -1195,7 +1200,10 @@ impl Session {
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
 					let Some(message) = message else {
-						retention_future.await;
+						tokio::select! {
+							() = &mut retention_future => {},
+							() = stopper.wait() => {},
+						}
 						break;
 					};
 					match message {

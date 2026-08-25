@@ -150,7 +150,7 @@ impl Cli {
 					true
 				},
 				_ = terminate.recv() => {
-					server.stop();
+					server.terminate();
 					true
 				},
 			};

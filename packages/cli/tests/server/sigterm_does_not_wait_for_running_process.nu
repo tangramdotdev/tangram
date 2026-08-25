@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# SIGTERM shuts the server down immediately, so it must not wait for a running process to finish. It currently waits, because the CLI's signal handler treats SIGTERM exactly like SIGINT and calls Server::stop for both, and the shutdown then awaits the runner task, which waits for every running sandbox.
+# SIGTERM shuts the server down immediately, so it does not wait for a running process to finish.
 
 let server = server spawn
 

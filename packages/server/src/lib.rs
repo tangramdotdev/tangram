@@ -20,7 +20,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::task::Task,
+	tangram_futures::task::{Stopper, Task},
 	tangram_index::Index as _,
 	tangram_uri::Uri,
 	tangram_util::fs::remove,
@@ -143,6 +143,7 @@ pub struct State {
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
+	terminate: Stopper,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
 	watches: DashMap<self::watch::Key, Watch, fnv::FnvBuildHasher>,
@@ -154,7 +155,14 @@ pub struct Tokens {
 }
 
 impl Owned {
+	/// Stop the server, waiting for running processes to finish.
 	pub fn stop(&self) {
+		self.task.stop();
+	}
+
+	/// Stop the server without waiting for running processes to finish.
+	pub fn terminate(&self) {
+		self.server.terminate.stop();
 		self.task.stop();
 	}
 
@@ -872,6 +880,9 @@ impl Server {
 		// Create the temp paths.
 		let temps = DashSet::default();
 
+		// Create the terminate stopper.
+		let terminate = Stopper::new();
+
 		// Get the version.
 		let version = config
 			.version
@@ -948,6 +959,7 @@ impl Server {
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			tangram_path,
 			temps,
+			terminate,
 			version,
 			vfs,
 			watches,
