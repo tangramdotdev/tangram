@@ -256,7 +256,18 @@ impl Session {
 					let data = indexed.data.unwrap();
 					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
 				} else {
-					let data = control_future.await?;
+					// The runner has the freshest data, but it may have released the process, so fall back to the index.
+					let Ok(data) = control_future.await else {
+						let data = indexed
+							.data
+							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+						let output = self.create_process_get_output(
+							id,
+							data,
+							metadata.then_some(indexed.metadata),
+						);
+						return Ok(Some(output));
+					};
 					if data.status.is_finished() {
 						let Some(indexed) = self.try_get_process_from_index(id).await? else {
 							return Ok(None);
@@ -279,7 +290,21 @@ impl Session {
 				}
 			},
 			future::Either::Right((data, index_future)) => {
-				let data = data?;
+				// The runner has the freshest data, but it may have released the process, so fall back to the index.
+				let Ok(data) = data else {
+					let Some(indexed) = index_future.await? else {
+						return Ok(None);
+					};
+					let data = indexed
+						.data
+						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+					let output = self.create_process_get_output(
+						id,
+						data,
+						metadata.then_some(indexed.metadata),
+					);
+					return Ok(Some(output));
+				};
 				if data.status.is_finished() {
 					let Some(indexed) = self.try_get_process_from_index(id).await? else {
 						return Ok(None);
@@ -331,13 +356,14 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::Get(
 			tg::process::control::GetServerRequestArg {},
 		);
+		// A runner that has released the process never answers, so bound the request.
 		let retry = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
+			max_retries: 1,
 			..Default::default()
 		};
 		let options = crate::control::Options {
 			retry,
-			timeout: std::time::Duration::from_secs(10),
+			timeout: std::time::Duration::from_secs(1),
 		};
 		let response = self
 			.send_process_control_request(id, request, options)
