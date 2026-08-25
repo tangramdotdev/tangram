@@ -96,12 +96,20 @@ impl Processes {
 	}
 
 	pub fn insert(&self, index: u64, state: State) {
-		assert!(state.id.is_none(), "the process ID is already set");
+		let id = state.id.clone();
 		match self.processes.entry(index) {
 			dashmap::Entry::Occupied(_) => panic!("the process index is already in use"),
 			dashmap::Entry::Vacant(entry) => {
 				entry.insert(state);
 			},
+		}
+		if let Some(id) = id {
+			match self.indexes.entry(id) {
+				dashmap::Entry::Occupied(_) => panic!("the process ID is already in use"),
+				dashmap::Entry::Vacant(entry) => {
+					entry.insert(index);
+				},
+			}
 		}
 	}
 

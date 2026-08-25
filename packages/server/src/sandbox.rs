@@ -72,12 +72,20 @@ impl Sandboxes {
 	}
 
 	pub fn insert(&self, index: u64, state: State) {
-		assert!(state.id.is_none(), "the sandbox ID is already set");
+		let id = state.id.clone();
 		match self.sandboxes.entry(index) {
 			dashmap::Entry::Occupied(_) => panic!("the sandbox index is already in use"),
 			dashmap::Entry::Vacant(entry) => {
 				entry.insert(state);
 			},
+		}
+		if let Some(id) = id {
+			match self.indexes.entry(id) {
+				dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
+				dashmap::Entry::Vacant(entry) => {
+					entry.insert(index);
+				},
+			}
 		}
 	}
 

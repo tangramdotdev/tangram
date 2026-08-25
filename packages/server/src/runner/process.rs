@@ -198,6 +198,7 @@ impl Session {
 			parent,
 			token: inner_token,
 		} = process;
+		let assigned = id.is_some();
 		let mut state = tg::process::State::try_from_data(data)?;
 		let mut command_options = options.clone();
 		let local = command_options
@@ -247,6 +248,18 @@ impl Session {
 			},
 		};
 		let session = self.server.session(&context);
+		let command_session = if assigned {
+			session.clone()
+		} else {
+			let parent = parent
+				.as_ref()
+				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+			let mut session = self
+				.try_get_process_session(parent)
+				.ok_or_else(|| tg::error!(%parent, "failed to find the parent process session"))?;
+			session.context.stopper = None;
+			session
+		};
 		let sandbox_index = sandbox.index();
 
 		// Store the process state before starting the process or connecting control.
@@ -269,8 +282,9 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to receive the process index result"))?
 		});
-		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(None);
+		let (process_id_sender, process_id_receiver) = tokio::sync::watch::channel(id.clone());
 		let process_index = session.server.runner.state.create_process_index();
+		let sandbox_id = state.sandbox.clone();
 		processes.insert(
 			process_index,
 			crate::process::State {
@@ -278,7 +292,7 @@ impl Session {
 				control: control_sender.clone(),
 				data,
 				finish: None,
-				id: None,
+				id: id.clone(),
 				id_receiver: process_id_receiver.clone(),
 				index_task: index_task.clone(),
 				inner_token: inner_token.clone(),
@@ -287,6 +301,14 @@ impl Session {
 				stopper: process_stopper.clone(),
 			},
 		);
+		if let Some(id) = &id {
+			session
+				.server
+				.runner
+				.state
+				.processes
+				.insert(id.clone(), sandbox_id);
+		}
 		let processes_for_cleanup = processes.clone();
 		let server = session.server.clone();
 		scopeguard::defer! {
@@ -344,13 +366,12 @@ impl Session {
 			let context = self.context.clone();
 			let mut process_id_receiver = process_id_receiver.clone();
 			let process_stopper = process_stopper.clone();
-			let runner_session = self.clone();
+			let command_session = command_session.clone();
 			let server = self.server.clone();
 			async move {
 				// Check whether the command is available locally.
 				let command_id: tg::object::Id = command.id().into();
-				let local = runner_session
-					.server
+				let local = server
 					.try_get_object_local(&command_id, false)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the local command"))?
@@ -358,7 +379,7 @@ impl Session {
 
 				// Select the execution session.
 				let session = if local {
-					runner_session
+					command_session
 				} else {
 					let id = loop {
 						if let Some(id) = process_id_receiver.borrow().clone() {
@@ -382,10 +403,14 @@ impl Session {
 				};
 
 				// Load the command.
-				let data = command
-					.data_with_handle(&session)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
+				let data = if local {
+					session.load_process_command_local(&command).await?
+				} else {
+					command
+						.data_with_handle(&session)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the command data"))?
+				};
 
 				Ok((data, session))
 			}
@@ -647,14 +672,16 @@ impl Session {
 			.get_mut(process_index)
 			.expect("the process state was not found")
 			.inner_token = Some(inner_token.clone());
-		processes.set_id(process_index, id.clone());
-		session
-			.server
-			.runner
-			.state
-			.processes
-			.insert(id.clone(), sandbox_id.clone());
-		process_id_sender.send_replace(Some(id.clone()));
+		if !assigned {
+			processes.set_id(process_index, id.clone());
+			session
+				.server
+				.runner
+				.state
+				.processes
+				.insert(id.clone(), sandbox_id.clone());
+			process_id_sender.send_replace(Some(id.clone()));
+		}
 		let process = tg::Process::new(
 			id.clone(),
 			tg::process::Options {
@@ -1183,6 +1210,34 @@ impl Session {
 		let session = self.server.session(&context);
 
 		Some(session)
+	}
+
+	async fn load_process_command_local(
+		&self,
+		command: &tg::Command,
+	) -> tg::Result<tg::command::Data> {
+		let id = command.id();
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let resource = tg::Referent::with_node_and_token(
+			tg::object::Id::from(id.clone()),
+			command.state().tokens().local().cloned(),
+		);
+		let authorized = self.authorize(resource, permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!(%id, "unauthorized to load the command"));
+		}
+		let id = tg::object::Id::from(id);
+		let output = self
+			.server
+			.try_get_object_local(&id, false)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the command"))?;
+		let data = tg::command::Data::deserialize(output.bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the command"))?;
+
+		Ok(data)
 	}
 
 	async fn push_process_command(

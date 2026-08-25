@@ -312,7 +312,7 @@ impl Session {
 				allocation: Some(allocation),
 				authorization_tokens: tg::authorization::Tokens::default(),
 				data: control_data,
-				id: None,
+				id: expected_id.clone(),
 				location: location.clone(),
 				processes: processes.clone(),
 				sandbox: Some(create_output.sandbox.clone()),
@@ -377,7 +377,9 @@ impl Session {
 				return Err(error);
 			},
 		};
-		self.server.runner.state.sandboxes.set_id(index, id.clone());
+		if expected_id.is_none() {
+			self.server.runner.state.sandboxes.set_id(index, id.clone());
+		}
 		let state = {
 			let mut sandbox = self
 				.server
