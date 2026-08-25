@@ -217,26 +217,45 @@ mod typescript {
 		}
 
 		// Build the compiler.
-		std::process::Command::new("bun")
-			.args(["run", "build"])
-			.current_dir(&typescript_path)
-			.status()
-			.unwrap()
-			.success()
-			.then_some(())
-			.unwrap();
+		if std::env::var("NODE_PATH").is_ok() {
+			// The typescript package's build script writes into the package directory, which is read only under NODE_PATH.
+			let outfile = format!("--outfile={}", out_dir_path.join("main.js").display());
+			std::process::Command::new("bunx")
+				.args([
+					"esbuild",
+					"--bundle",
+					"--minify",
+					&outfile,
+					"--sourcemap=external",
+				])
+				.arg(typescript_path.join("src/main.ts"))
+				.status()
+				.unwrap()
+				.success()
+				.then_some(())
+				.unwrap();
+		} else {
+			std::process::Command::new("bun")
+				.args(["run", "build"])
+				.current_dir(&typescript_path)
+				.status()
+				.unwrap()
+				.success()
+				.then_some(())
+				.unwrap();
 
-		// Copy the compiler.
-		std::fs::copy(
-			typescript_path.join("dist/main.js"),
-			out_dir_path.join("main.js"),
-		)
-		.unwrap();
-		std::fs::copy(
-			typescript_path.join("dist/main.js.map"),
-			out_dir_path.join("main.js.map"),
-		)
-		.unwrap();
+			// Copy the compiler.
+			std::fs::copy(
+				typescript_path.join("dist/main.js"),
+				out_dir_path.join("main.js"),
+			)
+			.unwrap();
+			std::fs::copy(
+				typescript_path.join("dist/main.js.map"),
+				out_dir_path.join("main.js.map"),
+			)
+			.unwrap();
+		}
 		fixup_source_map(out_dir_path.join("main.js.map"));
 
 		// Initialize V8.
