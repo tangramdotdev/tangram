@@ -15,6 +15,9 @@ pub enum Store {
 	Lmdb(log_store::lmdb::Store),
 
 	Memory(log_store::memory::Store),
+
+	#[cfg(feature = "scylla")]
+	Scylla(log_store::scylla::Store),
 }
 
 impl Store {
@@ -45,6 +48,22 @@ impl Store {
 	pub fn new_memory() -> Self {
 		Self::Memory(log_store::memory::Store::new())
 	}
+
+	#[cfg(feature = "scylla")]
+	pub async fn new_scylla(config: &crate::config::ScyllaLogStore) -> tg::Result<Self> {
+		let config = log_store::scylla::Config {
+			addr: config.addr.clone(),
+			connections: config.connections,
+			keyspace: config.keyspace.clone(),
+			password: config.password.clone(),
+			username: config.username.clone(),
+		};
+		let scylla = log_store::scylla::Store::new(&config)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to create the scylla store"))?;
+
+		Ok(Self::Scylla(scylla))
+	}
 }
 
 impl log_store::Store for Store {
@@ -55,6 +74,8 @@ impl log_store::Store for Store {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_read(arg).await,
 			Self::Memory(memory) => memory.try_read(arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_read(arg).await,
 		}
 	}
 
@@ -69,6 +90,8 @@ impl log_store::Store for Store {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_length(id, streams).await,
 			Self::Memory(memory) => Ok(memory.try_get_length(id, streams)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_length(id, streams).await,
 		}
 	}
 
@@ -82,6 +105,8 @@ impl log_store::Store for Store {
 				memory.put(arg);
 				Ok(())
 			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.put(arg).await,
 		}
 	}
 
@@ -95,6 +120,8 @@ impl log_store::Store for Store {
 				memory.delete(arg);
 				Ok(())
 			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete(arg).await,
 		}
 	}
 }

@@ -794,6 +794,8 @@ pub enum LogStore {
 	Lmdb(LmdbLogStore),
 
 	Memory,
+
+	Scylla(ScyllaLogStore),
 }
 
 #[serde_as]
@@ -816,6 +818,26 @@ pub struct LmdbLogStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaLogStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub addr: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub keyspace: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub password: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -2026,7 +2048,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.instance = Some(instance);
 	}
 	if let Some(source) = source.logs {
-		target.logs = resolve_logs(source);
+		target.logs = resolve_logs(source)?;
 	}
 	if let Some(source) = source.messenger {
 		target.messenger = resolve_messenger(source)?;
@@ -2755,20 +2777,24 @@ fn resolve_indexer_update(source: IndexerUpdate) -> server::IndexerUpdate {
 	target
 }
 
-fn resolve_logs(source: Logs) -> server::Logs {
+fn resolve_logs(source: Logs) -> tg::Result<server::Logs> {
 	let mut target = server::Logs::default();
 	if let Some(source) = source.store {
-		target.store = resolve_log_store(source);
+		target.store = resolve_log_store(source)?;
 	}
-	target
+
+	Ok(target)
 }
 
-fn resolve_log_store(source: LogStore) -> server::LogStore {
-	match source {
+fn resolve_log_store(source: LogStore) -> tg::Result<server::LogStore> {
+	let store = match source {
 		LogStore::Fdb(source) => server::LogStore::Fdb(resolve_fdb_log_store(source)),
 		LogStore::Lmdb(source) => server::LogStore::Lmdb(resolve_lmdb_log_store(source)),
 		LogStore::Memory => server::LogStore::Memory,
-	}
+		LogStore::Scylla(source) => server::LogStore::Scylla(resolve_scylla_log_store(source)?),
+	};
+
+	Ok(store)
 }
 
 fn resolve_fdb_log_store(source: FdbLogStore) -> server::FdbLogStore {
@@ -2791,6 +2817,20 @@ fn resolve_lmdb_log_store(source: LmdbLogStore) -> server::LmdbLogStore {
 		target.path = value;
 	}
 	target
+}
+
+fn resolve_scylla_log_store(source: ScyllaLogStore) -> tg::Result<server::ScyllaLogStore> {
+	let addr = required(source.addr, "logs.store.addr")?;
+	let keyspace = required(source.keyspace, "logs.store.keyspace")?;
+	let target = server::ScyllaLogStore {
+		addr,
+		connections: source.connections,
+		keyspace,
+		password: source.password,
+		username: source.username,
+	};
+
+	Ok(target)
 }
 
 fn resolve_messenger(source: Messenger) -> tg::Result<server::Messenger> {

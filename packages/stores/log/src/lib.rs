@@ -9,6 +9,8 @@ pub mod fdb;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod memory;
+#[cfg(feature = "scylla")]
+pub mod scylla;
 
 pub mod prelude {
 	pub use super::Store as _;
@@ -22,11 +24,17 @@ pub struct ReadArg {
 	pub streams: BTreeSet<tg::process::stdio::Stream>,
 }
 
+/// The arguments for a blind log insertion.
+///
+/// A process must have exactly one writer, which assigns contiguous combined and stream positions
+/// and waits for each insertion to succeed before advancing them.
 #[derive(Clone, Debug)]
 pub struct PutArg {
 	pub bytes: Bytes,
+	pub position: u64,
 	pub process: tg::process::Id,
 	pub stream: tg::process::stdio::Stream,
+	pub stream_position: u64,
 	pub timestamp: i64,
 }
 

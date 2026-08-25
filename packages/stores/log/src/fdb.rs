@@ -155,7 +155,6 @@ impl Store {
 				let subspace = subspace.clone();
 				async move {
 					Self::task_put(&txn, &subspace, &arg)
-						.await
 						.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
 					Ok(())
 				}
@@ -481,51 +480,23 @@ impl Store {
 			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn task_put(
-		txn: &fdb::Transaction,
-		subspace: &fdbt::Subspace,
-		arg: &PutArg,
-	) -> tg::Result<()> {
+	fn task_put(txn: &fdb::Transaction, subspace: &fdbt::Subspace, arg: &PutArg) -> tg::Result<()> {
 		let id = &arg.process;
-
-		let position = Self::get_last_entry_with_transaction(txn, subspace, id)
-			.await?
-			.map_or(0, |entry| {
-				entry.position + entry.bytes.len().to_u64().unwrap()
-			});
-
-		let stream_position = match Self::get_stream_position_at_or_before_with_transaction(
-			txn,
-			subspace,
-			id,
-			arg.stream,
-			u64::MAX,
-		)
-		.await?
-		{
-			Some(position) => {
-				match Self::get_entry_with_transaction(txn, subspace, id, position).await? {
-					Some(entry) => entry.stream_position + entry.bytes.len().to_u64().unwrap(),
-					None => 0,
-				}
-			},
-			None => 0,
-		};
 
 		let entry = Entry {
 			bytes: Cow::Owned(arg.bytes.to_vec()),
-			position,
-			stream_position,
+			position: arg.position,
 			stream: arg.stream,
+			stream_position: arg.stream_position,
 			timestamp: arg.timestamp,
 		};
 
-		let key = Self::entry_key(subspace, id, position);
+		let key = Self::entry_key(subspace, id, arg.position);
 		let value = tangram_serialize::to_vec(&entry).unwrap();
 		txn.set(&key, &value);
 
-		let key = Self::stream_position_key(subspace, id, arg.stream, stream_position)?;
-		let value = position.to_le_bytes();
+		let key = Self::stream_position_key(subspace, id, arg.stream, arg.stream_position)?;
+		let value = arg.position.to_le_bytes();
 		txn.set(&key, &value);
 
 		Ok(())

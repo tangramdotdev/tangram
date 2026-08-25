@@ -23,6 +23,13 @@ let config = {
 		cluster: $cluster,
 		kind: 'fdb',
 	},
+	logs: {
+		store: {
+			addr: 'localhost:9042',
+			keyspace: 'objects',
+			kind: 'scylla',
+		},
+	},
 	messenger: {
 		kind: 'nats',
 		url: 'nats://localhost:4222',

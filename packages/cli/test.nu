@@ -544,8 +544,9 @@ def database_pool_path [] {
 
 def acquire_database_instance [pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/stores/object/src/scylla.cql
-	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
+	let scylla_log_schema_path = $repository_path | path join packages/stores/log/src/scylla.cql
+	let scylla_object_schema_path = $repository_path | path join packages/stores/object/src/scylla.cql
+	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_log_schema_path $scylla_object_schema_path | complete)
 	if $result.exit_code != 0 {
 		error make {
 			msg: 'failed to acquire a database pool instance'
@@ -566,7 +567,8 @@ set -euo pipefail
 
 pool_path=$1
 postgres_schema_path=$2
-scylla_schema_path=$3
+scylla_log_schema_path=$3
+scylla_object_schema_path=$4
 mkdir -p -- "$pool_path"
 
 try_lease_existing() {
@@ -633,7 +635,8 @@ psql --host=127.0.0.1 --username=postgres --dbname="database_$instance" --set=ON
 
 tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
 scylla_created=true
-tangram_scylla_client 127.0.0.1 9042 -k "objects_$instance" -f "$scylla_schema_path" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -k "objects_$instance" -f "$scylla_log_schema_path" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -k "objects_$instance" -f "$scylla_object_schema_path" >/dev/null
 
 mv -- "$temporary_slot_path" "$slot_path"
 trap - EXIT
@@ -1617,9 +1620,10 @@ export def --env "server spawn" [
 			},
 			logs: {
 				store: {
-					cluster: $cluster,
-					kind: 'fdb',
-					prefix: $'logs_($storage_instance)',
+					addr: '127.0.0.1:9042',
+					connections: 1,
+					keyspace: $'objects_($storage_instance)',
+					kind: 'scylla',
 				},
 			},
 			messenger: {
@@ -2081,7 +2085,7 @@ def reset_database_instance [instance: string, pool_path: string] {
 				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($instance)' -e 'truncate objects; truncate outbox;' | complete)
+				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($instance)' -e 'truncate logs; truncate objects; truncate outbox;' | complete)
 			},
 		}
 

@@ -237,6 +237,9 @@ impl Session {
 		}
 		let started_at = data.started_at;
 		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
+		let mut position = 0;
+		let mut stderr_position = 0;
+		let mut stdout_position = 0;
 		let mut input = pin!(input);
 		while let Some(result) = input.next().await {
 			let event = match result {
@@ -267,16 +270,21 @@ impl Session {
 								return Err(tg::error!("not found"));
 							}
 							let timestamp = self.server.clock.unix_timestamp()? - started_at;
-							let stream =
-								if matches!(chunk.stream, tg::process::stdio::Stream::Stdin) {
+							let stream = chunk.stream;
+							let stream_position = match stream {
+								tg::process::stdio::Stream::Stderr => stderr_position,
+								tg::process::stdio::Stream::Stdin => {
 									return Err(tg::error!("invalid stdio stream"));
-								} else {
-									chunk.stream
-								};
+								},
+								tg::process::stdio::Stream::Stdout => stdout_position,
+							};
+							let length = u64::try_from(chunk.bytes.len()).unwrap();
 							let arg = tangram_log_store::PutArg {
 								bytes: chunk.bytes,
+								position,
 								process: id.clone(),
 								stream,
+								stream_position,
 								timestamp,
 							};
 							self.server
@@ -284,6 +292,12 @@ impl Session {
 								.put(arg)
 								.await
 								.map_err(|error| tg::error!(!error, "failed to store the log"))?;
+							position += length;
+							match stream {
+								tg::process::stdio::Stream::Stderr => stderr_position += length,
+								tg::process::stdio::Stream::Stdin => unreachable!(),
+								tg::process::stdio::Stream::Stdout => stdout_position += length,
+							}
 							tokio::spawn({
 								let session = self.clone();
 								let id = id.clone();

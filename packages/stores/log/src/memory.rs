@@ -165,30 +165,23 @@ impl Store {
 			return;
 		}
 
-		let mut logs = self.processes.entry(arg.process).or_default();
-
-		// Get the current position.
-		let position = logs.entries.values().next_back().map_or(0, |entry| {
-			entry.position + entry.bytes.len().to_u64().unwrap()
-		});
-
-		// Get the current stream position.
-		let stream_position = logs
-			.stream_positions
-			.range((arg.stream, 0)..(arg.stream, u64::MAX))
-			.next_back()
-			.and_then(|(_, &position)| logs.entries.get(&position))
-			.map_or(0, |entry| {
-				entry.stream_position + entry.bytes.len().to_u64().unwrap()
-			});
+		let PutArg {
+			bytes,
+			position,
+			process,
+			stream,
+			stream_position,
+			timestamp,
+		} = arg;
+		let mut logs = self.processes.entry(process).or_default();
 
 		// Create the entry.
 		let entry = Entry {
-			bytes: Cow::Owned(arg.bytes.to_vec()),
+			bytes: Cow::Owned(bytes.to_vec()),
 			position,
 			stream_position,
-			stream: arg.stream,
-			timestamp: arg.timestamp,
+			stream,
+			timestamp,
 		};
 
 		// Store the entry.
@@ -196,7 +189,7 @@ impl Store {
 
 		// Store the stream position pointer.
 		logs.stream_positions
-			.insert((arg.stream, stream_position), position);
+			.insert((stream, stream_position), position);
 	}
 
 	pub fn put_batch(&self, args: Vec<PutArg>) {
@@ -269,8 +262,10 @@ mod tests {
 		// Insert a single chunk.
 		store.put(PutArg {
 			bytes: Bytes::from("hello world"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 
@@ -302,20 +297,26 @@ mod tests {
 		// Insert multiple chunks.
 		store.put(PutArg {
 			bytes: Bytes::from("hello"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from(" "),
+			position: 5,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 5,
 			timestamp: 1001,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("world"),
+			position: 6,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 6,
 			timestamp: 1002,
 		});
 
@@ -329,6 +330,39 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
 
+	// Retrying a put with the same positions overwrites the same rows instead of extending the log.
+	#[test]
+	fn test_put_retry_is_idempotent() {
+		let store = Store::new();
+		let process = tg::process::Id::new();
+		let arg = PutArg {
+			bytes: Bytes::from("hello"),
+			position: 0,
+			process: process.clone(),
+			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
+			timestamp: 1000,
+		};
+
+		store.put(arg.clone());
+		store.put(arg);
+
+		let result = store.try_read(ReadArg {
+			length: u64::MAX,
+			position: 0,
+			process: process.clone(),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
+		});
+		assert_eq!(collect_bytes(result), Bytes::from("hello"));
+		assert_eq!(
+			store.try_get_length(
+				&process,
+				&BTreeSet::from([tg::process::stdio::Stream::Stdout])
+			),
+			Some(5),
+		);
+	}
+
 	// A read starting and ending mid-chunk returns the correct bytes spanning chunk boundaries.
 	#[test]
 	fn test_read_log_across_chunk_boundaries() {
@@ -338,20 +372,26 @@ mod tests {
 		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
 		store.put(PutArg {
 			bytes: Bytes::from("AAAA"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("BBBB"),
+			position: 4,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 4,
 			timestamp: 1001,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("CCCC"),
+			position: 8,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 8,
 			timestamp: 1002,
 		});
 
@@ -392,20 +432,26 @@ mod tests {
 		// Insert interleaved stdout and stderr chunks.
 		store.put(PutArg {
 			bytes: Bytes::from("out1"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("err1"),
+			position: 4,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
+			stream_position: 0,
 			timestamp: 1001,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("out2"),
+			position: 8,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 4,
 			timestamp: 1002,
 		});
 
@@ -449,14 +495,18 @@ mod tests {
 		// Insert some chunks.
 		store.put(PutArg {
 			bytes: Bytes::from("hello"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("world"),
+			position: 5,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
+			stream_position: 0,
 			timestamp: 1001,
 		});
 
@@ -499,20 +549,26 @@ mod tests {
 		// Insert chunks.
 		store.put(PutArg {
 			bytes: Bytes::from("hello"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("err"),
+			position: 5,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
+			stream_position: 0,
 			timestamp: 1001,
 		});
 		store.put(PutArg {
 			bytes: Bytes::from("world"),
+			position: 8,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 5,
 			timestamp: 1002,
 		});
 
@@ -552,8 +608,10 @@ mod tests {
 		// Insert a chunk.
 		store.put(PutArg {
 			bytes: Bytes::from("hello"),
+			position: 0,
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
 			timestamp: 1000,
 		});
 

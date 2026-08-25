@@ -36,7 +36,9 @@ enum Request {
 struct Put {
 	bytes: Bytes,
 	id: tg::process::Id,
+	position: u64,
 	stream: tg::process::stdio::Stream,
+	stream_position: u64,
 	timestamp: i64,
 }
 
@@ -166,62 +168,24 @@ impl Store {
 	) -> tg::Result<()> {
 		let id = &request.id;
 
-		// Get the current combined position by finding the last entry.
-		let key = Key::Entry(id, u64::MAX);
-		let position = db
-			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
-			.map_err(|error| tg::error!(!error, "failed to get the last combined entry"))?
-			.and_then(|(_, value)| {
-				tangram_serialize::from_slice::<Entry>(value)
-					.ok()
-					.map(|entry| entry.position + entry.bytes.len().to_u64().unwrap())
-			})
-			.unwrap_or(0);
-
-		// Get the current stream position by finding the last stream entry.
-		let stream_start_key = Key::StreamPosition(id, request.stream, 0);
-		let stream_start = stream_start_key.pack_to_vec();
-		let key = Key::StreamPosition(id, request.stream, u64::MAX);
-		let stream_position = db
-			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
-			.map_err(|error| tg::error!(!error, "failed to get the last stream entry"))?
-			.and_then(|(key, value)| {
-				// Verify the key is actually for this stream, not a different one.
-				if key < stream_start.as_slice() {
-					return None;
-				}
-				u64::from_le_bytes(value.try_into().ok()?).into()
-			})
-			.map_or(0, |combined_pos| {
-				// Read the entry at this combined position to get stream_position.
-				let key = Key::Entry(id, combined_pos);
-				db.get(transaction, &key.pack_to_vec())
-					.ok()
-					.flatten()
-					.and_then(|value| tangram_serialize::from_slice::<Entry>(value).ok())
-					.map_or(0, |entry| {
-						entry.stream_position + entry.bytes.len().to_u64().unwrap()
-					})
-			});
-
 		// Create the log entry.
 		let entry = Entry {
 			bytes: Cow::Owned(request.bytes.to_vec()),
-			position,
-			stream_position,
+			position: request.position,
 			stream: request.stream,
+			stream_position: request.stream_position,
 			timestamp: request.timestamp,
 		};
 
 		// Store the primary entry keyed by combined position.
-		let key = Key::Entry(id, position);
+		let key = Key::Entry(id, request.position);
 		let val = tangram_serialize::to_vec(&entry).unwrap();
 		db.put(transaction, &key.pack_to_vec(), &val)
 			.map_err(|error| tg::error!(!error, "failed to store the log entry"))?;
 
 		// Store the stream index pointer.
-		let key = Key::StreamPosition(id, request.stream, stream_position);
-		let val = position.to_le_bytes();
+		let key = Key::StreamPosition(id, request.stream, request.stream_position);
+		let val = request.position.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &val)
 			.map_err(|error| tg::error!(!error, "failed to store the stream index"))?;
 
@@ -573,7 +537,9 @@ impl crate::Store for Store {
 		let request = Request::Put(Put {
 			bytes: arg.bytes,
 			id: arg.process,
+			position: arg.position,
 			stream: arg.stream,
+			stream_position: arg.stream_position,
 			timestamp: arg.timestamp,
 		});
 		self.sender
@@ -656,8 +622,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("hello world"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -704,8 +672,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("hello"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -713,8 +683,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from(" "),
+				position: 5,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 5,
 				timestamp: 1001,
 			})
 			.await
@@ -722,8 +694,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("world"),
+				position: 6,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 6,
 				timestamp: 1002,
 			})
 			.await
@@ -742,6 +716,51 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
 
+	// Retrying a put with the same positions overwrites the same rows instead of extending the log.
+	#[tokio::test]
+	async fn test_put_retry_is_idempotent() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+		let arg = PutArg {
+			bytes: Bytes::from("hello"),
+			position: 0,
+			process: process.clone(),
+			stream: tg::process::stdio::Stream::Stdout,
+			stream_position: 0,
+			timestamp: 1000,
+		};
+
+		store.put(arg.clone()).await.unwrap();
+		store.put(arg).await.unwrap();
+
+		let result = store
+			.try_read(ReadArg {
+				length: u64::MAX,
+				position: 0,
+				process: process.clone(),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("hello"));
+		assert_eq!(
+			store
+				.try_get_length(
+					&process,
+					&BTreeSet::from([tg::process::stdio::Stream::Stdout])
+				)
+				.await
+				.unwrap(),
+			Some(5),
+		);
+	}
+
 	// A read starting and ending mid-chunk returns the correct bytes spanning chunk boundaries.
 	#[tokio::test]
 	async fn test_read_log_across_chunk_boundaries() {
@@ -758,8 +777,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("AAAA"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -767,8 +788,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("BBBB"),
+				position: 4,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 4,
 				timestamp: 1001,
 			})
 			.await
@@ -776,8 +799,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("CCCC"),
+				position: 8,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 8,
 				timestamp: 1002,
 			})
 			.await
@@ -836,8 +861,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("out1"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -845,8 +872,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("err1"),
+				position: 4,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
+				stream_position: 0,
 				timestamp: 1001,
 			})
 			.await
@@ -854,8 +883,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("out2"),
+				position: 8,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 4,
 				timestamp: 1002,
 			})
 			.await
@@ -917,8 +948,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("hello"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -926,8 +959,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("world"),
+				position: 5,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
+				stream_position: 0,
 				timestamp: 1001,
 			})
 			.await
@@ -988,8 +1023,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("hello"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await
@@ -997,8 +1034,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("err"),
+				position: 5,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
+				stream_position: 0,
 				timestamp: 1001,
 			})
 			.await
@@ -1006,8 +1045,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("world"),
+				position: 8,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 5,
 				timestamp: 1002,
 			})
 			.await
@@ -1065,8 +1106,10 @@ mod tests {
 		store
 			.put(PutArg {
 				bytes: Bytes::from("hello"),
+				position: 0,
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
+				stream_position: 0,
 				timestamp: 1000,
 			})
 			.await

@@ -527,6 +527,8 @@ pub enum LogStore {
 	Lmdb(LmdbLogStore),
 
 	Memory,
+
+	Scylla(ScyllaLogStore),
 }
 
 #[derive(Clone, Debug)]
@@ -540,6 +542,19 @@ pub struct LmdbLogStore {
 	pub map_size: usize,
 
 	pub path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScyllaLogStore {
+	pub addr: String,
+
+	pub connections: Option<usize>,
+
+	pub keyspace: String,
+
+	pub password: Option<String>,
+
+	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]

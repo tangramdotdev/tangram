@@ -860,6 +860,21 @@ impl Server {
 				}
 			},
 			config::LogStore::Memory => self::log::Store::new_memory(),
+			config::LogStore::Scylla(scylla) => {
+				#[cfg(not(feature = "scylla"))]
+				{
+					let _ = scylla;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with scylla support"
+					));
+				}
+				#[cfg(feature = "scylla")]
+				{
+					self::log::Store::new_scylla(scylla)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+				}
+			},
 		};
 
 		// Create the object store.
