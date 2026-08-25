@@ -177,6 +177,7 @@ impl Session {
 		};
 		let response = self
 			.send_sandbox_control_request(id, request, options)
+			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to send the get sandbox control request"),
