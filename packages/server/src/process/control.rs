@@ -146,6 +146,14 @@ impl Session {
 		let mut options = arg.options;
 		options.tokens.clear();
 		let parent = arg.parent;
+		if assign && data.is_none() {
+			return Err(tg::error!("a process on the shortcut path must have data"));
+		}
+		if assign && parent.is_none() {
+			return Err(tg::error!(
+				"a process on the shortcut path must have a parent"
+			));
+		}
 		let (sender, receiver) = tokio::sync::mpsc::channel(512);
 		let mut control =
 			crate::control::Stream::new(stream, sender, crate::control::stream_options());
@@ -305,42 +313,63 @@ impl Session {
 			.boxed();
 
 		if let Some(data) = data {
+			let command = data.command.clone().map(tg::object::Id::from);
 			let data = data.without_location_and_tokens();
 			let account = session
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
 			let touched_at = self.server.clock.unix_timestamp()?;
-			let index_arg = tangram_index::batch::Arg {
-				items: std::iter::once(tangram_index::batch::Item::PutProcess(
-					tangram_index::process::put::Arg {
-						cached: false,
-						children: None,
-						command: data.command.clone().into(),
-						data: Some(data.clone()),
-						error: None,
-						id: id.clone(),
-						log: None,
-						metadata: tg::process::Metadata::default(),
-						options,
-						output: None,
-						parent,
-						sandbox: Some(data.sandbox.clone()),
-						storage: tangram_index::process::Storage::default(),
-						time_to_touch: session.server.config.process.time_to_touch,
+			let mut items = vec![tangram_index::batch::Item::PutProcess(
+				tangram_index::process::put::Arg {
+					cached: false,
+					children: None,
+					command: data.command.node.clone().into(),
+					data: Some(data.clone()),
+					error: None,
+					id: id.clone(),
+					log: None,
+					metadata: tg::process::Metadata::default(),
+					options,
+					output: None,
+					parent: parent.clone(),
+					sandbox: Some(data.sandbox.clone()),
+					storage: tangram_index::process::Storage::default(),
+					time_to_touch: session.server.config.process.time_to_touch,
+					touched_at,
+				},
+			)];
+			if let Some(account) = account {
+				items.push(tangram_index::batch::Item::PutAccountProcess(
+					tangram_index::usage::storage::put::ProcessArg {
+						account,
+						process: id.clone(),
 						touched_at,
 					},
-				))
-				.chain(account.map(|account| {
-					tangram_index::batch::Item::PutAccountProcess(
-						tangram_index::usage::storage::put::ProcessArg {
-							account,
-							process: id.clone(),
-							touched_at,
-						},
-					)
-				}))
-				.collect(),
-			};
+				));
+			}
+			if assign {
+				let parent = parent.as_ref().ok_or_else(|| {
+					tg::error!("a process on the shortcut path must have a parent")
+				})?;
+				let context = crate::Context {
+					principal: tg::Principal::Process(parent.clone()),
+					token: None,
+					..self.context.clone()
+				};
+				let parent_session = self.server.session(&context);
+				let time_to_live = i64::try_from(
+					self.server.config.object.grant_time_to_live.as_secs(),
+				)
+				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+				let expires_at = touched_at + time_to_live;
+				let grant_arg = parent_session
+					.create_process_object_grant_arg(&id, [command], touched_at, Some(expires_at))
+					.await?;
+				items.push(tangram_index::batch::Item::PutProcessObjectGrants(
+					grant_arg,
+				));
+			}
+			let index_arg = tangram_index::batch::Arg { items };
 			session
 				.server
 				.index_batch(index_arg)
@@ -443,6 +472,15 @@ impl Session {
 		let context = session.context().clone();
 		context.set_token(self.context.token.clone());
 		let session = session.client().session(&context);
+		let destination = tg::Location::Remote(tg::location::Remote {
+			name: remote.clone(),
+			region: region.clone(),
+		});
+		let mut arg = arg;
+		arg.options.tokens = arg.options.tokens.for_location(&destination);
+		if let Some(data) = &mut arg.data {
+			data.command.options.tokens = data.command.options.tokens.for_location(&destination);
+		}
 		let arg = tg::process::control::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg

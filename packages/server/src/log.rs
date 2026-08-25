@@ -182,7 +182,7 @@ impl Session {
 					tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
 						cached: false,
 						children: None,
-						command: data.command.clone().into(),
+						command: data.command.node.clone().into(),
 						data: Some(data.clone()),
 						error: None,
 						id: process.clone(),

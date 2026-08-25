@@ -27,7 +27,14 @@ pub mod tty;
 pub mod wait;
 
 pub(crate) type ConnectionFuture = BoxFuture<'static, tg::Result<control::Connected>>;
+pub type IndexTask = tangram_futures::task::Shared<tg::Result<()>>;
 pub type Map = DashMap<tg::process::Id, tg::sandbox::Id, tg::id::BuildHasher>;
+
+#[derive(Default)]
+pub struct Processes {
+	indexes: DashMap<tg::process::Id, u64, tg::id::BuildHasher>,
+	processes: DashMap<u64, State, fnv::FnvBuildHasher>,
+}
 
 pub struct Child {
 	pub data: tg::process::data::Child,
@@ -40,10 +47,97 @@ pub struct State {
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
-	pub inner_token: String,
+	pub id: Option<tg::process::Id>,
+	pub id_receiver: tokio::sync::watch::Receiver<Option<tg::process::Id>>,
+	pub index_task: IndexTask,
+	pub inner_token: Option<String>,
 	pub leases: BTreeSet<String>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
+}
+
+impl Processes {
+	#[must_use]
+	pub fn get(&self, index: u64) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
+		self.processes.get(&index)
+	}
+
+	#[must_use]
+	pub fn get_by_id(
+		&self,
+		id: &tg::process::Id,
+	) -> Option<dashmap::mapref::one::Ref<'_, u64, State>> {
+		let index = *self.indexes.get(id)?;
+
+		self.processes.get(&index)
+	}
+
+	#[must_use]
+	pub fn get_mut(&self, index: u64) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
+		self.processes.get_mut(&index)
+	}
+
+	#[must_use]
+	pub fn get_mut_by_id(
+		&self,
+		id: &tg::process::Id,
+	) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
+		let index = *self.indexes.get(id)?;
+
+		self.processes.get_mut(&index)
+	}
+
+	#[must_use]
+	pub fn ids(&self) -> Vec<tg::process::Id> {
+		self.indexes
+			.iter()
+			.map(|entry| entry.key().clone())
+			.collect()
+	}
+
+	pub fn insert(&self, index: u64, state: State) {
+		assert!(state.id.is_none(), "the process ID is already set");
+		match self.processes.entry(index) {
+			dashmap::Entry::Occupied(_) => panic!("the process index is already in use"),
+			dashmap::Entry::Vacant(entry) => {
+				entry.insert(state);
+			},
+		}
+	}
+
+	#[must_use]
+	pub fn iter(&self) -> dashmap::iter::Iter<'_, u64, State, fnv::FnvBuildHasher> {
+		self.processes.iter()
+	}
+
+	#[must_use]
+	pub fn iter_mut(&self) -> dashmap::iter::IterMut<'_, u64, State, fnv::FnvBuildHasher> {
+		self.processes.iter_mut()
+	}
+
+	pub fn remove(&self, index: u64) -> Option<State> {
+		let (_, state) = self.processes.remove(&index)?;
+		if let Some(id) = &state.id {
+			self.indexes.remove(id);
+		}
+
+		Some(state)
+	}
+
+	pub fn set_id(&self, index: u64, id: tg::process::Id) {
+		let mut process = self
+			.processes
+			.get_mut(&index)
+			.expect("the process index was not found");
+		assert!(process.id.is_none(), "the process ID is already set");
+		match self.indexes.entry(id.clone()) {
+			dashmap::Entry::Occupied(_) => panic!("the process ID is already in use"),
+			dashmap::Entry::Vacant(entry) => {
+				process.id = Some(id);
+				entry.insert(index);
+			},
+		}
+	}
 }
 
 impl State {

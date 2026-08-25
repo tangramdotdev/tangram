@@ -299,7 +299,7 @@ impl Session {
 		let sandbox = process.sandbox;
 		let owner =
 			if let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox) {
-				sandbox.data.owner.clone()
+				sandbox.data.arg.owner.clone()
 			} else {
 				self.get_sandbox_from_index(&sandbox)
 					.await
@@ -475,7 +475,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_options: tg::referent::Options::default(),
 			data,
 			id,
 			lease: None,
@@ -528,13 +527,15 @@ impl Session {
 			actual_checksum: Some(actual_checksum),
 			cacheable: true,
 			children: source.children,
-			command: arg
-				.command
-				.node
-				.as_ref()
-				.right()
-				.cloned()
-				.ok_or_else(|| tg::error!("expected a stored command"))?,
+			command: tg::Referent::new(
+				arg.command
+					.node
+					.as_ref()
+					.right()
+					.cloned()
+					.ok_or_else(|| tg::error!("expected a stored command"))?,
+				arg.command.options.clone(),
+			),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),
@@ -567,7 +568,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_options: tg::referent::Options::default(),
 			data,
 			id,
 			lease: None,

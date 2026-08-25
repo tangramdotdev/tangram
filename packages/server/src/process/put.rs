@@ -72,9 +72,7 @@ impl Session {
 		data: tg::process::Data,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
-		let mut roots = vec![tg::Referent::with_node(tg::object::Id::from(
-			data.command.clone(),
-		))];
+		let mut roots = vec![data.command.clone().map(tg::object::Id::from)];
 		if let Some(error) = &data.error {
 			match error {
 				tg::Either::Left(data) => {
@@ -117,9 +115,7 @@ impl Session {
 		&self,
 		data: &tg::process::Data,
 	) -> tg::Result<Authorization> {
-		let mut objects = vec![tg::Referent::with_node(tg::object::Id::from(
-			data.command.clone(),
-		))];
+		let mut objects = vec![data.command.clone().map(tg::object::Id::from)];
 		let command_object_count = objects.len();
 		if let Some(error) = &data.error {
 			match error {
@@ -219,7 +215,7 @@ impl Session {
 				} = authorization;
 				let mut objects = BTreeSet::new();
 				if command_grants_subtree {
-					objects.insert(tg::object::Id::from(arg.data.command.clone()));
+					objects.insert(tg::object::Id::from(arg.data.command.node.clone()));
 				}
 				if error_grants_subtree && let Some(error) = &error {
 					objects.extend(error.iter().cloned());
@@ -258,7 +254,7 @@ impl Session {
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
-			command: arg.data.command.clone().into(),
+			command: arg.data.command.node.clone().into(),
 			data: Some(arg.data.clone()),
 			error: Some(error),
 			id: id.clone(),
@@ -433,8 +429,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
 		// Put the process.
-		let output = self
-			.put_process(&id, arg)
+		let output = Box::pin(self.put_process(&id, arg))
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
 

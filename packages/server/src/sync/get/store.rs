@@ -279,7 +279,7 @@ impl Session {
 			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
 				cached: false,
 				children: None,
-				command: data.command.clone().into(),
+				command: data.command.node.clone().into(),
 				data: Some(data.clone()),
 				error: None,
 				id: id.clone(),

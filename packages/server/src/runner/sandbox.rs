@@ -4,12 +4,7 @@ use {
 	},
 	crate::{Context, Origin, Server, Session, temp::Temp},
 	futures::{FutureExt as _, StreamExt as _, future},
-	std::{
-		collections::{BTreeMap, HashMap},
-		pin::pin,
-		sync::Arc,
-		time::Instant,
-	},
+	std::{collections::BTreeMap, pin::pin, sync::Arc, time::Instant},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -83,7 +78,6 @@ pub(crate) struct ReadyEvent {
 }
 
 struct SandboxTaskInnerArg {
-	allocation: crate::runner::capacity::Allocation,
 	control: crate::control::Stream<
 		tg::sandbox::control::ServerMessage,
 		tg::sandbox::control::ClientMessage,
@@ -95,10 +89,10 @@ struct SandboxTaskInnerArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox_id_sender: tokio::sync::oneshot::Sender<tg::sandbox::Id>,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
-	token: String,
 }
 
 struct RunSandboxTaskArg {
@@ -113,6 +107,7 @@ struct RunSandboxTaskArg {
 	process_stopper: Stopper,
 	process_task_output: Option<SpawnProcessTaskOutput>,
 	process_tasks: JoinSet<tg::Result<()>>,
+	processes: Arc<crate::process::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
 	started_at: Instant,
@@ -276,16 +271,22 @@ impl Session {
 			expected_id: expected_id.clone(),
 		});
 		let created_at = self.server.clock.unix_timestamp()?;
-		let data = tg::sandbox::control::Data {
+		let control_data = tg::sandbox::control::Data {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
 		let connect_future = {
+			let control_data = control_data.clone();
 			let expected_id = expected_id.clone();
 			let location = location.clone();
 			async move {
 				connection_session
-					.get_sandbox_control_stream(expected_id.as_ref(), &location, created_at, data)
+					.get_sandbox_control_stream(
+						expected_id.as_ref(),
+						&location,
+						created_at,
+						control_data,
+					)
 					.await
 			}
 		};
@@ -301,6 +302,31 @@ impl Session {
 			}
 		};
 
+		// Store the sandbox state before connecting control.
+		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
+		let index = create_output.sandbox.index();
+		let processes = Arc::new(crate::process::Processes::default());
+		self.server.runner.state.sandboxes.insert(
+			index,
+			crate::sandbox::State {
+				allocation: Some(allocation),
+				authorization_tokens: tg::authorization::Tokens::default(),
+				data: control_data,
+				id: None,
+				location: location.clone(),
+				processes: processes.clone(),
+				sandbox: Some(create_output.sandbox.clone()),
+				status: tg::sandbox::Status::Started,
+				token: token.clone(),
+				tokens: BTreeMap::new(),
+				usage: None,
+			},
+		);
+		let server = self.server.clone();
+		scopeguard::defer! {
+			server.runner.state.sandboxes.remove(index);
+		}
+
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
@@ -312,6 +338,7 @@ impl Session {
 				process,
 				process_stopper: &process_stopper,
 				process_tasks: &mut process_tasks,
+				processes: processes.clone(),
 				retention_stopper: stopper.clone(),
 				sandbox: &create_output.sandbox,
 				sandbox_id_receiver: Some(sandbox_id_receiver),
@@ -350,21 +377,17 @@ impl Session {
 				return Err(error);
 			},
 		};
-		let state = tg::sandbox::get::Output {
-			cpu: arg.cpu,
-			creator,
-			hostname: arg.hostname,
-			id: id.clone(),
-			isolation: arg.isolation,
-			location: Some(location.clone()),
-			memory: arg.memory,
-			mounts: arg.mounts,
-			network: arg.network,
-			owner: arg.owner,
-			status: tg::sandbox::Status::Started,
-			tokens: tg::authorization::Tokens::default(),
-			ttl: arg.ttl,
-			usage: None,
+		self.server.runner.state.sandboxes.set_id(index, id.clone());
+		let state = {
+			let mut sandbox = self
+				.server
+				.runner
+				.state
+				.sandboxes
+				.get_mut(index)
+				.expect("the sandbox state was not found");
+			sandbox.token = Some(token.clone());
+			sandbox.data().expect("the sandbox ID was not set")
 		};
 		let context = Context {
 			principal: tg::Principal::Sandbox(id.clone()),
@@ -374,7 +397,6 @@ impl Session {
 		let session = self.server.session(&context);
 		let result = session
 			.sandbox_task_inner(SandboxTaskInnerArg {
-				allocation,
 				control,
 				create_output,
 				event_sender,
@@ -383,10 +405,10 @@ impl Session {
 				process_stopper,
 				process_task_output,
 				process_tasks,
+				processes,
 				sandbox_id_sender,
 				state,
 				stopper,
-				token,
 			})
 			.boxed()
 			.await;
@@ -704,7 +726,6 @@ impl Session {
 
 	async fn sandbox_task_inner(&self, arg: SandboxTaskInnerArg) -> tg::Result<()> {
 		let SandboxTaskInnerArg {
-			allocation,
 			control,
 			create_output,
 			event_sender,
@@ -713,10 +734,10 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox_id_sender,
 			state,
 			stopper,
-			token,
 		} = arg;
 		let CreateSandboxOutput {
 			guest_url,
@@ -730,24 +751,6 @@ impl Session {
 		} = create_output;
 
 		let started_at = Instant::now();
-		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
-		let index = sandbox.index();
-		self.server.runner.state.sandboxes.insert(
-			index,
-			id.clone(),
-			crate::sandbox::State {
-				allocation: Some(allocation),
-				data: state.clone(),
-				processes: HashMap::new(),
-				sandbox: Some(sandbox.clone()),
-				token: Some(token.clone()),
-				tokens: BTreeMap::new(),
-			},
-		);
-		scopeguard::defer! {
-			self.server.runner.state.sandboxes.remove(index);
-		}
-
 		// Bind the per-sandbox VFS before releasing the process task.
 		#[cfg(target_os = "linux")]
 		if let Some(vfs_principal) = &vfs_principal {
@@ -767,6 +770,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -805,6 +809,7 @@ impl Session {
 			process_stopper,
 			process_task_output,
 			mut process_tasks,
+			processes,
 			sandbox,
 			serve_task,
 			started_at,
@@ -877,16 +882,16 @@ impl Session {
 								message: Some("the process was canceled".into()),
 								..Default::default()
 							});
-							let mut sandbox = self
+							let sandbox = self
 								.server
 								.runner
 								.state
 								.sandboxes
-								.get_mut_by_id(&id)
+								.get_by_id(&id)
 								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							for process in sandbox.processes.values_mut() {
-								if !process.data.status.is_finished() {
-									process.finish.get_or_insert(
+							for mut process in sandbox.processes.iter_mut() {
+								if !process.value().data.status.is_finished() {
+									process.value_mut().finish.get_or_insert(
 										tg::process::control::FinishServerRequestArg {
 											error: Some(error.clone()),
 											exit: 1,
@@ -923,6 +928,7 @@ impl Session {
 								process,
 								process_stopper: &process_stopper,
 								process_tasks: &mut process_tasks,
+								processes: processes.clone(),
 								retention_stopper: stopper.clone(),
 								sandbox: &sandbox,
 								sandbox_id_receiver: None,
@@ -1054,7 +1060,7 @@ impl Session {
 			.sandboxes
 			.get_mut_by_id(&id)
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-		state.data.usage = Some(tg::sandbox::get::Usage {
+		state.usage = Some(tg::sandbox::get::Usage {
 			cpu: usage.cpu,
 			memory: usage.memory,
 		});
@@ -1088,9 +1094,9 @@ impl Session {
 				.sandboxes
 				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			state.data.status = tg::sandbox::Status::Destroyed;
+			state.status = tg::sandbox::Status::Destroyed;
 			state.sandbox.take();
-			state.data.clone()
+			state.data().expect("the sandbox ID was not set")
 		};
 		drop(sandbox);
 

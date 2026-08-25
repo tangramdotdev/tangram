@@ -540,7 +540,7 @@ impl Session {
 			data,
 			location: None,
 		};
-		self.put_process(id, arg).await?;
+		Box::pin(self.put_process(id, arg)).await?;
 
 		Ok(())
 	}

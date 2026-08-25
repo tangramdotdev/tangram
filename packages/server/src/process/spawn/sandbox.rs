@@ -148,12 +148,14 @@ impl Session {
 	}
 
 	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {
+		let data = output.data.clone();
 		let id = output.process_token.as_ref().map(|_| output.id.clone());
-		let options = output.command_options.clone();
+		let mut options = data.command.options.clone();
+		options.tokens.clear();
 		let parent = output.parent.clone();
 		let token = output.process_token.clone();
 		tg::runner::control::Process {
-			data: output.data.clone(),
+			data,
 			id,
 			options,
 			parent,

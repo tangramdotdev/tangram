@@ -2,10 +2,7 @@ use {
 	crate::{Origin, Server},
 	dashmap::DashMap,
 	futures::future::BoxFuture,
-	std::{
-		collections::{BTreeMap, HashMap},
-		sync::Arc,
-	},
+	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 };
@@ -29,11 +26,16 @@ pub struct Sandboxes {
 
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
-	pub data: tg::sandbox::get::Output,
-	pub processes: HashMap<tg::process::Id, crate::process::State>,
+	pub authorization_tokens: tg::authorization::Tokens,
+	pub data: tg::sandbox::control::Data,
+	pub id: Option<tg::sandbox::Id>,
+	pub location: tg::Location,
+	pub processes: Arc<crate::process::Processes>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
+	pub status: tg::sandbox::Status,
 	pub token: Option<String>,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
+	pub usage: Option<tg::sandbox::get::Usage>,
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;
@@ -64,20 +66,17 @@ impl Sandboxes {
 		self.sandboxes.get_mut(&index)
 	}
 
-	pub fn insert(&self, index: u64, id: tg::sandbox::Id, state: State) {
+	#[must_use]
+	pub fn get_mut(&self, index: u64) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
+		self.sandboxes.get_mut(&index)
+	}
+
+	pub fn insert(&self, index: u64, state: State) {
+		assert!(state.id.is_none(), "the sandbox ID is already set");
 		match self.sandboxes.entry(index) {
 			dashmap::Entry::Occupied(_) => panic!("the sandbox index is already in use"),
 			dashmap::Entry::Vacant(entry) => {
 				entry.insert(state);
-			},
-		}
-		match self.indexes.entry(id) {
-			dashmap::Entry::Occupied(_) => {
-				self.sandboxes.remove(&index);
-				panic!("the sandbox ID is already in use");
-			},
-			dashmap::Entry::Vacant(entry) => {
-				entry.insert(index);
 			},
 		}
 	}
@@ -88,16 +87,59 @@ impl Sandboxes {
 
 	pub fn remove(&self, index: u64) -> Option<State> {
 		let (_, state) = self.sandboxes.remove(&index)?;
-		self.indexes.remove(&state.data.id);
+		if let Some(id) = &state.id {
+			self.indexes.remove(id);
+		}
 
 		Some(state)
+	}
+
+	pub fn set_id(&self, index: u64, id: tg::sandbox::Id) {
+		let mut sandbox = self
+			.sandboxes
+			.get_mut(&index)
+			.expect("the sandbox index was not found");
+		assert!(sandbox.id.is_none(), "the sandbox ID is already set");
+		match self.indexes.entry(id.clone()) {
+			dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
+			dashmap::Entry::Vacant(entry) => {
+				sandbox.id = Some(id);
+				entry.insert(index);
+			},
+		}
+	}
+}
+
+impl State {
+	#[must_use]
+	pub fn data(&self) -> Option<tg::sandbox::get::Output> {
+		let id = self.id.clone()?;
+		let arg = &self.data.arg;
+		let output = tg::sandbox::get::Output {
+			cpu: arg.cpu,
+			creator: self.data.creator.clone(),
+			hostname: arg.hostname.clone(),
+			id,
+			isolation: arg.isolation,
+			location: Some(self.location.clone()),
+			memory: arg.memory,
+			mounts: arg.mounts.clone(),
+			network: arg.network.clone(),
+			owner: arg.owner.clone(),
+			status: self.status,
+			tokens: self.authorization_tokens.clone(),
+			ttl: arg.ttl,
+			usage: self.usage.clone(),
+		};
+
+		Some(output)
 	}
 }
 
 impl Server {
 	pub(crate) fn origin_has_network_access(&self, origin: Origin) -> tg::Result<bool> {
 		let sandbox = self.try_get_request_origin_sandbox(origin)?;
-		let has_network_access = sandbox.is_none_or(|sandbox| sandbox.data.network.is_some());
+		let has_network_access = sandbox.is_none_or(|sandbox| sandbox.data.arg.network.is_some());
 
 		Ok(has_network_access)
 	}

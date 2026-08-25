@@ -14,7 +14,7 @@ impl Session {
 		let parent = self
 			.server
 			.try_get_request_origin_sandbox(self.context.origin)?
-			.map(|sandbox| sandbox.data.id.clone());
+			.and_then(|sandbox| sandbox.id.clone());
 		if let Some(parent) = parent {
 			self.validate_sandbox_create_arg_with_parent(&arg, &parent)
 				.await?;

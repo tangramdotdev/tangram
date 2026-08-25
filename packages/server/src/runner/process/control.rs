@@ -442,17 +442,17 @@ impl Session {
 										.ok_or_else(
 											|| tg::error!(%process_id, "failed to find the process sandbox"),
 										)?;
-									let mut sandbox = self
+									let sandbox = self
 										.server
 										.runner
 										.state
 										.sandboxes
-										.get_mut_by_id(&sandbox)
+										.get_by_id(&sandbox)
 										.ok_or_else(
 											|| tg::error!(%process_id, "failed to find the sandbox"),
 										)?;
-									let process =
-										sandbox.processes.get_mut(process_id).ok_or_else(
+									let mut process =
+										sandbox.processes.get_mut_by_id(process_id).ok_or_else(
 											|| tg::error!(%process_id, "failed to find the process"),
 										)?;
 									if !process.data.status.is_finished() {

@@ -519,7 +519,7 @@ impl Session {
 			let node = ObjectNode {
 				descendants: true,
 				eager: state.arg.eager,
-				id: data.command.clone().into(),
+				id: data.command.node.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
 				parent: Some(id.clone().into()),
 				token: token.cloned(),

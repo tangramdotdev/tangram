@@ -12,7 +12,6 @@ pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
-	pub command_options: tg::referent::Options,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
 	pub lease: Option<String>,
@@ -125,7 +124,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
 			.processes
-			.get(parent)
+			.get_by_id(parent)
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
@@ -253,8 +252,8 @@ impl Session {
 				let origin_owner = self
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
-					.filter(|origin| origin.data.id == *sandbox)
-					.map(|origin| origin.data.owner.clone());
+					.filter(|origin| origin.id.as_ref() == Some(sandbox))
+					.map(|origin| origin.data.arg.owner.clone());
 				if let Some(owner) = origin_owner {
 					owner
 				} else {
@@ -355,7 +354,7 @@ impl Session {
 			actual_checksum: None,
 			cacheable,
 			children: None,
-			command: command.node.clone(),
+			command: command.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,
@@ -377,7 +376,6 @@ impl Session {
 		let output = Output {
 			allocation: None,
 			cached: false,
-			command_options: command.options.clone(),
 			data,
 			id: id.clone(),
 			lease: None,
