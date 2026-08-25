@@ -302,26 +302,6 @@ impl Session {
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
-		let output = self
-			.get_process_local(id, false)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
-
-		if output.data.status.is_finished()
-			&& self
-				.server
-				.runner
-				.state()
-				.try_get_process_sandbox(id)
-				.is_none()
-		{
-			sender
-				.send(Ok(tg::process::stdio::read::Event::End))
-				.await
-				.ok();
-			return Ok(());
-		}
-
 		let mut futures = streams
 			.iter()
 			.map(|stream| {
