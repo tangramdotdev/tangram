@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Incremental backtracking uses candidates for the conflicted dependency rather than candidates saved for another dependency.
 
-let server = spawn
+let server = server spawn
 
 for version in [1.0.0 2.0.0] {
 	let path = artifact { tangram.ts: $'// c ($version)' }

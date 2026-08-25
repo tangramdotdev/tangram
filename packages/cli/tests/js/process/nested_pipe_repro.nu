@@ -12,7 +12,7 @@ use ../../../test.nu *
 # Drop either one and the read succeeds. This is the mechanism behind the flaky
 # js/process/stdio_read_all.nu and stdio_write_all.nu.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

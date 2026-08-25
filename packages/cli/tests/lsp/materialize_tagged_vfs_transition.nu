@@ -14,7 +14,7 @@ def stop [server: record] {
 }
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path
+let server = server spawn --directory $server_path
 
 let dep_path = artifact {
 	tangram.ts: 'export const foo = () => "foo";'
@@ -42,10 +42,10 @@ let tag_path = $server_path | path join 'store/dep'
 assert ($tag_path | path exists) 'expected the physical tag alias'
 stop $server
 
-let server = spawn --directory $server_path --config { vfs: true }
+let server = server spawn --directory $server_path --config { vfs: true }
 tg tag delete dep | ignore
 assert (($server_path | path join 'checkouts/dep') | path exists --no-symlink) 'expected the VFS not to maintain the backing tag checkout'
 stop $server
 
-spawn --directory $server_path | ignore
+server spawn --directory $server_path | ignore
 assert (not ($tag_path | path exists)) 'expected the deleted tag alias to stay absent without the VFS'

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Object.kind returns the kind of an object instance.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The checksum of a file is the checksum of its contents bytes.
 
-let server = spawn
+let server = server spawn
 
 let file_id = tg put 'tg.file("hello")' | str trim
 let blob_id = tg put 'tg.blob("hello")' | str trim

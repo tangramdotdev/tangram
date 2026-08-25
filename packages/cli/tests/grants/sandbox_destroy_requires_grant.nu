@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Destroying a sandbox requires access to it.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

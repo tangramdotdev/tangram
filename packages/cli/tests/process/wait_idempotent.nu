@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Waiting on an already finished process returns the same outcome on every call.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return 42; }',

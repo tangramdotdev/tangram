@@ -11,7 +11,7 @@ let config = {
 		users: { providers: { insecure: true } },
 	},
 }
-let server = spawn --preserve-keys --directory $directory --config $config
+let server = server spawn --preserve-keys --directory $directory --config $config
 let alice = tg --url $server.url login --verbose --name alice | from json
 let path = artifact {
 	tangram.ts: '
@@ -31,7 +31,7 @@ let command = (
 tg --url $server.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
 tg --url $server.url --token $alice.token index
 let config = (
-	open $server.config
+	$server.config
 	| upsert advanced.single_process true
 	| upsert authorization.tokens null
 	| upsert roles [cleaner http runner scheduler]
@@ -45,7 +45,7 @@ if $nu.os-info.name == "linux" {
 } else {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
-let server = spawn --directory $directory --config $config
+let server = server spawn --directory $directory --config $config
 failure (tg --url $server.url --token $alice.token index | complete)
 
 let output = (

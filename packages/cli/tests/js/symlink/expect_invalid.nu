@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Symlink.expect throws when the value is not a symlink.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

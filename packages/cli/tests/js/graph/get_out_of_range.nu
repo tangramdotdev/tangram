@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A graph's get method throws when the node index is out of range.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

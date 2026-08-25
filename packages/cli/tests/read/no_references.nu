@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading with no references succeeds and outputs nothing.
 
-let server = spawn
+let server = server spawn
 
 let output = tg read | complete
 success $output

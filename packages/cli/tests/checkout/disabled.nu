@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Disabling checkouts avoids creating or using the local checkout directory while preserving object I/O.
 
-let server = spawn --config {
+let server = server spawn --config {
 	checkouts: false,
 	roles: [http],
 }

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Each supported algorithm produces a checksum tagged with the algorithm name and the expected digest length.
 
-let server = spawn
+let server = server spawn
 
 let blob = "hello, world!\n" | tg write
 

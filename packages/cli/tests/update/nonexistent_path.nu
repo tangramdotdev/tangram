@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Updating a path that does not exist fails.
 
-let server = spawn
+let server = server spawn
 
 let output = tg update /nonexistent/path/nowhere | complete
 failure $output

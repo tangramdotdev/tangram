@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A null executable override clears the inherited file executable flag, and the object and fluent forms are equivalent.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

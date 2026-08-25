@@ -19,7 +19,7 @@ if $probe.exit_code != 0 {
 	skip_test 'this test requires a filesystem which supports reflinks'
 }
 
-let server = spawn --directory ($tmp | path join 'server')
+let server = server spawn --directory ($tmp | path join 'server')
 
 let artifact = artifact {
 	'bar.txt': 'bar',

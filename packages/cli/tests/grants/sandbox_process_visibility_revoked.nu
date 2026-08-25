@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking group membership hides a group-owned process from the former member, while the builder keeps access through their own process grant.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

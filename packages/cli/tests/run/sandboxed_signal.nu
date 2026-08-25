@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The tg signal command delivers a KILL signal to a running sandboxed process and the process finishes with the corresponding exit status.
 
-let server = spawn
+let server = server spawn
 let mount = artifact {}
 let path = artifact {
 	tangram.ts: '

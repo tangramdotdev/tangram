@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a dependency and then a package that imports it tags both on the local and remote servers, syncs their objects, and produces matching metadata.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create and publish the dependency package.

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process may request only the diagnostics and version health fields from its sandbox.
 
-let server = spawn
+let server = server spawn
 
 let full = artifact {
 	tangram.ts: '

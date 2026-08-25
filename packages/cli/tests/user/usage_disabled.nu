@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Usage tracking is disabled by default.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 tg --token $alice.token put 'tg.file("hello")'
 tg --token $alice.token index

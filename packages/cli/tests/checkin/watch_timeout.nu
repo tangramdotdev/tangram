@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watch registered during checkin is automatically removed after the configured watch TTL elapses.
 
-let server = spawn --config {
+let server = server spawn --config {
 	watch: {
 		ttl: { secs: 1, nanos: 0 }
 	}

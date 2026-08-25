@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Compressing and decompressing a file roundtrips to the original file, as documented by both commands.
 
-let server = spawn
+let server = server spawn
 
 let file_id = tg put 'tg.file("contents")' | str trim
 assert ($file_id | str starts-with "fil_") "the put should return a file id"

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A non-expiring materialized grant must not survive after a supporting explicit grant is revoked while the process is absent from the index.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

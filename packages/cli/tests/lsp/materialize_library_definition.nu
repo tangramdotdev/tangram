@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # A go-to-definition request that resolves into the built-in tangram library materializes the library source on disk and opening the materialized definition reports no diagnostics.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

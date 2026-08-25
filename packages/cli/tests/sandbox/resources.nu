@@ -7,7 +7,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let server = spawn
+let server = server spawn
 
 let id = tg sandbox create --cpu 1 --memory 268435456 | str trim
 

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Following a process status with --no-timeout streams observed statuses through to completion.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { await tg.sleep(1); return 42; }',

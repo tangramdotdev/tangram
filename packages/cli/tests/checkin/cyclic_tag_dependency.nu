@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Two packages with a cyclic tag dependency can both be tagged, including re-tagging one of them with the --no-source-dependencies flag despite the cycle.
 
-let server = spawn
+let server = server spawn
 
 # Tag b with an empty package.
 let empty_b = artifact {}

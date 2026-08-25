@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # --no-lock does not write any lock for a file with a tag dependency.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	foo.tg.ts: ''

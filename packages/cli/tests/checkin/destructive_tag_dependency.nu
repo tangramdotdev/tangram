@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A destructive checkin of a package that imports a tagged dependency resolves the dependency from the local store.
 
-let server = spawn
+let server = server spawn
 
 # Check that using a local tag dependency works.
 let a_path = artifact {

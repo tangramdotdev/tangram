@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Blob.leaf concatenates its arguments into a single leaf node holding bytes.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

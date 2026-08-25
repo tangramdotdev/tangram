@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A symlink created from a string has that path and no artifact.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

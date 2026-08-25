@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Putting a nested tag with a configured remote fails when the parent does not exist and -p was not passed.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

@@ -3,7 +3,7 @@ use ../test.nu *
 # A package with a circular dependency between two packages can be built, cleaned, and built again successfully.
 
 # Create a server.
-let server = spawn
+let server = server spawn
 
 # Package "foo" imports from "bar", and "bar" imports from "foo".
 let path = artifact {

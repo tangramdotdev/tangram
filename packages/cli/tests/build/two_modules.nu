@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A package whose root module imports and runs a command from a sibling module within the same package builds successfully.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

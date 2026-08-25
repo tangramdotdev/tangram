@@ -3,7 +3,7 @@ use ../../test.nu *
 # When a Promise.race settles, the losing branch is canceled, so its
 # later side effects (here, a log line after a long sleep) never run.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

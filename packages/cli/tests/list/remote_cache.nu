@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # The remote cache stores filtered list responses and honors TTL overrides.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

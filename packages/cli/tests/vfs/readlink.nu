@@ -6,7 +6,7 @@ vfs skip_unless_supported
 # Reading a symlink through the mounted VFS returns its target and resolves to the target's contents.
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path --config { vfs: true }
+let server = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg build (artifact {

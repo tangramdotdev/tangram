@@ -16,15 +16,14 @@ let common = {
 	authentication: { users: { providers: { insecure: true } } },
 	database: { kind: sqlite, path: $database_path },
 	indexer: { database_outbox_wakeup_interval: 0.01 },
-	primary_region: a,
-	regions: $regions,
 	usage: true,
 }
-let region_a = spawn --preserve-keys --name region-a --directory $region_a_directory --url $region_a_url --config ($common | merge { region: a })
-let region_b = spawn --preserve-keys --name region-b --directory $region_b_directory --url $region_b_url --config ($common | merge { region: b })
+let instance = instance --primary-region a --regions $regions --config $common
+let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --directory $region_a_directory --url $region_a_url
+let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --directory $region_b_directory --url $region_b_url
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let bob = tg --url $region_a.url login --verbose --name bob | from json
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		a: { token: $bob.token, url: $region_a.url }
 		b: { token: $alice.token, url: $region_b.url }
@@ -57,7 +56,7 @@ wait_until {
 # A tag with no target permissions must not charge its owner in either region.
 let region_a_usage = tg --url $region_a.url --token $alice.token user usage | from json
 let region_b_usage = tg --url $region_b.url --token $alice.token user usage | from json
-let bob_local = spawn --name bob-local --config {
+let bob_local = server spawn --name bob-local --config {
 	remotes: {
 		a: { token: $bob.token, url: $region_a.url }
 		b: { token: $bob.token, url: $region_b.url }

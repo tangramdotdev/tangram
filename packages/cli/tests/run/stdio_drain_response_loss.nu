@@ -3,7 +3,7 @@ use ../../test.nu *
 # A piped stdout read response published after the request timeout is retained for
 # the retry rather than being lost in a subscription gap.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

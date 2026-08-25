@@ -18,10 +18,10 @@ def chain [k: int, leaf: string] {
 }
 
 # Create a remote server.
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create a local server.
-let local = spawn --name local
+let local = server spawn --name local
 
 # Add the remote.
 success (tg remote put default $remote.url | complete)

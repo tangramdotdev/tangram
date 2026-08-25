@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Pulling an object by id fetches it from the remote and makes it present locally.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local
 tg remote put default $remote.url
 
 let id = tg --url $remote.url put 'tg.file("pulled object")' | str trim

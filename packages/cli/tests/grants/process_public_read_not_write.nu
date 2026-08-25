@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A public build grants public read, not control: another principal may read a public process but must not signal or cancel it.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

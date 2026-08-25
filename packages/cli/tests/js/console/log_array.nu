@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # console.log formats an array argument as compact JSON.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Template.join inserts the separator between artifact components.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await tg.Template.join(" ", await tg.file("a"), await tg.file("b")); }'

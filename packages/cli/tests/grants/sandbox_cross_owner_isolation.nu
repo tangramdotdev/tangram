@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Two sandbox owners must not see or control each other's sandboxes.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

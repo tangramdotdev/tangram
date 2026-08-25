@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.error.sync populates the code and values getters from an argument object.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

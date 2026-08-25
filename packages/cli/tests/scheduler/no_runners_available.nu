@@ -8,7 +8,7 @@ let scheduler = {
 }
 
 # A server without a runner has nothing to schedule on.
-let server = spawn --name server --config {
+let server = server spawn --name server --config {
 	roles: [cleaner http indexer scheduler],
 	scheduler: $scheduler,
 }
@@ -29,7 +29,7 @@ failure $output "building with no runners should fail"
 assert ($output.stderr | str contains 'no runners available')
 
 # A runner whose host does not match the request can never satisfy the sandbox.
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	runner: { cpus: 1 },
 	scheduler: $scheduler,
 }

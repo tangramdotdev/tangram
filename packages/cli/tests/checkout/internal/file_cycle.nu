@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out two files that depend on each other, forming a cycle, writes the files into the checkouts directory.
 
-let server = spawn --config { write: { checkout_pointers: false } }
+let server = server spawn --config { write: { checkout_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'

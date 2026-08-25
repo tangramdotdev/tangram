@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A null nodes override clears inherited graph nodes, and the object and fluent forms are equivalent.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

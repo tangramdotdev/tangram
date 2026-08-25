@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking out an artifact by a well-formed id that does not exist fails.
 
-let server = spawn
+let server = server spawn
 
 let path = ($env.TMPDIR? | default '/tmp') | path join 'checkout_nonexistent'
 

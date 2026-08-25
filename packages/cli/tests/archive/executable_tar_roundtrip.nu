@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Archiving and extracting a directory with an executable file as tar preserves the executable bit.
 
-let server = spawn
+let server = server spawn
 
 let dir = tg put 'tg.directory({ "tool": tg.file({ "contents": tg.blob("#!/bin/sh"), "executable": true }) })' | str trim
 

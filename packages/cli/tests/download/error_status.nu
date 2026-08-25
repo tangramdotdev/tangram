@@ -4,7 +4,7 @@ use ../../test.nu *
 
 skip_if_offline
 
-let server = spawn
+let server = server spawn
 
 let output = tg download "http://www.example.com/does-not-exist" --checksum sha256:any | complete
 failure $output

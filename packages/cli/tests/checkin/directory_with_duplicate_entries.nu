@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a directory whose entries have identical contents deduplicates them into a single blob.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	a.txt: 'Hello, World!'

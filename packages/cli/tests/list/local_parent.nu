@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A local nonrecursive list returns only the immediate children of its parent.
 
-let server = spawn
+let server = server spawn
 let artifact = artifact 'contents'
 tg tag -p foo/bar $artifact
 tg tag -p foo/baz/qux $artifact
@@ -31,7 +31,7 @@ let version = tg list --local "versions/^1" | from json
 assert equal ($version | get specifier) [versions/1.1.0/macos]
 
 # Pagination is applied after authorization filters hidden rows.
-let auth = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let auth = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg --url $auth.url login --verbose --name alice | from json
 let bob = tg --url $auth.url login --verbose --name bob | from json
 tg --url $auth.url --token $alice.token group create a-hidden | ignore

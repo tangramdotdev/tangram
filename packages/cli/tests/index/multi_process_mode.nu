@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Indexing uses the outbox when the server is not in single process mode.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { single_process: false },
 	database: {
 		kind: 'sqlite',

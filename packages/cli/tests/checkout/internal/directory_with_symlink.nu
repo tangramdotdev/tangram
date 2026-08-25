@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a directory containing a symlink that targets a sibling file writes the directory into the checkouts directory.
 
-let server = spawn
+let server = server spawn
 
 # Create the artifact.
 let artifact = '

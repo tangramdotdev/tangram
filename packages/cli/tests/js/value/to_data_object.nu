@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.toData references an object by its id under the object kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Value.toData(await tg.file("hi")); }'

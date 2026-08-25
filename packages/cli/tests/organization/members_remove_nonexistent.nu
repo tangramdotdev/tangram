@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Removing a user that is not a member of the organization fails.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

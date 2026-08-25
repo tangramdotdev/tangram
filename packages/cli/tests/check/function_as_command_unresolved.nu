@@ -1,7 +1,7 @@
 # tg.Unresolved<tg.Command<A, R>> properly accepts functions of the correct type.
 use ../../test.nu *
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

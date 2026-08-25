@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A tag put retries when a parent is created after authorization.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { checkpoints: true }
 }
 let path = artifact 'data'

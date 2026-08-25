@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A public build's output is readable by another owner: after reusing a public build, its output contents can be read.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A self-referential build fails with a process cycle error and the formatted error message matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

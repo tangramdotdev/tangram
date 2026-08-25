@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A file's contents accessor returns a blob.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return (await (await tg.file("hello")).contents) instanceof tg.Blob; }'

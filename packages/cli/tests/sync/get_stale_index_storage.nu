@@ -7,8 +7,8 @@ use ../../test.nu *
 # did, the root would never count as stored, and the pull would never finish, even though every
 # object arrived and nothing failed.
 
-let remote = spawn --cloud --name remote
-let client = spawn --name client --config {
+let remote = server spawn --cloud --name remote
+let client = server spawn --name client --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { url: $remote.url } },
 }

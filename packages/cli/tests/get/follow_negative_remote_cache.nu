@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A negative remote get with follow can be served from the principal-scoped remote cache.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

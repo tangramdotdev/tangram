@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Null clears an inherited command working directory during process argument composition.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

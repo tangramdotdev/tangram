@@ -10,10 +10,10 @@ let config = {
 	authentication: { root: { token: $root_token } },
 	roles: [cleaner http indexer scheduler],
 }
-let remote = spawn --name remote --preserve-keys --config $config
+let remote = server spawn --name remote --preserve-keys --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	advanced: {
 		checkpoints: true,
 	},
@@ -32,7 +32,7 @@ let runner = spawn --name runner --config {
 	},
 }
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		default: {
 			token: $root_token
@@ -72,7 +72,7 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-spawn --directory $remote.directory --name remote --preserve-keys --config $config --url $remote.url
+let remote = server start $remote
 
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch

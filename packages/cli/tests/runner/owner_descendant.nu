@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A runner can run sandboxes owned by descendants of its owner but not unrelated principals.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { single_process: false },
 	authentication: { users: { providers: { insecure: true } } },
 	roles: [cleaner http indexer scheduler],
@@ -14,13 +14,13 @@ tg --url $remote.url --token $alice.token organization create tangram
 tg --url $remote.url --token $alice.token group create tangram/engineering
 let created = tg --url $remote.url --token $alice.token runner create --owner tangram | from json
 
-let organization_runner = spawn --name runner --config {
+let organization_runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
 }
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
@@ -35,7 +35,7 @@ def build_background [url: string, owner: string, path: path] {
 	}
 }
 
-let bob_local = spawn --name bob-local --config {
+let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
 }
 let unrelated_path = artifact { tangram.ts: 'export default () => tg.file("unrelated")' }
@@ -49,7 +49,7 @@ let output = timeout 1s tg --url $organization_runner.url checkpoint wait runner
 failure $output "the organization runner should not start an unrelated user's process"
 
 let created = tg --url $remote.url --token $bob.token runner create --owner $bob.user.id | from json
-let user_runner = spawn --name bob_runner --config {
+let user_runner = server spawn --name bob_runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
 }

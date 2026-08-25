@@ -4,13 +4,13 @@ use ../../test.nu *
 
 def test [...args] {
 	# Create a remote server.
-	let remote = spawn --cloud --name remote
+	let remote = server spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn --name local
+	let local = server spawn --name local
 
 	# Create a source server.
-	let source = spawn --name source
+	let source = server spawn --name source
 
 	# Add the remote to the local server.
 	tg remote put default $remote.url

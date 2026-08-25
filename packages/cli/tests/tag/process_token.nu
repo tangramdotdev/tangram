@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process is subject to tag authorization when its sandbox has network access.
 
-let server = spawn
+let server = server spawn
 
 # Create a tag so the failure cannot be attributed to a missing tag.
 let path = artifact "test"

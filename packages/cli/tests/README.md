@@ -32,8 +32,26 @@ databases:
 nu packages/cli/test.nu [pattern]
 ```
 
-Each server spawned with `spawn --cloud` receives an isolated PostgreSQL
-database, FoundationDB key prefixes, ScyllaDB keyspace, and NATS subject prefix.
+A Tangram instance contains servers directly or is divided into regions, each
+of which contains one or more servers. Regionless instances need no topology
+arguments. For a regional instance, use `instance --regions` to declare its
+regions and `instance --primary-region` to select its primary region, then place
+each server with `server spawn --instance ... --region ...`. Instance
+configuration is inherited by every server, while `server spawn --config`
+applies only to that server. A server in a regional instance must select one of
+the declared regions. Topology belongs to the instance and the `--region`
+argument, not per-server configuration.
+
+Cloud-backed servers in the same instance share PostgreSQL and NATS. Servers in
+the same region also share their FoundationDB index and log prefixes and their
+ScyllaDB object store; different regions receive isolated storage.
+
+For tests that do not need an explicit topology, `server spawn` creates a local
+instance automatically, while `server spawn --cloud` creates a cloud-backed
+instance automatically. Use `server stop`, `server start`, and `server restart`
+to manage the returned server record without repeating its arguments. The
+record includes the resolved `config` and its `config_path`.
+
 The runner removes these resources when the test finishes. Use `--clean` while
 the databases are running to remove resources left behind by interrupted test
 runs. Pass `--no-cloud` to use local backends instead.
@@ -58,7 +76,7 @@ Comments are complete sentences that end in periods and do not use contractions.
 ### 2. One behavior per test
 
 A test verifies a single behavior and ideally takes a single snapshot (or a
-tight cluster of snapshots for that one behavior). Reuse the `spawn`,
+tight cluster of snapshots for that one behavior). Reuse the `server spawn`,
 `artifact { ... }`, `snapshot`, `success`, and `failure` helpers from
 `test.nu`. When a file would test several independent behaviors, split it into
 one file per behavior.
@@ -204,7 +222,7 @@ the behavior under test.
 ### 9. Gate network access behind `skip_if_offline`
 
 A test which performs real network I/O — downloading from an external URL,
-tagging busybox with `spawn --busybox` — must call `skip_if_offline` at the
+tagging busybox with `server spawn --busybox` — must call `skip_if_offline` at the
 top. Running the suite with `--offline` skips these tests, so the rest of the
 suite is hermetic:
 
@@ -212,7 +230,7 @@ suite is hermetic:
 nu packages/cli/test.nu --offline
 ```
 
-The `spawn --busybox` helper calls `skip_if_offline` itself, so a test only
+The `server spawn --busybox` helper calls `skip_if_offline` itself, so a test only
 needs an explicit call when it reaches the network some other way.
 
 ### 10. Name principals `alice`, `bob`, `carol`, and reserve `eve` for the adversary
@@ -245,7 +263,7 @@ tested:
 - `lsp` — a language server over stdio. Its transport is exercised indirectly by
   the tests under `lsp/`.
 - `serve` (and `server run`) — the foreground daemon. Every test exercises it,
-  because the `spawn` helper starts a server.
+  because the `server spawn` helper starts a server.
 - `shell activate`, `shell deactivate`, and `shell integration` — these mutate
   the host shell environment.
 - `self update` — it replaces the running binary.

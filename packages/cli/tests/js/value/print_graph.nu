@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.print renders a graph whose file node has no module and whose pointer edge has no graph, without crashing and omitting those fields.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

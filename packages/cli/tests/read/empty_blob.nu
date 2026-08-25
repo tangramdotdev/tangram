@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading an empty blob succeeds and outputs nothing.
 
-let server = spawn
+let server = server spawn
 
 let blob = "" | tg write | str trim
 

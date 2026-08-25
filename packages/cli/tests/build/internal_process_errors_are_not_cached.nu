@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process that fails with an internal error is not reused as a cache hit, so a second build of the same command runs a fresh process.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

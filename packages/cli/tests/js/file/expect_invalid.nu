@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.File.expect throws when the value is not a file.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's log is masked from a principal without a grant: the owner reads it, but knowing the process id is not enough for another principal.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

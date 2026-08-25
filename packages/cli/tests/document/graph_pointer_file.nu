@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Documenting a graph file pointer treated as a tangram.ts module produces documentation JSON that matches the snapshot.
 
-let server = spawn
+let server = server spawn
 let artifact = '
 	tg.graph({
 		"nodes": [

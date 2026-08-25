@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a directory whose two entries reference each other within the same graph writes the directory into the checkouts directory.
 
-let server = spawn --config { write: { checkout_pointers: false } }
+let server = server spawn --config { write: { checkout_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'

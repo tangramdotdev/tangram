@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Applying an append mutation to an absent value creates a new array.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

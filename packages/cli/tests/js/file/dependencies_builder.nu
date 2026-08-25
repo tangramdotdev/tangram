@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's dependencies method sets the dependency map directly.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

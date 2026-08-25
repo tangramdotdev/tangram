@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A tg template literal whose line contains only adjacent artifact placeholders renders them concatenated and matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

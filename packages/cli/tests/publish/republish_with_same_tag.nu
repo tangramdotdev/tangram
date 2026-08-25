@@ -1,8 +1,8 @@
 # Publishing a package with the same metadata tag requires force to replace the tag.
 use ../../test.nu *
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create and publish the first package.

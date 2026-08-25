@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Repeated object puts should not get slower as the same shared child gains more fresh parents.
 
-let server = spawn --config { tokio_single_threaded: false, v8_thread_pool_size: 8 }
+let server = server spawn --config { tokio_single_threaded: false, v8_thread_pool_size: 8 }
 
 def wrapper [trial: int, index: int] {
 	[

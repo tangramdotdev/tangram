@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Object metadata for a well formed id that does not exist fails.
 
-let server = spawn
+let server = server spawn
 
 let output = tg object metadata fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output

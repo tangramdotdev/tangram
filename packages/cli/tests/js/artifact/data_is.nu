@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Artifact.Data.is recognizes file, directory, and symlink data shapes and rejects an array.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

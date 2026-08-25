@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Adding a member grants that member write on the group, so the operation requires admin: a write user cannot add members.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

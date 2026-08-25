@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An incremental solve handles a conflict after reusing a saved solution without panicking.
 
-let server = spawn
+let server = server spawn
 
 let c1_path = artifact {
 	tangram.ts: '// c 1.0.0'

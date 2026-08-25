@@ -4,8 +4,8 @@ use ../../test.nu *
 # does. Every spelling of the flag is covered: the aliases, the explicit policies, and the last flag
 # winning when both are given.
 
-let remote = spawn --name remote
-let local = spawn --name local --config {
+let remote = server spawn --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

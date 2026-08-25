@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The tree command renders the processes that ran in a sandbox.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a directory containing a symlink that points back into the directory, forming a cycle, writes the directory into the checkouts directory.
 
-let server = spawn --config { write: { checkout_pointers: false } }
+let server = server spawn --config { write: { checkout_pointers: false } }
 
 # Create the artifact.
 let artifact = artifact {

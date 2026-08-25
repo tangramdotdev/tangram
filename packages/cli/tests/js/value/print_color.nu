@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.print wraps a value in ANSI color codes when the color option is set.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.print(42, { color: true }); }'

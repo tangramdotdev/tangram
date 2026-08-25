@@ -10,7 +10,7 @@ if $nu.os-info.name != 'linux' {
 }
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path --config {
+let server = server spawn --directory $server_path --config {
 	vfs: {
 		kind: 'fuse'
 		passthrough: 'required'

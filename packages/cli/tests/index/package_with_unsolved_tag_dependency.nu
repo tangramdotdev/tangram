@@ -5,13 +5,13 @@ use ../../test.nu *
 # Also verifies that a full push produces identical metadata.
 
 # Create the local server.
-let local = spawn --name local
+let local = server spawn --name local
 
 # Create the remote server (receives incremental puts).
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create another server (receives a full push for comparison).
-let other = spawn --cloud --name other
+let other = server spawn --cloud --name other
 
 # Create a package that imports the tagged dependency.
 let path = artifact {

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.template ignores empty string components when building the template.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return (await tg.template("a", "", "b")).components; }'

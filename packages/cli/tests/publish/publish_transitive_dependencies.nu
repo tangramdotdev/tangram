@@ -3,8 +3,8 @@ use ../../test.nu *
 # Bug: When a transitive dependency is updated, publishing a top-level package
 # should automatically republish intermediate dependencies in topological order.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # 1. Create a monorepo with packages A, B, C where A -> B -> C using source dependencies.

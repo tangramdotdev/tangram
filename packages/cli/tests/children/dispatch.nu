@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The top-level children command gets the direct graph children of any node.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("dispatch"); }'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Putting a remote with an existing name overwrites its url.
 
-let server = spawn
+let server = server spawn
 
 tg remote put upstream "http://localhost:9999"
 tg remote put upstream "http://localhost:8888"

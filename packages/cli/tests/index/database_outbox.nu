@@ -24,7 +24,7 @@ let config = {
 let directory = mktemp -d
 
 # Seed the index so authorization does not depend on the mutations under test.
-let seed = spawn --name seed --directory $directory --config $config
+let seed = server spawn --name seed --directory $directory --config $config
 let alice = tg --url $seed.url login --verbose --name alice | from json
 let bob = tg --url $seed.url login --verbose --name bob | from json
 tg --url $seed.url --token $alice.token group create project | ignore
@@ -33,7 +33,7 @@ stop $seed
 
 # Commit an update followed by a delete with the indexer disabled.
 let producer_config = $config | merge { roles: [cleaner http runner scheduler] }
-let producer = spawn --name producer --directory $directory --config $producer_config
+let producer = server spawn --name producer --directory $directory --config $producer_config
 tg --url $producer.url --token $alice.token grant $bob.user.id read project | ignore
 let put_batch = latest_batch $directory
 tg --url $producer.url --token $alice.token revoke $bob.user.id read project | ignore
@@ -49,6 +49,6 @@ assert equal $next $delete_batch
 stop $producer
 
 # A later indexer applies the update before the delete.
-let indexer = spawn --name indexer --directory $directory --config $config
+let indexer = server spawn --name indexer --directory $directory --config $config
 tg --url $indexer.url index
 failure (tg --url $indexer.url --token $bob.token group get project | complete)

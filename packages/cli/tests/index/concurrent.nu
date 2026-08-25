@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Concurrent index requests share the indexer and all complete.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

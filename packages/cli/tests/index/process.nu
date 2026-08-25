@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Indexing computes the expected process metadata locally and the metadata matches after pushing the process to a remote and indexing there.
 
-let remote = spawn --cloud --name push
-let local = spawn --name local
+let remote = server spawn --cloud --name push
+let local = server spawn --name local
 tg remote put default $remote.url
 
 let path = artifact {

@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Getting a group fails when any queried remote fails, even if the preferred remote has the group.
 
-let alpha = spawn --cloud --name alpha
-let zeta = spawn --cloud --name zeta
-let local = spawn --name local --config {
+let alpha = server spawn --cloud --name alpha
+let zeta = server spawn --cloud --name zeta
+let local = server spawn --name local --config {
 	remotes: {
 		alpha: { url: $alpha.url }
 		zeta: { url: $zeta.url }

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking out an artifact to a path must require its subtree: a principal without an artifact's subtree must not be able to materialize it to disk. Otherwise external checkout is an exfiltration channel that bypasses the subtree check that internal checkout enforces.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 

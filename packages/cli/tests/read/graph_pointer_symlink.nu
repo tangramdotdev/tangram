@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a graph symlink pointer resolves the symlink and returns the contents of the referenced file.
 
-let server = spawn
+let server = server spawn
 
 # Create a graph with a symlink node at index 0 that points to a file node at index 1.
 let graph = '

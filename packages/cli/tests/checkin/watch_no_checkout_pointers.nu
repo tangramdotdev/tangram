@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watched package checked in with --no-checkout-pointers resolves a tag dependency once it is created and the module contents remain readable.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's args method appends an array of arguments.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

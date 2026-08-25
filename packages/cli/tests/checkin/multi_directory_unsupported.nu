@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Check-in is rejected when the server uses multi-directory storage.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { single_directory: false }
 }
 let path = artifact 'Hello, World!'

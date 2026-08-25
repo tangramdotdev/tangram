@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # A descendant tag can be fetched and cached independently of the siblings already cached under the same parent.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } }
 }
 

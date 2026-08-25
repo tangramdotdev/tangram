@@ -4,7 +4,7 @@ use ../lib/stripe.nu *
 # Managing organization billing requires admin and reuses the Stripe customer.
 
 let stripe = spawn_stripe
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: 'whsec_mock' } },
 }

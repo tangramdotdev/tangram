@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Placeholder.expect throws when the value is not a placeholder.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

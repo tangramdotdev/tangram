@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # A source with node permission on a shallow directory can push it when the destination already has its missing child.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 let remote_user = tg --url $remote.url login --verbose --name remote-user | from json
 
 # Create a directory elsewhere, then put only its child on the destination.
-let builder = spawn --name builder --config {
+let builder = server spawn --name builder --config {
 	remotes: { default: { url: $remote.url, token: $remote_user.token } },
 }
 let directory = tg --url $builder.url put 'tg.directory({ "child.txt": tg.file("hello") })' | str trim
@@ -18,7 +18,7 @@ let remote_directory = tg --url $remote.url --token $remote_user.token object ge
 failure $remote_directory "the destination must not initially have the directory."
 
 # Put only the directory node on the source and grant the pusher node permission.
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
 let owner = tg --url $source.url login --verbose --name owner | from json

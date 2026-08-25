@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory's walk method yields every recursive entry with its joined path.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

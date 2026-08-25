@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build fails when it attempts to modify an artifact in the sandbox's read-only store directory.
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

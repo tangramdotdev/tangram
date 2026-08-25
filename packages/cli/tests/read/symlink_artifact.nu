@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a symlink with an artifact target resolves to the target file's contents.
 
-let server = spawn
+let server = server spawn
 
 let link = tg put 'tg.symlink({ "artifact": tg.file("via symlink") })' | str trim
 

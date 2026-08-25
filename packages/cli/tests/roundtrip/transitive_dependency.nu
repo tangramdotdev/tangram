@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Building an artifact whose tagged dependencies form a transitive chain with version constraints, checking it out with dependencies, deleting the tags and cleaning, and checking it back in yields the same artifact ID.
 
-let server = spawn
+let server = server spawn
 
 # Create and tag dependencies.
 let foo_1_0_0_path = artifact {

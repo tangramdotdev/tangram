@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Logging out removes the local token and revokes the server-side session.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 tg logout

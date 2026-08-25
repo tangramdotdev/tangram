@@ -3,10 +3,10 @@ use ../../test.nu *
 # Eagerly pushing a built nested directory to a remote makes the object and its metadata identical on the local and remote servers.
 
 # Create a remote server.
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create a local server.
-let local = spawn --name local
+let local = server spawn --name local
 
 # Add the remote.
 let output = tg remote put default $remote.url | complete

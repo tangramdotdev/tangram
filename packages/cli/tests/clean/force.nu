@@ -3,7 +3,7 @@ use ../../test.nu *
 # Force cleaning stops the server and removes the entire directory.
 
 let dir = mktemp --directory
-let server = spawn --directory $dir
+let server = server spawn --directory $dir
 
 tg put 'tg.file("force")'
 

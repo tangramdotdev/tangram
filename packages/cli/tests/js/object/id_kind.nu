@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Object.Id.kind maps each object id prefix to its kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

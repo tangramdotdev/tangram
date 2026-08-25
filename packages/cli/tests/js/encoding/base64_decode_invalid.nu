@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.encoding.base64.decode fails when the input contains a character outside the base64 alphabet.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.base64.decode("!!!notbase64"); }'

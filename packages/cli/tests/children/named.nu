@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Named nodes expose their direct graph children.
 
-let server = spawn
+let server = server spawn
 
 let artifact = artifact 'contents'
 let target = tg checkin $artifact | str trim

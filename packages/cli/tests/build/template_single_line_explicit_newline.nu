@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An explicit newline escape between two artifact placeholders in a single-line tg template literal is preserved and matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

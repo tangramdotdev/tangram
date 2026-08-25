@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The --executable flag sets the path on the artifact executable rather than resolving the path to the artifact at it.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	bin: (directory {

@@ -5,8 +5,8 @@ use ../test.nu *
 let tmp = mktemp --directory
 
 # Spawn a remote and local server.
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.parse reads a value from its TGON text.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.parse("{\"a\":1,\"b\":[true,\"x\"]}"); }'

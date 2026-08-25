@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A destructive checkin of a package with a cyclic path dependency produces the expected graph object.
 
-let server = spawn
+let server = server spawn
 
 # Check for cyclic dependencies.
 let path = artifact {

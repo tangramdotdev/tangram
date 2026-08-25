@@ -14,11 +14,10 @@ let regions = [
 ]
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
-	primary_region: 'a',
-	regions: $regions,
 }
-let region_a = spawn --name region-a --directory $region_a_directory --url $region_a_url --config ($common | merge { region: 'a' })
-let region_b = spawn --name region-b --directory $region_b_directory --url $region_b_url --config ($common | merge { region: 'b' })
+let instance = instance --primary-region a --regions $regions --config $common
+let region_a = server spawn --instance $instance --region a --name region-a --directory $region_a_directory --url $region_a_url
+let region_b = server spawn --instance $instance --region b --name region-b --directory $region_b_directory --url $region_b_url
 
 let directory = tg --url $region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
 tg --url $region_a.url index

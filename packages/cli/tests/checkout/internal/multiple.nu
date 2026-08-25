@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # An internal checkout accepts multiple artifacts, while an external checkout accepts exactly one.
 
-let server = spawn
+let server = server spawn
 
 let first = artifact 'first'
 let second = artifact 'second'

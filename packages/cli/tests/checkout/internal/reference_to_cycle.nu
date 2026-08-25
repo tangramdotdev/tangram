@@ -4,7 +4,7 @@ use ../../../test.nu *
 
 let tmp = mktemp --directory
 
-let server = spawn --config { write: { checkout_pointers: false } }
+let server = server spawn --config { write: { checkout_pointers: false } }
 
 let artifact = artifact {
 	tangram.ts: '

@@ -6,7 +6,7 @@ vfs skip_unless_supported
 # Listing a directory through the mounted VFS returns its entries, including nested ones.
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path --config { vfs: true }
+let server = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg build (artifact {

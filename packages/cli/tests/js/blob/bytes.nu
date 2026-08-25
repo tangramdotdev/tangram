@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A blob's bytes accessor returns its contents as a byte array.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await (await tg.blob("hello")).bytes; }'

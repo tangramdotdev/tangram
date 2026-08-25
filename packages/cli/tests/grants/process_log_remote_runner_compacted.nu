@@ -5,14 +5,14 @@ use ../../test.nu *
 let root_token = random chars
 
 # The remote authenticates users, compacts process logs, and schedules work but holds no runner role, so the build can only complete by way of the separate runner.
-let remote = spawn --name remote --cloud --preserve-keys --config {
+let remote = server spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [cleaner http indexer scheduler],
 }
 
 let created = tg --url $remote.url --token $root_token runner create | from json
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [indexer runner],
 	runner: { id: $created.runner.id, remote: 'default', token: $created.token.token },
@@ -20,7 +20,7 @@ let runner = spawn --name runner --config {
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
-let local = spawn --name alice-local --config {
+let local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 

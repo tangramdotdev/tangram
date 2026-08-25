@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Documenting a process reference fails because a module must be an object.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

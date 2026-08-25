@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A sync get by specifier works when ancestor transfer is disabled.
 
-let source = spawn --name source
-let destination = spawn --name destination
+let source = server spawn --name source
+let destination = server spawn --name destination
 let group = tg --url $source.url group create foo | from json
 
 # Encode a put node, put end, and sync end for the destination sync stream.

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # An explicit null stack is not overwritten by a captured stack, but an omitted stack is captured.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandboxed process with inherited stdin, stdout, and stderr reads from the client's stdin and writes to the client's stdout and stderr.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

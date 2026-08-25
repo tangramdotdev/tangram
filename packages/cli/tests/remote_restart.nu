@@ -11,11 +11,11 @@ let config =  {
 	authentication: { root: { token: $root_token } },
 	roles: [cleaner http indexer scheduler],
 }
-let remote = spawn --name remote --cloud --config $config
+let remote = server spawn --name remote --cloud --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
 # Spawn a remote runner.
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	runner: {
 		id: $created.runner.id
 		remote: "default"
@@ -30,7 +30,7 @@ let runner = spawn --name runner --config {
 }
 
 # Spawn a local server.
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		default: {
 			token: $root_token
@@ -61,17 +61,8 @@ snapshot $output.stdout '
 
 '
 
-# Kill the server.
-print 'killing remote'
-let pid = open ($remote.directory | path join 'lock') | into int
-kill --signal 2 $pid
-
-# Wait for the server to stop.
-if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (ps | where pid == $pid | is-not-empty) { sleep 10ms } }
-print 'server stopped.'
-
 # Restart the remote server.
-spawn --directory $remote.directory --name remote --cloud --config $config --url $remote.url
+let remote = server restart $remote
 
 # Ensure we can check the health.
 let health = tg --url $remote.url health | complete

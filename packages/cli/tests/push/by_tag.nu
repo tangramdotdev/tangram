@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Pushing by a tag specifier transfers the object and creates the tag on the remote.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local
 tg remote put default $remote.url | complete
 
 let path = artifact {

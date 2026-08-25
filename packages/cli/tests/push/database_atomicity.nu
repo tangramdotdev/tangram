@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A failed sync leaves objects and processes as cache entries but does not commit any database nodes.
 
-let remote = spawn --cloud --name remote
-let local = spawn --busybox --name local
+let remote = server spawn --cloud --name remote
+let local = server spawn --busybox --name local
 tg remote put default $remote.url
 
 # Create a destroyed sandbox that can be staged before the failure.

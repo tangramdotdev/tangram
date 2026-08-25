@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # When a build fails with a checksum mismatch, a subsequent build with a different checksum copies the original process's children rather than losing them.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

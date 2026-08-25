@@ -6,8 +6,8 @@ use ../../test.nu *
 # The root cause was external pointers (references to nodes outside the SCC) using ephemeral
 # checkin graph indices instead of resolved object IDs.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create a package "inner" where nodes in a cycle reference nodes outside the cycle.

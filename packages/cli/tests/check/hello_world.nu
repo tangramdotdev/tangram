@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The check command succeeds for a minimal package whose default export returns a string.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

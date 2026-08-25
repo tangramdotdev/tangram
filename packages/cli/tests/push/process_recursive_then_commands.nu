@@ -14,10 +14,10 @@ def collect_commands [process_id: string] {
 
 def test [path: string, ...args] {
 	# Create a remote server.
-	let remote = spawn --cloud --name remote
+	let remote = server spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn --name local
+	let local = server spawn --name local
 
 	# Add the remote.
 	tg remote put default $remote.url

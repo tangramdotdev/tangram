@@ -3,7 +3,7 @@ use ../../test.nu *
 # Checking in a store path must authorize the caller on the named artifact: the store-path branch creates an object subtree authorization token for the artifact ID in the path, so a principal who cannot read that artifact must not be able to check it in and obtain a read capability for it.
 
 let dir = mktemp -d
-let server = spawn --directory $dir --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --directory $dir --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 

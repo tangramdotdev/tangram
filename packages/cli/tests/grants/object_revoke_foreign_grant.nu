@@ -2,13 +2,13 @@ use ../../test.nu *
 
 # A principal who can read an object cannot revoke a grant another principal created on it; only the creator may revoke.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 

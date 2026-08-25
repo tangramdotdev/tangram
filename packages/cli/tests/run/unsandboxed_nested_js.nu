@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A nested JavaScript function invoked via tg.run receives a structured argument object and returns its computed result.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

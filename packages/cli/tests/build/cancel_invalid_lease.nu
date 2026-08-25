@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Cancelling with an invalid lease is an idempotent no-op, while cancelling with the valid lease stops the process.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

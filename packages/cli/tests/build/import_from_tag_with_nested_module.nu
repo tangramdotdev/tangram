@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A package importing a tagged dependency can resolve exports re-exported from nested modules, both on the initial build and after the importing package is mutated to call a different export.
 
-let server = spawn
+let server = server spawn
 
 # Create and tag package a.
 let a_path = artifact {

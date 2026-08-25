@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A node cannot replace a different kind at the same specifier without force.
 
-let destination = spawn --cloud --name destination --config {
+let destination = server spawn --cloud --name destination --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 let alice = tg --url $destination.url login --verbose --name alice | from json
@@ -16,7 +16,7 @@ tg --url $destination.url --token $alice.token grant $bob.user.id read parent | 
 tg --url $destination.url --token $alice.token grant $bob.user.id write parent/child | ignore
 tg --url $destination.url index
 
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { token: $bob.token, url: $destination.url } }
 }
 tg --url $source.url pull parent

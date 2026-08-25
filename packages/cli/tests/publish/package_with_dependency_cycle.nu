@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a package whose two members import each other in a cycle tags both packages on the local and remote servers, syncs their objects, and produces matching metadata.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create an import cycle but NOT a process cycle.

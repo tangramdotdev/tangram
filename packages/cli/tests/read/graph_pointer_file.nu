@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a graph file pointer returns the contents of the referenced file.
 
-let server = spawn
+let server = server spawn
 
 # Create a graph with a single file node.
 let graph = '

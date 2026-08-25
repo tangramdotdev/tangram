@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Logging in as a new user creates the user, returns its record, and authenticates subsequent requests.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 assert ($alice.user.id | str starts-with "usr_") "login should return a user id"

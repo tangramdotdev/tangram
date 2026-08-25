@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Displaying a tree for a path that does not exist fails.
 
-let server = spawn
+let server = server spawn
 
 let output = tg tree /nonexistent/path/nowhere | complete
 failure $output

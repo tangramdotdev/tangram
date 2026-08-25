@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a process fails because a process is not an object.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "hello"; }'

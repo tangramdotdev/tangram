@@ -3,14 +3,14 @@ use ../../test.nu *
 # A remote runner indexes a process it runs and retains the process's grants after finish.
 
 let remote_root_token = random chars
-let remote = spawn --name remote --cloud --config {
+let remote = server spawn --name remote --cloud --config {
 	authentication: { root: { token: $remote_root_token } },
 	roles: [cleaner http indexer scheduler],
 }
 let created = tg --url $remote.url --token $remote_root_token runner create | from json
 
 let runner_root_token = random chars
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	authentication: {
 		root: { token: $runner_root_token },
 		users: { providers: { insecure: true } },
@@ -19,7 +19,7 @@ let runner = spawn --name runner --config {
 	roles: [indexer runner],
 	runner: { id: $created.runner.id, remote: default, token: $created.token.token },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { token: $remote_root_token, url: $remote.url } },
 }
 
@@ -37,7 +37,7 @@ let runner_url = $runner.url
 let pid = open ($runner.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } "the runner should stop"
-let runner = spawn --name runner --directory $runner_directory --url $runner_url --config {
+let runner = server spawn --name runner --directory $runner_directory --url $runner_url --config {
 	authentication: {
 		root: { token: $runner_root_token },
 		users: { providers: { insecure: true } },

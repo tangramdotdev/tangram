@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package with a cyclic path dependency between two sibling packages succeeds and writes no lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	directory: {

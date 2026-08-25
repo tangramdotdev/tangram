@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let tmp = mktemp --directory
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: r#'

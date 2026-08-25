@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Group creation retries when an ancestor is created after authorization.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { checkpoints: true }
 }
 let watch = (

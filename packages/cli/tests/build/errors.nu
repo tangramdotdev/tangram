@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # When a child process throws an error, both the child error and the parent's wrapping error carry the expected message, source, and stack information.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: r#'

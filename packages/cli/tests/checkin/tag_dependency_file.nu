@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package that imports a file tagged dependency produces the expected object and writes the expected lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	foo.tg.ts: ''

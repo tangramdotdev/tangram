@@ -4,7 +4,7 @@ use ../../test.nu *
 # tagging and creating a group do, and should keep refusing by default. Every spelling of the flag is
 # covered: the aliases, the explicit boolean values, and the last flag winning when both are given.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "hello"; }'

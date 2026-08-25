@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # A process authenticated client lists its creator's remotes but may not put a remote.
 
-let root_remote = spawn --name root-remote
-let alice_remote = spawn --name alice-remote
-let server = spawn --config {
+let root_remote = server spawn --name root-remote
+let alice_remote = server spawn --name alice-remote
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	remotes: { root: { url: $root_remote.url } },
 }

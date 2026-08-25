@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Publishing with the dry run flag prints the plan and does not create the tag.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

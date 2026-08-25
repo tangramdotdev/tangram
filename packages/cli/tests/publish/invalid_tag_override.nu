@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Publishing with a malformed tag override fails to parse the tag.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

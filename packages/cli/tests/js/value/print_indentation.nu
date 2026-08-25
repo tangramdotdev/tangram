@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.print renders a value across multiple indented lines when given an indentation option.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.print({ a: 1, b: [2, 3] }, { indentation: "  " }); }'

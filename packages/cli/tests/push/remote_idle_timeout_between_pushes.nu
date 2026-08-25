@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # A push succeeds after the remote's idle timeout closes the local server's pooled connection between pushes.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	http: { idle_timeout: 3 }
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

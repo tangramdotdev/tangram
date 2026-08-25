@@ -2,15 +2,15 @@ use ../../test.nu *
 
 # Ancestor pulling continues until a remote supplies the immediate parent.
 
-let first = spawn --cloud --name first
-let second = spawn --cloud --name second
+let first = server spawn --cloud --name first
+let second = server spawn --cloud --name second
 
 let root = tg --url $first.url group create foo | from json
 tg --url $first.url remote put second $second.url
 tg --url $first.url push --remote=second foo
 let remote_parent = tg --url $second.url group create foo/bar | from json
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		first: { url: $first.url }
 		second: { url: $second.url }

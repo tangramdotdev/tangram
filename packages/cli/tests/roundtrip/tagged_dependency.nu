@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Building an artifact that uses a tagged dependency, checking it out with dependencies, deleting the tag and cleaning, and checking it back in yields the same artifact ID.
 
-let server = spawn
+let server = server spawn
 
 # Create and tag the foo dependency.
 let foo_path = artifact {

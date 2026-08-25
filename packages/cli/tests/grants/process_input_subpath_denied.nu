@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reaching a descendant of a process's own input by subpath is refused, while every other route to the same file works: the process may read the whole tree, which includes that file, and may read the containing directory by id. Only the one request form is denied, so this is an inconsistency in that path rather than a limit on what the process is entitled to. Note `try_get_apply_get` in packages/server/src/get.rs stores the traversed artifact, which the other two routes do not do.
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let path = artifact { tangram.ts: '
 	import busybox from "busybox";

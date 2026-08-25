@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build whose return value is a self-referential array fails because of the cyclic value.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

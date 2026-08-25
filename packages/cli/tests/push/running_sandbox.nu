@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A running sandbox cannot be pushed.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local
 tg remote put default $remote.url
 
 let sandbox = tg sandbox create | str trim

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A plain .ts file without xattr has no module kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	"foo.ts": "console.log('not a module')"

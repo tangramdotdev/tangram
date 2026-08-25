@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watched checkin whose root is a single file, rather than a directory, picks up an edit to that file and matches a cold checkin.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact 'alpha'
 let first = tg checkin $path --watch

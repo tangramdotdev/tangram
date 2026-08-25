@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.resolve throws when the value contains a reference cycle.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

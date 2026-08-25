@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # A sync rechecks an existing tag target after authorization.
 
-let source = spawn --cloud --name source
+let source = server spawn --cloud --name source
 let source_target = tg --url $source.url put 'tg.file("source")' | str trim
 tg --url $source.url tag put race $source_target
-let destination = spawn --name destination --config {
+let destination = server spawn --name destination --config {
 	advanced: { checkpoints: true }
 	remotes: { default: { url: $source.url } }
 }

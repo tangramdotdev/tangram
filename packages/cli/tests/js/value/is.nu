@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.is accepts a valid value and rejects a function.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return [tg.Value.is({ a: [1, "x"] }), tg.Value.is(() => 1)]; }'

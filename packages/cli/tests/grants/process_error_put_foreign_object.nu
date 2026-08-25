@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Putting a process whose error names a foreign object does not leak it: tg process put grants the putter only the process node, which does not propagate to the error object.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

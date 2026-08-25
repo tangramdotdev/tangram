@@ -3,7 +3,7 @@ use ../../test.nu *
 # A sandbox can authenticate as root and access tags only when it has network access.
 
 let root_token = "root-token"
-let server = spawn --busybox --config {
+let server = server spawn --busybox --config {
 	authentication: { root: { token: $root_token } },
 }
 

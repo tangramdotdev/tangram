@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # Resolving a branch tag returns the cached child within its TTL and returns the newest child when fetched with --ttl 0.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } }
 }
 

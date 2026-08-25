@@ -6,7 +6,7 @@ def --wrapped usage [token: string, ...period: string] {
 	tg --token $token usage ...$period | from json
 }
 
-let server = spawn --now '2026-01-01T00:00:00Z' --config {
+let server = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

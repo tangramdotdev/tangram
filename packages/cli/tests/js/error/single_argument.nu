@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.error preserves an unloaded error passed as its sole argument without loading it.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

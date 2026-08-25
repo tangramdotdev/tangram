@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Blob.branch builds a branch node whose children concatenate to the contents.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

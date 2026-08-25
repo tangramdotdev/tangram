@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Deleting a watch removes it from the watch list.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'

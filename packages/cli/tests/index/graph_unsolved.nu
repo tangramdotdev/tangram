@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Test metadata for a graph with conflicting version requirements that cannot be solved.
 
-let local = spawn --name local
-let remote = spawn --cloud --name remote
+let local = server spawn --name local
+let remote = server spawn --cloud --name remote
 # Create conflicting versions of a dependency.
 let c1 = artifact {
 	tangram.ts: ''

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Accessing the stdin, stdout, or stderr of an unsandboxed process whose stdio is set to null fails with an unavailable error.
 
-let server = spawn
+let server = server spawn
 
 def run_source [source: string] {
 	let path = artifact { tangram.ts: $source }

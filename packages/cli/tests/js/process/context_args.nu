@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The ambient tg.process.args is an empty list for a default-export build with no arguments.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

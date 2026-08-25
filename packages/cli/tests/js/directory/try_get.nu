@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory's tryGet method returns the artifact at the given path.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

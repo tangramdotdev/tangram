@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # Pulling a process includes its error by default.
 
-let remote = spawn --cloud --name remote
-let source = spawn --name source --config {
+let remote = server spawn --cloud --name remote
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } },
 }
-let local = spawn --name local
+let local = server spawn --name local
 tg remote put default $remote.url
 
 let path = artifact {

@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a package whose dependency graph contains both an import cycle and acyclic dependencies tags every package in a valid order on both servers, syncs the objects, and produces matching metadata.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create a complex graph with both cycles and non-cycles:

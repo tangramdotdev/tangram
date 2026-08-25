@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Successive .mount calls on a sandboxed process append the mounts in order and the resulting mount list is reported back faithfully.
 
-let server = spawn --config {
+let server = server spawn --config {
 	roles: [cleaner http indexer runner scheduler],
 }
 

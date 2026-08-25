@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Disconnecting tg run before sandbox control connects can leave the accepted pre-wait sandbox running.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

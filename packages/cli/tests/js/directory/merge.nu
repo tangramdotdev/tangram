@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.directory merges multiple arguments into a single directory.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

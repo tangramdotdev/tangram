@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A file's dependencyObjects accessor returns its dependencies' objects as an array.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

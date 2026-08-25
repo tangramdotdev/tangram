@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Touching a graph directory pointer fails with an error indicating that a pointer was found instead of an object.
 
-let server = spawn
+let server = server spawn
 
 let graph = '
 	tg.graph({

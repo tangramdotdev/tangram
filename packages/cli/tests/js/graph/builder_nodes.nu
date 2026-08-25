@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's nodes method appends an array of nodes.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

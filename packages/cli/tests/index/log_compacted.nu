@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A finished process wakes log compaction without waiting for the fallback interval.
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	indexer: { log_compaction: { wakeup_interval: 3600 } },
 }
 

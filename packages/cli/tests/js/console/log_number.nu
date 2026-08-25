@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # console.log formats a number argument as its decimal representation.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

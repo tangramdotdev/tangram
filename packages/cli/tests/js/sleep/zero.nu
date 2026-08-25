@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.sleep with a zero duration resolves immediately.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

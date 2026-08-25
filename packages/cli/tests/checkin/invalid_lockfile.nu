@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package with an invalid sibling lockfile ignores the lockfile, produces the expected object, and removes the lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.lock: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A --watch checkin notices a real on-disk edit without a touch, and a plain checkin agrees with the watched one.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default () => "one";'

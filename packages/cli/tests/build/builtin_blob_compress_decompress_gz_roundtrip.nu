@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Compressing a blob with gzip and then decompressing it preserves the original contents.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

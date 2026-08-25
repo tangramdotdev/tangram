@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The algorithm flag defaults to sha256.
 
-let server = spawn
+let server = server spawn
 
 let blob = "hello, world!\n" | tg write
 

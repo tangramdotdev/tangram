@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package that depends on a tag whose own dependency is missing fails with the expected error.
 
-let server = spawn
+let server = server spawn
 
 # Tag foo which depends on bar (but bar does not exist).
 let foo_path = artifact {

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Publishing a package whose metadata tag is not a string fails.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

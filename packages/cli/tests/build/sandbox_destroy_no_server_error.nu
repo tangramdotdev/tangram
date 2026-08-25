@@ -4,7 +4,7 @@ use ../../test.nu *
 # the sandbox process, which closes the socket under the server's HTTP client
 # and fails its connection with a broken pipe.
 
-let server = spawn --config { tracing: { stderr_format: 'json' } }
+let server = server spawn --config { tracing: { stderr_format: 'json' } }
 
 let path = artifact {
 	tangram.ts: '

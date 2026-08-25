@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # console.log joins multiple arguments with a single space.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

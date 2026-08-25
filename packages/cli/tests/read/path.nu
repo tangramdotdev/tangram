@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a filesystem path checks it in and returns the file contents.
 
-let server = spawn
+let server = server spawn
 
 let temp_file = mktemp --tmpdir
 "path contents" | save --force $temp_file

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's console.log and console.error output are routed to the run command's stdout and stderr respectively, preserving order.
 
-let server = spawn
+let server = server spawn
 let path = artifact {
 	tangram.ts: r#'
 		export default async function () {

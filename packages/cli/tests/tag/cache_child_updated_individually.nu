@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # A child tag cached as part of a parent branch fetch can later be updated individually with --ttl 0.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } }
 }
 

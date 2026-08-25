@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Test metadata for nested directories where an inner file has a tag dependency.
 
-let local = spawn --name local
-let remote = spawn --cloud --name remote
+let local = server spawn --name local
+let remote = server spawn --cloud --name remote
 
 # Tag a dependency.
 let dep_path = artifact {

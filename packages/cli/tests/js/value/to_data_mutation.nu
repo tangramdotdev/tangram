@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.toData wraps a mutation under the mutation kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Value.toData(await tg.Mutation.set("v")); }'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Putting bytes under an id they do not hash to is rejected by the server, and the object is not stored.
 
-let server = spawn
+let server = server spawn
 
 let real = tg put 'tg.file("real")' | str trim
 let bytes = tg get $real --bytes

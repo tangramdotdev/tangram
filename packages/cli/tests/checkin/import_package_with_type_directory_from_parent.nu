@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package that imports a sibling package with the directory type option produces the expected object and writes no lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	a: {

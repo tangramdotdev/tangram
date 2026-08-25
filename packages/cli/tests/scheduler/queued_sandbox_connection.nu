@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn --config {
+let server = server spawn --config {
 	runner: { cpus: 1 },
 }
 

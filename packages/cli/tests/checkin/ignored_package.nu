@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package respects both the root and the nested .tangramignore files when selecting entries.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	.tangramignore: '/ignored'

@@ -3,7 +3,7 @@ use ../../test.nu *
 # A piped stdio read that arrives after the process's sandbox is destroyed receives the
 # process's buffered output rather than failing to create the stream.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

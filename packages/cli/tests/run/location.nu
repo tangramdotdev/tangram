@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A location implies a sandbox and cannot be combined with --no-sandbox.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default () => 42;'

@@ -3,13 +3,13 @@ use ../test.nu *
 # The local flag restricts get and object metadata to the local server, failing when the object is only on a remote, while omitting the flag fetches it from the remote.
 
 # Create a remote server.
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create a local server.
-let local = spawn --name local
+let local = server spawn --name local
 
 # Create a source server.
-let source = spawn --name source
+let source = server spawn --name source
 
 # Create and build a simple artifact on the source server.
 let path = artifact {

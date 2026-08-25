@@ -2,14 +2,14 @@ use ../../test.nu *
 
 # Granting an object permission requires only that permission, not admin, so a subtree grantee can delegate the subtree but a node grantee cannot.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 let carol = tg --url $remote.url login --verbose --name carol | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 

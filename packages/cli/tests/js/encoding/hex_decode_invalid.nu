@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.encoding.hex.decode fails when the input is not valid lowercase hexadecimal.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.hex.decode("xyz"); }'

@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a simple package tags it on both the local and remote servers, syncs the object to the remote, and produces matching metadata after indexing.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 let path = artifact {

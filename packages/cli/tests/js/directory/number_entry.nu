@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.directory throws when an entry value is a bare number.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

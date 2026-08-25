@@ -5,7 +5,7 @@ use ../../test.nu *
 let root_token = random chars
 
 # Spawn the remote. It holds no runner role, so the build can only complete by way of the runner.
-let remote = spawn --preserve-keys --name remote --config {
+let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [cleaner http indexer scheduler],
@@ -15,7 +15,7 @@ let remote = spawn --preserve-keys --name remote --config {
 let created = tg --url $remote.url --token $root_token runner create | from json
 
 # Spawn the runner with checkpoints enabled.
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [http indexer runner],
@@ -24,7 +24,7 @@ let runner = spawn --name runner --config {
 
 # Create user credentials and spawn the local server.
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = spawn --name alice-local --config {
+let local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 

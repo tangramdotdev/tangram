@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The position and length flags window a process's children list.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

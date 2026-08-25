@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.checksum checksums the contents of a blob.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.checksum(await tg.blob("hello"), "sha256"); }'

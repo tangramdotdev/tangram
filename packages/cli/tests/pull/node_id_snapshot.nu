@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # A sync retries when a conflicting ID is created after authorization.
 
-let source = spawn --cloud --name source
+let source = server spawn --cloud --name source
 let incoming = tg --url $source.url group create race | from json
-let destination = spawn --name destination --config {
+let destination = server spawn --name destination --config {
 	advanced: { checkpoints: true }
 	remotes: { default: { url: $source.url } }
 }

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # whoami returns the logged-in user and reports not-logged-in for an anonymous client.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let me = tg user whoami | from json
@@ -20,8 +20,8 @@ snapshot --normalize $output.stderr '
 '
 
 # A named-remote login persists its token for subsequent commands at that location.
-let remote = spawn --config { authentication: { users: { providers: { insecure: true } } } }
-let local = spawn --config {
+let remote = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config {
 	remotes: { staging: { url: $remote.url } }
 }
 

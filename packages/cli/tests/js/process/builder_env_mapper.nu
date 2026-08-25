@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A command builder preserves its env mapper when creating a process builder.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Compressing or decompressing a well formed blob id that does not exist fails.
 
-let server = spawn
+let server = server spawn
 
 let id = "blb_010000000000000000000000000000000000000000000000000000"
 

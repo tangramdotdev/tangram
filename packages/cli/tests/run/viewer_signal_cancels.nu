@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # SIGINT and SIGTERM gracefully exit a running viewer and cancel the process through its wait lease.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

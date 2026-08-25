@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Force replaces a conflicting group and its complete named subtree with a tag.
 
-let server = spawn
+let server = server spawn
 let root = tg group create tree | from json
 let child = tg group create tree/child | from json
 let old_target = tg put 'tg.file("old")' | str trim

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's artifact and path methods set the symlink's fields.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

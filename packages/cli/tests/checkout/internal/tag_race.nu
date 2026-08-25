@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A tag mutation racing a checkout removes the stale entry after the checkout releases the lock.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

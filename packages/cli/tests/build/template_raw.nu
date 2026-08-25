@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The tg.Template.raw template literal preserves the literal indentation and whitespace of its body and matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

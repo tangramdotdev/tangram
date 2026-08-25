@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A null module override clears the inherited file module, and the object and fluent forms are equivalent.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

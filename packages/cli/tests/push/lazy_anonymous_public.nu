@@ -2,12 +2,12 @@ use ../../test.nu *
 
 # An anonymous lazy push makes its objects public, so a later anonymous push can rely on them.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } },
 }
-let directory_source = spawn --name directory-source --config {
+let directory_source = server spawn --name directory-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 

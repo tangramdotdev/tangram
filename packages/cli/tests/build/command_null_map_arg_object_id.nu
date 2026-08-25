@@ -6,7 +6,7 @@ use ../../test.nu *
 # translation, so the key survives JSON.stringify. A divergence throws "invalid
 # object id".
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: r#'

@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # Force replaces conflicting local nodes and their complete named subtrees during pull.
 
-let source = spawn --cloud --name source
+let source = server spawn --cloud --name source
 let new_root = tg --url $source.url group create tree | from json
 let new_child = tg --url $source.url group create tree/new | from json
 
-let destination = spawn --name destination --config {
+let destination = server spawn --name destination --config {
 	remotes: { default: { url: $source.url } }
 }
 let old_root = tg --url $destination.url group create tree | from json

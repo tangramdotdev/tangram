@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Organization usage is available by id and specifier.
 
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

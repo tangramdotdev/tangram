@@ -4,10 +4,10 @@ use ../../test.nu *
 
 def test_push [...args] {
 	# Create a remote server.
-	let remote = spawn --cloud --name remote
+	let remote = server spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn --name local
+	let local = server spawn --name local
 
 	# Add the remote.
 	tg remote put default $remote.url
@@ -20,10 +20,10 @@ def test_push [...args] {
 
 def test_pull [...args] {
 	# Create a remote server.
-	let remote = spawn --cloud --name remote
+	let remote = server spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn --name local
+	let local = server spawn --name local
 
 	# Add the remote.
 	tg remote put default $remote.url

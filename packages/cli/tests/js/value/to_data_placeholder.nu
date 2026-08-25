@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.toData wraps a placeholder under the placeholder kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.toData(tg.placeholder("foo")); }'

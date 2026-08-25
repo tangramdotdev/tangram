@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A destructive checkin of a package with a path dependency outside the checked-in root fails.
 
-let server = spawn
+let server = server spawn
 
 # Check that we cannot destructively checkin artifacts with external paths.
 let path = artifact {

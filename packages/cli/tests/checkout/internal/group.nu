@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A group checkout materializes its visible subtree and participates in checkout cleaning.
 
-let server = spawn
+let server = server spawn
 let root = tg group create foo | from json
 let group = tg group create foo/bar | from json
 let store = $server.directory | path join store

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.compress and tg.decompress round-trip a blob through every supported format.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

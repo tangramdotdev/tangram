@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Checksum.algorithm throws when the checksum has neither a colon nor a dash separator.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

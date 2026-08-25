@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Touching a watch on a path that has no watch fails.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact 'test'
 

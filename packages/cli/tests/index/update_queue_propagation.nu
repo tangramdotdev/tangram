@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Metadata propagates from child to parent through the update queue.
 
-let local = spawn --name local
+let local = server spawn --name local
 
 # Create and check in a child file first.
 let child_path = artifact {

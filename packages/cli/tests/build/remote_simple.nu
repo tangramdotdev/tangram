@@ -8,7 +8,7 @@ let config = {
 	authentication: { root: { token: $root_token } },
 	roles: [cleaner http indexer scheduler],
 }
-let remote = spawn --name remote --cloud --config $config
+let remote = server spawn --name remote --cloud --config $config
 
 # Create the runner.
 let created = tg --url $remote.url --token $root_token runner create | from json
@@ -27,7 +27,7 @@ let config = {
 		token: $created.token.token
 	}
 }
-let runner = spawn --name runner --config $config
+let runner = server spawn --name runner --config $config
 
 # Start the local server.
 let config = {
@@ -38,7 +38,7 @@ let config = {
 		}
 	}
 }
-let local = spawn --name local --config $config
+let local = server spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '

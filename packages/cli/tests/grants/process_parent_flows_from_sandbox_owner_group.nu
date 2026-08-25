@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A write grant on the owner of an ancestor process's sandbox confers process_parent on descendants.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

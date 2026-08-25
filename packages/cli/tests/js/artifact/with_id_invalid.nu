@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Artifact.withId throws when the id prefix is not an artifact kind.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

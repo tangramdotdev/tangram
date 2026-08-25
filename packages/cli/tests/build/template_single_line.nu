@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A single-line tg template literal interpolates an imported file artifact and matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

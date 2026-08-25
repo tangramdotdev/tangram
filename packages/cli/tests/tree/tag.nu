@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The tree command renders groups, tags, and tag nodes as distinct graph nodes.
 
-let server = spawn
+let server = server spawn
 
 # Create and tag dependencies.
 let foo_path = artifact {

@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Remotes are queried concurrently and conflicting results prefer the alphabetically first remote.
 
-let alpha = spawn --cloud --name alpha
-let zeta = spawn --cloud --name zeta
-let local = spawn --name local --config {
+let alpha = server spawn --cloud --name alpha
+let zeta = server spawn --cloud --name zeta
+let local = server spawn --name local --config {
 	remotes: {
 		zeta: { url: $zeta.url }
 		alpha: { url: $alpha.url }

@@ -4,7 +4,7 @@ use ../../test.nu *
 # process's output. The remote authorizes the cache hit because the process is public, but finishing
 # the local parent that holds its output then fails to authorize that output.
 
-let remote = spawn --name remote --config {
+let remote = server spawn --name remote --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
@@ -19,7 +19,7 @@ export default async function () { return tg.build(dep); }'
 tg --url $remote.url --token $alice.token build --public $"($path)#dep" | ignore
 
 # The client accesses the remote as Eve, who can reuse Alice's process only because it is public.
-let client = spawn --name client --config {
+let client = server spawn --name client --config {
 	remotes: { default: { token: $eve.token, url: $remote.url } },
 }
 

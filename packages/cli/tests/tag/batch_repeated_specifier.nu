@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A tag batch can repeat a specifier without treating its own earlier write as a snapshot mismatch.
 
-let server = spawn
+let server = server spawn
 let target = tg put 'tg.file("target")' | str trim
 let body = {
 	force: false,

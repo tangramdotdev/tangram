@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # An internal checkout creates a tag checkout entry, while tag mutations only invalidate it.
 
-let server = spawn
+let server = server spawn
 let tag_path = $server.directory | path join store dep
 
 let first = artifact 'first'

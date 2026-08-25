@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.resolve returns an already-resolved scalar value unchanged.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.resolve("hello"); }'

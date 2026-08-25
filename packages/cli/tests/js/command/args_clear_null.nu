@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A null args override clears the inherited argument list, and the object and fluent forms are equivalent.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

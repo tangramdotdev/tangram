@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A reference with a get option that names an entry the directory does not contain fails.
 
-let server = spawn
+let server = server spawn
 
 let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
 

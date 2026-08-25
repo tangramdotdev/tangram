@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Pulling a remote cache-hit process replaces its local index-only record with complete process data.
 
-let remote = spawn --name remote
+let remote = server spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
@@ -16,7 +16,7 @@ let remote_dependency = tg --url $remote.url build --detach $"($path)#dependency
 tg --url $remote.url wait $remote_dependency | ignore
 
 # Reuse the dependency on a clean client, creating an index-only process record locally.
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 let parent = tg --url $local.url build --detach $path | str trim

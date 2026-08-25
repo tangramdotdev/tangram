@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # A single push commits multiple nested groups and tags as one named-node batch.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	sync: { get: { database: { batch_size: 2 } } },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process may check a module from its sandbox.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

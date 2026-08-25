@@ -4,7 +4,7 @@ const js_path = path self '../../../js'
 
 # The compiled Node.js client uses the default host and connects to the server using the inherited Tangram URL.
 
-let server = spawn
+let server = server spawn
 
 cd $js_path
 

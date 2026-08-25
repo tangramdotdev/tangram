@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Disposing an unsandboxed process handle cancels its owned child.
 
-let server = spawn
+let server = server spawn
 
 let temp = mktemp --directory
 let marker = $temp | path join marker

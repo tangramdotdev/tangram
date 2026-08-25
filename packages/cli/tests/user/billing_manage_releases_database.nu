@@ -5,7 +5,7 @@ use ../lib/stripe.nu *
 
 let root_token = random chars
 let stripe = spawn_stripe --customer-delay 2sec
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: 'whsec_mock' } }
 	database: { kind: 'sqlite', pool: { max: 1 } }

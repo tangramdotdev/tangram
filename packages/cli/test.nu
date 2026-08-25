@@ -20,7 +20,7 @@ def main [
 	--databases # Run the shared cloud databases in the foreground. This is supported on Linux and macOS.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
-	--no-cloud # Use local backends for spawn --cloud.
+	--no-cloud # Use local backends for test instances.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--offline # Skip tests which require network access.
@@ -982,6 +982,8 @@ def run_test [test: record, options: record] {
 	} else {
 		mktemp -d -t tangram_test_XXXXXX | path expand
 	}
+	let working_path = $temp_path | path join 'work'
+	mkdir $working_path
 
 	# Remove inline, pending, and touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	let parsed = $test.path | path parse
@@ -1049,6 +1051,7 @@ def run_test [test: record, options: record] {
 		let command = [
 			$'use ($harness_path) cleanup_background_jobs'
 			'$env.config.display_errors.exit_code = true;'
+			$'cd ($working_path | to nuon);'
 			$'source ($test.path);'
 			$'cleanup_background_jobs ($temp_path);'
 		] | str join "\n"
@@ -1428,18 +1431,29 @@ def snapshot_path [path: string] {
 	}
 }
 
-export def --env spawn [
+export def --env "server spawn" [
 	--busybox
-	--cloud
+	--cloud # Create a cloud-backed instance for the server.
 	--config (-c): record
 	--directory (-d): string
+	--instance: record # Spawn the server in this instance.
 	--name (-n): string
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
 	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
+	--region: string # Set the server's region.
 	--url (-u): string
 ] {
 	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
+	let server_config = $config | default {}
+	let topology_keys = [instance primary_region region regions]
+	let invalid_topology_keys = $server_config | columns | where { |key| $key in $topology_keys }
+	if not ($invalid_topology_keys | is-empty) {
+		error make {
+			msg: $'server config contains topology fields: ($invalid_topology_keys | str join ", ")'
+			help: 'set topology with instance and server spawn arguments'
+		}
+	}
 
 	# Use unique semaphore names in the namespace FSKit can access.
 	let object_store_posix_sem_prefix = if $use_fskit {
@@ -1524,31 +1538,51 @@ export def --env spawn [
 		}
 	}
 
-	# Create the directory before provisioning cloud resources so a restart with the same directory can reuse them.
+	# Create the server directory.
 	let directory_path = $directory | default (mktemp -d)
 	try { mkdir $directory_path }
 
-	mut instance: any = null
-	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
+	if $cloud and $instance != null {
+		error make { msg: '--cloud may not be combined with --instance' }
+	}
+	let instance = if $instance != null {
+		$instance
+	} else if $cloud {
+		instance --cloud
+	} else {
+		instance
+	}
+	let instance_kind = $instance.kind
+	let use_cloud = match $instance_kind {
+		'cloud' => true,
+		'local' => false,
+		_ => {
+			error make { msg: $'invalid instance kind: ($instance_kind)' }
+		},
+	}
+	let cloud_instance = if $use_cloud { $instance.id } else { null }
+	let region_names = validate_instance_config $instance.config
+	if not ($region_names | is-empty) and $region == null {
+		error make { msg: 'a region is required when spawning a server in a regional instance' }
+	}
+	if $region != null and $region not-in $region_names {
+		error make { msg: $'the server region is not in the instance regions list: ($region)' }
+	}
+	mut storage_instance: any = null
 	if $use_cloud {
+		if ($cloud_instance | is-empty) {
+			error make { msg: 'the Tangram cloud instance is empty' }
+		}
 		let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
 		if ($pool_path | is-empty) {
 			error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
 		}
 		let cluster = fdb_cluster
-		let instance_path = $directory_path | path join '.tangram_test_cloud_instance'
-		$instance = if not ($instance_path | path exists) {
-			let instance = acquire_database_instance $pool_path
-			$instance | save -f $instance_path
-
-			$instance
-		} else {
-			open --raw $instance_path | str trim
+		$storage_instance = cloud_region_storage $cloud_instance $region $pool_path
+		if ($storage_instance | is-empty) {
+			error make { msg: 'the Tangram region storage instance is empty' }
 		}
-		if ($instance | is-empty) {
-			error make { msg: $"the Tangram instance is empty: ($instance_path)" }
-		}
-		$instance ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'instances')
+		track_database_pool_instance $storage_instance
 
 		let advanced = $default_config.advanced | merge {
 			single_directory: false,
@@ -1562,26 +1596,26 @@ export def --env spawn [
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($instance)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($cloud_instance)?sslmode=disable',
 				},
 				write: {
 					pool: {
 						max: 1,
 					},
-					url: $'postgres://postgres@127.0.0.1:5432/database_($instance)?sslmode=disable',
+					url: $'postgres://postgres@127.0.0.1:5432/database_($cloud_instance)?sslmode=disable',
 				},
 			},
-			instance: $instance,
+			instance: $cloud_instance,
 			index: {
 				cluster: $cluster,
 				kind: 'fdb',
-				prefix: $'index_($instance)',
+				prefix: $'index_($storage_instance)',
 			},
 			logs: {
 				store: {
 					cluster: $cluster,
 					kind: 'fdb',
-					prefix: $'logs_($instance)',
+					prefix: $'logs_($storage_instance)',
 				},
 			},
 			messenger: {
@@ -1592,7 +1626,7 @@ export def --env spawn [
 				store: {
 					addr: '127.0.0.1:9042',
 					connections: 1,
-					keyspace: $'objects_($instance)',
+					keyspace: $'objects_($storage_instance)',
 					kind: 'scylla',
 				},
 			},
@@ -1602,7 +1636,21 @@ export def --env spawn [
 	}
 
 	# Write the config.
-	let config = $default_config | merge deep --strategy append ($config | default {})
+	let config = $default_config
+		| merge deep --strategy append $instance.config
+		| merge deep --strategy append $server_config
+	let config = if $instance.config.primary_region? == null {
+		$config
+	} else {
+		$config | upsert primary_region $instance.config.primary_region
+	}
+	let config = if $instance.config.regions? == null {
+		$config
+	} else {
+		$config | upsert regions $instance.config.regions
+	}
+	let config = if $use_cloud { $config | upsert instance $cloud_instance } else { $config }
+	let config = if $region != null { $config | upsert region $region } else { $config }
 	let config = if $use_cloud and $config.roles? == null {
 		$config | upsert roles [cleaner http indexer scheduler]
 	} else {
@@ -1660,24 +1708,6 @@ export def --env spawn [
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
 	$env.TANGRAM_URL = $url
 
-	# On macOS, give the server a unique socket for the fskit file system extension
-	# to connect to, so concurrent servers and multiple mounts do not collide. The
-	# sandboxed extension can only reach the shared app group container, so the
-	# socket must live there.
-	if $nu.os-info.name == 'macos' {
-		let group_id = (identifiers).app_group_identifier
-		let group_container = $env.HOME | path join 'Library/Group Containers' $group_id
-		try { mkdir $group_container }
-		let socket_name = $'socket-((random chars) | str lowercase)'
-		$env.TANGRAM_MACOS_APP_GROUP_SOCKET = ($group_container | path join $socket_name)
-	}
-
-	# Create a path for server readiness signaling.
-	let ready_path = ($config_path | path dirname | path join 'ready')
-	touch $ready_path
-	let server_exit_directory_path = (($env.TMPDIR? | default ($config_path | path dirname)) | path join $server_exit_directory_name)
-	try { mkdir $server_exit_directory_path }
-
 	# Create a path for the server's captured output.
 	let log_path = ($config_path | path dirname | path join 'log')
 	touch $log_path
@@ -1689,62 +1719,25 @@ export def --env spawn [
 		$clock_path
 	}
 
-	# Spawn the server.
-	let server_job = job spawn -d server {
-		let server_job_id = job id
-		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
-		let environment = if $clock_path == null {
-			{}
-		} else {
-			{ TANGRAM_TEST_CLOCK: $clock_path }
-		}
-		do -i {
-			with-env $environment {
-				bash -c $"
-				PARENT_PID=$PPID
-				SELF_PID=$$
-					\(
-						while kill -0 $PARENT_PID 2>/dev/null; do
-							sleep 0.05
-						done
-						kill -TERM -$SELF_PID 2>/dev/null || true
-					\) &
-				exec 3>\"($ready_path)\"
-				exec tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
-				" e>| lines | each { |line|
-					$"($line)\n" | save --append $log_path
-					print -e $"($name | default 'server'): ($line)\r"
-				}
-			}
-		}
-		'' | save -f $exit_path
+	# Create and start the server.
+	let vfs = $config | get --optional vfs
+	let checkout_directory_name = if $vfs == null or $vfs == false { 'store' } else { 'checkouts' }
+	let checkout_directory = $directory_path | path join $checkout_directory_name
+	let name = $name | default 'server'
+	let server = {
+		checkout_directory: $checkout_directory,
+		clock: $clock_path,
+		config: $config,
+		config_path: $config_path,
+		directory: $directory_path,
+		exit: null,
+		instance: $instance,
+		job: null,
+		log: $log_path,
+		name: $name,
+		url: $url,
 	}
-	let exit_path = ($server_exit_directory_path | path join $'($server_job).exit')
-
-	# Wait for the server to be ready.
-	let ready_timeout = 30sec
-	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
-	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c 'while [ ! -s "$1" ]; do sleep 0.05; done; od -An -t u1 -N1 "$1"' _ $ready_path | complete)
-	rm -f $ready_path
-	let ready_byte = ($ready_output.stdout | str trim)
-	if $ready_output.exit_code != 0 {
-		stop_server_job $server_job
-		error make {
-			msg: $"the server did not signal readiness within ($ready_timeout)"
-		}
-	}
-	if $ready_byte != '0' {
-		stop_server_job $server_job
-		error make {
-			msg: (
-				if ($ready_byte | is-empty) {
-					'the server exited before signaling readiness; check the server output above'
-				} else {
-					$"the server signaled an invalid readiness byte: ($ready_byte)"
-				}
-			)
-		}
-	}
+	let server = server start $server
 
 	# Tag busybox if requested.
 	if $busybox {
@@ -1794,11 +1787,135 @@ export def --env spawn [
 		rm -rf $path
 	}
 
-	let vfs = $config | get --optional vfs
-	let checkout_directory_name = if $vfs == null or $vfs == false { 'store' } else { 'checkouts' }
-	let checkout_directory = $directory_path | path join $checkout_directory_name
+	$server
+}
 
-	{ checkout_directory: $checkout_directory, clock: $clock_path, config: $config_path, directory: $directory_path, exit: $exit_path, job: $server_job, log: $log_path, url: $url }
+export def --env "server start" [server: record] {
+	let job_id = $server.job?
+	if $job_id != null and not (job list | where id == $job_id | is-empty) {
+		if (server_is_running $server) {
+			error make { msg: 'the server is already running' }
+		}
+		try { job kill $job_id }
+	}
+
+	# Create the readiness and exit paths.
+	let ready_path = $server.config_path | path dirname | path join 'ready'
+	rm -f $ready_path
+	touch $ready_path
+	let server_exit_directory_path = (($env.TMPDIR? | default ($server.config_path | path dirname)) | path join $server_exit_directory_name)
+	try { mkdir $server_exit_directory_path }
+
+	# Create the environment.
+	mut environment = {}
+	if $server.clock? != null {
+		$environment = $environment | upsert TANGRAM_TEST_CLOCK $server.clock
+	}
+	let macos_app_group_socket = create_macos_app_group_socket_path
+	if $macos_app_group_socket != null {
+		$environment = $environment | upsert TANGRAM_MACOS_APP_GROUP_SOCKET $macos_app_group_socket
+	}
+	let environment = $environment
+
+	# Start the server.
+	let config_path = $server.config_path
+	let directory = $server.directory
+	let log_path = $server.log
+	let name = $server.name
+	let url = $server.url
+	let server_job = job spawn -d server {
+		let server_job_id = job id
+		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
+		do -i {
+			with-env $environment {
+				bash -c $"
+					PARENT_PID=$PPID
+					SELF_PID=$$
+					\(
+						while kill -0 $PARENT_PID 2>/dev/null; do
+							sleep 0.05
+						done
+						kill -TERM -$SELF_PID 2>/dev/null || true
+					\) &
+					exec 3>\"($ready_path)\"
+					exec tangram -c \"($config_path)\" -d \"($directory)\" -u \"($url)\" serve --ready-fd 3
+					" e>| lines | each { |line|
+						$"($line)\n" | save --append $log_path
+						print -e $"($name): ($line)\r"
+					}
+			}
+		}
+		'' | save -f $exit_path
+	}
+	let exit_path = $server_exit_directory_path | path join $'($server_job).exit'
+
+	# Wait for the server to be ready.
+	let ready_timeout = 30sec
+	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
+	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c 'while [ ! -s "$1" ]; do sleep 0.05; done; od -An -t u1 -N1 "$1"' _ $ready_path | complete)
+	rm -f $ready_path
+	let ready_byte = $ready_output.stdout | str trim
+	if $ready_output.exit_code != 0 {
+		stop_server_job $server_job
+		error make { msg: $"the server did not signal readiness within ($ready_timeout)" }
+	}
+	if $ready_byte != '0' {
+		stop_server_job $server_job
+		let message = if ($ready_byte | is-empty) {
+			'the server exited before signaling readiness; check the server output above'
+		} else {
+			$"the server signaled an invalid readiness byte: ($ready_byte)"
+		}
+		error make { msg: $message }
+	}
+	$env.TANGRAM_URL = $url
+	let server = $server | upsert exit $exit_path | upsert job $server_job
+
+	$server
+}
+
+export def "server stop" [server: record] {
+	let job_id = $server.job?
+	if $job_id == null or (job list | where id == $job_id | is-empty) {
+		return
+	}
+	stop_server_job $job_id
+	if not (wait_for_server_exit $server.exit) {
+		try { job kill $job_id }
+		error make { msg: 'the server did not stop' }
+	}
+}
+
+export def --env "server restart" [server: record] {
+	server stop $server
+	let server = server start $server
+
+	$server
+}
+
+def server_is_running [server: record] {
+	let lock_path = $server.directory | path join 'lock'
+	if not ($lock_path | path exists) {
+		return false
+	}
+	let pid = try { open --raw $lock_path | str trim | into int } catch { null }
+	if $pid == null {
+		return false
+	}
+
+	not (ps | where pid == $pid | is-empty)
+}
+
+def create_macos_app_group_socket_path [] {
+	if $nu.os-info.name != 'macos' {
+		return null
+	}
+	let group_id = (identifiers).app_group_identifier
+	let group_container = $env.HOME | path join 'Library/Group Containers' $group_id
+	try { mkdir $group_container }
+	let socket_name = $'socket-((random chars) | str lowercase)'
+
+	$group_container | path join $socket_name
 }
 
 # Set a server's simulated wall clock.
@@ -1827,8 +1944,7 @@ export def advance_time [server: record, duration: duration] {
 # it logged as '<target> <message>'. The server must have been spawned with
 # `--config { tracing: { stderr_format: 'json' } }`.
 export def server_errors [server: record] {
-	stop_server_job $server.job
-	wait_for_server_exit $server.exit
+	server stop $server
 	open --raw $server.log
 		| lines
 		| each { from json }
@@ -1836,6 +1952,97 @@ export def server_errors [server: record] {
 		| each { |event| $"($event.target) ($event.fields.message)" }
 		| uniq
 		| sort
+}
+
+export def instance [
+	--cloud
+	--config: record
+	--primary-region: string
+	--regions: list
+] {
+	let config = $config | default {}
+	let config = if $primary_region == null { $config } else { $config | upsert primary_region $primary_region }
+	let config = if $regions == null { $config } else { $config | upsert regions $regions }
+	validate_instance_config $config | ignore
+	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0
+	if not $use_cloud {
+		return { config: $config, kind: 'local' }
+	}
+	let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
+	if ($pool_path | is-empty) {
+		error make { msg: 'TANGRAM_TEST_DATABASE_POOL is not set' }
+	}
+	let id = acquire_database_instance $pool_path
+	track_database_pool_instance $id
+
+	{ config: $config, id: $id, kind: 'cloud' }
+}
+
+def validate_instance_config [config: record] {
+	let invalid_topology_keys = $config | columns | where { |key| $key in [instance region] }
+	if not ($invalid_topology_keys | is-empty) {
+		error make {
+			msg: $'instance config contains server topology fields: ($invalid_topology_keys | str join ", ")'
+			help: 'set the server region with --region'
+		}
+	}
+	let primary_region = $config.primary_region?
+	let regions = $config.regions?
+	if $primary_region != null and $regions == null {
+		error make { msg: 'regions are required when a primary region is set' }
+	}
+	let region_names = $regions | default [] | get name
+	if ($region_names | uniq | length) != ($region_names | length) {
+		error make { msg: 'the instance regions list contains duplicate names' }
+	}
+	if $primary_region != null and $primary_region not-in $region_names {
+		error make { msg: $'the primary region is not in the regions list: ($primary_region)' }
+	}
+
+	$region_names
+}
+
+def track_database_pool_instance [instance: string] {
+	$instance ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'instances')
+}
+
+def cloud_region_storage [instance: string, region: any, pool_path: string] {
+	let region = $region | default '' | into string
+	let key = $'($instance)\n($region)' | hash sha256
+	let storages_path = ($nu.temp-dir? | default $nu.temp-path?) | path join 'region_storages'
+	mkdir $storages_path
+	let storage_path = $storages_path | path join $key
+	if ($storage_path | path exists) {
+		return (open --raw $storage_path | str trim)
+	}
+	let lock_path = $storage_path + '.lock'
+	let lock_output = ^mkdir $lock_path | complete
+	if $lock_output.exit_code != 0 {
+		let output = (open /dev/null | timeout 10 bash -c 'while [ ! -s "$1" ]; do sleep 0.05; done' _ $storage_path | complete)
+		if $output.exit_code != 0 {
+			error make { msg: $'timed out waiting for the Tangram region storage: ($region)' }
+		}
+
+		return (open --raw $storage_path | str trim)
+	}
+	let storage = if (try_claim_cloud_instance_storage $instance) {
+		$instance
+	} else {
+		acquire_database_instance $pool_path
+	}
+	$storage | save -f $storage_path
+	rm $lock_path
+
+	$storage
+}
+
+def try_claim_cloud_instance_storage [instance: string] {
+	let claims_path = ($nu.temp-dir? | default $nu.temp-path?) | path join 'instance_storage_claims'
+	mkdir $claims_path
+	let claim_path = $claims_path | path join $instance
+	let output = ^mkdir $claim_path | complete
+
+	$output.exit_code == 0
 }
 
 def reset_database_instance [instance: string, pool_path: string] {
@@ -1949,6 +2156,13 @@ export def skip_test [reason: string] {
 export def skip_if_offline [] {
 	if (($env.TANGRAM_TEST_OFFLINE? | default '') | str length) > 0 {
 		skip_test 'this test requires network access'
+	}
+}
+
+export def skip_if_no_cloud [] {
+	let cloud = (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0
+	if not $cloud {
+		skip_test 'this test requires cloud databases'
 	}
 }
 

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.print omits absent optional error and executable fields rather than rendering them as null.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

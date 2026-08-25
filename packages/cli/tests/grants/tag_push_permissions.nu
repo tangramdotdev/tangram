@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Pushing a tag records only the permissions available at the destination, rather than copying the source tag's permissions.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 

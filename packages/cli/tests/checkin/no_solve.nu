@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package with --no-solve leaves the tag dependency unresolved rather than solving it.
 
-let server = spawn
+let server = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

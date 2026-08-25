@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.checksum computes a sha256 checksum of a string, formatted as the algorithm and a lowercase hex digest.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.checksum("hello", "sha256"); }'

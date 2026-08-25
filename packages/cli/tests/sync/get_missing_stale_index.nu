@@ -3,8 +3,8 @@ use ../../test.nu *
 # Ensure eager and lazy pushes succeed when the source is missing a child which is in the destination's store but not yet in its index.
 
 def test [...args] {
-	let remote = spawn --cloud --name remote --config { advanced: { checkpoints: true } }
-	let local = spawn --name local --config {
+	let remote = server spawn --cloud --name remote --config { advanced: { checkpoints: true } }
+	let local = server spawn --name local --config {
 		remotes: { default: { url: $remote.url } },
 	}
 

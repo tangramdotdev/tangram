@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A destructive checkin with --lock=file does not write a lockfile or lock xattr for a file with a tag dependency.
 
-let server = spawn
+let server = server spawn
 let path = artifact {
 	foo.tg.ts: ''
 	bar.tg.ts: '

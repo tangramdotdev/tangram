@@ -3,7 +3,7 @@ use ../../test.nu *
 # Runner management enforces owner administration and supports exact-owner listing and token lifecycle operations.
 
 let root_token = "root-token"
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
 

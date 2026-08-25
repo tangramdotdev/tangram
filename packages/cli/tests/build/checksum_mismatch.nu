@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Building with a checksum flag that does not match the output fails with a checksum mismatch.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("hello"); }'

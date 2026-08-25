@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build whose command exits with a non-zero status fails and the error is loaded successfully rather than reporting a failure to load the error.
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

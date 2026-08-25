@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Cleaning a process deletes it from the index but leaves its grants, so a grant update enqueued for the process afterward finds no process. The indexer must tolerate that. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
-let server = spawn --config { tracing: { stderr_format: 'json' } }
+let server = server spawn --config { tracing: { stderr_format: 'json' } }
 
 let path = artifact {
 	tangram.ts: '

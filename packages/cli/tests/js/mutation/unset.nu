@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Applying an unset mutation removes the key from the map.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

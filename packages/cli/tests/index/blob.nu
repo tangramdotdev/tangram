@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Blobs have correct metadata.
 
-let local = spawn --name local
-let remote = spawn --cloud --name remote
+let local = server spawn --name local
+let remote = server spawn --cloud --name remote
 
 # Create a blob by writing data.
 let temp_file = mktemp --tmpdir

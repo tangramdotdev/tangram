@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Reproduces a race where sync observes a process before its log is compacted.
 
-let local = spawn --name local --config { indexer: { log_compaction: false } }
-let remote = spawn --name remote
+let local = server spawn --name local --config { indexer: { log_compaction: false } }
+let remote = server spawn --name remote
 
 let path = artifact {
 	tangram.ts: '

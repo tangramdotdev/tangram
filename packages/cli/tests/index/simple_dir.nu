@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Test metadata for a simple directory with files and no tag dependencies.
 
-let local = spawn --name local
-let remote = spawn --cloud --name remote
+let local = server spawn --name local
+let remote = server spawn --cloud --name remote
 
 let path = artifact {
 	dir: {

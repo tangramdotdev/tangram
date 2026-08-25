@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A missing process output remains distinct from a process that outputs null.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

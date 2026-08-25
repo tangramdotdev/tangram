@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Malformed mount and isolation options are rejected at argument parsing.
 
-let server = spawn
+let server = server spawn
 
 let output = tg sandbox create --mount "::bad::" | complete
 failure $output

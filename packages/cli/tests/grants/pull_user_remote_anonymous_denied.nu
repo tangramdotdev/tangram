@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A user-configured remote carries no server credentials. A user on a shared server may add her own remote to a source, but her requests authenticate anonymously, so she still cannot pull a private object she has no access to on the source.
 
-let source = spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
+let source = server spawn --cloud --name source --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice_s = tg --url $source.url login --verbose --name alice | from json
 
@@ -11,7 +11,7 @@ let file = tg --url $source.url --token $alice_s.token put 'tg.file("topsecret")
 tg --url $source.url index
 
 # A shared server whose server-level remote points at the source via Alice's token.
-let shared = spawn --name shared --config {
+let shared = server spawn --name shared --config {
 	authentication: { users: { providers: { insecure: true } } },
 	remotes: { default: { url: $source.url, token: $alice_s.token } },
 }

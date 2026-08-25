@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # An eager push sends its root object before the remote returns the sync response headers.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 let file = tg --url $local.url put 'tg.file("hello")' | str trim

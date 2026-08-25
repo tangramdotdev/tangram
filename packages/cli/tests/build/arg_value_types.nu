@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build parses each `--arg-value` value kind into the corresponding JS type, unlike `--arg-string` which always produces a string.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function (v: unknown) { return `${typeof v} ${JSON.stringify(v)}`; }'

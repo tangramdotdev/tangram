@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.blob with no argument creates an empty blob.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

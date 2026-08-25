@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Following a group selects the most recent matching version.
 
-let server = spawn
+let server = server spawn
 
 let one = tg put 'tg.file("one")' | str trim
 tg tag put -p a/1.0.0 $one

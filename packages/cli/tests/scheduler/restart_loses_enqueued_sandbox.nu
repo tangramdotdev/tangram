@@ -13,11 +13,11 @@ let config = {
 		heartbeat_ttl: 3,
 	},
 }
-let remote = spawn --name remote --preserve-keys --config $config
+let remote = server spawn --name remote --preserve-keys --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 let replacement_created = tg --url $remote.url --token $root_token runner create | from json
 
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	remotes: {
 		default: {
 			token: $created.token.token
@@ -35,7 +35,7 @@ let runner = spawn --name runner --config {
 	},
 }
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		default: {
 			token: $root_token
@@ -81,8 +81,8 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-spawn --directory $remote.directory --name remote --preserve-keys --config $config --url $remote.url
-let replacement_runner = spawn --name replacement_runner --config {
+let remote = server start $remote
+let replacement_runner = server spawn --name replacement_runner --config {
 	remotes: {
 		default: {
 			token: $replacement_created.token.token

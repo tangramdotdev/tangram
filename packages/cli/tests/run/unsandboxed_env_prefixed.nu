@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An environment variable set on an unsandboxed process is visible both under its plain name and under its TANGRAM_ENV_ prefixed name.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

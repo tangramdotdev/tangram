@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A file's dependencies accessor returns each reference mapped to a referent for its object.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

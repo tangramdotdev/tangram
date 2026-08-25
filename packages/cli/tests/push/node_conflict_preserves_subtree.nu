@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Conflicting nodes are rejected without deleting destination subtrees.
 
-let destination = spawn --cloud --name destination --config {
+let destination = server spawn --cloud --name destination --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 let alice = tg --url $destination.url login --verbose --name alice | from json
@@ -27,7 +27,7 @@ let local_groups_child = (
 tg --url $destination.url --token $alice.token grant $bob.user.id admin groups | ignore
 tg --url $destination.url index
 
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { token: $bob.token, url: $destination.url } }
 }
 tg --url $source.url group create root-only | ignore

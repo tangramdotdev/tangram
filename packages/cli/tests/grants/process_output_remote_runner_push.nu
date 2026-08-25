@@ -5,7 +5,7 @@ use ../../test.nu *
 let root_token = random chars
 
 # Spawn the remote.
-let remote = spawn --cloud --preserve-keys --name remote --config {
+let remote = server spawn --cloud --preserve-keys --name remote --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [cleaner http indexer scheduler],
@@ -17,14 +17,14 @@ let runner_id = $created.runner.id
 let runner_token = $created.token.token
 
 # Spawn the runner.
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	remotes: { default: { token: $runner_token, url: $remote.url } },
 	runner: { id: $runner_id, remote: "default", token: $runner_token },
 }
 
 # Create user credentials and spawn the local server.
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = spawn --name alice-local --config {
+let local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 

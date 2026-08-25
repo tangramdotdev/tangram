@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # A push the remote rejects fails with the remote's error instead of hanging or reporting a generic sync failure.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 # The local server has the user but no token for the remote, so the remote rejects the sync.
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	authentication: { users: { providers: { insecure: true } } },
 	remotes: { default: { url: $remote.url } },
 }

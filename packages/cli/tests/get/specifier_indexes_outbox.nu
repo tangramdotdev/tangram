@@ -15,13 +15,13 @@ def stop [server: record] {
 let directory = mktemp -d
 
 # Commit a database mutation with the indexer disabled.
-let producer = spawn --name producer --directory $directory --config {
+let producer = server spawn --name producer --directory $directory --config {
 	roles: [cleaner http runner scheduler]
 }
 let group = tg --url $producer.url group create project | from json
 stop $producer
 
 # A get by specifier asks the indexer to catch up before retrying the index.
-let indexer = spawn --name indexer --directory $directory
+let indexer = server spawn --name indexer --directory $directory
 let output = tg --url $indexer.url get project | from json
 assert equal $output.id $group.id

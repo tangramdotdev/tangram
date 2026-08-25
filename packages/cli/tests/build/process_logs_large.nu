@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reproduces a bug where reading a compacted log with mid-entry position repeats endlessly.
 
-let remote = spawn --name remote
+let remote = server spawn --name remote
 
 let path = artifact {
 	tangram.ts: '

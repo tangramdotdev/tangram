@@ -3,7 +3,7 @@ use ../../test.nu *
 # Pulling through a secondary region writes database nodes in the primary region while keeping
 # objects, processes, and sandboxes in the secondary region.
 
-let source = spawn --name source --config { advanced: { checkpoints: true } }
+let source = server spawn --name source --config { advanced: { checkpoints: true } }
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("regional output"); }'
 }
@@ -34,11 +34,10 @@ let common = {
 	},
 	checkouts: false,
 	database: { kind: 'sqlite', path: $database_path },
-	primary_region: 'primary',
-	regions: $regions,
 }
-let primary = spawn --preserve-keys --name primary --directory $primary_directory --url $primary_url --config ($common | merge { region: 'primary' })
-let secondary = spawn --preserve-keys --name secondary --directory $secondary_directory --url $secondary_url --config ($common | merge { region: 'secondary' })
+let instance = instance --primary-region primary --regions $regions --config $common
+let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --directory $primary_directory --url $primary_url
+let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --directory $secondary_directory --url $secondary_url
 tg --url $secondary.url remote put default $source.url
 tg --url $secondary.url pull $sandbox
 

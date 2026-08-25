@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # console.error writes its message to the process's stderr stream.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Disposing a process handle releases its lease and cancels the process.
 
-let server = spawn --busybox --config { usage: true }
+let server = server spawn --busybox --config { usage: true }
 
 let path = artifact {
 	tangram.ts: '

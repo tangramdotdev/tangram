@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A command's env accessor returns its environment map.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

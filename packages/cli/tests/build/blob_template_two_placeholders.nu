@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A tg.blob template literal interpolates a string placeholder into a multiline blob and the resulting text matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

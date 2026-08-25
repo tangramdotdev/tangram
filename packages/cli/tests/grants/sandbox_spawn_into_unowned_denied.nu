@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Spawning a process into an existing sandbox requires write on that sandbox, so a user who cannot write it is denied while the owner can.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

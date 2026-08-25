@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.archive accepts a compression format and round-trips through tg.extract.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

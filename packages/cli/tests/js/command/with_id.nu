@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Command.withId returns a command that preserves the given id.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

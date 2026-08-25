@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Artifact.is is true for directories, files, and symlinks and false for other objects.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

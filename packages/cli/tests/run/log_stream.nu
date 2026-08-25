@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # tg log can read a process's log output by position and length, both forwards and backwards.
 
-let server = spawn
+let server = server spawn
 let path = artifact {
 	tangram.ts: r#'
 		export default async function () {

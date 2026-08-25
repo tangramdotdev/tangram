@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A child can name a sibling's output without gaining access to it.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { single_process: false },
 	authentication: { users: { providers: { insecure: true } } },
 }

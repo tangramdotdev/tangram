@@ -4,8 +4,8 @@ use ../lib/vfs.nu
 vfs skip_unless_supported
 
 let server_path = mktemp --directory
-let remote = spawn --name remote
-let server = spawn --directory $server_path --name local --config {
+let remote = server spawn --name remote
+let server = server spawn --directory $server_path --name local --config {
 	vfs: true
 	remotes: { default: { url: $remote.url } }
 }

@@ -2,12 +2,12 @@ use ../../test.nu *
 
 # Pushing a process that names a foreign object as its output must not leak the object on the remote: the remote's implicit grant creation must not confer the subtree of an output the pusher cannot access.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 
@@ -22,7 +22,7 @@ let denied = tg --url $remote.url --token $eve.token get $file | complete
 failure $denied "Eve should not have the subtree for Alice's private file before the exploit."
 
 # Eve builds a process on her own server whose output names Alice's private file by id.
-let eve_local = spawn --name eve-local --config {
+let eve_local = server spawn --name eve-local --config {
 	remotes: { default: { url: $remote.url, token: $eve.token } },
 }
 let source = 'export default function () { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file

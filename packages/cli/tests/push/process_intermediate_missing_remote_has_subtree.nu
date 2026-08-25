@@ -4,13 +4,13 @@ use ../../test.nu *
 
 def test [...args] {
 	# Create a remote server.
-	let remote = spawn --cloud --name remote
+	let remote = server spawn --cloud --name remote
 
 	# Create a local server.
-	let local = spawn --name local
+	let local = server spawn --name local
 
 	# Create a source server.
-	let source = spawn --name source
+	let source = server spawn --name source
 
 	# Create a module that spawns a chain of 4 child processes: A -> B -> C -> D.
 	# A calls B, B calls C, C calls D, D returns a file.

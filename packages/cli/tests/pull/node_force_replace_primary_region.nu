@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Pulling with force through a secondary region replaces conflicting nodes in the primary region.
 
-let source = spawn --cloud --name source
+let source = server spawn --cloud --name source
 let new_root = tg --url $source.url group create tree | from json
 let new_child = tg --url $source.url group create tree/new | from json
 
@@ -23,11 +23,10 @@ let common = {
 	},
 	checkouts: false,
 	database: { kind: 'sqlite', path: $database_path },
-	primary_region: 'primary',
-	regions: $regions,
 }
-let primary = spawn --preserve-keys --name primary --directory $primary_directory --url $primary_url --config ($common | merge { region: 'primary' })
-let secondary = spawn --preserve-keys --name secondary --directory $secondary_directory --url $secondary_url --config ($common | merge { region: 'secondary' })
+let instance = instance --primary-region primary --regions $regions --config $common
+let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --directory $primary_directory --url $primary_url
+let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --directory $secondary_directory --url $secondary_url
 tg --url $secondary.url remote put default $source.url
 
 let old_root = tg --url $primary.url group create tree | from json

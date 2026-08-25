@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # The checkin and update commands honor the remote cache TTL, keeping the cached version by default and picking up a newer remote version only with --tag-ttl 0.
 
-let remote = spawn --name remote
-let local = spawn --name local --config {
+let remote = server spawn --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

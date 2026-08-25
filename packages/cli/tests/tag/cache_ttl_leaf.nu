@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # A cached leaf tag resolves to the old node within its TTL and resolves to the updated node when fetched with --ttl 0.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } }
 }
 

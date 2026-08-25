@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watched checkin rejects a lockfile change made after it snapshots the watch.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

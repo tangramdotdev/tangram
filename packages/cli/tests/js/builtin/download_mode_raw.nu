@@ -4,7 +4,7 @@ use ../../../test.nu *
 
 skip_if_offline
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

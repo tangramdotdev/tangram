@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Bundling a directory containing an executable file with a file dependency produces a checkout that matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

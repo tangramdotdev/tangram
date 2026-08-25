@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Creating a nested group pulls an existing remote parent by default.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

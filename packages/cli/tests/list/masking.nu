@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Listing a reference lists the children of the node selected by get.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

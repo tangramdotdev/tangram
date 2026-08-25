@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # A stale child tag is removed from the cache when a branch is refreshed after the child is deleted on the remote.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } }
 }
 

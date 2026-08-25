@@ -12,7 +12,7 @@ if not (fuse_io_uring_available) {
 	skip_test 'this test requires FUSE io_uring support'
 }
 
-let server = spawn --config {
+let server = server spawn --config {
 	runner: {
 		cpus: 128,
 		memory: (128e9 | into int),

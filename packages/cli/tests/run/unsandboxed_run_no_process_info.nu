@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Running with --no-sandbox writes only the process's stdout and emits no process-info noise on stderr.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

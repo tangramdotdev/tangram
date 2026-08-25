@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out an executable file writes the file into the checkouts directory with its executable bit preserved.
 
-let server = spawn
+let server = server spawn
 
 # Create the artifact.
 let artifact = '

@@ -7,7 +7,7 @@ if $nu.os-info.name != 'linux' {
 	return
 }
 
-let server = spawn --busybox --config { vfs: true }
+let server = server spawn --busybox --config { vfs: true }
 
 # Create a foreign artifact that the build never references.
 let foreign = tg build (artifact {

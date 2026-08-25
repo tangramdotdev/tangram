@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a package that depends on both a single-file package and a multi-file package publishes exactly those three packages, does not treat internal submodules as separate packages, and syncs objects and metadata to the remote.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create a single-file package.

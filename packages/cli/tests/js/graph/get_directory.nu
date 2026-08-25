@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory node's entry edge resolves to the node at that index.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

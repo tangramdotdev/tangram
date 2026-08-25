@@ -2,14 +2,14 @@ use ../../test.nu *
 
 # Force replaces conflicting destination nodes and their complete named subtrees during push.
 
-let destination = spawn --cloud --name destination
+let destination = server spawn --cloud --name destination
 let old_root = tg --url $destination.url group create tree | from json
 let old_child = tg --url $destination.url group create tree/old | from json
 let old_target = tg --url $destination.url put 'tg.file("old")' | str trim
 tg --url $destination.url tag put tree/old/leaf $old_target
 let old_leaf = tg --url $destination.url tag get tree/old/leaf | from json
 
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $destination.url } }
 }
 let new_root = tg --url $source.url group create tree | from json

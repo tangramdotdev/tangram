@@ -2,24 +2,24 @@ use ../../test.nu *
 
 # Pull supports never, missing, and always ancestor handling.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: {
 		checkpoints: true,
 	},
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let empty = spawn --name empty --config {
+let empty = server spawn --name empty --config {
 	remotes: { default: { url: $remote.url } }
 }
-let coalesced = spawn --name coalesced --config {
+let coalesced = server spawn --name coalesced --config {
 	remotes: { default: { url: $remote.url } }
 }
-let recursive = spawn --name recursive --config {
+let recursive = server spawn --name recursive --config {
 	remotes: { default: { url: $remote.url } }
 }
-let scoped = spawn --name scoped --config {
+let scoped = server spawn --name scoped --config {
 	remotes: { default: { url: $remote.url } }
 }
 

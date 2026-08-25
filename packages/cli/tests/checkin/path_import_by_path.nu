@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package that imports a sibling by relative path with a get path option resolves to the artifact at that path.
 
-let server = spawn
+let server = server spawn
 
 # Create a directory with nested structure.
 let path = artifact {

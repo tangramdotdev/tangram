@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A symlink created from an artifact-and-path template splits into an artifact and a path.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

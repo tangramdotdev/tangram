@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a single-module package produces the expected object and writes no lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default () => {};'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Waiting on a cancelled process reports the cancellation as an error outcome.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { while (true) { await tg.sleep(1); } }',

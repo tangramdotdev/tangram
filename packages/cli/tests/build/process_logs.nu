@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A process's stdout, stderr, combined, and mid-stream-position logs can be read both locally and after pushing the logs to a remote.
 
-let remote = spawn --name remote
-let local = spawn --name local
+let remote = server spawn --name remote
+let local = server spawn --name local
 
 let path = artifact {
 	tangram.ts: '

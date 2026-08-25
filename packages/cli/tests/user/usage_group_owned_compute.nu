@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Compute for a group-owned sandbox is charged to the group's user account.
 
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory's get method resolves a nested path through intermediate directories.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

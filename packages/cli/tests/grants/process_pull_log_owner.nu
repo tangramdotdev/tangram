@@ -3,13 +3,13 @@ use ../../test.nu *
 # The owner may still pull and read a live process log. The compaction gate that withholds the log from an unauthorized puller must not withhold it from the process owner, who is authorized to read it. The remote's log compaction task is disabled so the log stays live, exercising the on-demand compaction path during the pull.
 
 let root_token = random chars
-let remote = spawn --cloud --name remote --preserve-keys --config {
+let remote = server spawn --cloud --name remote --preserve-keys --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	indexer: { log_compaction: false },
 }
 
 let created = tg --url $remote.url --token $root_token runner create | from json
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [indexer runner],
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
@@ -19,7 +19,7 @@ let alice = tg --url $remote.url login --verbose --name alice | from json
 
 # Alice builds a process on the remote whose stdout holds a secret. With log compaction disabled the log stays live (data.log is null).
 let path = artifact { tangram.ts: 'export default function () { console.log("alicesecret"); }' }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 let process = tg --url $source.url build --remote --detach $path | str trim
@@ -27,7 +27,7 @@ wait_until { (tg --url $remote.url --token $alice.token process status $process 
 wait_until { (tg --url $remote.url --token $alice.token process log $process | complete | get stdout | str trim) == "alicesecret" } --timeout 30sec
 
 # Alice has her own server that talks to the remote as herself.
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 

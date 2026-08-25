@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # A tagged file module uses the explicit @module suffix so literal tags ending in module-like suffixes remain unambiguous.
 
-let server = spawn
+let server = server spawn
 
 let dep_path = artifact {
 	dep.tg.ts: '

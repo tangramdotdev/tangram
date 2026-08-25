@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Test building from a file with ?get= when there's a cyclical import.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

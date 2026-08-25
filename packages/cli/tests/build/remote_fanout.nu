@@ -11,7 +11,7 @@ let config = {
 	authentication: { root: { token: $root_token } },
 	roles: [cleaner http indexer scheduler],
 }
-let remote = spawn --name remote --cloud --config $config
+let remote = server spawn --name remote --cloud --config $config
 
 # Spawn four concurrent runners
 let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
@@ -36,7 +36,7 @@ let runners = ["runner1", "runner2", "runner3", "runner4"] | each { |name|
 			token: $created.token.token
 		}
 	}
-	spawn --name $name --config $config
+	server spawn --name $name --config $config
 }
 
 # Block any attempt by a parent to release an awaited child's lease.
@@ -55,7 +55,7 @@ let config = {
 		}
 	}
 }
-let local = spawn --name local --config $config
+let local = server spawn --name local --config $config
 
 let path = artifact {
 	tangram.ts: '

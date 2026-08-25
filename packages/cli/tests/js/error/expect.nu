@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Error.expect returns the value unchanged when it is an error.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await tg.Error.expect(tg.error.sync("boom")).message; }'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package whose two modules import each other produces the expected object and writes no lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'import * as foo from "./foo.tg.ts";'

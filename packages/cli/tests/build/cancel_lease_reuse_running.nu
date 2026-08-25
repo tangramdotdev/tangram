@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Releasing the same lease more than once is an idempotent no-op while the process is still running.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -5,7 +5,7 @@ use ../../test.nu *
 # Pulling the file stores its bytes but does not grant it to later processes. The explicit public
 # grant supplies the local authorization that may flow through the cache-hit child.
 
-let remote = spawn --busybox --name remote
+let remote = server spawn --busybox --name remote
 
 let path = artifact {
 	tangram.ts: '
@@ -26,7 +26,7 @@ let tool = tg --url $remote.url build --detach $"($path)#tool" | str trim
 tg --url $remote.url wait $tool
 let output = tg --url $remote.url output $tool | from json | get value | split row '?' | get 0
 
-let cold = spawn --busybox --name cold --config {
+let cold = server spawn --busybox --name cold --config {
 	remotes: { default: { url: $remote.url } }
 }
 tg --url $cold.url pull $output

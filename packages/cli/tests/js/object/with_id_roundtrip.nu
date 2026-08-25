@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Object.withId returns an object of the kind named by the id, preserving the id.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

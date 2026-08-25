@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a package with a diamond dependency graph publishes all four packages in a valid order, tags them on both servers, syncs their objects, and produces matching metadata.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create the bottom package (D) - no dependencies.

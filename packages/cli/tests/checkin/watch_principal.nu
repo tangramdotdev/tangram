@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watched checkin is scoped to its principal, so one user cannot reuse another user's authorized dependency solutions.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 

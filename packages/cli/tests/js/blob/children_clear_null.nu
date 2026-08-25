@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A null children override clears the inherited blob children.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

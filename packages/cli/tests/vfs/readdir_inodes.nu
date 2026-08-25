@@ -23,7 +23,7 @@ for index in 0..<$count {
 }
 
 let server_path = mktemp --directory
-let server = spawn --directory $server_path --config { vfs: true }
+let server = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg checkin $source | str trim

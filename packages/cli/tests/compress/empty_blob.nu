@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An empty blob compresses and decompresses back to itself.
 
-let server = spawn
+let server = server spawn
 
 let blob = "" | tg write
 

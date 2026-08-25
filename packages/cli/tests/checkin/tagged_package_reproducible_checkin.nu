@@ -3,18 +3,18 @@ use ../../test.nu *
 # Checking in a package with a remote tag dependency produces the same object on two independent local servers.
 
 # Create a remote server and tag the foo object on it.
-let remote = spawn --name remote
+let remote = server spawn --name remote
 let foo_path = artifact {
 	contents: 'foo'
 }
 tg --url $remote.url tag foo ($foo_path | path join 'contents')
 
 # Create two local servers, both configured with the remote.
-let local1 = spawn --name local1 --config {
+let local1 = server spawn --name local1 --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let local2 = spawn --name local2 --config {
+let local2 = server spawn --name local2 --config {
 	remotes: { default: { url: $remote.url } }
 }
 

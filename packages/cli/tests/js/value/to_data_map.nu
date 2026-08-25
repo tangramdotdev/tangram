@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.toData wraps a plain object as a map.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.toData({ a: 1 }); }'

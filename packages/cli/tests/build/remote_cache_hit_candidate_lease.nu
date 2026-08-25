@@ -9,8 +9,8 @@ use ../../test.nu *
 #
 # Regression test for f347184b (#838).
 
-let remote = spawn --name remote
-let primary = spawn --name primary
+let remote = server spawn --name remote
+let primary = server spawn --name primary
 tg remote put default $remote.url
 
 let shared = artifact {
@@ -36,7 +36,7 @@ let wrapper_ts = [
 ] | str join "\n"
 let wrapper = artifact { tangram.ts: $wrapper_ts }
 
-let fresh = spawn --name fresh --config {
+let fresh = server spawn --name fresh --config {
 	advanced: {
 		checkpoints: true,
 	},

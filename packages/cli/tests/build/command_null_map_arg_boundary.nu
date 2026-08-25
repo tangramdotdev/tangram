@@ -4,7 +4,7 @@ use ../../test.nu *
 # nested, in arrays, and alongside artifacts), round-tripping as null and staying
 # distinct from an absent key. Null maps directly to the wire with no translation.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: r#'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A checkin with different options replaces incompatible watch state instead of reusing it under the previous options.
 
-let server = spawn
+let server = server spawn
 
 let dependency_path = artifact {
 	tangram.ts: '// a 1.0.0'

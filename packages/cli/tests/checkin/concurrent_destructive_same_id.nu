@@ -4,7 +4,7 @@ use ../../test.nu *
 #
 # The destination is only made read-only after the rename, so the loser must be released while the destination is still writable. A rename that is not no-replace reports ENOTEMPTY there rather than the tolerated EEXIST, because the destination is a non-empty directory.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

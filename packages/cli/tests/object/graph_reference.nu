@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Getting a graph object built from a module with mutually referencing file nodes returns the full graph that matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 # Create a directory with nested structure.
 let path = artifact {

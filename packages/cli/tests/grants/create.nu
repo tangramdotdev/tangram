@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Creating a grant returns the grant record and lists it on the resource.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Outdated fails when the package has no lockfile.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact { tangram.ts: 'export default function () { return 42; }' }
 

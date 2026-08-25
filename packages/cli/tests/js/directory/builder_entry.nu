@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's entry method adds a single entry at the given path.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

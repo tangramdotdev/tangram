@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.symlink preserves an unloaded symlink passed as its sole argument without loading it.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

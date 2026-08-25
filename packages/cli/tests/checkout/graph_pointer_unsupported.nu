@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking out a graph pointer reference fails with an error reporting that checking out graph pointers is unsupported.
 
-let server = spawn
+let server = server spawn
 
 # Put a graph object and capture its id.
 let graph = '

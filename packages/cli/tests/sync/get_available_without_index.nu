@@ -3,8 +3,8 @@ use ../../test.nu *
 # A pull omits local index requests for incoming objects and processes whose requested fields are
 # already available in the sync graph.
 
-let remote = spawn --cloud --name remote
-let client = spawn --name client --config {
+let remote = server spawn --cloud --name remote
+let client = server spawn --name client --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { url: $remote.url } },
 }

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking out an artifact must require its subtree: a principal without an artifact's subtree must not be able to check it out. An artifact the principal cannot access should be masked as not found.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 

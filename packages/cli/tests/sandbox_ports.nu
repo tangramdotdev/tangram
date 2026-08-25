@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let server = spawn
+let server = server spawn
 
 let sandbox = (tg sandbox create --port 80 --port 127.0.0.1::53/udp | str trim)
 assert ($sandbox | str starts-with "sbx_")

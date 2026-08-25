@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Pushing a process's logs lazily makes them readable from the remote, and a lazy log push of a process with no logs still succeeds.
 
-let remote = spawn --name remote
-let local = spawn --name local
+let remote = server spawn --name remote
+let local = server spawn --name local
 
 let path = artifact {
 	tangram.ts: '

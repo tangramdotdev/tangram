@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # An internal checkout materializes multiple tags with a shared ancestor.
 
-let server = spawn
+let server = server spawn
 let first = artifact 'first'
 let second = artifact 'second'
 let store = $server.directory | path join store

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking one permission from a grant leaves the remaining permissions and their access intact.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

@@ -11,7 +11,7 @@ use ../../test.nu *
 # 2. Symmetric nodes (identical content and structure) produce identical WL labels.
 #    Fix: Use filesystem paths as a tiebreaker in the sort.
 
-let server = spawn
+let server = server spawn
 
 # Minimal 3-node star cycle: hub imports a and b, both a and b import hub.
 # Nodes a and b have identical content and structure, producing identical WL labels.

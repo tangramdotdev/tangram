@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A tag is billed to an organization that is created in the same sync transaction.
 
-let destination = spawn --cloud --name destination --config { usage: true }
-let source = spawn --name source --config {
+let destination = server spawn --cloud --name destination --config { usage: true }
+let source = server spawn --name source --config {
 	remotes: { default: { url: $destination.url } },
 	usage: true,
 }

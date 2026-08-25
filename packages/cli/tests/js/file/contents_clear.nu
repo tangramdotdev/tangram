@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Null clears inherited file contents.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

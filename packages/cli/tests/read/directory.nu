@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a directory object fails.
 
-let server = spawn
+let server = server spawn
 
 let dir = tg put 'tg.directory({ "f": tg.file("x") })' | str trim
 

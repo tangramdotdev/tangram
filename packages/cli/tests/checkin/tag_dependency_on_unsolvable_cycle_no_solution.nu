@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package with conflicting tag version constraints that resolve to unsolvable cycles fails with the expected output.
 
-let server = spawn
+let server = server spawn
 
 # Tag the dependencies.
 let c1_path = artifact {

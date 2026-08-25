@@ -2,15 +2,15 @@ use ../../test.nu *
 
 # A named node remains pending while its ancestor requests are registered.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: {
 		checkpoints: true,
 	},
 }
-let source = spawn --name source --config {
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	advanced: {
 		checkpoints: true,
 	},

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Resolving a value whose optional field is unset reports the path to the offending key.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

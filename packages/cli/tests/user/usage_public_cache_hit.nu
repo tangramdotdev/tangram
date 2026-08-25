@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reusing a public cached process adds the process to the new owner's storage usage.
 
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

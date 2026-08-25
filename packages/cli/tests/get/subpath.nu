@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A reference with a get option resolves a subpath within a directory, including nested entries.
 
-let server = spawn
+let server = server spawn
 
 let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello"), "sub": tg.directory({ "inner.txt": tg.file("inner") }) })' | str trim
 

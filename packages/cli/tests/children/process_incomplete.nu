@@ -2,11 +2,11 @@ use ../../test.nu *
 
 # An incomplete local children list falls through to a remote instead of appearing empty.
 
-let remote = spawn --cloud --name remote
-let source = spawn --name source --config {
+let remote = server spawn --cloud --name remote
+let source = server spawn --name source --config {
 	remotes: { default: { url: $remote.url } },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
 }
 tg remote put default $remote.url

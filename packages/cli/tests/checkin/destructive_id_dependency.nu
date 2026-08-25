@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # A destructive checkin of a package that imports a dependency by object ID resolves the dependency from the local store.
 
-let remote = spawn --name 'remote'
-let server = spawn --name 'local' --config {
+let remote = server spawn --name 'remote'
+let server = server spawn --name 'local' --config {
 	remotes: {
 		default: {
 			url: $remote.url

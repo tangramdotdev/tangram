@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A scheduler that stops emitting heartbeats is treated as dead while a sandbox waits for capacity.
 
-let server = spawn --config {
+let server = server spawn --config {
 	runner: { cpus: 1 },
 	scheduler: {
 		heartbeat_interval: 30,

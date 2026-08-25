@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Adding a user to the owning group after the sandbox is created grants them access to it.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

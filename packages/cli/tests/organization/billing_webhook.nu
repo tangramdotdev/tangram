@@ -5,7 +5,7 @@ use ../lib/stripe.nu *
 
 let webhook_secret = 'whsec_mock'
 let stripe = spawn_stripe
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $webhook_secret } },
 }

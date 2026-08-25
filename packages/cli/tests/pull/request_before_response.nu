@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # A pull sends its first get node before the remote returns the sync response headers.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 let file = tg --url $remote.url put 'tg.file("hello")' | str trim

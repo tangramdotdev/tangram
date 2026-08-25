@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a file with a dependency on another file writes the file into the checkouts directory.
 
-let server = spawn
+let server = server spawn
 
 # Create the artifact.
 let artifact = '

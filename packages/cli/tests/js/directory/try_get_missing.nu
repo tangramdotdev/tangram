@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory's tryGet method returns null when the path does not exist.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

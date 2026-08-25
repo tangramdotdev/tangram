@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Getting a reference that does not parse fails with a parse error.
 
-let server = spawn
+let server = server spawn
 
 let output = tg get 'not a reference' | complete
 failure $output

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's contents method sets the file's contents.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await (await tg.file().contents("body")).text; }'

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process can pass a child of its own remote cache-hit child's output to another child's command.
 
-let remote = spawn --name remote
+let remote = server spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
@@ -26,7 +26,7 @@ let path = artifact {
 let dependency = tg --url $remote.url build --detach $"($path)#dependency" | str trim
 tg --url $remote.url wait $dependency | ignore
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 

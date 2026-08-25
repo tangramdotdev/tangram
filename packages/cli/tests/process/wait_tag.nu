@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Waiting for a process through a tag preserves the resolved location.
 
-let origin = spawn --name origin
-let sink = spawn --name sink
-let local = spawn --name local
+let origin = server spawn --name origin
+let sink = server spawn --name sink
+let local = server spawn --name local
 tg --url $local.url remote put default $sink.url
 tg --url $local.url remote put origin $origin.url
 

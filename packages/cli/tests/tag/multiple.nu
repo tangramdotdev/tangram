@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # tg match and tg tag get over many tags handle empty, prefix, exact, and version-range patterns correctly and reject pattern operators inside parent components.
 
-let server = spawn
+let server = server spawn
 
 # Write the artifact to a temp.
 let path = artifact 'Hello, World!'

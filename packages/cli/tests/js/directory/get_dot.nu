@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A directory's get method ignores a leading current-directory component.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

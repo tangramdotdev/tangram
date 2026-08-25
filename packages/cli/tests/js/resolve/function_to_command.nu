@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.resolve converts a function into a command.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

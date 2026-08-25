@@ -5,7 +5,7 @@ use ../../test.nu *
 # with 0o555 permissions, causing tempdir cleanup to fail with EACCES.
 # The nested directory structure is required - flat output can be cleaned up.
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

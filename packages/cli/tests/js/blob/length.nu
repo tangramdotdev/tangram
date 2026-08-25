@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A blob's length accessor returns the byte length of its contents.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await (await tg.blob("hello")).length; }'

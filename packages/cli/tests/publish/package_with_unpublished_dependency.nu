@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Publishing a package whose tagged dependency has not yet been published also publishes the dependency, tags both packages on the remote, syncs their objects, and produces matching metadata.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 # Create a dependency package but do not publish it yet.

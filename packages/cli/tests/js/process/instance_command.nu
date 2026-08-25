@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A spawned process exposes its underlying command through the command getter.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

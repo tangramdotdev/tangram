@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.encoding.json.decode fails when the input is not valid JSON.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.json.decode("{ not valid json"); }'

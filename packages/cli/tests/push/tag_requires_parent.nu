@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # Pushing a nested tag rejects a missing parent with ancestors=never and pulls it by default.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local
 tg remote put default $remote.url
 
 tg group create parent

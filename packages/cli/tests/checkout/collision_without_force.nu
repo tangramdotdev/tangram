@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking out to a path that already exists fails without the force flag.
 
-let server = spawn
+let server = server spawn
 
 let artifact = artifact {
 	tangram.ts: 'export default function () { return tg.file("Hello, World!"); }',

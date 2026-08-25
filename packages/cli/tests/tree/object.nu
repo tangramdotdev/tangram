@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The tree command renders a tag and its object as distinct graph nodes.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'

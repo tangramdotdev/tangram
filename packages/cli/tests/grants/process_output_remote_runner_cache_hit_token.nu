@@ -9,7 +9,7 @@ use ../../test.nu *
 let root_token = random chars
 
 # Spawn a remote.
-let remote = spawn --name remote --cloud --preserve-keys --config {
+let remote = server spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [cleaner http indexer scheduler],
@@ -24,7 +24,7 @@ let runner_config = {
 
 # Alice is an ordinary authenticated user driving her own server.
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = spawn --name alice-local --config {
+let local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
@@ -43,7 +43,7 @@ let path = artifact {
 }
 
 # start runner 1
-let runner1 = spawn --name runner1 --config $runner_config
+let runner1 = server spawn --name runner1 --config $runner_config
 
 # run foo, guaranteeing that it lands on runner1.
 let foo = tg --url $local.url build --remote $"($path)#foo" | complete
@@ -59,7 +59,7 @@ if $nu.os-info.name == 'linux' {
 }
 
 # start runner2.
-let runner2 = spawn --name runner2 --config $runner_config
+let runner2 = server spawn --name runner2 --config $runner_config
 
 # build bar, guaranteeing it lands on runner2.
 let bar = tg --url $local.url build --remote $"($path)#bar" | complete

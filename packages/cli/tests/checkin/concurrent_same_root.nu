@@ -5,7 +5,7 @@ use ../../test.nu *
 #
 # Regression test for 4245d307.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

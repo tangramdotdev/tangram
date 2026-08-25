@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package whose tagged dependencies form a cycle through their versions resolves and writes the expected lockfile.
 
-let server = spawn
+let server = server spawn
 
 # Tag the dependencies.
 let a1_path = artifact {

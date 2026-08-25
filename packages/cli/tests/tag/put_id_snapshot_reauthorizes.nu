@@ -3,7 +3,7 @@ use ../../test.nu *
 # A tag put reauthorizes when a parent is created after authorization.
 
 let root_token = random chars
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }

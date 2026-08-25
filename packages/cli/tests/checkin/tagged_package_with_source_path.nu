@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a package with a tagged dependency and a source-path override under --no-source-dependencies resolves to the tag and writes the expected lockfile.
 
-let server = spawn
+let server = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

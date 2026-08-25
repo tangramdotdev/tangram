@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A locked checkin rejects removing the last dependency instead of deleting the lockfile.
 
-let server = spawn
+let server = server spawn
 
 let dependency_path = artifact {
 	tangram.ts: '// a 1.0.0'

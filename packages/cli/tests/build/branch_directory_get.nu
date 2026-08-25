@@ -3,7 +3,7 @@ use ../../test.nu *
 # Directory.get retrieves a file by name from a directory large enough to be split into branch nodes.
 
 # Spawn a server with small max_leaf_entries to trigger branch directories.
-let server = spawn --config {
+let server = server spawn --config {
 	checkin: {
 		directory: {
 			max_leaf_entries: 4

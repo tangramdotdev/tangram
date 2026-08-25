@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Solving intersecting tag patterns backtracks from the newest incompatible candidate to an older compatible candidate.
 
-let server = spawn
+let server = server spawn
 
 let c1_path = artifact {
 	tangram.ts: '// c 1.0.0'

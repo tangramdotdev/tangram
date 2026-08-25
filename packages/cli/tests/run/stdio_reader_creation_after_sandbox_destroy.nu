@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's sandbox must remain alive until its piped stdio is buffered.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

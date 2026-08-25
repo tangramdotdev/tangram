@@ -3,8 +3,8 @@ use ../../test.nu *
 # Imports with source attributes resolve correctly when building from a published tag.
 # Building from a local path works, but building from a tag fails to resolve the sibling dependency.
 
-let remote = spawn --cloud --name remote
-let local = spawn --name local --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 let path = artifact {

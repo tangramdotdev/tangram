@@ -3,7 +3,7 @@ use ../../test.nu *
 # A separately written grant for a nested object remains durable when indexing is interrupted.
 
 let directory = mktemp -d
-let producer = spawn --name producer --directory $directory --config {
+let producer = server spawn --name producer --directory $directory --config {
 	advanced: { single_process: false },
 	roles: [cleaner http runner scheduler],
 }
@@ -20,12 +20,12 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-let indexer = spawn --name indexer --directory $directory --config {
+let indexer = server spawn --name indexer --directory $directory --config {
 	advanced: { single_process: false },
 	authentication: { users: { providers: { insecure: true } } },
 }
 tg --url $indexer.url index
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $indexer.url } },
 }
 

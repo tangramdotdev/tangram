@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in a path that does not exist fails to canonicalize the path.
 
-let server = spawn
+let server = server spawn
 
 let output = tg checkin /nonexistent/path/here | complete
 failure $output

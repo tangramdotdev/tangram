@@ -2,7 +2,7 @@
 
 use ../../test.nu *
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	a.tg.ts: 'import "./b.tg.ts";'

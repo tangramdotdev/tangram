@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Once a process log is compacted, it becomes a blob object, so reading it requires a grant on that object rather than just the process node: process_node alone must not read the compacted log, but process_node plus process_subtree_log must.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

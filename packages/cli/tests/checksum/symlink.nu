@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A symlink cannot be checksummed.
 
-let server = spawn
+let server = server spawn
 
 let symlink_id = tg put 'tg.symlink({ "path": "some/path" })' | str trim
 

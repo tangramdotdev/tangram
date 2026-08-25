@@ -3,7 +3,7 @@ use ../test.nu *
 
 # The children of a build process report their named options and cached status, and named child processes can be built individually.
 
-let server = spawn
+let server = server spawn
 let path = artifact {
 	tangram.ts: r#'
 		export function foo() { return "foo"; }

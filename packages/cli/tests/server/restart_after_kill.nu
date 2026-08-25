@@ -3,7 +3,7 @@ use ../../test.nu *
 # A server that is killed while a process is running must be able to start again. It currently hangs before it signals readiness, so the server directory is unusable until the index is deleted.
 
 print -e 'spawning the server'
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '
@@ -33,7 +33,7 @@ print -e 'the server stopped'
 
 # The server must start again and be usable.
 print -e 'spawning the server again'
-spawn --directory $server.directory --url $server.url
+let server = server start $server
 print -e 'the server started again'
 let output = tg health | complete
 success $output "the server must be usable after being killed"

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Public APIs accept null for optional values and interpret it as None.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

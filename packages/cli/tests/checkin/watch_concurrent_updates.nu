@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Concurrent selective updates compare against the watcher revision they originally observed.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

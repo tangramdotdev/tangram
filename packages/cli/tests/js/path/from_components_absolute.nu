@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.path.fromComponents reconstructs an absolute path from a leading root component.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.path.fromComponents(["/", "a", "b"]); }'

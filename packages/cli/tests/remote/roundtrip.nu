@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A remote can be put, retrieved, listed, and deleted.
 
-let server = spawn
+let server = server spawn
 
 tg remote put upstream "http://localhost:9999"
 

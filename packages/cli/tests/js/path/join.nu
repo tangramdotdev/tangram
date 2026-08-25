@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.path.join concatenates a relative path onto an absolute base.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.path.join("/a", "b", "c"); }'

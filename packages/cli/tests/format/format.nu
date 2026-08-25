@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Formatting a package reformats its TypeScript modules while respecting the tangramignore file, producing a tree that matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 let temp_dir = mktemp --directory
 

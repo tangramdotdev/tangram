@@ -12,7 +12,7 @@ def --wrapped unavailable [token: string, ...period: string] {
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
-let server = spawn --now '2025-12-29T00:00:00Z' --config {
+let server = server spawn --now '2025-12-29T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
 	roles: [http indexer runner scheduler],
 	usage: {

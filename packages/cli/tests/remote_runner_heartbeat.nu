@@ -11,10 +11,10 @@ let config = {
 		runner_ttl: 3,
 	},
 }
-let remote = spawn --name remote --cloud --config $config
+let remote = server spawn --name remote --cloud --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json
 
-let runner = spawn --name runner --config {
+let runner = server spawn --name runner --config {
 	runner: {
 		id: $created.runner.id
 		remote: "default"
@@ -28,7 +28,7 @@ let runner = spawn --name runner --config {
 	}
 }
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: {
 		default: {
 			token: $root_token

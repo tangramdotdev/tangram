@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A command's executable accessor returns an artifact executable wrapped in an artifact field.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

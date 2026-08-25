@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The public resolver must reject undefined at compile time.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

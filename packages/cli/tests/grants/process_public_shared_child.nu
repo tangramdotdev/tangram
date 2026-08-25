@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A public build's children are public too: a child of a public build is reused by a different owner whose build depends on the same child.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

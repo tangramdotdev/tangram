@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Force retargets a tag in place and preserves its grants.
 
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json

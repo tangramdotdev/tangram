@@ -9,7 +9,7 @@ if (($env.TANGRAM_TEST_VM? | default "") | str length) == 0 {
 }
 
 for dax in [true false] {
-	let server = spawn --busybox --config {
+	let server = server spawn --busybox --config {
 		sandbox: {
 			isolation: {
 				vm: {

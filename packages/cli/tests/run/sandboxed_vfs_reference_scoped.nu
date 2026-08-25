@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	return
 }
 
-let server = spawn --busybox --config { vfs: true }
+let server = server spawn --busybox --config { vfs: true }
 
 let foreign = tg build (artifact {
 	tangram.ts: '

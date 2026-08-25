@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Unsetting the environment with tg.Mutation.unset clears PATH so an unsandboxed process cannot find its executable.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

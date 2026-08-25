@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Sandboxed process arguments leave the host unset for the server to choose.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

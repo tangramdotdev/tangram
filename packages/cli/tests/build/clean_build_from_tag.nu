@@ -3,11 +3,11 @@ use ../../test.nu *
 # Building a tag on a second local server pulls the published artifact from the remote and produces the same output as the original build.
 
 # Create remote and local servers.
-let remote = spawn --cloud --name remote
-let local1 = spawn --name local_one --config {
+let remote = server spawn --cloud --name remote
+let local1 = server spawn --name local_one --config {
 	remotes: { default: { url: $remote.url } }
 }
-let local2 = spawn --name local_two --config {
+let local2 = server spawn --name local_two --config {
 	remotes: { default: { url: $remote.url } }
 }
 

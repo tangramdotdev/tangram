@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Object.is is true for an object and false for non-object values.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

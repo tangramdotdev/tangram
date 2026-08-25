@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Graph.expect throws when the value is not a graph.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

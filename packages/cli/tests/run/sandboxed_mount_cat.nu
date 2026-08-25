@@ -4,7 +4,7 @@ if $nu.os-info.name != 'linux' {
 	return
 }
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let mount = mktemp -d | str trim
 "hello from the mount\n" | save -f ($mount | path join "file")

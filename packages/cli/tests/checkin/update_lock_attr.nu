@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Checking in with --update and --lock=attr updates the tag dependency in the file lock xattr and writes no sibling lockfile.
 
-let server = spawn
+let server = server spawn
 
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'

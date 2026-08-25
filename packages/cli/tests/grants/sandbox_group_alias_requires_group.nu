@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The --group owner alias resolves only a group; an organization or a user is rejected.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

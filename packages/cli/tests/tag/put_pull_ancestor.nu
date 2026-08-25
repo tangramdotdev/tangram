@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # Putting a nested tag pulls a remote ancestor, then creates the remaining ancestors.
 
-let remote = spawn --cloud --name remote --config {
+let remote = server spawn --cloud --name remote --config {
 	sync: { put: { resolve: { batch_size: 32, batch_timeout: 0 } } }
 }
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

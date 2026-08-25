@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A request sent after the connection's idle timeout must not send an empty body.
 
-let server = spawn --config { http: { idle_timeout: 3 } }
+let server = server spawn --config { http: { idle_timeout: 3 } }
 
 let path = artifact {
 	tangram.ts: '

@@ -2,15 +2,15 @@ use ../../test.nu *
 
 # Pushing a directory must stop at an intermediate object the pusher cannot read, even when she can read the leaf beneath it. The remote cannot make the middle directory visible to Alice, so it requests it, and Alice's server holds the outer directory shallowly and cannot send it.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
-let bob_local = spawn --name bob-local --config {
+let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { url: $remote.url, token: $bob.token } },
 }
 

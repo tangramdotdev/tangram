@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A graph's nodes accessor returns its node array.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

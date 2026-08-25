@@ -2,12 +2,12 @@ use ../../test.nu *
 
 # Pulling must honor nested object masking: a principal granted the subtree of one child file may pull that file but must not pull its parent directory or a sibling she was not granted.
 
-let remote = spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
+let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
 
-let alice_local = spawn --name alice-local --config {
+let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 
@@ -24,7 +24,7 @@ tg --url $remote.url index
 tg --url $remote.url --token $alice.token grant $eve.user.id object_subtree $granted_file | ignore
 
 # Eve has her own server that talks to the remote as Eve.
-let eve_local = spawn --name eve-local --config {
+let eve_local = server spawn --name eve-local --config {
 	remotes: { default: { url: $remote.url, token: $eve.token } },
 }
 

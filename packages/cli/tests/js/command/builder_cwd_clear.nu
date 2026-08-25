@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's cwd method accepts null to clear the working directory.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

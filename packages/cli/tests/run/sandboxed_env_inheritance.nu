@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandboxed process does not inherit environment variables from the client's environment.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

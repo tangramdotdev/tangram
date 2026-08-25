@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A placeholder exposes the name it was constructed with through its name getter.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.placeholder("foo").name; }'

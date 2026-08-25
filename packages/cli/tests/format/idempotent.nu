@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Formatting an already formatted module is a no-op.
 
-let server = spawn
+let server = server spawn
 
 let dir = mktemp --directory
 'export default   "x"' | save ($dir | path join tangram.ts)

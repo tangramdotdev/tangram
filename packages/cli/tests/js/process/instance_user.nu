@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A spawned process exposes the user set on its command.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

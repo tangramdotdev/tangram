@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A command's args accessor returns its argument list.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

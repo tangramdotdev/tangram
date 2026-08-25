@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a directory containing two entries with identical contents writes the directory into the checkouts directory.
 
-let server = spawn
+let server = server spawn
 
 # Create the artifact.
 let artifact = '

@@ -7,13 +7,13 @@ use ../../test.nu *
 # produces identical metadata.
 
 # Create the local server (has the complete artifacts).
-let local = spawn --name local
+let local = server spawn --name local
 
 # Create the remote server (receives partial puts for testing).
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create another server (receives a full push for comparison).
-let other = spawn --cloud --name other
+let other = server spawn --cloud --name other
 
 let path = artifact {
 	tangram.ts: '

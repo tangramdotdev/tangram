@@ -1,11 +1,9 @@
 use ../../test.nu *
 
-# Pushing a large graph to an authenticated region completes even when a
-# database write in another region has not notified its local indexer.
+# Pushing a large graph to an authenticated region in a multi-region cloud
+# instance completes under bidirectional backpressure.
 
-let region_a_directory = mktemp -d
-let region_b_directory = mktemp -d
-let database_path = mktemp -d | path join database
+skip_if_no_cloud
 let region_a_port = port
 let region_b_port = port ($region_a_port + 1)
 let region_a_url = $'http://127.0.0.1:($region_a_port)'
@@ -14,18 +12,13 @@ let regions = [
 	{ name: a, url: $region_a_url },
 	{ name: b, url: $region_b_url },
 ]
-let common = {
+let instance = instance --cloud --primary-region a --regions $regions --config {
 	authentication: { users: { providers: { insecure: true } } },
-	database: { kind: sqlite, path: $database_path },
-	index: { map_size: 134_217_728 },
-	object: { store: { map_size: 134_217_728 } },
-	primary_region: a,
-	regions: $regions,
 }
-let region_a = spawn --preserve-keys --name region-a --directory $region_a_directory --url $region_a_url --config ($common | merge { region: a })
-let region_b = spawn --preserve-keys --name region-b --directory $region_b_directory --url $region_b_url --config ($common | merge { region: b })
+let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --url $region_a_url
+let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --url $region_b_url
 let alice = tg --url $region_a.url login --verbose --name alice | from json
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $region_b.url } },
 }
 
@@ -55,5 +48,6 @@ if $output == null {
 }
 success $output
 
+tg --url $region_b.url index
 let availability = tg --url $region_b.url --token $alice.token object availability $directory --local | from json
 assert equal $availability.subtree true

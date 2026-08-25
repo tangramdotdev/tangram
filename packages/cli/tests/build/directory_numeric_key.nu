@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A directory can be created with a numeric string key and produces the expected directory identifier.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

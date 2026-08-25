@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Touching an existing process succeeds.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("touched"); }'

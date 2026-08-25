@@ -2,7 +2,7 @@
 
 use ../../test.nu *
 
-let server = spawn
+let server = server spawn
 
 # Create and check in a cycle.
 let cycle_path = artifact {

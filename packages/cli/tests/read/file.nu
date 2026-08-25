@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading a file artifact returns its contents.
 
-let server = spawn
+let server = server spawn
 
 let file_id = tg put 'tg.file("file contents")' | str trim
 

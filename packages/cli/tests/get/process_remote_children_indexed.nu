@@ -2,9 +2,9 @@ use ../../test.nu *
 
 # Getting a finished process from a remote indexes its complete child list locally.
 
-let remote = spawn --name remote
-let sink = spawn --name sink
-let local = spawn --name local
+let remote = server spawn --name remote
+let sink = server spawn --name sink
+let local = server spawn --name local
 tg remote put default $remote.url
 tg --url $remote.url remote put default $sink.url
 

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn
+let server = server spawn
 
 let root = artifact {
 	tangram.ts: r#'

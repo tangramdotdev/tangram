@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Reading multiple references concatenates their contents in argument order.
 
-let server = spawn
+let server = server spawn
 
 let one = "one " | tg write | str trim
 let two = "two" | tg write | str trim

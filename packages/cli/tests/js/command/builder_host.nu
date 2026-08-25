@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # The builder's host method sets the host.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

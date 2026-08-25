@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # An anonymous client cannot claim a group, and a user with no grant cannot create a child of another user's group.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

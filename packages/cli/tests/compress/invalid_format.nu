@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Compressing with an unsupported format is rejected by the command line parser.
 
-let server = spawn
+let server = server spawn
 
 let blob = "hello, world!\n" | tg write
 

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.unimplemented throws the default message.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

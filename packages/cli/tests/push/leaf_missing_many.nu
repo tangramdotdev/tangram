@@ -3,13 +3,13 @@ use ../../test.nu *
 # Eagerly pushing a directory of many files whose leaf blobs are all missing locally but present on the remote completes and yields matching metadata.
 
 # Create a remote server.
-let remote = spawn --cloud --name remote
+let remote = server spawn --cloud --name remote
 
 # Create a local server.
-let local = spawn --name local
+let local = server spawn --name local
 
 # Create a source server.
-let source = spawn --name source
+let source = server spawn --name source
 
 # Create a directory with many files to increase object count.
 let path = artifact {

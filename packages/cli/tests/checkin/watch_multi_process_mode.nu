@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A watched checkin fails when the server is not in single-process mode.
 
-let server = spawn --config { advanced: { single_process: false } }
+let server = server spawn --config { advanced: { single_process: false } }
 let path = artifact {
 	tangram.ts: 'export default "hello";'
 }

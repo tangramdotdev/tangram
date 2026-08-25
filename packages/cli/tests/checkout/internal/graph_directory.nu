@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Checking out a directory defined through a graph node writes the directory into the checkouts directory.
 
-let server = spawn --config { write: { checkout_pointers: false } }
+let server = server spawn --config { write: { checkout_pointers: false } }
 
 # Create the artifact.
 let artifact = artifact {

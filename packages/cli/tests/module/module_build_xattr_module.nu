@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A module with xattr (but no .tg.ts extension) can be built by ID.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	"module.ts": (file --xattrs { "user.tangram.module": "ts" } 'export default function () { return "xattr module"; }')

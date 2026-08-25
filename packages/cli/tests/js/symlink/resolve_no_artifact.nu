@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # Resolving a symlink that has a path but no artifact throws.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

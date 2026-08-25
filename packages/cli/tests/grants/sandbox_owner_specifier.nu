@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandbox owner can be provided as a specifier, and write on that owner grants sandbox access.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Updating with a pattern argument bumps only the named dependency.
 
-let server = spawn
+let server = server spawn
 
 let a1 = artifact { tangram.ts: 'export default function () { return "a1"; }' }
 tg tag -p a/1.0.0 $a1

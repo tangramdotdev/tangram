@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The check command succeeds when building the default export of a tagged dependency imported either as a directory or as a ts file, treating its return as a tg.Directory.
 
-let server = spawn
+let server = server spawn
 
 let source = 'export default function (): PromiseLike<tg.Directory> { return tg.directory(); }'
 

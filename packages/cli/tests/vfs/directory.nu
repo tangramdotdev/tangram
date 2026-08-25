@@ -19,7 +19,7 @@ let transports = if (fuse_io_uring_available) {
 }
 for io in $transports {
 	let server_path = mktemp --directory
-	let server = spawn --directory $server_path --config {
+	let server = server spawn --directory $server_path --config {
 		vfs: {
 			kind: 'fuse'
 			io: $io

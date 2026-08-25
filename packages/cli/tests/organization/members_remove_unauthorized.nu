@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Membership confers write but not admin, so a member cannot remove another member.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

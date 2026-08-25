@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.encoding.utf8.encode encodes a string to its UTF-8 byte representation.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.utf8.encode("hi"); }'

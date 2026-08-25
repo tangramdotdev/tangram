@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # A process stdout reader's readAll method drains the whole stream as bytes, configured with the per-stream stdout setter.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

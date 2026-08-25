@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A build can produce a symlink that points to an artifact and the resulting object and checkout match their snapshots.
 
-let server = spawn --busybox
+let server = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

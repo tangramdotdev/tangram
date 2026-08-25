@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A tag deleted after it is read is returned from the consistent snapshot rather than causing an internal error.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

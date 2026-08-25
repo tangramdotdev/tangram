@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Mutation.expect returns the value unchanged when it is a mutation.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

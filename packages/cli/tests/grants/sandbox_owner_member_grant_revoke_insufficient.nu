@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Revoking a member's write grant does not remove their access while their membership remains, because membership is evaluated dynamically.
 
-let server = spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

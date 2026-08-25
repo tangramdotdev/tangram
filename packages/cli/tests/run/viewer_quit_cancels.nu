@@ -8,7 +8,7 @@ if (which python3 | is-empty) {
 	skip_test "this test requires python3"
 }
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

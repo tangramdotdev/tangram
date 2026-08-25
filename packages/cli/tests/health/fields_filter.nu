@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # The fields flag restricts the health to the requested comma separated fields.
 
-let server = spawn
+let server = server spawn
 
 let health = tg health --fields processes,version | from json
 assert equal ($health | columns) [processes version] "only the requested fields should be returned"

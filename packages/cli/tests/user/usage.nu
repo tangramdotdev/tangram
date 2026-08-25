@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Usage is available through the user-specific and top-level commands.
 
-let server = spawn --config {
+let server = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.print renders files and symlinks with absent optional fields without crashing and omits those fields.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -3,7 +3,7 @@ use ../../test.nu *
 # A process can return a child of the output of its own remote cache-hit child. Resolving the entry
 # pulls the output directory node, but the returned file remains remote until it is read.
 
-let remote = spawn --name remote
+let remote = server spawn --name remote
 
 let path = artifact {
 	tangram.ts: '
@@ -22,7 +22,7 @@ let path = artifact {
 let dependency = tg --url $remote.url build --detach $"($path)#dependency" | str trim
 tg --url $remote.url wait $dependency | ignore
 
-let local = spawn --name local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 

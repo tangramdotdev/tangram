@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Documenting a graph directory pointer containing a tangram.ts module produces documentation JSON that matches the snapshot.
 
-let server = spawn
+let server = server spawn
 
 # Create a graph with a directory node containing a tangram.ts module.
 let artifact = '

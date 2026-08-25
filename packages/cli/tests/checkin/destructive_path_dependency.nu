@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A destructive checkin of a package with a sibling path dependency resolves and embeds the dependency.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	foo: {

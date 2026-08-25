@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # console.log formats booleans, null, and undefined by name.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

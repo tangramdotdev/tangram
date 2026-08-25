@@ -2,7 +2,7 @@ use ../../../test.nu *
 
 # tg.Value.parse inverts tg.Value.stringify.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

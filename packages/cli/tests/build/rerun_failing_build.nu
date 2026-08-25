@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Rerunning a build whose command throws produces the same failure and identical error output on each run.
 
-let server = spawn
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Requesting an invalid health field is an error.
 
-let server = spawn
+let server = server spawn
 
 let output = tg health --fields bogus | complete
 failure $output

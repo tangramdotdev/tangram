@@ -5,7 +5,7 @@ use ../../test.nu *
 # hit. The cache-hit parent must receive a node grant on the reused child so that
 # it can wait on it.
 
-let server = spawn --config {
+let server = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

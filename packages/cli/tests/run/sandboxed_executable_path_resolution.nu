@@ -6,7 +6,7 @@ let parent_path_bin = mktemp --directory
 ln -s /bin/sh ($parent_path_bin | path join "parent-only-sh")
 
 with-env { PATH: ($env.PATH | prepend $parent_path_bin) } {
-	let server = spawn
+	let server = server spawn
 
 	let sh_path = artifact {
 		tangram.ts: '
