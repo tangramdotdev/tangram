@@ -12,22 +12,31 @@ let remote_group = tg --url $remote.url group create foo | from json
 tg --url $remote.url tag put foo/a $id
 let remote_tag = tg --url $remote.url tag get foo/a | from json
 
-let group = tg --url $local.url get foo | from json
+let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get foo | complete }
+success $output
+let group = $output.stdout | from json
 assert equal $group.id $remote_group.id
-assert equal $group.location remote
+assert (($group | get --optional location) == null) "get should not print a location to stdout"
+assert ($output.stderr | str contains "location=remote") "the referent should include its remote location"
 
 let children = tg --url $local.url list --no-groups foo | from json
 assert equal ($children | get specifier) [foo/a]
 assert equal ($children | get node.options.location) [remote]
 
 let local_group = tg --url $local.url group create foo | from json
-let group = tg --url $local.url get foo | from json
+let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get foo | complete }
+success $output
+let group = $output.stdout | from json
 assert equal $group.id $local_group.id
-assert equal $group.location local
+assert (($group | get --optional location) == null) "get should not print a location to stdout"
+assert ($output.stderr | str contains "location=local") "the referent should include its local location"
 
-let tag = tg --url $local.url get foo/a | from json
+let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get foo/a | complete }
+success $output
+let tag = $output.stdout | from json
 assert equal $tag.id $remote_tag.id
-assert equal $tag.location remote
+assert (($tag | get --optional location) == null) "get should not print a location to stdout"
+assert ($output.stderr | str contains "location=remote") "the referent should include its remote location"
 assert equal $tag.parent $remote_group.id
 
 let children = tg --url $local.url list --no-groups foo | from json

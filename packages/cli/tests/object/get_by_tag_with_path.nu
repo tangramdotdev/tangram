@@ -27,7 +27,9 @@ snapshot $output.stdout '
 	})
 
 '
-snapshot $output.stderr '
-	info fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60?id=dir_01dsqh18mkjvps1bsynv883g6h70xtem9p12yexpbn0dcxz5xygnsg&path=foo/bar/file.txt&tag=test
-
-'
+assert ($output.stderr | str contains "fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60") "the referent should include the file ID"
+assert ($output.stderr | str contains "id=dir_01dsqh18mkjvps1bsynv883g6h70xtem9p12yexpbn0dcxz5xygnsg") "the referent should include the directory ID"
+assert ($output.stderr | str contains "location=local") "the referent should include its location"
+assert ($output.stderr | str contains "path=foo/bar/file.txt") "the referent should include its path"
+assert ($output.stderr | str contains "tag=test") "the referent should include its tag"
+assert ($output.stderr | str contains "tokens[local]") "the referent should include its token"

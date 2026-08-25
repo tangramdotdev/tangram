@@ -7,12 +7,11 @@ let alice = tg --url $server.url login --verbose --name alice | from json
 let bob = tg --url $server.url login --verbose --name bob | from json
 let path = artifact 'contents'
 let artifact = tg --url $server.url --token $alice.token checkin $path
-tg --url $server.url --token $alice.token group create private | ignore
+let parent = tg --url $server.url --token $alice.token group create private | from json
 tg --url $server.url --token $alice.token group create private/1.0.0 | ignore
 tg --url $server.url --token $alice.token tag private/1.0.0/latest $artifact
 tg --url $server.url index
 
-let parent = tg --url $server.url --token $alice.token group get private | from json
 let token = $parent.tokens.local | url encode --all
 let reference = $"private/^1?tokens[local]=($token)"
 let version = tg --url $server.url --token $bob.token get $reference | from json

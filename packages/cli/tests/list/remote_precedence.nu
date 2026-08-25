@@ -14,6 +14,10 @@ let local = spawn --name local --config {
 let alpha_group = tg --url $alpha.url group create foo | from json
 tg --url $zeta.url group create foo | ignore
 
-let group = tg --url $local.url get foo | from json
+let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get foo | complete }
+success $output
+let group = $output.stdout | from json
 assert equal $group.id $alpha_group.id
-assert equal $group.location "remote:alpha"
+assert (($group | get --optional location) == null) "get should not print a location to stdout"
+assert ($output.stderr | str contains "location=") "the referent should include its location"
+assert ($output.stderr | str contains "alpha") "the referent should identify the alpha remote"
