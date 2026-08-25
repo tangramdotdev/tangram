@@ -402,12 +402,16 @@ impl Session {
 
 				// Load the command.
 				let data = if local {
-					session.load_process_command_local(&command).await?
+					session.try_load_process_command_local(&command).await?
 				} else {
-					command
+					None
+				};
+				let data = match data {
+					Some(data) => data,
+					None => command
 						.data_with_handle(&session)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to get the command data"))?
+						.map_err(|error| tg::error!(!error, "failed to get the command data"))?,
 				};
 
 				Ok((data, session))
@@ -1206,10 +1210,10 @@ impl Session {
 		Some(session)
 	}
 
-	async fn load_process_command_local(
+	async fn try_load_process_command_local(
 		&self,
 		command: &tg::Command,
-	) -> tg::Result<tg::command::Data> {
+	) -> tg::Result<Option<tg::command::Data>> {
 		let id = command.id();
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
@@ -1220,18 +1224,16 @@ impl Session {
 		);
 		let authorized = self.authorize(resource, permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-			return Err(tg::error!(%id, "unauthorized to load the command"));
+			return Ok(None);
 		}
 		let id = tg::object::Id::from(id);
-		let output = self
-			.server
-			.try_get_object_local(&id, false)
-			.await?
-			.ok_or_else(|| tg::error!(%id, "failed to find the command"))?;
+		let Some(output) = self.server.try_get_object_local(&id, false).await? else {
+			return Ok(None);
+		};
 		let data = tg::command::Data::deserialize(output.bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the command"))?;
 
-		Ok(data)
+		Ok(Some(data))
 	}
 
 	async fn push_process_command(
