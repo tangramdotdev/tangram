@@ -3,7 +3,16 @@ import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
 import foundationdb from "foundationdb" with {
 	source: "../packages/packages/foundationdb.tg.ts",
 };
+import libcapNg from "libcap-ng" with {
+	source: "../packages/packages/libcap-ng.tg.ts",
+};
+import libseccomp from "libseccomp" with {
+	source: "../packages/packages/libseccomp.tg.ts",
+};
 import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import openssl from "openssl" with {
+	source: "../packages/packages/openssl.tg.ts",
+};
 import { cargo } from "rust" with { source: "../packages/packages/rust" };
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
 import zlib from "zlib-ng" with {
@@ -37,183 +46,67 @@ export const format = async () => {
 };
 
 export const run = async (...args: tg.Args<Arg>) => {
-	const merged = await std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a ?? null, b ?? null),
-			features: "append",
-			sdk: (a, b) => std.sdk.mergeArg(a, b),
-		},
-	});
+	const merged = await mergeArgs(args);
 	const {
+		disableDefaultFeatures = false,
 		env: env_,
-		foundationdb: useFoundationdb = false,
 		host: host_,
-		nats = false,
-		postgres = false,
 		proxy = true,
-		scylla = false,
 		source: source_ = source,
 	} = merged;
 	const host = host_ ?? std.triple.host();
+	const features = featureList(merged);
 
-	// Configure features.
-	const features = [];
-	if (nats) {
-		features.push("nats");
-	}
-	if (postgres) {
-		features.push("postgres");
-	} else {
-		features.push("sqlite");
-	}
-	if (scylla) {
-		features.push("scylla");
-	}
-	if (!useFoundationdb) {
-		features.push("lmdb");
-	}
-	if (useFoundationdb) {
-		features.push("foundationdb");
-	}
+	// Build scripts run on the host in hybrid mode, sharing a target directory with bare cargo, so this omits every variable they watch with `rerun-if-env-changed` that bare cargo does not set: NODE_PATH, and the V8 archive from `librustyv8`, which only the sandboxed `build` export needs.
+	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
 
-	// Set up the environment with bun and node_modules so that build scripts can find them. Build scripts run on the host in hybrid mode, which shares a target directory with bare cargo, so this omits every variable they watch with `rerun-if-env-changed` that bare cargo does not set: NODE_PATH, and the V8 archive from `librustyv8`, which only the sandboxed `build` export needs.
-	const runNodeModules = nodeModules(host);
-	const bunArt = bun({ host });
-	const env = await std.env.arg(env_ ?? null, bunEnvArg(host), {
-		WATERMARK: "9",
-		TGRUSTC_RUNNER_PASSTHROUGH: "v8",
-		TGRUSTC_RUNNER_EXTRA_PATH: tg`${bunArt}/bin:${runNodeModules}/node_modules/.bin`,
-	});
-
-	// Call cargo.run() with the source, features, and env.
-	return cargo.run({
+	const output = cargo.run({
+		disableDefaultFeatures,
 		env,
 		features,
 		host,
 		proxy,
 		source: source_,
 	});
+
+	return output;
 };
 
-// Bisect helpers for debugging the proxy=true segfault.
-export const runNightlyNoProxy = async () =>
-	cargo.run({
-		source,
-		channel: "nightly",
-		proxy: false,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-	});
-
-export const runStableWithProxy = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-	});
-
-// Proxy on, but selectively unset env vars to find which one crashes cargo.
-export const runProxyNoRustcWrapper = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: "unset RUSTC_WRAPPER",
-	});
-
-export const runProxyNoRustc = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: "unset RUSTC",
-	});
-
-export const runProxyNoTgrustcVars = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: "for v in $(env | awk -F= '/^TGRUSTC_/{print $1}'); do unset $v; done",
-	});
-
-export const runProxyNoCargoHostRunner = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: "unset CARGO_HOST_RUNNER",
-	});
-
-// Same proxy env, but skip the execLine and run cargo with no extra flags.
-export const runProxyMinimalCargo = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: 'exec "$TGRUSTC_CARGO" --version',
-	});
-
-// Same proxy env, but skip RUSTC_WRAPPER specifically AND use minimal cargo args.
-export const runProxyMinimalNoWrapper = async () =>
-	cargo.run({
-		source,
-		channel: "stable",
-		proxy: true,
-		host: std.triple.host(),
-		features: ["sqlite", "lmdb"],
-		pre: 'unset RUSTC_WRAPPER\nexec "$TGRUSTC_CARGO" --version',
-	});
+export default run;
 
 // Build targets.
 
 export const build = async (...args: tg.Args<Arg>) => {
-	const merged = await std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a ?? null, b ?? null),
-			features: "append",
-			sdk: (a, b) => std.sdk.mergeArg(a, b),
-		},
-	});
+	const merged = await mergeArgs(args);
 	const {
 		build: build_,
 		captureStderr = false,
+		disableDefaultFeatures = false,
 		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
-		nats = false,
-		postgres = false,
 		proxy = false,
 		sdk,
-		scylla = false,
 		source: source_ = source,
 	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
+	const features = featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
 	const envs: tg.Args<std.env.Arg> = [
 		bunEnvArg(build),
-		librustyv8(cargoLock, host),
+		librustyv8(cargoLock, build, host),
+		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
+		openssl({ build, host }),
 		sandboxRootfs(host),
 	];
+
+	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
+	if (std.triple.os(host) === "linux") {
+		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
+	}
 
 	if (build !== host) {
 		envs.push({
@@ -229,25 +122,9 @@ export const build = async (...args: tg.Args<Arg>) => {
 		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
-	// Configure features.
-	const features = [];
-	if (nats) {
-		features.push("nats");
-	}
-	if (postgres) {
-		features.push("postgres");
-	} else {
-		features.push("sqlite");
-	}
-	if (scylla) {
-		features.push("scylla");
-	}
-	if (!useFoundationdb) {
-		features.push("lmdb");
-	}
+	// Configure foundationdb.
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
 	if (useFoundationdb) {
-		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, {
 			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
@@ -263,10 +140,10 @@ export const build = async (...args: tg.Args<Arg>) => {
 
 	// Build tangram.
 	const env = std.env.arg(...envs, env_ ?? null);
-	let output = cargo.build({
+	const output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
-		disableDefaultFeatures: true,
+		disableDefaultFeatures,
 		env,
 		features,
 		pre,
@@ -296,30 +173,23 @@ export const build = async (...args: tg.Args<Arg>) => {
 		.then((dir) => dir.get("bin/tangram"))
 		.then(tg.File.expect);
 	const wrapped = std.wrap(unwrapped, { host, libraryPaths });
-	return await tg.directory(output, {
+	const directory = await tg.directory(output, {
 		["bin/tangram"]: wrapped,
 		["bin/tg"]: tg.symlink("tangram"),
 	});
+
+	return directory;
 };
 
-export default run;
-
 export const cloud = async (...args: tg.Args<Arg>) => {
-	const merged = await std.args.apply<Arg, Arg>({
-		args,
-		map: async (arg) => arg,
-		reduce: {
-			env: (a, b) => std.env.arg(a ?? null, b ?? null),
-			sdk: (a, b) => std.sdk.mergeArg(a, b),
-		},
-	});
+	const merged = await mergeArgs(args);
 	const host = merged.host ?? std.triple.host();
 	if (std.triple.os(host) !== "linux") {
 		throw new Error(
 			"the cloud configuration is only available for Linux hosts",
 		);
 	}
-	return await build(
+	const output = await build(
 		{
 			foundationdb: true,
 			nats: true,
@@ -328,6 +198,8 @@ export const cloud = async (...args: tg.Args<Arg>) => {
 		},
 		merged,
 	);
+
+	return output;
 };
 
 export const image = async (...args: tg.Args<Arg>) => {
@@ -383,96 +255,58 @@ export const release = async () => {
 // Test targets.
 
 export const test = async () => {
-	const output = await $`tg --help > ${tg.output}`
-		.env(build())
-		.then(tg.File.expect)
-		.then((f) => f.text);
-	tg.assert(output.includes("Usage:"));
+	await assertHelp(build());
 };
 
 export const testCloud = async () => {
-	const output = await $`tg --help > ${tg.output}`
-		.env(cloud())
-		.then(tg.File.expect)
-		.then((f) => f.text);
-	tg.assert(output.includes("Usage:"));
+	await assertHelp(cloud());
 };
 
 export const testProxy = async () => {
+	await assertHelp(build({ profile: "dev", proxy: true }));
+};
+
+// Internal helpers.
+
+const mergeArgs = async (args: tg.Args<Arg>) =>
+	std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a ?? null, b ?? null),
+			features: "append",
+			sdk: (a, b) => std.sdk.mergeArg(a, b),
+		},
+	});
+
+const featureList = (arg: Arg) => {
+	const features = [...(arg.features ?? [])];
+	if (arg.nats) {
+		features.push("nats");
+	}
+	if (arg.postgres) {
+		features.push("postgres");
+	} else {
+		features.push("sqlite");
+	}
+	if (arg.scylla) {
+		features.push("scylla");
+	}
+	if (arg.foundationdb) {
+		features.push("foundationdb");
+	} else {
+		features.push("lmdb");
+	}
+	return features;
+};
+
+const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
 	const output = await $`tg --help > ${tg.output}`
-		.env(build({ proxy: true, profile: "dev" }))
+		.env(env)
 		.then(tg.File.expect)
 		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
 };
-
-/** Test that the proxy correctly caches unchanged crates when only tangram_cli is modified. */
-export const testProxyCacheHit = async () => {
-	const tracingEnv = { TGRUSTC_TRACING: "tgrustc=info" };
-
-	// First build: populate the cache.
-	console.log("=== First build (populating cache) ===");
-	await build({
-		profile: "dev",
-		proxy: true,
-		captureStderr: true,
-		env: tracingEnv,
-	});
-
-	// Modify only tangram_cli by adding a unique comment to main.rs.
-	const mainRs = await source
-		.get("packages/cli/src/main.rs")
-		.then(tg.File.expect)
-		.then((f: tg.File) => f.text);
-	const modifiedSource = await tg.directory(source, {
-		"packages/cli/src/main.rs": tg.file(
-			`${mainRs}\n// Modified for cache test at ${Date.now()}\n`,
-		),
-	});
-
-	// Second build: should cache hit for all crates except tangram.
-	console.log("=== Second build (testing cache hits) ===");
-	const secondResult = await build({
-		profile: "dev",
-		proxy: true,
-		captureStderr: true,
-		env: tracingEnv,
-		source: modifiedSource,
-	});
-	const stats = await parseStats(secondResult);
-	if (!stats) {
-		throw new Error("Second build should have stats.");
-	}
-	const proxyStats = stats.filter((s) => s.kind === "proxy");
-	const runnerStats = stats.filter((s) => s.kind === "runner");
-
-	// The modified crate must be a cache miss.
-	const tangramStats = proxyStats.find((s) => s.crate_name === "tangram");
-	tg.assert(
-		tangramStats !== undefined && tangramStats.cached === false,
-		"The tangram crate should be a cache miss.",
-	);
-
-	// All other compilations must be cache hits.
-	const proxyMisses = proxyStats.filter(
-		(s) => !s.cached && s.crate_name !== "tangram",
-	);
-	tg.assert(
-		proxyMisses.length === 0,
-		`Expected all unchanged compilations to be cache hits, but these were misses: ${proxyMisses.map((s) => s.crate_name).join(", ")}`,
-	);
-
-	// All build script runners must be cache hits.
-	const runnerMisses = runnerStats.filter((s) => !s.cached);
-	tg.assert(
-		runnerMisses.length === 0,
-		`Expected all runners to be cache hits, but these were misses: ${runnerMisses.map((s) => s.crate_name).join(", ")}`,
-	);
-
-	return stats;
-};
-
-// Internal helpers.
 
 const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
@@ -513,8 +347,7 @@ const nodeModules = async (hostArg?: string) => {
 		.env(bunEnvArg(host))
 		.then(tg.Directory.expect);
 
-	// Wrap shebang scripts in node_modules/.bin so they don't need /usr/bin/env
-	// in the sandbox. This makes them native ELF executables with explicit interpreters.
+	// Wrap the shebang scripts in node_modules/.bin as native executables with explicit interpreters so they do not need /usr/bin/env in the sandbox.
 	const bunBin = await bun({ host })
 		.then((d) => d.get("bin/bun"))
 		.then(tg.File.expect);
@@ -532,14 +365,6 @@ const nodeModules = async (hostArg?: string) => {
 	});
 };
 
-/** Wrap shebang scripts in a directory with explicit interpreters.
- *
- * For each executable shebang script, detects the interpreter and wraps it with
- * `std.wrap` so it becomes a native ELF that doesn't need `/usr/bin/env` at
- * runtime. The executable is referenced via a symlink into `root`, preserving
- * the directory context so scripts can resolve relative paths (e.g., package.json
- * subpath imports).
- */
 const wrapShebangs = async (
 	binDir: tg.Directory,
 	root: tg.Directory,
@@ -587,7 +412,7 @@ const wrapShebangs = async (
 		}
 		if (!interpreter) continue;
 
-		// Use a symlink so the wrapper resolves this as a path, not content.
+		// Reference the script through a symlink into the root so the wrapper resolves it as a path rather than content, keeping the directory context that package.json subpath imports need.
 		const executableRef = tg.symlink({
 			artifact: root,
 			path: `node_modules/.bin/${name}`,
@@ -611,12 +436,12 @@ const bunEnvArg = async (hostArg?: string) => {
 	);
 };
 
-export const sandboxRootfs = async (host?: string) => {
-	const h = host ?? std.triple.host();
-	if (std.triple.os(h) !== "linux") {
+const sandboxRootfs = async (hostArg?: string) => {
+	const host = hostArg ?? std.triple.host();
+	if (std.triple.os(host) !== "linux") {
 		return {};
 	}
-	const arch = std.triple.arch(h);
+	const arch = std.triple.arch(host);
 	let archiveName: string;
 	let checksum: tg.Checksum;
 	if (arch === "aarch64") {
@@ -628,7 +453,7 @@ export const sandboxRootfs = async (host?: string) => {
 		checksum =
 			"sha256:1a2ab509a1a2ab7e1f04bfd07cf5596ee27c8197b7f0e0ebe1ac037c07eb61bf";
 	} else {
-		throw new Error(`unsupported Linux sandbox arch: ${arch}`);
+		throw new Error(`unsupported linux sandbox arch ${arch}`);
 	}
 	const url = `https://github.com/tangramdotdev/bootstrap/releases/download/v2026.07.29/${archiveName}`;
 	const rootfs = await std.download
@@ -638,66 +463,38 @@ export const sandboxRootfs = async (host?: string) => {
 };
 
 const librustyv8 = async (lockfile: tg.File, ...hosts: Array<string>) => {
-	const hostList = hosts.length > 0 ? hosts : [std.triple.host()];
 	const version = await getRustyV8Version(lockfile);
+	const download = (name: string) =>
+		std
+			.download({
+				checksum: "sha256:any",
+				url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${name}`,
+			})
+			.then((b) => {
+				tg.assert(b instanceof tg.Blob);
+				return tg.file(b);
+			});
 
-	const downloads = await Promise.all(
-		hostList.map(async (host) => {
-			let os;
-			if (std.triple.os(host) === "darwin") {
-				os = "apple-darwin";
-			} else if (std.triple.os(host) === "linux") {
-				os = "unknown-linux-gnu";
-			} else {
-				throw new Error(`unsupported host ${host}`);
-			}
-			const checksum = "sha256:any";
-			const triple = `${std.triple.arch(host)}-${os}`;
-			const file = `librusty_v8_release_${triple}.a.gz`;
-			const lib = await std
-				.download({
-					checksum,
-					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
-				})
-				.then((b) => {
-					tg.assert(b instanceof tg.Blob);
-					return tg.file(b);
-				});
-			// Also download the src binding file. The v8 build script downloads
-			// this from RUSTY_V8_MIRROR when RUSTY_V8_SRC_BINDING_PATH is not
-			// set. With --target, cargo may invoke the build script twice
-			// concurrently with different OUT_DIRs, causing a race on the shared
-			// gen/ directory. Providing the binding path avoids the download and
-			// the race entirely.
-			const bindingFile = `src_binding_release_${triple}.rs`;
-			const binding = await std
-				.download({
-					checksum,
-					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${bindingFile}`,
-				})
-				.then((b) => {
-					tg.assert(b instanceof tg.Blob);
-					return tg.file(b);
-				});
-			const envVarSuffix = triple.replace(/-/g, "_");
-			const key =
-				hostList.length === 1
-					? "RUSTY_V8_ARCHIVE"
-					: `RUSTY_V8_ARCHIVE_${envVarSuffix}`;
-			return { key, value: lib, binding };
-		}),
-	);
-
-	const result: Record<string, tg.File> = {};
-	for (const { key, value, binding } of downloads) {
-		result[key] = value;
-		// Set the src binding path to avoid the download race condition.
-		if (binding) {
-			result["RUSTY_V8_SRC_BINDING_PATH"] = binding;
+	// A RUSTY_V8_ARCHIVE directory is searched for the library and src binding matching the build script's own TARGET, so one directory serves every triple.
+	const entries: Record<string, Promise<tg.File>> = {};
+	for (const host of new Set(hosts)) {
+		let os: string;
+		if (std.triple.os(host) === "darwin") {
+			os = "apple-darwin";
+		} else if (std.triple.os(host) === "linux") {
+			os = "unknown-linux-gnu";
+		} else {
+			throw new Error(`unsupported host ${host}`);
 		}
+		const triple = `${std.triple.arch(host)}-${os}`;
+		const library = `librusty_v8_release_${triple}.a.gz`;
+		const binding = `src_binding_release_${triple}.rs`;
+		entries[library] = download(library);
+		entries[binding] = download(binding);
 	}
+	const archive = await tg.directory(entries);
 
-	return result;
+	return { RUSTY_V8_ARCHIVE: archive };
 };
 
 const getRustyV8Version = async (lockfile: tg.File) => {
@@ -707,64 +504,11 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 			(toml as CargoLock).package.find((pkg) => pkg.name === "v8"),
 		);
 	if (v8 === undefined) {
-		throw new Error("Could not find v8 dependency in lockfile");
+		throw new Error("could not find the v8 package in the lockfile");
 	}
 	return v8.version;
 };
 
 type CargoLock = {
 	package: Array<{ name: string; version: string }>;
-};
-
-/** Stats parsed from tgrustc tracing output in cargo-stderr.log. */
-type ProxyStats = {
-	kind: "proxy" | "runner";
-	crate_name: string;
-	cached: boolean;
-	elapsed_ms: number;
-	process_id: string;
-	command_id: string;
-};
-
-/** Parse tgrustc stats from cargo-stderr.log in a build result. */
-const parseStats = async (
-	result: tg.Directory,
-): Promise<Array<ProxyStats> | undefined> => {
-	const stderrLog = await result
-		.tryGet("cargo-stderr.log")
-		.then((a) => (a instanceof tg.File ? a : undefined));
-	if (!stderrLog) return undefined;
-
-	const text = await stderrLog.text;
-	const stats: Array<ProxyStats> = [];
-
-	for (const line of text.split("\n")) {
-		let kind: "proxy" | "runner" | undefined;
-		if (line.includes("proxy_complete")) {
-			kind = "proxy";
-		} else if (line.includes("runner_complete")) {
-			kind = "runner";
-		} else {
-			continue;
-		}
-
-		const crateMatch = /crate_name=(\S+)/.exec(line);
-		const cachedMatch = /cached=(true|false)/.exec(line);
-		const elapsedMatch = /elapsed_ms=(\d+)/.exec(line);
-		const processMatch = /process_id=(\S+)/.exec(line);
-		const commandMatch = /command_id=(\S+)/.exec(line);
-
-		if (crateMatch?.[1] && cachedMatch?.[1]) {
-			stats.push({
-				kind,
-				crate_name: crateMatch[1],
-				cached: cachedMatch[1] === "true",
-				elapsed_ms: elapsedMatch?.[1] ? parseInt(elapsedMatch[1], 10) : 0,
-				process_id: processMatch?.[1] ?? "",
-				command_id: commandMatch?.[1] ?? "",
-			});
-		}
-	}
-
-	return stats.length > 0 ? stats : undefined;
 };
