@@ -118,6 +118,22 @@ fn put_process_with_set(
 		&Key::Process(ProcessKey::Process(process.clone())),
 		&value,
 	);
+	put(
+		index,
+		txn,
+		&Key::Process(ProcessKey::ProcessSandbox {
+			process: process.clone(),
+			sandbox: sandbox.clone(),
+		}),
+	);
+	put(
+		index,
+		txn,
+		&Key::Sandbox(SandboxKey::SandboxProcess {
+			process: process.clone(),
+			sandbox: sandbox.clone(),
+		}),
+	);
 }
 
 fn put_process_child(
@@ -191,6 +207,17 @@ fn put_resource_grant(
 		&Key::Grant(GrantKey::ResourceGrant {
 			creator: None,
 			permission,
+			resource: resource.clone(),
+			subject: subject.clone(),
+		}),
+		&value,
+	);
+	put_value(
+		index,
+		txn,
+		&Key::Grant(GrantKey::SubjectGrant {
+			creator: None,
+			permission,
 			resource,
 			subject,
 		}),
@@ -228,6 +255,17 @@ fn put_process_implicit_grant_with_expiration(
 		&Key::Grant(GrantKey::ResourceGrant {
 			creator: Some(tg::Principal::Process(process.clone())),
 			permission,
+			resource: resource.clone(),
+			subject: tg::authorization::Subject::Process(process.clone()),
+		}),
+		&value,
+	);
+	put_value(
+		index,
+		txn,
+		&Key::Grant(GrantKey::SubjectGrant {
+			creator: Some(tg::Principal::Process(process.clone())),
+			permission,
 			resource,
 			subject: tg::authorization::Subject::Process(process.clone()),
 		}),
@@ -255,12 +293,21 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 }
 
 fn new_index() -> (tempfile::TempDir, Index) {
+	let authorize = super::super::AuthorizeConfig {
+		ancestor: crate::authorize::SearchConfig::default(),
+		descendant: crate::authorize::SearchConfig::default(),
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+
+	new_index_with_authorize(authorize)
+}
+
+fn new_index_with_authorize(
+	authorize: super::super::AuthorizeConfig,
+) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
-		authorize: super::super::AuthorizeConfig {
-			object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
-			process_subtree: crate::authorize::ProcessSubtreeConfig::default(),
-		},
+		authorize,
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),
@@ -879,7 +926,18 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 async fn authorize_deep_chain_scales_linearly() {
 	const DEPTH: usize = 1000;
 
-	let (_dir, index) = new_index();
+	let search = crate::authorize::SearchConfig {
+		max_depth: DEPTH,
+		max_edges: 4 * DEPTH,
+		max_nodes: 2 * DEPTH,
+		..Default::default()
+	};
+	let authorize = super::super::AuthorizeConfig {
+		ancestor: search,
+		descendant: search,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_dir, index) = new_index_with_authorize(authorize);
 
 	// Build a chain nodes[0] (root) -> ... -> nodes[DEPTH] and grant the user only
 	// the root subtree. Nothing materializes it onto the descendants, so
@@ -920,11 +978,141 @@ async fn authorize_deep_chain_scales_linearly() {
 }
 
 #[tokio::test]
+async fn authorize_descendant_search_can_deny() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_edges: 0,
+		..Default::default()
+	};
+	let authorize = super::super::AuthorizeConfig {
+		ancestor,
+		descendant: crate::authorize::SearchConfig::default(),
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_dir, index) = new_index_with_authorize(authorize);
+	let object = object_id(0);
+	let process = tg::process::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &object);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(object.into()),
+		token: None,
+	};
+	let output = index
+		.authorize_batch(&[arg], &tg::Principal::Process(process))
+		.await
+		.unwrap();
+	assert!(
+		!output[0]
+			.as_ref()
+			.unwrap()
+			.permissions
+			.contains(permissions)
+	);
+}
+
+#[tokio::test]
+async fn authorize_returns_an_error_when_searches_exhaust() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_edges: 0,
+		..Default::default()
+	};
+	let authorize = super::super::AuthorizeConfig {
+		ancestor,
+		descendant: crate::authorize::SearchConfig::default(),
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_dir, index) = new_index_with_authorize(authorize);
+	let child = object_id(0);
+	let parent = object_id(1);
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &child);
+	put_object(&index, &mut txn, &parent);
+	put_child(&index, &mut txn, &parent, &child);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(child.into()),
+		token: None,
+	};
+	let error = index
+		.authorize_batch(&[arg], &tg::Principal::User(user))
+		.await
+		.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("authorization searches exhausted")
+	);
+}
+
+#[tokio::test]
+async fn authorize_returns_an_error_when_the_subtree_search_exhausts() {
+	let subtree = crate::authorize::SubtreeConfig {
+		max_objects: 0,
+		..Default::default()
+	};
+	let authorize = super::super::AuthorizeConfig {
+		ancestor: crate::authorize::SearchConfig::default(),
+		descendant: crate::authorize::SearchConfig::default(),
+		subtree,
+	};
+	let (_dir, index) = new_index_with_authorize(authorize);
+	let object = object_id(0);
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &object);
+	put_grant(
+		&index,
+		&mut txn,
+		&object,
+		&user,
+		tg::authorization::permission::object::Permission::Node,
+	);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(object.into()),
+		token: None,
+	};
+	let error = index
+		.authorize_batch(&[arg], &tg::Principal::User(user))
+		.await
+		.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("subtree authorization search exhausted")
+	);
+}
+
+#[tokio::test]
 async fn authorize_wide_fanout_scales_linearly() {
 	const BASE: usize = 512;
 	const WIDE: usize = 2048;
 
-	let (_dir, index) = new_index();
+	let search = crate::authorize::SearchConfig {
+		max_edges: 2 * WIDE,
+		max_nodes: 2 * WIDE,
+		..Default::default()
+	};
+	let authorize = super::super::AuthorizeConfig {
+		ancestor: search,
+		descendant: search,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_dir, index) = new_index_with_authorize(authorize);
 	let user = tg::user::Id::new();
 	let base = object_id(0);
 	let wide = object_id(1);

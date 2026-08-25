@@ -371,30 +371,40 @@ pub enum Index {
 
 #[derive(Clone, Debug)]
 pub struct FdbIndexAuthorize {
+	pub ancestor: IndexAuthorizeSearch,
+
 	pub concurrency: usize,
 
-	pub object_subtree: IndexAuthorizeObjectSubtree,
+	pub descendant: IndexAuthorizeSearch,
 
-	pub process_subtree: IndexAuthorizeProcessSubtree,
+	pub subtree: IndexAuthorizeSubtree,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct LmdbIndexAuthorize {
-	pub object_subtree: IndexAuthorizeObjectSubtree,
+	pub ancestor: IndexAuthorizeSearch,
 
-	pub process_subtree: IndexAuthorizeProcessSubtree,
+	pub descendant: IndexAuthorizeSearch,
+
+	pub subtree: IndexAuthorizeSubtree,
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexAuthorizeObjectSubtree {
+pub struct IndexAuthorizeSearch {
+	pub max_depth: usize,
+
+	pub max_edges: usize,
+
+	pub max_nodes: usize,
+
+	pub page_size: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexAuthorizeSubtree {
 	pub max_depth: usize,
 
 	pub max_objects: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexAuthorizeProcessSubtree {
-	pub max_depth: usize,
 
 	pub max_processes: usize,
 }
@@ -1296,19 +1306,22 @@ impl Default for Index {
 	}
 }
 
-impl Default for IndexAuthorizeObjectSubtree {
+impl Default for IndexAuthorizeSearch {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
-			max_objects: 1024,
+			max_edges: 1024,
+			max_nodes: 1024,
+			page_size: 64,
 		}
 	}
 }
 
-impl Default for IndexAuthorizeProcessSubtree {
+impl Default for IndexAuthorizeSubtree {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
+			max_objects: 1024,
 			max_processes: 1024,
 		}
 	}
@@ -1317,9 +1330,10 @@ impl Default for IndexAuthorizeProcessSubtree {
 impl Default for FdbIndexAuthorize {
 	fn default() -> Self {
 		Self {
+			ancestor: IndexAuthorizeSearch::default(),
 			concurrency: 64,
-			object_subtree: IndexAuthorizeObjectSubtree::default(),
-			process_subtree: IndexAuthorizeProcessSubtree::default(),
+			descendant: IndexAuthorizeSearch::default(),
+			subtree: IndexAuthorizeSubtree::default(),
 		}
 	}
 }

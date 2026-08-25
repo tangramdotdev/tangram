@@ -13,14 +13,17 @@ pub struct Output {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ObjectSubtreeConfig {
+pub struct SearchConfig {
 	pub max_depth: usize,
-	pub max_objects: usize,
+	pub max_edges: usize,
+	pub max_nodes: usize,
+	pub page_size: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ProcessSubtreeConfig {
+pub struct SubtreeConfig {
 	pub max_depth: usize,
+	pub max_objects: usize,
 	pub max_processes: usize,
 }
 
@@ -30,19 +33,22 @@ enum NamedPermission {
 	Write,
 }
 
-impl Default for ObjectSubtreeConfig {
+impl Default for SearchConfig {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
-			max_objects: 1024,
+			max_edges: 1024,
+			max_nodes: 1024,
+			page_size: 64,
 		}
 	}
 }
 
-impl Default for ProcessSubtreeConfig {
+impl Default for SubtreeConfig {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
+			max_objects: 1024,
 			max_processes: 1024,
 		}
 	}
@@ -157,6 +163,94 @@ pub(crate) fn process_object_permission(
 			process_permission.to_subtree()
 		},
 	}
+}
+
+#[must_use]
+pub(crate) fn permissions_implied_by(
+	permission: tg::authorization::Permission,
+) -> Vec<tg::authorization::Permission> {
+	let permissions = match permission {
+		tg::authorization::Permission::Group(_) => vec![
+			tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Admin,
+			),
+			tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Read,
+			),
+			tg::authorization::Permission::Group(
+				tg::authorization::permission::group::Permission::Write,
+			),
+		],
+		tg::authorization::Permission::Object(_) => vec![
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			),
+		],
+		tg::authorization::Permission::Organization(_) => vec![
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Admin,
+			),
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Read,
+			),
+			tg::authorization::Permission::Organization(
+				tg::authorization::permission::organization::Permission::Write,
+			),
+		],
+		tg::authorization::Permission::Process(_) => [
+			tg::authorization::permission::process::Permission::Node,
+			tg::authorization::permission::process::Permission::NodeCommand,
+			tg::authorization::permission::process::Permission::NodeError,
+			tg::authorization::permission::process::Permission::NodeLog,
+			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::Parent,
+			tg::authorization::permission::process::Permission::Subtree,
+			tg::authorization::permission::process::Permission::SubtreeCommand,
+			tg::authorization::permission::process::Permission::SubtreeError,
+			tg::authorization::permission::process::Permission::SubtreeLog,
+			tg::authorization::permission::process::Permission::SubtreeOutput,
+		]
+		.into_iter()
+		.map(tg::authorization::Permission::Process)
+		.collect(),
+		tg::authorization::Permission::Sandbox(_) => vec![
+			tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Read,
+			),
+			tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Write,
+			),
+		],
+		tg::authorization::Permission::Tag(_) => vec![
+			tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Admin,
+			),
+			tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			),
+			tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Write,
+			),
+		],
+		tg::authorization::Permission::User(_) => vec![
+			tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Admin,
+			),
+			tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Read,
+			),
+			tg::authorization::Permission::User(
+				tg::authorization::permission::user::Permission::Write,
+			),
+		],
+	};
+	permissions
+		.into_iter()
+		.filter(|needed| permission.implies(*needed))
+		.collect()
 }
 
 pub(crate) fn permission_for_named_parent(

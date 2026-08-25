@@ -647,14 +647,23 @@ impl Server {
 				#[cfg(feature = "foundationdb")]
 				{
 					let authorize = tangram_index::fdb::AuthorizeConfig {
-						concurrency: options.authorize.concurrency,
-						object_subtree: tangram_index::authorize::ObjectSubtreeConfig {
-							max_depth: options.authorize.object_subtree.max_depth,
-							max_objects: options.authorize.object_subtree.max_objects,
+						ancestor: tangram_index::authorize::SearchConfig {
+							max_depth: options.authorize.ancestor.max_depth,
+							max_edges: options.authorize.ancestor.max_edges,
+							max_nodes: options.authorize.ancestor.max_nodes,
+							page_size: options.authorize.ancestor.page_size,
 						},
-						process_subtree: tangram_index::authorize::ProcessSubtreeConfig {
-							max_depth: options.authorize.process_subtree.max_depth,
-							max_processes: options.authorize.process_subtree.max_processes,
+						concurrency: options.authorize.concurrency,
+						descendant: tangram_index::authorize::SearchConfig {
+							max_depth: options.authorize.descendant.max_depth,
+							max_edges: options.authorize.descendant.max_edges,
+							max_nodes: options.authorize.descendant.max_nodes,
+							page_size: options.authorize.descendant.page_size,
+						},
+						subtree: tangram_index::authorize::SubtreeConfig {
+							max_depth: options.authorize.subtree.max_depth,
+							max_objects: options.authorize.subtree.max_objects,
+							max_processes: options.authorize.subtree.max_processes,
 						},
 					};
 					let options = tangram_index::fdb::Options {
@@ -687,13 +696,22 @@ impl Server {
 				#[cfg(feature = "lmdb")]
 				{
 					let authorize = tangram_index::lmdb::AuthorizeConfig {
-						object_subtree: tangram_index::authorize::ObjectSubtreeConfig {
-							max_depth: options.authorize.object_subtree.max_depth,
-							max_objects: options.authorize.object_subtree.max_objects,
+						ancestor: tangram_index::authorize::SearchConfig {
+							max_depth: options.authorize.ancestor.max_depth,
+							max_edges: options.authorize.ancestor.max_edges,
+							max_nodes: options.authorize.ancestor.max_nodes,
+							page_size: options.authorize.ancestor.page_size,
 						},
-						process_subtree: tangram_index::authorize::ProcessSubtreeConfig {
-							max_depth: options.authorize.process_subtree.max_depth,
-							max_processes: options.authorize.process_subtree.max_processes,
+						descendant: tangram_index::authorize::SearchConfig {
+							max_depth: options.authorize.descendant.max_depth,
+							max_edges: options.authorize.descendant.max_edges,
+							max_nodes: options.authorize.descendant.max_nodes,
+							page_size: options.authorize.descendant.page_size,
+						},
+						subtree: tangram_index::authorize::SubtreeConfig {
+							max_depth: options.authorize.subtree.max_depth,
+							max_objects: options.authorize.subtree.max_objects,
+							max_processes: options.authorize.subtree.max_processes,
 						},
 					};
 					let path = directory.join(&options.path);

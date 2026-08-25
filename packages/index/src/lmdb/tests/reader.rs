@@ -66,8 +66,9 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 		move || {
 			Index::reader_task(&reader::Arg {
 				authorize: super::super::AuthorizeConfig {
-					object_subtree: crate::authorize::ObjectSubtreeConfig::default(),
-					process_subtree: crate::authorize::ProcessSubtreeConfig::default(),
+					ancestor: crate::authorize::SearchConfig::default(),
+					descendant: crate::authorize::SearchConfig::default(),
+					subtree: crate::authorize::SubtreeConfig::default(),
 				},
 				db,
 				env,

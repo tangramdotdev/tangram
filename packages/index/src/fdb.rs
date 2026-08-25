@@ -68,9 +68,10 @@ pub struct Options {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
+	pub ancestor: crate::authorize::SearchConfig,
 	pub concurrency: usize,
-	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
-	pub process_subtree: crate::authorize::ProcessSubtreeConfig,
+	pub descendant: crate::authorize::SearchConfig,
+	pub subtree: crate::authorize::SubtreeConfig,
 }
 
 impl Index {
@@ -161,6 +162,12 @@ impl Index {
 	}
 
 	fn validate_options(options: &Options) -> tg::Result<()> {
+		if options.authorize.ancestor.page_size == 0 || options.authorize.descendant.page_size == 0
+		{
+			return Err(tg::error!(
+				"the FDB index authorization page size must be greater than zero"
+			));
+		}
 		if options.authorize.concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index authorization concurrency must be greater than zero"

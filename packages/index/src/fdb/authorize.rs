@@ -6,6 +6,7 @@ use {
 	std::{
 		collections::{HashMap, HashSet, VecDeque},
 		ops::ControlFlow,
+		pin::pin,
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
@@ -22,11 +23,9 @@ struct Cache {
 		Vec<(tg::Id, tg::authorization::Permission)>,
 	>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
-	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
 	process_children: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_objects: HashMap<tg::process::Id, Vec<(tg::object::Id, crate::process::object::Kind)>>,
-	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<
 		tg::Id,
@@ -54,17 +53,63 @@ struct RequesterMembershipCache {
 	subject_contains_requester: HashMap<tg::authorization::Subject, bool>,
 }
 
-struct AuthorizationNode {
-	key: (tg::Id, tg::authorization::Permission),
-	dependents: Vec<usize>,
-	authorized: bool,
+enum AncestorTask {
+	Node {
+		depth: usize,
+		key: (tg::Id, tg::authorization::Permission),
+	},
+	ObjectParents {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		object: tg::object::Id,
+	},
+	ProcessParents {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
 }
 
-struct AuthorizationNodeEvaluation {
-	node_id: usize,
-	directly_authorized: bool,
-	dependencies: Vec<(tg::Id, tg::authorization::Permission)>,
+enum DescendantTask {
+	Node {
+		depth: usize,
+		key: (tg::Id, tg::authorization::Permission),
+	},
+	ObjectChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		object: tg::object::Id,
+	},
+	SubjectGrants {
+		after: Option<Vec<u8>>,
+		subject: tg::authorization::Subject,
+	},
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchOutcome {
+	Authorized,
+	Denied,
+	Exhausted,
+}
+
+struct RootSearchOutput {
+	authorization: HashMap<(tg::Id, tg::authorization::Permission), bool>,
 	cache: Cache,
+	outcome: SearchOutcome,
+	root: (tg::Id, tg::authorization::Permission),
+}
+
+struct SearchAuthorization<'a> {
+	base: &'a HashMap<(tg::Id, tg::authorization::Permission), bool>,
+	values: HashMap<(tg::Id, tg::authorization::Permission), bool>,
+}
+
+struct SearchBudget {
+	config: crate::authorize::SearchConfig,
+	edges: usize,
+	nodes: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -81,95 +126,68 @@ struct SubtreeSearchBudget {
 	remaining: usize,
 }
 
+impl<'a> SearchAuthorization<'a> {
+	#[must_use]
+	fn new(base: &'a HashMap<(tg::Id, tg::authorization::Permission), bool>) -> Self {
+		Self {
+			base,
+			values: HashMap::new(),
+		}
+	}
+
+	fn insert(&mut self, key: (tg::Id, tg::authorization::Permission), value: bool) {
+		self.values.insert(key, value);
+	}
+
+	#[must_use]
+	fn into_values(self) -> HashMap<(tg::Id, tg::authorization::Permission), bool> {
+		self.values
+	}
+
+	#[must_use]
+	fn value(&self, key: &(tg::Id, tg::authorization::Permission)) -> Option<bool> {
+		self.values.get(key).or_else(|| self.base.get(key)).copied()
+	}
+}
+
+impl SearchBudget {
+	#[must_use]
+	fn new(config: crate::authorize::SearchConfig) -> Self {
+		Self {
+			config,
+			edges: 0,
+			nodes: 0,
+		}
+	}
+
+	fn add_edge(&mut self) -> bool {
+		if self.edges == self.config.max_edges {
+			return false;
+		}
+		self.edges += 1;
+		true
+	}
+
+	fn add_node(&mut self, depth: usize) -> bool {
+		if depth > self.config.max_depth || self.nodes == self.config.max_nodes {
+			return false;
+		}
+		self.nodes += 1;
+		true
+	}
+}
+
 impl Cache {
 	fn merge(&mut self, other: Self) {
 		self.resource_parents.extend(other.resource_parents);
 		self.target_tags.extend(other.target_tags);
 		self.object_children.extend(other.object_children);
-		self.object_parents.extend(other.object_parents);
 		self.object_processes.extend(other.object_processes);
 		self.process_children.extend(other.process_children);
 		self.process_objects.extend(other.process_objects);
-		self.process_parents.extend(other.process_parents);
 		self.process_sandboxes.extend(other.process_sandboxes);
 		self.resource_grants.extend(other.resource_grants);
 		self.sandbox_owners.extend(other.sandbox_owners);
-	}
-
-	fn clone_for_direct_authorization(
-		&self,
-		resource: &tg::Id,
-		permission: tg::authorization::Permission,
-	) -> Self {
-		let mut cache = Self::default();
-		if let Some(grants) = self.resource_grants.get(resource) {
-			cache
-				.resource_grants
-				.insert(resource.clone(), grants.clone());
-		}
-		if matches!(permission, tg::authorization::Permission::Sandbox(_))
-			&& let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
-			&& let Some(owner) = self.sandbox_owners.get(&sandbox)
-		{
-			cache.sandbox_owners.insert(sandbox, owner.clone());
-		}
-		cache
-	}
-
-	fn clone_for_authorization_dependencies(
-		&self,
-		resource: &tg::Id,
-		permission: tg::authorization::Permission,
-	) -> Self {
-		let mut cache = Self::default();
-		if let Some(grants) = self.resource_grants.get(resource) {
-			cache
-				.resource_grants
-				.insert(resource.clone(), grants.clone());
-		}
-		if let Some(parent) = self.resource_parents.get(resource) {
-			cache
-				.resource_parents
-				.insert(resource.clone(), parent.clone());
-		}
-		if let Some(tags) = self.target_tags.get(&(resource.clone(), permission)) {
-			cache
-				.target_tags
-				.insert((resource.clone(), permission), tags.clone());
-		}
-		match permission {
-			tg::authorization::Permission::Object(_) => {
-				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
-					if let Some(parents) = self.object_parents.get(&object) {
-						cache.object_parents.insert(object.clone(), parents.clone());
-					}
-					if let Some(processes) = self.object_processes.get(&object) {
-						cache.object_processes.insert(object, processes.clone());
-					}
-				}
-			},
-			tg::authorization::Permission::Process(_) => {
-				if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-					if let Some(parents) = self.process_parents.get(&process) {
-						cache
-							.process_parents
-							.insert(process.clone(), parents.clone());
-					}
-					if let Some(sandbox) = self.process_sandboxes.get(&process) {
-						cache.process_sandboxes.insert(process, sandbox.clone());
-					}
-				}
-			},
-			tg::authorization::Permission::Sandbox(_) => {
-				if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone())
-					&& let Some(owner) = self.sandbox_owners.get(&sandbox)
-				{
-					cache.sandbox_owners.insert(sandbox, owner.clone());
-				}
-			},
-			_ => {},
-		}
-		cache
 	}
 
 	fn clone_for_object_children(&self, object: &tg::object::Id) -> Self {
@@ -508,14 +526,18 @@ impl Index {
 			let permission_authorized = match permission {
 				tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
-				) => crate::fdb::propagate!(Self::authorize_with_object_subtree_search_with_transaction(
-					context,
-					resource,
-					authorization,
-					cache,
-				)
-				.await)
-				.unwrap_or(false),
+				) => {
+					crate::fdb::propagate!(
+						Self::authorize_with_object_subtree_search_with_transaction(
+							context,
+							resource,
+							authorization,
+							cache,
+						)
+						.await
+					)
+					.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?
+				},
 				tg::authorization::Permission::Process(
 					permission @ (tg::authorization::permission::process::Permission::NodeCommand
 					| tg::authorization::permission::process::Permission::NodeError
@@ -537,15 +559,19 @@ impl Index {
 					| tg::authorization::permission::process::Permission::SubtreeError
 					| tg::authorization::permission::process::Permission::SubtreeLog
 					| tg::authorization::permission::process::Permission::SubtreeOutput),
-				) => crate::fdb::propagate!(Self::authorize_with_process_subtree_search_with_transaction(
-					context,
-					resource,
-					permission,
-					authorization,
-					cache,
-				)
-				.await)
-				.unwrap_or(false),
+				) => {
+					crate::fdb::propagate!(
+						Self::authorize_with_process_subtree_search_with_transaction(
+							context,
+							resource,
+							permission,
+							authorization,
+							cache,
+						)
+						.await
+					)
+					.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?
+				},
 				_ => false,
 			};
 			if permission_authorized {
@@ -563,191 +589,658 @@ impl Index {
 		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 		cache: &mut Cache,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let mut nodes = Vec::new();
-		let mut node_ids = HashMap::new();
-		let mut queue = VecDeque::new();
-		for root in roots {
-			if authorization.contains_key(root) || node_ids.contains_key(root) {
-				continue;
-			}
-			let node_id = nodes.len();
-			node_ids.insert(root.clone(), node_id);
-			nodes.push(AuthorizationNode {
-				key: root.clone(),
-				dependents: Vec::new(),
-				authorized: false,
-			});
-			queue.push_back(node_id);
-		}
-		while !queue.is_empty() {
-			let mut requests = Vec::new();
-			while let Some(node_id) = queue.pop_front() {
-				if nodes[node_id].authorized {
-					continue;
-				}
-				let (resource, permission) = nodes[node_id].key.clone();
-				if Self::is_authorized_by_token(context, &resource, permission) {
-					Self::propagate_authorization(authorization, &mut nodes, node_id);
-					continue;
-				}
-				requests.push((
-					node_id,
-					resource.clone(),
-					permission,
-					cache.clone_for_direct_authorization(&resource, permission),
-					cache.clone_for_authorization_dependencies(&resource, permission),
-				));
-			}
-			if roots
-				.iter()
-				.all(|root| authorization.get(root).copied().unwrap_or(false))
-			{
-				return Ok(ControlFlow::Break(()));
-			}
-			let evaluations = futures::future::try_join_all(requests.into_iter().map(
-				|(node_id, resource, permission, mut direct_cache, mut dependency_cache)| async move {
-					if !direct_cache.resource_grants.contains_key(&resource) {
-						let grants = crate::fdb::propagate!(
-							Self::get_resource_grants_with_transaction(
-								context.txn,
-								context.subspace,
-								&resource,
-							)
-							.await
-						);
-						direct_cache
-							.resource_grants
-							.insert(resource.clone(), grants.clone());
-						dependency_cache
-							.resource_grants
-							.insert(resource.clone(), grants);
-					}
-					let directly_authorized = Self::is_directly_authorized_with_transaction(
+		// Collect the unique unresolved roots.
+		let mut seen = HashSet::new();
+		let roots = roots
+			.iter()
+			.filter(|root| authorization.get(*root).is_none() && seen.insert((*root).clone()))
+			.cloned()
+			.collect::<Vec<_>>();
+
+		// Search the roots concurrently.
+		let outputs = {
+			let base = &*authorization;
+			let results = futures::future::try_join_all(roots.into_iter().map(|root| async move {
+				let mut authorization = SearchAuthorization::new(base);
+				let mut cache = Cache::default();
+				let outcome = crate::fdb::propagate!(
+					Self::authorize_permission_ordinary_with_transaction(
 						context,
-						&resource,
-						permission,
-						&mut direct_cache,
-					);
-					let dependencies = Self::get_authorization_dependencies_with_transaction(
-						context.txn,
-						context.subspace,
-						&resource,
-						permission,
-						&mut dependency_cache,
-					);
-					let (directly_authorized, dependencies) =
-						futures::try_join!(directly_authorized, dependencies)?;
-					let directly_authorized = {
-						let result = directly_authorized;
-						match result {
-							ControlFlow::Break(value) => value,
-							ControlFlow::Continue(error) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-						}
-					};
-					let dependencies = {
-						let result = dependencies;
-						match result {
-							ControlFlow::Break(value) => value,
-							ControlFlow::Continue(error) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-						}
-					};
-					direct_cache.merge(dependency_cache);
-					Ok::<_, tg::Error>(ControlFlow::Break(AuthorizationNodeEvaluation {
-						node_id,
-						directly_authorized,
-						dependencies,
-						cache: direct_cache,
-					}))
-				},
-			))
+						&root,
+						&mut authorization,
+						&mut cache,
+					)
+					.await
+				);
+				let output = RootSearchOutput {
+					authorization: authorization.into_values(),
+					cache,
+					outcome,
+					root,
+				};
+
+				Ok::<_, tg::Error>(ControlFlow::Break(output))
+			}))
 			.await?;
-			let evaluations = {
-				let results = evaluations;
-				let mut values = Vec::with_capacity(results.len());
-				for result in results {
-					let value = match result {
-						ControlFlow::Break(value) => value,
-						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-					};
-					values.push(value);
-				}
-				values
+			let mut outputs = Vec::with_capacity(results.len());
+			for result in results {
+				let output = match result {
+					ControlFlow::Break(output) => output,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				outputs.push(output);
+			}
+
+			outputs
+		};
+
+		// Merge the search results.
+		for output in outputs {
+			let authorized = match output.outcome {
+				SearchOutcome::Authorized => true,
+				SearchOutcome::Denied => false,
+				SearchOutcome::Exhausted => {
+					return Err(tg::error!(
+						"the ancestor and descendant authorization searches exhausted"
+					));
+				},
 			};
-
-			for evaluation in evaluations {
-				cache.merge(evaluation.cache);
-				if nodes[evaluation.node_id].authorized {
-					continue;
-				}
-				if evaluation.directly_authorized {
-					Self::propagate_authorization(authorization, &mut nodes, evaluation.node_id);
-					continue;
-				}
-				for (dependency, dependency_permission) in evaluation.dependencies {
-					let dependency_key = (dependency, dependency_permission);
-					match authorization.get(&dependency_key).copied() {
-						Some(true) => {
-							Self::propagate_authorization(
-								authorization,
-								&mut nodes,
-								evaluation.node_id,
-							);
-							break;
-						},
-						Some(false) => {},
-						None => {
-							let dependency_id =
-								if let Some(dependency_id) = node_ids.get(&dependency_key) {
-									*dependency_id
-								} else {
-									let dependency_id = nodes.len();
-									node_ids.insert(dependency_key.clone(), dependency_id);
-									nodes.push(AuthorizationNode {
-										key: dependency_key,
-										dependents: Vec::new(),
-										authorized: false,
-									});
-									queue.push_back(dependency_id);
-									dependency_id
-								};
-							nodes[dependency_id].dependents.push(evaluation.node_id);
-						},
-					}
-				}
+			for (key, authorized) in output.authorization {
+				authorization
+					.entry(key)
+					.and_modify(|value| *value |= authorized)
+					.or_insert(authorized);
 			}
-			if roots
-				.iter()
-				.all(|root| authorization.get(root).copied().unwrap_or(false))
-			{
-				return Ok(ControlFlow::Break(()));
-			}
+			authorization
+				.entry(output.root)
+				.and_modify(|value| *value |= authorized)
+				.or_insert(authorized);
+			cache.merge(output.cache);
 		}
 
-		for node in nodes {
-			authorization.entry(node.key).or_insert(false);
-		}
 		Ok(ControlFlow::Break(()))
 	}
 
-	fn propagate_authorization(
-		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
-		nodes: &mut [AuthorizationNode],
-		node_id: usize,
-	) {
-		let mut stack = vec![node_id];
-		while let Some(node_id) = stack.pop() {
-			let node = &mut nodes[node_id];
-			if node.authorized {
+	async fn authorize_permission_ordinary_with_transaction(
+		context: AuthorizationContext<'_>,
+		root: &(tg::Id, tg::authorization::Permission),
+		authorization: &mut SearchAuthorization<'_>,
+		cache: &mut Cache,
+	) -> tg::Result<ControlFlow<SearchOutcome, fdb::FdbError>> {
+		// Prefer the typically smaller ancestor search while both searches make progress.
+		let ancestor = Self::authorize_permission_ancestor_with_transaction(
+			context,
+			root,
+			authorization,
+			cache,
+		);
+		let descendant = Self::authorize_permission_descendant_with_transaction(context, root);
+		let mut ancestor = pin!(ancestor);
+		let mut descendant = pin!(descendant);
+		let (ancestor_finished, result) = tokio::select! {
+			biased;
+			result = &mut ancestor => (true, result),
+			result = &mut descendant => (false, result),
+		};
+		let outcome = crate::fdb::propagate!(result);
+		let outcome = if outcome != SearchOutcome::Exhausted {
+			outcome
+		} else if ancestor_finished {
+			crate::fdb::propagate!(descendant.await)
+		} else {
+			crate::fdb::propagate!(ancestor.await)
+		};
+
+		Ok(ControlFlow::Break(outcome))
+	}
+
+	async fn authorize_permission_ancestor_with_transaction(
+		context: AuthorizationContext<'_>,
+		root: &(tg::Id, tg::authorization::Permission),
+		authorization: &mut SearchAuthorization<'_>,
+		cache: &mut Cache,
+	) -> tg::Result<ControlFlow<SearchOutcome, fdb::FdbError>> {
+		let mut budget = SearchBudget::new(context.config.ancestor);
+		if !budget.add_node(0) {
+			return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+		}
+		let mut stack = vec![AncestorTask::Node {
+			depth: 0,
+			key: root.clone(),
+		}];
+		let mut visited = HashSet::from([root.clone()]);
+		while let Some(task) = stack.pop() {
+			match task {
+				AncestorTask::Node { depth, key } => {
+					if let Some(authorized) = authorization.value(&key) {
+						if authorized {
+							return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+						}
+						continue;
+					}
+					let (resource, permission) = key.clone();
+					if Self::is_authorized_by_token(context, &resource, permission)
+						|| crate::fdb::propagate!(
+							Self::is_directly_authorized_with_transaction(
+								context, &resource, permission, cache,
+							)
+							.await
+						) {
+						authorization.insert(key, true);
+						return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+					}
+
+					let dependencies = crate::fdb::propagate!(
+						Self::get_authorization_dependencies_with_transaction(
+							context.txn,
+							context.subspace,
+							&resource,
+							permission,
+							cache,
+						)
+						.await
+					);
+					for key in dependencies.into_iter().rev() {
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if visited.contains(&key) || authorization.value(&key) == Some(false) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if authorization.value(&key) == Some(true) {
+							return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+						}
+						if !budget.add_node(depth) {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						visited.insert(key.clone());
+						stack.push(AncestorTask::Node { depth, key });
+					}
+
+					match permission {
+						tg::authorization::Permission::Object(_) => {
+							let object = tg::object::Id::try_from(resource)?;
+							stack.push(AncestorTask::ObjectParents {
+								after: None,
+								depth,
+								object,
+							});
+						},
+						tg::authorization::Permission::Process(permission) => {
+							let process = tg::process::Id::try_from(resource)?;
+							stack.push(AncestorTask::ProcessParents {
+								after: None,
+								depth,
+								permission,
+								process,
+							});
+						},
+						tg::authorization::Permission::Group(_)
+						| tg::authorization::Permission::Organization(_)
+						| tg::authorization::Permission::Sandbox(_)
+						| tg::authorization::Permission::Tag(_)
+						| tg::authorization::Permission::User(_) => {},
+					}
+				},
+				AncestorTask::ObjectParents {
+					after,
+					depth,
+					object,
+				} => {
+					let object_bytes = object.to_bytes();
+					let prefix = Self::pack(
+						context.subspace,
+						&(
+							crate::fdb::Kind::ChildObject.to_i32().unwrap(),
+							object_bytes.as_ref(),
+						),
+					);
+					let (keys, after) = crate::fdb::propagate!(
+						Self::get_key_page_with_transaction(
+							context.txn,
+							context.subspace,
+							&prefix,
+							after.as_deref(),
+							budget.config.page_size,
+						)
+						.await
+					);
+					if let Some(after) = after {
+						stack.push(AncestorTask::ObjectParents {
+							after: Some(after),
+							depth,
+							object,
+						});
+					}
+					for key in keys.into_iter().rev() {
+						let crate::fdb::Key::Object(crate::fdb::object::Key::ChildObject {
+							object,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let key = (
+							tg::Id::from(object),
+							tg::authorization::Permission::Object(
+								tg::authorization::permission::object::Permission::Subtree,
+							),
+						);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if visited.contains(&key) || authorization.value(&key) == Some(false) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if authorization.value(&key) == Some(true) {
+							return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+						}
+						if !budget.add_node(depth) {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						visited.insert(key.clone());
+						stack.push(AncestorTask::Node { depth, key });
+					}
+				},
+				AncestorTask::ProcessParents {
+					after,
+					depth,
+					permission,
+					process,
+				} => {
+					let process_bytes = process.to_bytes();
+					let prefix = Self::pack(
+						context.subspace,
+						&(
+							crate::fdb::Kind::ChildProcess.to_i32().unwrap(),
+							process_bytes.as_ref(),
+						),
+					);
+					let (keys, after) = crate::fdb::propagate!(
+						Self::get_key_page_with_transaction(
+							context.txn,
+							context.subspace,
+							&prefix,
+							after.as_deref(),
+							budget.config.page_size,
+						)
+						.await
+					);
+					if let Some(after) = after {
+						stack.push(AncestorTask::ProcessParents {
+							after: Some(after),
+							depth,
+							permission,
+							process,
+						});
+					}
+					for key in keys.into_iter().rev() {
+						let crate::fdb::Key::Process(crate::fdb::process::Key::ChildProcess {
+							parent,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let key = (
+							tg::Id::from(parent),
+							tg::authorization::Permission::Process(permission.to_subtree()),
+						);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if visited.contains(&key) || authorization.value(&key) == Some(false) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if authorization.value(&key) == Some(true) {
+							return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+						}
+						if !budget.add_node(depth) {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						visited.insert(key.clone());
+						stack.push(AncestorTask::Node { depth, key });
+					}
+				},
+			}
+		}
+
+		for key in visited {
+			if authorization.value(&key).is_none() {
+				authorization.insert(key, false);
+			}
+		}
+		Ok(ControlFlow::Break(SearchOutcome::Denied))
+	}
+
+	async fn authorize_permission_descendant_with_transaction(
+		context: AuthorizationContext<'_>,
+		target: &(tg::Id, tg::authorization::Permission),
+	) -> tg::Result<ControlFlow<SearchOutcome, fdb::FdbError>> {
+		if context.token.is_none()
+			&& matches!(target.1, tg::authorization::Permission::Object(_))
+			&& let tg::Principal::Process(process) = context.requester.principal
+		{
+			if context.config.descendant.max_nodes == 0 {
+				return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+			}
+			let has_edges = crate::fdb::propagate!(
+				Self::process_descendant_has_edges_with_transaction(context, process).await
+			);
+			if !has_edges {
+				return Ok(ControlFlow::Break(SearchOutcome::Denied));
+			}
+		}
+
+		let mut budget = SearchBudget::new(context.config.descendant);
+		let mut complete = matches!(context.requester.principal, tg::Principal::Anonymous);
+		let mut stack = Vec::new();
+		let mut visited = HashSet::new();
+
+		let public = tg::authorization::Subject::Public;
+		stack.push(DescendantTask::SubjectGrants {
+			after: None,
+			subject: public.clone(),
+		});
+		if context.requester.subject != public {
+			stack.push(DescendantTask::SubjectGrants {
+				after: None,
+				subject: context.requester.subject.clone(),
+			});
+		}
+
+		let inherent = match context.requester.principal {
+			tg::Principal::User(user) => {
+				crate::authorize::permissions_implied_by(tg::authorization::Permission::User(
+					tg::authorization::permission::user::Permission::Admin,
+				))
+				.into_iter()
+				.map(|permission| (tg::Id::from(user.clone()), permission))
+				.collect()
+			},
+			_ => Vec::new(),
+		};
+		for key in inherent {
+			if !visited.insert(key.clone()) {
 				continue;
 			}
-			node.authorized = true;
-			authorization.insert(node.key.clone(), true);
-			stack.extend(node.dependents.iter().copied());
+			if !budget.add_node(0) {
+				return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+			}
+			stack.push(DescendantTask::Node { depth: 0, key });
 		}
+
+		while let Some(task) = stack.pop() {
+			match task {
+				DescendantTask::Node { depth, key } => {
+					if key.0 == target.0 && key.1.implies(target.1) {
+						return Ok(ControlFlow::Break(SearchOutcome::Authorized));
+					}
+					let (resource, permission) = key;
+					let implied = if matches!(permission, tg::authorization::Permission::Object(_))
+					{
+						Vec::new()
+					} else {
+						crate::authorize::permissions_implied_by(permission)
+					};
+					for implied_permission in implied.into_iter().rev() {
+						if implied_permission == permission {
+							continue;
+						}
+						let key = (resource.clone(), implied_permission);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth || !budget.add_node(depth) {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+
+					match permission {
+						tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
+						) => {
+							let object = tg::object::Id::try_from(resource)?;
+							stack.push(DescendantTask::ObjectChildren {
+								after: None,
+								depth,
+								object,
+							});
+						},
+						tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Node,
+						) => {},
+						tg::authorization::Permission::Group(_)
+						| tg::authorization::Permission::Organization(_)
+						| tg::authorization::Permission::Process(_)
+						| tg::authorization::Permission::Sandbox(_)
+						| tg::authorization::Permission::Tag(_)
+						| tg::authorization::Permission::User(_) => complete = false,
+					}
+				},
+				DescendantTask::ObjectChildren {
+					after,
+					depth,
+					object,
+				} => {
+					let object_bytes = object.to_bytes();
+					let prefix = Self::pack(
+						context.subspace,
+						&(
+							crate::fdb::Kind::ObjectChild.to_i32().unwrap(),
+							object_bytes.as_ref(),
+						),
+					);
+					let (keys, after) = crate::fdb::propagate!(
+						Self::get_key_page_with_transaction(
+							context.txn,
+							context.subspace,
+							&prefix,
+							after.as_deref(),
+							budget.config.page_size,
+						)
+						.await
+					);
+					if let Some(after) = after {
+						stack.push(DescendantTask::ObjectChildren {
+							after: Some(after),
+							depth,
+							object,
+						});
+					}
+					for key in keys.into_iter().rev() {
+						let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild {
+							child,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let permissions = if tg::Id::from(child.clone()) == target.0 {
+							vec![target.1]
+						} else {
+							vec![tg::authorization::Permission::Object(
+								tg::authorization::permission::object::Permission::Subtree,
+							)]
+						};
+						for permission in permissions {
+							let key = (tg::Id::from(child.clone()), permission);
+							let depth = depth + 1;
+							if !budget.add_edge() {
+								return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+							}
+							if visited.contains(&key) {
+								continue;
+							}
+							if depth > budget.config.max_depth || !budget.add_node(depth) {
+								return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+							}
+							visited.insert(key.clone());
+							stack.push(DescendantTask::Node { depth, key });
+						}
+					}
+				},
+				DescendantTask::SubjectGrants { after, subject } => {
+					let prefix = Self::pack(
+						context.subspace,
+						&(
+							crate::fdb::Kind::SubjectGrant.to_i32().unwrap(),
+							subject.to_string(),
+						),
+					);
+					let (keys, after) = crate::fdb::propagate!(
+						Self::get_key_page_with_transaction(
+							context.txn,
+							context.subspace,
+							&prefix,
+							after.as_deref(),
+							budget.config.page_size,
+						)
+						.await
+					);
+					if let Some(after) = after {
+						stack.push(DescendantTask::SubjectGrants {
+							after: Some(after),
+							subject,
+						});
+					}
+					for key in keys.into_iter().rev() {
+						let crate::fdb::Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+							permission,
+							resource,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						if !budget.add_edge() {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						let key = (resource, permission);
+						if !visited.insert(key.clone()) {
+							continue;
+						}
+						if !budget.add_node(0) {
+							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
+						}
+						stack.push(DescendantTask::Node { depth: 0, key });
+					}
+				},
+			}
+		}
+
+		let outcome = if complete {
+			SearchOutcome::Denied
+		} else {
+			SearchOutcome::Exhausted
+		};
+
+		Ok(ControlFlow::Break(outcome))
+	}
+
+	async fn process_descendant_has_edges_with_transaction(
+		context: AuthorizationContext<'_>,
+		process: &tg::process::Id,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let process_subject = tg::authorization::Subject::Process(process.clone());
+		let public = tg::authorization::Subject::Public;
+		let process_bytes = process.to_bytes();
+		let prefixes = [
+			Self::pack(
+				context.subspace,
+				&(
+					crate::fdb::Kind::OwnerSandbox.to_i32().unwrap(),
+					context.requester.principal.to_string(),
+				),
+			),
+			Self::pack(
+				context.subspace,
+				&(
+					crate::fdb::Kind::ProcessChild.to_i32().unwrap(),
+					process_bytes.as_ref(),
+				),
+			),
+			Self::pack(
+				context.subspace,
+				&(
+					crate::fdb::Kind::SubjectGrant.to_i32().unwrap(),
+					process_subject.to_string(),
+				),
+			),
+			Self::pack(
+				context.subspace,
+				&(
+					crate::fdb::Kind::SubjectGrant.to_i32().unwrap(),
+					public.to_string(),
+				),
+			),
+		];
+		for prefix in prefixes {
+			let (keys, _) = crate::fdb::propagate!(
+				Self::get_key_page_with_transaction(
+					context.txn,
+					context.subspace,
+					&prefix,
+					None,
+					1,
+				)
+				.await
+			);
+			if !keys.is_empty() {
+				return Ok(ControlFlow::Break(true));
+			}
+		}
+
+		Ok(ControlFlow::Break(false))
+	}
+
+	async fn get_key_page_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		prefix: &[u8],
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<(Vec<crate::fdb::Key>, Option<Vec<u8>>), fdb::FdbError>> {
+		let range_subspace = Subspace::from_bytes(prefix.to_vec());
+		let mut range = fdb::RangeOption {
+			limit: Some(limit),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		if let Some(after) = after {
+			let mut begin = after.to_vec();
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::fdb::retry!(result);
+		let keys = entries
+			.iter()
+			.map(|entry| Self::unpack(subspace, entry.key()))
+			.collect::<tg::Result<Vec<_>>>()?;
+		let after = (keys.len() == limit)
+			.then(|| entries.last().map(|entry| entry.key().to_vec()))
+			.flatten();
+
+		Ok(ControlFlow::Break((keys, after)))
 	}
 
 	async fn is_directly_authorized_with_transaction(
@@ -861,8 +1354,8 @@ impl Index {
 			tg::authorization::permission::object::Permission::Node,
 		);
 		let mut budget = SubtreeSearchBudget {
-			max_depth: context.config.object_subtree.max_depth,
-			remaining: context.config.object_subtree.max_objects,
+			max_depth: context.config.subtree.max_depth,
+			remaining: context.config.subtree.max_objects,
 		};
 		let root = tg::object::Id::try_from(resource.clone())?;
 		let mut visited = HashSet::from([root.clone()]);
@@ -1006,8 +1499,8 @@ impl Index {
 		};
 		let subtree = tg::authorization::Permission::Process(permission);
 		let mut budget = SubtreeSearchBudget {
-			max_depth: context.config.process_subtree.max_depth,
-			remaining: context.config.process_subtree.max_processes,
+			max_depth: context.config.subtree.max_depth,
+			remaining: context.config.subtree.max_processes,
 		};
 		let root = tg::process::Id::try_from(resource.clone())?;
 		let mut visited = HashSet::from([root.clone()]);
@@ -1229,7 +1722,7 @@ impl Index {
 				continue;
 			}
 			let resource = object.into();
-			if !crate::fdb::propagate!(
+			let authorized = crate::fdb::propagate!(
 				Self::authorize_with_object_subtree_search_with_transaction(
 					context,
 					&resource,
@@ -1238,8 +1731,8 @@ impl Index {
 				)
 				.await
 			)
-			.unwrap_or(false)
-			{
+			.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+			if !authorized {
 				return Ok(ControlFlow::Break(false));
 			}
 		}
@@ -1276,17 +1769,9 @@ impl Index {
 		match permission {
 			tg::authorization::Permission::Object(object_permission) => {
 				let object = tg::object::Id::try_from(resource.clone())?;
-				let cached_parents = cache.object_parents.get(&object).cloned();
 				let cached_processes = cache.object_processes.get(&object).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
-				let object_parents = async {
-					if let Some(parents) = cached_parents {
-						Ok(ControlFlow::Break(parents))
-					} else {
-						Self::get_object_parents_with_transaction(txn, subspace, &object).await
-					}
-				};
 				let object_processes = async {
 					if let Some(processes) = cached_processes {
 						Ok(ControlFlow::Break(processes))
@@ -1309,12 +1794,7 @@ impl Index {
 						.await
 					}
 				};
-				let (object_parents, object_processes, tags) =
-					futures::try_join!(object_parents, object_processes, tags)?;
-				let object_parents = match object_parents {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
+				let (object_processes, tags) = futures::try_join!(object_processes, tags)?;
 				let tags = match tags {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
@@ -1323,9 +1803,6 @@ impl Index {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
-				cache
-					.object_parents
-					.insert(object.clone(), object_parents.clone());
 				cache
 					.object_processes
 					.insert(object, object_processes.clone());
@@ -1346,18 +1823,11 @@ impl Index {
 						dependencies.push((process.into(), permission));
 					}
 				}
-				for parent in object_parents {
-					let permission = tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					);
-					dependencies.push((parent.into(), permission));
-				}
 				dependencies.extend(tags);
 			},
 			tg::authorization::Permission::Process(process_permission) => {
 				let process = tg::process::Id::try_from(resource.clone())?;
 				let cached_sandbox = cache.process_sandboxes.get(&process).cloned();
-				let cached_parents = cache.process_parents.get(&process).cloned();
 				let tag_key = (resource.clone(), permission);
 				let cached_tags = cache.target_tags.get(&tag_key).cloned();
 				let sandbox = async {
@@ -1371,13 +1841,6 @@ impl Index {
 						Ok(ControlFlow::Break(
 							process.and_then(|process| process.sandbox),
 						))
-					}
-				};
-				let process_parents = async {
-					if let Some(parents) = cached_parents {
-						Ok(ControlFlow::Break(parents))
-					} else {
-						Self::get_process_parents_with_transaction(txn, subspace, &process).await
 					}
 				};
 				let tags = async {
@@ -1395,13 +1858,8 @@ impl Index {
 						.await
 					}
 				};
-				let (sandbox, process_parents, tags) =
-					futures::try_join!(sandbox, process_parents, tags)?;
+				let (sandbox, tags) = futures::try_join!(sandbox, tags)?;
 				let sandbox = match sandbox {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				let process_parents = match process_parents {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
@@ -1412,9 +1870,6 @@ impl Index {
 				cache
 					.process_sandboxes
 					.insert(process.clone(), sandbox.clone());
-				cache
-					.process_parents
-					.insert(process, process_parents.clone());
 				cache.target_tags.insert(tag_key, tags.clone());
 				if let Some(sandbox) = sandbox {
 					let sandbox_permission = match process_permission {
@@ -1427,11 +1882,6 @@ impl Index {
 						sandbox.into(),
 						tg::authorization::Permission::Sandbox(sandbox_permission),
 					));
-				}
-				for parent in process_parents {
-					let permission =
-						tg::authorization::Permission::Process(process_permission.to_subtree());
-					dependencies.push((parent.into(), permission));
 				}
 				dependencies.extend(tags);
 			},

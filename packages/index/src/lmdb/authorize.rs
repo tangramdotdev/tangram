@@ -17,13 +17,11 @@ struct Cache {
 		Vec<(tg::Id, tg::authorization::Permission)>,
 	>,
 	object_children: HashMap<tg::object::Id, Vec<tg::object::Id>>,
-	object_parents: HashMap<tg::object::Id, Vec<tg::object::Id>>,
 	object_processes: HashMap<tg::object::Id, Vec<(tg::process::Id, crate::process::object::Kind)>>,
 	organization_members: HashMap<tg::organization::Id, Vec<tg::Id>>,
 	subject_contains_requester: HashMap<tg::authorization::Subject, bool>,
 	process_children: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_objects: HashMap<tg::process::Id, Vec<(tg::object::Id, crate::process::object::Kind)>>,
-	process_parents: HashMap<tg::process::Id, Vec<tg::process::Id>>,
 	process_sandboxes: HashMap<tg::process::Id, Option<tg::sandbox::Id>>,
 	resource_grants: HashMap<
 		tg::Id,
@@ -43,15 +41,121 @@ struct Requester<'a> {
 	subjects: HashSet<tg::authorization::Subject>,
 }
 
-struct AuthorizationNode {
-	key: (tg::Id, tg::authorization::Permission),
-	dependents: Vec<usize>,
-	authorized: bool,
+enum AncestorTask {
+	Node {
+		depth: usize,
+		key: (tg::Id, tg::authorization::Permission),
+	},
+	ObjectParents {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		object: tg::object::Id,
+	},
+	ProcessParents {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
+}
+
+enum DescendantTask {
+	Node {
+		depth: usize,
+		key: (tg::Id, tg::authorization::Permission),
+	},
+	ObjectChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		object: tg::object::Id,
+	},
+	OwnerSandboxes {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		owner: tg::Principal,
+	},
+	ProcessChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
+	ProcessGrants {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		process: tg::process::Id,
+	},
+	SandboxProcesses {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		permission: tg::authorization::permission::sandbox::Permission,
+		sandbox: tg::sandbox::Id,
+	},
+	SubjectGrants {
+		after: Option<Vec<u8>>,
+		subject: tg::authorization::Subject,
+	},
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchOutcome {
+	Authorized,
+	Denied,
+	Exhausted,
+	Pending,
+}
+
+struct AncestorSearch {
+	budget: SearchBudget,
+	outcome: Option<SearchOutcome>,
+	stack: Vec<AncestorTask>,
+	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
+}
+
+struct DescendantSearch {
+	budget: SearchBudget,
+	complete: bool,
+	outcome: Option<SearchOutcome>,
+	stack: Vec<DescendantTask>,
+	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
+}
+
+struct SearchBudget {
+	config: crate::authorize::SearchConfig,
+	edges: usize,
+	nodes: usize,
 }
 
 struct SubtreeSearchBudget {
 	max_depth: usize,
 	remaining: usize,
+}
+
+impl SearchBudget {
+	#[must_use]
+	fn new(config: crate::authorize::SearchConfig) -> Self {
+		Self {
+			config,
+			edges: 0,
+			nodes: 0,
+		}
+	}
+
+	fn add_edge(&mut self) -> bool {
+		if self.edges == self.config.max_edges {
+			return false;
+		}
+		self.edges += 1;
+		true
+	}
+
+	fn add_node(&mut self, depth: usize) -> bool {
+		if depth > self.config.max_depth || self.nodes == self.config.max_nodes {
+			return false;
+		}
+		self.nodes += 1;
+		true
+	}
 }
 
 struct AuthorizationContext<'a, 'txn> {
@@ -63,6 +167,111 @@ struct AuthorizationContext<'a, 'txn> {
 	token: Option<(tg::authorization::Body, tg::Id)>,
 	authorization: &'a mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
 	cache: &'a mut Cache,
+}
+
+impl AncestorSearch {
+	#[must_use]
+	fn new(
+		config: crate::authorize::SearchConfig,
+		root: &(tg::Id, tg::authorization::Permission),
+	) -> Self {
+		let mut budget = SearchBudget::new(config);
+		let outcome = (!budget.add_node(0)).then_some(SearchOutcome::Exhausted);
+		let stack = vec![AncestorTask::Node {
+			depth: 0,
+			key: root.clone(),
+		}];
+		let visited = HashSet::from([root.clone()]);
+
+		Self {
+			budget,
+			outcome,
+			stack,
+			visited,
+		}
+	}
+}
+
+impl DescendantSearch {
+	#[must_use]
+	fn new(config: crate::authorize::SearchConfig, requester: &Requester<'_>) -> Self {
+		let mut budget = SearchBudget::new(config);
+		let complete = !matches!(
+			requester.principal,
+			tg::Principal::Group(_) | tg::Principal::User(_)
+		);
+		let mut stack = Vec::new();
+		let mut visited = HashSet::new();
+
+		let public = tg::authorization::Subject::Public;
+		stack.push(DescendantTask::SubjectGrants {
+			after: None,
+			subject: public.clone(),
+		});
+		if requester.subject != public {
+			stack.push(DescendantTask::SubjectGrants {
+				after: None,
+				subject: requester.subject.clone(),
+			});
+		}
+
+		let inherent = match requester.principal {
+			tg::Principal::Process(process) => {
+				crate::authorize::permissions_implied_by(tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Parent,
+				))
+				.into_iter()
+				.map(|permission| (tg::Id::from(process.clone()), permission))
+				.collect()
+			},
+			tg::Principal::Sandbox(sandbox) => vec![
+				(
+					tg::Id::from(sandbox.clone()),
+					tg::authorization::Permission::Sandbox(
+						tg::authorization::permission::sandbox::Permission::Read,
+					),
+				),
+				(
+					tg::Id::from(sandbox.clone()),
+					tg::authorization::Permission::Sandbox(
+						tg::authorization::permission::sandbox::Permission::Write,
+					),
+				),
+			],
+			tg::Principal::User(user) => {
+				crate::authorize::permissions_implied_by(tg::authorization::Permission::User(
+					tg::authorization::permission::user::Permission::Admin,
+				))
+				.into_iter()
+				.map(|permission| (tg::Id::from(user.clone()), permission))
+				.collect()
+			},
+			tg::Principal::Anonymous
+			| tg::Principal::Group(_)
+			| tg::Principal::Organization(_)
+			| tg::Principal::Root
+			| tg::Principal::Runner(_) => Vec::new(),
+		};
+		let mut outcome = None;
+		for key in inherent {
+			if !visited.insert(key.clone()) {
+				continue;
+			}
+			if !budget.add_node(0) {
+				outcome = Some(SearchOutcome::Exhausted);
+				break;
+			}
+			stack.push(DescendantTask::Node { depth: 0, key });
+		}
+
+		Self {
+			budget,
+			complete,
+			outcome,
+			stack,
+			visited,
+		}
+	}
 }
 
 impl<'a> Requester<'a> {
@@ -291,15 +500,17 @@ impl Index {
 				tg::authorization::permission::object::Permission::Subtree,
 			) => {
 				let mut budget = SubtreeSearchBudget {
-					max_depth: context.authorize.object_subtree.max_depth,
-					remaining: context.authorize.object_subtree.max_objects,
+					max_depth: context.authorize.subtree.max_depth,
+					remaining: context.authorize.subtree.max_objects,
 				};
-				Ok(Self::authorize_with_object_subtree_search_with_transaction(
+				let authorized = Self::authorize_with_object_subtree_search_with_transaction(
 					context,
 					resource,
 					&mut budget,
 				)?
-				.unwrap_or(false))
+				.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+
+				Ok(authorized)
 			},
 			tg::authorization::Permission::Process(
 				permission @ (tg::authorization::permission::process::Permission::NodeCommand
@@ -315,18 +526,18 @@ impl Index {
 				| tg::authorization::permission::process::Permission::SubtreeOutput),
 			) => {
 				let mut budget = SubtreeSearchBudget {
-					max_depth: context.authorize.process_subtree.max_depth,
-					remaining: context.authorize.process_subtree.max_processes,
+					max_depth: context.authorize.subtree.max_depth,
+					remaining: context.authorize.subtree.max_processes,
 				};
-				Ok(
-					Self::authorize_with_process_subtree_search_with_transaction(
-						context,
-						resource,
-						permission,
-						&mut budget,
-					)?
-					.unwrap_or(false),
-				)
+				let authorized = Self::authorize_with_process_subtree_search_with_transaction(
+					context,
+					resource,
+					permission,
+					&mut budget,
+				)?
+				.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+
+				Ok(authorized)
 			},
 			_ => Ok(false),
 		}
@@ -342,89 +553,886 @@ impl Index {
 			return Ok(*authorized);
 		}
 
-		let mut nodes = vec![AuthorizationNode {
-			key: root.clone(),
-			dependents: Vec::new(),
-			authorized: false,
-		}];
-
-		let mut node_ids = HashMap::from([(root.clone(), 0)]);
-		let mut queue = VecDeque::from([0]);
-		while let Some(node_id) = queue.pop_front() {
-			if nodes[node_id].authorized {
-				continue;
-			}
-			let (resource, permission) = nodes[node_id].key.clone();
-			if Self::is_authorized_by_token(context, &resource, permission)
-				|| Self::is_directly_authorized_with_transaction(context, &resource, permission)?
-			{
-				Self::propagate_authorization(context.authorization, &mut nodes, node_id);
-				if nodes[0].authorized {
-					return Ok(true);
-				}
-				continue;
-			}
-			let dependencies = Self::get_authorization_dependencies_with_transaction(
-				context.db,
-				context.subspace,
-				context.transaction,
-				&resource,
-				permission,
-				context.cache,
-			)?;
-			for (dependency, dependency_permission) in dependencies {
-				let dependency_key = (dependency, dependency_permission);
-				match context.authorization.get(&dependency_key).copied() {
-					Some(true) => {
-						Self::propagate_authorization(context.authorization, &mut nodes, node_id);
-						break;
+		let mut ancestor = AncestorSearch::new(context.authorize.ancestor, &root);
+		let mut ancestor_exhausted = false;
+		let mut descendant = DescendantSearch::new(context.authorize.descendant, context.requester);
+		let mut descendant_exhausted = false;
+		loop {
+			if !ancestor_exhausted {
+				let outcome =
+					Self::advance_ancestor_search_with_transaction(context, &mut ancestor)?;
+				match outcome {
+					SearchOutcome::Authorized => {
+						context.authorization.insert(root, true);
+						return Ok(true);
 					},
-					Some(false) => {},
-					None => {
-						let dependency_id =
-							if let Some(dependency_id) = node_ids.get(&dependency_key) {
-								*dependency_id
-							} else {
-								let dependency_id = nodes.len();
-								node_ids.insert(dependency_key.clone(), dependency_id);
-								nodes.push(AuthorizationNode {
-									key: dependency_key,
-									dependents: Vec::new(),
-									authorized: false,
-								});
-								queue.push_back(dependency_id);
-								dependency_id
-							};
-						nodes[dependency_id].dependents.push(node_id);
+					SearchOutcome::Denied => {
+						context.authorization.insert(root, false);
+						return Ok(false);
 					},
+					SearchOutcome::Exhausted => ancestor_exhausted = true,
+					SearchOutcome::Pending => {},
 				}
 			}
-			if nodes[0].authorized {
-				return Ok(true);
+			if !descendant_exhausted {
+				let outcome = Self::advance_descendant_search_with_transaction(
+					context,
+					&mut descendant,
+					&root,
+				)?;
+				match outcome {
+					SearchOutcome::Authorized => {
+						context.authorization.insert(root, true);
+						return Ok(true);
+					},
+					SearchOutcome::Denied => {
+						context.authorization.insert(root, false);
+						return Ok(false);
+					},
+					SearchOutcome::Exhausted => descendant_exhausted = true,
+					SearchOutcome::Pending => {},
+				}
+			}
+			if ancestor_exhausted && descendant_exhausted {
+				return Err(tg::error!(
+					"the ancestor and descendant authorization searches exhausted"
+				));
 			}
 		}
-
-		for node in nodes {
-			context.authorization.entry(node.key).or_insert(false);
-		}
-		Ok(false)
 	}
 
-	fn propagate_authorization(
-		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
-		nodes: &mut [AuthorizationNode],
-		node_id: usize,
-	) {
-		let mut stack = vec![node_id];
-		while let Some(node_id) = stack.pop() {
-			let node = &mut nodes[node_id];
-			if node.authorized {
-				continue;
-			}
-			node.authorized = true;
-			authorization.insert(node.key.clone(), true);
-			stack.extend(node.dependents.iter().copied());
+	fn advance_ancestor_search_with_transaction(
+		context: &mut AuthorizationContext<'_, '_>,
+		search: &mut AncestorSearch,
+	) -> tg::Result<SearchOutcome> {
+		if let Some(outcome) = search.outcome.take() {
+			return Ok(outcome);
 		}
+		let budget = &mut search.budget;
+		let stack = &mut search.stack;
+		let visited = &mut search.visited;
+		let Some(task) = stack.pop() else {
+			for key in visited.iter().cloned() {
+				context.authorization.entry(key).or_insert(false);
+			}
+
+			return Ok(SearchOutcome::Denied);
+		};
+		match task {
+			AncestorTask::Node { depth, key } => {
+				if let Some(authorized) = context.authorization.get(&key) {
+					if *authorized {
+						return Ok(SearchOutcome::Authorized);
+					}
+					return Ok(SearchOutcome::Pending);
+				}
+				let (resource, permission) = key.clone();
+				if Self::is_authorized_by_token(context, &resource, permission)
+					|| Self::is_directly_authorized_with_transaction(
+						context, &resource, permission,
+					)? {
+					context.authorization.insert(key, true);
+					return Ok(SearchOutcome::Authorized);
+				}
+
+				let dependencies = Self::get_authorization_dependencies_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&resource,
+					permission,
+					context.cache,
+				)?;
+				for key in dependencies.into_iter().rev() {
+					let depth = depth + 1;
+					if !budget.add_edge() {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if visited.contains(&key)
+						|| context.authorization.get(&key).copied() == Some(false)
+					{
+						continue;
+					}
+					if depth > budget.config.max_depth {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if context.authorization.get(&key).copied() == Some(true) {
+						return Ok(SearchOutcome::Authorized);
+					}
+					if !budget.add_node(depth) {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					visited.insert(key.clone());
+					stack.push(AncestorTask::Node { depth, key });
+				}
+
+				match permission {
+					tg::authorization::Permission::Object(_) => {
+						let object = tg::object::Id::try_from(resource)?;
+						stack.push(AncestorTask::ObjectParents {
+							after: None,
+							depth,
+							object,
+						});
+					},
+					tg::authorization::Permission::Process(permission) => {
+						let process = tg::process::Id::try_from(resource)?;
+						stack.push(AncestorTask::ProcessParents {
+							after: None,
+							depth,
+							permission,
+							process,
+						});
+					},
+					tg::authorization::Permission::Group(_)
+					| tg::authorization::Permission::Organization(_)
+					| tg::authorization::Permission::Sandbox(_)
+					| tg::authorization::Permission::Tag(_)
+					| tg::authorization::Permission::User(_) => {},
+				}
+			},
+			AncestorTask::ObjectParents {
+				after,
+				depth,
+				object,
+			} => {
+				let object_bytes = object.to_bytes();
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::ChildObject.to_i32().unwrap(),
+						object_bytes.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(AncestorTask::ObjectParents {
+						after: Some(after),
+						depth,
+						object,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Object(crate::lmdb::object::Key::ChildObject {
+						object,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let key = (
+						tg::Id::from(object),
+						tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
+						),
+					);
+					let depth = depth + 1;
+					if !budget.add_edge() {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if visited.contains(&key)
+						|| context.authorization.get(&key).copied() == Some(false)
+					{
+						continue;
+					}
+					if depth > budget.config.max_depth {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if context.authorization.get(&key).copied() == Some(true) {
+						return Ok(SearchOutcome::Authorized);
+					}
+					if !budget.add_node(depth) {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					visited.insert(key.clone());
+					stack.push(AncestorTask::Node { depth, key });
+				}
+			},
+			AncestorTask::ProcessParents {
+				after,
+				depth,
+				permission,
+				process,
+			} => {
+				let process_bytes = process.to_bytes();
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::ChildProcess.to_i32().unwrap(),
+						process_bytes.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(AncestorTask::ProcessParents {
+						after: Some(after),
+						depth,
+						permission,
+						process,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Process(crate::lmdb::process::Key::ChildProcess {
+						parent,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let key = (
+						tg::Id::from(parent),
+						tg::authorization::Permission::Process(permission.to_subtree()),
+					);
+					let depth = depth + 1;
+					if !budget.add_edge() {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if visited.contains(&key)
+						|| context.authorization.get(&key).copied() == Some(false)
+					{
+						continue;
+					}
+					if depth > budget.config.max_depth {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if context.authorization.get(&key).copied() == Some(true) {
+						return Ok(SearchOutcome::Authorized);
+					}
+					if !budget.add_node(depth) {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					visited.insert(key.clone());
+					stack.push(AncestorTask::Node { depth, key });
+				}
+			},
+		}
+
+		Ok(SearchOutcome::Pending)
+	}
+
+	fn advance_descendant_search_with_transaction(
+		context: &mut AuthorizationContext<'_, '_>,
+		search: &mut DescendantSearch,
+		target: &(tg::Id, tg::authorization::Permission),
+	) -> tg::Result<SearchOutcome> {
+		if let Some(outcome) = search.outcome.take() {
+			return Ok(outcome);
+		}
+		let budget = &mut search.budget;
+		let stack = &mut search.stack;
+		let visited = &mut search.visited;
+		let Some(task) = stack.pop() else {
+			let outcome = if search.complete {
+				SearchOutcome::Denied
+			} else {
+				SearchOutcome::Exhausted
+			};
+
+			return Ok(outcome);
+		};
+		match task {
+			DescendantTask::Node { depth, key } => {
+				if key.0 == target.0 && key.1.implies(target.1) {
+					return Ok(SearchOutcome::Authorized);
+				}
+				let (resource, permission) = key;
+				let implied = if matches!(permission, tg::authorization::Permission::Object(_)) {
+					Vec::new()
+				} else {
+					crate::authorize::permissions_implied_by(permission)
+				};
+				for implied_permission in implied.into_iter().rev() {
+					if implied_permission == permission {
+						continue;
+					}
+					let key = (resource.clone(), implied_permission);
+					let depth = depth + 1;
+					if !budget.add_edge() {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if visited.contains(&key) {
+						continue;
+					}
+					if depth > budget.config.max_depth {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					if !budget.add_node(depth) {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					visited.insert(key.clone());
+					stack.push(DescendantTask::Node { depth, key });
+				}
+				if crate::authorize::write_permission_for_resource(&resource).ok()
+					== Some(permission)
+					&& let Some(owner) = Self::principal_for_resource(&resource)?
+				{
+					stack.push(DescendantTask::OwnerSandboxes {
+						after: None,
+						depth,
+						owner,
+					});
+				}
+
+				match permission {
+					tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					) => {
+						let object = tg::object::Id::try_from(resource)?;
+						stack.push(DescendantTask::ObjectChildren {
+							after: None,
+							depth,
+							object,
+						});
+					},
+					tg::authorization::Permission::Process(permission) => {
+						let process = tg::process::Id::try_from(resource.clone())?;
+						let parent = (
+							resource,
+							tg::authorization::Permission::Process(
+								tg::authorization::permission::process::Permission::Parent,
+							),
+						);
+						if permission != tg::authorization::permission::process::Permission::Parent
+							&& !visited.contains(&parent)
+						{
+							search.complete = false;
+						}
+						let traverses_children = matches!(
+							permission,
+							tg::authorization::permission::process::Permission::Parent
+								| tg::authorization::permission::process::Permission::Subtree
+								| tg::authorization::permission::process::Permission::SubtreeCommand
+								| tg::authorization::permission::process::Permission::SubtreeError
+								| tg::authorization::permission::process::Permission::SubtreeLog
+								| tg::authorization::permission::process::Permission::SubtreeOutput
+						);
+						if traverses_children {
+							stack.push(DescendantTask::ProcessChildren {
+								after: None,
+								depth,
+								permission,
+								process: process.clone(),
+							});
+						}
+						if permission == tg::authorization::permission::process::Permission::Parent
+						{
+							stack.push(DescendantTask::ProcessGrants {
+								after: None,
+								depth,
+								process,
+							});
+						}
+					},
+					tg::authorization::Permission::Sandbox(permission) => {
+						let sandbox = tg::sandbox::Id::try_from(resource)?;
+						stack.push(DescendantTask::SandboxProcesses {
+							after: None,
+							depth,
+							permission,
+							sandbox,
+						});
+					},
+					tg::authorization::Permission::Group(_)
+					| tg::authorization::Permission::Organization(_)
+					| tg::authorization::Permission::Tag(_)
+					| tg::authorization::Permission::User(_) => search.complete = false,
+					tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Node,
+					) => {},
+				}
+			},
+			DescendantTask::ObjectChildren {
+				after,
+				depth,
+				object,
+			} => {
+				let object_bytes = object.to_bytes();
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::ObjectChild.to_i32().unwrap(),
+						object_bytes.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::ObjectChildren {
+						after: Some(after),
+						depth,
+						object,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectChild {
+						child,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let permissions = if tg::Id::from(child.clone()) == target.0 {
+						vec![target.1]
+					} else {
+						vec![tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Subtree,
+						)]
+					};
+					for permission in permissions {
+						let key = (tg::Id::from(child.clone()), permission);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if !budget.add_node(depth) {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+				}
+			},
+			DescendantTask::OwnerSandboxes {
+				after,
+				depth,
+				owner,
+			} => {
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::OwnerSandbox.to_i32().unwrap(),
+						owner.to_string(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::OwnerSandboxes {
+						after: Some(after),
+						depth,
+						owner,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::OwnerSandbox {
+						sandbox,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					for permission in [
+						tg::authorization::permission::sandbox::Permission::Write,
+						tg::authorization::permission::sandbox::Permission::Read,
+					] {
+						let key = (
+							tg::Id::from(sandbox.clone()),
+							tg::authorization::Permission::Sandbox(permission),
+						);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if !budget.add_node(depth) {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+				}
+			},
+			DescendantTask::ProcessChildren {
+				after,
+				depth,
+				permission,
+				process,
+			} => {
+				let process_bytes = process.to_bytes();
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::ProcessChild.to_i32().unwrap(),
+						process_bytes.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::ProcessChildren {
+						after: Some(after),
+						depth,
+						permission,
+						process,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessChild {
+						child,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let permissions = match permission {
+						tg::authorization::permission::process::Permission::Parent => {
+							vec![permission]
+						},
+						permission => {
+							vec![permission, Self::process_node_permission(permission)]
+						},
+					};
+					for permission in permissions {
+						let key = (
+							tg::Id::from(child.clone()),
+							tg::authorization::Permission::Process(permission),
+						);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if !budget.add_node(depth) {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+				}
+			},
+			DescendantTask::ProcessGrants {
+				after,
+				depth,
+				process,
+			} => {
+				let subject = tg::authorization::Subject::Process(process.clone());
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::SubjectGrant.to_i32().unwrap(),
+						subject.to_string(),
+					),
+				);
+				let (entries, after) = Self::get_entry_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::ProcessGrants {
+						after: Some(after),
+						depth,
+						process,
+					});
+				}
+				for (key, value) in entries.into_iter().rev() {
+					let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
+						creator,
+						permission,
+						resource,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let value = crate::lmdb::grant::GrantValue::deserialize(&value)?;
+					if !crate::lmdb::grant::is_process_implicit(
+						creator.as_ref(),
+						value.implicit,
+						&subject,
+					) {
+						continue;
+					}
+					for permission in crate::authorize::permissions_implied_by(permission) {
+						let key = (resource.clone(), permission);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if !budget.add_node(depth) {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+				}
+			},
+			DescendantTask::SandboxProcesses {
+				after,
+				depth,
+				permission,
+				sandbox,
+			} => {
+				let sandbox_bytes = sandbox.to_bytes();
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::SandboxProcess.to_i32().unwrap(),
+						sandbox_bytes.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_key_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::SandboxProcesses {
+						after: Some(after),
+						depth,
+						permission,
+						sandbox,
+					});
+				}
+				for key in keys.into_iter().rev() {
+					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+						process,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let permissions = match permission {
+						tg::authorization::permission::sandbox::Permission::Read => vec![
+							tg::authorization::permission::process::Permission::Node,
+							tg::authorization::permission::process::Permission::NodeCommand,
+							tg::authorization::permission::process::Permission::NodeError,
+							tg::authorization::permission::process::Permission::NodeLog,
+							tg::authorization::permission::process::Permission::NodeOutput,
+							tg::authorization::permission::process::Permission::Subtree,
+							tg::authorization::permission::process::Permission::SubtreeCommand,
+							tg::authorization::permission::process::Permission::SubtreeError,
+							tg::authorization::permission::process::Permission::SubtreeLog,
+							tg::authorization::permission::process::Permission::SubtreeOutput,
+						],
+						tg::authorization::permission::sandbox::Permission::Write => {
+							vec![tg::authorization::permission::process::Permission::Parent]
+						},
+					};
+					for permission in permissions {
+						let key = (
+							tg::Id::from(process.clone()),
+							tg::authorization::Permission::Process(permission),
+						);
+						let depth = depth + 1;
+						if !budget.add_edge() {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if visited.contains(&key) {
+							continue;
+						}
+						if depth > budget.config.max_depth {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						if !budget.add_node(depth) {
+							return Ok(SearchOutcome::Exhausted);
+						}
+						visited.insert(key.clone());
+						stack.push(DescendantTask::Node { depth, key });
+					}
+				}
+			},
+			DescendantTask::SubjectGrants { after, subject } => {
+				let prefix = Self::pack(
+					context.subspace,
+					&(
+						crate::lmdb::Kind::SubjectGrant.to_i32().unwrap(),
+						subject.to_string(),
+					),
+				);
+				let (entries, after) = Self::get_entry_page_with_transaction(
+					context.db,
+					context.subspace,
+					context.transaction,
+					&prefix,
+					after.as_deref(),
+					budget.config.page_size,
+				)?;
+				if let Some(after) = after {
+					stack.push(DescendantTask::SubjectGrants {
+						after: Some(after),
+						subject,
+					});
+				}
+				for (key, _) in entries.into_iter().rev() {
+					let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
+						permission,
+						resource,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					if !budget.add_edge() {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					let key = (resource, permission);
+					if !visited.insert(key.clone()) {
+						continue;
+					}
+					if !budget.add_node(0) {
+						return Ok(SearchOutcome::Exhausted);
+					}
+					stack.push(DescendantTask::Node { depth: 0, key });
+				}
+			},
+		}
+
+		Ok(SearchOutcome::Pending)
+	}
+
+	#[must_use]
+	fn process_node_permission(
+		permission: tg::authorization::permission::process::Permission,
+	) -> tg::authorization::permission::process::Permission {
+		match permission {
+			tg::authorization::permission::process::Permission::Subtree => {
+				tg::authorization::permission::process::Permission::Node
+			},
+			tg::authorization::permission::process::Permission::SubtreeCommand => {
+				tg::authorization::permission::process::Permission::NodeCommand
+			},
+			tg::authorization::permission::process::Permission::SubtreeError => {
+				tg::authorization::permission::process::Permission::NodeError
+			},
+			tg::authorization::permission::process::Permission::SubtreeLog => {
+				tg::authorization::permission::process::Permission::NodeLog
+			},
+			tg::authorization::permission::process::Permission::SubtreeOutput => {
+				tg::authorization::permission::process::Permission::NodeOutput
+			},
+			_ => unreachable!(),
+		}
+	}
+
+	fn principal_for_resource(resource: &tg::Id) -> tg::Result<Option<tg::Principal>> {
+		let principal = match resource.kind() {
+			tg::id::Kind::Group => Some(tg::Principal::Group(resource.clone().try_into()?)),
+			tg::id::Kind::Organization => {
+				Some(tg::Principal::Organization(resource.clone().try_into()?))
+			},
+			tg::id::Kind::Process => Some(tg::Principal::Process(resource.clone().try_into()?)),
+			tg::id::Kind::Sandbox => Some(tg::Principal::Sandbox(resource.clone().try_into()?)),
+			tg::id::Kind::User => Some(tg::Principal::User(resource.clone().try_into()?)),
+			_ => None,
+		};
+
+		Ok(principal)
+	}
+
+	fn get_key_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		prefix: &[u8],
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<(Vec<crate::lmdb::Key>, Option<Vec<u8>>)> {
+		let (entries, after) =
+			Self::get_entry_page_with_transaction(db, subspace, transaction, prefix, after, limit)?;
+		let keys = entries.into_iter().map(|(key, _)| key).collect();
+
+		Ok((keys, after))
+	}
+
+	fn get_entry_page_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		prefix: &[u8],
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<(Vec<(crate::lmdb::Key, Vec<u8>)>, Option<Vec<u8>>)> {
+		let start = if let Some(after) = after {
+			let mut start = after.to_vec();
+			start.push(0);
+			start
+		} else {
+			prefix.to_vec()
+		};
+		let range = (
+			std::ops::Bound::Included(start.as_slice()),
+			std::ops::Bound::Unbounded,
+		);
+		let iter = db
+			.range(transaction, &range)
+			.map_err(|error| tg::error!(!error, "failed to page authorization relationships"))?;
+		let mut entries = Vec::new();
+		let mut last = None;
+		for entry in iter.take(limit) {
+			let (key, value) = entry.map_err(|error| {
+				tg::error!(!error, "failed to read an authorization relationship")
+			})?;
+			if !key.starts_with(prefix) {
+				break;
+			}
+			last = Some(key.to_vec());
+			let key = Self::unpack(subspace, key)?;
+			entries.push((key, value.to_vec()));
+		}
+		let after = (entries.len() == limit).then_some(last).flatten();
+
+		Ok((entries, after))
 	}
 
 	fn is_directly_authorized_with_transaction(
@@ -728,16 +1736,16 @@ impl Index {
 				continue;
 			}
 			let mut budget = SubtreeSearchBudget {
-				max_depth: context.authorize.object_subtree.max_depth,
-				remaining: context.authorize.object_subtree.max_objects,
+				max_depth: context.authorize.subtree.max_depth,
+				remaining: context.authorize.subtree.max_objects,
 			};
-			if !Self::authorize_with_object_subtree_search_with_transaction(
+			let authorized = Self::authorize_with_object_subtree_search_with_transaction(
 				context,
 				&resource,
 				&mut budget,
 			)?
-			.unwrap_or(false)
-			{
+			.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+			if !authorized {
 				return Ok(false);
 			}
 		}
@@ -780,13 +1788,6 @@ impl Index {
 			tg::authorization::Permission::Object(object_permission) => {
 				// Get the relationships.
 				let object = tg::object::Id::try_from(resource.clone())?;
-				let object_parents = Self::get_cached_object_parents_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&object,
-					cache,
-				)?;
 				let object_processes = Self::get_cached_object_processes_with_transaction(
 					db,
 					subspace,
@@ -813,14 +1814,6 @@ impl Index {
 					}
 				}
 
-				// Add the object parent relationships.
-				for parent in object_parents {
-					let permission = tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					);
-					dependencies.push((parent.into(), permission));
-				}
-
 				// Add the tag relationships.
 				dependencies.extend(Self::get_cached_target_tags_with_transaction(
 					db,
@@ -841,20 +1834,6 @@ impl Index {
 					&process,
 					cache,
 				)?;
-				let process_parents = Self::get_cached_process_parents_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&process,
-					cache,
-				)?;
-
-				// Add the process parent relationships.
-				for parent in process_parents {
-					let permission =
-						tg::authorization::Permission::Process(process_permission.to_subtree());
-					dependencies.push((parent.into(), permission));
-				}
 
 				// Add the sandbox relationship.
 				if let Some(sandbox) = sandbox {
@@ -1316,21 +2295,6 @@ impl Index {
 		Ok(parents)
 	}
 
-	fn get_cached_object_parents_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		object: &tg::object::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		if let Some(parents) = cache.object_parents.get(object) {
-			return Ok(parents.clone());
-		}
-		let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, object)?;
-		cache.object_parents.insert(object.clone(), parents.clone());
-		Ok(parents)
-	}
-
 	fn get_cached_object_processes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -1347,24 +2311,6 @@ impl Index {
 			.object_processes
 			.insert(object.clone(), processes.clone());
 		Ok(processes)
-	}
-
-	fn get_cached_process_parents_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		process: &tg::process::Id,
-		cache: &mut Cache,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		if let Some(parents) = cache.process_parents.get(process) {
-			return Ok(parents.clone());
-		}
-		let parents =
-			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?;
-		cache
-			.process_parents
-			.insert(process.clone(), parents.clone());
-		Ok(parents)
 	}
 
 	fn get_cached_process_sandbox_with_transaction(

@@ -51,8 +51,9 @@ pub struct Config {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
-	pub object_subtree: crate::authorize::ObjectSubtreeConfig,
-	pub process_subtree: crate::authorize::ProcessSubtreeConfig,
+	pub ancestor: crate::authorize::SearchConfig,
+	pub descendant: crate::authorize::SearchConfig,
+	pub subtree: crate::authorize::SubtreeConfig,
 }
 
 pub struct Index {
@@ -181,6 +182,11 @@ impl Index {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
+		if config.authorize.ancestor.page_size == 0 || config.authorize.descendant.page_size == 0 {
+			return Err(tg::error!(
+				"the LMDB index authorization page size must be greater than zero"
+			));
+		}
 		if config.read_request_batch_size == 0 {
 			return Err(tg::error!(
 				"the LMDB index read request batch size must be greater than zero"
