@@ -23,6 +23,7 @@ def main [
 	--no-cloud # Use local backends for test instances.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
+	--no-tokens # Disable authorization token minting and verification for every server.
 	--offline # Skip tests which require network access.
 	--print-passing-test-output # Print the output of passing tests.
 	--quickjs # Use QuickJS as the JS engine.
@@ -236,6 +237,7 @@ def main [
 		fskit: $fskit,
 		kernel_path: ($kernel_path | default "" | into string),
 		no_capture: $no_capture,
+		no_tokens: $no_tokens,
 		offline: $offline,
 		preserve_temps: $preserve_temps,
 		quickjs: $quickjs,
@@ -1041,6 +1043,7 @@ def run_test [test: record, options: record] {
 		TANGRAM_TEST_FDB_CLUSTER: $fdb_cluster_path,
 		TANGRAM_TEST_FSKIT: (if $options.fskit { "1" } else { "" }),
 		TANGRAM_TEST_KERNEL_PATH: $options.kernel_path,
+		TANGRAM_TEST_NO_TOKENS: (if $options.no_tokens { "1" } else { "" }),
 		TANGRAM_TEST_OFFLINE: (if $options.offline { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $options.quickjs { "1" } else { "" }),
 		TANGRAM_TEST_TURSO: (if $options.turso { "1" } else { "" }),
@@ -1685,6 +1688,15 @@ export def --env "server spawn" [
 				tokens: $keys,
 			},
 		}
+	} else {
+		$config
+	}
+
+	# Disable authorization token minting and verification.
+	let no_tokens = (($env.TANGRAM_TEST_NO_TOKENS? | default "") | str length) > 0
+	let config = if $no_tokens {
+		let authorization = ($config | get --optional authorization | default {}) | upsert tokens false
+		$config | upsert authorization $authorization
 	} else {
 		$config
 	}
