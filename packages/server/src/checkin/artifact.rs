@@ -15,7 +15,7 @@ use {
 		path::Path,
 	},
 	tangram_client::prelude::*,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 };
 
 pub(super) struct CheckinCreateArtifactsArg<'a> {
@@ -781,7 +781,7 @@ impl Session {
 		}
 
 		// Create the store arg.
-		let store_arg = crate::object::store::PutArg {
+		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -878,7 +878,7 @@ impl Session {
 					let id: tg::object::Id = output.id.clone().into();
 
 					// Create and set the checkout pointer.
-					let checkout_pointer = crate::object::store::CheckoutPointer {
+					let checkout_pointer = crate::store::object::checkout::Pointer {
 						artifact: artifact.clone(),
 						length: output.length,
 						path: path.clone(),
@@ -915,7 +915,7 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Store the object.
-		let store_arg = crate::object::store::PutArg {
+		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -923,8 +923,8 @@ impl Session {
 			stored_at: touched_at,
 		};
 		self.server
-			.object_store
-			.put(store_arg)
+			.store
+			.put_object(store_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the reference artifact"))?;
 
@@ -1346,7 +1346,7 @@ impl Session {
 		}
 
 		// Create the store arg.
-		let store_arg = crate::object::store::PutArg {
+		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),

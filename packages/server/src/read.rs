@@ -16,7 +16,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
 		AsyncSeekExt as _,
@@ -252,13 +252,13 @@ impl Reader {
 			.await?
 			.is_some_and(|permissions| permissions.contains(permission));
 		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
-			let arg = crate::object::store::TryGetArg {
+			let arg = crate::store::object::get::Arg {
 				id: id.clone().into(),
 			};
 			session
 				.server
-				.object_store
-				.try_get(arg)
+				.store
+				.try_get_object(arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				.object
@@ -292,13 +292,13 @@ impl Reader {
 
 	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let arg = crate::object::store::TryGetArg {
+		let arg = crate::store::object::get::Arg {
 			id: id.clone().into(),
 		};
 		let object = session
 			.server
-			.object_store
-			.try_get_sync(&arg)
+			.store
+			.try_get_object_sync(&arg)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let checkout_pointer = session
 			.server

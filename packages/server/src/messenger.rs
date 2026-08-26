@@ -1,11 +1,13 @@
 use tangram_messenger::{self as messenger, Messenger as _};
 
+#[derive(Clone)]
 enum Inner {
 	Memory(messenger::memory::Messenger),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Messenger),
 }
 
+#[derive(Clone)]
 pub struct Messenger {
 	inner: Inner,
 	instance: Option<String>,

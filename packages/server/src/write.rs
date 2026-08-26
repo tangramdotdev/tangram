@@ -13,7 +13,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
@@ -164,7 +164,7 @@ impl Session {
 				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::object::store::PutArg {
+					let arg = crate::store::object::put::Arg {
 						bytes: Some(bytes.into()),
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
@@ -172,8 +172,8 @@ impl Session {
 						stored_at: *stored_at,
 					};
 					self.server
-						.object_store
-						.put(arg)
+						.store
+						.put_object(arg)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
@@ -261,7 +261,7 @@ impl Session {
 				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::object::store::PutArg {
+					let arg = crate::store::object::put::Arg {
 						bytes: Some(bytes.into()),
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
@@ -269,8 +269,8 @@ impl Session {
 						stored_at: *stored_at,
 					};
 					self.server
-						.object_store
-						.put_sync(arg)
+						.store
+						.put_object_sync(arg)
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
 			}
@@ -446,8 +446,8 @@ impl Session {
 	) -> tg::Result<()> {
 		let arg = Self::write_store_args(blob, checkout_pointer.as_ref(), stored_at);
 		self.server
-			.object_store
-			.put_batch(arg)
+			.store
+			.put_object_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
 		Ok(())
@@ -457,7 +457,7 @@ impl Session {
 		blob: &Output,
 		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
 		stored_at: i64,
-	) -> Vec<crate::object::store::PutArg> {
+	) -> Vec<crate::store::object::put::Arg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
@@ -466,14 +466,14 @@ impl Session {
 				continue;
 			}
 			let checkout_pointer = checkout_pointer.as_ref().map(|(artifact, path)| {
-				crate::object::store::CheckoutPointer {
+				crate::store::object::checkout::Pointer {
 					artifact: artifact.clone(),
 					length: blob.length,
 					path: path.clone(),
 					position: blob.position,
 				}
 			});
-			args.push(crate::object::store::PutArg {
+			args.push(crate::store::object::put::Arg {
 				bytes: blob.bytes.clone(),
 				checkout_pointer,
 				id: blob.id.clone().into(),

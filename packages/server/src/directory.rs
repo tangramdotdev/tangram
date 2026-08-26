@@ -2,7 +2,7 @@ use {std::collections::BTreeMap, tangram_client::prelude::*};
 
 /// Collect all entries from a directory, recursively flattening branches.
 pub fn collect_directory_entries(
-	store: &crate::object::Store,
+	store: &crate::store::Store,
 	directory: &tg::graph::data::Directory,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
@@ -22,7 +22,7 @@ pub fn collect_directory_entries(
 
 /// Resolve a directory child edge to its directory data.
 fn resolve_directory_child(
-	store: &crate::object::Store,
+	store: &crate::store::Store,
 	edge: &tg::graph::data::Edge<tg::directory::Id>,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<tg::graph::data::Directory> {
@@ -30,7 +30,7 @@ fn resolve_directory_child(
 		tg::graph::data::Edge::Object(id) => {
 			// Load the directory data from the store.
 			let (_size, data) = store
-				.try_get_data_sync(&id.clone().into())
+				.try_get_object_data_sync(&id.clone().into())
 				.map_err(|error| tg::error!(!error, %id, "failed to get directory object"))?
 				.ok_or_else(|| tg::error!(%id, "failed to find directory"))?;
 			let dir_data: tg::directory::Data = data
@@ -51,7 +51,7 @@ fn resolve_directory_child(
 				.or(graph)
 				.ok_or_else(|| tg::error!("missing graph id for pointer"))?;
 			let (_size, data) = store
-				.try_get_data_sync(&child_graph_id.clone().into())
+				.try_get_object_data_sync(&child_graph_id.clone().into())
 				.map_err(|error| tg::error!(!error, %child_graph_id, "failed to get graph object"))?
 				.ok_or_else(|| tg::error!(%child_graph_id, "failed to find graph"))?;
 			let graph_data: tg::graph::Data = data

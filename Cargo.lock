@@ -8205,25 +8205,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_log_store"
-version = "0.0.0"
-dependencies = [
- "bytes",
- "dashmap",
- "foundationdb",
- "foundationdb-tuple",
- "futures",
- "heed",
- "indoc",
- "num",
- "scylla",
- "tangram_client",
- "tangram_serialize",
- "tangram_util",
- "tokio",
-]
-
-[[package]]
 name = "tangram_messenger"
 version = "0.0.0"
 dependencies = [
@@ -8235,27 +8216,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tangram_either",
- "tokio",
-]
-
-[[package]]
-name = "tangram_object_store"
-version = "0.0.0"
-dependencies = [
- "bytes",
- "foundationdb-tuple",
- "futures",
- "heed",
- "indoc",
- "num",
- "num-derive 0.5.1",
- "num-traits",
- "scylla",
- "serde",
- "serde_json",
- "tangram_client",
- "tangram_serialize",
- "tangram_util",
  "tokio",
 ]
 
@@ -8405,12 +8365,11 @@ dependencies = [
  "tangram_ignore",
  "tangram_index",
  "tangram_js",
- "tangram_log_store",
  "tangram_messenger",
- "tangram_object_store",
  "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
+ "tangram_store",
  "tangram_uri",
  "tangram_util",
  "tangram_vfs",
@@ -8428,6 +8387,27 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "xattr",
+]
+
+[[package]]
+name = "tangram_store"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "foundationdb-tuple",
+ "futures",
+ "heed",
+ "indoc",
+ "num",
+ "num-derive 0.5.1",
+ "num-traits",
+ "scylla",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
 ]
 
 [[package]]
@@ -8520,7 +8500,7 @@ dependencies = [
  "num",
  "serde_json",
  "tangram_client",
- "tangram_object_store",
+ "tangram_store",
  "tangram_uri",
  "tangram_util",
  "tangram_vfs",

@@ -9,7 +9,9 @@ impl Session {
 		runner: Option<tg::runner::Id>,
 	) -> tg::Result<tg::sandbox::control::DestroyServerResponseOutput> {
 		if arg.data.id != *id {
-			return Err(tg::error!(%id, "the sandbox id does not match"));
+			return Err(
+				tg::error!(actual = %arg.data.id, expected = %id, "the sandbox id does not match"),
+			);
 		}
 		if !arg.data.status.is_destroyed() {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));

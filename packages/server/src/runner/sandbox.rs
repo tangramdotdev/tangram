@@ -1249,8 +1249,20 @@ impl Session {
 			location: Some(location.clone().into()),
 			runner: Some(runner),
 		};
+		let reconnect_context = self.context.clone();
+		let reconnect_server = self.server.clone();
+		let reconnect = move |output: &tg::sandbox::control::Output| {
+			let token = output.token.clone().or(reconnect_context.token.clone());
+			let context = Context {
+				principal: tg::Principal::Sandbox(output.id.clone()),
+				token,
+				..reconnect_context
+			};
+
+			reconnect_server.session(&context)
+		};
 		let (output, control) = self
-			.get_sandbox_control_stream_all(arg, input_stream)
+			.get_sandbox_control_stream_all(arg, input_stream, reconnect)
 			.boxed()
 			.await
 			.map_err(|error| {

@@ -150,18 +150,18 @@ pub struct TgDirEntryPlus {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TgConfig {
-	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the object store and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
+	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the store and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
 	pub data_directory: *const c_char,
 	/// The interval in seconds at which expired cache-only nodes are swept.
 	pub node_eviction_interval_secs: u64,
 	/// The duration in seconds a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 	pub node_ttl_secs: u64,
-	/// The map size with which to open the object store. It must be at least the server's, so the server sends its own.
-	pub object_store_map_size: u64,
-	/// The object store's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
-	pub object_store_path: *const c_char,
-	/// The prefix for the object store's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the object store with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
-	pub object_store_posix_sem_prefix: *const c_char,
+	/// The map size with which to open the store. It must be at least the server's, so the server sends its own.
+	pub store_map_size: u64,
+	/// The store's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
+	pub store_path: *const c_char,
+	/// The prefix for the store's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the store with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
+	pub store_posix_sem_prefix: *const c_char,
 	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
 	pub principal: *const c_char,
 	/// The authorization tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of authorization tokens. A null pointer or an empty string provides no tokens.
@@ -275,29 +275,26 @@ fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 		} else {
 			Duration::from_secs(config.node_ttl_secs)
 		},
-		object_store_map_size: if config.object_store_map_size == 0 {
-			default.object_store_map_size
+		store_map_size: if config.store_map_size == 0 {
+			default.store_map_size
 		} else {
-			config
-				.object_store_map_size
-				.to_usize()
-				.unwrap_or(usize::MAX)
+			config.store_map_size.to_usize().unwrap_or(usize::MAX)
 		},
-		object_store_path: if config.object_store_path.is_null() {
-			default.object_store_path.clone()
+		store_path: if config.store_path.is_null() {
+			default.store_path.clone()
 		} else {
 			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
-			unsafe { CStr::from_ptr(config.object_store_path) }
+			unsafe { CStr::from_ptr(config.store_path) }
 				.to_str()
 				.ok()
 				.filter(|path| !path.is_empty())
-				.map_or_else(|| default.object_store_path.clone(), PathBuf::from)
+				.map_or_else(|| default.store_path.clone(), PathBuf::from)
 		},
-		object_store_posix_sem_prefix: if config.object_store_posix_sem_prefix.is_null() {
+		store_posix_sem_prefix: if config.store_posix_sem_prefix.is_null() {
 			None
 		} else {
 			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
-			unsafe { CStr::from_ptr(config.object_store_posix_sem_prefix) }
+			unsafe { CStr::from_ptr(config.store_posix_sem_prefix) }
 				.to_str()
 				.ok()
 				.filter(|prefix| !prefix.is_empty())
@@ -1429,9 +1426,9 @@ mod tests {
 			data_directory: std::ptr::null(),
 			node_eviction_interval_secs: 0,
 			node_ttl_secs: 0,
-			object_store_map_size: 0,
-			object_store_path: std::ptr::null(),
-			object_store_posix_sem_prefix: std::ptr::null(),
+			store_map_size: 0,
+			store_path: std::ptr::null(),
+			store_posix_sem_prefix: std::ptr::null(),
 			principal: std::ptr::null(),
 			tokens: std::ptr::null(),
 		}

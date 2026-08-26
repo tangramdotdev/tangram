@@ -2286,11 +2286,7 @@ impl Tree {
 			.ok_or_else(|| tg::error!("failed to get the process log"))?;
 		let mut line = Vec::new();
 		let updates = Arc::new(ProcessLogUpdates::default());
-		while let Some(event) = log.try_next().await? {
-			let tg::process::stdio::read::Event::Chunk(chunk) = event else {
-				break;
-			};
-
+		while let Some(chunk) = log.try_next().await? {
 			// Preserve a partial line across chunk boundaries and retain only the latest line.
 			let mut latest = Vec::new();
 			let mut updated = false;

@@ -214,6 +214,27 @@ impl Session {
 				)
 			})?;
 
+		let stream = stream
+			.try_filter_map({
+				let id = id.clone();
+				let session = session.clone();
+				move |message| {
+					let id = id.clone();
+					let session = session.clone();
+					async move {
+						let tg::sandbox::control::ClientMessage::Response(response) = message
+						else {
+							return Ok(Some(message));
+						};
+						session
+							.publish_sandbox_control_response(&id, response)
+							.await?;
+
+						Ok(None)
+					}
+				}
+			})
+			.boxed();
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
 		let control = crate::control::Stream::new(stream, sender, crate::control::stream_options());
 		let control_sender = control.sender();
@@ -237,26 +258,8 @@ impl Session {
 				let mut control = control;
 				while let Some(message) = control.recv().await? {
 					match message {
-						tg::sandbox::control::ClientMessage::Response(response) => {
-							let subject = format!("sandboxes.{id}.control.client.{}", response.id);
-							session
-								.server
-								.messenger
-								.publish(
-									subject,
-									ClientMessage(tg::sandbox::control::ClientMessage::Response(
-										response,
-									)),
-								)
-								.await
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to publish the sandbox client message"
-									)
-								})?;
-						},
-						tg::sandbox::control::ClientMessage::Ack(_) => unreachable!(),
+						tg::sandbox::control::ClientMessage::Ack(_)
+						| tg::sandbox::control::ClientMessage::Response(_) => unreachable!(),
 						tg::sandbox::control::ClientMessage::Notification(notification) => {
 							match notification {}
 						},
@@ -325,6 +328,24 @@ impl Session {
 		let output = tg::sandbox::control::Output { id, token };
 
 		Ok((output, stream))
+	}
+
+	async fn publish_sandbox_control_response(
+		&self,
+		id: &tg::sandbox::Id,
+		response: tg::sandbox::control::ClientResponse,
+	) -> tg::Result<()> {
+		let subject = format!("sandboxes.{id}.control.client.{}", response.id);
+		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Response(response));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to publish the sandbox client message")
+			})?;
+
+		Ok(())
 	}
 
 	fn sandbox_control_server_response(

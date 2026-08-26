@@ -27,8 +27,7 @@ impl Server {
 		&self,
 		index: u64,
 		arg: crate::client::stdio::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
-	{
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static> {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
@@ -106,9 +105,8 @@ impl Server {
 				ReaderStream::new(reader).map(move |result: std::io::Result<bytes::Bytes>| {
 					result
 						.map(|bytes| {
-							tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
+							crate::stdio::read::Event::Chunk(crate::stdio::Chunk {
 								bytes,
-								position: None,
 								stream: stream_,
 							})
 						})
@@ -117,9 +115,8 @@ impl Server {
 			outputs.push(stream);
 		}
 
-		let stream = stream::select_all(outputs).chain(stream::once(future::ok(
-			tg::process::stdio::read::Event::End,
-		)));
+		let stream = stream::select_all(outputs)
+			.chain(stream::once(future::ok(crate::stdio::read::Event::End)));
 
 		Ok(stream)
 	}
@@ -144,7 +141,7 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = stream.map(
-			|result: tg::Result<tg::process::stdio::read::Event>| match result {
+			|result: tg::Result<crate::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),
 				Err(error) => error.try_into(),
 			},

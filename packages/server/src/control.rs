@@ -269,10 +269,9 @@ impl Session {
 						.messenger
 						.publish(server_subject.clone(), ack)
 						.await
-						.inspect_err(|error| {
-							tracing::error!(%error, "failed to ack the response");
-						})
-						.ok();
+						.map_err(|source| {
+							tg::error!(!source, "failed to acknowledge the control response")
+						})?;
 					return Ok::<_, tg::Error>(response);
 				}
 			})

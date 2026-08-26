@@ -435,7 +435,7 @@ impl Session {
 						output,
 					)),
 				);
-				sender.send(message).await.ok();
+				sender.send(message).await?;
 				continue;
 			};
 			// Spawn the sandbox task.
@@ -445,7 +445,7 @@ impl Session {
 					id.clone(),
 					Err(tg::error!(%sandbox, "missing the sandbox authentication token")),
 				);
-				sender.send(message).await.ok();
+				sender.send(message).await?;
 				continue;
 			};
 			let task = self
@@ -468,7 +468,7 @@ impl Session {
 					output,
 				)),
 			);
-			sender.send(message).await.ok();
+			sender.send(message).await?;
 
 			// Spawn a task to send the sandbox destroyed notification.
 			Task::spawn({

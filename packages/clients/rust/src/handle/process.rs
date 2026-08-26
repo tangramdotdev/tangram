@@ -178,10 +178,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -190,14 +191,14 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
 		>,
 	> + Send {
 		async move {
-			self.try_write_process_stdio(id, arg, stream)
+			self.try_write_process_stdio(id, arg, input)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find the process"))
 		}
@@ -207,11 +208,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
+				+ Send
+				+ 'static,
 			>,
 		>,
 	> + Send;
@@ -384,11 +387,14 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.session(&self.context)
-			.try_read_process_stdio(id, arg)
+			.try_read_process_stdio(id, arg, input)
 			.await
 	}
 
@@ -396,12 +402,14 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.session(&self.context)
-			.try_write_process_stdio(id, arg, stream)
+			.try_write_process_stdio(id, arg, input)
 			.await
 	}
 

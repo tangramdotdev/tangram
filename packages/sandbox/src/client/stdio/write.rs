@@ -12,9 +12,8 @@ impl Client {
 		&self,
 		index: u64,
 		arg: Arg,
-		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
-	{
+		stream: impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static,
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let path = format!("/processes/{index}/stdio");
 		let uri = Uri::builder()
@@ -24,7 +23,7 @@ impl Client {
 			.build()
 			.unwrap();
 		let stream = stream.map(
-			|result: tg::Result<tg::process::stdio::read::Event>| match result {
+			|result: tg::Result<crate::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),
 				Err(error) => error.try_into(),
 			},

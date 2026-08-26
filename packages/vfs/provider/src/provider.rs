@@ -16,7 +16,7 @@ use {
 		time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 	},
 	tangram_client::prelude::*,
-	tangram_object_store as object_store,
+	tangram_store as store,
 	tangram_uri::Uri,
 	tangram_vfs as vfs,
 	tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _},
@@ -31,11 +31,11 @@ const DEFAULT_NODE_EVICTION_INTERVAL: Duration = Duration::from_secs(30);
 /// The default duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 const DEFAULT_NODE_TTL: Duration = Duration::from_mins(1);
 
-/// The default map size with which the object store is opened. It is the server's default, and the server sends its own if it is configured with another.
-const DEFAULT_OBJECT_STORE_MAP_SIZE: usize = 1_099_511_627_776;
+/// The default map size with which the store is opened. It is the server's default, and the server sends its own if it is configured with another.
+const DEFAULT_STORE_MAP_SIZE: usize = 1_099_511_627_776;
 
-/// The default path of the object store within the data directory. It is the server's default, and the server sends its own if it is configured with another.
-const DEFAULT_OBJECT_STORE_PATH: &str = "objects";
+/// The default path of the store within the data directory. It is the server's default, and the server sends its own if it is configured with another.
+const DEFAULT_STORE_PATH: &str = "store.lmdb";
 
 /// The size of a FUSE directory entry header.
 const FUSE_DIRENT_HEADER_SIZE: usize = 24;
@@ -43,7 +43,7 @@ const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 /// The configuration for a provider.
 #[derive(Clone)]
 pub struct Config {
-	/// The server's data directory, which the fast path reads the object store and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
+	/// The server's data directory, which the fast path reads the store and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
 	pub data_directory: Option<PathBuf>,
 
 	/// The interval at which expired cache-only nodes are swept.
@@ -52,14 +52,14 @@ pub struct Config {
 	/// The duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 	pub node_ttl: Duration,
 
-	/// The map size with which to open the object store. LMDB requires a reader to use a map size at least as large as the writer's, so this must be at least the server's.
-	pub object_store_map_size: usize,
+	/// The map size with which to open the store. LMDB requires a reader to use a map size at least as large as the writer's, so this must be at least the server's.
+	pub store_map_size: usize,
 
-	/// The path of the object store, which is joined to the data directory.
-	pub object_store_path: PathBuf,
+	/// The path of the store, which is joined to the data directory.
+	pub store_path: PathBuf,
 
-	/// An optional base name for the object store's POSIX lock semaphores. It must match the name the server opens the object store with so that the sandboxed provider and the server share the same lock.
-	pub object_store_posix_sem_prefix: Option<String>,
+	/// An optional base name for the store's POSIX lock semaphores. It must match the name the server opens the store with so that the sandboxed provider and the server share the same lock.
+	pub store_posix_sem_prefix: Option<String>,
 
 	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
 	pub principal: Option<tg::Principal>,
@@ -84,10 +84,10 @@ struct Inner {
 	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
-/// The state the fast path requires. It reads the object store and the checkouts directory directly instead of sending a request to the server.
+/// The state the fast path requires. It reads the store and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
 	checkout_path: PathBuf,
-	store: object_store::lmdb::Store,
+	store: store::lmdb::Store,
 }
 
 struct FileHandle {
@@ -1242,23 +1242,23 @@ impl Inner {
 }
 
 impl Fast {
-	/// Opens the object store read only and locates the checkouts directory. Returns `None` if the object store cannot be opened, in which case the provider uses the client for every request.
+	/// Opens the store read only and locates the checkouts directory. Returns `None` if the store cannot be opened, in which case the provider uses the client for every request.
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
-		// Open the object store.
-		let path = data_directory.join(&config.object_store_path);
-		let config = object_store::lmdb::Config {
-			map_size: config.object_store_map_size,
+		// Open the store.
+		let path = data_directory.join(&config.store_path);
+		let config = store::lmdb::Config {
+			map_size: config.store_map_size,
 			path,
-			posix_sem_prefix: config.object_store_posix_sem_prefix.clone(),
+			posix_sem_prefix: config.store_posix_sem_prefix.clone(),
 			read_batch_size: 64,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
 		};
-		let store = match object_store::lmdb::Store::new_readonly(&config) {
+		let store = match store::lmdb::Store::new_readonly(&config) {
 			Err(error) => {
 				tracing::warn!(
 					error = %error.trace(),
-					"failed to open the object store, so the fast path is disabled"
+					"failed to open the store, so the fast path is disabled"
 				);
 				return None;
 			},
@@ -1406,10 +1406,10 @@ impl Fast {
 		&self,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-	) -> std::io::Result<Option<object_store::Object<'static>>> {
-		let arg = object_store::TryGetArg { id: id.clone() };
+	) -> std::io::Result<Option<store::object::Object<'static>>> {
+		let arg = store::object::get::Arg { id: id.clone() };
 		self.store
-			.try_get_with_transaction(transaction, &arg)
+			.try_get_object_with_transaction(transaction, &arg)
 			.map(|output| output.object)
 			.map_err(eio)
 	}
@@ -1420,7 +1420,7 @@ impl Fast {
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
 		self.store
-			.try_get_data_with_transaction(transaction, id)
+			.try_get_object_data_with_transaction(transaction, id)
 			.map_err(eio)
 	}
 
@@ -2141,9 +2141,9 @@ impl Default for Config {
 			data_directory: None,
 			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
 			node_ttl: DEFAULT_NODE_TTL,
-			object_store_map_size: DEFAULT_OBJECT_STORE_MAP_SIZE,
-			object_store_path: PathBuf::from(DEFAULT_OBJECT_STORE_PATH),
-			object_store_posix_sem_prefix: None,
+			store_map_size: DEFAULT_STORE_MAP_SIZE,
+			store_path: PathBuf::from(DEFAULT_STORE_PATH),
+			store_posix_sem_prefix: None,
 			principal: None,
 			tokens: Vec::new(),
 		}
@@ -2335,7 +2335,7 @@ mod tests {
 	}
 
 	fn fixture(authorized: bool) -> Fixture {
-		// Create a temporary object store containing a directory and one child.
+		// Create a temporary store containing a directory and one child.
 		let temp = Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let child: tg::artifact::Id = tg::file::Id::new(b"child").into();
@@ -2348,10 +2348,10 @@ mod tests {
 		let data: tg::object::Data = tg::directory::Data::Node(directory).into();
 		let bytes = data.serialize().unwrap();
 		let directory: tg::artifact::Id = tg::directory::Id::new(&bytes).into();
-		let object_store_path = PathBuf::from("objects");
-		let store = object_store::lmdb::Store::new(&object_store::lmdb::Config {
+		let store_path = PathBuf::from("store.lmdb");
+		let store = store::lmdb::Store::new(&store::lmdb::Config {
 			map_size: 10 * 1024 * 1024,
-			path: temp.path().join(&object_store_path),
+			path: temp.path().join(&store_path),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 1,
@@ -2359,7 +2359,7 @@ mod tests {
 		})
 		.unwrap();
 		store
-			.put_sync(object_store::PutArg {
+			.put_object_sync(store::object::put::Arg {
 				bytes: Some(bytes),
 				checkout_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
@@ -2373,8 +2373,8 @@ mod tests {
 		let tokens = authorized.then(|| token(&directory)).into_iter().collect();
 		let config = Config {
 			data_directory: Some(temp.path().to_owned()),
-			object_store_map_size: 10 * 1024 * 1024,
-			object_store_path,
+			store_map_size: 10 * 1024 * 1024,
+			store_path,
 			principal: Some(tg::Principal::Anonymous),
 			tokens,
 			..Config::default()

@@ -15,7 +15,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -615,8 +615,8 @@ impl Server {
 		id: &tg::object::Id,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
-		let output = self.object_store.try_get_sync(&arg)?;
+		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let output = self.store.try_get_object_sync(&arg)?;
 		let object = output.object;
 		let Some(object) = object else {
 			return Ok(None);
@@ -687,12 +687,12 @@ impl Server {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
-		let arg = crate::object::store::TryGetBatchArg {
+		let arg = crate::store::object::get::batch::Arg {
 			ids: ids.to_owned(),
 		};
 		let output = self
-			.object_store
-			.try_get_batch(arg)
+			.store
+			.try_get_object_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
 		let output = ids
@@ -720,10 +720,10 @@ impl Server {
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
+		let arg = crate::store::object::get::Arg { id: id.clone() };
 		let output = self
-			.object_store
-			.try_get(arg)
+			.store
+			.try_get_object(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let object = output.object;
@@ -743,7 +743,7 @@ impl Server {
 
 	async fn try_read_checkout_pointer(
 		&self,
-		checkout_pointer: &tangram_object_store::CheckoutPointer,
+		checkout_pointer: &tangram_store::object::checkout::Pointer,
 	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
 		let mut path = self
@@ -781,7 +781,7 @@ impl Server {
 
 	fn try_read_checkout_pointer_sync(
 		&self,
-		checkout_pointer: &tangram_object_store::CheckoutPointer,
+		checkout_pointer: &tangram_store::object::checkout::Pointer,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<Bytes>> {
 		// Replace the file if necessary.

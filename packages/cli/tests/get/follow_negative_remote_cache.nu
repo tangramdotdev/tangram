@@ -20,7 +20,7 @@ let first = tg --url $local.url get "foo?follow=true" | complete
 failure $first
 
 let response = (
-	open ($local.directory | path join database)
+	open ($local.directory | path join database.sqlite3)
 	| query db `select response from remote_cache where request like '%"follow":true%'`
 	| get response
 	| first

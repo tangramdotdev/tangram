@@ -454,10 +454,9 @@ impl Session {
 				}),
 			)
 			.await
-			.inspect_err(|error| {
-				tracing::error!(%error, "failed to acknowledge the scheduler response");
-			})
-			.ok();
+			.map_err(|source| {
+				tg::error!(!source, "failed to acknowledge the scheduler response")
+			})?;
 		if let Some(error) = response.error {
 			let error = tg::Error::try_from(error)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;

@@ -118,29 +118,32 @@ impl tg::handle::Process for tg::Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> {
-		self.try_read_process_stdio(id, arg)
+		self.try_read_process_stdio(id, arg, input)
 	}
 
 	fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
+				+ Send
+				+ 'static,
 			>,
 		>,
 	> {
-		self.try_write_process_stdio(id, arg, stream)
+		self.try_write_process_stdio(id, arg, input)
 	}
 
 	fn try_touch_process(

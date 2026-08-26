@@ -11,7 +11,7 @@ use {
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -47,12 +47,12 @@ impl Session {
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
-		let store_config = match &self.server.object_store {
+		let store_config = match &self.server.store {
 			#[cfg(feature = "lmdb")]
-			crate::object::Store::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
-			crate::object::Store::Memory(_) => &self.server.config.sync.get.store.memory,
+			crate::store::Store::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
+			crate::store::Store::Memory(_) => &self.server.config.sync.get.store.memory,
 			#[cfg(feature = "scylla")]
-			crate::object::Store::Scylla(_) => &self.server.config.sync.get.store.scylla,
+			crate::store::Store::Scylla(_) => &self.server.config.sync.get.store.scylla,
 		};
 		let concurrency = store_config.object_concurrency;
 		let max_objects_per_batch = store_config.object_max_batch;
@@ -120,7 +120,7 @@ impl Session {
 				tg::object::Data::Blob(blob) => Some(blob.length()),
 				_ => None,
 			};
-			args.push(crate::object::store::PutArg {
+			args.push(crate::store::object::put::Arg {
 				bytes: Some(node.bytes.clone()),
 				checkout_pointer: None,
 				id: node.id.clone(),
@@ -132,8 +132,8 @@ impl Session {
 
 		// Store the objects.
 		self.server
-			.object_store
-			.put_batch(args)
+			.store
+			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 

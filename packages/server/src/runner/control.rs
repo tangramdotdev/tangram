@@ -124,6 +124,26 @@ impl Session {
 				)
 			})?;
 
+		let stream = stream
+			.try_filter_map({
+				let runner = id.clone();
+				let session = self.clone();
+				move |message| {
+					let runner = runner.clone();
+					let session = session.clone();
+					async move {
+						let tg::runner::control::ClientMessage::Response(response) = message else {
+							return Ok(Some(message));
+						};
+						session
+							.publish_runner_control_response(&runner, response)
+							.await?;
+
+						Ok(None)
+					}
+				}
+			})
+			.boxed();
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
 		let control =
 			crate::control::Stream::new(stream, sender.clone(), crate::control::stream_options());
@@ -254,13 +274,11 @@ impl Session {
 						})?;
 					}
 					let subject = match message.clone() {
-						tg::runner::control::ClientMessage::Response(response) => {
-							format!("runners.{runner}.control.client.{}", response.id)
-						},
+						tg::runner::control::ClientMessage::Ack(_)
+						| tg::runner::control::ClientMessage::Response(_) => unreachable!(),
 						tg::runner::control::ClientMessage::Notification(_) => {
 							format!("runners.{runner}.control.client")
 						},
-						tg::runner::control::ClientMessage::Ack(_) => unreachable!(),
 						tg::runner::control::ClientMessage::Request(request) => {
 							match request.arg {}
 						},
@@ -301,6 +319,22 @@ impl Session {
 			.boxed();
 
 		Ok((output, stream))
+	}
+
+	async fn publish_runner_control_response(
+		&self,
+		runner: &tg::runner::Id,
+		response: tg::runner::control::ClientResponse,
+	) -> tg::Result<()> {
+		let subject = format!("runners.{runner}.control.client.{}", response.id);
+		let payload = ClientMessage(tg::runner::control::ClientMessage::Response(response));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the runner client message"))?;
+
+		Ok(())
 	}
 
 	async fn get_runner_control_stream_region(

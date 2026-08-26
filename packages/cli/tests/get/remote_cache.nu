@@ -20,7 +20,7 @@ assert ($output.stderr | str contains "location=remote") "the resolved referent 
 assert ($output.stderr | str contains "tokens") "the resolved referent should include its tokens"
 
 let requests = (
-	open ($local.directory | path join database)
+	open ($local.directory | path join database.sqlite3)
 	| query db 'select request from remote_cache order by request'
 	| get request
 	| each { from json }

@@ -23,7 +23,7 @@ assert equal $output.id $sandbox
 assert equal $output.location remote
 
 let requests = (
-	open ($local.directory | path join database)
+	open ($local.directory | path join database.sqlite3)
 	| query db 'select request from remote_cache order by request'
 	| get request
 	| each { from json }

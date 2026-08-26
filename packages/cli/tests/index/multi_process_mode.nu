@@ -6,7 +6,7 @@ let server = server spawn --config {
 	advanced: { single_process: false },
 	database: {
 		kind: 'sqlite',
-		path: 'database',
+		path: 'database.sqlite3',
 	},
 	indexer: {
 		partition_end: 4,

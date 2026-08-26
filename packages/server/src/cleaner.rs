@@ -6,7 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 };
 
 const STRIPE_WEBHOOK_TIME_TO_LIVE: Duration = Duration::from_hours(35 * 24);
@@ -229,10 +229,10 @@ impl Server {
 			.objects
 			.iter()
 			.cloned()
-			.map(|id| crate::object::store::DeleteArg { id, now, ttl })
+			.map(|id| crate::store::object::delete::Arg { id, now, ttl })
 			.collect();
-		self.object_store
-			.delete_batch(args)
+		self.store
+			.delete_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 

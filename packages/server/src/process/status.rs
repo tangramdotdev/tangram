@@ -86,18 +86,6 @@ impl Session {
 		Ok(None)
 	}
 
-	pub(crate) async fn try_get_process_status_stream_local(
-		&self,
-		id: &tg::process::Id,
-		stopper: Option<Stopper>,
-		timeout: Option<Duration>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		Ok(Some(
-			self.create_process_status_stream_local(id, stopper, timeout)
-				.await?,
-		))
-	}
-
 	pub(crate) async fn create_process_status_stream_local(
 		&self,
 		id: &tg::process::Id,

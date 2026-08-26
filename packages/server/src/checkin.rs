@@ -56,7 +56,7 @@ type IndexObjectArgs =
 
 type IndexCheckoutArgs = Vec<tangram_index::checkout::put::Arg>;
 
-type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::BuildHasher>;
+type StoreArgs = IndexMap<tg::object::Id, crate::store::object::put::Arg, tg::id::BuildHasher>;
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 

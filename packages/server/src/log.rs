@@ -1,5 +1,4 @@
 use {
-	self::store::{DeleteArg, ReadArg},
 	crate::Session,
 	futures::{
 		StreamExt as _,
@@ -13,13 +12,9 @@ use {
 	tangram_client::{self as tg},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_index::prelude::*,
-	tangram_log_store::Store as _,
+	tangram_store::{Store as _, log},
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
-
-pub use self::store::Store;
-
-pub mod store;
 
 enum Inner {
 	Blob(BlobInner),
@@ -116,8 +111,8 @@ impl Session {
 
 		let entries = self
 			.server
-			.log_store
-			.try_read(ReadArg {
+			.store
+			.try_read_log(log::read::Arg {
 				process: process.clone(),
 				position: 0,
 				length: u64::MAX,
@@ -220,8 +215,8 @@ impl Session {
 			});
 
 		self.server
-			.log_store
-			.delete(DeleteArg {
+			.store
+			.delete_log(log::delete::Arg {
 				process: process.clone(),
 			})
 			.await
@@ -310,7 +305,7 @@ impl Session {
 		};
 
 		struct State {
-			entries: VecDeque<tangram_log_store::Entry<'static>>,
+			entries: VecDeque<log::read::Entry<'static>>,
 			inner: Inner,
 			log_length: Option<u64>,
 			position: u64,
@@ -411,11 +406,12 @@ impl Session {
 			}) else {
 				return Ok(None);
 			};
-			let position = entry_position(&entry, &state.streams);
 			let chunk = tg::process::stdio::Chunk {
 				bytes: entry.bytes.into_owned().into(),
-				position: Some(position),
+				combined_position: entry.position,
 				stream: entry.stream,
+				stream_position: entry.stream_position,
+				timestamp: Some(entry.timestamp),
 			};
 			Ok(Some((chunk, state)))
 		})
@@ -431,7 +427,7 @@ impl Inner {
 		position: u64,
 		length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_log_store::Entry<'static>>> {
+	) -> tg::Result<Vec<log::read::Entry<'static>>> {
 		match self {
 			Inner::Blob(inner) => inner.try_read(position, length, streams).await,
 			Inner::Store(inner) => inner.try_read(position, length, streams).await,
@@ -455,7 +451,7 @@ impl BlobInner {
 		position: u64,
 		mut length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_log_store::Entry<'static>>> {
+	) -> tg::Result<Vec<log::read::Entry<'static>>> {
 		self.entry = if streams.len() > 1 {
 			let index = self
 				.index
@@ -554,7 +550,7 @@ impl BlobInner {
 		Ok(Some(position + entry.bytes.len().to_u64().unwrap()))
 	}
 
-	async fn read_entry(&mut self) -> tg::Result<tangram_log_store::Entry<'static>> {
+	async fn read_entry(&mut self) -> tg::Result<log::read::Entry<'static>> {
 		let entry = self.index.entries[self.entry];
 		self.reader
 			.seek(SeekFrom::Start(entry.blob_position))
@@ -565,7 +561,7 @@ impl BlobInner {
 			.read_exact(&mut bytes)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the log entry"))?;
-		let entry: tangram_log_store::Entry<'_> = tangram_serialize::from_slice(&bytes)
+		let entry: log::read::Entry<'_> = tangram_serialize::from_slice(&bytes)
 			.map_err(|error| tg::error!(!error, "log blob is corrupted"))?;
 		Ok(entry.into_static())
 	}
@@ -577,8 +573,8 @@ impl StoreInner {
 		position: u64,
 		length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_log_store::Entry<'static>>> {
-		let arg = tangram_log_store::ReadArg {
+	) -> tg::Result<Vec<log::read::Entry<'static>>> {
+		let arg = log::read::Arg {
 			length,
 			position,
 			process: self.process.clone(),
@@ -586,8 +582,8 @@ impl StoreInner {
 		};
 		self.session
 			.server
-			.log_store
-			.try_read(arg)
+			.store
+			.try_read_log(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the log"))
 	}
@@ -596,17 +592,21 @@ impl StoreInner {
 		&self,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
+		let arg = log::length::Arg {
+			process: self.process.clone(),
+			streams: streams.clone(),
+		};
 		self.session
 			.server
-			.log_store
-			.try_get_length(&self.process, streams)
+			.store
+			.try_get_log_length(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the log"))
 	}
 }
 
 fn entry_position(
-	entry: &tangram_log_store::Entry<'_>,
+	entry: &log::read::Entry<'_>,
 	streams: &BTreeSet<tg::process::stdio::Stream>,
 ) -> u64 {
 	if streams.len() > 1 {

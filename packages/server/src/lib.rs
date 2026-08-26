@@ -76,6 +76,7 @@ mod sandbox;
 mod scheduler;
 mod session;
 mod specifier;
+mod store;
 mod sync;
 mod tag;
 mod temp;
@@ -127,11 +128,10 @@ pub struct State {
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
-	log_store: self::log::Store,
+	log_notifications: self::process::log::Notifications,
 	messenger: Messenger,
 	next_watch_id: AtomicU64,
 	object_get_tasks: self::object::get::Tasks,
-	object_store: self::object::Store,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_clients: DashMap<Uri, tg::Client, fnv::FnvBuildHasher>,
@@ -148,6 +148,7 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+	store: self::store::Store,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -669,12 +670,12 @@ impl Server {
 					let options = tangram_index::fdb::Options {
 						authorize,
 						cluster: options.cluster.clone(),
+						instance: options.instance.clone(),
 						max_process_depth: config
 							.roles
 							.contains(&self::config::Role::Indexer)
 							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
 						partition_total: options.partition_total,
-						prefix: options.prefix.clone(),
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_partition_total: options.usage_partition_total,
@@ -775,6 +776,7 @@ impl Server {
 				}
 			},
 		};
+		let log_notifications = self::process::log::Notifications::new(messenger.clone());
 
 		// Create the IP pool.
 		#[cfg(target_os = "linux")]
@@ -829,23 +831,9 @@ impl Server {
 			tangram_path: tangram_path.clone(),
 		})?;
 
-		// Create the log store.
-		let log_store = match &config.logs.store {
-			config::LogStore::Fdb(options) => {
-				#[cfg(not(feature = "foundationdb"))]
-				{
-					let _ = options;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with foundationdb support"
-					));
-				}
-				#[cfg(feature = "foundationdb")]
-				{
-					self::log::Store::new_fdb(options)
-						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
-				}
-			},
-			config::LogStore::Lmdb(lmdb) => {
+		// Create the store.
+		let store = match &config.store {
+			config::Store::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
 					let _ = lmdb;
@@ -855,12 +843,12 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
-					self::log::Store::new_lmdb(&path, lmdb)
-						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+					self::store::Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the store"))?
 				}
 			},
-			config::LogStore::Memory => self::log::Store::new_memory(),
-			config::LogStore::Scylla(scylla) => {
+			config::Store::Memory(_) => self::store::Store::new_memory(),
+			config::Store::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{
 					let _ = scylla;
@@ -870,45 +858,9 @@ impl Server {
 				}
 				#[cfg(feature = "scylla")]
 				{
-					self::log::Store::new_scylla(scylla)
+					self::store::Store::new_scylla(scylla)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
-				}
-			},
-		};
-
-		// Create the object store.
-		let object_store = match &config.object.store {
-			config::ObjectStore::Lmdb(lmdb) => {
-				#[cfg(not(feature = "lmdb"))]
-				{
-					let _ = lmdb;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with lmdb support"
-					));
-				}
-				#[cfg(feature = "lmdb")]
-				{
-					self::object::Store::new_lmdb(&path, lmdb)
-						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
-				}
-			},
-
-			config::ObjectStore::Memory(_) => self::object::Store::new_memory(),
-
-			config::ObjectStore::Scylla(scylla) => {
-				#[cfg(not(feature = "scylla"))]
-				{
-					let _ = scylla;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with scylla support"
-					));
-				}
-				#[cfg(feature = "scylla")]
-				{
-					self::object::Store::new_scylla(scylla)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
+						.map_err(|error| tg::error!(!error, "failed to create the store"))?
 				}
 			},
 		};
@@ -973,11 +925,10 @@ impl Server {
 			ip_pool,
 			library,
 			lock,
-			log_store,
+			log_notifications,
 			messenger,
 			next_watch_id,
 			object_get_tasks,
-			object_store,
 			path,
 			regions,
 			remote_clients,
@@ -994,6 +945,7 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
+			store,
 			tangram_path,
 			temps,
 			version,

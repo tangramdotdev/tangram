@@ -15,6 +15,7 @@ pub mod cancel;
 pub mod children;
 pub mod control;
 pub mod get;
+pub mod log;
 pub mod metadata;
 pub mod put;
 pub mod signal;

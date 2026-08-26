@@ -154,6 +154,27 @@ impl Session {
 				"a process on the shortcut path must have a parent"
 			));
 		}
+		let stream = stream
+			.try_filter_map({
+				let id = id.clone();
+				let session = session.clone();
+				move |message| {
+					let id = id.clone();
+					let session = session.clone();
+					async move {
+						let tg::process::control::ClientMessage::Response(response) = message
+						else {
+							return Ok(Some(message));
+						};
+						session
+							.publish_process_control_response(&id, response)
+							.await?;
+
+						Ok(None)
+					}
+				}
+			})
+			.boxed();
 		let (sender, receiver) = tokio::sync::mpsc::channel(512);
 		let mut control =
 			crate::control::Stream::new(stream, sender, crate::control::stream_options());
@@ -184,6 +205,8 @@ impl Session {
 			move |_| async move {
 				while let Some(message) = control.recv().await? {
 					match message {
+						tg::process::control::ClientMessage::Ack(_)
+						| tg::process::control::ClientMessage::Response(_) => unreachable!(),
 						tg::process::control::ClientMessage::Notification(
 							tg::process::control::ClientNotification::ChildSpawned,
 						) => {
@@ -230,62 +253,6 @@ impl Session {
 									)
 								})?;
 						},
-						tg::process::control::ClientMessage::Response(response) => {
-							let kind = match response.output.as_ref() {
-								Some(tg::process::control::ClientResponseOutput::AcquireLease(
-									_,
-								)) => "acquire_lease",
-								Some(tg::process::control::ClientResponseOutput::Finish(_)) => {
-									"finish"
-								},
-								Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
-								Some(tg::process::control::ClientResponseOutput::GetChildren(
-									_,
-								)) => "get_children",
-								Some(tg::process::control::ClientResponseOutput::Read(_)) => "read",
-								Some(tg::process::control::ClientResponseOutput::ReleaseLease(
-									_,
-								)) => "release_lease",
-								Some(tg::process::control::ClientResponseOutput::Signal(_)) => {
-									"signal"
-								},
-								Some(tg::process::control::ClientResponseOutput::Tty(_)) => "tty",
-								Some(tg::process::control::ClientResponseOutput::Write(_)) => {
-									"write"
-								},
-								None => "error",
-							};
-							let request = response.id.clone();
-							crate::checkpoint!(
-								session.server,
-								"process.control.response.publish",
-								kind = %kind,
-								process = %id,
-								request = request.clone(),
-							)
-							.await;
-							let subject = format!("processes.{id}.control.client.{}", response.id);
-							let payload = ClientMessage(
-								tg::process::control::ClientMessage::Response(response),
-							);
-							session
-								.server
-								.messenger
-								.publish(subject, payload)
-								.await
-								.inspect_err(|error| {
-									tracing::error!(%error, "failed to publish the response");
-								})
-								.ok();
-							crate::checkpoint!(
-								session.server,
-								"process.control.response.published",
-								kind = %kind,
-								process = %id,
-								request,
-							)
-							.await;
-						},
 						tg::process::control::ClientMessage::Request(request) => {
 							let request_id = request.id;
 							let result = match request.arg {
@@ -298,7 +265,6 @@ impl Session {
 								Self::process_control_server_response(request_id, result);
 							control_sender.send(response).await?;
 						},
-						tg::process::control::ClientMessage::Ack(_) => unreachable!(),
 					}
 				}
 				Ok::<_, tg::Error>(())
@@ -395,6 +361,53 @@ impl Session {
 		let output = tg::process::control::Output { grant, id, token };
 
 		Ok(Some((output, stream)))
+	}
+
+	async fn publish_process_control_response(
+		&self,
+		id: &tg::process::Id,
+		response: tg::process::control::ClientResponse,
+	) -> tg::Result<()> {
+		let kind = match response.output.as_ref() {
+			Some(tg::process::control::ClientResponseOutput::AcquireLease(_)) => "acquire_lease",
+			Some(tg::process::control::ClientResponseOutput::Finish(_)) => "finish",
+			Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
+			Some(tg::process::control::ClientResponseOutput::GetChildren(_)) => "get_children",
+			Some(tg::process::control::ClientResponseOutput::Read(_)) => "read",
+			Some(tg::process::control::ClientResponseOutput::ReleaseLease(_)) => "release_lease",
+			Some(tg::process::control::ClientResponseOutput::Signal(_)) => "signal",
+			Some(tg::process::control::ClientResponseOutput::Tty(_)) => "tty",
+			Some(tg::process::control::ClientResponseOutput::Write(_)) => "write",
+			None => "error",
+		};
+		let request = response.id.clone();
+		crate::checkpoint!(
+			self.server,
+			"process.control.response.publish",
+			kind = %kind,
+			process = %id,
+			request = request.clone(),
+		)
+		.await;
+		let subject = format!("processes.{id}.control.client.{}", response.id);
+		let payload = ClientMessage(tg::process::control::ClientMessage::Response(response));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to publish the process control response")
+			})?;
+		crate::checkpoint!(
+			self.server,
+			"process.control.response.published",
+			kind = %kind,
+			process = %id,
+			request,
+		)
+		.await;
+
+		Ok(())
 	}
 
 	fn process_control_server_response(

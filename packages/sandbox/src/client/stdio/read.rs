@@ -12,8 +12,7 @@ impl Client {
 		&self,
 		index: u64,
 		arg: Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
-	{
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static> {
 		let method = http::Method::GET;
 		let path = format!("/processes/{index}/stdio");
 		let uri = Uri::builder()

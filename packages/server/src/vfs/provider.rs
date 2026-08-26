@@ -19,7 +19,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tangram_vfs as vfs,
 };
 
@@ -276,14 +276,14 @@ impl Provider {
 		let mut requests = requests.into_iter();
 		let mut responses = Vec::with_capacity(requests.len());
 		while let Some(request) = requests.next() {
-			// Defer a named node request before opening an object store transaction.
+			// Defer a named node request before opening a store transaction.
 			if let Some(response) = self.try_defer_named_request_sync(&request) {
 				responses.push(response);
 				continue;
 			}
 
 			#[cfg(feature = "lmdb")]
-			let transaction = if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+			let transaction = if let crate::store::Store::Lmdb(store) = &self.server.store {
 				if transaction.is_none() {
 					transaction = match store.env().read_txn() {
 						Ok(transaction) => Some(transaction),
@@ -1680,7 +1680,7 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+		if let crate::store::Store::Lmdb(store) = &self.server.store {
 			let transaction = store.env().read_txn().map_err(|error| {
 				tracing::error!(?error, "failed to begin an lmdb read transaction");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -1982,7 +1982,7 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
+		if let crate::store::Store::Lmdb(store) = &self.server.store {
 			let transaction = store.env().read_txn().map_err(|error| {
 				tracing::error!(?error, "failed to begin an lmdb read transaction");
 				std::io::Error::from_raw_os_error(libc::EIO)
@@ -2610,11 +2610,11 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
+		let arg = crate::store::object::get::Arg { id: id.clone() };
 		let object = self
 			.server
-			.object_store
-			.try_get(arg)
+			.store
+			.try_get_object(arg)
 			.await
 			.map_err(|error| {
 				tracing::error!(error = %error.trace(), %id, "failed to get the object");
@@ -3130,14 +3130,14 @@ impl Provider {
 		&self,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<tangram_object_store::Object<'static>>> {
+	) -> std::io::Result<Option<tangram_store::object::Object<'static>>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.object_store, transaction)
+		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.store, transaction)
 		{
-			let arg = crate::object::store::TryGetArg { id: id.clone() };
+			let arg = crate::store::object::get::Arg { id: id.clone() };
 			return store
-				.try_get_with_transaction(transaction, &arg)
+				.try_get_object_with_transaction(transaction, &arg)
 				.map(|output| output.object)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
@@ -3145,10 +3145,10 @@ impl Provider {
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
-		let arg = crate::object::store::TryGetArg { id: id.clone() };
+		let arg = crate::store::object::get::Arg { id: id.clone() };
 		self.server
-			.object_store
-			.try_get_sync(&arg)
+			.store
+			.try_get_object_sync(&arg)
 			.map(|output| output.object)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
@@ -3159,11 +3159,11 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.object_store, transaction)
+		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.store, transaction)
 		{
 			return store
-				.try_get_data_with_transaction(transaction, id)
+				.try_get_object_data_with_transaction(transaction, id)
 				.map_err(|error| Self::map_store_sync_error(&error));
 		}
 
@@ -3171,8 +3171,8 @@ impl Provider {
 		let _ = transaction;
 
 		self.server
-			.object_store
-			.try_get_data_sync(id)
+			.store
+			.try_get_object_data_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 

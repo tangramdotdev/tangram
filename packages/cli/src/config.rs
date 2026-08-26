@@ -61,9 +61,6 @@ pub struct Config {
 	pub instance: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub logs: Option<Logs>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub messenger: Option<Messenger>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -102,6 +99,9 @@ pub struct Config {
 	/// Configure shell behavior.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shell: Option<Shell>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<Store>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<SyncOptions>,
@@ -629,10 +629,10 @@ pub struct FdbIndex {
 	pub cluster: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_total: Option<u64>,
+	pub instance: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub prefix: Option<String>,
+	pub partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
@@ -778,68 +778,6 @@ pub struct IndexerUpdate {
 	pub concurrency: Option<usize>,
 }
 
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Logs {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub store: Option<LogStore>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum LogStore {
-	Fdb(FdbLogStore),
-
-	Lmdb(LmdbLogStore),
-
-	Memory,
-
-	Scylla(ScyllaLogStore),
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FdbLogStore {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cluster: Option<PathBuf>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub prefix: Option<String>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LmdbLogStore {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub map_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub path: Option<PathBuf>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScyllaLogStore {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub addr: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub keyspace: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub password: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub username: Option<String>,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Messenger {
@@ -880,9 +818,6 @@ pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub outbox: Option<ObjectOutbox>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub store: Option<ObjectStore>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_index: Option<Duration>,
@@ -912,18 +847,18 @@ pub struct ObjectOutbox {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum ObjectStore {
-	Lmdb(LmdbObjectStore),
+pub enum Store {
+	Lmdb(LmdbStore),
 
-	Memory(MemoryObjectStore),
+	Memory(MemoryStore),
 
-	Scylla(ScyllaObjectStore),
+	Scylla(ScyllaStore),
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LmdbObjectStore {
+pub struct LmdbStore {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub map_size: Option<usize>,
 
@@ -946,12 +881,12 @@ pub struct LmdbObjectStore {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MemoryObjectStore {}
+pub struct MemoryStore {}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaObjectStore {
+pub struct ScyllaStore {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub addr: Option<String>,
 
@@ -965,7 +900,7 @@ pub struct ScyllaObjectStore {
 	pub password: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
+	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
@@ -973,16 +908,16 @@ pub struct ScyllaObjectStore {
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum ScyllaObjectStoreSpeculativeExecution {
-	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
+pub enum ScyllaStoreSpeculativeExecution {
+	Percentile(ScyllaStorePercentileSpeculativeExecution),
 
-	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
+	Simple(ScyllaStoreSimpleSpeculativeExecution),
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaObjectStorePercentileSpeculativeExecution {
+pub struct ScyllaStorePercentileSpeculativeExecution {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_retry_count: Option<usize>,
 
@@ -993,7 +928,7 @@ pub struct ScyllaObjectStorePercentileSpeculativeExecution {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
+pub struct ScyllaStoreSimpleSpeculativeExecution {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_retry_count: Option<usize>,
 
@@ -1970,8 +1905,7 @@ impl Default for Tracing {
 				"tangram_js=info",
 				"tangram_messenger=info",
 				"tangram_server=info",
-				"tangram_log_store=info",
-				"tangram_object_store=info",
+				"tangram_store=info",
 				"tangram_vfs=info",
 			]
 			.join(","),
@@ -2047,14 +1981,11 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(instance) = source.instance {
 		target.instance = Some(instance);
 	}
-	if let Some(source) = source.logs {
-		target.logs = resolve_logs(source)?;
-	}
 	if let Some(source) = source.messenger {
 		target.messenger = resolve_messenger(source)?;
 	}
 	if let Some(source) = source.object {
-		target.object = resolve_object(source)?;
+		target.object = resolve_object(&source);
 	}
 	if let Some(primary_region) = source.primary_region {
 		target.primary_region = Some(primary_region);
@@ -2095,6 +2026,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(source) = source.scheduler {
 		target.scheduler = resolve_scheduler(source);
+	}
+	if let Some(source) = source.store {
+		target.store = resolve_store(source)?;
 	}
 	if let Some(source) = source.sync {
 		target.sync = resolve_sync(&source);
@@ -2548,6 +2482,9 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.cluster {
 		target.cluster = value;
 	}
+	if let Some(value) = source.instance {
+		target.instance = Some(value);
+	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
 	}
@@ -2565,9 +2502,6 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	}
 	if let Some(value) = source.write_transaction_concurrency {
 		target.write_transaction_concurrency = value;
-	}
-	if let Some(value) = source.prefix {
-		target.prefix = Some(value);
 	}
 	target
 }
@@ -2777,62 +2711,6 @@ fn resolve_indexer_update(source: IndexerUpdate) -> server::IndexerUpdate {
 	target
 }
 
-fn resolve_logs(source: Logs) -> tg::Result<server::Logs> {
-	let mut target = server::Logs::default();
-	if let Some(source) = source.store {
-		target.store = resolve_log_store(source)?;
-	}
-
-	Ok(target)
-}
-
-fn resolve_log_store(source: LogStore) -> tg::Result<server::LogStore> {
-	let store = match source {
-		LogStore::Fdb(source) => server::LogStore::Fdb(resolve_fdb_log_store(source)),
-		LogStore::Lmdb(source) => server::LogStore::Lmdb(resolve_lmdb_log_store(source)),
-		LogStore::Memory => server::LogStore::Memory,
-		LogStore::Scylla(source) => server::LogStore::Scylla(resolve_scylla_log_store(source)?),
-	};
-
-	Ok(store)
-}
-
-fn resolve_fdb_log_store(source: FdbLogStore) -> server::FdbLogStore {
-	let mut target = server::FdbLogStore::default();
-	if let Some(value) = source.cluster {
-		target.cluster = value;
-	}
-	if let Some(value) = source.prefix {
-		target.prefix = Some(value);
-	}
-	target
-}
-
-fn resolve_lmdb_log_store(source: LmdbLogStore) -> server::LmdbLogStore {
-	let mut target = server::LmdbLogStore::default();
-	if let Some(value) = source.map_size {
-		target.map_size = value;
-	}
-	if let Some(value) = source.path {
-		target.path = value;
-	}
-	target
-}
-
-fn resolve_scylla_log_store(source: ScyllaLogStore) -> tg::Result<server::ScyllaLogStore> {
-	let addr = required(source.addr, "logs.store.addr")?;
-	let keyspace = required(source.keyspace, "logs.store.keyspace")?;
-	let target = server::ScyllaLogStore {
-		addr,
-		connections: source.connections,
-		keyspace,
-		password: source.password,
-		username: source.username,
-	};
-
-	Ok(target)
-}
-
 fn resolve_messenger(source: Messenger) -> tg::Result<server::Messenger> {
 	let messenger = match source {
 		Messenger::Memory => server::Messenger::Memory,
@@ -2861,13 +2739,10 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 	Ok(target)
 }
 
-fn resolve_object(source: Object) -> tg::Result<server::Object> {
+fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
 	if let Some(source) = source.outbox {
 		target.outbox = resolve_object_outbox(source);
-	}
-	if let Some(source) = source.store {
-		target.store = resolve_object_store(source)?;
 	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
@@ -2885,7 +2760,7 @@ fn resolve_object(source: Object) -> tg::Result<server::Object> {
 		target.time_to_touch = value;
 	}
 
-	Ok(target)
+	target
 }
 
 fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
@@ -2902,20 +2777,18 @@ fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
 	target
 }
 
-fn resolve_object_store(source: ObjectStore) -> tg::Result<server::ObjectStore> {
+fn resolve_store(source: Store) -> tg::Result<server::Store> {
 	let target = match source {
-		ObjectStore::Lmdb(source) => server::ObjectStore::Lmdb(resolve_lmdb_object_store(source)),
-		ObjectStore::Memory(_) => server::ObjectStore::Memory(server::MemoryObjectStore {}),
-		ObjectStore::Scylla(source) => {
-			server::ObjectStore::Scylla(resolve_scylla_object_store(source)?)
-		},
+		Store::Lmdb(source) => server::Store::Lmdb(resolve_lmdb_store(source)),
+		Store::Memory(_) => server::Store::Memory(server::MemoryStore {}),
+		Store::Scylla(source) => server::Store::Scylla(resolve_scylla_store(source)?),
 	};
 
 	Ok(target)
 }
 
-fn resolve_lmdb_object_store(source: LmdbObjectStore) -> server::LmdbObjectStore {
-	let mut target = server::LmdbObjectStore::default();
+fn resolve_lmdb_store(source: LmdbStore) -> server::LmdbStore {
+	let mut target = server::LmdbStore::default();
 	if let Some(value) = source.map_size {
 		target.map_size = value;
 	}
@@ -2937,14 +2810,14 @@ fn resolve_lmdb_object_store(source: LmdbObjectStore) -> server::LmdbObjectStore
 	target
 }
 
-fn resolve_scylla_object_store(source: ScyllaObjectStore) -> tg::Result<server::ScyllaObjectStore> {
-	let addr = required(source.addr, "object.store.addr")?;
-	let keyspace = required(source.keyspace, "object.store.keyspace")?;
+fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> {
+	let addr = required(source.addr, "store.addr")?;
+	let keyspace = required(source.keyspace, "store.keyspace")?;
 	let speculative_execution = source
 		.speculative_execution
-		.map(resolve_scylla_object_store_speculative_execution)
+		.map(resolve_scylla_store_speculative_execution)
 		.transpose()?;
-	let target = server::ScyllaObjectStore {
+	let target = server::ScyllaStore {
 		addr,
 		connections: source.connections,
 		keyspace,
@@ -2956,35 +2829,32 @@ fn resolve_scylla_object_store(source: ScyllaObjectStore) -> tg::Result<server::
 	Ok(target)
 }
 
-fn resolve_scylla_object_store_speculative_execution(
-	source: ScyllaObjectStoreSpeculativeExecution,
-) -> tg::Result<server::ScyllaObjectStoreSpeculativeExecution> {
+fn resolve_scylla_store_speculative_execution(
+	source: ScyllaStoreSpeculativeExecution,
+) -> tg::Result<server::ScyllaStoreSpeculativeExecution> {
 	let target = match source {
-		ScyllaObjectStoreSpeculativeExecution::Percentile(source) => {
-			let source = resolve_scylla_object_store_percentile_speculative_execution(source)?;
-			server::ScyllaObjectStoreSpeculativeExecution::Percentile(source)
+		ScyllaStoreSpeculativeExecution::Percentile(source) => {
+			let source = resolve_scylla_store_percentile_speculative_execution(source)?;
+			server::ScyllaStoreSpeculativeExecution::Percentile(source)
 		},
-		ScyllaObjectStoreSpeculativeExecution::Simple(source) => {
-			let source = resolve_scylla_object_store_simple_speculative_execution(source)?;
-			server::ScyllaObjectStoreSpeculativeExecution::Simple(source)
+		ScyllaStoreSpeculativeExecution::Simple(source) => {
+			let source = resolve_scylla_store_simple_speculative_execution(source)?;
+			server::ScyllaStoreSpeculativeExecution::Simple(source)
 		},
 	};
 
 	Ok(target)
 }
 
-fn resolve_scylla_object_store_percentile_speculative_execution(
-	source: ScyllaObjectStorePercentileSpeculativeExecution,
-) -> tg::Result<server::ScyllaObjectStorePercentileSpeculativeExecution> {
+fn resolve_scylla_store_percentile_speculative_execution(
+	source: ScyllaStorePercentileSpeculativeExecution,
+) -> tg::Result<server::ScyllaStorePercentileSpeculativeExecution> {
 	let max_retry_count = required(
 		source.max_retry_count,
-		"object.store.speculative_execution.max_retry_count",
+		"store.speculative_execution.max_retry_count",
 	)?;
-	let percentile = required(
-		source.percentile,
-		"object.store.speculative_execution.percentile",
-	)?;
-	let target = server::ScyllaObjectStorePercentileSpeculativeExecution {
+	let percentile = required(source.percentile, "store.speculative_execution.percentile")?;
+	let target = server::ScyllaStorePercentileSpeculativeExecution {
 		max_retry_count,
 		percentile,
 	};
@@ -2992,18 +2862,18 @@ fn resolve_scylla_object_store_percentile_speculative_execution(
 	Ok(target)
 }
 
-fn resolve_scylla_object_store_simple_speculative_execution(
-	source: ScyllaObjectStoreSimpleSpeculativeExecution,
-) -> tg::Result<server::ScyllaObjectStoreSimpleSpeculativeExecution> {
+fn resolve_scylla_store_simple_speculative_execution(
+	source: ScyllaStoreSimpleSpeculativeExecution,
+) -> tg::Result<server::ScyllaStoreSimpleSpeculativeExecution> {
 	let max_retry_count = required(
 		source.max_retry_count,
-		"object.store.speculative_execution.max_retry_count",
+		"store.speculative_execution.max_retry_count",
 	)?;
 	let retry_interval = required(
 		source.retry_interval,
-		"object.store.speculative_execution.retry_interval",
+		"store.speculative_execution.retry_interval",
 	)?;
-	let target = server::ScyllaObjectStoreSimpleSpeculativeExecution {
+	let target = server::ScyllaStoreSimpleSpeculativeExecution {
 		max_retry_count,
 		retry_interval,
 	};
