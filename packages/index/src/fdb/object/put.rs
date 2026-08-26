@@ -71,15 +71,9 @@ impl Index {
 		}
 		.serialize()?;
 
-		if existing.is_none() {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
-		}
 		txn.set(&key, &value);
 
 		for child in arg.children.iter().filter(|_| changed) {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectChild {
 				object: id.clone(),
 				child: child.clone(),
@@ -87,8 +81,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
@@ -98,8 +90,6 @@ impl Index {
 		}
 
 		if changed && let Some(checkout) = &arg.checkout {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectCheckout {
 				object: id.clone(),
 				checkout: checkout.clone(),
@@ -107,8 +97,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::CheckoutObject {
 				checkout: checkout.clone(),
 				object: id.clone(),

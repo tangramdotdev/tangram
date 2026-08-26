@@ -302,8 +302,6 @@ impl Index {
 					.map(|object| (object, crate::process::object::Kind::Output)),
 			);
 		for (object, kind) in objects {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Process(crate::fdb::process::Key::ProcessObject {
 				process: id.clone(),
 				kind,
@@ -312,8 +310,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Object(crate::fdb::object::Key::ObjectProcess {
 				object: object.clone(),
 				kind,

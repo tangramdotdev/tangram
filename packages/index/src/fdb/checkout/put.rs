@@ -21,13 +21,9 @@ impl Index {
 			touched_at: arg.touched_at,
 		}
 		.serialize()?;
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
 		txn.set(&key, &value);
 
 		for dependency in &arg.dependencies {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Checkout(crate::fdb::checkout::Key::CheckoutDependency {
 				checkout: id.clone(),
 				dependency: dependency.clone(),
@@ -35,8 +31,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
 			let key = Key::Checkout(crate::fdb::checkout::Key::DependencyCheckout {
 				checkout: id.clone(),
 				dependency: dependency.clone(),
