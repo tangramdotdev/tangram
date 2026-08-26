@@ -256,7 +256,6 @@ impl Session {
 					let data = indexed.data.unwrap();
 					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
 				} else {
-					// Give the runner a short opportunity to provide fresher data before falling back to the index.
 					let Ok(Ok(data)) =
 						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
 							.await
