@@ -701,8 +701,6 @@ impl Cli {
 								"js".into(),
 								"--export".into(),
 								export.into(),
-								"--host".into(),
-								host.clone().into(),
 								tg::command::Value::Value(module.into()),
 							];
 							for arg in std::mem::take(&mut args_) {
@@ -760,8 +758,6 @@ impl Cli {
 									"js".into(),
 									"--export".into(),
 									export.into(),
-									"--host".into(),
-									host.clone().into(),
 									tg::command::Value::Value(module.into()),
 								];
 								for arg in std::mem::take(&mut args_) {

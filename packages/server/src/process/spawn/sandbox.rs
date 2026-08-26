@@ -24,7 +24,7 @@ impl Session {
 					.connected_event
 					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
 				process.data.sandbox = ready_event.sandbox;
-				Self::spawn_process_apply_connected(process, connected_event)?;
+				Self::spawn_process_apply_connected(process, connected_event);
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
@@ -70,7 +70,7 @@ impl Session {
 			},
 			Some(tg::Either::Right(_)) => {
 				let connected_event = self.spawn_process_in_existing_sandbox(process).await?;
-				Self::spawn_process_apply_connected(process, connected_event)?;
+				Self::spawn_process_apply_connected(process, connected_event);
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		}
@@ -131,13 +131,12 @@ impl Session {
 	fn spawn_process_apply_connected(
 		output: &mut Output,
 		connected_event: crate::runner::process::ConnectedEvent,
-	) -> tg::Result<()> {
+	) {
 		output.id = connected_event.process;
 		output.lease = Some(connected_event.lease);
 		if let Some(grant) = connected_event.grant {
 			output.token = Some(grant);
 		}
-		Ok(())
 	}
 
 	fn spawn_process_runner_arg(output: &Output) -> tg::runner::control::Process {

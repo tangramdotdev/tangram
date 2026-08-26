@@ -29,9 +29,9 @@ pub async fn checksum(
 	Result(Ok(Serde(checksum)))
 }
 
-pub fn current(ctx: qjs::Ctx<'_>) -> Result<Option<String>> {
-	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(Ok(state.arg.host.clone()))
+pub fn current(_ctx: qjs::Ctx<'_>) -> Result<String> {
+	let host = tg::host::current().to_owned();
+	Result(Ok(host))
 }
 
 pub async fn disable_raw_mode(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {

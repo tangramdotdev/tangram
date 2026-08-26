@@ -27,15 +27,11 @@ pub async fn checksum(
 }
 
 pub fn current(
-	state: Rc<State>,
+	_state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,
 	_args: (Option<String>,),
 ) -> tg::Result<String> {
-	let host = state
-		.arg
-		.host
-		.clone()
-		.unwrap_or_else(|| tg::host::current().to_owned());
+	let host = tg::host::current().to_owned();
 	Ok(host)
 }
 

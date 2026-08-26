@@ -16,7 +16,6 @@ pub struct Arg {
 	pub env: tg::value::data::Map,
 	pub export: Option<String>,
 	pub handle: tg::handle::dynamic::Handle,
-	pub host: Option<String>,
 	pub http: tg::Http,
 	pub inspect: Option<self::inspect::Options>,
 	pub main_runtime_handle: tokio::runtime::Handle,

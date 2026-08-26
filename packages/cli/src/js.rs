@@ -33,9 +33,6 @@ pub struct Args {
 	#[arg(long)]
 	pub export: Option<String>,
 
-	#[arg(long)]
-	pub host: Option<String>,
-
 	#[arg(index = 1, value_parser = tg::value::parse)]
 	pub module: tg::Value,
 
@@ -119,7 +116,6 @@ impl Cli {
 			env,
 			export: args.export,
 			handle,
-			host: args.host,
 			http,
 			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
 				addr: debug.addr,

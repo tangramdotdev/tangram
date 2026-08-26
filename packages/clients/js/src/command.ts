@@ -178,8 +178,6 @@ export class Command<
 						tg.Command.Value.string("--export"),
 						tg.Command.Value.string(target.export),
 					]),
-			tg.Command.Value.string("--host"),
-			tg.Command.Value.string(tg.host.current),
 			tg.Command.Value.value(module),
 		];
 		for (let arg of args_) {
