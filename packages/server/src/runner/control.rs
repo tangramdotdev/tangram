@@ -245,7 +245,6 @@ impl Session {
 
 		let control_task = Task::spawn({
 			let forwarded_requests = forwarded_requests.clone();
-			let server = self.server.clone();
 			let session = self.clone();
 			let runner = id.clone();
 			let scheduler = scheduler.clone();
@@ -259,42 +258,18 @@ impl Session {
 								session.publish_runner_control_ack(&runner, ack).await?;
 							}
 						},
-						tg::runner::control::ClientMessage::Notification(notification) => {
-							let acknowledgement = match &notification {
-								tg::runner::control::ClientNotification::Heartbeat(heartbeat) => {
-									let notification = crate::scheduler::HeartbeatNotification {
-										capacity: heartbeat.capacity,
-										connection_index,
-										heartbeat_index: heartbeat.index,
-										runner: runner.clone(),
-									};
-									heartbeat_sender.send(notification).await.map_err(|_| {
-										tg::error!(
-											"failed to track the runner heartbeat acknowledgement"
-										)
-									})?;
-									None
-								},
-								tg::runner::control::ClientNotification::SandboxDestroyed(
-									notification,
-								) => Some(notification.id.clone()),
+						tg::runner::control::ClientMessage::Notification(
+							tg::runner::control::ClientNotification::Heartbeat(heartbeat),
+						) => {
+							let notification = crate::scheduler::HeartbeatNotification {
+								capacity: heartbeat.capacity,
+								connection_index,
+								heartbeat_index: heartbeat.index,
+								runner: runner.clone(),
 							};
-							let subject = format!("runners.{runner}.control.client");
-							let message =
-								tg::runner::control::ClientMessage::Notification(notification);
-							server
-								.messenger
-								.publish(subject, ClientMessage(message))
-								.await
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to publish the runner client message"
-									)
-								})?;
-							if let Some(id) = acknowledgement {
-								control.acknowledge(id).await?;
-							}
+							heartbeat_sender.send(notification).await.map_err(|_| {
+								tg::error!("failed to track the runner heartbeat acknowledgement")
+							})?;
 						},
 						tg::runner::control::ClientMessage::Request(request) => {
 							match request.arg {}
@@ -629,13 +604,7 @@ impl tangram_messenger::Payload for ServerMessage {
 impl crate::control::Output for tg::runner::control::ClientMessage {
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Request(_) => None,
-			Self::Notification(notification) => match notification {
-				tg::runner::control::ClientNotification::Heartbeat(_) => None,
-				tg::runner::control::ClientNotification::SandboxDestroyed(notification) => {
-					Some(&notification.id)
-				},
-			},
+			Self::Ack(_) | Self::Notification(_) | Self::Request(_) => None,
 			Self::Response(response) => Some(&response.id),
 		}
 	}
@@ -650,14 +619,7 @@ impl crate::control::Input<tg::runner::control::ServerMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Notification(notification) => crate::control::InputKind::Message {
-				id: match notification {
-					tg::runner::control::ClientNotification::Heartbeat(_) => None,
-					tg::runner::control::ClientNotification::SandboxDestroyed(notification) => {
-						Some(&notification.id)
-					},
-				},
-			},
+			Self::Notification(_) => crate::control::InputKind::Message { id: None },
 			Self::Response(response) => crate::control::InputKind::Message {
 				id: Some(&response.id),
 			},

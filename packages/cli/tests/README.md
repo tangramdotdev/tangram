@@ -43,8 +43,8 @@ the declared regions. Topology belongs to the instance and the `--region`
 argument, not per-server configuration.
 
 Cloud-backed servers in the same instance share PostgreSQL and NATS. Servers in
-the same region also share their FoundationDB index and log prefixes and their
-ScyllaDB object store; different regions receive isolated storage.
+the same region also share their FoundationDB index instance and ScyllaDB store;
+different regions receive isolated storage.
 
 For tests that do not need an explicit topology, `server spawn` creates a local
 instance automatically, while `server spawn --cloud` creates a cloud-backed

@@ -47,7 +47,7 @@ impl Statements {
 				"failed to prepare the log get at or before statement"
 			)
 		})?;
-		get_at_or_before.set_consistency(scylla::statement::Consistency::One);
+		get_at_or_before.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		get_at_or_before.set_is_idempotent(true);
 
 		let statement = indoc!(
@@ -63,7 +63,7 @@ impl Statements {
 				"failed to prepare the log get by positions statement"
 			)
 		})?;
-		get_by_positions.set_consistency(scylla::statement::Consistency::One);
+		get_by_positions.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		get_by_positions.set_is_idempotent(true);
 
 		let statement = indoc!(
@@ -79,7 +79,7 @@ impl Statements {
 			.prepare(statement)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the log get last statement"))?;
-		get_last.set_consistency(scylla::statement::Consistency::One);
+		get_last.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		get_last.set_is_idempotent(true);
 
 		let statement = indoc!(
@@ -93,7 +93,7 @@ impl Statements {
 			.prepare(statement)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the log get after statement"))?;
-		get_after.set_consistency(scylla::statement::Consistency::One);
+		get_after.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		get_after.set_is_idempotent(true);
 		get_after.set_page_size(128);
 

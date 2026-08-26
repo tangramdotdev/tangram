@@ -44,15 +44,14 @@ pub trait Ext: AsyncRead {
 			let mut shift = 0;
 			loop {
 				let mut byte: u8 = 0;
-				let read = match self.read_exact(std::slice::from_mut(&mut byte)).await {
-					Ok(read) => read,
-					Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => 0,
-					Err(error) => {
-						return Err(error);
+				match self.read_exact(std::slice::from_mut(&mut byte)).await {
+					Ok(_) => (),
+					Err(error)
+						if error.kind() == std::io::ErrorKind::UnexpectedEof && shift == 0 =>
+					{
+						return Ok(None);
 					},
-				};
-				if read == 0 && shift == 0 {
-					return Ok(None);
+					Err(error) => return Err(error),
 				}
 				result |= u64::from(byte & 0x7F) << shift;
 				if byte & 0x80 == 0 {

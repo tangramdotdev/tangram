@@ -7,6 +7,8 @@ mod log;
 mod outbox;
 mod put;
 
+const OBJECT_CONCURRENCY: usize = 64;
+
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub addr: String,
@@ -40,7 +42,6 @@ struct Statements {
 	dequeue_outbox_fragments: scylla::statement::prepared::PreparedStatement,
 	enqueue_outbox_fragment: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
-	get_object_batch: scylla::statement::prepared::PreparedStatement,
 	log: log::Statements,
 	put_object: scylla::statement::prepared::PreparedStatement,
 	try_get_outbox_batch: scylla::statement::prepared::PreparedStatement,
@@ -54,41 +55,40 @@ impl Store {
 		if let (Some(username), Some(password)) = (&config.username, &config.password) {
 			builder = builder.user(username, password);
 		}
-		let object_execution_profile =
-			if let Some(speculative_execution) = &config.speculative_execution {
-				let policy: std::sync::Arc<
-					dyn scylla::policies::speculative_execution::SpeculativeExecutionPolicy,
-				> = match speculative_execution {
-					SpeculativeExecution::Percentile {
-						max_retry_count,
-						percentile,
-					} => {
-						let entry = scylla::policies::speculative_execution::PercentileSpeculativeExecutionPolicy {
+		let execution_profile = if let Some(speculative_execution) = &config.speculative_execution {
+			let policy: std::sync::Arc<
+				dyn scylla::policies::speculative_execution::SpeculativeExecutionPolicy,
+			> = match speculative_execution {
+				SpeculativeExecution::Percentile {
+					max_retry_count,
+					percentile,
+				} => {
+					let entry = scylla::policies::speculative_execution::PercentileSpeculativeExecutionPolicy {
 						max_retry_count: *max_retry_count,
 						percentile: *percentile,
 					};
-						std::sync::Arc::new(entry)
-					},
-					SpeculativeExecution::Simple {
-						max_retry_count,
-						retry_interval,
-					} => {
-						let entry =
+					std::sync::Arc::new(entry)
+				},
+				SpeculativeExecution::Simple {
+					max_retry_count,
+					retry_interval,
+				} => {
+					let entry =
 						scylla::policies::speculative_execution::SimpleSpeculativeExecutionPolicy {
 							max_retry_count: *max_retry_count,
 							retry_interval: *retry_interval,
 						};
-						std::sync::Arc::new(entry)
-					},
-				};
-				let handle = scylla::client::execution_profile::ExecutionProfile::builder()
-					.speculative_execution_policy(Some(policy))
-					.build()
-					.into_handle();
-				Some(handle)
-			} else {
-				None
+					std::sync::Arc::new(entry)
+				},
 			};
+			let handle = scylla::client::execution_profile::ExecutionProfile::builder()
+				.speculative_execution_policy(Some(policy))
+				.build()
+				.into_handle();
+			Some(handle)
+		} else {
+			None
+		};
 		if let Some(connections) = config.connections.and_then(std::num::NonZeroUsize::new) {
 			builder = builder.pool_size(scylla::client::PoolSize::PerHost(connections));
 		}
@@ -102,7 +102,8 @@ impl Store {
 		let statement = indoc!(
 			"
 				delete from objects
-				where id = ? if stored_at < ?;
+				using timestamp ?
+				where id = ?;
 			"
 		);
 		let mut delete_object = session
@@ -110,19 +111,7 @@ impl Store {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the delete statement"))?;
 		delete_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
-
-		let statement = indoc!(
-			"
-				select id, bytes
-				from objects
-				where id in ?;
-			"
-		);
-		let mut get_object_batch = session
-			.prepare(statement)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to prepare the get batch statement"))?;
-		get_object_batch.set_consistency(scylla::statement::Consistency::One);
+		delete_object.set_is_idempotent(true);
 
 		let statement = indoc!(
 			"
@@ -136,11 +125,13 @@ impl Store {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the get statement"))?;
 		get_object.set_consistency(scylla::statement::Consistency::One);
+		get_object.set_is_idempotent(true);
 
 		let statement = indoc!(
 			"
 				insert into objects (bytes, id, stored_at)
-				values (?, ?, ?);
+				values (?, ?, ?)
+				using timestamp ?;
 			"
 		);
 		let mut put_object = session
@@ -148,6 +139,7 @@ impl Store {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_object.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
@@ -162,6 +154,7 @@ impl Store {
 			)
 		})?;
 		delete_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_outbox_fragment.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
@@ -178,6 +171,7 @@ impl Store {
 			)
 		})?;
 		dequeue_outbox_fragments.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		dequeue_outbox_fragments.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
@@ -192,6 +186,7 @@ impl Store {
 			)
 		})?;
 		enqueue_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		enqueue_outbox_fragment.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
@@ -204,6 +199,7 @@ impl Store {
 			tg::error!(!error, "failed to prepare the get outbox batch statement")
 		})?;
 		try_get_outbox_batch.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		try_get_outbox_batch.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
@@ -221,14 +217,14 @@ impl Store {
 			})?;
 		try_get_outbox_batch_at_or_before
 			.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		if let Some(handle) = object_execution_profile {
+		try_get_outbox_batch_at_or_before.set_is_idempotent(true);
+		if let Some(handle) = execution_profile {
 			for statement in [
 				&mut delete_object,
 				&mut delete_outbox_fragment,
 				&mut dequeue_outbox_fragments,
 				&mut enqueue_outbox_fragment,
 				&mut get_object,
-				&mut get_object_batch,
 				&mut put_object,
 				&mut try_get_outbox_batch,
 				&mut try_get_outbox_batch_at_or_before,
@@ -245,7 +241,6 @@ impl Store {
 				dequeue_outbox_fragments,
 				enqueue_outbox_fragment,
 				get_object,
-				get_object_batch,
 				log,
 				put_object,
 				try_get_outbox_batch,
@@ -340,4 +335,10 @@ impl crate::Store for Store {
 	) -> tg::Result<Vec<crate::log::read::Entry<'static>>> {
 		self.try_read_log_inner(arg).await
 	}
+}
+
+fn object_timestamp(stored_at: i64) -> tg::Result<i64> {
+	stored_at
+		.checked_mul(1_000_000)
+		.ok_or_else(|| tg::error!(%stored_at, "the object timestamp is out of range"))
 }

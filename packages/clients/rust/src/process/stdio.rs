@@ -205,12 +205,13 @@ where
 	let reader =
 		StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
 	let data_messages = stream::try_unfold(reader, move |mut reader| async move {
-		let Some(length) = reader
-			.try_read_uvarint()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read the stdio frame length"))?
-		else {
-			return Ok(None);
+		let length = match reader.try_read_uvarint().await {
+			Ok(Some(length)) => length,
+			Ok(None) => return Ok(None),
+			Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to read the stdio frame length"));
+			},
 		};
 		if length > max_frame_size {
 			return Err(tg::error!(
@@ -223,10 +224,12 @@ where
 			|error| tg::error!(!error, length = %length, "stdio frame length out of range"),
 		)?;
 		let mut bytes = vec![0; length];
-		reader
-			.read_exact(&mut bytes)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to read the stdio message"))?;
+		if let Err(error) = reader.read_exact(&mut bytes).await {
+			if error.kind() == std::io::ErrorKind::UnexpectedEof {
+				return Ok(None);
+			}
+			return Err(tg::error!(!error, "failed to read the stdio message"));
+		}
 		let message = tangram_serialize::from_slice(&bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the stdio message"))?;
 

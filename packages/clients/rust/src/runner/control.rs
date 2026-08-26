@@ -34,7 +34,6 @@ pub struct ClientAck {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientNotification {
 	Heartbeat(HeartbeatClientNotification),
-	SandboxDestroyed(SandboxDestroyedClientNotification),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -143,13 +142,6 @@ pub struct CreateSandboxServerRequestArg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateSandboxClientResponseOutput {
 	pub created: bool,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SandboxDestroyedClientNotification {
-	pub id: String,
-
-	pub sandbox: tg::sandbox::Id,
 }
 
 #[serde_as]

@@ -448,7 +448,7 @@ impl Session {
 				sender.send(message).await?;
 				continue;
 			};
-			let task = self
+			let _ = self
 				.server
 				.spawn_sandbox_task(self::sandbox::SpawnSandboxTaskArg {
 					allocation,
@@ -469,27 +469,6 @@ impl Session {
 				)),
 			);
 			sender.send(message).await?;
-
-			// Spawn a task to send the sandbox destroyed notification.
-			Task::spawn({
-				let sender = sender.clone();
-				move |_| async move {
-					let mut events = task.events;
-					while let Some(event) = events.recv().await {
-						match event {
-							Ok(self::sandbox::Event::Destroyed) | Err(_) => break,
-							Ok(self::sandbox::Event::Ready(_)) => {},
-						}
-					}
-					let id = tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes());
-					let notification = tg::runner::control::ClientNotification::SandboxDestroyed(
-						tg::runner::control::SandboxDestroyedClientNotification { id, sandbox },
-					);
-					let message = tg::runner::control::ClientMessage::Notification(notification);
-					sender.send(message).await.ok();
-				}
-			})
-			.detach();
 		}
 
 		Ok(())

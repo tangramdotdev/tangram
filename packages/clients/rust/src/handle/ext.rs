@@ -909,11 +909,30 @@ pub trait Ext: tg::Handle {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
+			enum Event {
+				Input(tg::Result<Option<tg::process::stdio::Chunk>>),
+				Output(Option<tg::Result<tg::process::stdio::write::ServerMessage>>),
+			}
+
+			// Forward the input so waiting for it cannot block server messages.
+			let (input_sender, input_receiver) =
+				async_channel::bounded::<tg::Result<Option<tg::process::stdio::Chunk>>>(1);
+			let _input_task = Task::spawn(move |_| async move {
+				let mut input = pin!(input);
+				while let Some(result) = input.next().await {
+					let end = result.is_err();
+					if input_sender.send(result.map(Some)).await.is_err() || end {
+						return;
+					}
+				}
+				input_sender.send(Ok(None)).await.ok();
+			});
+
 			let combined = arg.streams.len() > 1;
 			let mut connected = false;
+			let mut end_sent = false;
 			let id = id.clone();
 			let handle = self.clone();
-			let mut input = pin!(input);
 			let mut input_ended = false;
 			let mut output =
 				None::<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>;
@@ -923,6 +942,7 @@ pub trait Ext: tg::Handle {
 			let mut sender =
 				None::<async_channel::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>>;
 			loop {
+				// Connect or reconnect.
 				if output.is_none() {
 					if let Some(retries) = &mut retries {
 						retries.next().await;
@@ -934,6 +954,7 @@ pub trait Ext: tg::Handle {
 					{
 						Ok(Some(new_output)) => {
 							connected = true;
+							end_sent = false;
 							output = Some(new_output.boxed());
 							pending_sent = false;
 							sender = Some(new_sender);
@@ -953,12 +974,8 @@ pub trait Ext: tg::Handle {
 						Err(error) => return Err(error),
 					}
 				}
-				if pending.is_none() && !input_ended {
-					match input.try_next().await? {
-						Some(chunk) => pending = Some(chunk),
-						None => input_ended = true,
-					}
-				}
+
+				// Send the next pending message.
 				if let Some(chunk) = &pending
 					&& !pending_sent
 				{
@@ -974,7 +991,7 @@ pub trait Ext: tg::Handle {
 						continue;
 					}
 					pending_sent = true;
-				} else if pending.is_none() && input_ended && !pending_sent {
+				} else if pending.is_none() && input_ended && !end_sent {
 					let message = tg::process::stdio::write::ClientMessage::Request(
 						tg::process::stdio::write::ClientRequest::End,
 					);
@@ -983,17 +1000,43 @@ pub trait Ext: tg::Handle {
 						sender.take();
 						continue;
 					}
-					pending_sent = true;
+					end_sent = true;
 				}
-				match output.as_mut().unwrap().next().await {
-					Some(Ok(tg::process::stdio::write::ServerMessage::Notification(
-						tg::process::stdio::write::ServerNotification::Stop,
+
+				// Receive whichever side is ready.
+				let event = if pending.is_none() && !input_ended {
+					tokio::select! {
+						result = input_receiver.recv() => {
+							let result = result.map_err(|_| tg::error!("the process stdio input task stopped"))?;
+							Event::Input(result)
+						},
+						message = output.as_mut().unwrap().next() => Event::Output(message),
+					}
+				} else {
+					Event::Output(output.as_mut().unwrap().next().await)
+				};
+				match event {
+					Event::Input(result) => match result? {
+						Some(chunk) => {
+							if !arg.streams.contains(&chunk.stream) {
+								return Err(tg::error!("invalid process stdio stream"));
+							}
+							pending = Some(chunk);
+						},
+						None => input_ended = true,
+					},
+					Event::Output(Some(Ok(
+						tg::process::stdio::write::ServerMessage::Notification(
+							tg::process::stdio::write::ServerNotification::Stop,
+						),
 					))) => {
 						output.take();
 						sender.take();
 					},
-					Some(Ok(tg::process::stdio::write::ServerMessage::Notification(
-						tg::process::stdio::write::ServerNotification::Write { position },
+					Event::Output(Some(Ok(
+						tg::process::stdio::write::ServerMessage::Notification(
+							tg::process::stdio::write::ServerNotification::Write { position },
+						),
 					))) => {
 						retries.take();
 						let Some(mut chunk) = pending.take() else {
@@ -1007,6 +1050,13 @@ pub trait Ext: tg::Handle {
 						let end = start
 							.checked_add(chunk.bytes.len().to_u64().unwrap())
 							.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+						if position > end {
+							return Err(tg::error!(
+								%end,
+								%position,
+								"invalid process stdio write position"
+							));
+						}
 						if position <= start {
 							pending = Some(chunk);
 							pending_sent = false;
@@ -1021,13 +1071,15 @@ pub trait Ext: tg::Handle {
 						}
 						pending_sent = false;
 					},
-					Some(Ok(tg::process::stdio::write::ServerMessage::Response(
-						tg::process::stdio::write::ServerResponse::End,
+					Event::Output(Some(Ok(
+						tg::process::stdio::write::ServerMessage::Response(
+							tg::process::stdio::write::ServerResponse::End,
+						),
 					))) => {
 						return Ok(());
 					},
-					Some(Err(error)) => return Err(error),
-					None => {
+					Event::Output(Some(Err(error))) => return Err(error),
+					Event::Output(None) => {
 						output.take();
 						sender.take();
 						let options = tangram_futures::retry::Options {
