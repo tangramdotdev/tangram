@@ -48,14 +48,20 @@ pub(crate) struct StreamOptions {
 	pub retry: tangram_futures::retry::Options,
 }
 
-pub(crate) struct SendControlRequestArg<I, O, Response, ResponseFn, AckFn> {
+pub(crate) struct SendControlRequestArg<I, O, Response, AckFn, IsAckFn, ResponseFn> {
 	pub ack: AckFn,
 	pub client_subject: String,
+	pub is_ack: IsAckFn,
+	pub marker: PhantomData<fn() -> (I, Response)>,
 	pub options: Options,
 	pub request: O,
 	pub response: ResponseFn,
 	pub server_subject: String,
-	pub marker: PhantomData<fn() -> (I, Response)>,
+}
+
+enum ReceiveControlRequestOutput<Response> {
+	Ack,
+	Response { id: String, response: Response },
 }
 
 pub(crate) fn id() -> String {
@@ -103,7 +109,25 @@ where
 		}
 	}
 
-	pub(crate) async fn recv(&mut self) -> tg::Result<Option<I>> {
+	pub(crate) async fn recv_with_ack(&mut self) -> tg::Result<Option<I>> {
+		loop {
+			let Some(message) = self.recv_without_ack().await? else {
+				return Ok(None);
+			};
+
+			match message.kind() {
+				InputKind::Ack { .. } => {},
+				InputKind::Message { id } => {
+					if let Some(id) = id {
+						self.acknowledge(id.to_owned()).await?;
+					}
+					return Ok(Some(message));
+				},
+			}
+		}
+	}
+
+	pub(crate) async fn recv_without_ack(&mut self) -> tg::Result<Option<I>> {
 		loop {
 			let Some(message) = self.inner.try_next().await? else {
 				return Ok(None);
@@ -121,18 +145,28 @@ where
 							inbox.remove(&id);
 						});
 					}
+					return Ok(Some(message));
 				},
 				InputKind::Message { id } => {
-					if let Some(id) = id.map(str::to_owned) {
-						self.sender.send(I::create_ack_message(id.clone())).await?;
-						if self.inbox.insert(id, ()).is_some() {
-							continue;
-						}
+					let Some(id) = id else {
+						return Ok(Some(message));
+					};
+					if !self.inbox.contains_key(id) {
+						return Ok(Some(message));
 					}
-					return Ok(Some(message));
+					self.sender
+						.send(I::create_ack_message(id.to_owned()))
+						.await?;
 				},
 			}
 		}
+	}
+
+	pub(crate) async fn acknowledge(&mut self, id: String) -> tg::Result<()> {
+		self.sender.send(I::create_ack_message(id.clone())).await?;
+		self.inbox.insert(id, ());
+
+		Ok(())
 	}
 
 	pub(crate) fn sender(&self) -> Sender<I, O> {
@@ -215,8 +249,9 @@ impl Session {
 			I,
 			O,
 			Response,
-			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone,
 			impl Fn(String) -> O + Clone,
+			impl Fn(&I) -> bool + Clone,
+			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone,
 		>,
 	) -> tg::Result<Response>
 	where
@@ -226,11 +261,12 @@ impl Session {
 		let SendControlRequestArg {
 			ack,
 			client_subject,
+			is_ack,
+			marker: _,
 			options,
 			request,
 			response,
 			server_subject,
-			marker: _,
 		} = arg;
 		let server = self.server.clone();
 		let Options { retry, timeout } = options;
@@ -242,28 +278,44 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
 		let mut responses = std::pin::pin!(responses);
 
+		let mut acknowledged = false;
 		let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
 		loop {
-			if retries.next().await.is_none() {
-				return Err(tg::error!("timed out waiting for the response"));
+			if !acknowledged {
+				if retries.next().await.is_none() {
+					return Err(tg::error!(
+						"timed out waiting for the request acknowledgement"
+					));
+				}
+
+				server
+					.messenger
+					.publish(server_subject.clone(), request.clone())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
 			}
 
-			server
-				.messenger
-				.publish(server_subject.clone(), request.clone())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
-
-			let result = tokio::time::timeout(timeout, async {
+			let receive = async {
 				loop {
 					let message = responses
 						.next()
 						.await
 						.ok_or_else(|| tg::error!("the response stream ended"))?
 						.map_err(|source| tg::error!(!source, "failed to receive the response"))?;
+					if is_ack(&message.payload) {
+						return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
+					}
 					let Some((id, response)) = response(message.payload)? else {
 						continue;
 					};
+					return Ok(ReceiveControlRequestOutput::Response { id, response });
+				}
+			};
+			let result = tokio::time::timeout(timeout, receive).await;
+
+			match result {
+				Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
+				Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
 					let ack = ack(id);
 					server
 						.messenger
@@ -272,13 +324,9 @@ impl Session {
 						.map_err(|source| {
 							tg::error!(!source, "failed to acknowledge the control response")
 						})?;
-					return Ok::<_, tg::Error>(response);
-				}
-			})
-			.await;
 
-			match result {
-				Ok(Ok(response)) => return Ok(response),
+					return Ok(response);
+				},
 				Ok(Err(error)) => return Err(error),
 				Err(_) => {
 					crate::checkpoint!(

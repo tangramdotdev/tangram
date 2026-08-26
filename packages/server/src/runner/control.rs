@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	std::collections::HashSet,
 	std::sync::{
@@ -124,32 +125,14 @@ impl Session {
 				)
 			})?;
 
-		let stream = stream
-			.try_filter_map({
-				let runner = id.clone();
-				let session = self.clone();
-				move |message| {
-					let runner = runner.clone();
-					let session = session.clone();
-					async move {
-						let tg::runner::control::ClientMessage::Response(response) = message else {
-							return Ok(Some(message));
-						};
-						session
-							.publish_runner_control_response(&runner, response)
-							.await?;
-
-						Ok(None)
-					}
-				}
-			})
-			.boxed();
+		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
 		let control =
 			crate::control::Stream::new(stream, sender.clone(), crate::control::stream_options());
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_messages_task = Task::spawn({
+			let forwarded_requests = forwarded_requests.clone();
 			let scheduler = scheduler.clone();
 			move |_| async move {
 				while let Some(message) = server_messages.try_next().await.map_err(|source| {
@@ -160,7 +143,18 @@ impl Session {
 					{
 						continue;
 					}
-					control_sender.send(message.payload.message).await?;
+					let message = message.payload.message;
+					let acknowledged_request = match &message {
+						tg::runner::control::ServerMessage::Ack(ack) => Some(ack.id.clone()),
+						_ => None,
+					};
+					if let tg::runner::control::ServerMessage::Request(request) = &message {
+						forwarded_requests.insert(request.id.clone());
+					}
+					control_sender.send(message).await?;
+					if let Some(id) = acknowledged_request {
+						forwarded_requests.remove(&id);
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -250,6 +244,7 @@ impl Session {
 		});
 
 		let control_task = Task::spawn({
+			let forwarded_requests = forwarded_requests.clone();
 			let server = self.server.clone();
 			let session = self.clone();
 			let runner = id.clone();
@@ -257,39 +252,59 @@ impl Session {
 			let scheduler_unavailable = scheduler_unavailable.clone();
 			move |_| async move {
 				let mut control = control;
-				while let Some(message) = control.recv().await? {
-					// If the message is a heartbeat notification, then notify the scheduler.
-					if let tg::runner::control::ClientMessage::Notification(
-						tg::runner::control::ClientNotification::Heartbeat(heartbeat),
-					) = &message
-					{
-						let notification = crate::scheduler::HeartbeatNotification {
-							capacity: heartbeat.capacity,
-							connection_index,
-							heartbeat_index: heartbeat.index,
-							runner: runner.clone(),
-						};
-						heartbeat_sender.send(notification).await.map_err(|_| {
-							tg::error!("failed to track the runner heartbeat acknowledgement")
-						})?;
-					}
-					let subject = match message.clone() {
-						tg::runner::control::ClientMessage::Ack(_)
-						| tg::runner::control::ClientMessage::Response(_) => unreachable!(),
-						tg::runner::control::ClientMessage::Notification(_) => {
-							format!("runners.{runner}.control.client")
+				while let Some(message) = control.recv_without_ack().await? {
+					match message {
+						tg::runner::control::ClientMessage::Ack(ack) => {
+							if forwarded_requests.contains(&ack.id) {
+								session.publish_runner_control_ack(&runner, ack).await?;
+							}
+						},
+						tg::runner::control::ClientMessage::Notification(notification) => {
+							let acknowledgement = match &notification {
+								tg::runner::control::ClientNotification::Heartbeat(heartbeat) => {
+									let notification = crate::scheduler::HeartbeatNotification {
+										capacity: heartbeat.capacity,
+										connection_index,
+										heartbeat_index: heartbeat.index,
+										runner: runner.clone(),
+									};
+									heartbeat_sender.send(notification).await.map_err(|_| {
+										tg::error!(
+											"failed to track the runner heartbeat acknowledgement"
+										)
+									})?;
+									None
+								},
+								tg::runner::control::ClientNotification::SandboxDestroyed(
+									notification,
+								) => Some(notification.id.clone()),
+							};
+							let subject = format!("runners.{runner}.control.client");
+							let message =
+								tg::runner::control::ClientMessage::Notification(notification);
+							server
+								.messenger
+								.publish(subject, ClientMessage(message))
+								.await
+								.map_err(|source| {
+									tg::error!(
+										!source,
+										"failed to publish the runner client message"
+									)
+								})?;
+							if let Some(id) = acknowledgement {
+								control.acknowledge(id).await?;
+							}
 						},
 						tg::runner::control::ClientMessage::Request(request) => {
 							match request.arg {}
 						},
-					};
-					server
-						.messenger
-						.publish(subject, ClientMessage(message))
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to publish the runner client message")
-						})?;
+						tg::runner::control::ClientMessage::Response(response) => {
+							session
+								.publish_runner_control_response(&runner, response)
+								.await?;
+						},
+					}
 				}
 				if !scheduler_unavailable.load(Ordering::Acquire) {
 					let request = crate::scheduler::RequestArg::RemoveRunner(
@@ -319,6 +334,27 @@ impl Session {
 			.boxed();
 
 		Ok((output, stream))
+	}
+
+	async fn publish_runner_control_ack(
+		&self,
+		runner: &tg::runner::Id,
+		ack: tg::runner::control::ClientAck,
+	) -> tg::Result<()> {
+		let subject = format!("runners.{runner}.control.client.{}", ack.id);
+		let payload = ClientMessage(tg::runner::control::ClientMessage::Ack(ack));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to publish the runner control acknowledgement"
+				)
+			})?;
+
+		Ok(())
 	}
 
 	async fn publish_runner_control_response(
@@ -530,9 +566,12 @@ impl Session {
 				}
 			},
 			client_subject: format!("runners.{runner}.control.client.{id}"),
+			is_ack: |message: &ClientMessage| {
+				matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
+			},
 			marker: std::marker::PhantomData,
-			request,
 			options,
+			request,
 			response: |message: ClientMessage| {
 				let tg::runner::control::ClientMessage::Response(message) = message.0 else {
 					return Ok(None);

@@ -330,6 +330,7 @@ impl Session {
 		self.send_control_request(crate::control::SendControlRequestArg {
 			ack: |id| ServerMessage::Ack(Ack { id }),
 			client_subject: Indexer::client_subject(&id),
+			is_ack: |message: &ClientMessage| matches!(message, ClientMessage::Ack(_)),
 			marker: std::marker::PhantomData,
 			options,
 			request,
@@ -923,7 +924,7 @@ impl Indexer {
 				barrier = state.barriers.next(), if !state.barriers.is_empty() => {
 					Event::Barrier(barrier.unwrap())
 				},
-				message = control.recv() => {
+				message = control.recv_with_ack() => {
 					let message = message?
 						.ok_or_else(|| tg::error!("the indexer request stream ended"))?;
 					Event::Message(message)

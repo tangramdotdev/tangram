@@ -396,7 +396,7 @@ impl Session {
 
 		// Process the messages the scheduler sends to this runner.
 		loop {
-			let receive_future = control.recv();
+			let receive_future = control.recv_with_ack();
 			let receive_future = pin!(receive_future);
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);

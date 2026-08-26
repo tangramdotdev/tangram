@@ -864,7 +864,7 @@ impl Session {
 				|timer_future| timer_future.as_mut().right_future(),
 			);
 			tokio::select! {
-				message = control.recv() => {
+				message = control.recv_with_ack() => {
 					// Get the message.
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
@@ -1117,7 +1117,7 @@ impl Session {
 		)?;
 		loop {
 			let message = control
-				.recv()
+				.recv_with_ack()
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to receive a sandbox control message"),
@@ -1195,7 +1195,7 @@ impl Session {
 			tokio::select! {
 				() = &mut retention_future => break,
 				() = stopper.wait() => break,
-				message = control.recv() => {
+				message = control.recv_with_ack() => {
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
 					let Some(message) = message else {

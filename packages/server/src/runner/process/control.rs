@@ -298,7 +298,7 @@ impl Session {
 		} = arg;
 
 		while let Some(message) = control
-			.recv()
+			.recv_with_ack()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the next control request"))?
 		{
