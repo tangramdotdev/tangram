@@ -98,9 +98,9 @@ impl Session {
 			)
 			.await;
 
-			// Once the process has finished, its sandbox is torn down and cannot be written to, so answer every write with the current position.
+			// Once the stdin is unavailable, report it closed without advancing the position.
 			let result = if closed || finished.stopped() {
-				Ok(position)
+				Self::handle_closed_process_stdin_write_request(&request, position)
 			} else if let Some(sandbox_process) = &sandbox_process {
 				Self::handle_process_control_stdin_write_request(
 					&sandbox,
@@ -111,16 +111,38 @@ impl Session {
 				)
 				.await
 			} else {
-				Ok(position)
+				Self::handle_closed_process_stdin_write_request(&request, position)
 			};
-			let response = result
-				.map(|position| tg::process::control::WriteClientResponseOutput { position })
-				.map(tg::process::control::ClientResponseOutput::Write);
+			let response = result.map(tg::process::control::ClientResponseOutput::Write);
 			let response = Self::process_control_response(id, response);
 			sender.send(response).await?;
 		}
 
 		Ok(())
+	}
+
+	fn handle_closed_process_stdin_write_request(
+		request: &tg::process::control::WriteServerRequestArg,
+		position: u64,
+	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
+		let chunk = &request.chunk;
+		if chunk.stream != tg::process::stdio::Stream::Stdin {
+			return Err(tg::error!("invalid process stdio stream"));
+		}
+		let start = chunk.stream_position;
+		if start > position {
+			return Err(tg::error!(
+				expected = %position,
+				actual = %start,
+				"encountered a gap in the stdin stream"
+			));
+		}
+		let output = tg::process::control::WriteClientResponseOutput {
+			closed: true,
+			position,
+		};
+
+		Ok(output)
 	}
 
 	async fn handle_process_control_stdin_write_request(
@@ -129,7 +151,7 @@ impl Session {
 		request: tg::process::control::WriteServerRequestArg,
 		position: &mut u64,
 		closed: &mut bool,
-	) -> tg::Result<u64> {
+	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
 		let mut chunk = request.chunk;
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
@@ -148,11 +170,20 @@ impl Session {
 		if chunk.bytes.is_empty() {
 			Self::handle_process_control_stdin_close_request(sandbox, sandbox_process).await?;
 			*closed = true;
+			let output = tg::process::control::WriteClientResponseOutput {
+				closed: true,
+				position: *position,
+			};
 
-			return Ok(*position);
+			return Ok(output);
 		}
 		if end <= *position {
-			return Ok(*position);
+			let output = tg::process::control::WriteClientResponseOutput {
+				closed: false,
+				position: *position,
+			};
+
+			return Ok(output);
 		}
 		if start < *position {
 			let offset = (*position - start).to_usize().unwrap();
@@ -179,8 +210,15 @@ impl Session {
 				},
 			}
 		}
+		if *position < end {
+			*closed = true;
+		}
+		let output = tg::process::control::WriteClientResponseOutput {
+			closed: *closed,
+			position: *position,
+		};
 
-		Ok(*position)
+		Ok(output)
 	}
 
 	async fn handle_process_control_stdin_close_request(
@@ -195,6 +233,7 @@ impl Session {
 				input,
 			)
 			.await
+			.map_err(|error| tg::error!(!error, "failed to close the process stdin"))
 			.inspect_err(|error| {
 				tracing::error!(error = %error.trace(), "failed to close the process stdin");
 			})?;

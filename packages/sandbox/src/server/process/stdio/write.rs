@@ -117,7 +117,10 @@ impl Server {
 										Err(error)
 											if error.kind() == std::io::ErrorKind::BrokenPipe => {},
 										Err(error) => {
-											return Err(tg::error!(!error, "failed to close stdin"));
+											return Err(tg::error!(
+												!error,
+												"failed to close stdin"
+											));
 										},
 									}
 									let stdin = matches!(w, Writer::Stdin(_));

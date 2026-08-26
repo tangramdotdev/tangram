@@ -337,7 +337,7 @@ impl Session {
 					let end = start
 						.checked_add(chunk.bytes.len().to_u64().unwrap())
 						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
-					position = match get_destination(data, chunk.stream)? {
+					let output = match get_destination(data, chunk.stream)? {
 						Destination::Log => {
 							let timestamp = chunk
 								.timestamp
@@ -351,13 +351,25 @@ impl Session {
 								timestamp,
 							};
 							self.put_process_log_batch_local(id, vec![arg]).await?;
-							end
+							tg::process::control::WriteClientResponseOutput {
+								closed: false,
+								position: end,
+							}
 						},
-						Destination::Null => end,
+						Destination::Null => tg::process::control::WriteClientResponseOutput {
+							closed: false,
+							position: end,
+						},
 						Destination::Pipe => {
 							self.write_process_stdio_chunk_local(id, chunk).await?
 						},
 					};
+					position = output.position;
+					if output.closed {
+						send_end_response(sender).await;
+
+						return Ok(());
+					}
 					send_write_notification(sender, position).await;
 				},
 				tg::process::stdio::write::ClientMessage::Request(
@@ -375,7 +387,8 @@ impl Session {
 							stream_position: position,
 							timestamp: None,
 						};
-						position = self.write_process_stdio_chunk_local(id, chunk).await?;
+						let output = self.write_process_stdio_chunk_local(id, chunk).await?;
+						position = output.position;
 						send_write_notification(sender, position).await;
 					}
 					send_end_response(sender).await;
@@ -394,7 +407,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		chunk: tg::process::stdio::Chunk,
-	) -> tg::Result<u64> {
+	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
 		let arg = tg::process::control::WriteServerRequestArg { chunk };
 		let request = tg::process::control::ServerRequestArg::Write(arg);
 		let retry = tangram_futures::retry::Options {
@@ -419,7 +432,7 @@ impl Session {
 			.try_unwrap_write()
 			.map_err(|_| tg::error!("expected a write response"))?;
 
-		Ok(response.position)
+		Ok(response)
 	}
 
 	async fn try_write_process_stdio_region(

@@ -576,6 +576,10 @@ pub struct ReadClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct WriteClientResponseOutput {
+	/// Whether the process stdin is closed.
+	#[tangram_serialize(id = 1)]
+	pub closed: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub position: u64,
 }
