@@ -29,15 +29,7 @@ impl Session {
 		} else {
 			(None, None)
 		};
-		let cache_future = self
-			.spawn_process_get_cached_process(arg, location, candidate.as_ref())
-			.map(|result| match result {
-				Err(error) if candidate.is_some() => {
-					tracing::debug!(error = %error.trace(), "failed to get a cached process");
-					Ok(None)
-				},
-				result => result,
-			});
+		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
 		let create_delay = self.server.config.process.spawn.create_delay;
 		let spawn_future =
 			self.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender);
@@ -240,9 +232,20 @@ impl Session {
 		{
 			return Ok(Some(output));
 		}
-		let output = self
+		let output = match self
 			.spawn_process_get_cached_process_region_or_remote(arg, true, false)
-			.await?;
+			.await
+		{
+			Ok(output) => output,
+			Err(error) if exclude.is_some() => {
+				tracing::debug!(
+					error = %error.trace(),
+					"failed to get a cached process from another region or remote"
+				);
+				None
+			},
+			Err(error) => return Err(error),
+		};
 		let output = output.filter(|output| {
 			output
 				.process()
