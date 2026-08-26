@@ -69,6 +69,10 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		mount_proc(&map_target(root, target)?)?;
 	}
 
+	if arg.cgroup.is_some() {
+		mount_cgroup(&map_target(root, Path::new("/sys/fs/cgroup"))?)?;
+	}
+
 	for overlay in overlays
 		.into_iter()
 		.filter(|overlay| overlay.target != Path::new("/"))
@@ -408,6 +412,39 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the proc mount"))?;
+	Ok(())
+}
+
+fn mount_cgroup(target: &Path) -> tg::Result<()> {
+	std::fs::create_dir_all(target).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %target.display(),
+			"failed to create the cgroup mountpoint"
+		)
+	})?;
+	let target = cstring(target);
+	// Mount a tmpfs first. An enclosing sandbox mounts cgroup2 at this path too, and the kernel refuses to mount a filesystem on its own mountpoint. That mount cannot be detached instead, because a mount inherited into an unprivileged mount namespace is locked.
+	let underlay_source = cstring("tmpfs");
+	let underlay_fstype = cstring("tmpfs");
+	mount_raw(
+		Some(&underlay_source),
+		&target,
+		Some(&underlay_fstype),
+		libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to create the cgroup underlay mount"))?;
+	let source = cstring("cgroup2");
+	let fstype = cstring("cgroup2");
+	mount_raw(
+		Some(&source),
+		&target,
+		Some(&fstype),
+		libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| tg::error!(!error, "failed to create the cgroup mount"))?;
 	Ok(())
 }
 

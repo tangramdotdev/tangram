@@ -1,12 +1,15 @@
 use {
 	std::{
-		os::fd::OwnedFd,
+		ffi::CString,
+		os::fd::{AsRawFd as _, OwnedFd},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
 };
 
 pub struct Cgroup {
+	name: String,
+	parent: OwnedFd,
 	path: PathBuf,
 }
 
@@ -37,7 +40,8 @@ impl Cgroup {
 		if options.pids.is_some() {
 			validate_controller_enabled(&current, "pids")?;
 		}
-		let path = current.join(sanitize_name(name));
+		let name = sanitize_name(name);
+		let path = current.join(&name);
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
 				!error,
@@ -45,7 +49,13 @@ impl Cgroup {
 				"failed to create the cgroup"
 			)
 		})?;
-		let cgroup = Self { path: path.clone() };
+		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
+		let parent = open_directory(&current)?;
+		let cgroup = Self {
+			name,
+			parent,
+			path: path.clone(),
+		};
 
 		if let Some(cpu) = options.cpu {
 			let quota = cpu
@@ -129,12 +139,31 @@ impl Cgroup {
 
 impl Drop for Cgroup {
 	fn drop(&mut self) {
-		std::fs::remove_dir(&self.path)
-			.inspect_err(
-				|error| tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup"),
-			)
-			.ok();
+		let name = CString::new(self.name.as_bytes()).unwrap();
+		// SAFETY: The descriptor and name remain valid for the duration of the syscall.
+		let result =
+			unsafe { libc::unlinkat(self.parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
+		if result != 0 {
+			let error = std::io::Error::last_os_error();
+			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
+		}
 	}
+}
+
+fn open_directory(path: &Path) -> tg::Result<OwnedFd> {
+	use std::os::unix::fs::OpenOptionsExt as _;
+	let file = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
+		.open(path)
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to open the cgroup directory",
+			)
+		})?;
+	Ok(OwnedFd::from(file))
 }
 
 fn sanitize_name(name: &str) -> String {
