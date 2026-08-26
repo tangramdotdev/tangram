@@ -295,7 +295,7 @@ where
 
 #[cfg(test)]
 mod tests {
-	use {crate::prelude::*, std::collections::BTreeMap};
+	use crate::prelude::*;
 
 	#[test]
 	fn location_and_tokens_roundtrip() {
@@ -320,13 +320,9 @@ mod tests {
 			name: "default".into(),
 			region: None,
 		});
-		let tokens = tg::authorization::Tokens(BTreeMap::from([
-			(
-				tg::Location::Local(tg::location::Local::default()),
-				token.clone(),
-			),
-			(remote.clone(), token),
-		]));
+		let mut tokens = tg::authorization::Tokens::default();
+		tokens.set_local(token.clone());
+		tokens.set(remote.clone(), token);
 		let options = tg::referent::Options {
 			location: Some(remote),
 			tokens,

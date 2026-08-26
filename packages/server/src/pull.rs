@@ -18,7 +18,7 @@ impl Session {
 			.iter()
 			.all(|node| node.node.kind() == tg::id::Kind::Process || node.node.kind().is_object())
 			&& self
-				.pull_nodes_stored(&arg)
+				.pull_nodes_available_local(&arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check whether the pull is local"))?
 		{
@@ -45,7 +45,7 @@ impl Session {
 		Ok(stream.boxed())
 	}
 
-	async fn pull_nodes_stored(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
+	async fn pull_nodes_available_local(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let object_ids = arg
 			.nodes
@@ -109,7 +109,88 @@ impl Session {
 			}
 		});
 		let stored = objects_stored && processes_stored;
-		Ok(stored)
+		if !stored {
+			return Ok(false);
+		}
+
+		let args = arg
+			.nodes
+			.iter()
+			.cloned()
+			.map(|node| {
+				let permissions = Self::pull_node_permissions(arg, &node.node);
+				(node, permissions)
+			})
+			.collect::<Vec<_>>();
+		let required = args
+			.iter()
+			.map(|(_, permissions)| *permissions)
+			.collect::<Vec<_>>();
+		let outputs = self.authorize_batch(args).await?;
+		let available = outputs.into_iter().zip(required).all(|(output, required)| {
+			output.is_some_and(|permissions| permissions.contains(required))
+		});
+
+		Ok(available)
+	}
+
+	fn pull_node_permissions(
+		arg: &tg::pull::Arg,
+		id: &tg::Id,
+	) -> tg::authorization::permission::Set {
+		if id.kind().is_object() {
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			);
+			let permissions = tg::authorization::permission::Set::from_permission(permission);
+
+			return permissions;
+		}
+		debug_assert_eq!(id.kind(), tg::id::Kind::Process);
+
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		let mut permissions = tg::authorization::permission::Set::from_permission(permission);
+		let mut insert = |permission| {
+			permissions.insert(tg::authorization::permission::Set::from_permission(
+				tg::authorization::Permission::Process(permission),
+			));
+		};
+		if arg.process_children {
+			insert(tg::authorization::permission::process::Permission::Subtree);
+		}
+		for (enabled, node, subtree) in [
+			(
+				arg.process_commands,
+				tg::authorization::permission::process::Permission::NodeCommand,
+				tg::authorization::permission::process::Permission::SubtreeCommand,
+			),
+			(
+				arg.process_errors,
+				tg::authorization::permission::process::Permission::NodeError,
+				tg::authorization::permission::process::Permission::SubtreeError,
+			),
+			(
+				arg.process_logs,
+				tg::authorization::permission::process::Permission::NodeLog,
+				tg::authorization::permission::process::Permission::SubtreeLog,
+			),
+			(
+				arg.process_outputs,
+				tg::authorization::permission::process::Permission::NodeOutput,
+				tg::authorization::permission::process::Permission::SubtreeOutput,
+			),
+		] {
+			if enabled {
+				insert(node);
+				if arg.process_children {
+					insert(subtree);
+				}
+			}
+		}
+
+		permissions
 	}
 
 	pub(crate) async fn pull_request(

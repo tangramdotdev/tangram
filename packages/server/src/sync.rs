@@ -26,7 +26,7 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		self.sync_inner(arg, false, stream).await
+		self.sync_inner(arg, false, stream, true).await
 	}
 
 	pub(crate) async fn sync_for_process(
@@ -34,7 +34,17 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		self.sync_inner(arg, true, stream).await
+		self.sync_inner(arg, true, stream, true).await
+	}
+
+	pub(crate) async fn sync_with_source_trust(
+		&self,
+		arg: tg::sync::Arg,
+		process: bool,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		source_trusted: bool,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+		self.sync_inner(arg, process, stream, !source_trusted).await
 	}
 
 	async fn sync_inner(
@@ -42,12 +52,13 @@ impl Session {
 		arg: tg::sync::Arg,
 		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		verify_object_ids: bool,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let stream = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => self
-				.sync_local(arg, stream)
+				.sync_local(arg, stream, verify_object_ids)
 				.await?
 				.with_stopper(self.context.stopper.clone()),
 			tg::Location::Local(tg::location::Local {
@@ -69,15 +80,21 @@ impl Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		verify_object_ids: bool,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
 			let session = self.clone();
 			|_| {
 				async move {
-					let future = AssertUnwindSafe(session.sync_task(arg, stream, sender.clone()))
-						.catch_unwind()
-						.instrument(tracing::Span::current());
+					let future = AssertUnwindSafe(session.sync_task(
+						arg,
+						stream,
+						sender.clone(),
+						verify_object_ids,
+					))
+					.catch_unwind()
+					.instrument(tracing::Span::current());
 					let result = future.boxed().await;
 					match result {
 						Ok(Ok(())) => (),
@@ -176,6 +193,7 @@ impl Session {
 		arg: tg::sync::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
+		verify_object_ids: bool,
 	) -> tg::Result<()> {
 		// Create the graph.
 		let graph = Arc::new(Mutex::new(Graph::new(&arg)));
@@ -234,7 +252,7 @@ impl Session {
 			let sender = get_output_sender.clone();
 			async move {
 				let future = session
-					.sync_get(arg, graph, stream, get_output_sender)
+					.sync_get(arg, graph, stream, get_output_sender, verify_object_ids)
 					.instrument(tracing::debug_span!("get"));
 				match future.boxed().await {
 					Ok(()) => Ok(()),

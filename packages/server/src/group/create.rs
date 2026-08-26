@@ -160,14 +160,19 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let mut output = client.create_group(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the group"),
 		)?;
 		self.invalidate_remote_cache(&remote.name).await;
 		let location = tg::Location::Remote(remote);
-		self.update_tokens_for_location(&mut output.group.tokens, &location)?;
-		output.group.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.group.tokens,
+			Some(&mut output.group.location),
+			&location,
+			trusted,
+		)?;
 
 		Ok(output)
 	}
@@ -193,7 +198,7 @@ impl Session {
 				};
 				let mut group = group.ok_or_else(|| tg::error!("failed to find the group"))?;
 				if let Some(token) = self.create_read_token(&id.clone().into())? {
-					group.tokens.insert_local(token);
+					group.tokens.set_local(token);
 				}
 
 				return Ok(ControlFlow::Break(group));
@@ -225,7 +230,7 @@ impl Session {
 		};
 		let mut group = group;
 		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
-			group.tokens.insert_local(token);
+			group.tokens.set_local(token);
 		}
 
 		Ok(ControlFlow::Break(group))

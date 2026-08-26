@@ -86,7 +86,7 @@ async fn migration_0000_with_transaction(
 		.inner()
 		.deref()
 		.execute_batch(
-			"insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');",
+			"insert into remotes (name, trusted, url) values ('default', 1, 'https://cloud.tangram.dev');",
 		)
 		.await
 		.map_err(db::turso::Error::from);

@@ -40,8 +40,8 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to get the process children"))?
 			{
 				let location = tg::Location::Local(tg::location::Local::default());
-				let stream =
-					self.update_process_children_stream_referents_for_location(stream, location);
+				let stream = self
+					.update_process_children_stream_referents_for_location(stream, location, false);
 
 				return Ok(Some(stream));
 			}
@@ -447,8 +447,11 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let stream =
-			self.update_process_children_stream_referents_for_location(stream.boxed(), location);
+		let stream = self.update_process_children_stream_referents_for_location(
+			stream.boxed(),
+			location,
+			false,
+		);
 		Ok(Some(stream))
 	}
 
@@ -493,6 +496,7 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let trusted = client.trusted();
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,
@@ -516,8 +520,11 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let stream =
-			self.update_process_children_stream_referents_for_location(stream.boxed(), location);
+		let stream = self.update_process_children_stream_referents_for_location(
+			stream.boxed(),
+			location,
+			trusted,
+		);
 		Ok(Some(stream))
 	}
 
@@ -525,6 +532,7 @@ impl Session {
 		&self,
 		stream: BoxStream<'static, tg::Result<tg::process::children::get::Event>>,
 		location: tg::Location,
+		trusted: bool,
 	) -> BoxStream<'static, tg::Result<tg::process::children::get::Event>> {
 		let session = self.clone();
 		stream
@@ -532,9 +540,11 @@ impl Session {
 				let mut event = event?;
 				if let tg::process::children::get::Event::Chunk(chunk) = &mut event {
 					for child in &mut chunk.data {
-						session.update_referent_options_for_location(
-							&mut child.process.options,
+						session.update_tokens_and_location(
+							&mut child.process.options.tokens,
+							Some(&mut child.process.options.location),
 							&location,
+							trusted,
 						)?;
 					}
 				}

@@ -1557,15 +1557,15 @@ impl Server {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				r"
-					insert into remotes (name, principal, url, token)
-					values ({p}1, null, {p}2, {p}3);
+					insert into remotes (name, principal, token, trusted, url)
+					values ({p}1, null, {p}2, {p}3, {p}4);
 				",
 			);
 			let token = remote
 				.token
 				.clone()
 				.or_else(|| tokens.get(name).cloned().flatten());
-			let params = db::params![name.clone(), remote.url.to_string(), token];
+			let params = db::params![name.clone(), token, remote.trusted, remote.url.to_string()];
 			let result = transaction.execute(statement.into(), params).await;
 			crate::database::retry!(result, "failed to insert the remote");
 		}

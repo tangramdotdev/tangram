@@ -171,11 +171,15 @@ pub struct State {
 #[derive(Debug, Default)]
 pub struct Context {
 	token: Arc<RwLock<Option<String>>>,
+	trusted: bool,
 }
 
 impl Clone for Context {
 	fn clone(&self) -> Self {
-		Self::new(self.token())
+		Self {
+			token: Arc::new(RwLock::new(self.token())),
+			trusted: self.trusted,
+		}
 	}
 }
 
@@ -184,6 +188,7 @@ impl Context {
 	pub fn new(token: Option<String>) -> Self {
 		Self {
 			token: Arc::new(RwLock::new(token)),
+			trusted: false,
 		}
 	}
 
@@ -194,6 +199,15 @@ impl Context {
 
 	pub fn set_token(&self, token: Option<String>) {
 		*self.token.write().unwrap() = token;
+	}
+
+	#[must_use]
+	pub fn trusted(&self) -> bool {
+		self.trusted
+	}
+
+	pub fn set_trusted(&mut self, trusted: bool) {
+		self.trusted = trusted;
 	}
 }
 

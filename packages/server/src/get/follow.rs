@@ -168,7 +168,12 @@ impl Session {
 			}
 		}
 		if let Some(output) = &mut output {
-			self.update_referent_options_for_location(&mut output.referent.options, &source)?;
+			self.update_tokens_and_location(
+				&mut output.referent.options.tokens,
+				Some(&mut output.referent.options.location),
+				&source,
+				false,
+			)?;
 		}
 
 		Ok(output)
@@ -204,6 +209,10 @@ impl Session {
 			arg: request_arg.clone(),
 			reference: reference.clone(),
 		});
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 		if let Some(crate::remote::cache::Response::Get(response)) = self
 			.try_get_cached_remote_response(&remote.name, &request, arg.ttl)
 			.await
@@ -222,9 +231,11 @@ impl Session {
 						output.referent.options.tokens.clear();
 					}
 					let location = tg::Location::Remote(remote.clone());
-					self.update_referent_options_for_location(
-						&mut output.referent.options,
+					self.update_tokens_and_location(
+						&mut output.referent.options.tokens,
+						Some(&mut output.referent.options.location),
 						&location,
+						trusted,
 					)?;
 				}
 
@@ -234,9 +245,6 @@ impl Session {
 		if arg.cached {
 			return Ok(None);
 		}
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
 		let stream = client.try_get(&reference, request_arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to follow the named node"),
 		)?;
@@ -255,7 +263,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		if let Some(output) = &mut output {
 			let location = tg::Location::Remote(remote);
-			self.update_referent_options_for_location(&mut output.referent.options, &location)?;
+			self.update_tokens_and_location(
+				&mut output.referent.options.tokens,
+				Some(&mut output.referent.options.location),
+				&location,
+				trusted,
+			)?;
 		}
 
 		Ok(output)
@@ -446,7 +459,6 @@ impl Session {
 			.map(named_node_from_entry)
 			.map(|mut tag| {
 				tag.location = Some(location.clone());
-				self.update_tokens_for_location(&mut tag.tokens, &location)?;
 				Ok::<_, tg::Error>(tag)
 			})
 			.transpose()?;
@@ -548,7 +560,12 @@ impl Session {
 			}
 		}
 		if let Some(output) = &mut output {
-			self.update_referent_options_for_location(&mut output.referent.options, &source)?;
+			self.update_tokens_and_location(
+				&mut output.referent.options.tokens,
+				Some(&mut output.referent.options.location),
+				&source,
+				false,
+			)?;
 		}
 
 		Ok(output)
@@ -587,6 +604,10 @@ impl Session {
 			arg: arg.clone(),
 			reference: reference.clone(),
 		});
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 
 		// Get a cached response.
 		if let Some(crate::remote::cache::Response::Get(response)) = self
@@ -607,9 +628,11 @@ impl Session {
 						output.referent.options.tokens.clear();
 					}
 					let location = tg::Location::Remote(remote.clone());
-					self.update_referent_options_for_location(
-						&mut output.referent.options,
+					self.update_tokens_and_location(
+						&mut output.referent.options.tokens,
+						Some(&mut output.referent.options.location),
 						&location,
+						trusted,
 					)?;
 				}
 				let output = output.map(|output| tg::get::Output {
@@ -631,9 +654,6 @@ impl Session {
 		}
 
 		// Resolve the tag on the remote.
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
 		let stream = client.try_get(&reference, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the tag target"),
 		)?;
@@ -653,7 +673,12 @@ impl Session {
 		let output = output
 			.map(|mut output| {
 				let location = tg::Location::Remote(remote);
-				self.update_referent_options_for_location(&mut output.referent.options, &location)?;
+				self.update_tokens_and_location(
+					&mut output.referent.options.tokens,
+					Some(&mut output.referent.options.location),
+					&location,
+					trusted,
+				)?;
 				Ok::<_, tg::Error>(output)
 			})
 			.transpose()?;

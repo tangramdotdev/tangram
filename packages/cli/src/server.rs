@@ -151,13 +151,17 @@ impl Cli {
 			args.push("-d".to_owned());
 			args.push(directory.to_string_lossy().into_owned());
 		}
-		if let Some(remotes) = self.args.remotes.get() {
+		if let Some(remotes) = self.args.remotes.values() {
 			if remotes.is_empty() {
 				args.push("--no-remotes".to_owned());
 			} else {
 				args.push("-r".to_owned());
 				args.push(remotes.join(","));
 			}
+		}
+		if let Some(remotes) = self.args.remotes.trusted() {
+			args.push("--trusted-remotes".to_owned());
+			args.push(remotes.join(","));
 		}
 		if let Some(url) = &self.args.url {
 			args.push("-u".to_owned());

@@ -68,6 +68,18 @@ pub struct Remote {
 	pub region: Option<String>,
 }
 
+impl Location {
+	#[must_use]
+	pub fn without_region(mut self) -> Self {
+		match &mut self {
+			Self::Local(local) => local.region = None,
+			Self::Remote(remote) => remote.region = None,
+		}
+
+		self
+	}
+}
+
 impl std::fmt::Display for Location {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		let arg = tg::location::Arg::from(self.clone());

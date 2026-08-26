@@ -19,21 +19,26 @@ impl Session {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthenticated"));
 		}
+		if arg.trusted && !matches!(self.context.principal, tg::Principal::Root) {
+			return Err(tg::error!("unauthorized"));
+		}
 		let name = name.to_owned();
 		let principal = self.resolve_remote_arg_principal(arg.principal).await?;
+		let trusted = arg.trusted;
 		let url = arg.url.to_string();
 		let principal = principal.as_ref().map(ToString::to_string);
 		self.server
 			.database
 			.run(|transaction| {
 				let name = name.clone();
-				let url = url.clone();
 				let principal = principal.clone();
+				let url = url.clone();
 				async move {
 					Self::put_remote_with_transaction(
 						transaction,
 						&name,
 						principal.as_deref(),
+						trusted,
 						&url,
 					)
 					.await
@@ -67,30 +72,31 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		name: &str,
 		principal: Option<&str>,
+		trusted: bool,
 		url: &str,
 	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
 				update remotes
-				set url = {p}3
+				set trusted = {p}3, url = {p}4
 				where name = {p}1 and (
 					(principal is null and cast({p}2 as text) is null) or
 					principal = {p}2
 				);
 			",
 		);
-		let params = db::params![name, principal, url];
+		let params = db::params![name, principal, trusted, url];
 		let result = transaction.execute(statement.into(), params).await;
 		let n = crate::database::retry!(result, "failed to execute the statement");
 		if n == 0 {
 			let statement = formatdoc!(
 				r"
-					insert into remotes (name, principal, url)
-					values ({p}1, {p}2, {p}3);
+					insert into remotes (name, principal, trusted, url)
+					values ({p}1, {p}2, {p}3, {p}4);
 				",
 			);
-			let params = db::params![name, principal, url];
+			let params = db::params![name, principal, trusted, url];
 			let result = transaction.execute(statement.into(), params).await;
 			crate::database::retry!(result, "failed to execute the statement");
 		}

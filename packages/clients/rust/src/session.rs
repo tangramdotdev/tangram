@@ -53,6 +53,11 @@ impl Session {
 	pub fn context(&self) -> &tg::Context {
 		&self.context
 	}
+
+	#[must_use]
+	pub fn trusted(&self) -> bool {
+		self.context.trusted()
+	}
 }
 
 impl tg::Handle for tg::Session {

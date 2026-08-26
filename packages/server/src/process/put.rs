@@ -29,19 +29,19 @@ impl Session {
 	) -> tg::Result<tg::process::put::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let mut output = match location.clone() {
+		let (mut output, trusted) = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.put_process_local(id, arg, false).await?
+				(self.put_process_local(id, arg, false).await?, false)
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.put_process_region(id, arg, region).await?,
+			}) => (self.put_process_region(id, arg, region).await?, false),
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => self.put_process_remote(id, arg, remote, region).await?,
 		};
-		self.update_tokens_for_location(&mut output.tokens, &location)?;
+		self.update_tokens_and_location(&mut output.tokens, None, &location, trusted)?;
 
 		Ok(output)
 	}
@@ -384,10 +384,11 @@ impl Session {
 		arg: tg::process::put::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<tg::process::put::Output> {
+	) -> tg::Result<(tg::process::put::Output, bool)> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let location = region.as_deref().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
@@ -404,7 +405,7 @@ impl Session {
 			.put_process(id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to put the process"))?;
-		Ok(output)
+		Ok((output, trusted))
 	}
 
 	pub(crate) async fn put_process_request(

@@ -76,7 +76,7 @@ impl Session {
 		if let Some(output) = &mut output
 			&& let Some(token) = self.create_read_token(&id.clone().into())?
 		{
-			output.tokens.insert_local(token);
+			output.tokens.set_local(token);
 		}
 		Ok(output)
 	}
@@ -240,8 +240,12 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		self.update_tokens_for_location(&mut output.tokens, &location)?;
-		output.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			&location,
+			false,
+		)?;
 		Ok(Some(output))
 	}
 
@@ -298,6 +302,10 @@ impl Session {
 				arg: arg.clone(),
 				id: id.clone(),
 			});
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 
 		// Get a cached response.
 		if let Some(crate::remote::cache::Response::SandboxGet(response)) = self
@@ -315,7 +323,7 @@ impl Session {
 					{
 						output.tokens.remove_local();
 					}
-					self.set_remote_sandbox_location(output, remote)?;
+					self.set_remote_sandbox_location(output, remote, trusted)?;
 				}
 
 				return Ok(output);
@@ -326,9 +334,6 @@ impl Session {
 		}
 
 		// Get the sandbox from the remote.
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),
-		)?;
 		let mut output = client.try_get_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the sandbox"),
 		)?;
@@ -340,7 +345,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
 		if let Some(output) = &mut output {
-			self.set_remote_sandbox_location(output, remote)?;
+			self.set_remote_sandbox_location(output, remote, trusted)?;
 		}
 
 		Ok(output)
@@ -350,6 +355,7 @@ impl Session {
 		&self,
 		output: &mut tg::sandbox::get::Output,
 		remote: &crate::location::Remote,
+		trusted: bool,
 	) -> tg::Result<()> {
 		let region = match output.location.as_ref() {
 			Some(tg::Location::Local(local)) => local.region.clone(),
@@ -359,8 +365,12 @@ impl Session {
 			name: remote.name.clone(),
 			region,
 		});
-		self.update_tokens_for_location(&mut output.tokens, &location)?;
-		output.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			&location,
+			trusted,
+		)?;
 		Ok(())
 	}
 

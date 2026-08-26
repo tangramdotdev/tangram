@@ -9,6 +9,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub principal: Option<tg::principal::Selector>,
 
+	#[serde(default)]
+	pub trusted: bool,
+
 	pub url: Uri,
 }
 

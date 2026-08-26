@@ -1081,6 +1081,9 @@ pub struct Remote {
 	pub token: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub trusted: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
 }
 
@@ -3046,8 +3049,13 @@ fn resolve_retry_with_default(source: Retry, mut target: server::Retry) -> serve
 
 fn resolve_remote(source: Remote) -> tg::Result<server::Remote> {
 	let token = source.token;
+	let trusted = source.trusted.unwrap_or_default();
 	let url = required(source.url, "remotes.*.url")?;
-	let target = server::Remote { token, url };
+	let target = server::Remote {
+		token,
+		trusted,
+		url,
+	};
 
 	Ok(target)
 }

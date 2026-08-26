@@ -16,8 +16,12 @@ pub struct Key {
 	pub remote: String,
 }
 
-pub type Tasks =
-	tangram_futures::task::Map<Key, tg::Result<Vec<tg::list::Entry>>, (), fnv::FnvBuildHasher>;
+pub type Tasks = tangram_futures::task::Map<
+	Key,
+	tg::Result<Vec<tg::list::Entry>>,
+	tg::Session,
+	fnv::FnvBuildHasher,
+>;
 
 impl Session {
 	pub(super) async fn list_remote(
@@ -37,6 +41,10 @@ impl Session {
 		ttl: tg::remote::cache::Ttl,
 		query: Query,
 	) -> tg::Result<Vec<tg::list::Entry>> {
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 		let query = query.with_remote(&remote);
 		let request = match &query {
 			Query::List(arg) => {
@@ -89,7 +97,7 @@ impl Session {
 						) {
 						target.options.tokens = tg::authorization::Tokens::default();
 					}
-					self.set_remote_entry_location(entry, &remote.name)?;
+					self.set_remote_entry_location(entry, &remote.name, trusted)?;
 				}
 
 				return Ok(entries);
@@ -101,10 +109,12 @@ impl Session {
 		let task = self
 			.server
 			.remote_list_tasks
-			.get_or_spawn_detached(key.clone(), {
-				let session = self.clone();
-				move |_stop| async move { session.list_remote_task(key).await }
-			});
+			.get_or_spawn_detached_with_context(
+				key.clone(),
+				|| client,
+				move |client, _stop| async move { Self::list_remote_task(key, client).await },
+			);
+		let trusted = task.context().trusted();
 		let entries = task
 			.wait()
 			.await
@@ -132,7 +142,7 @@ impl Session {
 		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
-				self.set_remote_entry_location(&mut entry, &remote.name)?;
+				self.set_remote_entry_location(&mut entry, &remote.name, trusted)?;
 				Ok(entry)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -144,6 +154,7 @@ impl Session {
 		&self,
 		entry: &mut tg::list::Entry,
 		remote: &str,
+		trusted: bool,
 	) -> tg::Result<()> {
 		let region = match entry.location() {
 			Some(tg::Location::Local(local)) => local.region.clone(),
@@ -153,26 +164,29 @@ impl Session {
 			name: remote.to_owned(),
 			region,
 		});
-		let mut tokens = entry.tokens().clone();
-		self.update_tokens_for_location(&mut tokens, &location)?;
-		entry.set_tokens(tokens);
+		self.update_tokens_and_location(
+			&mut entry.node.options.tokens,
+			Some(&mut entry.node.options.location),
+			&location,
+			trusted,
+		)?;
 		if let Some(target) = &mut entry.target {
-			self.update_referent_options_for_location(&mut target.options, &location)?;
+			self.update_tokens_and_location(
+				&mut target.options.tokens,
+				Some(&mut target.options.location),
+				&location,
+				trusted,
+			)?;
 		}
-		entry.node.options.location = Some(location);
 		Ok(())
 	}
 
-	async fn list_remote_task(&self, key: Key) -> tg::Result<Vec<tg::list::Entry>> {
+	async fn list_remote_task(key: Key, client: tg::Session) -> tg::Result<Vec<tg::list::Entry>> {
 		let Key {
 			principal: _,
 			query,
 			remote,
 		} = key;
-		let client = self
-			.get_remote_session(&remote)
-			.await
-			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let data = match query {
 			Query::List(arg) => {
 				client
@@ -236,7 +250,7 @@ fn tokens_for_remote(
 	remote: &str,
 ) -> tg::authorization::Tokens {
 	let mut output = tg::authorization::Tokens::default();
-	for (location, token) in &tokens.0 {
+	for (location, token) in tokens.iter() {
 		let tg::Location::Remote(location) = location else {
 			continue;
 		};
@@ -244,7 +258,7 @@ fn tokens_for_remote(
 			let location = tg::Location::Local(tg::location::Local {
 				region: location.region.clone(),
 			});
-			output.insert(location, token.clone());
+			output.set(location, token.clone());
 		}
 	}
 

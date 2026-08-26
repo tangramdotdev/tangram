@@ -629,8 +629,7 @@ impl Session {
 			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
 				continue;
 			};
-			self.update_spawn_process_output_referents_for_location(&mut output, &location)?;
-			output.location = Some(location);
+			self.update_spawn_process_output_referents_for_location(&mut output, &location, false)?;
 			return Ok(Some(Output::new(self, output)));
 		}
 		Ok(None)
@@ -669,6 +668,7 @@ impl Session {
 			.get_remote_session_for_process(remote)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
+		let trusted = client.trusted();
 		let arg = tg::process::spawn::Arg {
 			cached: Some(true),
 			cache_location: Some(tg::location::Arg::default()),
@@ -699,8 +699,11 @@ impl Session {
 				name: remote.to_owned(),
 				region,
 			});
-			self.update_spawn_process_output_referents_for_location(&mut output, &location)?;
-			output.location = Some(location);
+			self.update_spawn_process_output_referents_for_location(
+				&mut output,
+				&location,
+				trusted,
+			)?;
 			return Ok(Some(Output::new(self, output)));
 		}
 		Ok(None)

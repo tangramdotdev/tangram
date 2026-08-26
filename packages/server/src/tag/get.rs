@@ -112,6 +112,10 @@ impl Session {
 		let cacheable = arg.tokens.is_empty();
 		let ttl = arg.ttl;
 		let location = tg::Location::Remote(remote.clone());
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 		arg.cached = false;
 		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(
@@ -140,9 +144,13 @@ impl Session {
 					if !crate::remote::cache::token_valid(tag.tokens.local(), &self.server.clock) {
 						tag.tokens.remove_local();
 					}
-					self.update_tokens_for_location(&mut tag.tokens, &location)?;
+					self.update_tokens_and_location(
+						&mut tag.tokens,
+						Some(&mut tag.location),
+						&location,
+						trusted,
+					)?;
 					tag.tokens.inherit(&tokens);
-					tag.location = Some(location);
 				}
 
 				return Ok(output);
@@ -151,9 +159,6 @@ impl Session {
 		if cached {
 			return Ok(None);
 		}
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
 		let tag = tg::tag::Selector::Id(id.clone());
 		let mut output = client
 			.try_get_tag(&tag, arg)
@@ -168,9 +173,13 @@ impl Session {
 				.await?;
 		}
 		if let Some(tag) = &mut output {
-			self.update_tokens_for_location(&mut tag.tokens, &location)?;
+			self.update_tokens_and_location(
+				&mut tag.tokens,
+				Some(&mut tag.location),
+				&location,
+				trusted,
+			)?;
 			tag.tokens.inherit(&tokens);
-			tag.location = Some(location);
 		}
 
 		Ok(output)

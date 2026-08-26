@@ -1864,12 +1864,11 @@ mod tests {
 		let local = crate::Location::Local(crate::location::Local::default());
 		let remote = crate::Location::Remote(crate::location::Remote {
 			name: "production".into(),
-			region: Some("east".into()),
+			region: None,
 		});
-		let tokens = crate::authorization::Tokens(BTreeMap::from([
-			(local, local_token),
-			(remote, remote_token),
-		]));
+		let mut tokens = crate::authorization::Tokens::default();
+		tokens.set(local, local_token);
+		tokens.set(remote, remote_token);
 		let referent = crate::Referent::with_node_and_tokens(id, tokens);
 		let object = crate::Object::with_referent(referent);
 		let value = crate::Value::Map(BTreeMap::from([

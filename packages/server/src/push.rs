@@ -35,6 +35,7 @@ struct PushOrPullTaskArg {
 	put: Vec<tg::Referent<tg::Id>>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: tg::Location,
+	source_session: Option<tg::Session>,
 }
 
 impl Session {
@@ -178,6 +179,30 @@ impl Session {
 			received_specifiers,
 			source,
 		} = inner_arg;
+		let source_session = match &source {
+			tg::Location::Local(_) => None,
+			tg::Location::Remote(remote) => {
+				let session = if process {
+					self.get_remote_session_for_process(&remote.name).await
+				} else {
+					self.get_remote_session(&remote.name).await
+				}
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						remote = %remote.name,
+						"failed to get the source remote session"
+					)
+				})?;
+				crate::checkpoint!(
+					self.server,
+					"push.source.remote.resolved",
+					remote = %remote.name,
+				)
+				.await;
+				Some(session)
+			},
+		};
 
 		// Select the source tokens for the sync protocol.
 		let get = get
@@ -237,7 +262,7 @@ impl Session {
 			let arg = arg.clone();
 			|_| async move {
 				session
-					.push_or_pull_set_indicator_totals(source.clone(), progress, &arg)
+					.push_or_pull_set_indicator_totals(source, progress, &arg)
 					.await
 			}
 		});
@@ -245,26 +270,23 @@ impl Session {
 		// Spawn the task.
 		let task = Task::spawn({
 			let session = self.clone();
-			let destination = destination.clone();
-			let get = get.clone();
 			let progress = progress.clone();
-			let put = put.clone();
-			let received_specifiers = received_specifiers.clone();
 			let arg = arg.clone();
-			let source = source.clone();
 			|_| async move {
 				let task_arg = PushOrPullTaskArg {
 					arg,
-					destination: destination.clone(),
+					destination,
 					get,
 					process,
 					progress: progress.clone(),
 					put,
 					received_specifiers,
-					source: source.clone(),
+					source,
+					source_session,
 				};
 				let result = AssertUnwindSafe(session.push_or_pull_task(task_arg))
 					.catch_unwind()
+					.boxed()
 					.await;
 				match result {
 					Ok(Ok(output)) => {
@@ -437,7 +459,9 @@ impl Session {
 			put,
 			received_specifiers,
 			source,
+			source_session,
 		} = task_arg;
+		let source_trusted = source_session.as_ref().is_some_and(tg::Session::trusted);
 		let retry = &self.server.config.sync.retry;
 		let retry = tangram_futures::retry::Options {
 			backoff: retry.backoff,
@@ -455,6 +479,7 @@ impl Session {
 			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
 			let source = source.clone();
+			let source_session = source_session.clone();
 			async move {
 				if let Some(received_specifiers) = &received_specifiers {
 					received_specifiers.lock().unwrap().clear();
@@ -482,13 +507,19 @@ impl Session {
 					tokio::sync::mpsc::channel(1024);
 
 				// Create the source arg and input stream.
+				let source_location = match source {
+					tg::Location::Local(local) => tg::Location::Local(local),
+					tg::Location::Remote(remote) => tg::Location::Local(tg::location::Local {
+						region: remote.region,
+					}),
+				};
 				let source_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
 					force: arg.force,
 					get: Vec::new(),
 					group_children: arg.group_children,
-					location: Some(source.clone().into()),
+					location: Some(source_location.into()),
 					metadata: arg.metadata,
 					organization_children: arg.organization_children,
 					process_children: arg.process_children,
@@ -510,9 +541,9 @@ impl Session {
 					ancestors: arg.ancestors,
 					eager: arg.eager,
 					force: arg.force,
-					get: get.clone(),
+					get,
 					group_children: arg.group_children,
-					location: Some(destination.clone().into()),
+					location: Some(destination.into()),
 					metadata: arg.metadata,
 					organization_children: arg.organization_children,
 					process_children: arg.process_children,
@@ -530,7 +561,12 @@ impl Session {
 
 				// Create the source future.
 				let source_future = async {
-					let source_output_stream = if process {
+					let source_output_stream = if let Some(source_session) = source_session {
+						source_session
+							.sync(source_arg, source_input_stream)
+							.await
+							.map(futures::StreamExt::boxed)
+					} else if process {
 						session
 							.sync_for_process(source_arg, source_input_stream)
 							.await
@@ -558,7 +594,7 @@ impl Session {
 									received_specifiers.as_ref(),
 								);
 								source_output_sender
-									.send(message.clone())
+									.send(message)
 									.await
 									.map_err(|_| tg::error!("failed to send the message"))?;
 							},
@@ -569,20 +605,18 @@ impl Session {
 
 				// Create the destination future.
 				let destination_future = async {
-					let destination_output_stream = if process {
-						session
-							.sync_for_process(destination_arg, destination_input_stream)
-							.await
-							.map(futures::StreamExt::boxed)
-					} else {
-						session
-							.sync(destination_arg, destination_input_stream)
-							.await
-							.map(futures::StreamExt::boxed)
-					}
-					.map_err(|error| {
-						tg::error!(!error, "failed to create the destination stream")
-					})?;
+					let destination_output_stream = session
+						.sync_with_source_trust(
+							destination_arg,
+							process,
+							destination_input_stream,
+							source_trusted,
+						)
+						.await
+						.map(futures::StreamExt::boxed)
+						.map_err(|error| {
+							tg::error!(!error, "failed to create the destination stream")
+						})?;
 					let mut destination_output_stream = pin!(destination_output_stream);
 					while let Some(message) = destination_output_stream.try_next().await? {
 						match message {
@@ -595,7 +629,7 @@ impl Session {
 							},
 							_ => {
 								destination_output_sender
-									.send(message.clone())
+									.send(message)
 									.await
 									.map_err(|_| tg::error!("failed to send the message"))?;
 							},

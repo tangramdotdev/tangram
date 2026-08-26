@@ -14,6 +14,7 @@ pub(super) struct SyncGetInputArg {
 	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
 	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessNode>,
 	pub stream: BoxStream<'static, tg::sync::PutMessage>,
+	pub verify_object_ids: bool,
 }
 
 impl Session {
@@ -26,6 +27,7 @@ impl Session {
 			store_object_sender,
 			store_process_sender,
 			mut stream,
+			verify_object_ids,
 		} = arg;
 		let state = &state;
 		while let Some(message) = stream.next().await {
@@ -43,14 +45,16 @@ impl Session {
 					let data =
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
-					// Validate the ID.
-					let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
-					if message.id != actual {
-						return Err(tg::error!(
-							expected = %message.id,
-							actual = %actual,
-							"invalid object id"
-						));
+					if verify_object_ids {
+						// Validate the ID.
+						let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
+						if message.id != actual {
+							return Err(tg::error!(
+								expected = %message.id,
+								actual = %actual,
+								"invalid object id"
+							));
+						}
 					}
 
 					// Wait for the local availability check of a speculative root.

@@ -703,6 +703,8 @@ pub struct Retry {
 pub struct Remote {
 	pub token: Option<String>,
 
+	pub trusted: bool,
+
 	pub url: Uri,
 }
 

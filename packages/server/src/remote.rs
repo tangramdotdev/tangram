@@ -297,12 +297,13 @@ impl Session {
 			.server
 			.get_or_create_remote_client(output.url)
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
-		let context = client.context().clone();
+		let mut context = client.context().clone();
 		context.set_token(
 			self.try_get_authenticated_principal_remote_token(remote)
 				.await?
 				.or(output.token),
 		);
+		context.set_trusted(output.trusted);
 		let session = client.session(&context);
 		Ok(Some(session))
 	}

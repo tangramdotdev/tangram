@@ -269,7 +269,7 @@ impl Session {
 					},
 				};
 				if let Some(token) = token {
-					options.tokens.insert_local(token);
+					options.tokens.set_local(token);
 				}
 				let referent = tg::Referent { node: id, options };
 				let output = tg::checkin::Output { artifact: referent };
@@ -315,7 +315,7 @@ impl Session {
 		if path.components().count() == 1 {
 			let mut artifact = tg::Referent::with_node(id);
 			if let Some(token) = self.create_artifact_token(&artifact.node)? {
-				artifact.options.tokens.insert_local(token);
+				artifact.options.tokens.set_local(token);
 			}
 			let output = tg::checkin::Output { artifact };
 			return Ok(output);
@@ -335,7 +335,7 @@ impl Session {
 		let id = artifact.id();
 		let mut referent = tg::Referent::with_node(id);
 		if let Some(token) = self.create_artifact_token(&referent.node)? {
-			referent.options.tokens.insert_local(token);
+			referent.options.tokens.set_local(token);
 		}
 		let output = tg::checkin::Output { artifact: referent };
 

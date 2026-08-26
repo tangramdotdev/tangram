@@ -347,8 +347,14 @@ impl Session {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, %id, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let arg = tg::runner::control::Arg {
-			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			location: Some(
+				tg::Location::Local(tg::location::Local {
+					region: region.clone(),
+				})
+				.into(),
+			),
 			..arg
 		};
 		let (output, stream) = client
@@ -357,7 +363,35 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote,
+			region,
+		});
+		let session = self.clone();
+		let stream = stream
+			.map(move |result| {
+				let mut message = result?;
+				if let tg::runner::control::ServerMessage::Request(request) = &mut message
+					&& let tg::runner::control::ServerRequestArg::CreateSandbox(arg) =
+						&mut request.arg
+					&& let Some(process) = &mut arg.process
+				{
+					session.update_process_data_referents_for_location(
+						&mut process.data,
+						&location,
+						trusted,
+					)?;
+					session.update_tokens_and_location(
+						&mut process.options.tokens,
+						Some(&mut process.options.location),
+						&location,
+						trusted,
+					)?;
+				}
+				Ok(message)
+			})
+			.with_stopper(self.context.stopper.clone())
+			.boxed();
 		Ok((output, stream))
 	}
 

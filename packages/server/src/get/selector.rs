@@ -100,7 +100,7 @@ impl Session {
 		}
 		let mut tokens = tg::authorization::Tokens::with_local(token.cloned());
 		if let Some(token) = self.create_read_token(&id)? {
-			tokens.insert_local(token);
+			tokens.set_local(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -157,7 +157,12 @@ impl Session {
 			}
 		}
 		if let Some(output) = &mut output {
-			self.update_referent_options_for_location(&mut output.referent.options, &source)?;
+			self.update_tokens_and_location(
+				&mut output.referent.options.tokens,
+				Some(&mut output.referent.options.location),
+				&source,
+				false,
+			)?;
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))
@@ -184,6 +189,10 @@ impl Session {
 				_ => None,
 			}),
 		});
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let trusted = client.trusted();
 		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
 			tg::location::arg::LocalComponent {
 				regions: remote.regions.clone(),
@@ -235,9 +244,11 @@ impl Session {
 						name: remote.name.clone(),
 						region,
 					});
-					self.update_referent_options_for_location(
-						&mut output.referent.options,
+					self.update_tokens_and_location(
+						&mut output.referent.options.tokens,
+						Some(&mut output.referent.options.location),
 						&location,
+						trusted,
 					)?;
 				}
 				if let Some(output) = &output
@@ -270,9 +281,6 @@ impl Session {
 			options,
 			..tg::get::Arg::default()
 		};
-		let client = self.get_remote_session(&remote.name).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
-		)?;
 		let stream = client
 			.try_get(&reference, arg)
 			.await
@@ -301,7 +309,12 @@ impl Session {
 				name: remote.name.clone(),
 				region,
 			});
-			self.update_referent_options_for_location(&mut output.referent.options, &location)?;
+			self.update_tokens_and_location(
+				&mut output.referent.options.tokens,
+				Some(&mut output.referent.options.location),
+				&location,
+				trusted,
+			)?;
 		}
 		if let Some(output) = &output
 			&& !matches!(output.referent.node, tg::get::Node::Id(_))

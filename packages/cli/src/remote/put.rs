@@ -10,6 +10,9 @@ pub struct Args {
 	#[arg(long)]
 	pub principal: Option<tg::principal::Selector>,
 
+	#[arg(long)]
+	pub trusted: bool,
+
 	#[arg(index = 2)]
 	pub url: Uri,
 }
@@ -18,9 +21,11 @@ impl Cli {
 	pub async fn command_remote_put(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let name = args.name;
+		let trusted = args.trusted;
 		let url = args.url;
 		let arg = tg::remote::put::Arg {
 			principal: args.principal,
+			trusted,
 			url,
 		};
 		client

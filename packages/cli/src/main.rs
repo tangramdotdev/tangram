@@ -120,7 +120,7 @@ struct Args {
 	quiet: Quiet,
 
 	#[command(flatten)]
-	remotes: Remotes,
+	remotes: RemoteOptions,
 
 	#[arg(env = "TANGRAM_TOKEN", long)]
 	token: Option<String>,
@@ -135,7 +135,24 @@ struct Args {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Remotes {
+pub struct RemoteOptions {
+	/// Override the `remotes` key in the config.
+	#[arg(
+		conflicts_with_all = ["main.remotes.remotes", "main.remotes.trusted_remotes"],
+		id = "main.remotes.no_remotes",
+		long = "no-remotes"
+	)]
+	disabled: bool,
+
+	/// Mark remotes as trusted.
+	#[arg(
+		conflicts_with = "main.remotes.no_remotes",
+		id = "main.remotes.trusted_remotes",
+		long = "trusted-remotes",
+		value_delimiter = ','
+	)]
+	trusted: Option<Vec<String>>,
+
 	/// Override the `remotes` key in the config.
 	#[arg(
 		conflicts_with = "main.remotes.no_remotes",
@@ -144,25 +161,38 @@ pub struct Remotes {
 		short = 'r',
 		value_delimiter = ','
 	)]
-	remotes: Option<Vec<String>>,
-
-	/// Override the `remotes` key in the config.
-	#[arg(
-		conflicts_with = "main.remotes.remotes",
-		id = "main.remotes.no_remotes",
-		long = "no-remotes"
-	)]
-	no_remotes: bool,
+	values: Option<Vec<String>>,
 }
 
-impl Remotes {
+impl RemoteOptions {
+	pub fn overlay(&mut self, options: &Self) {
+		if options.disabled {
+			*self = options.clone();
+			return;
+		}
+		if options.trusted.is_some() || options.values.is_some() {
+			self.disabled = false;
+		}
+		if let Some(trusted) = &options.trusted {
+			self.trusted = Some(trusted.clone());
+		}
+		if let Some(values) = &options.values {
+			self.values = Some(values.clone());
+		}
+	}
+
 	#[must_use]
-	pub fn get(&self) -> Option<&[String]> {
-		if self.no_remotes {
+	pub fn values(&self) -> Option<&[String]> {
+		if self.disabled {
 			Some(&[])
 		} else {
-			self.remotes.as_deref()
+			self.values.as_deref()
 		}
+	}
+
+	#[must_use]
+	pub fn trusted(&self) -> Option<&[String]> {
+		self.trusted.as_deref()
 	}
 }
 
@@ -507,9 +537,7 @@ async fn main() -> std::process::ExitCode {
 		if let Some(directory) = serve_args.directory.clone() {
 			cli.args.directory = Some(directory);
 		}
-		if serve_args.remotes.get().is_some() {
-			cli.args.remotes = serve_args.remotes.clone();
-		}
+		cli.args.remotes.overlay(&serve_args.remotes);
 		if let Some(tracing) = serve_args.tracing.clone() {
 			cli.args.tracing = Some(tracing);
 		}

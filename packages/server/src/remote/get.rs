@@ -14,9 +14,10 @@ use {
 #[derive(db::row::Deserialize)]
 struct Row {
 	name: String,
+	token: Option<String>,
+	trusted: bool,
 	#[tangram_database(as = "db::value::FromStr")]
 	url: Uri,
-	token: Option<String>,
 }
 
 impl Session {
@@ -77,6 +78,7 @@ impl Session {
 		let output = row.map(|row| tg::remote::get::Output {
 			name: row.name,
 			token: row.token,
+			trusted: row.trusted,
 			url: row.url,
 		});
 		Ok(output)
@@ -90,7 +92,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
-				select name, token, url
+				select name, token, trusted, url
 				from remotes
 				where name = {p}1 and (
 					(principal is null and cast({p}2 as text) is null) or
@@ -137,6 +139,7 @@ impl Session {
 		let output = row.map(|row| tg::remote::get::Output {
 			name: row.name,
 			token: row.token,
+			trusted: row.trusted,
 			url: row.url,
 		});
 		Ok(output)
@@ -150,7 +153,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
-				select name, token, url
+				select name, token, trusted, url
 				from remotes
 				where name = {p}1 and name = {p}2 and principal is null;
 			",

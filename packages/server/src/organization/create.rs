@@ -153,14 +153,19 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let mut output = client.create_organization(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the organization"),
 		)?;
 		self.invalidate_remote_cache(&remote.name).await;
 		let location = tg::Location::Remote(remote);
-		self.update_tokens_for_location(&mut output.organization.tokens, &location)?;
-		output.organization.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.organization.tokens,
+			Some(&mut output.organization.location),
+			&location,
+			trusted,
+		)?;
 
 		Ok(output)
 	}

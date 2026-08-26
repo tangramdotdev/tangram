@@ -175,6 +175,7 @@ create table remote_cache (
 create table remotes (
 	principal text,
 	name text not null,
+	trusted integer not null default 0,
 	url text not null,
 	token text
 );

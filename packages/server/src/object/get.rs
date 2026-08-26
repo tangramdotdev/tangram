@@ -131,7 +131,7 @@ impl Session {
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{
-			output.tokens.insert_local(token);
+			output.tokens.set_local(token);
 		}
 		if let Some(metadata) = output.metadata {
 			output.metadata = self.mask_object_metadata(id, metadata, token).await?;
@@ -399,7 +399,7 @@ impl Session {
 		} = key;
 		let source = location.clone();
 		let tokens = tokens.for_location(&source);
-		let mut output = match location {
+		let (mut output, trusted) = match location {
 			tg::Location::Local(local) => {
 				let region = local
 					.region
@@ -417,9 +417,10 @@ impl Session {
 					metadata,
 					tokens,
 				};
-				client.try_get_object(&id, arg).await.map_err(
+				let output = client.try_get_object(&id, arg).await.map_err(
 					|error| tg::error!(!error, %id, region = %region, "failed to get the object"),
-				)
+				)?;
+				(output, false)
 			},
 			tg::Location::Remote(remote) => {
 				let client = self
@@ -446,13 +447,25 @@ impl Session {
 					metadata,
 					tokens,
 				};
-				client.try_get_object(&id, arg).await.map_err(
+				let trusted = client.trusted();
+				let output = client.try_get_object(&id, arg).await.map_err(
 					|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the object"),
-				)
+				)?;
+				(output, trusted)
 			},
-		}?;
+		};
+		if !trusted && let Some(output) = &output {
+			let actual = tg::object::Id::new(id.kind(), &output.bytes);
+			if id != actual {
+				return Err(tg::error!(
+					expected = %id,
+					actual = %actual,
+					"invalid object id"
+				));
+			}
+		}
 		if let Some(output) = &mut output {
-			self.update_tokens_for_location(&mut output.tokens, &source)?;
+			self.update_tokens_and_location(&mut output.tokens, None, &source, trusted)?;
 		}
 		Ok(output)
 	}

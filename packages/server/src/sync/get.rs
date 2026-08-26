@@ -70,6 +70,7 @@ impl Session {
 		graph: Arc<Mutex<Graph>>,
 		stream: BoxStream<'static, tg::sync::PutMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
+		verify_object_ids: bool,
 	) -> tg::Result<()> {
 		// Create the progress.
 		let progress = Progress::new();
@@ -149,6 +150,7 @@ impl Session {
 				store_object_sender,
 				store_process_sender,
 				stream,
+				verify_object_ids,
 			};
 			async move { session.sync_get_input(arg).await }.instrument(tracing::Span::current())
 		};

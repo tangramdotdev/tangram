@@ -20,20 +20,25 @@ impl Session {
 
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let mut output = match location.clone() {
+		let (mut output, trusted) = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.post_object_batch_local(arg).await?
+				(self.post_object_batch_local(arg).await?, false)
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.post_object_batch_region(arg, region).await?,
+			}) => (self.post_object_batch_region(arg, region).await?, false),
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => self.post_object_batch_remote(arg, remote, region).await?,
 		};
 		for object in &mut output.objects {
-			self.update_referent_options_for_location(&mut object.options, &location)?;
+			self.update_tokens_and_location(
+				&mut object.options.tokens,
+				Some(&mut object.options.location),
+				&location,
+				trusted,
+			)?;
 		}
 
 		Ok(output)
@@ -302,10 +307,11 @@ impl Session {
 		arg: tg::object::batch::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<tg::object::batch::Output> {
+	) -> tg::Result<(tg::object::batch::Output, bool)> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let arg = tg::object::batch::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
@@ -313,7 +319,7 @@ impl Session {
 		let output = client.post_object_batch(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to post the object batch"),
 		)?;
-		Ok(output)
+		Ok((output, trusted))
 	}
 
 	pub(crate) async fn post_object_batch_request(

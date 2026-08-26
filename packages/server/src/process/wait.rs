@@ -270,7 +270,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let future = self.update_wait_process_referents_for_location(future.boxed(), location);
+		let future =
+			self.update_wait_process_referents_for_location(future.boxed(), location, false);
 		Ok(Some((future, region.to_owned())))
 	}
 
@@ -327,6 +328,7 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let trusted = client.trusted();
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
 			region: None,
@@ -347,7 +349,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let future = self.update_wait_process_referents_for_location(future.boxed(), location);
+		let future =
+			self.update_wait_process_referents_for_location(future.boxed(), location, trusted);
 		Ok(Some((future, remote.clone())))
 	}
 
@@ -355,12 +358,13 @@ impl Session {
 		&self,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 		location: tg::Location,
+		trusted: bool,
 	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
 		let session = self.clone();
 		async move {
 			let mut output = future.await?;
 			if let Some(output) = &mut output {
-				session.update_wait_output_referents_for_location(output, &location)?;
+				session.update_wait_output_referents_for_location(output, &location, trusted)?;
 			}
 			Ok(output)
 		}
@@ -371,19 +375,25 @@ impl Session {
 		&self,
 		output: &mut tg::process::wait::Output,
 		location: &tg::Location,
+		trusted: bool,
 	) -> tg::Result<()> {
 		if let Some(error) = &mut output.error {
 			match error {
 				tg::Either::Left(error) => {
-					self.update_error_data_referents_for_location(error, location)?;
+					self.update_error_data_referents_for_location(error, location, trusted)?;
 				},
 				tg::Either::Right(error) => {
-					self.update_referent_options_for_location(&mut error.options, location)?;
+					self.update_tokens_and_location(
+						&mut error.options.tokens,
+						Some(&mut error.options.location),
+						location,
+						trusted,
+					)?;
 				},
 			}
 		}
 		if let Some(value) = &mut output.output {
-			self.update_value_data_referents_for_location(value, location)?;
+			self.update_value_data_referents_for_location(value, location, trusted)?;
 		}
 		Ok(())
 	}

@@ -157,7 +157,7 @@ impl Session {
 				continue;
 			}
 			if let Some(token) = self.create_read_token(&item.id.clone().into())? {
-				item.tokens.insert_local(token);
+				item.tokens.set_local(token);
 			}
 			authorized.push(item);
 		}
@@ -197,7 +197,7 @@ impl Session {
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
 		for item in &mut output.data {
-			self.update_tokens_for_location(&mut item.tokens, &location)?;
+			self.update_tokens_and_location(&mut item.tokens, None, &location, false)?;
 		}
 		Ok(output)
 	}
@@ -224,6 +224,7 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let arg = tg::sandbox::list::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -240,7 +241,7 @@ impl Session {
 			region: None,
 		});
 		for item in &mut output.data {
-			self.update_tokens_for_location(&mut item.tokens, &location)?;
+			self.update_tokens_and_location(&mut item.tokens, None, &location, trusted)?;
 		}
 		Ok(output)
 	}

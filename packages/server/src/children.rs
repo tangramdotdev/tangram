@@ -175,7 +175,7 @@ impl Session {
 		let token = self.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
 		let mut tokens = options.tokens;
 		if let Some(token) = token {
-			tokens.insert_local(token);
+			tokens.set_local(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -241,7 +241,12 @@ impl Session {
 		let session = self.get_region_session(region).await?;
 		let mut output = session.children(arg).await?;
 		for node in &mut output.nodes {
-			self.update_referent_options_for_location(&mut node.options, &location)?;
+			self.update_tokens_and_location(
+				&mut node.options.tokens,
+				Some(&mut node.options.location),
+				&location,
+				false,
+			)?;
 		}
 
 		Ok(output)
@@ -258,9 +263,15 @@ impl Session {
 		}));
 		arg.node.options.tokens = arg.node.options.tokens.for_location(&location);
 		let session = self.get_remote_session(&remote.name).await?;
+		let trusted = session.trusted();
 		let mut output = session.children(arg).await?;
 		for node in &mut output.nodes {
-			self.update_referent_options_for_location(&mut node.options, &location)?;
+			self.update_tokens_and_location(
+				&mut node.options.tokens,
+				Some(&mut node.options.location),
+				&location,
+				trusted,
+			)?;
 		}
 
 		Ok(output)

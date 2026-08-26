@@ -208,7 +208,12 @@ impl Session {
 		if local {
 			command_options.location = Some(tg::Location::Local(tg::location::Local::default()));
 		} else {
-			self.update_referent_options_for_location(&mut command_options, &location)?;
+			self.update_tokens_and_location(
+				&mut command_options.tokens,
+				Some(&mut command_options.location),
+				&location,
+				false,
+			)?;
 		}
 		state
 			.command

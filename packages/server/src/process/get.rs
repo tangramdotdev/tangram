@@ -128,7 +128,7 @@ impl Session {
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{
-			output.tokens.insert_local(token);
+			output.tokens.set_local(token);
 		}
 		if let Some(metadata) = output.metadata.take() {
 			output.metadata = self
@@ -435,9 +435,13 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		self.update_tokens_for_location(&mut output.tokens, &location)?;
-		self.update_process_data_referents_for_location(&mut output.data, &location)?;
-		output.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			&location,
+			false,
+		)?;
+		self.update_process_data_referents_for_location(&mut output.data, &location, false)?;
 		Ok(Some(output))
 	}
 
@@ -559,6 +563,7 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 			)?;
+		let trusted = client.trusted();
 		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
 			tg::location::arg::LocalComponent {
 				regions: remote.regions.clone(),
@@ -588,9 +593,13 @@ impl Session {
 			name: remote.name.clone(),
 			region,
 		});
-		self.update_tokens_for_location(&mut output.tokens, &location)?;
-		self.update_process_data_referents_for_location(&mut output.data, &location)?;
-		output.location = Some(location);
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			&location,
+			trusted,
+		)?;
+		self.update_process_data_referents_for_location(&mut output.data, &location, trusted)?;
 		Ok(Some(output))
 	}
 

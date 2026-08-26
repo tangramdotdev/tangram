@@ -1,7 +1,8 @@
 use {
-	crate::{Cli, Remotes},
+	crate::{Cli, RemoteOptions},
 	futures::FutureExt as _,
 	std::{
+		collections::BTreeMap,
 		io::Write as _,
 		os::fd::{FromRawFd as _, RawFd},
 		path::PathBuf,
@@ -27,7 +28,7 @@ pub struct Args {
 	pub ready_fd: Option<RawFd>,
 
 	#[command(flatten)]
-	pub remotes: Remotes,
+	pub remotes: RemoteOptions,
 
 	/// The token.
 	pub token: Option<String>,
@@ -68,20 +69,43 @@ impl Cli {
 		}
 
 		// Set the remotes.
-		if let Some(remotes) = self.args.remotes.get() {
-			config.remotes = Some(
-				remotes
-					.iter()
-					.filter_map(|remote_str| {
-						let (name, url_str) = remote_str.split_once('=')?;
-						let url = url_str.parse().ok()?;
-						Some((
-							name.to_owned(),
-							tangram_server::config::Remote { url, token: None },
-						))
-					})
-					.collect(),
-			);
+		if let Some(remotes) = self.args.remotes.values() {
+			let mut output = BTreeMap::new();
+			for remote in remotes {
+				let (name, url) = remote
+					.split_once('=')
+					.ok_or_else(|| tg::error!(%remote, "invalid remote"))?;
+				if name.is_empty() {
+					return Err(tg::error!(%remote, "invalid remote"));
+				}
+				let url = url
+					.parse()
+					.map_err(|error| tg::error!(!error, %remote, "invalid remote URL"))?;
+				let entry = tangram_server::config::Remote {
+					token: None,
+					trusted: false,
+					url,
+				};
+				output.insert(name.to_owned(), entry);
+			}
+			config.remotes = Some(output);
+		}
+
+		// Set the trusted remotes.
+		if let Some(trusted) = self.args.remotes.trusted() {
+			let remotes = config
+				.remotes
+				.as_mut()
+				.ok_or_else(|| tg::error!("failed to find the trusted remotes"))?;
+			for remote in remotes.values_mut() {
+				remote.trusted = false;
+			}
+			for name in trusted {
+				let remote = remotes
+					.get_mut(name)
+					.ok_or_else(|| tg::error!(%name, "failed to find the trusted remote"))?;
+				remote.trusted = true;
+			}
 		}
 
 		let ready_fd = args.ready_fd;

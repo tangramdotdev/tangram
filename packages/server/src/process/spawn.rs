@@ -428,8 +428,8 @@ impl Session {
 							self.update_spawn_process_output_referents_for_location(
 								&mut output,
 								&location,
+								false,
 							)?;
-							output.location = Some(location.clone());
 							Ok(output)
 						})
 						.transpose()
@@ -453,6 +453,7 @@ impl Session {
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let destination = tg::Location::Remote(tg::location::Remote {
 			name: remote.clone(),
 			region: region.clone(),
@@ -493,8 +494,8 @@ impl Session {
 							self.update_spawn_process_output_referents_for_location(
 								&mut output,
 								&location,
+								trusted,
 							)?;
-							output.location = Some(location);
 							Ok(output)
 						})
 						.transpose()
@@ -540,10 +541,16 @@ impl Session {
 		&self,
 		output: &mut tg::process::spawn::Output,
 		location: &tg::Location,
+		trusted: bool,
 	) -> tg::Result<()> {
-		self.update_tokens_for_location(&mut output.tokens, location)?;
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			location,
+			trusted,
+		)?;
 		if let Some(wait) = &mut output.wait {
-			self.update_wait_output_referents_for_location(wait, location)?;
+			self.update_wait_output_referents_for_location(wait, location, trusted)?;
 		}
 		Ok(())
 	}

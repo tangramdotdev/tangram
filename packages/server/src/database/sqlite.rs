@@ -98,7 +98,7 @@ fn migration_0000_with_transaction(
 		.execute_batch(sql)
 		.map_err(db::sqlite::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
-	let sql = "insert into remotes (name, url) values ('default', 'https://cloud.tangram.dev');";
+	let sql = "insert into remotes (name, trusted, url) values ('default', 1, 'https://cloud.tangram.dev');";
 	let result = transaction
 		.execute_batch(sql)
 		.map_err(db::sqlite::Error::from);

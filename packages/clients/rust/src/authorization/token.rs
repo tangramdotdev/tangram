@@ -38,7 +38,9 @@ pub struct Token {
 )]
 #[serde(transparent)]
 #[tangram_serialize(transparent)]
-pub struct Tokens(pub BTreeMap<tg::Location, Token>);
+pub struct Tokens {
+	map: BTreeMap<tg::Location, Token>,
+}
 
 #[derive(
 	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
@@ -223,14 +225,19 @@ impl Tokens {
 	pub fn with_local(token: Option<Token>) -> Self {
 		let mut tokens = Self::default();
 		if let Some(token) = token {
-			tokens.insert_local(token);
+			tokens.set_local(token);
 		}
 		tokens
 	}
 
 	#[must_use]
 	pub fn get(&self, location: &tg::Location) -> Option<&Token> {
-		self.0.get(location)
+		let location = location.clone().without_region();
+		self.map.get(&location)
+	}
+
+	pub fn iter(&self) -> impl Iterator<Item = (&tg::Location, &Token)> {
+		self.map.iter()
 	}
 
 	#[must_use]
@@ -240,24 +247,25 @@ impl Tokens {
 
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.0.is_empty()
+		self.map.is_empty()
 	}
 
 	pub fn clear(&mut self) {
-		self.0.clear();
+		self.map.clear();
 	}
 
-	pub fn insert(&mut self, location: tg::Location, token: Token) -> Option<Token> {
-		self.0.insert(location, token)
+	pub fn set(&mut self, location: tg::Location, token: Token) {
+		let location = location.without_region();
+		self.map.insert(location, token);
 	}
 
-	pub fn insert_local(&mut self, token: Token) -> Option<Token> {
-		self.insert(tg::Location::Local(tg::location::Local::default()), token)
+	pub fn set_local(&mut self, token: Token) {
+		self.set(tg::Location::Local(tg::location::Local::default()), token);
 	}
 
 	pub fn inherit(&mut self, parent: &Self) {
-		for (location, token) in &parent.0 {
-			self.0
+		for (location, token) in parent.iter() {
+			self.map
 				.entry(location.clone())
 				.or_insert_with(|| token.clone());
 		}
@@ -269,7 +277,7 @@ impl Tokens {
 	}
 
 	pub fn remove_local(&mut self) -> Option<Token> {
-		self.0
+		self.map
 			.remove(&tg::Location::Local(tg::location::Local::default()))
 	}
 }
@@ -520,5 +528,47 @@ mod tests {
 		let error = token.verify_at(&public_key, 21).unwrap_err();
 
 		assert_eq!(error.to_string(), "expired token");
+	}
+
+	#[test]
+	fn tokens_strip_regions() {
+		let private_key = tg::authorization::PrivateKey::generate(
+			"default",
+			tg::authorization::Algorithm::Ed25519,
+		)
+		.unwrap();
+		let body = tg::authorization::Body {
+			expires_at: 20,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
+		};
+		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
+		let mut tokens = tg::authorization::Tokens::default();
+		let local = tg::Location::Local(tg::location::Local {
+			region: Some("east".into()),
+		});
+		tokens.set(local, token.clone());
+		let remote = tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: Some("east".into()),
+		});
+		tokens.set(remote, token.clone());
+
+		let local = tg::Location::Local(tg::location::Local {
+			region: Some("west".into()),
+		});
+		let remote = tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: Some("west".into()),
+		});
+		assert_eq!(tokens.get(&local), Some(&token));
+		assert_eq!(tokens.get(&remote), Some(&token));
+		assert!(
+			tokens
+				.iter()
+				.all(|(location, _)| location.clone().without_region() == *location)
+		);
 	}
 }

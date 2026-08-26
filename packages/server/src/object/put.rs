@@ -17,19 +17,24 @@ impl Session {
 	) -> tg::Result<tg::object::put::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let mut output = match location.clone() {
+		let (mut output, trusted) = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.put_object_local(id, arg).await?
+				(self.put_object_local(id, arg).await?, false)
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.put_object_region(id, arg, region).await?,
+			}) => (self.put_object_region(id, arg, region).await?, false),
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => self.put_object_remote(id, arg, remote, region).await?,
 		};
-		self.update_referent_options_for_location(&mut output.object.options, &location)?;
+		self.update_tokens_and_location(
+			&mut output.object.options.tokens,
+			Some(&mut output.object.options.location),
+			&location,
+			trusted,
+		)?;
 
 		Ok(output)
 	}
@@ -201,10 +206,11 @@ impl Session {
 		arg: tg::object::put::Arg,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<tg::object::put::Output> {
+	) -> tg::Result<(tg::object::put::Output, bool)> {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
 		let arg = tg::object::put::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
@@ -212,7 +218,7 @@ impl Session {
 		let output = client.put_object(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote, "failed to put the object"),
 		)?;
-		Ok(output)
+		Ok((output, trusted))
 	}
 
 	pub(crate) async fn put_object_request(
