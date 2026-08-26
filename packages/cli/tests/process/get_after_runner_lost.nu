@@ -60,3 +60,4 @@ let process = tg --url $remote.url --token $root_token get $id | from json
 let elapsed = (((date now) - $start) / 1sec | math round -p 2)
 assert ($elapsed < 5) $"getting a process without a runner took ($elapsed)s"
 assert ($process.command == $started.command) "the get must return the process"
+assert ($process.status == 'started') "the get must return the indexed process state"

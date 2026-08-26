@@ -256,8 +256,11 @@ impl Session {
 					let data = indexed.data.unwrap();
 					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
 				} else {
-					// The runner has the freshest data, but it may have released the process, so fall back to the index.
-					let Ok(data) = control_future.await else {
+					// Give the runner a short opportunity to provide fresher data before falling back to the index.
+					let Ok(Ok(data)) =
+						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
+							.await
+					else {
 						let data = indexed
 							.data
 							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
@@ -290,7 +293,6 @@ impl Session {
 				}
 			},
 			future::Either::Right((data, index_future)) => {
-				// The runner has the freshest data, but it may have released the process, so fall back to the index.
 				let Ok(data) = data else {
 					let Some(indexed) = index_future.await? else {
 						return Ok(None);
@@ -356,14 +358,13 @@ impl Session {
 		let request = tg::process::control::ServerRequestArg::Get(
 			tg::process::control::GetServerRequestArg {},
 		);
-		// A runner that has released the process never answers, so bound the request.
 		let retry = tangram_futures::retry::Options {
-			max_retries: 1,
+			max_retries: u64::MAX,
 			..Default::default()
 		};
 		let options = crate::control::Options {
 			retry,
-			timeout: std::time::Duration::from_secs(1),
+			timeout: std::time::Duration::from_secs(10),
 		};
 		let response = self
 			.send_process_control_request(id, request, options)
