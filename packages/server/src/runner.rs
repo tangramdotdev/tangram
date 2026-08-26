@@ -1,6 +1,6 @@
 use {
-	crate::Session,
-	futures::{FutureExt as _, StreamExt as _, future},
+	crate::{Session, Shutdown},
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
 	std::{
 		ops::ControlFlow,
 		pin::pin,
@@ -242,12 +242,54 @@ impl Session {
 			}
 		}
 
-		// Stop the sandbox pool.
-		self.stop_sandbox_pool().await;
+		let shutdown = self
+			.server
+			.shutdown
+			.borrow()
+			.expect("the shutdown mode was not set");
 
-		// Stop retaining finished sandbox state and wait for running sandboxes to finish.
-		self.server.sandbox_tasks.stop_all();
-		let results = self.server.sandbox_tasks.wait().await;
+		// Stop the sandbox pool.
+		self.shutdown_sandbox_pool(shutdown).await;
+
+		// Shut down the sandbox tasks.
+		let sandboxes = match shutdown {
+			Shutdown::Interrupt => {
+				self.server.sandbox_tasks.stop_all();
+				Vec::new()
+			},
+			Shutdown::Terminate => {
+				let sandboxes = self
+					.server
+					.runner
+					.state
+					.sandboxes
+					.iter()
+					.filter_map(|sandbox| {
+						for process in sandbox.processes.iter() {
+							process.stopper.stop();
+						}
+						let id = sandbox.id.clone();
+						let sandbox = sandbox.sandbox.clone()?;
+
+						Some((id, sandbox))
+					})
+					.collect::<Vec<_>>();
+				self.server.sandbox_tasks.abort_all();
+
+				sandboxes
+			},
+		};
+		let wait_future = self.server.sandbox_tasks.wait();
+		let terminate_future = sandboxes
+			.into_iter()
+			.map(|(id, sandbox)| async move {
+				if let Err(error) = sandbox.destroy().await {
+					tracing::error!(?id, error = %error.trace(), "failed to terminate a sandbox");
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>();
+		let (results, ()) = tokio::join!(wait_future, terminate_future);
 		for result in results {
 			if let Err(error) = result
 				&& !error.is_cancelled()
@@ -261,8 +303,12 @@ impl Session {
 		self.server.runner.sandbox_pool.start(self);
 	}
 
+	pub(crate) async fn shutdown_sandbox_pool(&self, shutdown: Shutdown) {
+		self.server.runner.sandbox_pool.shutdown(shutdown).await;
+	}
+
 	pub(crate) async fn stop_sandbox_pool(&self) {
-		self.server.runner.sandbox_pool.stop().await;
+		self.shutdown_sandbox_pool(Shutdown::Interrupt).await;
 	}
 
 	async fn runner_task_inner(&self, id: &tg::runner::Id, stopper: Stopper) -> tg::Result<()> {

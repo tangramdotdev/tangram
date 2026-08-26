@@ -1,6 +1,7 @@
 use {
 	super::{CreateSandboxArg, CreateSandboxOutput},
-	crate::Session,
+	crate::{Session, Shutdown},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	std::{collections::VecDeque, sync::Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -45,27 +46,40 @@ impl Pool {
 		Some(task)
 	}
 
-	pub(in crate::runner) async fn stop(&self) {
+	pub(in crate::runner) async fn shutdown(&self, shutdown: Shutdown) {
 		let tasks = self.inner.lock().unwrap().drain(..).collect::<Vec<_>>();
-		for task in tasks {
-			match task.wait().await {
-				Ok(Ok(output)) => {
-					if let Err(error) = destroy(output).await {
-						tracing::error!(
-							error = %error.trace(),
-							"failed to destroy a pooled sandbox",
-						);
-					}
-				},
-				Ok(Err(error)) => {
-					tracing::error!(error = %error.trace(), "failed to warm a sandbox");
-				},
-				Err(error) if error.is_cancelled() => {},
-				Err(error) => {
-					tracing::error!(?error, "a sandbox pool task panicked");
-				},
-			}
+		match shutdown {
+			Shutdown::Interrupt => {},
+			Shutdown::Terminate => {
+				for task in &tasks {
+					task.abort();
+				}
+			},
 		}
+		tasks
+			.into_iter()
+			.map(|task| async move {
+				match task.wait().await {
+					Ok(Ok(output)) => {
+						if let Err(error) = destroy(output).await {
+							tracing::error!(
+								error = %error.trace(),
+								"failed to destroy a pooled sandbox",
+							);
+						}
+					},
+					Ok(Err(error)) => {
+						tracing::error!(error = %error.trace(), "failed to warm a sandbox");
+					},
+					Err(error) if error.is_cancelled() => {},
+					Err(error) => {
+						tracing::error!(?error, "a sandbox pool task panicked");
+					},
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<()>()
+			.await;
 	}
 
 	#[must_use]

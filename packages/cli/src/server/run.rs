@@ -8,7 +8,7 @@ use {
 		path::PathBuf,
 	},
 	tangram_client::prelude::*,
-	tangram_server::Owned as Server,
+	tangram_server::{Owned as Server, Shutdown},
 	tangram_uri::Uri,
 };
 
@@ -143,19 +143,18 @@ impl Cli {
 			let shutdown = tokio::select! {
 				result = server.wait() => {
 					result.unwrap();
-					false
+					None
 				},
 				_ = interrupt.recv() => {
-					server.stop();
-					true
+					Some(Shutdown::Interrupt)
 				},
 				_ = terminate.recv() => {
-					server.terminate();
-					true
+					Some(Shutdown::Terminate)
 				},
 			};
 
-			if shutdown {
+			if let Some(shutdown) = shutdown {
+				server.shutdown(shutdown);
 				tokio::select! {
 					result = server.wait() => {
 						result.unwrap();

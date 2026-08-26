@@ -146,7 +146,11 @@ impl Server {
 					stopper,
 					token: arg.token,
 				};
-				let result = session.sandbox_task(arg).boxed().await;
+				let result = if server.shutdown.borrow().is_some() {
+					Err(tg::error!("the server is shutting down"))
+				} else {
+					session.sandbox_task(arg).boxed().await
+				};
 				if let Err(error) = &result {
 					event_sender.send(Err(error.clone())).ok();
 				}
@@ -1003,11 +1007,6 @@ impl Session {
 				() = current_timer_future => {
 					break;
 				},
-
-				// If the server is terminating, then break and destroy the sandbox.
-				() = self.server.terminate.wait() => {
-					break;
-				},
 			}
 		}
 
@@ -1200,10 +1199,7 @@ impl Session {
 					let message = message
 						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
 					let Some(message) = message else {
-						tokio::select! {
-							() = &mut retention_future => {},
-							() = stopper.wait() => {},
-						}
+						retention_future.await;
 						break;
 					};
 					match message {

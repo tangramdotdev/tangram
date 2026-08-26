@@ -168,7 +168,11 @@ impl Session {
 				sandbox_id_receiver,
 				sandbox_stopper,
 			};
-			let result = session.process_task(arg).boxed().await;
+			let result = if session.server.shutdown.borrow().is_some() {
+				Err(tg::error!("the server is shutting down"))
+			} else {
+				session.process_task(arg).boxed().await
+			};
 			if let Err(error) = &result {
 				event_sender.send(Err(error.clone())).ok();
 			}
