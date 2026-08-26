@@ -1,15 +1,13 @@
 use {
 	super::Stream,
 	crate::prelude::*,
-	bytes::Bytes,
-	futures::{
-		StreamExt as _, future,
-		stream::{self, BoxStream},
-	},
+	futures::{StreamExt as _, stream},
+	num::ToPrimitive as _,
 	std::{
 		marker::PhantomData,
 		sync::{Arc, Weak},
 	},
+	tangram_futures::task::Task,
 	tokio::{io::AsyncWriteExt as _, sync::Mutex},
 };
 
@@ -18,8 +16,16 @@ pub struct Writer(Arc<Mutex<State>>);
 
 struct State {
 	fd: Option<Fd>,
+	input: Option<async_channel::Sender<Input>>,
+	position: u64,
 	process: Option<Weak<tg::process::Inner>>,
 	stream: Stream,
+	task: Option<Task<tg::Result<()>>>,
+}
+
+struct Input {
+	acknowledgment: tokio::sync::oneshot::Sender<()>,
+	chunk: tg::process::stdio::Chunk,
 }
 
 enum Fd {
@@ -30,8 +36,11 @@ impl Writer {
 	fn new(fd: Option<Fd>, stream: Stream) -> Self {
 		Self(Arc::new(Mutex::new(State {
 			fd,
+			input: None,
+			position: 0,
 			process: None,
 			stream,
+			task: None,
 		})))
 	}
 
@@ -62,26 +71,29 @@ impl Writer {
 	{
 		let mut state = self.0.lock().await;
 		let fd = state.fd.take();
-		let process = state.process.take();
-		let stream = state.stream;
 		if matches!(fd, Some(Fd::Stdin(_))) {
 			drop(fd);
+
 			return Ok(());
 		}
 		drop(fd);
-		if let Some(process) = process {
-			let (location, process, tokens) =
-				ensure_process_with_handle(Some(process), handle).await?;
-			let arg = tg::process::stdio::write::Arg {
-				location,
-				streams: vec![stream],
-				tokens,
-			};
-			let input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>> =
-				stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed();
-			handle.write_process_stdio_all(&process, arg, input).await?;
+		if state.input.is_none() && state.process.is_some() {
+			Self::start_with_handle(&mut state, handle).await?;
 		}
-		Ok(())
+		state.input.take();
+		let Some(task) = state.task.take() else {
+			state.process.take();
+
+			return Ok(());
+		};
+		drop(state);
+		let result = task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the stdin task panicked"))?;
+		let mut state = self.0.lock().await;
+		state.process.take();
+		result
 	}
 
 	pub async fn write(&mut self, input: &[u8]) -> tg::Result<usize> {
@@ -102,30 +114,38 @@ impl Writer {
 				.write_all(input)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
+
 			return Ok(input.len());
 		}
-		let Some(process) = state.process.clone() else {
-			return Err(tg::error!("{} is not available", state.stream));
+		if state.input.is_none() {
+			Self::start_with_handle(&mut state, handle).await?;
+		}
+		let input_length = input.len();
+		let length = input_length.to_u64().unwrap();
+		let chunk = tg::process::stdio::Chunk {
+			bytes: bytes::Bytes::copy_from_slice(input),
+			combined_position: state.position,
+			stream: state.stream,
+			stream_position: state.position,
+			timestamp: None,
 		};
-		let stream = state.stream;
-		drop(state);
-		let (location, process, tokens) = ensure_process_with_handle(Some(process), handle).await?;
-		let arg = tg::process::stdio::write::Arg {
-			location,
-			streams: vec![stream],
-			tokens,
+		let (acknowledgment, receiver) = tokio::sync::oneshot::channel();
+		let input = Input {
+			acknowledgment,
+			chunk,
 		};
-		let event = tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
-			bytes: Bytes::copy_from_slice(input),
-			position: None,
-			stream,
-		});
-		let stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>> =
-			stream::once(future::ok(event)).boxed();
-		handle
-			.write_process_stdio_all(&process, arg, stream)
-			.await?;
-		Ok(input.len())
+		if state.input.as_ref().unwrap().send(input).await.is_err() {
+			return Self::wait_for_task_error(&mut state).await;
+		}
+		if receiver.await.is_err() {
+			return Self::wait_for_task_error(&mut state).await;
+		}
+		state.position = state
+			.position
+			.checked_add(length)
+			.ok_or_else(|| tg::error!("the stdin position is too large"))?;
+
+		Ok(input_length)
 	}
 
 	pub async fn write_all(&mut self, input: &[u8]) -> tg::Result<()> {
@@ -146,6 +166,58 @@ impl Writer {
 			position += count;
 		}
 		self.close_with_handle(handle).await
+	}
+
+	async fn start_with_handle<H>(state: &mut State, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		let (location, process, tokens) =
+			ensure_process_with_handle(state.process.clone(), handle).await?;
+		let arg = tg::process::stdio::write::Arg {
+			location,
+			streams: vec![state.stream],
+			tokens,
+		};
+		let (sender, receiver) = async_channel::bounded::<Input>(1);
+		let input = stream::unfold(
+			(receiver, None),
+			|(receiver, acknowledgment): (_, Option<tokio::sync::oneshot::Sender<()>>)| async move {
+				if let Some(acknowledgment) = acknowledgment {
+					acknowledgment.send(()).ok();
+				}
+				let input = receiver.recv().await.ok()?;
+				let chunk = input.chunk;
+				let acknowledgment = Some(input.acknowledgment);
+
+				Some((Ok(chunk), (receiver, acknowledgment)))
+			},
+		)
+		.boxed();
+		let handle = handle.clone();
+		let task = Task::spawn(move |_| async move {
+			handle.write_process_stdio_all(&process, arg, input).await
+		});
+		state.input = Some(sender);
+		state.task = Some(task);
+
+		Ok(())
+	}
+
+	async fn wait_for_task_error(state: &mut State) -> tg::Result<usize> {
+		state.input.take();
+		let task = state
+			.task
+			.take()
+			.ok_or_else(|| tg::error!("the stdin task ended unexpectedly"))?;
+		let result = task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the stdin task panicked"))?;
+		match result {
+			Ok(()) => Err(tg::error!("the stdin task ended unexpectedly")),
+			Err(error) => Err(error),
+		}
 	}
 }
 
@@ -179,5 +251,6 @@ where
 		.right()
 		.cloned()
 		.ok_or_else(|| tg::error!("the process is not available"))?;
+
 	Ok((location, id, tokens))
 }

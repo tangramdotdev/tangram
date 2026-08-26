@@ -89,7 +89,7 @@ fileprivate final class SecurityScopedDirectory {
 		self.url = url.standardizedFileURL
 		didStartAccessing = self.url.startAccessingSecurityScopedResource()
 		// Log whether the sandbox granted the scope, which determines whether the
-		// fast path can open the object store.
+		// fast path can open the store.
 		logger.info(
 			"security scoped access to \(self.url.path(percentEncoded: false), privacy: .public): \(self.didStartAccessing, privacy: .public)",
 		)
@@ -293,22 +293,22 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 
 	func activate(options: FSTaskOptions, replyHandler reply: @escaping (FSItem?, Error?) -> Void) {
 		// The resource is the server's data directory. Pass it to the provider so
-		// that the fast path can read the object store and the checkouts directory
+		// that the fast path can read the store and the checkouts directory
 		// directly instead of sending every request over the socket. The security
 		// scoped resource is held open by the volume for as long as the provider
 		// lives.
 		let dataDirectory = sourceDirectory.url.path(percentEncoded: false)
 
-		// The server sends the object store's map size and path as mount options,
+		// The server sends the store's map size and path as mount options,
 		// because lmdb requires a reader to open the environment with a map size at
 		// least as large as the writer's. A zero map size and an empty path select
 		// the defaults, which match the server's.
 		let options = mountOptions(options)
-		let objectStoreMapSize = options["object_store_map_size"].flatMap(UInt64.init) ?? 0
-		let objectStorePath = options["object_store_path"] ?? ""
+		let storeMapSize = options["store_map_size"].flatMap(UInt64.init) ?? 0
+		let storePath = options["store_path"] ?? ""
 
 		// Share the LMDB lock through the app group.
-		let objectStorePosixSemPrefix = options["object_store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
+		let storePosixSemPrefix = options["store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
 		// Read the principal and authorization tokens used to authorize artifacts; an empty principal disables enforcement.
 		let principal = options["principal"] ?? ""
@@ -332,21 +332,21 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 
 		var provider: TgVfsProvider?
 		logger.info(
-			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) object_store_map_size=\(objectStoreMapSize, privacy: .public) object_store_path=\(objectStorePath, privacy: .public) object_store_posix_sem_prefix=\(objectStorePosixSemPrefix, privacy: .public)",
+			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) store_map_size=\(storeMapSize, privacy: .public) store_path=\(storePath, privacy: .public) store_posix_sem_prefix=\(storePosixSemPrefix, privacy: .public)",
 		)
 		let status = socket.withCString { socket in
 			dataDirectory.withCString { dataDirectory in
-				objectStorePath.withCString { objectStorePath in
-					objectStorePosixSemPrefix.withCString { objectStorePosixSemPrefix in
+				storePath.withCString { storePath in
+					storePosixSemPrefix.withCString { storePosixSemPrefix in
 						principal.withCString { principal in
 							tokens.withCString { tokens in
 								var config = TgConfig(
 									data_directory: dataDirectory,
 									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
 									node_ttl_secs: nodeTTLSeconds,
-									object_store_map_size: objectStoreMapSize,
-									object_store_path: objectStorePath,
-									object_store_posix_sem_prefix: objectStorePosixSemPrefix,
+									store_map_size: storeMapSize,
+									store_path: storePath,
+									store_posix_sem_prefix: storePosixSemPrefix,
 									principal: principal,
 									tokens: tokens,
 								)

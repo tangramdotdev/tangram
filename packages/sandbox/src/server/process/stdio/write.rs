@@ -25,9 +25,8 @@ impl Server {
 		&self,
 		index: u64,
 		arg: crate::client::stdio::Arg,
-		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
-	{
+		stream: impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static,
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected stdin for a stdio write"));
 		}
@@ -78,11 +77,11 @@ impl Server {
 							.await
 							.map_err(|error| tg::error!(!error, "failed to read a stdio event"))?
 						else {
-							let event = tg::process::stdio::write::Event::End;
+							let event = crate::stdio::write::Event::End;
 							return Ok(Some((event, (stream, writer, true))));
 						};
 						match event {
-							tg::process::stdio::read::Event::Chunk(chunk) => {
+							crate::stdio::read::Event::Chunk(chunk) => {
 								if chunk.bytes.is_empty() {
 									continue;
 								}
@@ -93,15 +92,14 @@ impl Server {
 									.await;
 								match result {
 									Ok(()) => {
-										let event = tg::process::stdio::write::Event::Write(
-											chunk.bytes.len(),
-										);
+										let event =
+											crate::stdio::write::Event::Write(chunk.bytes.len());
 										return Ok(Some((event, (stream, writer, false))));
 									},
 									Err(error)
 										if error.kind() == std::io::ErrorKind::BrokenPipe =>
 									{
-										let event = tg::process::stdio::write::Event::End;
+										let event = crate::stdio::write::Event::End;
 										return Ok(Some((event, (stream, writer, true))));
 									},
 									Err(error) => {
@@ -109,7 +107,7 @@ impl Server {
 									},
 								}
 							},
-							tg::process::stdio::read::Event::End => {
+							crate::stdio::read::Event::End => {
 								// Close stdin by dropping the writer and removing the process's stdin, so that the child observes EOF.
 								if let Some(mut w) = writer.take() {
 									w.shutdown().await.map_err(|error| {
@@ -123,7 +121,7 @@ impl Server {
 										process.stdin.take();
 									}
 								}
-								let event = tg::process::stdio::write::Event::End;
+								let event = crate::stdio::write::Event::End;
 								return Ok(Some((event, (stream, writer, true))));
 							},
 						}
@@ -170,7 +168,7 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to handle stdio"))?;
 		let stream = output.map(
-			|result: tg::Result<tg::process::stdio::write::Event>| match result {
+			|result: tg::Result<crate::stdio::write::Event>| match result {
 				Ok(event) => event.try_into(),
 				Err(error) => error.try_into(),
 			},

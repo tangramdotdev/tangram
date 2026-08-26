@@ -12,7 +12,7 @@ pub struct Reader(Arc<Mutex<State>>);
 
 struct State {
 	fd: Option<Fd>,
-	input: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+	input: Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>,
 	process: Option<Weak<tg::process::Inner>>,
 	stream: Stream,
 }
@@ -25,7 +25,7 @@ enum Fd {
 impl Reader {
 	fn new(
 		fd: Option<Fd>,
-		input: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+		input: Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>,
 		stream: Stream,
 	) -> Self {
 		Self(Arc::new(Mutex::new(State {
@@ -118,7 +118,7 @@ impl Reader {
 				tokens,
 				..Default::default()
 			};
-			let Some(input) = handle.try_read_process_stdio(&process, arg).await? else {
+			let Some(input) = handle.try_read_process_stdio_all(&process, arg).await? else {
 				return Err(tg::error!("{} is not available", stream));
 			};
 			state.input = Some(input.boxed());
@@ -126,7 +126,7 @@ impl Reader {
 		loop {
 			let result = state.input.as_mut().unwrap().next().await;
 			match result {
-				Some(Ok(tg::process::stdio::read::Event::Chunk(chunk))) => {
+				Some(Ok(chunk)) => {
 					if chunk.stream != state.stream {
 						return Err(tg::error!("invalid process stdio stream"));
 					}
@@ -134,7 +134,7 @@ impl Reader {
 						return Ok(Some(chunk.bytes));
 					}
 				},
-				Some(Ok(tg::process::stdio::read::Event::End)) | None => {
+				None => {
 					state.input = None;
 					state.process = None;
 					return Ok(None);

@@ -14,7 +14,7 @@ use {
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
 	tangram_messenger::{Messenger as _, Payload},
-	tangram_object_store::Store as _,
+	tangram_store::Store as _,
 	tokio_stream::wrappers::IntervalStream,
 };
 
@@ -34,7 +34,7 @@ struct NamedCheckout {
 struct State {
 	barriers: Barriers,
 	database_outbox_batch_id: Option<crate::database::outbox::BatchId>,
-	object_outbox_batch_id: Option<crate::object::outbox::BatchId>,
+	object_outbox_batch_id: Option<crate::store::outbox::batch::Id>,
 	requests: BTreeMap<String, IndexRequest>,
 }
 
@@ -330,6 +330,7 @@ impl Session {
 		self.send_control_request(crate::control::SendControlRequestArg {
 			ack: |id| ServerMessage::Ack(Ack { id }),
 			client_subject: Indexer::client_subject(&id),
+			is_ack: |message: &ClientMessage| matches!(message, ClientMessage::Ack(_)),
 			marker: std::marker::PhantomData,
 			options,
 			request,
@@ -716,14 +717,14 @@ impl Indexer {
 		partition: u64,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
-		let arg = crate::object::outbox::DequeueArg {
+		let arg = crate::store::outbox::fragment::dequeue::Arg {
 			batch_size: outbox.batch_size,
 			partition_end: partition + 1,
 			partition_start: partition,
 		};
 		let fragments = self
 			.server
-			.object_store
+			.store
 			.dequeue_outbox_fragments(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to dequeue the object outbox fragments"))?;
@@ -741,7 +742,7 @@ impl Indexer {
 				.entry(fragment.batch)
 				.or_default()
 				.push((fragment.index, arg));
-			let key = crate::object::outbox::FragmentKey {
+			let key = crate::store::outbox::fragment::Key {
 				batch: fragment.batch,
 				index: fragment.index,
 				partition: fragment.partition,
@@ -760,9 +761,9 @@ impl Indexer {
 		}))
 		.await
 		.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;
-		let arg = crate::object::outbox::DeleteArg { fragments: keys };
+		let arg = crate::store::outbox::fragment::delete::Arg { fragments: keys };
 		self.server
-			.object_store
+			.store
 			.delete_outbox_fragments(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete object outbox fragments"))?;
@@ -923,7 +924,7 @@ impl Indexer {
 				barrier = state.barriers.next(), if !state.barriers.is_empty() => {
 					Event::Barrier(barrier.unwrap())
 				},
-				message = control.recv() => {
+				message = control.recv_with_ack() => {
 					let message = message?
 						.ok_or_else(|| tg::error!("the indexer request stream ended"))?;
 					Event::Message(message)
@@ -1140,13 +1141,13 @@ impl State {
 
 		// Poll the active cohort.
 		if let Some(batch) = self.object_outbox_batch_id {
-			let arg = crate::object::outbox::TryGetBatchArg {
+			let arg = crate::store::outbox::batch::get::Arg {
 				batch: Some(batch),
 				partition_end: config.partition_total,
 				partition_start: 0,
 			};
 			let batch = server
-				.object_store
+				.store
 				.try_get_outbox_batch_at_or_before(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to poll the object outbox"))?;
@@ -1171,13 +1172,13 @@ impl State {
 		if !snapshot {
 			return Ok(());
 		}
-		let arg = crate::object::outbox::TryGetBatchArg {
+		let arg = crate::store::outbox::batch::get::Arg {
 			batch: None,
 			partition_end: config.partition_total,
 			partition_start: 0,
 		};
 		let batch = server
-			.object_store
+			.store
 			.try_get_outbox_batch_at_or_before(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to snapshot the object outbox"))?;

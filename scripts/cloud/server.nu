@@ -27,12 +27,10 @@ let config = {
 		kind: 'nats',
 		url: 'nats://localhost:4222',
 	},
-	object: {
-		store: {
-			addr: 'localhost:9042',
-			keyspace: 'objects',
-			kind: 'scylla',
-		},
+	store: {
+		addr: 'localhost:9042',
+		keyspace: 'store',
+		kind: 'scylla',
 	},
 	process: {
 		store: {

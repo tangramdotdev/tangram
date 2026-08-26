@@ -3,7 +3,7 @@ use ../../test.nu *
 # Database index batches follow commit order and are serviced by a later indexer.
 
 def latest_batch [directory: string] {
-	open ($directory | path join database)
+	open ($directory | path join database.sqlite3)
 	| query db 'select max(batch) as batch from outbox'
 	| get batch.0
 }
@@ -41,7 +41,7 @@ let delete_batch = latest_batch $directory
 
 assert equal $delete_batch ($put_batch + 1)
 let next = (
-	open ($directory | path join database)
+	open ($directory | path join database.sqlite3)
 	| query db 'select next from outbox_batch'
 	| get next.0
 )

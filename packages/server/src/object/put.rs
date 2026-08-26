@@ -6,7 +6,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 };
 
 impl Session {
@@ -64,7 +64,7 @@ impl Session {
 			_ => None,
 		};
 
-		let put_arg = crate::object::store::PutArg {
+		let put_arg = crate::store::object::put::Arg {
 			bytes: Some(arg.bytes.clone()),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -72,8 +72,8 @@ impl Session {
 			stored_at: now,
 		};
 		self.server
-			.object_store
-			.put(put_arg)
+			.store
+			.put_object(put_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 

@@ -5,7 +5,7 @@ use ../../test.nu *
 let server = server spawn --config {
 	database: {
 		kind: 'sqlite',
-		path: 'database',
+		path: 'database.sqlite3',
 		pool: {
 			max: 1,
 		},

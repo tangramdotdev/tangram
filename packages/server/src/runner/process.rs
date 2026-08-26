@@ -26,6 +26,10 @@ mod progress;
 
 type CommandFuture = Shared<BoxFuture<'static, tg::Result<(tg::command::Data, Session)>>>;
 
+const LOG_BUFFER_SIZE: usize = 16 * 1024 * 1024;
+const LOG_CHANNEL_CAPACITY: usize = 256;
+const LOG_CHUNK_SIZE: usize = 32 * 1024;
+
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
 	pub location: tg::Location,
@@ -79,6 +83,21 @@ struct IndexProcessTaskArg<'a> {
 	parent: Option<&'a tg::process::Id>,
 }
 
+enum LogEvent {
+	Chunk {
+		bytes: Bytes,
+		permit: tokio::sync::OwnedSemaphorePermit,
+		stream: tg::process::stdio::Stream,
+	},
+	End,
+}
+
+#[derive(Clone)]
+struct LogSender {
+	buffer: Arc<tokio::sync::Semaphore>,
+	sender: tokio::sync::mpsc::Sender<LogEvent>,
+}
+
 struct CollectProcessOutputArg<'a> {
 	exit: u8,
 	path: PathBuf,
@@ -121,6 +140,14 @@ struct RunProcessArg {
 	token: String,
 }
 
+struct WriteProcessLogTaskArg {
+	id: tg::process::Id,
+	location: tg::Location,
+	receiver: tokio::sync::mpsc::Receiver<LogEvent>,
+	started_at: i64,
+	streams: Vec<tg::process::stdio::Stream>,
+}
+
 struct RunProcessOutput {
 	exit: u8,
 	path: PathBuf,
@@ -131,6 +158,47 @@ struct WaitForProcessArg<'a> {
 	sandbox: &'a tangram_sandbox::Sandbox,
 	sandbox_process: &'a tangram_sandbox::Process,
 	stopper: Stopper,
+}
+
+impl LogSender {
+	async fn send(&self, event: tangram_sandbox::stdio::read::Event) -> tg::Result<()> {
+		match event {
+			tangram_sandbox::stdio::read::Event::Chunk(chunk) => {
+				let mut offset = 0;
+				while offset < chunk.bytes.len() {
+					let end = (offset + LOG_CHUNK_SIZE).min(chunk.bytes.len());
+					let length = u32::try_from(end - offset).unwrap();
+					let permit = self
+						.buffer
+						.clone()
+						.acquire_many_owned(length)
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to reserve space for the process logs")
+						})?;
+					let bytes = chunk.bytes.slice(offset..end);
+					let event = LogEvent::Chunk {
+						bytes,
+						permit,
+						stream: chunk.stream,
+					};
+					self.sender
+						.send(event)
+						.await
+						.map_err(|_| tg::error!("failed to buffer the process logs"))?;
+					offset = end;
+				}
+			},
+			tangram_sandbox::stdio::read::Event::End => {
+				self.sender
+					.send(LogEvent::End)
+					.await
+					.map_err(|_| tg::error!("failed to buffer the process logs"))?;
+			},
+		}
+
+		Ok(())
+	}
 }
 
 impl Session {
@@ -452,7 +520,9 @@ impl Session {
 		let (log_sender, log_receiver) = if log_streams.is_empty() {
 			(None, None)
 		} else {
-			let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+			let buffer = Arc::new(tokio::sync::Semaphore::new(LOG_BUFFER_SIZE));
+			let (sender, receiver) = tokio::sync::mpsc::channel(LOG_CHANNEL_CAPACITY);
+			let sender = LogSender { buffer, sender };
 			(Some(sender), Some(receiver))
 		};
 
@@ -497,10 +567,9 @@ impl Session {
 							Some(progress) => {
 								let progress = progress
 									.map_ok(|bytes| {
-										tg::process::stdio::read::Event::Chunk(
-											tg::process::stdio::Chunk {
+										tangram_sandbox::stdio::read::Event::Chunk(
+											tangram_sandbox::stdio::Chunk {
 												bytes,
-												position: None,
 												stream: tg::process::stdio::Stream::Stderr,
 											},
 										)
@@ -512,20 +581,18 @@ impl Session {
 						};
 						let mut input = std::pin::pin!(input);
 						while let Some(event) = input.try_next().await? {
-							if matches!(event, tg::process::stdio::read::Event::End) {
+							if matches!(event, tangram_sandbox::stdio::read::Event::End) {
 								if let Some(sender) = log_buffered_sender.take() {
 									sender.send(Ok(())).ok();
 								}
 
 								continue;
 							}
-							log_sender
-								.send(event)
-								.map_err(|_| tg::error!("failed to buffer the process logs"))?;
+							log_sender.send(event).await?;
 						}
 						log_sender
-							.send(tg::process::stdio::read::Event::End)
-							.map_err(|_| tg::error!("failed to buffer the process logs"))?;
+							.send(tangram_sandbox::stdio::read::Event::End)
+							.await?;
 
 						Ok::<_, tg::Error>(())
 					}
@@ -655,8 +722,20 @@ impl Session {
 			options: options.clone(),
 			parent: parent.clone(),
 		};
+		let reconnect_context = session.context.clone();
+		let reconnect_server = session.server.clone();
+		let reconnect = move |output: &tg::process::control::Output| {
+			let token = output.token.clone().or(reconnect_context.token.clone());
+			let context = crate::Context {
+				principal: tg::Principal::Process(output.id.clone()),
+				token,
+				..reconnect_context
+			};
+
+			reconnect_server.session(&context)
+		};
 		let connection =
-			Box::pin(session.try_get_process_control_stream_all(arg, control_responses))
+			Box::pin(session.try_get_process_control_stream_all(arg, control_responses, reconnect))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the control stream"))
 				.and_then(|connection| {
@@ -803,24 +882,23 @@ impl Session {
 		});
 
 		// Write logs while the process runs, buffering any output produced before the control stream connected.
+		let log_started_at = state.started_at;
 		let log_write_task = log_receiver.map(|receiver| {
 			Task::spawn({
 				let id = id.clone();
 				let location = location.clone();
 				let session = session.clone();
 				move |_| async move {
-					let input = UnboundedReceiverStream::new(receiver).map(Ok).boxed();
-					let arg = tg::process::stdio::write::Arg {
-						location: Some(location.into()),
+					let started_at = log_started_at
+						.ok_or_else(|| tg::error!("expected the process to be started"))?;
+					let arg = WriteProcessLogTaskArg {
+						id,
+						location,
+						receiver,
+						started_at,
 						streams: log_streams,
-						tokens: tg::authorization::Tokens::default(),
 					};
-					if let Some(output) = session.try_write_process_stdio(&id, arg, input).await? {
-						let mut output = std::pin::pin!(output);
-						while output.try_next().await?.is_some() {}
-					}
-
-					Ok::<_, tg::Error>(())
+					session.write_process_log_task(arg).await
 				}
 			})
 		});
@@ -901,6 +979,85 @@ impl Session {
 		};
 
 		session.finish_process_task(arg).boxed().await
+	}
+
+	async fn write_process_log_task(&self, arg: WriteProcessLogTaskArg) -> tg::Result<()> {
+		let WriteProcessLogTaskArg {
+			id,
+			location,
+			receiver,
+			started_at,
+			streams,
+		} = arg;
+		let clock = self.server.clock.clone();
+		let mut position = 0_u64;
+		let mut stderr_position = 0_u64;
+		let mut stdout_position = 0_u64;
+		let input = ReceiverStream::new(receiver)
+			.map(move |event| -> Option<tg::Result<_>> {
+				match event {
+					LogEvent::Chunk {
+						bytes,
+						permit,
+						stream,
+					} => Some((|| {
+						let length = u64::try_from(bytes.len()).unwrap();
+						let stream_position = match stream {
+							tg::process::stdio::Stream::Stderr => stderr_position,
+							tg::process::stdio::Stream::Stdin => {
+								return Err(tg::error!("invalid stdio stream"));
+							},
+							tg::process::stdio::Stream::Stdout => stdout_position,
+						};
+						let timestamp = clock
+							.unix_timestamp()?
+							.checked_sub(started_at)
+							.ok_or_else(|| tg::error!("the log timestamp is too small"))?;
+						let chunk = tg::process::stdio::Chunk {
+							bytes,
+							combined_position: position,
+							stream,
+							stream_position,
+							timestamp: Some(timestamp),
+						};
+						position = position
+							.checked_add(length)
+							.ok_or_else(|| tg::error!("the log position is too large"))?;
+						match stream {
+							tg::process::stdio::Stream::Stderr => {
+								stderr_position =
+									stderr_position.checked_add(length).ok_or_else(|| {
+										tg::error!("the stderr log position is too large")
+									})?;
+							},
+							tg::process::stdio::Stream::Stdin => unreachable!(),
+							tg::process::stdio::Stream::Stdout => {
+								stdout_position =
+									stdout_position.checked_add(length).ok_or_else(|| {
+										tg::error!("the stdout log position is too large")
+									})?;
+							},
+						}
+						drop(permit);
+
+						Ok(chunk)
+					})()),
+					LogEvent::End => None,
+				}
+			})
+			.take_while(|event| future::ready(event.is_some()))
+			.filter_map(future::ready)
+			.boxed();
+		let arg = tg::process::stdio::write::Arg {
+			location: Some(location.into()),
+			streams,
+			tokens: tg::authorization::Tokens::default(),
+		};
+		self.write_process_stdio_all(&id, arg, input)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to write the process logs"))?;
+
+		Ok(())
 	}
 
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
@@ -1094,7 +1251,6 @@ impl Session {
 			error_code = Some(tg::error::Code::Internal);
 			exit = 1;
 		}
-
 		let id = process.id().unwrap_right();
 		let mut process_state = processes
 			.get_mut(process_index)

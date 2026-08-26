@@ -7,7 +7,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, Index as _},
 	tangram_messenger::Messenger as _,
-	tangram_object_store::Store as _,
+	tangram_store::Store as _,
 };
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -763,14 +763,14 @@ impl Server {
 					arg.serialize().map(Into::into)
 				})
 				.collect::<tg::Result<Vec<_>>>()?;
-			let batch_id = crate::object::outbox::BatchId::new(uuid::Uuid::now_v7().into_bytes());
+			let batch_id = crate::store::outbox::batch::Id::new(uuid::Uuid::now_v7().into_bytes());
 			let partition = rand::random_range(0..config.partition_total);
-			let arg = crate::object::outbox::Batch {
+			let arg = crate::store::outbox::batch::enqueue::Arg {
 				fragments,
 				id: batch_id,
 				partition,
 			};
-			self.object_store
+			self.store
 				.enqueue_outbox_batch(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;

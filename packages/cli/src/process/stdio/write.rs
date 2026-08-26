@@ -1,6 +1,7 @@
 use {
 	crate::Cli,
-	futures::{StreamExt as _, future, stream},
+	futures::{StreamExt as _, future},
+	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -42,19 +43,29 @@ impl Cli {
 			.filter_map(move |result| {
 				future::ready(match result {
 					Ok(bytes) if bytes.is_empty() => None,
-					Ok(bytes) => Some(Ok(tg::process::stdio::read::Event::Chunk(
-						tg::process::stdio::Chunk {
-							bytes,
-							position: None,
-							stream,
-						},
-					))),
+					Ok(bytes) => Some(Ok(bytes)),
 					Err(error) => Some(Err(tg::error!(!error, "failed to read stdin"))),
 				})
 			})
-			.chain(stream::once(future::ok(
-				tg::process::stdio::read::Event::End,
-			)))
+			.scan(0_u64, move |position, result| {
+				let result = result.and_then(|bytes| {
+					let length = bytes.len().to_u64().unwrap();
+					let chunk = tg::process::stdio::Chunk {
+						bytes,
+						combined_position: *position,
+						stream,
+						stream_position: *position,
+						timestamp: None,
+					};
+					*position = position
+						.checked_add(length)
+						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+
+					Ok(chunk)
+				});
+
+				future::ready(Some(result))
+			})
 			.boxed();
 		process
 			.write_stdio_with_handle(&client, options, input)

@@ -7,11 +7,10 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		io::SeekFrom,
-		ops::ControlFlow,
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::task::Task,
 };
 
 pub trait Ext: tg::Handle {
@@ -488,6 +487,7 @@ pub trait Ext: tg::Handle {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+		reconnect: impl FnOnce(&tg::sandbox::control::Output) -> Self + Send,
 	) -> impl Future<
 		Output = tg::Result<(
 			tg::sandbox::control::Output,
@@ -515,6 +515,11 @@ pub trait Ext: tg::Handle {
 			let (output, output_stream) = handle
 				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
 				.await?;
+			let handle = reconnect(&output);
+			let arg = tg::sandbox::control::Arg {
+				id: Some(output.id.clone()),
+				..arg
+			};
 
 			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
 			struct State {
@@ -581,6 +586,7 @@ pub trait Ext: tg::Handle {
 		&self,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+		reconnect: impl FnOnce(&tg::process::control::Output) -> Self + Send,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<(
@@ -613,6 +619,11 @@ pub trait Ext: tg::Handle {
 			else {
 				input_task.abort();
 				return Ok(None);
+			};
+			let handle = reconnect(&output);
+			let arg = tg::process::control::Arg {
+				id: Some(output.id.clone()),
+				..arg
 			};
 
 			// Yield events from the stream, reconnecting with backoff when the stream ends or returns an error.
@@ -686,79 +697,207 @@ pub trait Ext: tg::Handle {
 		arg: tg::process::stdio::read::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
-			>,
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Chunk>> + Send + 'static>,
 		>,
 	> + Send {
 		async move {
 			let handle = self.clone();
 			let id = id.clone();
-			let Some(stream) = handle.try_read_process_stdio(&id, arg.clone()).await? else {
+			let position = match arg.position {
+				None => Some(0),
+				Some(SeekFrom::Start(position)) => Some(position),
+				Some(SeekFrom::Current(_) | SeekFrom::End(_)) => None,
+			};
+			let (sender, receiver) = async_channel::bounded(1);
+			if let Some(position) = position {
+				let message = tg::process::stdio::read::ClientMessage::Notification(
+					tg::process::stdio::read::ClientNotification::Read { position },
+				);
+				sender.try_send(Ok(message)).unwrap();
+			}
+			let Some(output) = handle
+				.try_read_process_stdio(&id, arg.clone(), receiver.boxed())
+				.await?
+			else {
 				return Ok(None);
 			};
 			struct State<H> {
 				arg: tg::process::stdio::read::Arg,
-				end: bool,
+				combined: bool,
+				forward: bool,
 				handle: H,
 				id: tg::process::Id,
-				stream: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+				output:
+					Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>,
+				pending_notification: bool,
+				position: Option<u64>,
+				retries: Option<BoxStream<'static, ()>>,
+				sender: Option<
+					async_channel::Sender<tg::Result<tg::process::stdio::read::ClientMessage>>,
+				>,
 			}
+			let combined = arg.streams.len() > 1;
+			let forward = arg.length.is_none_or(|length| length >= 0);
 			let state = State {
 				arg,
-				end: false,
+				combined,
+				forward,
 				handle,
 				id,
-				stream: Some(stream.boxed()),
+				output: Some(output.boxed()),
+				pending_notification: false,
+				position,
+				retries: None,
+				sender: Some(sender),
 			};
 			let stream = stream::try_unfold(state, move |mut state| async move {
 				loop {
-					if state.end {
-						return Ok(None);
+					if state.pending_notification {
+						let position = state.position.unwrap();
+						let message = tg::process::stdio::read::ClientMessage::Notification(
+							tg::process::stdio::read::ClientNotification::Read { position },
+						);
+						let result = state.sender.as_ref().unwrap().send(Ok(message)).await;
+						if result.is_err() {
+							state.output.take();
+							state.sender.take();
+							continue;
+						}
+						state.pending_notification = false;
 					}
-					let mut stream = if let Some(stream) = state.stream.take() {
-						stream
-					} else {
-						state
+					if state.output.is_none() {
+						let retries = state.retries.get_or_insert_with(|| {
+							let options = tangram_futures::retry::Options {
+								max_retries: u64::MAX,
+								..Default::default()
+							};
+							tangram_futures::retry::stream(options).boxed()
+						});
+						retries.next().await;
+						let (sender, receiver) = async_channel::bounded(1);
+						if let Some(position) = state.position {
+							let message = tg::process::stdio::read::ClientMessage::Notification(
+								tg::process::stdio::read::ClientNotification::Read { position },
+							);
+							sender.try_send(Ok(message)).unwrap();
+						}
+						match state
 							.handle
-							.try_read_process_stdio(&state.id, state.arg.clone())
-							.await?
-							.ok_or_else(|| tg::error!("failed to find the process"))?
-							.boxed()
-					};
-					match stream.next().await.transpose()? {
-						Some(event) => {
-							state.end = matches!(event, tg::process::stdio::read::Event::End);
-							if let tg::process::stdio::read::Event::Chunk(chunk) = &event
-								&& let Some(position) = chunk.position
-							{
-								let forward = state.arg.length.is_none_or(|length| length >= 0);
-								if let Some(length) = &mut state.arg.length {
-									if *length >= 0 {
-										*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
-									} else {
-										*length +=
-											chunk.bytes.len().to_i64().unwrap().min(length.abs());
-									}
+							.try_read_process_stdio(&state.id, state.arg.clone(), receiver.boxed())
+							.await
+						{
+							Ok(Some(output)) => {
+								state.output = Some(output.boxed());
+								state.pending_notification = false;
+								state.sender = Some(sender);
+							},
+							Ok(None) => return Err(tg::error!("failed to find the process")),
+							Err(error) => {
+								tracing::error!(error = %error.trace(), "failed to reconnect the stdio read stream");
+								continue;
+							},
+						}
+					}
+					let message = state.output.as_mut().unwrap().next().await;
+					match message {
+						Some(Ok(tg::process::stdio::read::ServerMessage::Notification(
+							tg::process::stdio::read::ServerNotification::Chunk(mut chunk),
+						))) => {
+							state.retries.take();
+							let start = if state.combined {
+								chunk.combined_position
+							} else {
+								chunk.stream_position
+							};
+							let length = chunk.bytes.len().to_u64().unwrap();
+							let end = start
+								.checked_add(length)
+								.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+							if let Some(position) = state.position {
+								if state.forward && end <= position
+									|| !state.forward && start >= position
+								{
+									state.pending_notification = true;
+									continue;
 								}
-								let position = if forward {
-									position + chunk.bytes.len().to_u64().unwrap()
+								if state.forward && start > position
+									|| !state.forward && end < position
+								{
+									return Err(tg::error!(
+										expected = %position,
+										start = %start,
+										end = %end,
+										"encountered a gap in the stdio stream"
+									));
+								}
+								if state.forward && start < position {
+									let overlap = (position - start).to_usize().unwrap();
+									chunk.bytes = chunk.bytes.slice(overlap..);
+									chunk.combined_position += overlap.to_u64().unwrap();
+									chunk.stream_position += overlap.to_u64().unwrap();
+								} else if !state.forward && end > position {
+									let length = (position - start).to_usize().unwrap();
+									chunk.bytes = chunk.bytes.slice(..length);
+								}
+							}
+							let length = chunk.bytes.len().to_u64().unwrap();
+							let position = if state.forward {
+								if state.combined {
+									chunk.combined_position + length
 								} else {
-									position.saturating_sub(1)
-								};
-								state.arg.position = Some(SeekFrom::Start(position));
+									chunk.stream_position + length
+								}
+							} else if state.combined {
+								chunk.combined_position
+							} else {
+								chunk.stream_position
+							};
+							if let Some(remaining) = &mut state.arg.length {
+								let length = length.to_i64().unwrap();
+								if *remaining >= 0 {
+									*remaining -= length.min(*remaining);
+								} else {
+									*remaining += length.min(remaining.abs());
+								}
 							}
-							if !state.end {
-								state.stream = Some(stream);
+							state.arg.position = Some(SeekFrom::Start(position));
+							state.pending_notification = true;
+							state.position = Some(position);
+
+							return Ok(Some((chunk, state)));
+						},
+						Some(Ok(tg::process::stdio::read::ServerMessage::Notification(
+							tg::process::stdio::read::ServerNotification::Stop,
+						)))
+						| None => {
+							state.output.take();
+							state.sender.take();
+						},
+						Some(Ok(tg::process::stdio::read::ServerMessage::Request(
+							tg::process::stdio::read::ServerRequest::End,
+						))) => {
+							let message = tg::process::stdio::read::ClientMessage::Response(
+								tg::process::stdio::read::ClientResponse::End,
+							);
+							if state
+								.sender
+								.as_ref()
+								.unwrap()
+								.send(Ok(message))
+								.await
+								.is_err()
+							{
+								state.output.take();
+								state.sender.take();
+								continue;
 							}
-							return Ok(Some((event, state)));
+							return Ok(None);
 						},
-						None => {
-							state.stream = None;
-						},
+						Some(Err(error)) => return Err(error),
 					}
 				}
 			});
+
 			Ok(Some(stream))
 		}
 	}
@@ -767,147 +906,139 @@ pub trait Ext: tg::Handle {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			// Create a channel for buffering events from the input.
-			let (event_sender, event_receiver) = async_channel::bounded(1);
-
-			// Create a channel for notifying the input task when a stop signal has been received.
-			let (stop_sender, mut stop_receiver) =
-				tokio::sync::mpsc::channel::<tokio::sync::oneshot::Receiver<()>>(1);
-
-			// Create the input task. This will read events from the input stream and write them to the event channel.
-			let input_task = Task::spawn({
-				move |_| async move {
-					let input = input.peekable();
-					let mut input = pin!(input);
-					loop {
-						let event = pin!(input.as_mut().peek());
-						let stop = pin!(stop_receiver.recv());
-						match future::select(event, stop).await {
-							future::Either::Left((event, _)) => {
-								// Try to send the event. Exit the loop if it's the end of the input.
-								let Some(event) = event.cloned() else {
-									break;
-								};
-								input.next().await;
-								if event_sender.send(Some(event)).await.is_err() {
-									break;
-								}
-							},
-							future::Either::Right((end_receiver, _)) => {
-								// Try to send the sentinel. Exit the loop if the channel was closed.
-								let Some(end_receiver) = end_receiver else {
-									break;
-								};
-								if event_sender.send(None).await.is_err() {
-									break;
-								}
-								end_receiver.await.ok();
-							},
-						}
-					}
-					Ok::<_, tg::Error>(())
-				}
-			});
-
-			// Create the output task.
+			let combined = arg.streams.len() > 1;
+			let mut connected = false;
 			let id = id.clone();
 			let handle = self.clone();
-			let output_task = Task::spawn(async move |_| {
-				let options = tangram_futures::retry::Options::default();
-				// In a retry loop, attempt to drain input.
-				tangram_futures::retry(&options, {
-					|| {
-						let arg = arg.clone();
-						let event_receiver = event_receiver.clone();
-						let handle = handle.clone();
-						let id = id.clone();
-						let stop_sender = stop_sender.clone();
-						async move {
-							// The input stream is chunked around `Stop` boundaries using `None` as a sentinel value.
-							let input = event_receiver
-								.take_while(|opt| future::ready(opt.is_some()))
-								.take_while_inclusive(|result| {
-									future::ready(result.as_ref().is_some_and(Result::is_ok))
-								})
-								.filter_map(future::ready)
-								.boxed();
-
-							// Try to create the output stream.
-							let mut output = match handle.write_process_stdio(&id, arg, input).await
-							{
-								Ok(stream) => stream.boxed(),
-								// Retry if write returned an error.
-								Err(error) => {
-									return Ok(ControlFlow::Continue(tg::error!(
-										!error,
-										"failed to get the stdio stream"
-									)));
-								},
-							};
-
-							// Drain the output stream.
-							let mut end_sender = None;
-							while let Some(output) = output.next().await {
-								match output {
-									Ok(tg::process::stdio::write::Event::Stop) => {
-										// Skip duplicate stop events.
-										if end_sender.is_some() {
-											continue;
-										}
-
-										// Create the end event channel.
-										let (tx, rx) = tokio::sync::oneshot::channel();
-										end_sender.replace(tx);
-
-										// Send the end event notification, breaking out if this fails.
-										if stop_sender.send(rx).await.is_err() {
-											return Ok(ControlFlow::Break(()));
-										}
-									},
-
-									Ok(tg::process::stdio::write::Event::End) => {
-										// If an end sender was created by receiving a previous stop, use it.
-										if let Some(end_sender) = end_sender.take() {
-											if end_sender.send(()).is_err() {
-												return Ok(ControlFlow::Break(()));
-											}
-
-											// Retry.
-											return Ok(ControlFlow::Continue(tg::error!(
-												"retrying stdio"
-											)));
-										}
-										break;
-									},
-
-									Ok(tg::process::stdio::write::Event::Write(_)) => (),
-
-									Err(error) => {
-										// Retry if the server returned an error.
-										return Ok(ControlFlow::Continue(tg::error!(
-											!error,
-											"stdio stream returned an error"
-										)));
-									},
-								}
-							}
-
-							Ok(ControlFlow::Break(()))
-						}
+			let mut input = pin!(input);
+			let mut input_ended = false;
+			let mut output =
+				None::<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>;
+			let mut pending = None::<tg::process::stdio::Chunk>;
+			let mut pending_sent = false;
+			let mut retries = None::<BoxStream<'static, ()>>;
+			let mut sender =
+				None::<async_channel::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>>;
+			loop {
+				if output.is_none() {
+					if let Some(retries) = &mut retries {
+						retries.next().await;
 					}
-				})
-				.await
-			});
-
-			// Wait for both tasks.
-			let (input, output) = future::join(input_task.wait(), output_task.wait()).await;
-			input.map_err(|error| tg::error!(!error, "the input task panicked"))??;
-			output.map_err(|error| tg::error!(!error, "the output task panicked"))??;
-
-			Ok(())
+					let (new_sender, receiver) = async_channel::bounded(1);
+					match handle
+						.try_write_process_stdio(&id, arg.clone(), receiver.boxed())
+						.await
+					{
+						Ok(Some(new_output)) => {
+							connected = true;
+							output = Some(new_output.boxed());
+							pending_sent = false;
+							sender = Some(new_sender);
+						},
+						Ok(None) => return Err(tg::error!("failed to find the process")),
+						Err(error) if connected => {
+							tracing::error!(error = %error.trace(), "failed to reconnect the stdio write stream");
+							let options = tangram_futures::retry::Options {
+								max_retries: u64::MAX,
+								..Default::default()
+							};
+							retries.get_or_insert_with(|| {
+								tangram_futures::retry::stream(options).boxed()
+							});
+							continue;
+						},
+						Err(error) => return Err(error),
+					}
+				}
+				if pending.is_none() && !input_ended {
+					match input.try_next().await? {
+						Some(chunk) => pending = Some(chunk),
+						None => input_ended = true,
+					}
+				}
+				if let Some(chunk) = &pending
+					&& !pending_sent
+				{
+					if !arg.streams.contains(&chunk.stream) {
+						return Err(tg::error!("invalid process stdio stream"));
+					}
+					let message = tg::process::stdio::write::ClientMessage::Notification(
+						tg::process::stdio::write::ClientNotification::Chunk(chunk.clone()),
+					);
+					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
+						output.take();
+						sender.take();
+						continue;
+					}
+					pending_sent = true;
+				} else if pending.is_none() && input_ended && !pending_sent {
+					let message = tg::process::stdio::write::ClientMessage::Request(
+						tg::process::stdio::write::ClientRequest::End,
+					);
+					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
+						output.take();
+						sender.take();
+						continue;
+					}
+					pending_sent = true;
+				}
+				match output.as_mut().unwrap().next().await {
+					Some(Ok(tg::process::stdio::write::ServerMessage::Notification(
+						tg::process::stdio::write::ServerNotification::Stop,
+					))) => {
+						output.take();
+						sender.take();
+					},
+					Some(Ok(tg::process::stdio::write::ServerMessage::Notification(
+						tg::process::stdio::write::ServerNotification::Write { position },
+					))) => {
+						retries.take();
+						let Some(mut chunk) = pending.take() else {
+							continue;
+						};
+						let start = if combined {
+							chunk.combined_position
+						} else {
+							chunk.stream_position
+						};
+						let end = start
+							.checked_add(chunk.bytes.len().to_u64().unwrap())
+							.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+						if position <= start {
+							pending = Some(chunk);
+							pending_sent = false;
+							continue;
+						}
+						if position < end {
+							let overlap = (position - start).to_usize().unwrap();
+							chunk.bytes = chunk.bytes.slice(overlap..);
+							chunk.combined_position += overlap.to_u64().unwrap();
+							chunk.stream_position += overlap.to_u64().unwrap();
+							pending = Some(chunk);
+						}
+						pending_sent = false;
+					},
+					Some(Ok(tg::process::stdio::write::ServerMessage::Response(
+						tg::process::stdio::write::ServerResponse::End,
+					))) => {
+						return Ok(());
+					},
+					Some(Err(error)) => return Err(error),
+					None => {
+						output.take();
+						sender.take();
+						let options = tangram_futures::retry::Options {
+							max_retries: u64::MAX,
+							..Default::default()
+						};
+						retries
+							.get_or_insert_with(|| tangram_futures::retry::stream(options).boxed());
+					},
+				}
+			}
 		}
 	}
 }

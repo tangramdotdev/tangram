@@ -37,8 +37,6 @@ pub struct Config {
 
 	pub instance: Option<String>,
 
-	pub logs: Logs,
-
 	pub messenger: Messenger,
 
 	pub object: Object,
@@ -62,6 +60,8 @@ pub struct Config {
 	pub scheduler: Scheduler,
 
 	pub sandbox: Sandbox,
+
+	pub store: Store,
 
 	pub sync: Sync,
 
@@ -415,9 +415,9 @@ pub struct FdbIndex {
 
 	pub cluster: PathBuf,
 
-	pub partition_total: u64,
+	pub instance: Option<String>,
 
-	pub prefix: Option<String>,
+	pub partition_total: u64,
 
 	pub read_request_batch_size: usize,
 
@@ -516,33 +516,6 @@ pub struct IndexerUpdate {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Logs {
-	pub store: LogStore,
-}
-
-#[derive(Clone, Debug)]
-pub enum LogStore {
-	Fdb(FdbLogStore),
-
-	Lmdb(LmdbLogStore),
-
-	Memory,
-}
-
-#[derive(Clone, Debug)]
-pub struct FdbLogStore {
-	pub cluster: PathBuf,
-	pub prefix: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct LmdbLogStore {
-	pub map_size: usize,
-
-	pub path: PathBuf,
-}
-
-#[derive(Clone, Debug, Default)]
 pub enum Messenger {
 	#[default]
 	Memory,
@@ -567,8 +540,6 @@ pub struct Object {
 
 	pub outbox: ObjectOutbox,
 
-	pub store: ObjectStore,
-
 	pub time_to_index: Duration,
 
 	pub time_to_live: Duration,
@@ -586,16 +557,16 @@ pub struct ObjectOutbox {
 }
 
 #[derive(Clone, Debug)]
-pub enum ObjectStore {
-	Lmdb(LmdbObjectStore),
+pub enum Store {
+	Lmdb(LmdbStore),
 
-	Memory(MemoryObjectStore),
+	Memory(MemoryStore),
 
-	Scylla(ScyllaObjectStore),
+	Scylla(ScyllaStore),
 }
 
 #[derive(Clone, Debug)]
-pub struct LmdbObjectStore {
+pub struct LmdbStore {
 	pub map_size: usize,
 
 	pub path: PathBuf,
@@ -610,10 +581,10 @@ pub struct LmdbObjectStore {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct MemoryObjectStore {}
+pub struct MemoryStore {}
 
 #[derive(Clone, Debug)]
-pub struct ScyllaObjectStore {
+pub struct ScyllaStore {
 	pub addr: String,
 
 	pub connections: Option<usize>,
@@ -622,27 +593,27 @@ pub struct ScyllaObjectStore {
 
 	pub password: Option<String>,
 
-	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
+	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
 
 	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug)]
-pub enum ScyllaObjectStoreSpeculativeExecution {
-	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
+pub enum ScyllaStoreSpeculativeExecution {
+	Percentile(ScyllaStorePercentileSpeculativeExecution),
 
-	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
+	Simple(ScyllaStoreSimpleSpeculativeExecution),
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaObjectStorePercentileSpeculativeExecution {
+pub struct ScyllaStorePercentileSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub percentile: f64,
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
+pub struct ScyllaStoreSimpleSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub retry_interval: u64,
@@ -1142,7 +1113,6 @@ impl Default for Config {
 			index: Index::default(),
 			indexer: Indexer::default(),
 			instance: None,
-			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
 			primary_region: None,
@@ -1155,6 +1125,7 @@ impl Default for Config {
 			runner: Runner::default(),
 			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
+			store: Store::default(),
 			sync: Sync::default(),
 			usage: Usage::default(),
 			version: None,
@@ -1272,7 +1243,7 @@ impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
 			outbox: DatabaseOutbox::default(),
-			path: PathBuf::from("database"),
+			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
 		}
@@ -1283,7 +1254,7 @@ impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
 			outbox: DatabaseOutbox::default(),
-			path: PathBuf::from("database"),
+			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
 		}
@@ -1343,8 +1314,8 @@ impl Default for FdbIndex {
 		Self {
 			authorize: FdbIndexAuthorize::default(),
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			instance: None,
 			partition_total: 1,
-			prefix: None,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
 			usage_partition_total: 1,
@@ -1359,7 +1330,7 @@ impl Default for LmdbIndex {
 		Self {
 			authorize: LmdbIndexAuthorize::default(),
 			map_size: 1_099_511_627_776,
-			path: PathBuf::from("index"),
+			path: PathBuf::from("index.lmdb"),
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 4,
 			usage_partition_total: 1,
@@ -1417,30 +1388,6 @@ impl Default for IndexerUpdate {
 	}
 }
 
-impl Default for LogStore {
-	fn default() -> Self {
-		Self::Lmdb(LmdbLogStore::default())
-	}
-}
-
-impl Default for FdbLogStore {
-	fn default() -> Self {
-		Self {
-			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			prefix: None,
-		}
-	}
-}
-
-impl Default for LmdbLogStore {
-	fn default() -> Self {
-		Self {
-			map_size: 1_099_511_627_776,
-			path: PathBuf::from("logs"),
-		}
-	}
-}
-
 impl Default for NatsMessenger {
 	fn default() -> Self {
 		let url = "nats://localhost:4222".parse().unwrap();
@@ -1459,7 +1406,6 @@ impl Default for Object {
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			outbox: ObjectOutbox::default(),
-			store: ObjectStore::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1477,17 +1423,17 @@ impl Default for ObjectOutbox {
 	}
 }
 
-impl Default for ObjectStore {
+impl Default for Store {
 	fn default() -> Self {
-		Self::Lmdb(LmdbObjectStore::default())
+		Self::Lmdb(LmdbStore::default())
 	}
 }
 
-impl Default for LmdbObjectStore {
+impl Default for LmdbStore {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
-			path: PathBuf::from("objects"),
+			path: PathBuf::from("store.lmdb"),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 4,
@@ -1496,7 +1442,7 @@ impl Default for LmdbObjectStore {
 	}
 }
 
-impl LmdbObjectStore {
+impl LmdbStore {
 	/// Returns the configured POSIX semaphore prefix or the app group default.
 	#[must_use]
 	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {

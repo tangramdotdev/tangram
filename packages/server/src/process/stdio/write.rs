@@ -2,24 +2,31 @@ use {
 	crate::Session,
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::{collections::BTreeSet, pin::pin},
+	num::ToPrimitive as _,
+	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
 		task::{Stopper, Task},
 	},
 	tangram_http::{
-		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody,
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_log_store::Store as _,
-	tangram_messenger::prelude::*,
+	tangram_store::{Store as _, log},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+const LOG_BATCH_DELAY: Duration = Duration::from_millis(5);
+const LOG_BATCH_MAX_CHUNKS: usize = 64;
+const LOG_BATCH_SIZE: usize = 32 * 1024;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum Destination {
 	Log,
-	Pipe,
 	Null,
+	Pipe,
 }
 
 impl Session {
@@ -27,14 +34,13 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
+	{
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
-
 		let location = self.server.location(arg.location.as_ref())?;
-
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_write_process_stdio_local(
@@ -68,10 +74,11 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		stopper: Option<Stopper>,
 		token: Option<&tg::authorization::Token>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
+	{
 		let Some(tg::process::get::Output { data, .. }) = self
 			.try_get_process_local(id, false, false, token)
 			.await
@@ -79,110 +86,50 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-
 		self.authorize_process_stdio_write(id, streams, token)
 			.await?;
-
 		if data.status.is_finished() {
-			return Ok(Some(
-				futures::stream::once(future::ok(tg::process::stdio::write::Event::End)).boxed(),
-			));
+			let message = tg::process::stdio::write::ServerMessage::Response(
+				tg::process::stdio::write::ServerResponse::End,
+			);
+			let stream = futures::stream::once(future::ok(message)).boxed();
+
+			return Ok(Some(stream));
 		}
 
-		// Spawn the write task.
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
-		let finished = Stopper::new();
-		let write_task = Task::spawn({
+		let task = Task::spawn({
 			let session = self.clone();
-			let data = data.clone();
 			let id = id.clone();
 			let streams = streams.to_owned();
-			let finished = finished.clone();
 			move |_| async move {
-				let future = session.write_process_stdio_local_task(&id, data, &streams, input);
-				let mut future = pin!(future);
-				let stopper_wait = async move {
-					match stopper {
-						Some(stopper) => stopper.wait().await,
-						None => future::pending::<()>().await,
-					}
-				};
-				let result = tokio::select! {
-					result = &mut future => result,
-					() = stopper_wait => {
-						sender
-							.send(Ok(tg::process::stdio::write::Event::Stop))
-							.await
-							.inspect_err(
-								|error| tracing::error!(%error, "failed to send stop event"),
-							)
-							.ok();
-						let result = future.await;
-						sender
-							.send(Ok(tg::process::stdio::write::Event::End))
-							.await
-							.inspect_err(
-								|error| tracing::error!(%error, "failed to send end event"),
-							)
-							.ok();
-						result
+				let mut future = Box::pin(
+					session.write_process_stdio_local_task(&id, data, &streams, input, &sender),
+				);
+				let result = match stopper {
+					Some(stopper) => {
+						tokio::select! {
+							result = &mut future => result,
+							() = stopper.wait() => {
+								let message = tg::process::stdio::write::ServerMessage::Notification(
+									tg::process::stdio::write::ServerNotification::Stop,
+								);
+								sender.send(Ok(message)).await.ok();
+
+								Ok(())
+							},
+						}
 					},
-					() = finished.wait() => {
-						sender
-							.send(Ok(tg::process::stdio::write::Event::End))
-							.await
-							.inspect_err(
-								|error| tracing::error!(%error, "failed to send end event"),
-							)
-							.ok();
-						Ok(())
-					},
+					None => future.await,
 				};
 				if let Err(error) = result {
 					sender.send(Err(error)).await.ok();
 				}
+
 				Ok::<_, tg::Error>(())
 			}
 		});
-
-		// Spawn the status task if necessary.
-		let status_task = if streams.contains(&tg::process::stdio::Stream::Stdin) {
-			Some(Task::spawn({
-				let session = self.clone();
-				let id = id.clone();
-				let finished = finished.clone();
-				move |stopper| async move {
-					let stream = session
-						.try_get_process_status_stream_local(&id, Some(stopper), None)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the status stream"))?;
-					if let Some(stream) = stream {
-						let mut stream = pin!(stream);
-						while let Some(event) = stream.try_next().await? {
-							match event {
-								tg::process::status::Event::Status(status)
-									if status.is_finished() =>
-								{
-									break;
-								},
-								tg::process::status::Event::End => break,
-								tg::process::status::Event::Status(_) => (),
-							}
-						}
-					}
-					finished.stop();
-					Ok::<_, tg::Error>(())
-				}
-			}))
-		} else {
-			None
-		};
-
-		let stream = ReceiverStream::new(receiver).attach(write_task);
-		let stream = match status_task {
-			Some(status_task) => stream.attach(status_task).boxed(),
-			None => stream.boxed(),
-		};
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 
 		Ok(Some(stream))
 	}
@@ -207,6 +154,7 @@ impl Session {
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));
 				}
+
 				Ok(())
 			},
 			(false, true) => {
@@ -217,6 +165,7 @@ impl Session {
 				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}
+
 				Ok(())
 			},
 			(true, true) => Err(tg::error!(
@@ -230,116 +179,224 @@ impl Session {
 		id: &tg::process::Id,
 		data: tg::process::Data,
 		streams: &[tg::process::stdio::Stream],
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
 	) -> tg::Result<()> {
-		if data.status.is_finished() {
+		let destinations = streams
+			.iter()
+			.map(|&stream| get_destination(&data, stream))
+			.collect::<tg::Result<Vec<_>>>()?;
+		let logs = destinations
+			.iter()
+			.all(|destination| *destination == Destination::Log);
+		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
+		if logs {
+			self.write_process_stdio_log_local_task(id, &data, &streams, input, sender)
+				.await?;
+		} else {
+			self.write_process_stdio_other_local_task(id, &data, &streams, input, sender)
+				.await?;
+		}
+
+		Ok(())
+	}
+
+	async fn write_process_stdio_log_local_task(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+	) -> tg::Result<()> {
+		if data.status != tg::process::Status::Started {
+			return Err(tg::error!("not found"));
+		}
+		let combined = streams.len() > 1;
+		let input =
+			tokio_stream::StreamExt::chunks_timeout(input, LOG_BATCH_MAX_CHUNKS, LOG_BATCH_DELAY);
+		let mut input = pin!(input);
+		while let Some(messages) = input.next().await {
+			let mut args = Vec::with_capacity(messages.len());
+			let mut batch_length = 0_usize;
+			let mut end = false;
+			let mut position = None;
+			for result in messages {
+				let message =
+					result.map_err(|error| tg::error!(!error, "failed to read a stdio message"))?;
+				match message {
+					tg::process::stdio::write::ClientMessage::Notification(
+						tg::process::stdio::write::ClientNotification::Chunk(chunk),
+					) => {
+						if !streams.contains(&chunk.stream) {
+							return Err(tg::error!(
+								stream = %chunk.stream,
+								"received an unexpected stdio stream"
+							));
+						}
+						let timestamp = chunk
+							.timestamp
+							.ok_or_else(|| tg::error!("missing the log timestamp"))?;
+						let length = chunk.bytes.len();
+						if !args.is_empty() && batch_length.saturating_add(length) > LOG_BATCH_SIZE
+						{
+							self.put_process_log_batch_local(id, std::mem::take(&mut args))
+								.await?;
+							if let Some(position) = position {
+								send_write_notification(sender, position).await;
+							}
+							batch_length = 0;
+						}
+						let chunk_position = if combined {
+							chunk.combined_position
+						} else {
+							chunk.stream_position
+						};
+						position = Some(
+							chunk_position
+								.checked_add(length.to_u64().unwrap())
+								.ok_or_else(|| tg::error!("the stdio position is too large"))?,
+						);
+						let arg = log::put::Arg {
+							bytes: chunk.bytes,
+							position: chunk.combined_position,
+							process: id.clone(),
+							stream: chunk.stream,
+							stream_position: chunk.stream_position,
+							timestamp,
+						};
+						args.push(arg);
+						batch_length = batch_length.saturating_add(length);
+					},
+					tg::process::stdio::write::ClientMessage::Request(
+						tg::process::stdio::write::ClientRequest::End,
+					) => end = true,
+				}
+			}
+			self.put_process_log_batch_local(id, args).await?;
+			if let Some(position) = position {
+				send_write_notification(sender, position).await;
+			}
+			if end {
+				send_end_response(sender).await;
+
+				return Ok(());
+			}
+		}
+
+		Err(tg::error!(
+			"the stdio write stream ended before the end request"
+		))
+	}
+
+	async fn put_process_log_batch_local(
+		&self,
+		id: &tg::process::Id,
+		args: Vec<log::put::Arg>,
+	) -> tg::Result<()> {
+		if args.is_empty() {
 			return Ok(());
 		}
-		let started_at = data.started_at;
-		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
+		self.server
+			.store
+			.put_log_batch(args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to store the log"))?;
+		self.server.log_notifications.notify(id);
+
+		Ok(())
+	}
+
+	async fn write_process_stdio_other_local_task(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+	) -> tg::Result<()> {
+		let combined = streams.len() > 1;
 		let mut input = pin!(input);
-		while let Some(result) = input.next().await {
-			let event = match result {
-				Ok(event) => event,
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to read a stdio event"));
-				},
-			};
-			match event {
-				tg::process::stdio::read::Event::Chunk(mut chunk) => {
-					if chunk.bytes.is_empty()
-						&& !matches!(chunk.stream, tg::process::stdio::Stream::Stdin)
-					{
-						continue;
-					}
+		let mut position = 0;
+		while let Some(message) = input.try_next().await? {
+			match message {
+				tg::process::stdio::write::ClientMessage::Notification(
+					tg::process::stdio::write::ClientNotification::Chunk(chunk),
+				) => {
 					if !streams.contains(&chunk.stream) {
 						return Err(tg::error!(
 							stream = %chunk.stream,
 							"received an unexpected stdio stream"
 						));
 					}
-					chunk.position = None;
-					match get_destination(&data, chunk.stream)? {
+					let start = if combined {
+						chunk.combined_position
+					} else {
+						chunk.stream_position
+					};
+					let end = start
+						.checked_add(chunk.bytes.len().to_u64().unwrap())
+						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+					position = match get_destination(data, chunk.stream)? {
 						Destination::Log => {
-							let started_at = started_at
-								.ok_or_else(|| tg::error!("expected the process to be started"))?;
-							if data.status != tg::process::Status::Started {
-								return Err(tg::error!("not found"));
-							}
-							let timestamp = self.server.clock.unix_timestamp()? - started_at;
-							let stream =
-								if matches!(chunk.stream, tg::process::stdio::Stream::Stdin) {
-									return Err(tg::error!("invalid stdio stream"));
-								} else {
-									chunk.stream
-								};
-							let arg = tangram_log_store::PutArg {
+							let timestamp = chunk
+								.timestamp
+								.ok_or_else(|| tg::error!("missing the log timestamp"))?;
+							let arg = log::put::Arg {
 								bytes: chunk.bytes,
+								position: chunk.combined_position,
 								process: id.clone(),
-								stream,
+								stream: chunk.stream,
+								stream_position: chunk.stream_position,
 								timestamp,
 							};
-							self.server
-								.log_store
-								.put(arg)
-								.await
-								.map_err(|error| tg::error!(!error, "failed to store the log"))?;
-							tokio::spawn({
-								let session = self.clone();
-								let id = id.clone();
-								async move {
-									session
-										.server
-										.messenger
-										.publish(format!("processes.{id}.log"), ())
-										.await
-										.inspect_err(|error| {
-											tracing::error!(%error, "failed to publish");
-										})
-										.ok();
-								}
-							});
+							self.put_process_log_batch_local(id, vec![arg]).await?;
+							end
 						},
+						Destination::Null => end,
 						Destination::Pipe => {
-							let length = self
-								.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
-								.await?;
-							if length == 0 {
-								return Ok(());
-							}
+							self.write_process_stdio_chunk_local(id, chunk).await?
 						},
-						Destination::Null => (),
-					}
+					};
+					send_write_notification(sender, position).await;
 				},
-				tg::process::stdio::read::Event::End => {
+				tg::process::stdio::write::ClientMessage::Request(
+					tg::process::stdio::write::ClientRequest::End,
+				) => {
 					if streams.contains(&tg::process::stdio::Stream::Stdin)
 						&& matches!(
-							get_destination(&data, tg::process::stdio::Stream::Stdin),
+							get_destination(data, tg::process::stdio::Stream::Stdin),
 							Ok(Destination::Pipe)
 						) {
-						self.write_process_stdio_chunk_local(
-							id,
-							tg::process::stdio::Stream::Stdin,
-							Bytes::new(),
-						)
-						.await?;
+						let chunk = tg::process::stdio::Chunk {
+							bytes: Bytes::new(),
+							combined_position: position,
+							stream: tg::process::stdio::Stream::Stdin,
+							stream_position: position,
+							timestamp: None,
+						};
+						position = self.write_process_stdio_chunk_local(id, chunk).await?;
+						send_write_notification(sender, position).await;
 					}
+					send_end_response(sender).await;
+
 					return Ok(());
 				},
 			}
 		}
-		Ok(())
+
+		Err(tg::error!(
+			"the stdio write stream ended before the end request"
+		))
 	}
 
 	async fn write_process_stdio_chunk_local(
 		&self,
 		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-		bytes: Bytes,
-	) -> tg::Result<usize> {
-		let request = tg::process::control::ServerRequestArg::Write(
-			tg::process::control::WriteServerRequestArg { stream, bytes },
-		);
+		chunk: tg::process::stdio::Chunk,
+	) -> tg::Result<u64> {
+		let arg = tg::process::control::WriteServerRequestArg { chunk };
+		let request = tg::process::control::ServerRequestArg::Write(arg);
 		let retry = tangram_futures::retry::Options {
 			max_retries: u64::MAX,
 			..Default::default()
@@ -352,7 +409,7 @@ impl Session {
 		{
 			self.server.config.runner.stdio_drain_timeout
 		} else {
-			std::time::Duration::from_secs(10)
+			Duration::from_secs(10)
 		};
 		let options = crate::control::Options { retry, timeout };
 		let response = self
@@ -361,16 +418,18 @@ impl Session {
 		let response = response
 			.try_unwrap_write()
 			.map_err(|_| tg::error!("expected a write response"))?;
-		Ok(response.length)
+
+		Ok(response.position)
 	}
 
 	async fn try_write_process_stdio_region(
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::stdio::write::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		region: String,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
+	{
 		let client = self.get_region_session_for_process(&region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -386,6 +445,7 @@ impl Session {
 			.try_write_process_stdio(id, arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to write stdio"))?;
+
 		Ok(stream.map(futures::StreamExt::boxed))
 	}
 
@@ -393,10 +453,11 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::stdio::write::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
+	{
 		let client = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
@@ -413,6 +474,7 @@ impl Session {
 			.try_write_process_stdio(id, arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to write stdio"))?;
+
 		Ok(stream.map(futures::StreamExt::boxed))
 	}
 
@@ -425,17 +487,15 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-
-		match accept
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+		let output_encoding = super::Encoding::from_accept(accept.as_ref())?;
+		let input_encoding = content_type
 			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
-
+			.ok_or_else(|| tg::error!("missing the content type"))?
+			.try_into()?;
 		let id = id
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
@@ -444,22 +504,8 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let input = request
-			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read an event"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			})
-			.boxed();
-
+		let max_frame_size = self.server.config.sync.max_frame_size;
+		let input = super::decode(request, input_encoding, max_frame_size);
 		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
@@ -467,20 +513,33 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
-
-		let content_type = mime::TEXT_EVENT_STREAM;
-		let stream = output.map(|result| match result {
-			Ok(event) => event.try_into(),
-			Err(error) => error.try_into(),
-		});
-		let body = BoxBody::with_sse_stream(stream);
-
+		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.header(http::header::CONTENT_TYPE, output_encoding.content_type())
 			.body(body)
 			.unwrap();
+
 		Ok(response)
 	}
+}
+
+async fn send_end_response(
+	sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+) {
+	let message = tg::process::stdio::write::ServerMessage::Response(
+		tg::process::stdio::write::ServerResponse::End,
+	);
+	sender.send(Ok(message)).await.ok();
+}
+
+async fn send_write_notification(
+	sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+	position: u64,
+) {
+	let message = tg::process::stdio::write::ServerMessage::Notification(
+		tg::process::stdio::write::ServerNotification::Write { position },
+	);
+	sender.send(Ok(message)).await.ok();
 }
 
 fn get_destination(
@@ -488,11 +547,19 @@ fn get_destination(
 	stream: tg::process::stdio::Stream,
 ) -> tg::Result<Destination> {
 	let stdio = match stream {
+		tg::process::stdio::Stream::Stderr => &data.stderr,
 		tg::process::stdio::Stream::Stdin => &data.stdin,
 		tg::process::stdio::Stream::Stdout => &data.stdout,
-		tg::process::stdio::Stream::Stderr => &data.stderr,
 	};
 	match stream {
+		tg::process::stdio::Stream::Stderr => match stdio {
+			tg::process::Stdio::Log => Ok(Destination::Log),
+			tg::process::Stdio::Null => Ok(Destination::Null),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
+			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
+				Err(tg::error!("invalid stdio"))
+			},
+		},
 		tg::process::stdio::Stream::Stdin => match stdio {
 			tg::process::Stdio::Null => Ok(Destination::Null),
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
@@ -501,14 +568,6 @@ fn get_destination(
 			},
 		},
 		tg::process::stdio::Stream::Stdout => match stdio {
-			tg::process::Stdio::Log => Ok(Destination::Log),
-			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
-			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
-				Err(tg::error!("invalid stdio"))
-			},
-		},
-		tg::process::stdio::Stream::Stderr => match stdio {
 			tg::process::Stdio::Log => Ok(Destination::Log),
 			tg::process::Stdio::Null => Ok(Destination::Null),
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),

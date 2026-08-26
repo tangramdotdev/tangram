@@ -1,11 +1,9 @@
 use {
 	crate::prelude::*,
-	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{BytesBase64, is_default},
+	tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -507,14 +505,16 @@ pub struct GetChildrenClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct ReadServerRequestArg {
-	#[tangram_serialize(id = 2)]
+	#[tangram_serialize(id = 0)]
 	pub length: usize,
 
 	#[tangram_serialize(id = 1)]
-	pub stream: tg::process::stdio::Stream,
+	pub position: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub streams: Vec<tg::process::stdio::Stream>,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -524,12 +524,8 @@ pub struct ReadServerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct WriteServerRequestArg {
-	#[serde_as(as = "BytesBase64")]
-	#[tangram_serialize(id = 2)]
-	pub bytes: Bytes,
-
-	#[tangram_serialize(id = 1)]
-	pub stream: tg::process::stdio::Stream,
+	#[tangram_serialize(id = 0)]
+	pub chunk: tg::process::stdio::Chunk,
 }
 
 #[derive(
@@ -558,7 +554,6 @@ pub struct TtyServerRequestArg {
 	pub size: tg::process::tty::Size,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -568,12 +563,8 @@ pub struct TtyServerRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct ReadClientResponseOutput {
-	#[serde_as(as = "BytesBase64")]
-	#[tangram_serialize(id = 2)]
-	pub bytes: Bytes,
-
-	#[tangram_serialize(id = 1)]
-	pub stream: tg::process::stdio::Stream,
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub chunk: Option<tg::process::stdio::Chunk>,
 }
 
 #[derive(
@@ -585,8 +576,8 @@ pub struct ReadClientResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct WriteClientResponseOutput {
-	#[tangram_serialize(id = 1)]
-	pub length: usize,
+	#[tangram_serialize(id = 0)]
+	pub position: u64,
 }
 
 #[derive(

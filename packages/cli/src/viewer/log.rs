@@ -615,24 +615,25 @@ impl State {
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the log stream"))?;
 
-		// Convert the events.
+		// Convert the chunks.
+		let combined = self.streams.len() > 1;
 		let stream = stream
-			.try_filter_map(|event| async move {
-				match event {
-					tg::process::stdio::read::Event::Chunk(chunk) => {
-						let position = chunk
-							.position
-							.ok_or_else(|| tg::error!("expected the chunk position"))?;
-						let stream = stdio_stream_to_log_stream(chunk.stream)?;
-						let chunk = Chunk {
-							bytes: chunk.bytes,
-							position,
-							stream,
-						};
-						Ok(Some(chunk))
-					},
-					tg::process::stdio::read::Event::End => Ok(None),
-				}
+			.map(move |result| {
+				result.and_then(|chunk| {
+					let position = if combined {
+						chunk.combined_position
+					} else {
+						chunk.stream_position
+					};
+					let stream = stdio_stream_to_log_stream(chunk.stream)?;
+					let chunk = Chunk {
+						bytes: chunk.bytes,
+						position,
+						stream,
+					};
+
+					Ok(chunk)
+				})
 			})
 			.boxed();
 

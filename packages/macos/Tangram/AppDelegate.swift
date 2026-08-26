@@ -73,7 +73,7 @@ private let appGroupIdentifier: String = {
 private struct VfsBrokerRequest: Decodable {
 	let dataDirectory: String
 	let mountPath: String
-	let objectStore: VfsBrokerObjectStore?
+	let store: VfsBrokerStore?
 	let principal: String?
 	let socket: String
 	let token: String
@@ -82,7 +82,7 @@ private struct VfsBrokerRequest: Decodable {
 	private enum CodingKeys: String, CodingKey {
 		case dataDirectory = "data_directory"
 		case mountPath = "mount_path"
-		case objectStore = "object_store"
+		case store = "store"
 		case principal
 		case socket
 		case token
@@ -90,9 +90,9 @@ private struct VfsBrokerRequest: Decodable {
 	}
 }
 
-// The object store the file system extension's fast path opens. The server sends
+// The store the file system extension's fast path opens. The server sends
 // it only if the store is an lmdb store.
-private struct VfsBrokerObjectStore: Decodable {
+private struct VfsBrokerStore: Decodable {
 	let mapSize: UInt64
 	let path: String
 	let posixSemPrefix: String?
@@ -246,7 +246,7 @@ private final class VfsBroker: @unchecked Sendable {
 			dataDirectory: request.dataDirectory,
 			generation: generation,
 			at: request.mountPath,
-			objectStore: request.objectStore,
+			store: request.store,
 			principal: request.principal,
 			socket: request.socket,
 		)
@@ -298,7 +298,7 @@ private final class VfsBroker: @unchecked Sendable {
 		dataDirectory: String,
 		generation: UInt64,
 		at mountPath: String,
-		objectStore: VfsBrokerObjectStore?,
+		store: VfsBrokerStore?,
 		principal: String?,
 		socket: String,
 	) throws {
@@ -306,7 +306,7 @@ private final class VfsBroker: @unchecked Sendable {
 			dataDirectory: dataDirectory,
 			generation: generation,
 			at: mountPath,
-			objectStore: objectStore,
+			store: store,
 			principal: principal,
 			socket: socket,
 		)
@@ -325,7 +325,7 @@ private final class VfsBroker: @unchecked Sendable {
 				dataDirectory: dataDirectory,
 				generation: generation,
 				at: mountPath,
-				objectStore: objectStore,
+				store: store,
 				principal: principal,
 				socket: socket,
 			)
@@ -338,7 +338,7 @@ private final class VfsBroker: @unchecked Sendable {
 	}
 
 	private func mountOptions(
-		_ objectStore: VfsBrokerObjectStore?,
+		_ store: VfsBrokerStore?,
 		principal: String?,
 		socket: String,
 	) -> String {
@@ -351,18 +351,18 @@ private final class VfsBroker: @unchecked Sendable {
 				logger.error("the principal contains a comma, so it cannot be sent to the file system extension")
 			}
 		}
-		if let objectStore {
-			options.append("object_store_map_size=\(objectStore.mapSize)")
-			if !objectStore.path.contains(",") {
-				options.append("object_store_path=\(objectStore.path)")
+		if let store {
+			options.append("store_map_size=\(store.mapSize)")
+			if !store.path.contains(",") {
+				options.append("store_path=\(store.path)")
 			} else {
-				logger.error("the object store path contains a comma, so it cannot be sent to the file system extension")
+				logger.error("the store path contains a comma, so it cannot be sent to the file system extension")
 			}
-			if let posixSemPrefix = objectStore.posixSemPrefix {
+			if let posixSemPrefix = store.posixSemPrefix {
 				if !posixSemPrefix.contains(",") {
-					options.append("object_store_posix_sem_prefix=\(posixSemPrefix)")
+					options.append("store_posix_sem_prefix=\(posixSemPrefix)")
 				} else {
-					logger.error("the object store semaphore prefix contains a comma, so it cannot be sent to the file system extension")
+					logger.error("the store semaphore prefix contains a comma, so it cannot be sent to the file system extension")
 				}
 			}
 		}
@@ -373,7 +373,7 @@ private final class VfsBroker: @unchecked Sendable {
 		dataDirectory: String,
 		generation: UInt64,
 		at mountPath: String,
-		objectStore: VfsBrokerObjectStore?,
+		store: VfsBrokerStore?,
 		principal: String?,
 		socket: String,
 	) throws -> (status: Int32, message: String) {
@@ -392,7 +392,7 @@ private final class VfsBroker: @unchecked Sendable {
 		let arguments = [
 			"-F",
 			"-t", "tangram",
-			"-o", mountOptions(objectStore, principal: principal, socket: socket),
+			"-o", mountOptions(store, principal: principal, socket: socket),
 			URL(filePath: dataDirectory, directoryHint: .isDirectory).standardizedFileURL.path(),
 			path,
 		]
@@ -713,7 +713,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTo
 			) {
 				environment["TANGRAM_MACOS_APP_GROUP_SOCKET"] = groupContainer.appending(path: "socket").path(percentEncoded: false)
 			}
-			// Pass the app group identifier so the server opens the object store's
+			// Pass the app group identifier so the server opens the store's
 			// lock semaphores under a name the sandboxed file system extension can
 			// also open. The server appends 'r' and 'w' to form the two names.
 			environment["TANGRAM_MACOS_APP_GROUP_IDENTIFIER"] = appGroupIdentifier

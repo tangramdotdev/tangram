@@ -1,7 +1,7 @@
 use ../../test.nu *
 
-# A piped stdout read response published after the request timeout is retained for
-# the retry rather than being lost in a subscription gap.
+# A piped stdout response published while the response wait times out is retained
+# rather than being lost in a subscription gap.
 
 let server = server spawn --config {
 	advanced: {
@@ -48,7 +48,7 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# Publish the read response while the request is held immediately after timeout.
+# Publish the read response while the requester is held after the timeout.
 tg checkpoint wait control.request.timeout $timeout_watch 0 | ignore
 tg checkpoint wait process.control.response.publish $publish_watch 0 | ignore
 tg checkpoint continue process.control.response.publish $publish_watch 0

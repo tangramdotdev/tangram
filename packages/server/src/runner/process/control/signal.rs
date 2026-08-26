@@ -54,7 +54,7 @@ impl Session {
 				)
 			});
 			let response = Self::process_control_response(id.clone(), response);
-			sender.send(response).await.ok();
+			sender.send(response).await?;
 		}
 
 		Ok(())

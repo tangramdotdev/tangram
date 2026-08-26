@@ -56,9 +56,9 @@ pub struct Index {
 pub struct Options {
 	pub authorize: AuthorizeConfig,
 	pub cluster: std::path::PathBuf,
+	pub instance: Option<String>,
 	pub max_process_depth: Option<u64>,
 	pub partition_total: u64,
-	pub prefix: Option<String>,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
@@ -82,8 +82,8 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
 
-		let subspace = match &options.prefix {
-			Some(s) => fdbt::Subspace::from_bytes(s.clone().into_bytes()),
+		let subspace = match &options.instance {
+			Some(instance) => fdbt::Subspace::from_bytes(instance.clone().into_bytes()),
 			None => fdbt::Subspace::all(),
 		};
 

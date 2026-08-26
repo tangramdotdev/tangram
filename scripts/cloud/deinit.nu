@@ -10,4 +10,4 @@ fdbcli -C $cluster_path --exec 'writemode on; clearrange "" \xff' | ignore
 
 dropdb -U postgres -h localhost --if-exists --force processes | ignore
 
-^$scylla_client_path -e 'drop keyspace objects;' | ignore
+^$scylla_client_path -e 'drop keyspace store;' | ignore

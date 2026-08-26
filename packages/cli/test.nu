@@ -112,7 +112,7 @@ def main [
 
 		let scylla_output = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | complete)
 		if $scylla_output.exit_code == 0 {
-			let keyspaces = $scylla_output.stdout | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'objects_' }
+			let keyspaces = $scylla_output.stdout | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'store_' }
 			for keyspace in $keyspaces {
 				print -e $"dropping scylla keyspace ($keyspace)"
 				try { tangram_scylla_client 127.0.0.1 9042 -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
@@ -122,9 +122,9 @@ def main [
 		}
 
 		let foundationdb_command = foundationdb_command
-		let foundationdb_output = (^timeout 10 ...$foundationdb_command --exec 'writemode on; clearrange "index_" "index_\xff"; clearrange "logs_" "logs_\xff"' | complete)
+		let foundationdb_output = (^timeout 10 ...$foundationdb_command --exec 'writemode on; clearrange "" \xff' | complete)
 		if $foundationdb_output.exit_code == 0 {
-			print -e 'cleared FoundationDB test prefixes'
+			print -e 'cleared FoundationDB test data'
 		} else {
 			print -e 'skipping FoundationDB cleanup because it is not ready'
 		}
@@ -544,7 +544,7 @@ def database_pool_path [] {
 
 def acquire_database_instance [pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/stores/object/src/scylla.cql
+	let scylla_schema_path = $repository_path | path join packages/store/src/scylla.cql
 	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
 	if $result.exit_code != 0 {
 		error make {
@@ -617,7 +617,7 @@ cleanup_provision() {
 	trap - EXIT
 	rm -rf -- "$temporary_slot_path"
 	if $scylla_created; then
-		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"objects_$instance\";" >/dev/null 2>&1 || true
+		tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"store_$instance\";" >/dev/null 2>&1 || true
 	fi
 	if $postgres_created; then
 		dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$instance" >/dev/null 2>&1 || true
@@ -631,9 +631,9 @@ createdb --host=127.0.0.1 --username=postgres "database_$instance"
 postgres_created=true
 psql --host=127.0.0.1 --username=postgres --dbname="database_$instance" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
 
-tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"objects_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"store_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
 scylla_created=true
-tangram_scylla_client 127.0.0.1 9042 -k "objects_$instance" -f "$scylla_schema_path" >/dev/null
+tangram_scylla_client 127.0.0.1 9042 -k "store_$instance" -f "$scylla_schema_path" >/dev/null
 
 mv -- "$temporary_slot_path" "$slot_path"
 trap - EXIT
@@ -1460,7 +1460,7 @@ export def --env "server spawn" [
 	}
 
 	# Use unique semaphore names in the namespace FSKit can access.
-	let object_store_posix_sem_prefix = if $use_fskit {
+	let store_posix_sem_prefix = if $use_fskit {
 		let app_group_identifier = (identifiers).app_group_identifier
 		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
 	} else {
@@ -1476,18 +1476,10 @@ export def --env "server spawn" [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
-		logs: {
-			store: {
-				kind: 'lmdb',
-				map_size: 10_485_760,
-			},
-		},
-		object: {
-			store: {
-				kind: 'lmdb',
-				map_size: 10_485_760,
-				posix_sem_prefix: $object_store_posix_sem_prefix,
-			},
+		store: {
+			kind: 'lmdb',
+			map_size: 10_485_760,
+			posix_sem_prefix: $store_posix_sem_prefix,
 		},
 		remotes: {},
 		tokio_single_threaded: true,
@@ -1510,7 +1502,7 @@ export def --env "server spawn" [
 		$default_config = $default_config | merge deep {
 			database: {
 				kind: 'turso',
-				path: 'database',
+				path: 'database.sqlite3',
 			},
 		}
 	}
@@ -1612,27 +1604,18 @@ export def --env "server spawn" [
 			instance: $cloud_instance,
 			index: {
 				cluster: $cluster,
+				instance: $storage_instance,
 				kind: 'fdb',
-				prefix: $'index_($storage_instance)',
-			},
-			logs: {
-				store: {
-					cluster: $cluster,
-					kind: 'fdb',
-					prefix: $'logs_($storage_instance)',
-				},
 			},
 			messenger: {
 				kind: 'nats',
 				url: 'nats://127.0.0.1:4222',
 			},
-			object: {
-				store: {
-					addr: '127.0.0.1:9042',
-					connections: 1,
-					keyspace: $'objects_($storage_instance)',
-					kind: 'scylla',
-				},
+			store: {
+				addr: '127.0.0.1:9042',
+				connections: 1,
+				keyspace: $'store_($storage_instance)',
+				kind: 'scylla',
 			},
 			remotes: {},
 		}
@@ -2075,13 +2058,13 @@ def reset_database_instance [instance: string, pool_path: string] {
 	let results = ['foundationdb' 'postgres' 'scylla'] | par-each { |database|
 		let output = match $database {
 			'foundationdb' => {
-				(^timeout 10 ...$foundationdb_command --exec $'writemode on; clearrange "index_($instance)" "index_($instance)\xff"; clearrange "logs_($instance)" "logs_($instance)\xff"' | complete)
+				(^timeout 10 ...$foundationdb_command --exec $'writemode on; clearrange "($instance)" "($instance)\xff"' | complete)
 			},
 			'postgres' => {
 				(^psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(tangram_scylla_client 127.0.0.1 9042 -k $'objects_($instance)' -e 'truncate objects; truncate outbox;' | complete)
+				(tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate logs; truncate objects; truncate outbox;' | complete)
 			},
 		}
 

@@ -1,104 +1,199 @@
 import * as tg from "../../../index.ts";
 import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
-import { Queue } from "../../../queue.ts";
-import { Stop } from "../../../stop.ts";
 import type { Client } from "../../../client.ts";
 
-export namespace Stdio {
-	export namespace Write {
-		export type Arg = {
-			location?: tg.Location.Arg | null;
-			streams: Array<tg.Process.Stdio.Stream>;
-			tokens?: tg.Authorization.Tokens | null;
-		};
-	}
-}
+type Connection = {
+	input: Channel<tg.Process.Stdio.Write.ClientMessage>;
+	output: AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage>;
+};
+
+class ProtocolError extends Error {}
 
 export async function writeProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
-	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event>> {
+	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+): Promise<void> {
 	let output = await tryWriteProcessStdio(client, id, arg, input);
 	if (output === null) {
 		throw new Error("failed to find the process");
 	}
-	return output;
 }
 
 export async function tryWriteProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
-	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
-	return await writeProcessStdioAll(client, id, arg, input);
+	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+): Promise<true | null> {
+	let connection = await connect(client, id, arg);
+	if (connection === null) {
+		await input.return?.();
+		return null;
+	}
+	await writeProcessStdioAll(client, id, arg, input, connection);
+
+	return true;
 }
 
 async function writeProcessStdioAll(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
-	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
-	let events = new Queue(input);
-	let stop = new Stop();
-	let output = await writeProcessStdioOnce(
-		client,
-		id,
-		arg,
-		encodeReadStdioEvents(events, arg.streams, stop),
-	);
-	if (output === null) {
-		await input.return?.();
-		return null;
-	}
-	return (async function* (output_) {
-		try {
-			while (true) {
-				let stopped = false;
-				for await (let event of output_) {
-					yield event;
-					if (event.kind === "stop") {
-						if (!stopped) {
-							stopped = true;
-							stop.stop();
-						}
-					} else if (event.kind === "end") {
-						return;
+	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+	connection: Connection,
+): Promise<void> {
+	let combined = arg.streams.length > 1;
+	let endSent = false;
+	let inputEnded = false;
+	let pending: tg.Process.Stdio.Chunk | null = null;
+	let pendingSent = false;
+	try {
+		while (true) {
+			if (pending === null && !inputEnded) {
+				let result = await input.next();
+				if (result.done) {
+					inputEnded = true;
+				} else {
+					pending = result.value;
+					if (!arg.streams.includes(pending.stream)) {
+						throw new ProtocolError("invalid process stdio stream");
 					}
 				}
-				if (!stopped) {
-					return;
-				}
-				stop = new Stop();
-				let nextOutput = await writeProcessStdioOnce(
-					client,
-					id,
-					arg,
-					encodeReadStdioEvents(events, arg.streams, stop),
-				);
-				if (nextOutput === null) {
-					return;
-				}
-				output_ = nextOutput;
 			}
-		} finally {
-			await input.return?.();
+			if (pending !== null && !pendingSent) {
+				let message: tg.Process.Stdio.Write.ClientMessage = {
+					kind: "notification",
+					value: { kind: "chunk", value: pending },
+				};
+				if (!connection.input.push(message)) {
+					connection = await reconnect(client, id, arg, connection);
+					endSent = false;
+					continue;
+				}
+				pendingSent = true;
+			} else if (pending === null && inputEnded && !endSent) {
+				let message: tg.Process.Stdio.Write.ClientMessage = {
+					kind: "request",
+					value: { kind: "end" },
+				};
+				if (!connection.input.push(message)) {
+					connection = await reconnect(client, id, arg, connection);
+					continue;
+				}
+				endSent = true;
+			}
+			let result: IteratorResult<tg.Process.Stdio.Write.ServerMessage>;
+			try {
+				result = await connection.output.next();
+			} catch (error) {
+				if (isTerminalError(error)) {
+					throw error;
+				}
+				connection = await reconnect(client, id, arg, connection);
+				endSent = false;
+				pendingSent = false;
+				continue;
+			}
+			if (result.done) {
+				connection = await reconnect(client, id, arg, connection);
+				endSent = false;
+				pendingSent = false;
+				continue;
+			}
+			let message = result.value;
+			if (message.kind === "response") {
+				if (message.value.kind !== "end" || pending !== null || !inputEnded) {
+					throw new ProtocolError("invalid process stdio write response");
+				}
+				return;
+			}
+			if (message.value.kind === "stop") {
+				connection = await reconnect(client, id, arg, connection);
+				endSent = false;
+				pendingSent = false;
+				continue;
+			}
+			if (message.value.kind !== "write") {
+				throw new ProtocolError("invalid process stdio write notification");
+			}
+			if (pending === null) {
+				continue;
+			}
+			let position = message.value.value.position;
+			let start = combined ? pending.combinedPosition : pending.streamPosition;
+			let end = start + pending.bytes.length;
+			if (!Number.isSafeInteger(position) || position < 0 || position > end) {
+				throw new ProtocolError("invalid process stdio write position");
+			}
+			if (position <= start) {
+				pendingSent = false;
+				continue;
+			}
+			if (position < end) {
+				let overlap = position - start;
+				pending = {
+					...pending,
+					bytes: pending.bytes.subarray(overlap),
+					combinedPosition: pending.combinedPosition + overlap,
+					streamPosition: pending.streamPosition + overlap,
+				};
+			} else {
+				pending = null;
+			}
+			pendingSent = false;
 		}
-	})(output);
+	} finally {
+		connection.input.close();
+		await connection.output.return?.();
+		await input.return?.();
+	}
+}
+
+async function connect(
+	client: Client,
+	id: tg.Process.Id,
+	arg: tg.Process.Stdio.Write.Arg,
+): Promise<Connection | null> {
+	let attempt = 0;
+	while (true) {
+		try {
+			return await writeProcessStdioOnce(client, id, arg);
+		} catch (error) {
+			if (isTerminalError(error)) {
+				throw error;
+			}
+			await retryDelay(attempt);
+			attempt++;
+		}
+	}
+}
+
+async function reconnect(
+	client: Client,
+	id: tg.Process.Id,
+	arg: tg.Process.Stdio.Write.Arg,
+	connection: Connection,
+): Promise<Connection> {
+	connection.input.close();
+	await connection.output.return?.();
+	let next = await connect(client, id, arg);
+	if (next === null) {
+		throw new Error("failed to find the process");
+	}
+
+	return next;
 }
 
 async function writeProcessStdioOnce(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
-	input: AsyncIterableIterator<Body.SseEvent>,
-): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
-	let method = "POST";
+): Promise<Connection | null> {
+	let input = new Channel<tg.Process.Stdio.Write.ClientMessage>();
 	let uri = new Uri({
-		path: `/processes/${percentEncode(id)}/stdio`,
+		path: `/processes/${percentEncode(id)}/stdio/write`,
 		query: {
 			...arg,
 			location:
@@ -108,82 +203,165 @@ async function writeProcessStdioOnce(
 			streams: arg.streams.join(","),
 		},
 	});
-	let headers = {
-		accept: "text/event-stream",
-		"content-type": "text/event-stream",
-	};
-	let body = Body.sse(input);
 	let request = new Request({
-		body,
-		method,
+		body: Body.sse(encodeClientMessages(input)),
+		headers: {
+			accept: "text/event-stream",
+			"content-type": "text/event-stream",
+		},
+		method: "POST",
 		uri,
-		headers,
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {
+		input.close();
 		return null;
-	} else if (response.status < 200 || response.status >= 300) {
-		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return decodeWriteStdioEvents(response);
+	if (response.status < 200 || response.status >= 300) {
+		input.close();
+		throw await responseError(response);
+	}
+	let contentType = response.headers.get("content-type")?.split(";", 1)[0];
+	if (contentType !== "text/event-stream") {
+		input.close();
+		throw new ProtocolError("invalid process stdio response content type");
+	}
+	let output = decodeServerMessages(response);
+
+	return { input, output };
 }
 
-async function* decodeWriteStdioEvents(
-	response: Response,
-): AsyncIterableIterator<tg.Process.Stdio.Write.Event> {
-	for await (let event of response.sse()) {
-		if (event.event === "error") {
-			let data = JSON.parse(event.data) as tg.Error.Data | tg.Error.Id;
-			if (typeof data === "string") {
-				throw tg.Error.withId(data);
-			} else {
-				throw tg.Error.fromData(data);
-			}
-		} else if (event.event === "end") {
-			yield { kind: "end" };
-			break;
-		} else if (event.event === "stop") {
-			yield { kind: "stop" };
-		} else if (event.event === "write") {
-			continue;
-		} else {
-			throw new Error("invalid process stdio event");
-		}
-	}
-}
-
-async function* encodeReadStdioEvents(
-	input: Queue<tg.Process.Stdio.Read.Event>,
-	streams: Array<tg.Process.Stdio.Stream>,
-	stop: Stop,
+async function* encodeClientMessages(
+	input: AsyncIterable<tg.Process.Stdio.Write.ClientMessage>,
 ): AsyncIterableIterator<Body.SseEvent> {
-	let ended = false;
-	while (true) {
-		let result = await input.next(stop.promise);
-		if (result.done) {
-			break;
-		}
-		let event = result.value;
-		let data = tg.Process.Stdio.Read.Event.toData(event);
-		if (data.kind === "end") {
-			ended = true;
-			yield {
-				data: "",
-				event: "end",
-			};
-			break;
-		}
-		if (!streams.includes(data.value.stream)) {
-			throw new Error("invalid process stdio stream");
-		}
+	for await (let message of input) {
+		let value =
+			message.kind === "notification" && message.value.kind === "chunk"
+				? {
+						...message.value,
+						value: tg.Process.Stdio.Chunk.toData(message.value.value),
+					}
+				: message.value;
 		yield {
-			data: JSON.stringify(data.value),
+			data: JSON.stringify(value),
+			event: message.kind,
 		};
 	}
-	if (!ended) {
-		yield {
-			data: "",
-			event: "end",
-		};
+}
+
+async function* decodeServerMessages(
+	response: Response,
+): AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage> {
+	for await (let event of response.sse()) {
+		try {
+			if (event.event === "error") {
+				throw errorFromData(
+					JSON.parse(event.data) as tg.Error.Data | tg.Error.Id,
+				);
+			}
+			if (event.event === "notification") {
+				let value = JSON.parse(
+					event.data,
+				) as tg.Process.Stdio.Write.ServerNotification;
+				if (value.kind !== "stop" && value.kind !== "write") {
+					throw new ProtocolError("invalid process stdio write notification");
+				}
+				yield { kind: "notification", value };
+			} else if (event.event === "response") {
+				let value = JSON.parse(
+					event.data,
+				) as tg.Process.Stdio.Write.ServerResponse;
+				if (value.kind !== "end") {
+					throw new ProtocolError("invalid process stdio write response");
+				}
+				yield { kind: "response", value };
+			} else {
+				throw new ProtocolError("invalid process stdio write message");
+			}
+		} catch (error) {
+			if (error instanceof tg.Error || error instanceof ProtocolError) {
+				throw error;
+			}
+			throw new ProtocolError("failed to deserialize a process stdio message", {
+				cause: error,
+			});
+		}
+	}
+}
+
+async function responseError(response: Response): Promise<tg.Error> {
+	try {
+		return errorFromData(await response.json<tg.Error.Data | tg.Error.Id>());
+	} catch (error) {
+		if (error instanceof tg.Error) {
+			throw error;
+		}
+		throw new ProtocolError("failed to deserialize the error response", {
+			cause: error,
+		});
+	}
+}
+
+function errorFromData(data: tg.Error.Data | tg.Error.Id): tg.Error {
+	return typeof data === "string"
+		? tg.Error.withId(data)
+		: tg.Error.fromData(data);
+}
+
+function isTerminalError(error: unknown): boolean {
+	return error instanceof tg.Error || error instanceof ProtocolError;
+}
+
+async function retryDelay(attempt: number): Promise<void> {
+	let delay = Math.min(0.01 * 2 ** Math.min(attempt, 7), 1);
+	await tg.sleep(delay);
+}
+
+class Channel<T> implements AsyncIterableIterator<T> {
+	#closed = false;
+	#values: Array<T> = [];
+	#waiters: Array<(result: IteratorResult<T>) => void> = [];
+
+	close(): void {
+		if (this.#closed) {
+			return;
+		}
+		this.#closed = true;
+		while (this.#waiters.length > 0) {
+			this.#waiters.shift()!({ done: true, value: undefined });
+		}
+	}
+
+	next(): Promise<IteratorResult<T>> {
+		let value = this.#values.shift();
+		if (value !== undefined) {
+			return Promise.resolve({ done: false, value });
+		}
+		if (this.#closed) {
+			return Promise.resolve({ done: true, value: undefined });
+		}
+		return new Promise((resolve) => this.#waiters.push(resolve));
+	}
+
+	push(value: T): boolean {
+		if (this.#closed) {
+			return false;
+		}
+		let waiter = this.#waiters.shift();
+		if (waiter === undefined) {
+			this.#values.push(value);
+		} else {
+			waiter({ done: false, value });
+		}
+		return true;
+	}
+
+	return(): Promise<IteratorResult<T>> {
+		this.close();
+		return Promise.resolve({ done: true, value: undefined });
+	}
+
+	[Symbol.asyncIterator](): AsyncIterableIterator<T> {
+		return this;
 	}
 }

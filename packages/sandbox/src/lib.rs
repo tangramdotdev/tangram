@@ -33,6 +33,7 @@ pub mod network;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
+pub mod stdio;
 #[cfg(target_os = "linux")]
 pub mod vm;
 
@@ -598,8 +599,7 @@ impl Sandbox {
 		&self,
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
-	{
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static> {
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.read_stdio(process.index, arg).await
 	}
@@ -608,9 +608,8 @@ impl Sandbox {
 		&self,
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
-		input: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
-	{
+		input: impl Stream<Item = tg::Result<crate::stdio::read::Event>> + Send + 'static,
+	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.write_stdio(process.index, arg, input).await
 	}

@@ -926,8 +926,8 @@ impl Session {
 			move || {
 				let (_size, data) = session
 					.server
-					.object_store
-					.try_get_data_sync(&graph_id.into())?
+					.store
+					.try_get_object_data_sync(&graph_id.into())?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let data: tg::graph::Data = data
 					.try_into()
@@ -1119,11 +1119,8 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
-		let entries = crate::directory::collect_directory_entries(
-			&self.server.object_store,
-			node,
-			graph.as_ref(),
-		)?;
+		let entries =
+			crate::directory::collect_directory_entries(&self.server.store, node, graph.as_ref())?;
 
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
@@ -1434,8 +1431,8 @@ impl Session {
 					.clone();
 				let (_size, data) = self
 					.server
-					.object_store
-					.try_get_data_sync(&graph_id.clone().into())
+					.store
+					.try_get_object_data_sync(&graph_id.clone().into())
 					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
 				let graph_data: tg::graph::Data = data
@@ -1475,8 +1472,8 @@ impl Session {
 				// Load the object.
 				let (_size, data) = self
 					.server
-					.object_store
-					.try_get_data_sync(&object_id.clone().into())
+					.store
+					.try_get_object_data_sync(&object_id.clone().into())
 					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
 				let data = data
@@ -1497,8 +1494,8 @@ impl Session {
 							.clone();
 						let (_size, data) = self
 							.server
-							.object_store
-							.try_get_data_sync(&graph_id.clone().into())
+							.store
+							.try_get_object_data_sync(&graph_id.clone().into())
 							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;
 						let graph_data: tg::graph::Data = data

@@ -1,6 +1,8 @@
 use {
 	crate::Session,
+	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -214,54 +216,55 @@ impl Session {
 				)
 			})?;
 
+		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
 		let control = crate::control::Stream::new(stream, sender, crate::control::stream_options());
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_message_sender = control_sender.clone();
-		let server_messages_task =
-			Task::spawn(move |_| async move {
+		let server_messages_task = Task::spawn({
+			let forwarded_requests = forwarded_requests.clone();
+			move |_| async move {
 				while let Some(message) = server_messages.try_next().await.map_err(|source| {
 					tg::error!(!source, "failed to get a sandbox server message")
 				})? {
-					server_message_sender.send(message.payload.0).await?;
+					let message = message.payload.0;
+					let acknowledged_request = match &message {
+						tg::sandbox::control::ServerMessage::Ack(ack) => Some(ack.id.clone()),
+						_ => None,
+					};
+					if let tg::sandbox::control::ServerMessage::Request(request) = &message {
+						forwarded_requests.insert(request.id.clone());
+					}
+					server_message_sender.send(message).await?;
+					if let Some(id) = acknowledged_request {
+						forwarded_requests.remove(&id);
+					}
 				}
 				Ok::<_, tg::Error>(())
-			});
+			}
+		});
 
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let id = id.clone();
+			let forwarded_requests = forwarded_requests.clone();
 			let runner = runner.clone();
 			move |_| async move {
 				let mut control = control;
-				while let Some(message) = control.recv().await? {
+				while let Some(message) = control.recv_without_ack().await? {
 					match message {
-						tg::sandbox::control::ClientMessage::Response(response) => {
-							let subject = format!("sandboxes.{id}.control.client.{}", response.id);
-							session
-								.server
-								.messenger
-								.publish(
-									subject,
-									ClientMessage(tg::sandbox::control::ClientMessage::Response(
-										response,
-									)),
-								)
-								.await
-								.map_err(|source| {
-									tg::error!(
-										!source,
-										"failed to publish the sandbox client message"
-									)
-								})?;
+						tg::sandbox::control::ClientMessage::Ack(ack) => {
+							if forwarded_requests.contains(&ack.id) {
+								session.publish_sandbox_control_ack(&id, ack).await?;
+							}
 						},
-						tg::sandbox::control::ClientMessage::Ack(_) => unreachable!(),
 						tg::sandbox::control::ClientMessage::Notification(notification) => {
 							match notification {}
 						},
 						tg::sandbox::control::ClientMessage::Request(request) => {
 							let request_id = request.id;
+							control.acknowledge(request_id.clone()).await?;
 							let result = match request.arg {
 								tg::sandbox::control::ClientRequestArg::Destroy(request) => session
 									.destroy_sandbox_control_request(
@@ -278,6 +281,11 @@ impl Session {
 							control_sender.send(response).await.map_err(|error| {
 								tg::error!(!error, "failed to send the destroy sandbox response")
 							})?;
+						},
+						tg::sandbox::control::ClientMessage::Response(response) => {
+							session
+								.publish_sandbox_control_response(&id, response)
+								.await?;
 						},
 					}
 				}
@@ -325,6 +333,45 @@ impl Session {
 		let output = tg::sandbox::control::Output { id, token };
 
 		Ok((output, stream))
+	}
+
+	async fn publish_sandbox_control_ack(
+		&self,
+		id: &tg::sandbox::Id,
+		ack: tg::sandbox::control::ClientAck,
+	) -> tg::Result<()> {
+		let subject = format!("sandboxes.{id}.control.client.{}", ack.id);
+		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Ack(ack));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to publish the sandbox control acknowledgement"
+				)
+			})?;
+
+		Ok(())
+	}
+
+	async fn publish_sandbox_control_response(
+		&self,
+		id: &tg::sandbox::Id,
+		response: tg::sandbox::control::ClientResponse,
+	) -> tg::Result<()> {
+		let subject = format!("sandboxes.{id}.control.client.{}", response.id);
+		let payload = ClientMessage(tg::sandbox::control::ClientMessage::Response(response));
+		self.server
+			.messenger
+			.publish(subject, payload)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to publish the sandbox client message")
+			})?;
+
+		Ok(())
 	}
 
 	fn sandbox_control_server_response(
@@ -492,9 +539,12 @@ impl Session {
 				))
 			},
 			client_subject: format!("sandboxes.{sandbox}.control.client.{id}"),
+			is_ack: |message: &ClientMessage| {
+				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
+			},
 			marker: std::marker::PhantomData,
-			request,
 			options,
+			request,
 			response: |message: ClientMessage| {
 				let tg::sandbox::control::ClientMessage::Response(message) = message.0 else {
 					return Ok(None);

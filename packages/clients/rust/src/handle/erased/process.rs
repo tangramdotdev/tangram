@@ -89,19 +89,22 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
 	>;
 
 	fn try_write_process_stdio<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>,
+		tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
+		>,
 	>;
 
 	fn try_touch_process<'a>(
@@ -240,11 +243,12 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
 	> {
-		self.try_read_process_stdio(id, arg)
+		self.try_read_process_stdio(id, arg, input)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}
@@ -253,12 +257,14 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>,
+		tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
+		>,
 	> {
-		self.try_write_process_stdio(id, arg, stream)
+		self.try_write_process_stdio(id, arg, input)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}

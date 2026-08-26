@@ -179,20 +179,21 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
 			>,
 		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_process_stdio(id, arg)
+				.try_read_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_process_stdio(id, arg)
+				.try_read_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
@@ -202,21 +203,23 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
+				+ Send
+				+ 'static,
 			>,
 		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_write_process_stdio(id, arg, stream)
+				.try_write_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_write_process_stdio(id, arg, stream)
+				.try_write_process_stdio(id, arg, input)
 				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

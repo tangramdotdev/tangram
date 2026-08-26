@@ -129,7 +129,7 @@ export class Client {
 	tryReadProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Read.Arg,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | null> {
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 		return tryReadProcessStdio(this, id, arg);
 	}
 
@@ -198,16 +198,16 @@ export class Client {
 	writeProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Arg,
-		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event>> {
+		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+	): Promise<void> {
 		return writeProcessStdio(this, id, arg, input);
 	}
 
 	tryWriteProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Process.Stdio.Write.Arg,
-		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Write.Event> | null> {
+		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+	): Promise<true | null> {
 		return tryWriteProcessStdio(this, id, arg, input);
 	}
 

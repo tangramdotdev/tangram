@@ -114,7 +114,7 @@ impl Session {
 
 				// Create the store arg only if needed.
 				let store_arg = if checkout_pointers || bytes.is_some() {
-					Some(crate::object::store::PutArg {
+					Some(crate::store::object::put::Arg {
 						bytes,
 						checkout_pointer: None,
 						id: id.clone(),

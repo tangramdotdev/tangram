@@ -95,10 +95,7 @@ impl Cli {
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let mut stderr = tokio::io::BufWriter::new(tokio::io::stderr());
-		while let Some(event) = stdio.try_next().await? {
-			let tg::process::stdio::read::Event::Chunk(chunk) = event else {
-				break;
-			};
+		while let Some(chunk) = stdio.try_next().await? {
 			match chunk.stream {
 				tg::process::stdio::Stream::Stdout => {
 					stdout

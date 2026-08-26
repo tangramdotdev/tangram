@@ -9,7 +9,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
-	tangram_object_store::prelude::*,
+	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -490,7 +490,7 @@ impl Session {
 	) -> tg::Result<()> {
 		// Flush the store.
 		self.server
-			.object_store
+			.store
 			.flush()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;

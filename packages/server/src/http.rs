@@ -717,10 +717,10 @@ impl Server {
 			(http::Method::PUT, ["processes", process, "tty", "size"]) => session
 				.try_set_process_tty_size_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "stdio"]) => session
+			(http::Method::POST, ["processes", process, "stdio", "read"]) => session
 				.try_read_process_stdio_request(request, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio"]) => session
+			(http::Method::POST, ["processes", process, "stdio", "write"]) => session
 				.try_write_process_stdio_request(request, process)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "touch"]) => {

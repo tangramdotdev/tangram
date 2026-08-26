@@ -126,11 +126,14 @@ impl tg::handle::Process for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.session(&self.context)
-			.try_read_process_stdio(id, arg)
+			.try_read_process_stdio(id, arg, input)
 			.await
 	}
 
@@ -138,12 +141,14 @@ impl tg::handle::Process for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+		>,
 	> {
 		self.session(&self.context)
-			.try_write_process_stdio(id, arg, stream)
+			.try_write_process_stdio(id, arg, input)
 			.await
 	}
 

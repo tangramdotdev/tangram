@@ -3,12 +3,16 @@ use {
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
-		stream::{self},
+		stream::{self, BoxStream},
 	},
+	num::ToPrimitive as _,
 	serde_with::serde_as,
-	tangram_futures::task::Task,
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
+	tangram_http::body::{BodyStream, Boxed},
 	tangram_util::{io, serde::BytesBase64},
-	tokio::io::AsyncWriteExt as _,
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio_stream::wrappers::ReceiverStream,
+	tokio_util::io::StreamReader,
 };
 
 mod reader;
@@ -18,6 +22,9 @@ pub use self::{reader::Reader, writer::Writer};
 
 pub mod read;
 pub mod write;
+
+pub const SSE_CONTENT_TYPE: &str = "text/event-stream";
+pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 
 #[derive(
 	Clone,
@@ -72,15 +79,31 @@ pub enum Stream {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Chunk {
 	#[serde_as(as = "BytesBase64")]
+	#[tangram_serialize(id = 0)]
 	pub bytes: Bytes,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub position: Option<u64>,
+	#[tangram_serialize(id = 1)]
+	pub combined_position: u64,
 
+	#[tangram_serialize(id = 2)]
 	pub stream: Stream,
+
+	#[tangram_serialize(id = 3)]
+	pub stream_position: u64,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
+	pub timestamp: Option<i64>,
 }
 
 impl std::fmt::Display for Stdio {
@@ -112,6 +135,125 @@ impl std::str::FromStr for Stdio {
 				.map_err(|_| tg::error!(%value, "invalid stdio")),
 		}
 	}
+}
+
+pub(crate) fn encode<T>(stream: BoxStream<'static, tg::Result<T>>, max_frame_size: u64) -> Boxed
+where
+	T: Send + tangram_serialize::Serialize + 'static,
+{
+	let stream = stream.then(move |result| async move {
+		let frame = match result {
+			Ok(message) => {
+				let message = tangram_serialize::to_vec(&message)
+					.map_err(|error| tg::error!(!error, "failed to serialize the stdio message"))?;
+				let message_length = message.len();
+				let length = u64::try_from(message_length).map_err(
+					|error| tg::error!(!error, length = %message_length, "stdio frame length out of range"),
+				)?;
+				if length > max_frame_size {
+					return Err(tg::error!(
+						length = %length,
+						max = %max_frame_size,
+						"stdio frame too large"
+					));
+				}
+				let mut bytes = Vec::with_capacity(9 + message.len());
+				bytes.write_uvarint(length).await.unwrap();
+				bytes.write_all(&message).await.unwrap();
+				hyper::body::Frame::data(bytes.into())
+			},
+			Err(error) => {
+				let mut trailers = http::HeaderMap::new();
+				trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+				let json = error.state().object().map_or_else(
+					|| serde_json::to_string(&error.id()).unwrap(),
+					|object| serde_json::to_string(&object.to_data()).unwrap(),
+				);
+				trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+				hyper::body::Frame::trailers(trailers)
+			},
+		};
+		Ok::<_, tg::Error>(frame)
+	});
+
+	Boxed::with_stream(stream)
+}
+
+pub(crate) fn decode<T>(body: Boxed, max_frame_size: u64) -> BoxStream<'static, tg::Result<T>>
+where
+	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
+{
+	let mut stream = BodyStream::new(body);
+	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<tg::Result<Bytes>>(1);
+	let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
+	let task = Task::spawn(|_| async move {
+		while let Some(result) = stream.next().await {
+			match result {
+				Ok(frame) if frame.is_data() => {
+					let data = frame.into_data().unwrap();
+					data_sender.send(Ok(data)).await.ok();
+				},
+				Ok(frame) if frame.is_trailers() => {
+					let trailers = frame.into_trailers().unwrap();
+					trailer_sender.send(trailers).await.ok();
+				},
+				Ok(_) => unreachable!(),
+				Err(_) => break,
+			}
+		}
+	});
+	let reader =
+		StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
+	let data_messages = stream::try_unfold(reader, move |mut reader| async move {
+		let Some(length) = reader
+			.try_read_uvarint()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the stdio frame length"))?
+		else {
+			return Ok(None);
+		};
+		if length > max_frame_size {
+			return Err(tg::error!(
+				length = %length,
+				max = %max_frame_size,
+				"stdio frame too large"
+			));
+		}
+		let length = usize::try_from(length).map_err(
+			|error| tg::error!(!error, length = %length, "stdio frame length out of range"),
+		)?;
+		let mut bytes = vec![0; length];
+		reader
+			.read_exact(&mut bytes)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read the stdio message"))?;
+		let message = tangram_serialize::from_slice(&bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the stdio message"))?;
+
+		Ok(Some((message, reader)))
+	});
+	let trailer_messages = ReceiverStream::new(trailer_receiver).then(|trailers| async move {
+		let event = trailers
+			.get("x-tg-event")
+			.ok_or_else(|| tg::error!("missing event"))?
+			.to_str()
+			.map_err(|error| tg::error!(!error, "invalid event"))?;
+		if event != "error" {
+			return Err(tg::error!("invalid event"));
+		}
+		let data = trailers
+			.get("x-tg-data")
+			.ok_or_else(|| tg::error!("missing data"))?
+			.to_str()
+			.map_err(|error| tg::error!(!error, "invalid data"))?;
+		let error = serde_json::from_str(data)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the header value"))?;
+
+		Err(error)
+	});
+	let stream = stream::select(data_messages, trailer_messages).attach(task);
+
+	stream.boxed()
 }
 
 pub(super) struct StdioTaskArg<H> {
@@ -246,19 +388,29 @@ where
 		.filter_map(|result| {
 			future::ready(match result {
 				Ok(bytes) if bytes.is_empty() => None,
-				Ok(bytes) => Some(Ok(tg::process::stdio::read::Event::Chunk(
-					tg::process::stdio::Chunk {
-						bytes,
-						position: None,
-						stream: tg::process::stdio::Stream::Stdin,
-					},
-				))),
+				Ok(bytes) => Some(Ok(bytes)),
 				Err(error) => Some(Err(tg::error!(!error, "failed to read stdin"))),
 			})
 		})
-		.chain(stream::once(future::ok(
-			tg::process::stdio::read::Event::End,
-		)))
+		.scan(0_u64, |position, result| {
+			let result = result.and_then(|bytes| {
+				let length = bytes.len().to_u64().unwrap();
+				let chunk = tg::process::stdio::Chunk {
+					bytes,
+					combined_position: *position,
+					stream: tg::process::stdio::Stream::Stdin,
+					stream_position: *position,
+					timestamp: None,
+				};
+				*position = position
+					.checked_add(length)
+					.ok_or_else(|| tg::error!("the stdin position is too large"))?;
+
+				Ok(chunk)
+			});
+
+			future::ready(Some(result))
+		})
 		.boxed();
 	handle.write_process_stdio_all(&id, arg, input).await
 }
@@ -300,37 +452,34 @@ where
 	let mut stdout_writer = tokio::io::BufWriter::new(tokio::io::stdout());
 	let mut writer = tokio::io::BufWriter::new(tokio::io::stderr());
 	let mut stream = std::pin::pin!(stream);
-	while let Some(event) = stream.try_next().await? {
-		match event {
-			tg::process::stdio::read::Event::Chunk(chunk) => match chunk.stream {
-				tg::process::stdio::Stream::Stdout
-					if matches!(
-						stdout,
-						Some(tg::process::Stdio::Pipe | tg::process::Stdio::Tty)
-					) =>
-				{
-					stdout_writer
-						.write_all(&chunk.bytes)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to write stdout"))?;
-					stdout_writer
-						.flush()
-						.await
-						.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
-				},
-				tg::process::stdio::Stream::Stderr if stderr.is_some() => {
-					writer
-						.write_all(&chunk.bytes)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to write stderr"))?;
-					writer
-						.flush()
-						.await
-						.map_err(|error| tg::error!(!error, "failed to flush stderr"))?;
-				},
-				_ => (),
+	while let Some(chunk) = stream.try_next().await? {
+		match chunk.stream {
+			tg::process::stdio::Stream::Stdout
+				if matches!(
+					stdout,
+					Some(tg::process::Stdio::Pipe | tg::process::Stdio::Tty)
+				) =>
+			{
+				stdout_writer
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to write stdout"))?;
+				stdout_writer
+					.flush()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to flush stdout"))?;
 			},
-			tg::process::stdio::read::Event::End => break,
+			tg::process::stdio::Stream::Stderr if stderr.is_some() => {
+				writer
+					.write_all(&chunk.bytes)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to write stderr"))?;
+				writer
+					.flush()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to flush stderr"))?;
+			},
+			_ => (),
 		}
 	}
 	Ok(())

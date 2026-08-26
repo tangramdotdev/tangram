@@ -1,31 +1,28 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _, future,
+		StreamExt as _, TryStreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::{
-		stream::Ext as _,
-		task::{Stopper, Task},
-	},
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
-const READ_CHUNK_SIZE: usize = 16384;
+const READ_CHUNK_SIZE: usize = 32 * 1024;
 
 enum Source {
-	Pipe(BTreeSet<tg::process::stdio::Stream>),
 	Log(BTreeSet<tg::process::stdio::Stream>),
 	Null,
+	Pipe(BTreeSet<tg::process::stdio::Stream>),
 }
 
 impl Session {
@@ -33,16 +30,29 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
+	{
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
+		let Some(source) = self.try_read_process_stdio_source(id, arg.clone()).await? else {
+			return Ok(None);
+		};
+		let stream = self.read_process_stdio_protocol(arg, input, source);
 
+		Ok(Some(stream))
+	}
+
+	async fn try_read_process_stdio_source(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
@@ -52,7 +62,6 @@ impl Session {
 			{
 				return Ok(Some(stream));
 			}
-
 			if let Some(stream) = self
 				.try_read_process_stdio_regions(id, arg.clone(), &local.regions)
 				.await
@@ -62,7 +71,6 @@ impl Session {
 				return Ok(Some(stream));
 			}
 		}
-
 		if let Some(stream) = self
 			.try_read_process_stdio_remotes(id, arg, &locations.remotes)
 			.await
@@ -74,11 +82,110 @@ impl Session {
 		Ok(None)
 	}
 
+	fn read_process_stdio_protocol(
+		&self,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+		output: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
+	) -> BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>> {
+		let (sender, receiver) = tokio::sync::mpsc::channel(4);
+		let stopper = self.context.stopper.clone();
+		let task = Task::spawn(move |_| async move {
+			let future = Self::read_process_stdio_protocol_task(arg, input, output, &sender);
+			let result = match stopper {
+				Some(stopper) => {
+					tokio::select! {
+						result = future => result,
+						() = stopper.wait() => {
+							let message = tg::process::stdio::read::ServerMessage::Notification(
+								tg::process::stdio::read::ServerNotification::Stop,
+							);
+							sender.send(Ok(message)).await.ok();
+
+							Ok(())
+						},
+					}
+				},
+				None => future.await,
+			};
+			if let Err(error) = result {
+				sender.send(Err(error)).await.ok();
+			}
+
+			Ok::<_, tg::Error>(())
+		});
+
+		ReceiverStream::new(receiver).attach(task).boxed()
+	}
+
+	async fn read_process_stdio_protocol_task(
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+		output: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
+		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>,
+	) -> tg::Result<()> {
+		let combined = arg.streams.len() > 1;
+		let forward = arg.length.is_none_or(|length| length >= 0);
+		let mut input = pin!(input);
+		let mut output = pin!(output);
+		while let Some(chunk) = output.try_next().await? {
+			let start = if combined {
+				chunk.combined_position
+			} else {
+				chunk.stream_position
+			};
+			let end = start
+				.checked_add(chunk.bytes.len().to_u64().unwrap())
+				.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+			let expected = if forward { end } else { start };
+			let message = tg::process::stdio::read::ServerMessage::Notification(
+				tg::process::stdio::read::ServerNotification::Chunk(chunk),
+			);
+			if sender.send(Ok(message)).await.is_err() {
+				return Ok(());
+			}
+			loop {
+				let message = input.try_next().await?.ok_or_else(|| {
+					tg::error!("the stdio read stream ended before the chunk was read")
+				})?;
+				match message {
+					tg::process::stdio::read::ClientMessage::Notification(
+						tg::process::stdio::read::ClientNotification::Read { position },
+					) if forward && position >= expected || !forward && position <= expected => break,
+					tg::process::stdio::read::ClientMessage::Notification(_) => (),
+					tg::process::stdio::read::ClientMessage::Response(_) => {
+						return Err(tg::error!("received an unexpected stdio read response"));
+					},
+				}
+			}
+		}
+		let message = tg::process::stdio::read::ServerMessage::Request(
+			tg::process::stdio::read::ServerRequest::End,
+		);
+		if sender.send(Ok(message)).await.is_err() {
+			return Ok(());
+		}
+		loop {
+			let message = input
+				.try_next()
+				.await?
+				.ok_or_else(|| tg::error!("the stdio read stream ended before the end response"))?;
+			match message {
+				tg::process::stdio::read::ClientMessage::Notification(_) => (),
+				tg::process::stdio::read::ClientMessage::Response(
+					tg::process::stdio::read::ClientResponse::End,
+				) => break,
+			}
+		}
+
+		Ok(())
+	}
+
 	async fn try_read_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let output = self
 			.try_get_process_local(id, false, false, arg.tokens.local())
 			.await
@@ -90,13 +197,14 @@ impl Session {
 		self.authorize_process_stdio_read(id, &source, arg.tokens.local())
 			.await?;
 		let stream = match source {
-			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
 			Source::Log(streams) => {
 				self.try_read_process_stdio_log_local(id, arg, streams)
 					.await?
 			},
-			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
+			Source::Null => stream::empty().boxed(),
+			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &arg, streams),
 		};
+
 		Ok(Some(stream))
 	}
 
@@ -121,6 +229,7 @@ impl Session {
 				) {
 					return Err(tg::error!("unauthorized"));
 				}
+
 				Ok(())
 			},
 			(false, _) => {
@@ -132,6 +241,7 @@ impl Session {
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));
 				}
+
 				Ok(())
 			},
 			(true, true) => Err(tg::error!(
@@ -145,19 +255,19 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>> {
 		let (sender, receiver) = async_channel::unbounded();
 		let session = self.clone();
 		let id = id.clone();
-		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = session
-				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone(), stopper)
+				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone())
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
 			}
 		});
+
 		Ok(receiver.attach(task).boxed())
 	}
 
@@ -166,8 +276,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
-		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
-		stopper: Option<Stopper>,
+		sender: async_channel::Sender<tg::Result<tg::process::stdio::Chunk>>,
 	) -> tg::Result<()> {
 		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 			None
@@ -181,7 +290,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
-
 			let subject = format!("processes.{id}.status");
 			let status_wakeups = self
 				.server
@@ -191,78 +299,61 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
-
 			let interval = IntervalStream::new(tokio::time::interval(
 				self.server.config.process.stdio_wakeup_interval,
 			))
 			.skip(1)
 			.map(|_| ())
 			.boxed();
-
 			let wakeups = stream::select_all([log_wakeups, status_wakeups, interval]);
 			let wakeups = match arg.timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),
 			};
 
-			Some(wakeups.with_stopper(stopper))
+			Some(wakeups)
 		};
-
 		'outer: loop {
 			let status = self
 				.get_process_status_local(id)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
-
 			let mut stream = self
 				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?;
-			while let Some(chunk) = stream.next().await {
-				if let Ok(chunk) = &chunk {
-					let position = chunk
-						.position
-						.ok_or_else(|| tg::error!("expected the chunk position"))?;
-					let forward = arg.length.is_none_or(|length| length >= 0);
-					arg.position.replace(SeekFrom::Start(if forward {
-						position + chunk.bytes.len().to_u64().unwrap()
+			while let Some(chunk) = stream.try_next().await? {
+				let position = if streams.len() > 1 {
+					chunk.combined_position
+				} else {
+					chunk.stream_position
+				};
+				let forward = arg.length.is_none_or(|length| length >= 0);
+				arg.position.replace(SeekFrom::Start(if forward {
+					position + chunk.bytes.len().to_u64().unwrap()
+				} else {
+					position
+				}));
+				if let Some(length) = &mut arg.length {
+					if *length >= 0 {
+						*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
 					} else {
-						position.saturating_sub(1)
-					}));
-					if let Some(length) = &mut arg.length {
-						if *length >= 0 {
-							*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
-						} else {
-							*length += chunk.bytes.len().to_i64().unwrap().min(length.abs());
-						}
+						*length += chunk.bytes.len().to_i64().unwrap().min(length.abs());
 					}
 				}
-				let event = chunk.map(tg::process::stdio::read::Event::Chunk);
-				if sender.send(event).await.is_err() {
+				if sender.send(Ok(chunk)).await.is_err() {
 					break 'outer;
 				}
-
 				if arg.length.is_some_and(|length| length == 0) {
 					break;
 				}
 			}
-
 			let reached_start = arg.length.is_some_and(|length| length < 0)
 				&& matches!(arg.position, Some(SeekFrom::Start(0)));
-			if status.is_finished() || arg.length.is_some_and(|length| length == 0) || reached_start
-			{
-				sender
-					.send(Ok(tg::process::stdio::read::Event::End))
-					.await
-					.ok();
+			if status.is_finished() || arg.length == Some(0) || reached_start {
 				break;
 			}
-
 			let Some(wakeups) = &mut wakeups else {
-				sender
-					.send(Ok(tg::process::stdio::read::Event::End))
-					.await
-					.ok();
 				break;
 			};
 			if wakeups.next().await.is_none() {
@@ -273,117 +364,81 @@ impl Session {
 		Ok(())
 	}
 
-	pub(crate) async fn try_read_process_stdio_pipe_local(
+	fn try_read_process_stdio_pipe_local(
 		&self,
 		id: &tg::process::Id,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
-		let (sender, receiver) =
-			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
+		arg: &tg::process::stdio::read::Arg,
+		streams: BTreeSet<tg::process::stdio::Stream>,
+	) -> BoxStream<'static, tg::Result<tg::process::stdio::Chunk>> {
 		let session = self.clone();
 		let id = id.clone();
-		let streams = streams.clone();
-		let stopper = self.context.stopper.clone();
-		let task = Task::spawn(move |_| async move {
-			let result = session
-				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone(), stopper)
+		let position = match arg.position {
+			None => 0,
+			Some(SeekFrom::Start(position)) => position,
+			Some(SeekFrom::Current(_) | SeekFrom::End(_)) => unreachable!(),
+		};
+		let state = (session, id, streams, position);
+		stream::try_unfold(state, |(session, id, streams, position)| async move {
+			for stream in &streams {
+				crate::checkpoint!(
+					session.server,
+					"process.stdio.read.request",
+					process = %id,
+					stream = %stream,
+				)
 				.await;
-			if let Err(error) = result {
-				sender.try_send(Err(error)).ok();
 			}
-		});
-		Ok(receiver.attach(task).boxed())
-	}
-
-	async fn try_read_process_stdio_pipe_local_task(
-		&self,
-		id: &tg::process::Id,
-		streams: BTreeSet<tg::process::stdio::Stream>,
-		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
-		stopper: Option<Stopper>,
-	) -> tg::Result<()> {
-		let mut futures = streams
-			.iter()
-			.map(|stream| {
-				self.read_process_stdio_pipe_stream(id, *stream, &sender, stopper.as_ref())
-			})
-			.collect::<FuturesUnordered<_>>();
-		while let Some(result) = futures.next().await {
-			result?;
-		}
-
-		sender
-			.send(Ok(tg::process::stdio::read::Event::End))
-			.await
-			.ok();
-
-		Ok(())
-	}
-
-	async fn read_process_stdio_pipe_stream(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-		sender: &async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
-		stopper: Option<&Stopper>,
-	) -> tg::Result<()> {
-		loop {
-			// On graceful shutdown, stop issuing new read requests. An outstanding request is never cancelled, so an already-consumed read is delivered and acknowledged rather than lost.
-			if stopper.is_some_and(Stopper::stopped) {
-				return Ok(());
-			}
-
-			crate::checkpoint!(
-				self.server,
-				"process.stdio.read.request",
-				process = %id,
-				stream = %stream,
-			)
-			.await;
-
 			let request = tg::process::control::ServerRequestArg::Read(
 				tg::process::control::ReadServerRequestArg {
-					stream,
 					length: READ_CHUNK_SIZE,
+					position,
+					streams: streams.iter().copied().collect(),
 				},
 			);
 			let retry = tangram_futures::retry::Options {
 				max_retries: u64::MAX,
 				..Default::default()
 			};
-			let timeout = if self
+			let timeout = if session
 				.server
 				.config
 				.roles
 				.contains(&crate::config::Role::Runner)
 			{
-				self.server.config.runner.stdio_drain_timeout
+				session.server.config.runner.stdio_drain_timeout
 			} else {
-				std::time::Duration::from_secs(10)
+				Duration::from_secs(10)
 			};
 			let options = crate::control::Options { retry, timeout };
-			let response = self
-				.send_process_control_request(id, request, options)
+			let response = session
+				.send_process_control_request(&id, request, options)
 				.await??;
 			let response = response
 				.try_unwrap_read()
 				.map_err(|_| tg::error!("expected a read response"))?;
-
-			// An empty response indicates that the stream has ended.
-			if response.bytes.is_empty() {
-				return Ok(());
-			}
-
-			let chunk = tg::process::stdio::Chunk {
-				bytes: response.bytes,
-				position: None,
-				stream: response.stream,
+			let Some(chunk) = response.chunk else {
+				return Ok(None);
 			};
-			let event = tg::process::stdio::read::Event::Chunk(chunk);
-			if sender.send(Ok(event)).await.is_err() {
-				return Ok(());
+			let start = if streams.len() > 1 {
+				chunk.combined_position
+			} else {
+				chunk.stream_position
+			};
+			if start > position {
+				return Err(tg::error!(
+					expected = %position,
+					actual = %start,
+					"encountered a gap in the process stdio stream"
+				));
 			}
-		}
+			let position = start
+				.checked_add(chunk.bytes.len().to_u64().unwrap())
+				.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+			let state = (session, id, streams, position);
+
+			Ok(Some((chunk, state)))
+		})
+		.boxed()
 	}
 
 	async fn try_read_process_stdio_regions(
@@ -391,7 +446,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region))
@@ -404,15 +459,11 @@ impl Session {
 					break;
 				},
 				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
-				},
+				Err(error) => result = Err(error),
 			}
 		}
-		let Some(stream) = result? else {
-			return Ok(None);
-		};
-		Ok(Some(stream))
+
+		result
 	}
 
 	async fn try_read_process_stdio_region(
@@ -420,7 +471,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		region: &str,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
 		)?;
@@ -440,10 +491,8 @@ impl Session {
 				|error| tg::error!(!error, region = %region, "failed to read the process stdio"),
 			)?
 			.map(futures::StreamExt::boxed);
-		let Some(stream) = stream else {
-			return Ok(None);
-		};
-		Ok(Some(stream))
+
+		Ok(stream)
 	}
 
 	async fn try_read_process_stdio_remotes(
@@ -451,7 +500,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote))
@@ -464,15 +513,11 @@ impl Session {
 					break;
 				},
 				Ok(None) => (),
-				Err(source) => {
-					result = Err(source);
-				},
+				Err(error) => result = Err(error),
 			}
 		}
-		let Some(stream) = result? else {
-			return Ok(None);
-		};
-		Ok(Some(stream))
+
+		result
 	}
 
 	async fn try_read_process_stdio_remote(
@@ -480,7 +525,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
 			.await
@@ -508,10 +553,8 @@ impl Session {
 				|error| tg::error!(!error, remote = %remote.name, "failed to read the process stdio"),
 			)?
 			.map(futures::StreamExt::boxed);
-		let Some(stream) = stream else {
-			return Ok(None);
-		};
-		Ok(Some(stream))
+
+		Ok(stream)
 	}
 
 	fn get_process_stdio_source(
@@ -522,9 +565,9 @@ impl Session {
 		let mut pipe_streams = BTreeSet::new();
 		for stream in &arg.streams {
 			let stdio = match stream {
+				tg::process::stdio::Stream::Stderr => &data.stderr,
 				tg::process::stdio::Stream::Stdin => &data.stdin,
 				tg::process::stdio::Stream::Stdout => &data.stdout,
-				tg::process::stdio::Stream::Stderr => &data.stderr,
 			};
 			match stdio {
 				tg::process::Stdio::Log => {
@@ -533,13 +576,13 @@ impl Session {
 					}
 					log_streams.insert(*stream);
 				},
+				tg::process::Stdio::Null => (),
 				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
 					pipe_streams.insert(*stream);
 				},
 				tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 					return Err(tg::error!("invalid stdio"));
 				},
-				tg::process::Stdio::Null => (),
 			}
 		}
 		if !log_streams.is_empty() && !pipe_streams.is_empty() {
@@ -548,13 +591,14 @@ impl Session {
 			));
 		}
 		if !pipe_streams.is_empty() {
-			if arg.position.is_some() || arg.length.is_some() || arg.size.is_some() {
+			if arg.length.is_some() || arg.size.is_some() {
 				return Err(tg::error!(
-					"position, length, and size are only valid for logged stdio"
+					"length and size are only valid for logged stdio"
 				));
 			}
-
-			// When stdout and stderr are both attached to the tty, they share one stream, so read only stdout.
+			if matches!(arg.position, Some(SeekFrom::Current(_) | SeekFrom::End(_))) {
+				return Err(tg::error!("piped stdio only supports an absolute position"));
+			}
 			if pipe_streams.contains(&tg::process::stdio::Stream::Stdout)
 				&& pipe_streams.contains(&tg::process::stdio::Stream::Stderr)
 				&& matches!(data.stdout, tg::process::Stdio::Tty)
@@ -568,6 +612,7 @@ impl Session {
 		if log_streams.is_empty() {
 			return Ok(Source::Null);
 		}
+
 		Ok(Source::Log(log_streams))
 	}
 
@@ -576,21 +621,19 @@ impl Session {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let accept: Option<mime::Mime> = request
-			.parse_header(http::header::ACCEPT)
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-
-		match accept
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+		let output_encoding = super::Encoding::from_accept(accept.as_ref())?;
+		let input_encoding = content_type
 			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
-
+			.ok_or_else(|| tg::error!("missing the content type"))?
+			.try_into()?;
 		let id = id
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
@@ -599,23 +642,18 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let Some(stream) = self.try_read_process_stdio(&id, arg).await? else {
+		let max_frame_size = self.server.config.sync.max_frame_size;
+		let input = super::decode(request, input_encoding, max_frame_size);
+		let Some(output) = self.try_read_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
-
-		let content_type = mime::TEXT_EVENT_STREAM;
-		let stream = stream.map(|result| match result {
-			Ok(event) => event.try_into(),
-			Err(error) => error.try_into(),
-		});
-		let body = BoxBody::with_sse_stream(stream);
-
+		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.header(http::header::CONTENT_TYPE, output_encoding.content_type())
 			.body(body)
 			.unwrap();
 

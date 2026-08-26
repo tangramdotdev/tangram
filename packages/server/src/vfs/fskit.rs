@@ -21,8 +21,8 @@ struct Request {
 	#[serde(rename = "mount_path")]
 	mount_path: PathBuf,
 
-	#[serde(rename = "object_store", skip_serializing_if = "Option::is_none")]
-	object_store: Option<ObjectStore>,
+	#[serde(rename = "store", skip_serializing_if = "Option::is_none")]
+	store: Option<Store>,
 
 	principal: String,
 
@@ -34,9 +34,9 @@ struct Request {
 	type_: &'static str,
 }
 
-/// The object store the fast path opens. It is sent only for an LMDB store because the fast path can read no other kind.
+/// The store the fast path opens. It is sent only for an LMDB store because the fast path can read no other kind.
 #[derive(serde::Serialize)]
-struct ObjectStore {
+struct Store {
 	#[serde(rename = "map_size")]
 	map_size: u64,
 
@@ -85,11 +85,11 @@ impl Server {
 		let group_socket = Self::group_socket(server)?;
 
 		// Create the request.
-		let object_store = Self::object_store(server);
+		let store = Self::store(server);
 		let request = Request {
 			data_directory: server.path.clone(),
 			mount_path: path.to_path_buf(),
-			object_store,
+			store,
 			principal: principal.to_string(),
 			socket: group_socket,
 			token,
@@ -140,8 +140,8 @@ impl Server {
 		principal: tg::Principal,
 	) -> tg::Result<Self> {
 		let group_socket = Self::group_socket(server)?;
-		let object_store = Self::object_store(server);
-		let options = Self::options(object_store.as_ref(), &group_socket, &principal);
+		let store = Self::store(server);
+		let options = Self::options(store.as_ref(), &group_socket, &principal);
 		let output = tokio::process::Command::new("/sbin/mount")
 			.arg("-F")
 			.arg("-t")
@@ -192,9 +192,9 @@ impl Server {
 		Ok(group_socket)
 	}
 
-	fn object_store(server: &crate::Server) -> Option<ObjectStore> {
-		match &server.config.object.store {
-			crate::config::ObjectStore::Lmdb(config) => Some(ObjectStore {
+	fn store(server: &crate::Server) -> Option<Store> {
+		match &server.config.store {
+			crate::config::Store::Lmdb(config) => Some(Store {
 				map_size: config.map_size.to_u64().unwrap(),
 				path: server.path.join(&config.path),
 				posix_sem_prefix: config.resolved_posix_sem_prefix(),
@@ -204,11 +204,7 @@ impl Server {
 	}
 
 	/// Builds the value of the mount's `-o` option. The generic options come first, which the mount command consumes itself, and it forwards the rest to the file system extension. A path containing a comma cannot be represented, so it is omitted and the extension uses its default.
-	fn options(
-		object_store: Option<&ObjectStore>,
-		socket: &Path,
-		principal: &tg::Principal,
-	) -> String {
+	fn options(store: Option<&Store>, socket: &Path, principal: &tg::Principal) -> String {
 		let mut options = vec![
 			"nobrowse".to_owned(),
 			"nodev".to_owned(),
@@ -225,23 +221,23 @@ impl Server {
 		} else {
 			options.push(format!("socket={socket}"));
 		}
-		if let Some(object_store) = object_store {
-			options.push(format!("object_store_map_size={}", object_store.map_size));
-			let path = object_store.path.display().to_string();
+		if let Some(store) = store {
+			options.push(format!("store_map_size={}", store.map_size));
+			let path = store.path.display().to_string();
 			if path.contains(',') {
 				tracing::error!(
-					"the object store path contains a comma, so it cannot be sent to the file system extension"
+					"the store path contains a comma, so it cannot be sent to the file system extension"
 				);
 			} else {
-				options.push(format!("object_store_path={path}"));
+				options.push(format!("store_path={path}"));
 			}
-			if let Some(posix_sem_prefix) = &object_store.posix_sem_prefix {
+			if let Some(posix_sem_prefix) = &store.posix_sem_prefix {
 				if posix_sem_prefix.contains(',') {
 					tracing::error!(
-						"the object store semaphore prefix contains a comma, so it cannot be sent to the file system extension"
+						"the store semaphore prefix contains a comma, so it cannot be sent to the file system extension"
 					);
 				} else {
-					options.push(format!("object_store_posix_sem_prefix={posix_sem_prefix}"));
+					options.push(format!("store_posix_sem_prefix={posix_sem_prefix}"));
 				}
 			}
 		}
