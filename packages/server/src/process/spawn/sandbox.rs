@@ -132,13 +132,6 @@ impl Session {
 		output: &mut Output,
 		connected_event: crate::runner::process::ConnectedEvent,
 	) -> tg::Result<()> {
-		let assigned = output.process_token.is_some();
-		if !assigned && connected_event.grant.is_none() {
-			return Err(tg::error!(
-				process = %connected_event.process,
-				"missing the process grant"
-			));
-		}
 		output.id = connected_event.process;
 		output.lease = Some(connected_event.lease);
 		if let Some(grant) = connected_event.grant {
