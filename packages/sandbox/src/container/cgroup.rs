@@ -41,6 +41,8 @@ impl Cgroup {
 			validate_controller_enabled(&current, "pids")?;
 		}
 		let name = sanitize_name(name);
+		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
+		let parent = open_directory(&current)?;
 		let path = current.join(&name);
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
@@ -49,8 +51,6 @@ impl Cgroup {
 				"failed to create the cgroup"
 			)
 		})?;
-		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
-		let parent = open_directory(&current)?;
 		let cgroup = Self {
 			name,
 			parent,

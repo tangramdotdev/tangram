@@ -188,6 +188,7 @@ fn validate_mount_target(path: &std::path::Path) -> tg::Result<()> {
 
 fn has_mounts(arg: &Arg) -> bool {
 	!arg.binds.is_empty()
+		|| arg.cgroup.is_some()
 		|| !arg.ro_binds.is_empty()
 		|| !arg.devs.is_empty()
 		|| !arg.overlay_sources.is_empty()
