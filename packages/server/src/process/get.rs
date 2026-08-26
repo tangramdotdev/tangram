@@ -256,7 +256,20 @@ impl Session {
 					let data = indexed.data.unwrap();
 					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
 				} else {
-					let data = control_future.await?;
+					let Ok(Ok(data)) =
+						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
+							.await
+					else {
+						let data = indexed
+							.data
+							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+						let output = self.create_process_get_output(
+							id,
+							data,
+							metadata.then_some(indexed.metadata),
+						);
+						return Ok(Some(output));
+					};
 					if data.status.is_finished() {
 						let Some(indexed) = self.try_get_process_from_index(id).await? else {
 							return Ok(None);
@@ -279,7 +292,20 @@ impl Session {
 				}
 			},
 			future::Either::Right((data, index_future)) => {
-				let data = data?;
+				let Ok(data) = data else {
+					let Some(indexed) = index_future.await? else {
+						return Ok(None);
+					};
+					let data = indexed
+						.data
+						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+					let output = self.create_process_get_output(
+						id,
+						data,
+						metadata.then_some(indexed.metadata),
+					);
+					return Ok(Some(output));
+				};
 				if data.status.is_finished() {
 					let Some(indexed) = self.try_get_process_from_index(id).await? else {
 						return Ok(None);
