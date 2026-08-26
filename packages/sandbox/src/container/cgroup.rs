@@ -1,7 +1,7 @@
 use {
+	rustix::fs::{AtFlags, unlinkat},
 	std::{
-		ffi::CString,
-		os::fd::{AsRawFd as _, OwnedFd},
+		os::fd::OwnedFd,
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -139,12 +139,7 @@ impl Cgroup {
 
 impl Drop for Cgroup {
 	fn drop(&mut self) {
-		let name = CString::new(self.name.as_bytes()).unwrap();
-		// SAFETY: The descriptor and name remain valid for the duration of the syscall.
-		let result =
-			unsafe { libc::unlinkat(self.parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
-		if result != 0 {
-			let error = std::io::Error::last_os_error();
+		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
 			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
 		}
 	}
