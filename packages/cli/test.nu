@@ -23,7 +23,7 @@ def main [
 	--no-cloud # Use local backends for test instances.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
-	--no-tokens # Disable authorization token minting and verification for every server.
+	--no-tokens # Disable every server's ability to create and verify authorization tokens.
 	--offline # Skip tests which require network access.
 	--print-passing-test-output # Print the output of passing tests.
 	--quickjs # Use QuickJS as the JS engine.
@@ -1445,7 +1445,7 @@ export def --env "server spawn" [
 	--preserve-keys
 	--quickjs # Use QuickJS as the JS engine.
 	--region: string # Set the server's region.
-	--tokens # Enable authorization token minting and verification even when the test runner was invoked with --no-tokens.
+	--tokens # Enable the server to create and verify authorization tokens even when the test runner was invoked with --no-tokens.
 	--url (-u): string
 ] {
 	let use_fskit = (($env.TANGRAM_TEST_FSKIT? | default "") | str length) > 0
@@ -1693,7 +1693,7 @@ export def --env "server spawn" [
 		$config
 	}
 
-	# Disable authorization token minting and verification, unless the test enables tokens explicitly.
+	# Disable the server's ability to create and verify authorization tokens, unless the test enables them explicitly.
 	let no_tokens = (not $tokens) and ((($env.TANGRAM_TEST_NO_TOKENS? | default "") | str length) > 0)
 	let config = if $no_tokens {
 		let authorization = ($config | get --optional authorization | default {}) | upsert tokens false
