@@ -29,7 +29,15 @@ impl Session {
 		} else {
 			(None, None)
 		};
-		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
+		let cache_future = self
+			.spawn_process_get_cached_process(arg, location, candidate.as_ref())
+			.map(|result| match result {
+				Err(error) if candidate.is_some() => {
+					tracing::debug!(error = %error.trace(), "failed to get a cached process");
+					Ok(None)
+				},
+				result => result,
+			});
 		let create_delay = self.server.config.process.spawn.create_delay;
 		let spawn_future =
 			self.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender);
