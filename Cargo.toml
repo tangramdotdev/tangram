@@ -66,6 +66,10 @@ unused_async_trait_impl = "allow"
 [profile.client]
 inherits = "release"
 
+[profile.fast]
+inherits = "release"
+lto = "off"
+
 [workspace.dependencies]
 anstream = "1"
 astral-tokio-tar = "0.6"
