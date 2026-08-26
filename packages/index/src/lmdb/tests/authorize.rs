@@ -13,6 +13,15 @@ fn object_id(n: usize) -> tg::object::Id {
 	tg::object::Id::new(tg::object::Kind::Blob, &n.to_le_bytes().to_vec().into())
 }
 
+// The index orders an object's parents and children by id, so the tests that depend on that order
+// build ids whose bytes sort with n.
+fn ordered_object_id(n: usize) -> tg::object::Id {
+	let mut body = [0; 32];
+	body[..size_of::<usize>()].copy_from_slice(&n.to_be_bytes());
+	let id = tg::Id::new(tg::id::Kind::Blob, tg::id::Body::Blake3(body));
+	tg::object::Id::try_from(id).unwrap()
+}
+
 fn put(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key) {
 	let key = Index::pack(&index.subspace, key);
 	index.db.put(txn, &key, &[]).unwrap();
@@ -1587,4 +1596,78 @@ async fn authorize_uses_cached_subject_membership() {
 	)
 	.await;
 	assert!(output[0].as_ref().unwrap().permissions.contains(node));
+}
+
+// A process granted a root must be able to authorize an object deep inside it. The descendant
+// search cannot enumerate a closure larger than its budget, and the ancestor search cannot get
+// past a shared object's parents, so both give up and the authorization returns an error.
+#[tokio::test]
+async fn authorize_shared_object_deep_in_a_large_closure() {
+	const CHAIN: usize = 7;
+	const PARENTS: usize = 1100;
+	const WIDTH: usize = 1200;
+
+	let (_dir, index) = new_index();
+	let process = tg::process::Id::new();
+	let root = ordered_object_id(0);
+	let target = ordered_object_id(30_000);
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &root);
+	put_object(&index, &mut txn, &target);
+
+	// Inflate the root's closure past the descendant search's budget. These sort before the chain,
+	// so the search enumerates them first however it orders its frontier.
+	for i in 0..WIDTH {
+		let object = ordered_object_id(10_000 + i);
+		put_object(&index, &mut txn, &object);
+		put_child(&index, &mut txn, &root, &object);
+	}
+
+	// Bury the target under the root.
+	let mut parent = root.clone();
+	for i in 0..CHAIN {
+		let object = ordered_object_id(20_000 + i);
+		put_object(&index, &mut txn, &object);
+		put_child(&index, &mut txn, &parent, &object);
+		parent = object;
+	}
+	put_child(&index, &mut txn, &parent, &target);
+
+	// Share the target with objects outside the closure, as a deduplicated blob is shared. These
+	// sort before the chain, so the search climbs them first however it orders its frontier.
+	for i in 0..PARENTS {
+		let object = ordered_object_id(1 + i);
+		put_object(&index, &mut txn, &object);
+		put_child(&index, &mut txn, &object, &target);
+	}
+
+	put_resource_grant(
+		&index,
+		&mut txn,
+		root.into(),
+		tg::authorization::Subject::Process(process.clone()),
+		object_permission(tg::authorization::permission::object::Permission::Subtree),
+	);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(target.into()),
+		token: None,
+	};
+	let output = index
+		.authorize_batch(&[arg], &tg::Principal::Process(process))
+		.await;
+	let authorized = output.as_ref().is_ok_and(|output| {
+		output[0]
+			.as_ref()
+			.is_some_and(|output| output.permissions.contains(permissions))
+	});
+	assert!(
+		authorized,
+		"a process must be able to authorize an object deep inside the root it was granted: {:?}",
+		output.err().map(|error| error.to_string()),
+	);
 }
