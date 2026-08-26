@@ -13,4 +13,4 @@ assert equal (tg remote list | from json | get name) ["added"] "the session muta
 let server = server restart $server
 
 let list = tg remote list | from json
-assert equal $list [{ name: "seeded", url: "http://localhost:9999" }] "the config should restore its remotes and remove the added one"
+assert equal $list [{ name: "seeded", trusted: false, url: "http://localhost:9999" }] "the config should restore its remotes and remove the added one"

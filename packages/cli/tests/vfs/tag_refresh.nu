@@ -25,7 +25,7 @@ assert ((open $path) =~ 'initial') 'expected the initial tag target'
 let updated = artifact {
 	tangram.ts: 'export default () => "updated";'
 }
-tg tag dep $updated
+tg tag --force dep $updated
 assert ((open $path) =~ 'updated') 'expected the updated tag target'
 
 tg tag delete dep | ignore

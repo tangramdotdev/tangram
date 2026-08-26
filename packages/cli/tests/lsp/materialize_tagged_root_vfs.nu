@@ -68,7 +68,7 @@ let updated_dep_path = artifact {
 		export const foo = () => "updated";
 	'
 }
-tg tag dep $updated_dep_path
+tg tag --force dep $updated_dep_path
 assert ((open $definition_path) =~ 'updated') "expected the VFS tag to reflect the new target"
 
 tg tag delete dep | ignore

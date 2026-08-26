@@ -19,15 +19,10 @@ let runner = server spawn --name runner --config {
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 
-let path = artifact {
-	tool: (file --executable '
-		#!/bin/sh
-		printf "%s" "$1" > "$TANGRAM_OUTPUT"
-	'),
-}
-let artifact_a = tg --url $remote.url --token $alice.token checkin --no-checkout-pointers ($path | path join tool) | str trim
+let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
+let artifact_a = tg --url $remote.url --token $alice.token put $artifact | str trim
 
-let output = tg --url $remote.url --token $alice.token build --executable $artifact_a --arg-string alice | complete
+let output = tg --url $remote.url --token $alice.token build $artifact_a --arg-string alice | complete
 success $output "Alice's process should store artifact A on the runner"
 tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $artifact_a
 tg --url $remote.url index
@@ -41,7 +36,7 @@ let watch = (
 )
 let build = job spawn {
 	let job_id = job id
-	let output = tg --url $remote.url --token $bob.token build --executable $artifact_a --arg-string bob | complete
+	let output = tg --url $remote.url --token $bob.token build $artifact_a --arg-string bob | complete
 	$output | job send --tag $job_id 0
 }
 

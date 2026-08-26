@@ -30,8 +30,6 @@ snapshot --normalize --redact [$path $remote.url $remote.directory ($remote.dire
 	-> the request failed
 	   status = 500 Internal Server Error
 	-> failed to create the source stream
-	-> failed to sync
-	   remote = default
 	-> failed to send the request
 	-> failed to resolve the socket path
 	   path = <redacted>/socket

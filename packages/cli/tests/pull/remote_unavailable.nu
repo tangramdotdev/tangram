@@ -20,8 +20,6 @@ failure $output
 snapshot --normalize-ids --redact [$remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
 	-> failed to create the source stream
-	-> failed to sync
-	   remote = default
 	-> failed to send the request
 	-> failed to resolve the socket path
 	   path = <redacted>/socket
