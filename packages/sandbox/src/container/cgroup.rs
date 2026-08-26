@@ -23,6 +23,7 @@ pub struct Options {
 
 impl Cgroup {
 	pub fn new(name: &str, options: Options) -> tg::Result<Self> {
+		use std::os::unix::fs::OpenOptionsExt as _;
 		let root = Path::new("/sys/fs/cgroup");
 		if !root.join("cgroup.controllers").exists() {
 			return Err(tg::error!("cgroup v2 is not available"));
@@ -42,7 +43,18 @@ impl Cgroup {
 		}
 		let name = sanitize_name(name);
 		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
-		let parent = open_directory(&current)?;
+		let parent = std::fs::OpenOptions::new()
+			.read(true)
+			.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
+			.open(&current)
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					path = %current.display(),
+					"failed to open the cgroup directory",
+				)
+			})?;
+		let parent = OwnedFd::from(parent);
 		let path = current.join(&name);
 		std::fs::create_dir(&path).map_err(|error| {
 			tg::error!(
@@ -143,22 +155,6 @@ impl Drop for Cgroup {
 			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
 		}
 	}
-}
-
-fn open_directory(path: &Path) -> tg::Result<OwnedFd> {
-	use std::os::unix::fs::OpenOptionsExt as _;
-	let file = std::fs::OpenOptions::new()
-		.read(true)
-		.custom_flags(libc::O_DIRECTORY | libc::O_PATH)
-		.open(path)
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to open the cgroup directory",
-			)
-		})?;
-	Ok(OwnedFd::from(file))
 }
 
 fn sanitize_name(name: &str) -> String {
