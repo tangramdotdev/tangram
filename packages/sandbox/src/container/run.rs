@@ -215,8 +215,12 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		(fork()?, false)
 	};
 	if child == 0 {
-		let child_cgroup = move_child_to_cgroup.then(|| cgroup.as_ref().unwrap());
-		match child_main(arg, child_cgroup, root_path.as_ref()) {
+		match child_main(
+			arg,
+			cgroup.as_ref(),
+			move_child_to_cgroup,
+			root_path.as_ref(),
+		) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -278,6 +282,7 @@ fn clone3_cgroup_should_fallback(source: &std::io::Error) -> bool {
 fn child_main(
 	arg: &Arg,
 	cgroup: Option<&cgroup::Cgroup>,
+	move_self: bool,
 	root: Option<&PathBuf>,
 ) -> tg::Result<()> {
 	unsafe {
@@ -297,7 +302,14 @@ fn child_main(
 		crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	}
 	if let Some(cgroup) = cgroup {
-		cgroup.move_self()?;
+		if move_self {
+			cgroup.move_self()?;
+		}
+		// Unshare the cgroup namespace only once the process is in its cgroup, so that cgroup becomes the namespace root and the mount below exposes nothing above it.
+		unshare(
+			libc::CLONE_NEWCGROUP,
+			"failed to unshare the cgroup namespace",
+		)?;
 	}
 	if arg.new_session {
 		start_session()?;
