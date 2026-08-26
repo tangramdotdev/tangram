@@ -108,7 +108,7 @@ enum SearchOutcome {
 struct AncestorSearch {
 	budget: SearchBudget,
 	outcome: Option<SearchOutcome>,
-	stack: Vec<AncestorTask>,
+	queue: VecDeque<AncestorTask>,
 	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
 }
 
@@ -116,7 +116,7 @@ struct DescendantSearch {
 	budget: SearchBudget,
 	complete: bool,
 	outcome: Option<SearchOutcome>,
-	stack: Vec<DescendantTask>,
+	queue: VecDeque<DescendantTask>,
 	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
 }
 
@@ -177,16 +177,16 @@ impl AncestorSearch {
 	) -> Self {
 		let mut budget = SearchBudget::new(config);
 		let outcome = (!budget.add_node(0)).then_some(SearchOutcome::Exhausted);
-		let stack = vec![AncestorTask::Node {
+		let queue = VecDeque::from([AncestorTask::Node {
 			depth: 0,
 			key: root.clone(),
-		}];
+		}]);
 		let visited = HashSet::from([root.clone()]);
 
 		Self {
 			budget,
 			outcome,
-			stack,
+			queue,
 			visited,
 		}
 	}
@@ -200,16 +200,16 @@ impl DescendantSearch {
 			requester.principal,
 			tg::Principal::Group(_) | tg::Principal::User(_)
 		);
-		let mut stack = Vec::new();
+		let mut queue = VecDeque::new();
 		let mut visited = HashSet::new();
 
 		let public = tg::authorization::Subject::Public;
-		stack.push(DescendantTask::SubjectGrants {
+		queue.push_back(DescendantTask::SubjectGrants {
 			after: None,
 			subject: public.clone(),
 		});
 		if requester.subject != public {
-			stack.push(DescendantTask::SubjectGrants {
+			queue.push_back(DescendantTask::SubjectGrants {
 				after: None,
 				subject: requester.subject.clone(),
 			});
@@ -261,14 +261,14 @@ impl DescendantSearch {
 				outcome = Some(SearchOutcome::Exhausted);
 				break;
 			}
-			stack.push(DescendantTask::Node { depth: 0, key });
+			queue.push_back(DescendantTask::Node { depth: 0, key });
 		}
 
 		Self {
 			budget,
 			complete,
 			outcome,
-			stack,
+			queue,
 			visited,
 		}
 	}
@@ -609,9 +609,9 @@ impl Index {
 			return Ok(outcome);
 		}
 		let budget = &mut search.budget;
-		let stack = &mut search.stack;
+		let queue = &mut search.queue;
 		let visited = &mut search.visited;
-		let Some(task) = stack.pop() else {
+		let Some(task) = queue.pop_front() else {
 			for key in visited.iter().cloned() {
 				context.authorization.entry(key).or_insert(false);
 			}
@@ -643,7 +643,7 @@ impl Index {
 					permission,
 					context.cache,
 				)?;
-				for key in dependencies.into_iter().rev() {
+				for key in dependencies {
 					let depth = depth + 1;
 					if !budget.add_edge() {
 						return Ok(SearchOutcome::Exhausted);
@@ -663,13 +663,13 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
-					stack.push(AncestorTask::Node { depth, key });
+					queue.push_back(AncestorTask::Node { depth, key });
 				}
 
 				match permission {
 					tg::authorization::Permission::Object(_) => {
 						let object = tg::object::Id::try_from(resource)?;
-						stack.push(AncestorTask::ObjectParents {
+						queue.push_back(AncestorTask::ObjectParents {
 							after: None,
 							depth,
 							object,
@@ -677,7 +677,7 @@ impl Index {
 					},
 					tg::authorization::Permission::Process(permission) => {
 						let process = tg::process::Id::try_from(resource)?;
-						stack.push(AncestorTask::ProcessParents {
+						queue.push_back(AncestorTask::ProcessParents {
 							after: None,
 							depth,
 							permission,
@@ -713,13 +713,13 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(AncestorTask::ObjectParents {
+					queue.push_back(AncestorTask::ObjectParents {
 						after: Some(after),
 						depth,
 						object,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Object(crate::lmdb::object::Key::ChildObject {
 						object,
 						..
@@ -752,7 +752,7 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
-					stack.push(AncestorTask::Node { depth, key });
+					queue.push_back(AncestorTask::Node { depth, key });
 				}
 			},
 			AncestorTask::ProcessParents {
@@ -778,14 +778,14 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(AncestorTask::ProcessParents {
+					queue.push_back(AncestorTask::ProcessParents {
 						after: Some(after),
 						depth,
 						permission,
 						process,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Process(crate::lmdb::process::Key::ChildProcess {
 						parent,
 						..
@@ -816,7 +816,7 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
-					stack.push(AncestorTask::Node { depth, key });
+					queue.push_back(AncestorTask::Node { depth, key });
 				}
 			},
 		}
@@ -833,9 +833,9 @@ impl Index {
 			return Ok(outcome);
 		}
 		let budget = &mut search.budget;
-		let stack = &mut search.stack;
+		let queue = &mut search.queue;
 		let visited = &mut search.visited;
-		let Some(task) = stack.pop() else {
+		let Some(task) = queue.pop_front() else {
 			let outcome = if search.complete {
 				SearchOutcome::Denied
 			} else {
@@ -855,7 +855,7 @@ impl Index {
 				} else {
 					crate::authorize::permissions_implied_by(permission)
 				};
-				for implied_permission in implied.into_iter().rev() {
+				for implied_permission in implied {
 					if implied_permission == permission {
 						continue;
 					}
@@ -874,13 +874,13 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
-					stack.push(DescendantTask::Node { depth, key });
+					queue.push_back(DescendantTask::Node { depth, key });
 				}
 				if crate::authorize::write_permission_for_resource(&resource).ok()
 					== Some(permission)
 					&& let Some(owner) = Self::principal_for_resource(&resource)?
 				{
-					stack.push(DescendantTask::OwnerSandboxes {
+					queue.push_back(DescendantTask::OwnerSandboxes {
 						after: None,
 						depth,
 						owner,
@@ -892,7 +892,7 @@ impl Index {
 						tg::authorization::permission::object::Permission::Subtree,
 					) => {
 						let object = tg::object::Id::try_from(resource)?;
-						stack.push(DescendantTask::ObjectChildren {
+						queue.push_back(DescendantTask::ObjectChildren {
 							after: None,
 							depth,
 							object,
@@ -921,7 +921,7 @@ impl Index {
 								| tg::authorization::permission::process::Permission::SubtreeOutput
 						);
 						if traverses_children {
-							stack.push(DescendantTask::ProcessChildren {
+							queue.push_back(DescendantTask::ProcessChildren {
 								after: None,
 								depth,
 								permission,
@@ -930,7 +930,7 @@ impl Index {
 						}
 						if permission == tg::authorization::permission::process::Permission::Parent
 						{
-							stack.push(DescendantTask::ProcessGrants {
+							queue.push_back(DescendantTask::ProcessGrants {
 								after: None,
 								depth,
 								process,
@@ -939,7 +939,7 @@ impl Index {
 					},
 					tg::authorization::Permission::Sandbox(permission) => {
 						let sandbox = tg::sandbox::Id::try_from(resource)?;
-						stack.push(DescendantTask::SandboxProcesses {
+						queue.push_back(DescendantTask::SandboxProcesses {
 							after: None,
 							depth,
 							permission,
@@ -977,13 +977,13 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::ObjectChildren {
+					queue.push_back(DescendantTask::ObjectChildren {
 						after: Some(after),
 						depth,
 						object,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectChild {
 						child,
 						..
@@ -1014,7 +1014,7 @@ impl Index {
 							return Ok(SearchOutcome::Exhausted);
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 				}
 			},
@@ -1039,13 +1039,13 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::OwnerSandboxes {
+					queue.push_back(DescendantTask::OwnerSandboxes {
 						after: Some(after),
 						depth,
 						owner,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::OwnerSandbox {
 						sandbox,
 						..
@@ -1075,7 +1075,7 @@ impl Index {
 							return Ok(SearchOutcome::Exhausted);
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 				}
 			},
@@ -1102,14 +1102,14 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::ProcessChildren {
+					queue.push_back(DescendantTask::ProcessChildren {
 						after: Some(after),
 						depth,
 						permission,
 						process,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessChild {
 						child,
 						..
@@ -1144,7 +1144,7 @@ impl Index {
 							return Ok(SearchOutcome::Exhausted);
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 				}
 			},
@@ -1170,13 +1170,13 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::ProcessGrants {
+					queue.push_back(DescendantTask::ProcessGrants {
 						after: Some(after),
 						depth,
 						process,
 					});
 				}
-				for (key, value) in entries.into_iter().rev() {
+				for (key, value) in entries {
 					let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
 						creator,
 						permission,
@@ -1210,7 +1210,7 @@ impl Index {
 							return Ok(SearchOutcome::Exhausted);
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 				}
 			},
@@ -1237,14 +1237,14 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::SandboxProcesses {
+					queue.push_back(DescendantTask::SandboxProcesses {
 						after: Some(after),
 						depth,
 						permission,
 						sandbox,
 					});
 				}
-				for key in keys.into_iter().rev() {
+				for key in keys {
 					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 						process,
 						..
@@ -1288,7 +1288,7 @@ impl Index {
 							return Ok(SearchOutcome::Exhausted);
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 				}
 			},
@@ -1309,12 +1309,12 @@ impl Index {
 					budget.config.page_size,
 				)?;
 				if let Some(after) = after {
-					stack.push(DescendantTask::SubjectGrants {
+					queue.push_back(DescendantTask::SubjectGrants {
 						after: Some(after),
 						subject,
 					});
 				}
-				for (key, _) in entries.into_iter().rev() {
+				for (key, _) in entries {
 					let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
 						permission,
 						resource,
@@ -1333,7 +1333,7 @@ impl Index {
 					if !budget.add_node(0) {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					stack.push(DescendantTask::Node { depth: 0, key });
+					queue.push_back(DescendantTask::Node { depth: 0, key });
 				}
 			},
 		}

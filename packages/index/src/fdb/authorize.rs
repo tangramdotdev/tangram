@@ -704,12 +704,12 @@ impl Index {
 		if !budget.add_node(0) {
 			return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 		}
-		let mut stack = vec![AncestorTask::Node {
+		let mut queue = VecDeque::from([AncestorTask::Node {
 			depth: 0,
 			key: root.clone(),
-		}];
+		}]);
 		let mut visited = HashSet::from([root.clone()]);
-		while let Some(task) = stack.pop() {
+		while let Some(task) = queue.pop_front() {
 			match task {
 				AncestorTask::Node { depth, key } => {
 					if let Some(authorized) = authorization.value(&key) {
@@ -740,7 +740,7 @@ impl Index {
 						)
 						.await
 					);
-					for key in dependencies.into_iter().rev() {
+					for key in dependencies {
 						let depth = depth + 1;
 						if !budget.add_edge() {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
@@ -758,13 +758,13 @@ impl Index {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
 						visited.insert(key.clone());
-						stack.push(AncestorTask::Node { depth, key });
+						queue.push_back(AncestorTask::Node { depth, key });
 					}
 
 					match permission {
 						tg::authorization::Permission::Object(_) => {
 							let object = tg::object::Id::try_from(resource)?;
-							stack.push(AncestorTask::ObjectParents {
+							queue.push_back(AncestorTask::ObjectParents {
 								after: None,
 								depth,
 								object,
@@ -772,7 +772,7 @@ impl Index {
 						},
 						tg::authorization::Permission::Process(permission) => {
 							let process = tg::process::Id::try_from(resource)?;
-							stack.push(AncestorTask::ProcessParents {
+							queue.push_back(AncestorTask::ProcessParents {
 								after: None,
 								depth,
 								permission,
@@ -810,13 +810,13 @@ impl Index {
 						.await
 					);
 					if let Some(after) = after {
-						stack.push(AncestorTask::ObjectParents {
+						queue.push_back(AncestorTask::ObjectParents {
 							after: Some(after),
 							depth,
 							object,
 						});
 					}
-					for key in keys.into_iter().rev() {
+					for key in keys {
 						let crate::fdb::Key::Object(crate::fdb::object::Key::ChildObject {
 							object,
 							..
@@ -847,7 +847,7 @@ impl Index {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
 						visited.insert(key.clone());
-						stack.push(AncestorTask::Node { depth, key });
+						queue.push_back(AncestorTask::Node { depth, key });
 					}
 				},
 				AncestorTask::ProcessParents {
@@ -875,14 +875,14 @@ impl Index {
 						.await
 					);
 					if let Some(after) = after {
-						stack.push(AncestorTask::ProcessParents {
+						queue.push_back(AncestorTask::ProcessParents {
 							after: Some(after),
 							depth,
 							permission,
 							process,
 						});
 					}
-					for key in keys.into_iter().rev() {
+					for key in keys {
 						let crate::fdb::Key::Process(crate::fdb::process::Key::ChildProcess {
 							parent,
 							..
@@ -911,7 +911,7 @@ impl Index {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
 						visited.insert(key.clone());
-						stack.push(AncestorTask::Node { depth, key });
+						queue.push_back(AncestorTask::Node { depth, key });
 					}
 				},
 			}
@@ -946,16 +946,16 @@ impl Index {
 
 		let mut budget = SearchBudget::new(context.config.descendant);
 		let mut complete = matches!(context.requester.principal, tg::Principal::Anonymous);
-		let mut stack = Vec::new();
+		let mut queue = VecDeque::new();
 		let mut visited = HashSet::new();
 
 		let public = tg::authorization::Subject::Public;
-		stack.push(DescendantTask::SubjectGrants {
+		queue.push_back(DescendantTask::SubjectGrants {
 			after: None,
 			subject: public.clone(),
 		});
 		if context.requester.subject != public {
-			stack.push(DescendantTask::SubjectGrants {
+			queue.push_back(DescendantTask::SubjectGrants {
 				after: None,
 				subject: context.requester.subject.clone(),
 			});
@@ -979,10 +979,10 @@ impl Index {
 			if !budget.add_node(0) {
 				return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 			}
-			stack.push(DescendantTask::Node { depth: 0, key });
+			queue.push_back(DescendantTask::Node { depth: 0, key });
 		}
 
-		while let Some(task) = stack.pop() {
+		while let Some(task) = queue.pop_front() {
 			match task {
 				DescendantTask::Node { depth, key } => {
 					if key.0 == target.0 && key.1.implies(target.1) {
@@ -995,7 +995,7 @@ impl Index {
 					} else {
 						crate::authorize::permissions_implied_by(permission)
 					};
-					for implied_permission in implied.into_iter().rev() {
+					for implied_permission in implied {
 						if implied_permission == permission {
 							continue;
 						}
@@ -1011,7 +1011,7 @@ impl Index {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queue.push_back(DescendantTask::Node { depth, key });
 					}
 
 					match permission {
@@ -1019,7 +1019,7 @@ impl Index {
 							tg::authorization::permission::object::Permission::Subtree,
 						) => {
 							let object = tg::object::Id::try_from(resource)?;
-							stack.push(DescendantTask::ObjectChildren {
+							queue.push_back(DescendantTask::ObjectChildren {
 								after: None,
 								depth,
 								object,
@@ -1060,13 +1060,13 @@ impl Index {
 						.await
 					);
 					if let Some(after) = after {
-						stack.push(DescendantTask::ObjectChildren {
+						queue.push_back(DescendantTask::ObjectChildren {
 							after: Some(after),
 							depth,
 							object,
 						});
 					}
-					for key in keys.into_iter().rev() {
+					for key in keys {
 						let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild {
 							child,
 							..
@@ -1094,7 +1094,7 @@ impl Index {
 								return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 							}
 							visited.insert(key.clone());
-							stack.push(DescendantTask::Node { depth, key });
+							queue.push_back(DescendantTask::Node { depth, key });
 						}
 					}
 				},
@@ -1117,12 +1117,12 @@ impl Index {
 						.await
 					);
 					if let Some(after) = after {
-						stack.push(DescendantTask::SubjectGrants {
+						queue.push_back(DescendantTask::SubjectGrants {
 							after: Some(after),
 							subject,
 						});
 					}
-					for key in keys.into_iter().rev() {
+					for key in keys {
 						let crate::fdb::Key::Grant(crate::fdb::grant::Key::SubjectGrant {
 							permission,
 							resource,
@@ -1141,7 +1141,7 @@ impl Index {
 						if !budget.add_node(0) {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
-						stack.push(DescendantTask::Node { depth: 0, key });
+						queue.push_back(DescendantTask::Node { depth: 0, key });
 					}
 				},
 			}
