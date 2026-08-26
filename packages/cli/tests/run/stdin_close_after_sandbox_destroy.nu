@@ -4,6 +4,7 @@ use ../../test.nu *
 
 let server = server spawn --config {
 	advanced: { checkpoints: true },
+	runner: { process_state_ttl: 1 },
 	tracing: { stderr_format: 'json' },
 }
 

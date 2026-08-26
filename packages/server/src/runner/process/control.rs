@@ -171,7 +171,9 @@ impl Session {
 			String,
 			tg::process::control::WriteServerRequestArg,
 		)>(256);
+		let stdin_finished = Stopper::new();
 		let stdin_task = self.spawn_process_control_stdin_task(RunProcessControlStdinTaskArg {
+			finished: stdin_finished.clone(),
 			receiver: stdin_receiver,
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
@@ -247,6 +249,9 @@ impl Session {
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
 
+		// The retention window below outlives the sandbox, which stdin cannot be written to once it is destroyed. Answer every write after the finish with EOF.
+		stdin_finished.stop();
+
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {
 				tg::error!(!error, "the process control output task panicked")
@@ -261,6 +266,8 @@ impl Session {
 			() = retention_stopper.wait() => {},
 			() = tokio::time::sleep(retention_ttl) => {},
 		}
+
+		crate::checkpoint!(self.server, "runner.process.control.retention.finished").await;
 
 		// Abort the other tasks.
 		handler_task.abort();

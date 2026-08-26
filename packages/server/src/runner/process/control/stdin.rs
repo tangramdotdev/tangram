@@ -5,11 +5,12 @@ use {
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_futures::task::Task,
+	tangram_futures::task::{Stopper, Task},
 	tokio_util::io::ReaderStream,
 };
 
 pub(super) struct RunProcessControlStdinTaskArg {
+	pub(super) finished: Stopper,
 	pub(super) receiver:
 		tokio::sync::mpsc::Receiver<(String, tg::process::control::WriteServerRequestArg)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
@@ -37,6 +38,7 @@ impl Session {
 		arg: RunProcessControlStdinTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlStdinTaskArg {
+			finished,
 			mut receiver,
 			sandbox,
 			mut sandbox_process,
@@ -89,7 +91,15 @@ impl Session {
 		let mut closed = false;
 		let mut position = 0_u64;
 		while let Some((id, request)) = receiver.recv().await {
-			let result = if closed {
+			crate::checkpoint!(
+				self.server,
+				"runner.process.control.stdin.write",
+				close = %request.chunk.bytes.is_empty(),
+			)
+			.await;
+
+			// Once the process has finished, its sandbox is torn down and cannot be written to, so answer every write with the current position.
+			let result = if closed || finished.stopped() {
 				Ok(position)
 			} else if let Some(sandbox_process) = &sandbox_process {
 				Self::handle_process_control_stdin_write_request(
@@ -185,7 +195,9 @@ impl Session {
 				input,
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to close the process stdin"))?;
+			.inspect_err(|error| {
+				tracing::error!(error = %error.trace(), "failed to close the process stdin");
+			})?;
 		let mut output = pin!(output);
 		while let Some(event) = output.try_next().await? {
 			if matches!(event, tangram_sandbox::stdio::write::Event::End) {
