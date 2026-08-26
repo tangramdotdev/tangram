@@ -113,6 +113,12 @@ impl Client {
 				let mut sender = match guard.as_ref() {
 					Some(sender) if sender.is_ready() => sender.clone(),
 					_ => {
+						// `connect_h2` does not handle http+stdio, and the time it is possible to reach this path is if the original connection failed. We cannot tolerate reconnect over stdio.
+						if url.scheme() == Some("http+stdio") {
+							return Err(Error::Other(tg::error!(
+								"the sandbox connection was closed and cannot be reestablished"
+							)));
+						}
 						let (sender, task) = Self::connect_h2(&url).await.map_err(Error::Other)?;
 						connection.lock().await.replace(task);
 						guard.replace(sender.clone());

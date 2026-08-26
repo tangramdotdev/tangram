@@ -110,9 +110,16 @@ impl Server {
 							crate::stdio::read::Event::End => {
 								// Close stdin by dropping the writer and removing the process's stdin, so that the child observes EOF.
 								if let Some(mut w) = writer.take() {
-									w.shutdown().await.map_err(|error| {
-										tg::error!(!error, "failed to close stdin")
-									})?;
+									let result = w.shutdown().await;
+									match result {
+										Ok(()) => (),
+										// A broken pipe indicates that the process already closed its stdin, so it is treated as a successful close.
+										Err(error)
+											if error.kind() == std::io::ErrorKind::BrokenPipe => {},
+										Err(error) => {
+											return Err(tg::error!(!error, "failed to close stdin"));
+										},
+									}
 									let stdin = matches!(w, Writer::Stdin(_));
 									drop(w);
 									if stdin
