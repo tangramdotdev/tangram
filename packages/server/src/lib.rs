@@ -101,6 +101,12 @@ pub struct Owned {
 #[derive(Clone)]
 pub struct Server(Arc<State>);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Shutdown {
+	Interrupt,
+	Terminate,
+}
+
 pub struct State {
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
@@ -141,6 +147,7 @@ pub struct State {
 	sandbox_vm_image_lock: tokio::sync::Mutex<bool>,
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
+	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -154,7 +161,11 @@ pub struct Tokens {
 }
 
 impl Owned {
-	pub fn stop(&self) {
+	pub fn shutdown(&self, shutdown: Shutdown) {
+		self.server.shutdown.send_replace(Some(shutdown));
+		if let Some(task) = self.server.runner.task().lock().unwrap().as_ref() {
+			task.stop();
+		}
 		self.task.stop();
 	}
 
@@ -872,6 +883,9 @@ impl Server {
 		// Create the temp paths.
 		let temps = DashSet::default();
 
+		// Create the shutdown channel.
+		let (shutdown, _) = tokio::sync::watch::channel(None);
+
 		// Get the version.
 		let version = config
 			.version
@@ -946,6 +960,7 @@ impl Server {
 			sandbox_vm_image_lock: tokio::sync::Mutex::new(false),
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
+			shutdown,
 			tangram_path,
 			temps,
 			version,
@@ -1270,9 +1285,17 @@ impl Server {
 			async move {
 				tracing::trace!("started");
 
-				// Stop and await the HTTP task.
-				if let Some(task) = http_task {
+				// Stop the HTTP and runner tasks.
+				if let Some(task) = &http_task {
 					task.stop();
+				}
+				let runner_task = server.runner.task().lock().unwrap().take();
+				if let Some(task) = &runner_task {
+					task.stop();
+				}
+
+				// Await the HTTP task.
+				if let Some(task) = http_task {
 					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
@@ -1282,10 +1305,8 @@ impl Server {
 					tracing::trace!("http task");
 				}
 
-				// Stop the runner task.
-				let runner_task = server.runner.task().lock().unwrap().take();
+				// Await the runner task.
 				if let Some(task) = runner_task {
-					task.stop();
 					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
