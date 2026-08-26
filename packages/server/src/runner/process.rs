@@ -1559,7 +1559,7 @@ impl Session {
 				},
 			}
 
-			// Cache the process's children.
+			// Check out the process's children.
 			self.checkout_process_artifacts(
 				&state.command,
 				&state.sandbox,
