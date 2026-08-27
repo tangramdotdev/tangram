@@ -54,6 +54,7 @@ for entry in ([
 	let outcome = tg wait $process | from json
 	assert equal $outcome.exit 1 "exiting the viewer should cancel the process"
 	assert ($outcome.error? | is-not-empty) "the cancelled process should have an error"
+	tg wait $sandbox
 	let state = tg sandbox get $sandbox | from json
 	assert equal $state.status "destroyed" "cancelling the process should destroy its sandbox"
 }

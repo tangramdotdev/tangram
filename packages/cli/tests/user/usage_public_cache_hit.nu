@@ -13,9 +13,14 @@ let path = artifact { tangram.ts: 'export default function () { return tg.file("
 # Alice creates a public cache entry.
 let alice_spawn = tg --token $alice.token process spawn --sandbox --verbose --public $path | from json
 tg --token $alice.token wait $alice_spawn.process
+let alice_sandbox = tg --token $alice.token process get $alice_spawn.process | from json | get sandbox
+tg --token $alice.token wait $alice_sandbox
 tg index
+wait_until {
+	let usage = tg --token $alice.token user usage | from json
+	$usage.sandbox_cpu > 0
+} "a destroyed sandbox must charge CPU usage"
 let alice_usage = tg --token $alice.token user usage | from json
-assert ($alice_usage.sandbox_cpu > 0) "a destroyed sandbox must charge CPU usage"
 assert ($alice_usage.sandbox_memory > 0) "a destroyed sandbox must charge memory usage"
 
 # Eve reuses Alice's process rather than creating one of her own.

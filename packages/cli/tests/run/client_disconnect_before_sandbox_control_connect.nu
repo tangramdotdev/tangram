@@ -55,5 +55,6 @@ assert equal $state.status "started" "the sandbox should remain running without 
 
 # Clean up the accepted race window explicitly.
 tg sandbox destroy $sandbox
+tg wait $sandbox
 let state = tg sandbox get $sandbox | from json
 assert equal $state.status "destroyed" "the characterized sandbox should be cleaned up"
