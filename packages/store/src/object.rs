@@ -1,8 +1,10 @@
 use {bytes::Bytes, std::borrow::Cow, tangram_client::prelude::*};
 
+pub mod archive;
 pub mod checkout;
 pub mod delete;
 pub mod get;
+pub mod index;
 pub mod put;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

@@ -21,6 +21,9 @@ pub struct Config {
 	pub advanced: Option<Advanced>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive: Option<Archive>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -149,6 +152,16 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write: Option<Write>,
 }
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Archive {
+	S3(S3Archive),
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3Archive {}
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
@@ -501,7 +514,7 @@ pub enum Database {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct DatabaseOutbox {
+pub struct DatabaseIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 }
@@ -511,7 +524,7 @@ pub struct DatabaseOutbox {
 #[serde(deny_unknown_fields)]
 pub struct PostgresDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read: Option<PostgresDatabaseConnection>,
@@ -553,7 +566,7 @@ pub struct DatabasePool {
 #[serde(deny_unknown_fields)]
 pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -570,7 +583,7 @@ pub struct SqliteDatabase {
 #[serde(deny_unknown_fields)]
 pub struct TursoDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -696,7 +709,7 @@ pub struct LmdbIndex {
 pub struct Indexer {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub database_outbox_wakeup_interval: Option<Duration>,
+	pub database_index_outbox_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
@@ -713,7 +726,11 @@ pub struct Indexer {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub object_outbox_wakeup_interval: Option<Duration>,
+	pub object_archive_outbox_wakeup_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub object_index_outbox_wakeup_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_end: Option<u64>,
@@ -821,6 +838,9 @@ pub struct NatsMessenger {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Object {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive_outbox: Option<ObjectArchiveOutbox>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_live: Option<Duration>,
@@ -830,7 +850,7 @@ pub struct Object {
 	pub grant_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<ObjectOutbox>,
+	pub index_outbox: Option<ObjectIndexOutbox>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -848,7 +868,18 @@ pub struct Object {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectOutbox {
+pub struct ObjectArchiveOutbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -1922,6 +1953,7 @@ impl Default for Tracing {
 		Self {
 			filter: [
 				"tangram=info",
+				"tangram_archive=info",
 				"tangram_client=info",
 				"tangram_compiler=info",
 				"tangram_database=info",
@@ -1967,6 +1999,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	let mut target = server::Config::default();
 	if let Some(source) = source.advanced {
 		target.advanced = resolve_advanced(source);
+	}
+	if let Some(source) = source.archive {
+		target.archive = Some(resolve_archive(&source));
 	}
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
@@ -2082,6 +2117,12 @@ fn resolve_role(source: Role) -> server::Role {
 		Role::Indexer => server::Role::Indexer,
 		Role::Runner => server::Role::Runner,
 		Role::Scheduler => server::Role::Scheduler,
+	}
+}
+
+fn resolve_archive(source: &Archive) -> server::Archive {
+	match source {
+		Archive::S3(_) => server::Archive::S3(server::S3Archive {}),
 	}
 }
 
@@ -2418,8 +2459,8 @@ fn resolve_database(source: Database) -> server::Database {
 
 fn resolve_postgres_database(source: PostgresDatabase) -> server::PostgresDatabase {
 	let mut target = server::PostgresDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.read {
 		target.read = resolve_postgres_database_connection(source, target.read);
@@ -2448,8 +2489,8 @@ fn resolve_postgres_database_connection(
 
 fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 	let mut target = server::SqliteDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2465,8 +2506,8 @@ fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 
 fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	let mut target = server::TursoDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2480,8 +2521,8 @@ fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	target
 }
 
-fn resolve_database_outbox(source: DatabaseOutbox) -> server::DatabaseOutbox {
-	let mut target = server::DatabaseOutbox::default();
+fn resolve_database_index_outbox(source: DatabaseIndexOutbox) -> server::DatabaseIndexOutbox {
+	let mut target = server::DatabaseIndexOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
@@ -2625,8 +2666,8 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 }
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
-	if let Some(value) = source.database_outbox_wakeup_interval {
-		target.database_outbox_wakeup_interval = value;
+	if let Some(value) = source.database_index_outbox_wakeup_interval {
+		target.database_index_outbox_wakeup_interval = value;
 	}
 	if let Some(source) = source.log_compaction {
 		target.log_compaction = resolve_indexer_log_compaction(source);
@@ -2640,8 +2681,11 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(value) = source.message_timeout {
 		target.message_timeout = value;
 	}
-	if let Some(value) = source.object_outbox_wakeup_interval {
-		target.object_outbox_wakeup_interval = value;
+	if let Some(value) = source.object_archive_outbox_wakeup_interval {
+		target.object_archive_outbox_wakeup_interval = value;
+	}
+	if let Some(value) = source.object_index_outbox_wakeup_interval {
+		target.object_index_outbox_wakeup_interval = value;
 	}
 	if let Some(value) = source.partition_end {
 		target.partition_end = value;
@@ -2770,14 +2814,17 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 
 fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_object_outbox(source);
+	if let Some(source) = source.archive_outbox {
+		target.archive_outbox = resolve_object_archive_outbox(source);
 	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
 	}
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
+	}
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_object_index_outbox(source);
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
@@ -2792,8 +2839,19 @@ fn resolve_object(source: &Object) -> server::Object {
 	target
 }
 
-fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
-	let mut target = server::ObjectOutbox::default();
+fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectArchiveOutbox {
+	let mut target = server::ObjectArchiveOutbox::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	target
+}
+
+fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndexOutbox {
+	let mut target = server::ObjectIndexOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
@@ -3813,8 +3871,8 @@ mod tests {
 	fn parses_and_resolves_wakeup_intervals() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"indexer": {
-				"database_outbox_wakeup_interval": 0.1,
-				"object_outbox_wakeup_interval": 0.2,
+				"database_index_outbox_wakeup_interval": 0.1,
+				"object_index_outbox_wakeup_interval": 0.2,
 			},
 			"process": {
 				"children_wakeup_interval": 0.3,
@@ -3830,11 +3888,11 @@ mod tests {
 		let target = resolve_server_config(&source).unwrap();
 
 		assert_eq!(
-			target.indexer.database_outbox_wakeup_interval,
+			target.indexer.database_index_outbox_wakeup_interval,
 			Duration::from_millis(100)
 		);
 		assert_eq!(
-			target.indexer.object_outbox_wakeup_interval,
+			target.indexer.object_index_outbox_wakeup_interval,
 			Duration::from_millis(200)
 		);
 		assert_eq!(

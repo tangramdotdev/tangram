@@ -1,5 +1,5 @@
 use {
-	super::{Database, Transaction},
+	super::super::{Database, Transaction},
 	crate::Server,
 	bytes::Bytes,
 	futures::FutureExt as _,
@@ -67,7 +67,7 @@ impl BatchId {
 }
 
 impl Server {
-	pub async fn enqueue_database_outbox_with_transaction(
+	pub async fn enqueue_database_index_outbox_with_transaction(
 		&self,
 		transaction: &Transaction<'_>,
 		arg: &tangram_index::batch::Arg,
@@ -75,18 +75,19 @@ impl Server {
 		if arg.is_empty() {
 			return Ok(ControlFlow::Break(()));
 		}
-		let items = database_outbox_regions(&self.config)
+		let items = database_index_outbox_regions(&self.config)
 			.into_iter()
 			.map(|region| EnqueueItem { region })
 			.collect::<Vec<_>>();
 		let payload = arg.serialize()?.into();
 		let result = transaction
 			.query_one_value_into::<u64>(
-				"update outbox_batch set next = next + 1 returning next;".into(),
+				"update index_outbox_batch set next = next + 1 returning next;".into(),
 				db::params![],
 			)
 			.await;
-		let batch = crate::database::retry!(result, "failed to allocate a database outbox batch");
+		let batch =
+			crate::database::retry!(result, "failed to allocate a database index outbox batch");
 		let batch = BatchId::new(batch);
 		let arg = EnqueueArg {
 			batch,
@@ -111,29 +112,29 @@ impl Server {
 			]);
 		}
 		let statement = format!(
-			"insert into outbox (region, batch, payload) values {};",
+			"insert into index_outbox (region, batch, payload) values {};",
 			values.join(", ")
 		);
 		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to enqueue the database outbox items");
+		crate::database::retry!(result, "failed to enqueue the database index outbox items");
 
 		Ok(ControlFlow::Break(()))
 	}
 
-	pub(crate) fn spawn_publish_database_outbox_notification_task(&self) {
-		let regions = database_outbox_regions(&self.config);
+	pub(crate) fn spawn_publish_database_index_outbox_notification_task(&self) {
+		let regions = database_index_outbox_regions(&self.config);
 		tokio::spawn({
 			let server = self.clone();
 			async move {
 				for region in regions {
-					let subject = crate::indexer::database_outbox_subject();
+					let subject = crate::indexer::database_index_outbox_subject();
 					let target_region = (!region.is_empty()).then_some(region.as_str());
 					if let Err(error) = server
 						.messenger
 						.publish_to_region(target_region, subject, ())
 						.await
 					{
-						tracing::error!(%error, %region, "failed to publish a database outbox notification");
+						tracing::error!(%error, %region, "failed to publish a database index outbox notification");
 					}
 				}
 			}
@@ -141,7 +142,7 @@ impl Server {
 	}
 }
 
-fn database_outbox_regions(config: &crate::Config) -> BTreeSet<String> {
+fn database_index_outbox_regions(config: &crate::Config) -> BTreeSet<String> {
 	let mut regions = config
 		.regions
 		.as_ref()
@@ -159,36 +160,38 @@ fn database_outbox_regions(config: &crate::Config) -> BTreeSet<String> {
 }
 
 impl Database {
-	pub async fn delete_outbox(&self, arg: DeleteArg) -> tg::Result<()> {
+	pub async fn delete_index_outbox(&self, arg: DeleteArg) -> tg::Result<()> {
 		self.run(|transaction| {
 			let arg = arg.clone();
-			async move { Self::delete_outbox_with_transaction(transaction, arg).await }.boxed()
+			async move { Self::delete_index_outbox_with_transaction(transaction, arg).await }
+				.boxed()
 		})
 		.await
 	}
 
-	async fn delete_outbox_with_transaction(
+	async fn delete_index_outbox_with_transaction(
 		transaction: &Transaction<'_>,
 		arg: DeleteArg,
-	) -> tg::Result<ControlFlow<(), super::Error>> {
+	) -> tg::Result<ControlFlow<(), crate::database::Error>> {
 		let p = transaction.p();
-		let statement = format!("delete from outbox where region = {p}1 and batch <= {p}2;");
+		let statement = format!("delete from index_outbox where region = {p}1 and batch <= {p}2;");
 		let params = db::params![arg.region, arg.batch.value()];
 		let result = transaction.execute(statement.into(), params).await;
-		crate::database::retry!(result, "failed to delete the database outbox items");
+		crate::database::retry!(result, "failed to delete the database index outbox items");
 
 		Ok(ControlFlow::Break(()))
 	}
 
-	pub async fn dequeue_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
+	pub async fn dequeue_index_outbox(&self, arg: DequeueArg) -> tg::Result<Vec<Item>> {
 		let batch_size = i64::try_from(arg.batch_size)
-			.map_err(|_| tg::error!("the database outbox batch size exceeded an i64"))?;
+			.map_err(|_| tg::error!("the database index outbox batch size exceeded an i64"))?;
 		// Read from the write connection so a notification cannot outrun replication.
 		let rows = self
 			.run(|transaction| {
 				let region = arg.region.clone();
 				async move {
-					Self::dequeue_outbox_with_transaction(transaction, &region, batch_size).await
+					Self::dequeue_index_outbox_with_transaction(transaction, &region, batch_size)
+						.await
 				}
 				.boxed()
 			})
@@ -198,16 +201,16 @@ impl Database {
 		Ok(items)
 	}
 
-	async fn dequeue_outbox_with_transaction(
+	async fn dequeue_index_outbox_with_transaction(
 		transaction: &Transaction<'_>,
 		region: &str,
 		batch_size: i64,
-	) -> tg::Result<ControlFlow<Vec<Row>, super::Error>> {
+	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r"
 				select batch, payload
-				from outbox
+				from index_outbox
 				where region = {p}1
 				order by batch
 				limit {p}2;
@@ -216,12 +219,12 @@ impl Database {
 		let result = transaction
 			.query_all_into::<Row>(statement.into(), db::params![region, batch_size])
 			.await;
-		let rows = crate::database::retry!(result, "failed to dequeue the database outbox");
+		let rows = crate::database::retry!(result, "failed to dequeue the database index outbox");
 
 		Ok(ControlFlow::Break(rows))
 	}
 
-	pub async fn try_get_outbox_batch_at_or_before(
+	pub async fn try_get_index_outbox_batch_at_or_before(
 		&self,
 		arg: TryGetBatchArg,
 	) -> tg::Result<Option<BatchId>> {
@@ -229,7 +232,8 @@ impl Database {
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let arg = arg.clone();
 				async move {
-					Self::try_get_outbox_batch_at_or_before_with_transaction(transaction, arg).await
+					Self::try_get_index_outbox_batch_at_or_before_with_transaction(transaction, arg)
+						.await
 				}
 				.boxed()
 			})
@@ -239,16 +243,16 @@ impl Database {
 		Ok(batch)
 	}
 
-	async fn try_get_outbox_batch_at_or_before_with_transaction(
+	async fn try_get_index_outbox_batch_at_or_before_with_transaction(
 		transaction: &Transaction<'_>,
 		arg: TryGetBatchArg,
-	) -> tg::Result<ControlFlow<Option<u64>, super::Error>> {
+	) -> tg::Result<ControlFlow<Option<u64>, crate::database::Error>> {
 		let p = transaction.p();
 		let (statement, params) = if let Some(batch) = arg.batch {
 			let statement = formatdoc!(
 				r"
 					select batch
-					from outbox
+					from index_outbox
 					where region = {p}1 and batch <= {p}2
 					order by batch desc
 					limit 1;
@@ -260,7 +264,7 @@ impl Database {
 			let statement = formatdoc!(
 				r"
 					select batch
-					from outbox
+					from index_outbox
 					where region = {p}1
 					order by batch desc
 					limit 1;
@@ -272,7 +276,8 @@ impl Database {
 		let result = transaction
 			.query_optional_value_into::<u64>(statement.into(), params)
 			.await;
-		let batch = crate::database::retry!(result, "failed to get the database outbox batch");
+		let batch =
+			crate::database::retry!(result, "failed to get the database index outbox batch");
 
 		Ok(ControlFlow::Break(batch))
 	}

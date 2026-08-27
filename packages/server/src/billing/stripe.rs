@@ -360,7 +360,7 @@ impl Session {
 			})
 			.await?;
 		self.server
-			.spawn_publish_database_outbox_notification_task();
+			.spawn_publish_database_index_outbox_notification_task();
 		self.server.index.batch(batch).await?;
 
 		Ok(())
@@ -453,7 +453,7 @@ impl Session {
 			.await;
 		crate::database::retry!(result, "failed to record the Stripe webhook event");
 		match server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_index_outbox_with_transaction(transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

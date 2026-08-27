@@ -10,6 +10,7 @@ use {
 		pin::pin,
 		time::Duration,
 	},
+	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
@@ -33,8 +34,8 @@ struct NamedCheckout {
 
 struct State {
 	barriers: Barriers,
-	database_outbox_batch_id: Option<crate::database::outbox::BatchId>,
-	object_outbox_batch_id: Option<crate::store::outbox::batch::Id>,
+	database_index_outbox_batch_id: Option<crate::database::index::outbox::BatchId>,
+	object_index_outbox_batch_id: Option<crate::store::object::index::outbox::batch::Id>,
 	requests: BTreeMap<String, IndexRequest>,
 }
 
@@ -43,11 +44,11 @@ struct IndexRequest {
 }
 
 enum IndexRequestState {
-	DatabaseOutbox,
-	DatabaseOutboxPending,
+	DatabaseIndexOutbox,
+	DatabaseIndexOutboxPending,
 	LogCompactions { transaction_id: Option<u64> },
-	ObjectOutbox,
-	ObjectOutboxPending,
+	ObjectIndexOutbox,
+	ObjectIndexOutboxPending,
 	Tasks,
 	Updates { transaction_id: Option<u64> },
 }
@@ -110,26 +111,45 @@ impl Server {
 		let poll_interval = config.poll_interval;
 		let usage_enabled = self.config.usage.enabled;
 
-		// Spawn the database outbox task.
-		let database_outbox_task = Task::spawn({
+		// Spawn the database index outbox task.
+		let database_index_outbox_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
-			let outbox = self.config.database.outbox().clone();
+			let outbox = self.config.database.index_outbox().clone();
 			let region = self.config.region.clone().unwrap_or_default();
 			move |_| async move {
 				indexer
-					.database_outbox_task(&config, &outbox, &region)
+					.database_index_outbox_task(&config, &outbox, &region)
 					.await
 			}
 		});
 
-		// Spawn the object outbox task.
-		let object_outbox_task = Task::spawn({
+		// Spawn the object archive outbox task.
+		let object_archive_outbox_task = Task::spawn({
 			let config = config.clone();
-			let outbox =
-				(!self.config.advanced.single_process).then(|| self.config.object.outbox.clone());
 			let indexer = indexer.clone();
-			move |_| async move { indexer.object_outbox_task(&config, outbox.as_ref()).await }
+			let outbox = self
+				.archive
+				.as_ref()
+				.map(|_| self.config.object.archive_outbox.clone());
+			move |_| async move {
+				indexer
+					.object_archive_outbox_task(&config, outbox.as_ref())
+					.await
+			}
+		});
+
+		// Spawn the object index outbox task.
+		let object_index_outbox_task = Task::spawn({
+			let config = config.clone();
+			let outbox = (!self.config.advanced.single_process)
+				.then(|| self.config.object.index_outbox.clone());
+			let indexer = indexer.clone();
+			move |_| async move {
+				indexer
+					.object_index_outbox_task(&config, outbox.as_ref())
+					.await
+			}
 		});
 
 		// Spawn the log compaction task.
@@ -221,17 +241,23 @@ impl Server {
 		});
 
 		// Wait for the tasks.
-		let database_outbox_future = async move {
-			database_outbox_task
+		let database_index_outbox_future = async move {
+			database_index_outbox_task
 				.wait()
 				.await
-				.map_err(|error| tg::error!(!error, "the database outbox task panicked"))?
+				.map_err(|error| tg::error!(!error, "the database index outbox task panicked"))?
 		};
-		let object_outbox_future = async move {
-			object_outbox_task
+		let object_archive_outbox_future = async move {
+			object_archive_outbox_task
 				.wait()
 				.await
-				.map_err(|error| tg::error!(!error, "the object outbox task panicked"))?
+				.map_err(|error| tg::error!(!error, "the object archive outbox task panicked"))?
+		};
+		let object_index_outbox_future = async move {
+			object_index_outbox_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the object index outbox task panicked"))?
 		};
 		let log_compaction_future = async move {
 			log_compaction_task
@@ -292,13 +318,17 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "the indexer request task panicked"))?
 		};
-		future::try_join4(
-			database_outbox_future,
-			object_outbox_future,
-			queue_future,
-			request_future,
-		)
-		.await?;
+		let outbox_future = async move {
+			future::try_join3(
+				database_index_outbox_future,
+				object_archive_outbox_future,
+				object_index_outbox_future,
+			)
+			.await?;
+
+			Ok(())
+		};
+		future::try_join3(outbox_future, queue_future, request_future).await?;
 
 		Ok(())
 	}
@@ -416,38 +446,38 @@ impl Indexer {
 		}
 	}
 
-	async fn database_outbox_task(
+	async fn database_index_outbox_task(
 		&self,
 		config: &crate::config::Indexer,
-		outbox: &crate::config::DatabaseOutbox,
+		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
 	) -> tg::Result<()> {
-		let wakeup_interval = config.database_outbox_wakeup_interval;
+		let wakeup_interval = config.database_index_outbox_wakeup_interval;
 		loop {
 			let result = self
-				.database_outbox_task_inner(outbox, region, wakeup_interval)
+				.database_index_outbox_task_inner(outbox, region, wakeup_interval)
 				.await;
 			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to service the database outbox");
+				tracing::error!(error = %error.trace(), "failed to service the database index outbox");
 				tokio::time::sleep(Duration::from_secs(1)).await;
 			}
 		}
 	}
 
-	async fn database_outbox_task_inner(
+	async fn database_index_outbox_task_inner(
 		&self,
-		outbox: &crate::config::DatabaseOutbox,
+		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
 		wakeup_interval: Duration,
 	) -> tg::Result<()> {
-		let subject = database_outbox_subject();
+		let subject = database_index_outbox_subject();
 		let notifications = self
 			.server
 			.messenger
 			.subscribe::<()>(subject.clone())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %subject, "failed to subscribe to database outbox notifications"),
+				|error| tg::error!(!error, %subject, "failed to subscribe to database index outbox notifications"),
 			)?
 			.map(|_| ());
 		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
@@ -457,29 +487,29 @@ impl Indexer {
 		let mut wakeups = wakeups.boxed();
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let count = self.database_outbox_batch(outbox, region).await?;
+			let count = self.database_index_outbox_batch(outbox, region).await?;
 			if count == 0 && wakeups.next().await.is_none() {
-				return Err(tg::error!("the database outbox wakeup stream ended"));
+				return Err(tg::error!("the database index outbox wakeup stream ended"));
 			}
 		}
 	}
 
-	async fn database_outbox_batch(
+	async fn database_index_outbox_batch(
 		&self,
-		outbox: &crate::config::DatabaseOutbox,
+		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
-		let arg = crate::database::outbox::DequeueArg {
+		let arg = crate::database::index::outbox::DequeueArg {
 			batch_size: outbox.batch_size,
 			region: region.to_owned(),
 		};
 		let entries = self
 			.server
 			.database
-			.dequeue_outbox(arg)
+			.dequeue_index_outbox(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to dequeue the database outbox"))?;
+			.map_err(|error| tg::error!(!error, "failed to dequeue the database index outbox"))?;
 		if entries.is_empty() {
 			return Ok(0);
 		}
@@ -496,22 +526,22 @@ impl Indexer {
 		// Submit each outbox entry sequentially to preserve transaction order.
 		for arg in args {
 			if !self.server.named_checkout_maintenance_enabled()
-				|| !Self::database_outbox_batch_contains_named_node_mutation(&arg)
+				|| !Self::database_index_outbox_batch_contains_named_node_mutation(&arg)
 			{
 				self.server.index.batch(arg).await.map_err(|error| {
-					tg::error!(!error, "failed to index a database outbox batch")
+					tg::error!(!error, "failed to index a database index outbox batch")
 				})?;
 				continue;
 			}
-			crate::checkpoint!(self.server, "indexer.database_outbox.named_node").await;
+			crate::checkpoint!(self.server, "indexer.database_index_outbox.named_node").await;
 			let guard = self.server.checkout_lock.acquire().await?;
 			if !self.server.named_checkout_maintenance_enabled() {
 				self.server.index.batch(arg).await.map_err(|error| {
-					tg::error!(!error, "failed to index a database outbox batch")
+					tg::error!(!error, "failed to index a database index outbox batch")
 				})?;
 				continue;
 			}
-			let (arg, mut invalidations) = self.prepare_database_outbox_batch(arg).await?;
+			let (arg, mut invalidations) = self.prepare_database_index_outbox_batch(arg).await?;
 			invalidations
 				.sort_by_key(|checkout| std::cmp::Reverse(checkout.specifier.components().count()));
 			for checkout in invalidations {
@@ -523,32 +553,34 @@ impl Indexer {
 					)
 					.await?;
 			}
-			self.server
-				.index
-				.batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index a database outbox batch"))?;
+			self.server.index.batch(arg).await.map_err(|error| {
+				tg::error!(!error, "failed to index a database index outbox batch")
+			})?;
 		}
-		let arg = crate::database::outbox::DeleteArg {
+		let arg = crate::database::index::outbox::DeleteArg {
 			batch,
 			region: region.to_owned(),
 		};
 		self.server
 			.database
-			.delete_outbox(arg)
+			.delete_index_outbox(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete a database outbox batch"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to delete a database index outbox batch")
+			})?;
 
 		Ok(count)
 	}
 
-	fn database_outbox_batch_contains_named_node_mutation(arg: &tangram_index::batch::Arg) -> bool {
+	fn database_index_outbox_batch_contains_named_node_mutation(
+		arg: &tangram_index::batch::Arg,
+	) -> bool {
 		arg.items
 			.iter()
-			.any(|item| Self::database_outbox_named_node_id(item).is_some())
+			.any(|item| Self::database_index_outbox_named_node_id(item).is_some())
 	}
 
-	fn database_outbox_named_node_id(item: &tangram_index::batch::Item) -> Option<tg::Id> {
+	fn database_index_outbox_named_node_id(item: &tangram_index::batch::Item) -> Option<tg::Id> {
 		let id = match item {
 			tangram_index::batch::Item::DeleteGroup(id) => id.clone().into(),
 			tangram_index::batch::Item::DeleteOrganization(id) => id.clone().into(),
@@ -564,14 +596,14 @@ impl Indexer {
 		Some(id)
 	}
 
-	async fn prepare_database_outbox_batch(
+	async fn prepare_database_index_outbox_batch(
 		&self,
 		arg: tangram_index::batch::Arg,
 	) -> tg::Result<(tangram_index::batch::Arg, Vec<NamedCheckout>)> {
 		let ids = arg
 			.items
 			.iter()
-			.filter_map(Self::database_outbox_named_node_id)
+			.filter_map(Self::database_index_outbox_named_node_id)
 			.collect::<BTreeSet<_>>()
 			.into_iter()
 			.collect::<Vec<_>>();
@@ -645,18 +677,18 @@ impl Indexer {
 		Ok((arg, invalidations))
 	}
 
-	async fn object_outbox_task(
+	async fn object_archive_outbox_task(
 		&self,
 		config: &crate::config::Indexer,
-		outbox: Option<&crate::config::ObjectOutbox>,
+		outbox: Option<&crate::config::ObjectArchiveOutbox>,
 	) -> tg::Result<()> {
 		let Some(outbox) = outbox else {
 			return future::pending().await;
 		};
-		let wakeup_interval = config.object_outbox_wakeup_interval;
+		let wakeup_interval = config.object_archive_outbox_wakeup_interval;
 		future::try_join_all(
 			(config.partition_start..config.partition_end).map(|partition| {
-				self.object_outbox_partition_task(outbox, partition, wakeup_interval)
+				self.object_archive_outbox_partition_task(outbox, partition, wakeup_interval)
 			}),
 		)
 		.await?;
@@ -664,37 +696,197 @@ impl Indexer {
 		Ok(())
 	}
 
-	async fn object_outbox_partition_task(
+	async fn object_archive_outbox_partition_task(
 		&self,
-		outbox: &crate::config::ObjectOutbox,
+		outbox: &crate::config::ObjectArchiveOutbox,
 		partition: u64,
 		wakeup_interval: Duration,
 	) -> tg::Result<()> {
 		loop {
 			let result = self
-				.object_outbox_partition_task_inner(outbox, partition, wakeup_interval)
+				.object_archive_outbox_partition_task_inner(outbox, partition, wakeup_interval)
 				.await;
 			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), %partition, "failed to service the object outbox");
+				tracing::error!(error = %error.trace(), %partition, "failed to service the object archive outbox");
 				tokio::time::sleep(Duration::from_secs(1)).await;
 			}
 		}
 	}
 
-	async fn object_outbox_partition_task_inner(
+	async fn object_archive_outbox_partition_task_inner(
 		&self,
-		outbox: &crate::config::ObjectOutbox,
+		outbox: &crate::config::ObjectArchiveOutbox,
 		partition: u64,
 		wakeup_interval: Duration,
 	) -> tg::Result<()> {
-		let subject = object_outbox_subject(partition);
+		let subject = object_archive_outbox_subject(partition);
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject.clone())
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					%subject,
+					"failed to subscribe to object archive outbox notifications"
+				)
+			})?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let mut wakeups = wakeups.boxed();
+		loop {
+			while wakeups.next().now_or_never().flatten().is_some() {}
+			let count = self.object_archive_outbox_batch(outbox, partition).await?;
+			if count == 0 && wakeups.next().await.is_none() {
+				return Err(tg::error!("the object archive outbox wakeup stream ended"));
+			}
+		}
+	}
+
+	async fn object_archive_outbox_batch(
+		&self,
+		outbox: &crate::config::ObjectArchiveOutbox,
+		partition: u64,
+	) -> tg::Result<usize> {
+		// Dequeue a batch.
+		let arg = crate::store::object::archive::outbox::dequeue::Arg {
+			batch_size: outbox.batch_size,
+			partition_end: partition + 1,
+			partition_start: partition,
+		};
+		let entries = self
+			.server
+			.store
+			.dequeue_object_archive_outbox_entries(arg)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to dequeue object archive outbox entries")
+			})?;
+		if entries.is_empty() {
+			return Ok(0);
+		}
+		let count = entries.len();
+
+		// Archive the objects.
+		let results = future::join_all(entries.into_iter().map(|entry| async move {
+			let result = self.object_archive_outbox_entry(&entry).await;
+			(entry, result)
+		}))
+		.await;
+		let mut completed = Vec::new();
+		let mut error = None;
+		for (entry, result) in results {
+			match result {
+				Ok(true) => completed.push(entry),
+				Ok(false) => {},
+				Err(current) => {
+					error.get_or_insert(current);
+				},
+			}
+		}
+
+		// Delete the completed entries.
+		if !completed.is_empty() {
+			let arg = crate::store::object::archive::outbox::delete::Arg { entries: completed };
+			self.server
+				.store
+				.delete_object_archive_outbox_entries(arg)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to delete object archive outbox entries")
+				})?;
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+
+		Ok(count)
+	}
+
+	async fn object_archive_outbox_entry(
+		&self,
+		entry: &crate::store::object::archive::outbox::Entry,
+	) -> tg::Result<bool> {
+		let arg = crate::store::object::get::Arg {
+			id: entry.id.clone(),
+		};
+		let output = self.server.store.try_get_object(arg).await.map_err(
+			|error| tg::error!(!error, id = %entry.id, "failed to get an object from the store"),
+		)?;
+		let Some(object) = output.object else {
+			return Ok(false);
+		};
+		let Some(bytes) = object.bytes else {
+			return Ok(false);
+		};
+		let Some(archive) = &self.server.archive else {
+			return Err(tg::error!("the archive is unavailable"));
+		};
+		let arg = tangram_archive::object::put::Arg {
+			bytes: bytes.into_owned().into(),
+			id: entry.id.clone(),
+		};
+		archive.put_object(arg).await.map_err(
+			|error| tg::error!(!error, id = %entry.id, "failed to put an object in the archive"),
+		)?;
+
+		Ok(true)
+	}
+
+	async fn object_index_outbox_task(
+		&self,
+		config: &crate::config::Indexer,
+		outbox: Option<&crate::config::ObjectIndexOutbox>,
+	) -> tg::Result<()> {
+		let Some(outbox) = outbox else {
+			return future::pending().await;
+		};
+		let wakeup_interval = config.object_index_outbox_wakeup_interval;
+		future::try_join_all(
+			(config.partition_start..config.partition_end).map(|partition| {
+				self.object_index_outbox_partition_task(outbox, partition, wakeup_interval)
+			}),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn object_index_outbox_partition_task(
+		&self,
+		outbox: &crate::config::ObjectIndexOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		loop {
+			let result = self
+				.object_index_outbox_partition_task_inner(outbox, partition, wakeup_interval)
+				.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), %partition, "failed to service the object index outbox");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn object_index_outbox_partition_task_inner(
+		&self,
+		outbox: &crate::config::ObjectIndexOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		let subject = object_index_outbox_subject(partition);
 		let notifications = self
 			.server
 			.messenger
 			.subscribe::<()>(subject.clone())
 			.await
 			.map_err(
-				|error| tg::error!(!error, %subject, "failed to subscribe to object outbox notifications"),
+				|error| tg::error!(!error, %subject, "failed to subscribe to object index outbox notifications"),
 			)?
 			.map(|_| ());
 		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
@@ -704,20 +896,20 @@ impl Indexer {
 		let mut wakeups = wakeups.boxed();
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let count = self.object_outbox_batch(outbox, partition).await?;
+			let count = self.object_index_outbox_batch(outbox, partition).await?;
 			if count == 0 && wakeups.next().await.is_none() {
-				return Err(tg::error!("the object outbox wakeup stream ended"));
+				return Err(tg::error!("the object index outbox wakeup stream ended"));
 			}
 		}
 	}
 
-	async fn object_outbox_batch(
+	async fn object_index_outbox_batch(
 		&self,
-		outbox: &crate::config::ObjectOutbox,
+		outbox: &crate::config::ObjectIndexOutbox,
 		partition: u64,
 	) -> tg::Result<usize> {
 		// Dequeue a batch.
-		let arg = crate::store::outbox::fragment::dequeue::Arg {
+		let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
 			batch_size: outbox.batch_size,
 			partition_end: partition + 1,
 			partition_start: partition,
@@ -725,9 +917,14 @@ impl Indexer {
 		let fragments = self
 			.server
 			.store
-			.dequeue_outbox_fragments(arg)
+			.dequeue_object_index_outbox_fragments(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to dequeue the object outbox fragments"))?;
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to dequeue the object index outbox fragments"
+				)
+			})?;
 		if fragments.is_empty() {
 			return Ok(0);
 		}
@@ -742,7 +939,7 @@ impl Indexer {
 				.entry(fragment.batch)
 				.or_default()
 				.push((fragment.index, arg));
-			let key = crate::store::outbox::fragment::Key {
+			let key = crate::store::object::index::outbox::fragment::Key {
 				batch: fragment.batch,
 				index: fragment.index,
 				partition: fragment.partition,
@@ -760,13 +957,15 @@ impl Indexer {
 			Ok::<_, tg::Error>(())
 		}))
 		.await
-		.map_err(|error| tg::error!(!error, "failed to index an object outbox batch"))?;
-		let arg = crate::store::outbox::fragment::delete::Arg { fragments: keys };
+		.map_err(|error| tg::error!(!error, "failed to index an object index outbox batch"))?;
+		let arg = crate::store::object::index::outbox::fragment::delete::Arg { fragments: keys };
 		self.server
 			.store
-			.delete_outbox_fragments(arg)
+			.delete_object_index_outbox_fragments(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete object outbox fragments"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to delete object index outbox fragments")
+			})?;
 
 		Ok(count)
 	}
@@ -1109,18 +1308,18 @@ impl State {
 	fn new() -> Self {
 		Self {
 			barriers: Barriers::new(),
-			database_outbox_batch_id: None,
-			object_outbox_batch_id: None,
+			database_index_outbox_batch_id: None,
+			object_index_outbox_batch_id: None,
 			requests: BTreeMap::new(),
 		}
 	}
 
 	async fn poll(&mut self, server: &Server, sender: &Sender) -> tg::Result<()> {
-		// Wait for the object outbox.
-		self.poll_object_outbox(server).await?;
+		// Wait for the object index outbox.
+		self.poll_object_index_outbox(server).await?;
 
-		// Wait for the database outbox.
-		self.poll_database_outbox(server).await?;
+		// Wait for the database index outbox.
+		self.poll_database_index_outbox(server).await?;
 
 		// Wait for the log compaction queue.
 		self.set_log_compaction_targets(server).await?;
@@ -1133,33 +1332,33 @@ impl State {
 		Ok(())
 	}
 
-	async fn poll_object_outbox(&mut self, server: &Server) -> tg::Result<()> {
+	async fn poll_object_index_outbox(&mut self, server: &Server) -> tg::Result<()> {
 		if server.config.advanced.single_process {
 			return Ok(());
 		}
-		let config = &server.config.object.outbox;
+		let config = &server.config.object.index_outbox;
 
 		// Poll the active cohort.
-		if let Some(batch) = self.object_outbox_batch_id {
-			let arg = crate::store::outbox::batch::get::Arg {
+		if let Some(batch) = self.object_index_outbox_batch_id {
+			let arg = crate::store::object::index::outbox::batch::get::Arg {
 				batch: Some(batch),
 				partition_end: config.partition_total,
 				partition_start: 0,
 			};
 			let batch = server
 				.store
-				.try_get_outbox_batch_at_or_before(arg)
+				.try_get_object_index_outbox_batch_at_or_before(arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to poll the object outbox"))?;
+				.map_err(|error| tg::error!(!error, "failed to poll the object index outbox"))?;
 			if batch.is_some() {
 				return Ok(());
 			}
 			for request in self.requests.values_mut() {
-				if matches!(request.state, IndexRequestState::ObjectOutboxPending) {
-					request.state = IndexRequestState::DatabaseOutbox;
+				if matches!(request.state, IndexRequestState::ObjectIndexOutboxPending) {
+					request.state = IndexRequestState::DatabaseIndexOutbox;
 				}
 			}
-			self.object_outbox_batch_id = None;
+			self.object_index_outbox_batch_id = None;
 
 			return Ok(());
 		}
@@ -1168,54 +1367,54 @@ impl State {
 		let snapshot = self
 			.requests
 			.values()
-			.any(|request| matches!(request.state, IndexRequestState::ObjectOutbox));
+			.any(|request| matches!(request.state, IndexRequestState::ObjectIndexOutbox));
 		if !snapshot {
 			return Ok(());
 		}
-		let arg = crate::store::outbox::batch::get::Arg {
+		let arg = crate::store::object::index::outbox::batch::get::Arg {
 			batch: None,
 			partition_end: config.partition_total,
 			partition_start: 0,
 		};
 		let batch = server
 			.store
-			.try_get_outbox_batch_at_or_before(arg)
+			.try_get_object_index_outbox_batch_at_or_before(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to snapshot the object outbox"))?;
+			.map_err(|error| tg::error!(!error, "failed to snapshot the object index outbox"))?;
 		for request in self.requests.values_mut() {
-			if !matches!(request.state, IndexRequestState::ObjectOutbox) {
+			if !matches!(request.state, IndexRequestState::ObjectIndexOutbox) {
 				continue;
 			}
 			request.state = if batch.is_some() {
-				IndexRequestState::ObjectOutboxPending
+				IndexRequestState::ObjectIndexOutboxPending
 			} else {
-				IndexRequestState::DatabaseOutbox
+				IndexRequestState::DatabaseIndexOutbox
 			};
 		}
-		self.object_outbox_batch_id = batch;
+		self.object_index_outbox_batch_id = batch;
 
 		Ok(())
 	}
 
-	async fn poll_database_outbox(&mut self, server: &Server) -> tg::Result<()> {
+	async fn poll_database_index_outbox(&mut self, server: &Server) -> tg::Result<()> {
 		let region = server.config.region.clone().unwrap_or_default();
 
 		// Poll the active cohort.
-		if let Some(batch) = self.database_outbox_batch_id {
-			let arg = crate::database::outbox::TryGetBatchArg {
+		if let Some(batch) = self.database_index_outbox_batch_id {
+			let arg = crate::database::index::outbox::TryGetBatchArg {
 				batch: Some(batch),
 				region,
 			};
 			let batch = server
 				.database
-				.try_get_outbox_batch_at_or_before(arg)
+				.try_get_index_outbox_batch_at_or_before(arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to poll the database outbox"))?;
+				.map_err(|error| tg::error!(!error, "failed to poll the database index outbox"))?;
 			if batch.is_some() {
 				return Ok(());
 			}
 			for request in self.requests.values_mut() {
-				if matches!(request.state, IndexRequestState::DatabaseOutboxPending) {
+				if matches!(request.state, IndexRequestState::DatabaseIndexOutboxPending) {
 					request.state = if server.config.indexer.log_compaction.enabled {
 						IndexRequestState::LogCompactions {
 							transaction_id: None,
@@ -1227,7 +1426,7 @@ impl State {
 					};
 				}
 			}
-			self.database_outbox_batch_id = None;
+			self.database_index_outbox_batch_id = None;
 
 			return Ok(());
 		}
@@ -1236,25 +1435,25 @@ impl State {
 		let snapshot = self
 			.requests
 			.values()
-			.any(|request| matches!(request.state, IndexRequestState::DatabaseOutbox));
+			.any(|request| matches!(request.state, IndexRequestState::DatabaseIndexOutbox));
 		if !snapshot {
 			return Ok(());
 		}
-		let arg = crate::database::outbox::TryGetBatchArg {
+		let arg = crate::database::index::outbox::TryGetBatchArg {
 			batch: None,
 			region,
 		};
 		let batch = server
 			.database
-			.try_get_outbox_batch_at_or_before(arg)
+			.try_get_index_outbox_batch_at_or_before(arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to snapshot the database outbox"))?;
+			.map_err(|error| tg::error!(!error, "failed to snapshot the database index outbox"))?;
 		for request in self.requests.values_mut() {
-			if !matches!(request.state, IndexRequestState::DatabaseOutbox) {
+			if !matches!(request.state, IndexRequestState::DatabaseIndexOutbox) {
 				continue;
 			}
 			request.state = if batch.is_some() {
-				IndexRequestState::DatabaseOutboxPending
+				IndexRequestState::DatabaseIndexOutboxPending
 			} else if server.config.indexer.log_compaction.enabled {
 				IndexRequestState::LogCompactions {
 					transaction_id: None,
@@ -1265,7 +1464,7 @@ impl State {
 				}
 			};
 		}
-		self.database_outbox_batch_id = batch;
+		self.database_index_outbox_batch_id = batch;
 
 		Ok(())
 	}
@@ -1355,16 +1554,16 @@ impl State {
 		);
 	}
 
-	fn handle_barrier(&mut self, ids: Vec<String>, object_outbox: bool) {
+	fn handle_barrier(&mut self, ids: Vec<String>, object_index_outbox: bool) {
 		for id in ids {
 			let Some(request) = self.requests.get_mut(&id) else {
 				continue;
 			};
 			if matches!(request.state, IndexRequestState::Tasks) {
-				request.state = if object_outbox {
-					IndexRequestState::ObjectOutbox
+				request.state = if object_index_outbox {
+					IndexRequestState::ObjectIndexOutbox
 				} else {
-					IndexRequestState::DatabaseOutbox
+					IndexRequestState::DatabaseIndexOutbox
 				};
 			}
 		}
@@ -1445,8 +1644,8 @@ impl State {
 
 	fn fail(&mut self, error: &tg::Error, sender: &Sender) {
 		let error = error.to_string();
-		self.database_outbox_batch_id = None;
-		self.object_outbox_batch_id = None;
+		self.database_index_outbox_batch_id = None;
+		self.object_index_outbox_batch_id = None;
 		let ids = std::mem::take(&mut self.requests).into_keys();
 		for id in ids {
 			Self::send_response(
@@ -1485,11 +1684,11 @@ impl State {
 		self.requests.values().any(|request| {
 			matches!(
 				request.state,
-				IndexRequestState::DatabaseOutbox
-					| IndexRequestState::DatabaseOutboxPending
+				IndexRequestState::DatabaseIndexOutbox
+					| IndexRequestState::DatabaseIndexOutboxPending
 					| IndexRequestState::LogCompactions { .. }
-					| IndexRequestState::ObjectOutbox
-					| IndexRequestState::ObjectOutboxPending
+					| IndexRequestState::ObjectIndexOutbox
+					| IndexRequestState::ObjectIndexOutboxPending
 					| IndexRequestState::Updates { .. }
 			)
 		})
@@ -1551,16 +1750,20 @@ impl Payload for ServerMessage {
 	}
 }
 
-pub(crate) fn database_outbox_subject() -> String {
-	"database.outbox".to_owned()
+pub(crate) fn database_index_outbox_subject() -> String {
+	"database.index.outbox".to_owned()
 }
 
 pub(crate) fn log_compaction_subject() -> String {
 	"index.log_compaction".to_owned()
 }
 
-pub(crate) fn object_outbox_subject(partition: u64) -> String {
-	format!("stores.object.outbox.{partition}")
+pub(crate) fn object_archive_outbox_subject(partition: u64) -> String {
+	format!("stores.object.archive.outbox.{partition}")
+}
+
+pub(crate) fn object_index_outbox_subject(partition: u64) -> String {
+	format!("stores.object.index.outbox.{partition}")
 }
 
 #[cfg(test)]
@@ -1568,8 +1771,8 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn database_outbox_subject_has_no_partition() {
-		assert_eq!(database_outbox_subject(), "database.outbox");
+	fn database_index_outbox_subject_has_no_partition() {
+		assert_eq!(database_index_outbox_subject(), "database.index.outbox");
 	}
 
 	#[test]
@@ -1578,7 +1781,18 @@ mod tests {
 	}
 
 	#[test]
-	fn object_outbox_subject_includes_the_partition() {
-		assert_eq!(object_outbox_subject(42), "stores.object.outbox.42");
+	fn object_archive_outbox_subject_includes_the_partition() {
+		assert_eq!(
+			object_archive_outbox_subject(42),
+			"stores.object.archive.outbox.42"
+		);
+	}
+
+	#[test]
+	fn object_index_outbox_subject_includes_the_partition() {
+		assert_eq!(
+			object_index_outbox_subject(42),
+			"stores.object.index.outbox.42"
+		);
 	}
 }

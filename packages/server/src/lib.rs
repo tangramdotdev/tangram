@@ -1,5 +1,6 @@
 use {
 	self::{
+		archive::Archive,
 		context::{Context, Origin},
 		database::Database,
 		index::Index,
@@ -28,6 +29,7 @@ use {
 	tracing::Instrument as _,
 };
 
+mod archive;
 mod authentication;
 mod authorization;
 mod billing;
@@ -109,6 +111,7 @@ pub enum Shutdown {
 }
 
 pub struct State {
+	archive: Option<Archive>,
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
@@ -289,12 +292,22 @@ impl Server {
 		// Create the context.
 		let context = Context::root();
 
+		// Validate the archive configuration.
+		if config.archive.is_some() && !matches!(&config.store, self::config::Store::Scylla(_)) {
+			return Err(tg::error!("an archive requires the scylla store"));
+		}
+
+		// Create the archive.
+		let archive = config.archive.as_ref().map(|config| match config {
+			self::config::Archive::S3(config) => Archive::new_s3(config),
+		});
+
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
-			if indexer.database_outbox_wakeup_interval.is_zero() {
+			if indexer.database_index_outbox_wakeup_interval.is_zero() {
 				return Err(tg::error!(
-					"the indexer database outbox wakeup interval must be greater than zero"
+					"the indexer database index outbox wakeup interval must be greater than zero"
 				));
 			}
 			if indexer.log_compaction.enabled {
@@ -352,9 +365,14 @@ impl Server {
 					"the indexer message timeout must be greater than zero"
 				));
 			}
-			if indexer.object_outbox_wakeup_interval.is_zero() {
+			if indexer.object_index_outbox_wakeup_interval.is_zero() {
 				return Err(tg::error!(
-					"the indexer object outbox wakeup interval must be greater than zero"
+					"the indexer object index outbox wakeup interval must be greater than zero"
+				));
+			}
+			if config.archive.is_some() && indexer.object_archive_outbox_wakeup_interval.is_zero() {
+				return Err(tg::error!(
+					"the indexer object archive outbox wakeup interval must be greater than zero"
 				));
 			}
 			if indexer.partition_end <= indexer.partition_start {
@@ -363,10 +381,17 @@ impl Server {
 				));
 			}
 			if !config.advanced.single_process
-				&& indexer.partition_end > config.object.outbox.partition_total
+				&& indexer.partition_end > config.object.index_outbox.partition_total
 			{
 				return Err(tg::error!(
-					"the indexer partition range exceeds the object outbox partition total"
+					"the indexer partition range exceeds the object index outbox partition total"
+				));
+			}
+			if config.archive.is_some()
+				&& indexer.partition_end > config.object.archive_outbox.partition_total
+			{
+				return Err(tg::error!(
+					"the indexer partition range exceeds the object archive outbox partition total"
 				));
 			}
 			if indexer.poll_interval.is_zero() {
@@ -376,29 +401,42 @@ impl Server {
 			}
 		}
 
-		// Validate the database outbox configuration.
-		let outbox = config.database.outbox();
+		// Validate the database index outbox configuration.
+		let outbox = config.database.index_outbox();
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
-				"the database outbox batch size must be greater than zero"
+				"the database index outbox batch size must be greater than zero"
 			));
 		}
 
-		// Validate the object outbox configuration.
-		let outbox = &config.object.outbox;
+		// Validate the object archive outbox configuration.
+		let outbox = &config.object.archive_outbox;
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
-				"the object outbox batch size must be greater than zero"
-			));
-		}
-		if outbox.fragment_size == 0 {
-			return Err(tg::error!(
-				"the object outbox fragment size must be greater than zero"
+				"the object archive outbox batch size must be greater than zero"
 			));
 		}
 		if outbox.partition_total == 0 {
 			return Err(tg::error!(
-				"the object outbox partition total must be greater than zero"
+				"the object archive outbox partition total must be greater than zero"
+			));
+		}
+
+		// Validate the object index outbox configuration.
+		let outbox = &config.object.index_outbox;
+		if outbox.batch_size == 0 {
+			return Err(tg::error!(
+				"the object index outbox batch size must be greater than zero"
+			));
+		}
+		if outbox.fragment_size == 0 {
+			return Err(tg::error!(
+				"the object index outbox fragment size must be greater than zero"
+			));
+		}
+		if outbox.partition_total == 0 {
+			return Err(tg::error!(
+				"the object index outbox partition total must be greater than zero"
 			));
 		}
 
@@ -875,6 +913,7 @@ impl Server {
 
 		// Create the server.
 		let server = Self(Arc::new(State {
+			archive,
 			authentication_tokens,
 			authorization_tokens,
 			billing,

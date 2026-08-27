@@ -1,11 +1,13 @@
 use {
-	crate::Session,
+	crate::{Server, Session},
+	futures::future,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_messenger::Messenger as _,
 	tangram_store::prelude::*,
 };
 
@@ -72,7 +74,6 @@ impl Session {
 			stored_at: now,
 		};
 		self.server
-			.store
 			.put_object(put_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
@@ -298,5 +299,99 @@ impl Session {
 			.boxed_body();
 
 		Ok(response)
+	}
+}
+
+impl Server {
+	pub(crate) async fn put_object(&self, arg: crate::store::object::put::Arg) -> tg::Result<()> {
+		if self.archive.is_none() {
+			return self
+				.store
+				.put_object(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the object"));
+		}
+
+		let entry = self.object_archive_outbox_entry(arg.id.clone());
+		let outbox_arg = crate::store::object::archive::outbox::put::Arg {
+			entries: vec![entry.clone()],
+		};
+		let object_put = self.store.put_object(arg);
+		let outbox_put = self.store.put_object_archive_outbox_entries(outbox_arg);
+		let (object_result, outbox_result) = future::join(object_put, outbox_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+		outbox_result.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to write an entry to the object archive outbox"
+			)
+		})?;
+		self.spawn_publish_object_archive_outbox_notifications(BTreeSet::from([entry.partition]));
+
+		Ok(())
+	}
+
+	pub(crate) async fn put_object_batch(
+		&self,
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		if self.archive.is_none() {
+			return self
+				.store
+				.put_object_batch(args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"));
+		}
+
+		let entries = args
+			.iter()
+			.map(|arg| self.object_archive_outbox_entry(arg.id.clone()))
+			.collect::<Vec<_>>();
+		let partitions = entries
+			.iter()
+			.map(|entry| entry.partition)
+			.collect::<BTreeSet<_>>();
+		let outbox_arg = crate::store::object::archive::outbox::put::Arg { entries };
+		let object_put = self.store.put_object_batch(args);
+		let outbox_put = self.store.put_object_archive_outbox_entries(outbox_arg);
+		let (object_result, outbox_result) = future::join(object_put, outbox_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		outbox_result.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to write entries to the object archive outbox"
+			)
+		})?;
+		self.spawn_publish_object_archive_outbox_notifications(partitions);
+
+		Ok(())
+	}
+
+	fn object_archive_outbox_entry(
+		&self,
+		id: tg::object::Id,
+	) -> crate::store::object::archive::outbox::Entry {
+		let partition_total = self.config.object.archive_outbox.partition_total;
+		let bytes = id.to_bytes();
+		let start = bytes.len().saturating_sub(8);
+		let mut suffix = [0; 8];
+		suffix[8 - (bytes.len() - start)..].copy_from_slice(&bytes[start..]);
+		let partition = u64::from_be_bytes(suffix) % partition_total;
+
+		crate::store::object::archive::outbox::Entry { id, partition }
+	}
+
+	fn spawn_publish_object_archive_outbox_notifications(&self, partitions: BTreeSet<u64>) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				for partition in partitions {
+					let subject = crate::indexer::object_archive_outbox_subject(partition);
+					if let Err(error) = server.messenger.publish(subject, ()).await {
+						tracing::error!(%error, %partition, "failed to publish an object archive outbox notification");
+					}
+				}
+			}
+		});
 	}
 }

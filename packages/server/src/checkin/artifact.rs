@@ -15,7 +15,6 @@ use {
 		path::Path,
 	},
 	tangram_client::prelude::*,
-	tangram_store::prelude::*,
 };
 
 pub(super) struct CheckinCreateArtifactsArg<'a> {
@@ -923,7 +922,6 @@ impl Session {
 			stored_at: touched_at,
 		};
 		self.server
-			.store
 			.put_object(store_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the reference artifact"))?;

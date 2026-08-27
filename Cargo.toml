@@ -1,6 +1,7 @@
 [workspace]
 default-members = ["packages/cli"]
 members = [
+  "packages/archive",
   "packages/cli",
   "packages/clients/js/native",
   "packages/clients/rust",
@@ -189,6 +190,7 @@ sourcemap = "9"
 syn = { version = "3", features = ["full"] }
 syntect = "5"
 sync_wrapper = "1"
+tangram_archive = { path = "packages/archive" }
 tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }

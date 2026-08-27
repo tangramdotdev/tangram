@@ -1,12 +1,13 @@
 use {
 	crate::object,
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::{BTreeMap, BTreeSet, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
 	},
 	tangram_client::prelude::*,
 };
 
+mod archive;
 mod delete;
 mod flush;
 mod get;
@@ -30,8 +31,9 @@ struct Log {
 #[derive(Default)]
 struct State {
 	logs: Logs,
+	object_archive_outbox: BTreeSet<(u64, tg::object::Id)>,
+	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 	objects: Objects,
-	outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 }
 
 type Logs = HashMap<tg::process::Id, Log, tg::id::BuildHasher>;
@@ -58,6 +60,14 @@ impl Default for Store {
 }
 
 impl crate::Store for Store {
+	async fn delete_object_archive_outbox_entries(
+		&self,
+		arg: object::archive::outbox::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_archive_outbox_entries(arg);
+		Ok(())
+	}
+
 	async fn delete_log(&self, arg: crate::log::delete::Arg) -> tg::Result<()> {
 		self.delete_log(arg);
 		Ok(())
@@ -73,26 +83,41 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_outbox_fragments(
+	async fn delete_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::fragment::delete::Arg,
+		arg: crate::object::index::outbox::fragment::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_outbox_fragments(arg);
+		self.delete_object_index_outbox_fragments(arg);
 		Ok(())
 	}
 
-	async fn dequeue_outbox_fragments(
+	async fn dequeue_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<crate::outbox::fragment::Fragment>> {
-		self.dequeue_outbox_fragments(arg)
+		arg: crate::object::index::outbox::fragment::dequeue::Arg,
+	) -> tg::Result<Vec<crate::object::index::outbox::fragment::Fragment>> {
+		self.dequeue_object_index_outbox_fragments(arg)
 	}
 
-	async fn enqueue_outbox_batch(
+	async fn dequeue_object_archive_outbox_entries(
 		&self,
-		arg: crate::outbox::batch::enqueue::Arg,
+		arg: object::archive::outbox::dequeue::Arg,
+	) -> tg::Result<Vec<object::archive::outbox::Entry>> {
+		self.dequeue_object_archive_outbox_entries(arg)
+	}
+
+	async fn put_object_archive_outbox_entries(
+		&self,
+		arg: object::archive::outbox::put::Arg,
 	) -> tg::Result<()> {
-		self.enqueue_outbox_batch(arg)
+		self.put_object_archive_outbox_entries(arg);
+		Ok(())
+	}
+
+	async fn enqueue_object_index_outbox_batch(
+		&self,
+		arg: crate::object::index::outbox::batch::enqueue::Arg,
+	) -> tg::Result<()> {
+		self.enqueue_object_index_outbox_batch(arg)
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -135,11 +160,11 @@ impl crate::Store for Store {
 		Ok(self.try_get_object_batch_sync(&arg))
 	}
 
-	async fn try_get_outbox_batch_at_or_before(
+	async fn try_get_object_index_outbox_batch_at_or_before(
 		&self,
-		arg: crate::outbox::batch::get::Arg,
-	) -> tg::Result<Option<crate::outbox::batch::Id>> {
-		self.try_get_outbox_batch_at_or_before(arg)
+		arg: crate::object::index::outbox::batch::get::Arg,
+	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
+		self.try_get_object_index_outbox_batch_at_or_before(arg)
 	}
 
 	async fn try_read_log(

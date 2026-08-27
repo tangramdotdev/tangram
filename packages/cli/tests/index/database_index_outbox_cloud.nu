@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# The database outbox works with the cloud database backend.
+# The database index outbox works with the cloud database backend.
 
 let server = server spawn --cloud
 let group = tg group create project | from json

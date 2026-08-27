@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*, tangram_store::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
 impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
@@ -9,7 +9,6 @@ impl Session {
 	) -> tg::Result<()> {
 		progress.spinner("storing", "storing");
 		self.server
-			.store
 			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;

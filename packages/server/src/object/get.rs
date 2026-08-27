@@ -10,6 +10,7 @@ use {
 		io::{Read as _, Seek as _},
 		path::PathBuf,
 	},
+	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -716,6 +717,19 @@ impl Server {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
+		let output = ids
+			.iter()
+			.zip(output)
+			.map(|(id, bytes)| async move {
+				if bytes.is_some() {
+					return Ok(bytes);
+				}
+
+				self.try_get_object_bytes_archive(id).await
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
 		Ok(output)
 	}
 
@@ -726,19 +740,60 @@ impl Server {
 			.try_get_object(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let object = output.object;
-		let Some(object) = object else {
+		if let Some(object) = output.object {
+			if let Some(bytes) = object.bytes {
+				return Ok(Some(bytes.into_owned().into()));
+			}
+			if self.checkouts_enabled()
+				&& let Some(checkout_pointer) = object.checkout_pointer
+				&& let Some(bytes) = self.try_read_checkout_pointer(&checkout_pointer).await?
+			{
+				return Ok(Some(bytes));
+			}
+		}
+
+		self.try_get_object_bytes_archive(id).await
+	}
+
+	async fn try_get_object_bytes_archive(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let Some(archive) = &self.archive else {
 			return Ok(None);
 		};
-		if let Some(bytes) = object.bytes {
-			return Ok(Some(bytes.into_owned().into()));
-		}
-		if self.checkouts_enabled()
-			&& let Some(checkout_pointer) = object.checkout_pointer
-		{
-			return self.try_read_checkout_pointer(&checkout_pointer).await;
-		}
-		Ok(None)
+		let arg = tangram_archive::object::get::Arg { id: id.clone() };
+		let output = archive.try_get_object(arg).await.map_err(
+			|error| tg::error!(!error, %id, "failed to get the object from the archive"),
+		)?;
+		let Some(bytes) = output.bytes else {
+			return Ok(None);
+		};
+		self.spawn_put_archived_object(id.clone(), bytes.clone());
+
+		Ok(Some(bytes))
+	}
+
+	fn spawn_put_archived_object(&self, id: tg::object::Id, bytes: Bytes) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				let stored_at = match server.clock.unix_timestamp() {
+					Ok(stored_at) => stored_at,
+					Err(error) => {
+						tracing::error!(error = %error.trace(), %id, "failed to get the time for an object store refill");
+						return;
+					},
+				};
+				let arg = crate::store::object::put::Arg {
+					bytes: Some(bytes),
+					checkout_pointer: None,
+					id: id.clone(),
+					length: None,
+					stored_at,
+				};
+				if let Err(error) = server.store.put_object(arg).await {
+					tracing::error!(error = %error.trace(), %id, "failed to refill an object in the store");
+				}
+			}
+		});
 	}
 
 	async fn try_read_checkout_pointer(

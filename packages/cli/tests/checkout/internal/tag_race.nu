@@ -20,7 +20,7 @@ let checkout_watch = (
 	| get watch
 )
 let indexer_watch = (
-	tg checkpoint watch indexer.database_outbox.named_node
+	tg checkpoint watch indexer.database_index_outbox.named_node
 	| from json
 	| get watch
 )
@@ -35,9 +35,9 @@ let replacement = job spawn {
 	let output = tg tag --force dep $second | complete
 	$output | job send --tag $job_id 0
 }
-tg checkpoint wait indexer.database_outbox.named_node $indexer_watch 0 | ignore
-tg checkpoint continue indexer.database_outbox.named_node $indexer_watch 0
-tg checkpoint unwatch indexer.database_outbox.named_node $indexer_watch
+tg checkpoint wait indexer.database_index_outbox.named_node $indexer_watch 0 | ignore
+tg checkpoint continue indexer.database_index_outbox.named_node $indexer_watch 0
+tg checkpoint unwatch indexer.database_index_outbox.named_node $indexer_watch
 tg checkpoint continue checkout.named.materialize $checkout_watch 0
 tg checkpoint unwatch checkout.named.materialize $checkout_watch
 success (job recv --tag $checkout --timeout 10sec)
@@ -54,7 +54,7 @@ let checkout_watch = (
 	| get watch
 )
 let indexer_watch = (
-	tg checkpoint watch indexer.database_outbox.named_node
+	tg checkpoint watch indexer.database_index_outbox.named_node
 	| from json
 	| get watch
 )
@@ -69,9 +69,9 @@ let deletion = job spawn {
 	let output = tg tag delete dep | complete
 	$output | job send --tag $job_id 0
 }
-tg checkpoint wait indexer.database_outbox.named_node $indexer_watch 0 | ignore
-tg checkpoint continue indexer.database_outbox.named_node $indexer_watch 0
-tg checkpoint unwatch indexer.database_outbox.named_node $indexer_watch
+tg checkpoint wait indexer.database_index_outbox.named_node $indexer_watch 0 | ignore
+tg checkpoint continue indexer.database_index_outbox.named_node $indexer_watch 0
+tg checkpoint unwatch indexer.database_index_outbox.named_node $indexer_watch
 tg checkpoint continue checkout.named.materialize $checkout_watch 0
 tg checkpoint unwatch checkout.named.materialize $checkout_watch
 success (job recv --tag $checkout --timeout 10sec)

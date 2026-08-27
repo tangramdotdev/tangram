@@ -7854,6 +7854,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_archive"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "tangram_client",
+]
+
+[[package]]
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
@@ -8358,6 +8366,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "sync_wrapper",
+ "tangram_archive",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",

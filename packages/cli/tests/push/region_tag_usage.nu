@@ -13,7 +13,7 @@ let regions = [
 let common = {
 	authentication: { users: { providers: { insecure: true } } },
 	database: { kind: sqlite, path: $database_path },
-	indexer: { database_outbox_wakeup_interval: 0.01 },
+	indexer: { database_index_outbox_wakeup_interval: 0.01 },
 	usage: true,
 }
 let instance = instance --primary-region a --regions $regions --config $common

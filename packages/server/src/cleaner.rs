@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, time::Duration},
+	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
@@ -223,18 +224,36 @@ impl Server {
 			}
 		}
 
-		// Delete objects.
+		// Delete archived and stored objects.
 		let ttl = object_time_to_live.as_secs();
-		let args = output
+		let store_args = output
 			.objects
 			.iter()
 			.cloned()
 			.map(|id| crate::store::object::delete::Arg { id, now, ttl })
 			.collect();
-		self.store
-			.delete_object_batch(args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
+		let delete_archive_future = async {
+			if let Some(archive) = &self.archive {
+				let args = output
+					.objects
+					.iter()
+					.cloned()
+					.map(|id| tangram_archive::object::delete::Arg { id, now, ttl })
+					.collect();
+				archive.delete_object_batch(args).await.map_err(|error| {
+					tg::error!(!error, "failed to delete objects from the archive")
+				})?;
+			}
+
+			Ok(())
+		};
+		let delete_store_future = async {
+			self.store
+				.delete_object_batch(store_args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to delete objects from the store"))
+		};
+		future::try_join(delete_archive_future, delete_store_future).await?;
 
 		Ok(output)
 	}

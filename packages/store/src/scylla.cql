@@ -4,13 +4,19 @@ create table if not exists objects (
 	stored_at bigint
 );
 
-create table if not exists outbox (
+create table if not exists object_index_outbox (
 	"batch" blob,
 	fragment bigint,
 	partition bigint,
 	payload blob,
 	primary key ((partition), "batch", fragment)
 ) with clustering order by ("batch" asc, fragment asc);
+
+create table if not exists object_archive_outbox (
+	id blob,
+	partition bigint,
+	primary key ((partition), id)
+);
 
 create table if not exists logs (
 	process blob,

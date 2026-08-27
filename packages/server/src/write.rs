@@ -13,7 +13,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
@@ -172,7 +171,6 @@ impl Session {
 						stored_at: *stored_at,
 					};
 					self.server
-						.store
 						.put_object(arg)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
@@ -446,7 +444,6 @@ impl Session {
 	) -> tg::Result<()> {
 		let arg = Self::write_store_args(blob, checkout_pointer.as_ref(), stored_at);
 		self.server
-			.store
 			.put_object_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;

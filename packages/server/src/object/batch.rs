@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_store::prelude::*,
 };
 
 impl Session {
@@ -122,7 +121,6 @@ impl Session {
 
 		// Store the objects.
 		self.server
-			.store
 			.put_object_batch(put_args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;

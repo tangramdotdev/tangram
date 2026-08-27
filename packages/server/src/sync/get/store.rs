@@ -11,7 +11,6 @@ use {
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -145,7 +144,6 @@ impl Session {
 
 		// Store the objects.
 		self.server
-			.store
 			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;

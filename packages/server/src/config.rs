@@ -13,6 +13,8 @@ use {
 pub struct Config {
 	pub advanced: Advanced,
 
+	pub archive: Option<Archive>,
+
 	pub authentication: Authentication,
 
 	pub authorization: Authorization,
@@ -75,6 +77,14 @@ pub struct Config {
 
 	pub write: Write,
 }
+
+#[derive(Clone, Debug)]
+pub enum Archive {
+	S3(S3Archive),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct S3Archive {}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
@@ -329,13 +339,13 @@ pub enum Database {
 }
 
 #[derive(Clone, Debug)]
-pub struct DatabaseOutbox {
+pub struct DatabaseIndexOutbox {
 	pub batch_size: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct PostgresDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub read: PostgresDatabaseConnection,
 
@@ -362,7 +372,7 @@ pub struct DatabasePool {
 
 #[derive(Clone, Debug)]
 pub struct SqliteDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub path: PathBuf,
 
@@ -373,7 +383,7 @@ pub struct SqliteDatabase {
 
 #[derive(Clone, Debug)]
 pub struct TursoDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub path: PathBuf,
 
@@ -455,7 +465,7 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
-	pub database_outbox_wakeup_interval: Duration,
+	pub database_index_outbox_wakeup_interval: Duration,
 
 	pub log_compaction: IndexerLogCompaction,
 
@@ -465,7 +475,9 @@ pub struct Indexer {
 
 	pub message_timeout: Duration,
 
-	pub object_outbox_wakeup_interval: Duration,
+	pub object_archive_outbox_wakeup_interval: Duration,
+
+	pub object_index_outbox_wakeup_interval: Duration,
 
 	pub partition_end: u64,
 
@@ -540,11 +552,13 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug)]
 pub struct Object {
+	pub archive_outbox: ObjectArchiveOutbox,
+
 	pub grant_time_to_live: Duration,
 
 	pub grant_time_to_touch: Duration,
 
-	pub outbox: ObjectOutbox,
+	pub index_outbox: ObjectIndexOutbox,
 
 	pub time_to_index: Duration,
 
@@ -554,7 +568,14 @@ pub struct Object {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectOutbox {
+pub struct ObjectArchiveOutbox {
+	pub batch_size: usize,
+
+	pub partition_total: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ObjectIndexOutbox {
 	pub batch_size: usize,
 
 	pub fragment_size: usize,
@@ -1113,6 +1134,7 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
+			archive: None,
 			authentication: Authentication::default(),
 			authorization: Authorization::default(),
 			billing: None,
@@ -1215,16 +1237,16 @@ impl Default for Database {
 
 impl Database {
 	#[must_use]
-	pub fn outbox(&self) -> &DatabaseOutbox {
+	pub fn index_outbox(&self) -> &DatabaseIndexOutbox {
 		match self {
-			Self::Postgres(config) => &config.outbox,
-			Self::Sqlite(config) => &config.outbox,
-			Self::Turso(config) => &config.outbox,
+			Self::Postgres(config) => &config.index_outbox,
+			Self::Sqlite(config) => &config.index_outbox,
+			Self::Turso(config) => &config.index_outbox,
 		}
 	}
 }
 
-impl Default for DatabaseOutbox {
+impl Default for DatabaseIndexOutbox {
 	fn default() -> Self {
 		Self { batch_size: 1024 }
 	}
@@ -1234,7 +1256,7 @@ impl Default for PostgresDatabase {
 	fn default() -> Self {
 		let connection = PostgresDatabaseConnection::default();
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			read: connection.clone(),
 			retry: database_retry_default(),
 			write: connection,
@@ -1254,7 +1276,7 @@ impl Default for PostgresDatabaseConnection {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1265,7 +1287,7 @@ impl Default for SqliteDatabase {
 impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1356,12 +1378,13 @@ impl Default for LmdbIndex {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
-			database_outbox_wakeup_interval: Duration::from_mins(1),
+			database_index_outbox_wakeup_interval: Duration::from_mins(1),
 			log_compaction: IndexerLogCompaction::default(),
 			max_process_depth: 1024,
 			message_retry: message_retry_default(),
 			message_timeout: Duration::from_secs(10),
-			object_outbox_wakeup_interval: Duration::from_mins(1),
+			object_archive_outbox_wakeup_interval: Duration::from_mins(1),
+			object_index_outbox_wakeup_interval: Duration::from_mins(1),
 			partition_end: 1,
 			partition_start: 0,
 			poll_interval: Duration::from_millis(10),
@@ -1417,9 +1440,10 @@ impl Default for NatsMessenger {
 impl Default for Object {
 	fn default() -> Self {
 		Self {
+			archive_outbox: ObjectArchiveOutbox::default(),
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			outbox: ObjectOutbox::default(),
+			index_outbox: ObjectIndexOutbox::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1427,7 +1451,16 @@ impl Default for Object {
 	}
 }
 
-impl Default for ObjectOutbox {
+impl Default for ObjectArchiveOutbox {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			partition_total: 1,
+		}
+	}
+}
+
+impl Default for ObjectIndexOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
