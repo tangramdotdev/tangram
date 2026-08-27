@@ -50,6 +50,7 @@ enum AncestorTask {
 		after: Option<Vec<u8>>,
 		depth: usize,
 		object: tg::object::Id,
+		permission: tg::authorization::permission::object::Permission,
 	},
 	ProcessParents {
 		after: Option<Vec<u8>>,
@@ -108,8 +109,11 @@ enum SearchOutcome {
 struct AncestorSearch {
 	budget: SearchBudget,
 	outcome: Option<SearchOutcome>,
+	predecessors: HashMap<
+		(tg::Id, tg::authorization::Permission),
+		Option<(tg::Id, tg::authorization::Permission)>,
+	>,
 	stack: Vec<AncestorTask>,
-	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
 }
 
 struct DescendantSearch {
@@ -177,17 +181,17 @@ impl AncestorSearch {
 	) -> Self {
 		let mut budget = SearchBudget::new(config);
 		let outcome = (!budget.add_node(0)).then_some(SearchOutcome::Exhausted);
+		let predecessors = HashMap::from([(root.clone(), None)]);
 		let stack = vec![AncestorTask::Node {
 			depth: 0,
 			key: root.clone(),
 		}];
-		let visited = HashSet::from([root.clone()]);
 
 		Self {
 			budget,
 			outcome,
+			predecessors,
 			stack,
-			visited,
 		}
 	}
 }
@@ -642,9 +646,9 @@ impl Index {
 		}
 		let budget = &mut search.budget;
 		let stack = &mut search.stack;
-		let visited = &mut search.visited;
+		let predecessors = &mut search.predecessors;
 		let Some(task) = stack.pop() else {
-			for key in visited.iter().cloned() {
+			for key in predecessors.keys().cloned() {
 				context.authorization.entry(key).or_insert(false);
 			}
 
@@ -652,8 +656,13 @@ impl Index {
 		};
 		match task {
 			AncestorTask::Node { depth, key } => {
-				if let Some(authorized) = context.authorization.get(&key) {
-					if *authorized {
+				if let Some(authorized) = context.authorization.get(&key).copied() {
+					if authorized {
+						Self::memoize_authorized_ancestor_path(
+							context.authorization,
+							predecessors,
+							&key,
+						);
 						return Ok(SearchOutcome::Authorized);
 					}
 					return Ok(SearchOutcome::Pending);
@@ -663,7 +672,11 @@ impl Index {
 					|| Self::is_directly_authorized_with_transaction(
 						context, &resource, permission,
 					)? {
-					context.authorization.insert(key, true);
+					Self::memoize_authorized_ancestor_path(
+						context.authorization,
+						predecessors,
+						&key,
+					);
 					return Ok(SearchOutcome::Authorized);
 				}
 
@@ -680,7 +693,7 @@ impl Index {
 					if !budget.add_edge() {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					if visited.contains(&key)
+					if predecessors.contains_key(&key)
 						|| context.authorization.get(&key).copied() == Some(false)
 					{
 						continue;
@@ -689,22 +702,28 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						Self::memoize_authorized_ancestor_path(
+							context.authorization,
+							predecessors,
+							&(resource.clone(), permission),
+						);
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					visited.insert(key.clone());
+					predecessors.insert(key.clone(), Some((resource.clone(), permission)));
 					stack.push(AncestorTask::Node { depth, key });
 				}
 
 				match permission {
-					tg::authorization::Permission::Object(_) => {
+					tg::authorization::Permission::Object(permission) => {
 						let object = tg::object::Id::try_from(resource)?;
 						stack.push(AncestorTask::ObjectParents {
 							after: None,
 							depth,
 							object,
+							permission,
 						});
 					},
 					tg::authorization::Permission::Process(permission) => {
@@ -727,7 +746,12 @@ impl Index {
 				after,
 				depth,
 				object,
+				permission,
 			} => {
+				let node = (
+					tg::Id::from(object.clone()),
+					tg::authorization::Permission::Object(permission),
+				);
 				let object_bytes = object.to_bytes();
 				let prefix = Self::pack(
 					context.subspace,
@@ -749,6 +773,7 @@ impl Index {
 						after: Some(after),
 						depth,
 						object,
+						permission,
 					});
 				}
 				for key in keys.into_iter().rev() {
@@ -769,7 +794,7 @@ impl Index {
 					if !budget.add_edge() {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					if visited.contains(&key)
+					if predecessors.contains_key(&key)
 						|| context.authorization.get(&key).copied() == Some(false)
 					{
 						continue;
@@ -778,12 +803,17 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						Self::memoize_authorized_ancestor_path(
+							context.authorization,
+							predecessors,
+							&node,
+						);
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					visited.insert(key.clone());
+					predecessors.insert(key.clone(), Some(node.clone()));
 					stack.push(AncestorTask::Node { depth, key });
 				}
 			},
@@ -793,6 +823,10 @@ impl Index {
 				permission,
 				process,
 			} => {
+				let node = (
+					tg::Id::from(process.clone()),
+					tg::authorization::Permission::Process(permission),
+				);
 				let process_bytes = process.to_bytes();
 				let prefix = Self::pack(
 					context.subspace,
@@ -833,7 +867,7 @@ impl Index {
 					if !budget.add_edge() {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					if visited.contains(&key)
+					if predecessors.contains_key(&key)
 						|| context.authorization.get(&key).copied() == Some(false)
 					{
 						continue;
@@ -842,12 +876,17 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						Self::memoize_authorized_ancestor_path(
+							context.authorization,
+							predecessors,
+							&node,
+						);
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
-					visited.insert(key.clone());
+					predecessors.insert(key.clone(), Some(node.clone()));
 					stack.push(AncestorTask::Node { depth, key });
 				}
 			},
@@ -1371,6 +1410,22 @@ impl Index {
 		}
 
 		Ok(SearchOutcome::Pending)
+	}
+
+	// Mark the key and its discovery path back to the search root as authorized, because every ancestor search edge implies the pushing key's authorization from the pushed key's authorization.
+	fn memoize_authorized_ancestor_path(
+		authorization: &mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
+		predecessors: &HashMap<
+			(tg::Id, tg::authorization::Permission),
+			Option<(tg::Id, tg::authorization::Permission)>,
+		>,
+		key: &(tg::Id, tg::authorization::Permission),
+	) {
+		let mut current = Some(key);
+		while let Some(key) = current {
+			authorization.insert(key.clone(), true);
+			current = predecessors.get(key).and_then(Option::as_ref);
+		}
 	}
 
 	#[must_use]
