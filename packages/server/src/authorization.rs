@@ -1,6 +1,6 @@
 use {
 	crate::Session, futures::FutureExt as _, tangram_client::prelude::*,
-	tangram_futures::stream::TryExt, tangram_index::prelude::*,
+	tangram_futures::stream::TryExt as _, tangram_index::prelude::*,
 };
 
 mod token;
@@ -132,11 +132,12 @@ impl Session {
 		let delay = authorization.index.delay;
 		let initial_config = crate::authorization_search_config(&authorization.initial);
 		let grants_required = |outcomes: &[tangram_index::authorize::Outcome]| {
-			std::iter::zip(outcomes, &index_required).all(|(outcome, required)| {
-				outcome
-					.output()
-					.is_some_and(|output| output.permissions.contains(*required))
-			})
+			outcomes.len() == index_required.len()
+				&& std::iter::zip(outcomes, &index_required).all(|(outcome, required)| {
+					outcome
+						.output()
+						.is_some_and(|output| output.permissions.contains(*required))
+				})
 		};
 		let initial =
 			self.server

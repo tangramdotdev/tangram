@@ -293,12 +293,8 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 }
 
 fn new_index() -> (tempfile::TempDir, Index) {
-	let authorize = super::super::AuthorizeConfig {
-		process_object_grant: crate::authorize::Config::default(),
-	};
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
-		authorize,
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),

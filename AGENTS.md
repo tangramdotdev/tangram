@@ -108,6 +108,7 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 
 - Clone owned values immediately before `async move`.
 - Keep spawned task bodies small.
+- Prefer `.boxed()` over `Box::pin` when boxing futures.
 - Preserve ordering only when an operation requires it.
 
 ### Database Transactions

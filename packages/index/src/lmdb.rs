@@ -39,7 +39,6 @@ pub(super) use key::{Key, Kind};
 
 #[derive(Clone, Debug)]
 pub struct Config {
-	pub authorize: AuthorizeConfig,
 	pub map_size: usize,
 	pub max_process_depth: Option<u64>,
 	pub path: PathBuf,
@@ -47,11 +46,6 @@ pub struct Config {
 	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
 	pub write_operation_batch_size: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct AuthorizeConfig {
-	pub process_object_grant: crate::authorize::Config,
 }
 
 pub struct Index {
@@ -141,7 +135,6 @@ impl Index {
 
 		// Spawn the writer task.
 		let writer_handle = std::thread::spawn({
-			let authorize = config.authorize;
 			let env = env.clone();
 			let subspace = subspace.clone();
 			let max_process_depth = config.max_process_depth;
@@ -149,7 +142,6 @@ impl Index {
 			let write_operation_batch_size = config.write_operation_batch_size;
 			move || {
 				Self::writer_task(writer::Arg {
-					authorize,
 					db: &db,
 					env: &env,
 					max_process_depth,
@@ -178,7 +170,6 @@ impl Index {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
-		config.authorize.process_object_grant.validate()?;
 		if config.read_request_batch_size == 0 {
 			return Err(tg::error!(
 				"the LMDB index read request batch size must be greater than zero"

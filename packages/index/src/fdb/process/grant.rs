@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_process_object_grants_with_transaction(
-		authorize: crate::fdb::AuthorizeConfig,
+		authorize_concurrency: usize,
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::object::grant::Arg,
@@ -54,8 +54,8 @@ impl Index {
 				.collect::<Vec<_>>();
 			let authorizations = crate::fdb::propagate!(
 				Self::authorize_batch_with_transaction(
-					authorize.concurrency,
-					authorize.process_object_grant,
+					authorize_concurrency,
+					arg.authorize,
 					txn,
 					subspace,
 					&authorize_args,

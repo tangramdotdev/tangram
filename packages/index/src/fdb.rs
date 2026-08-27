@@ -69,7 +69,6 @@ pub struct Options {
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
 	pub concurrency: usize,
-	pub process_object_grant: crate::authorize::Config,
 }
 
 impl Index {
@@ -160,7 +159,6 @@ impl Index {
 	}
 
 	fn validate_options(options: &Options) -> tg::Result<()> {
-		options.authorize.process_object_grant.validate()?;
 		if options.authorize.concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index authorization concurrency must be greater than zero"

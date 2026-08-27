@@ -221,7 +221,7 @@ impl Index {
 				crate::batch::Item::PutProcessObjectGrants(arg) => {
 					crate::fdb::propagate!(
 						Self::put_process_object_grants_with_transaction(
-							authorize,
+							authorize.concurrency,
 							txn,
 							subspace,
 							arg,

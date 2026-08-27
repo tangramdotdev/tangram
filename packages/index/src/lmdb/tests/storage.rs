@@ -64,9 +64,6 @@ fn process_arg(
 fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
-		authorize: super::super::AuthorizeConfig {
-			process_object_grant: crate::authorize::Config::default(),
-		},
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),
@@ -705,9 +702,6 @@ async fn touching_with_an_account_honors_time_to_touch() {
 fn rejects_zero_usage_partitions() {
 	let dir = tempfile::TempDir::new().unwrap();
 	let result = Index::new(&Config {
-		authorize: super::super::AuthorizeConfig {
-			process_object_grant: crate::authorize::Config::default(),
-		},
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),

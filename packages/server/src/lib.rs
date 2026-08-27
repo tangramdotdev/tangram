@@ -182,12 +182,10 @@ impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Validate the configuration.
 		config.usage.validate()?;
-		let initial_authorization = authorization_search_config(&config.authorization.initial);
-		initial_authorization
+		authorization_search_config(&config.authorization.initial)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid initial authorization configuration"))?;
-		let final_authorization = authorization_search_config(&config.authorization.final_);
-		final_authorization
+		authorization_search_config(&config.authorization.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final authorization configuration"))?;
 
@@ -657,7 +655,6 @@ impl Server {
 				{
 					let authorize = tangram_index::fdb::AuthorizeConfig {
 						concurrency: options.authorize.concurrency,
-						process_object_grant: final_authorization,
 					};
 					let options = tangram_index::fdb::Options {
 						authorize,
@@ -688,12 +685,8 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
-					let authorize = tangram_index::lmdb::AuthorizeConfig {
-						process_object_grant: final_authorization,
-					};
 					let path = directory.join(&options.path);
 					let config = tangram_index::lmdb::Config {
-						authorize,
 						map_size: options.map_size,
 						max_process_depth: config
 							.roles

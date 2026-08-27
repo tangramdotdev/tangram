@@ -16,7 +16,6 @@ pub(super) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Respons
 
 #[derive(Clone, Copy)]
 pub(super) struct Arg<'a> {
-	pub authorize: crate::lmdb::AuthorizeConfig,
 	pub db: &'a Db,
 	pub env: &'a lmdb::Env,
 	pub max_process_depth: Option<u64>,
@@ -42,7 +41,6 @@ struct Batch {
 impl Index {
 	pub(super) fn writer_task(arg: Arg<'_>) {
 		let Arg {
-			authorize,
 			db,
 			env,
 			max_process_depth,
@@ -166,7 +164,6 @@ impl Index {
 							.map(Response::AggregateUsageOutput)
 					},
 					Request::Batch(arg) => Self::batch_with_transaction(
-						authorize,
 						db,
 						subspace,
 						&mut transaction,

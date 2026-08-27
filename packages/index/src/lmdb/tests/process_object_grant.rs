@@ -90,6 +90,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					touched_at: 0,
 				}),
 				crate::batch::Item::PutProcessObjectGrants(crate::process::object::grant::Arg {
+					authorize: crate::authorize::Config::default(),
 					created_at: 0,
 					expires_at: None,
 					principal: creator.clone(),
@@ -125,6 +126,66 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 	);
 	assert!(process_grant(&index, &process, &root_inaccessible, node).is_none());
 	assert!(process_grant(&index, &process, &child_inaccessible, node).is_none());
+}
+
+#[tokio::test]
+async fn process_object_grants_abort_when_authorization_exhausts() {
+	let search = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let authorize = crate::authorize::Config {
+		ancestor: search,
+		descendant: search,
+		..Default::default()
+	};
+	let (_dir, index) = new_index();
+	let object = object_id(0);
+	let process = tg::process::Id::new();
+	index
+		.batch(crate::batch::Arg {
+			items: vec![crate::batch::Item::PutObject(crate::object::put::Arg {
+				checkout: None,
+				children: BTreeSet::new(),
+				id: object.clone(),
+				metadata: tg::object::Metadata::default(),
+				storage: crate::object::Storage::default(),
+				time_to_touch: std::time::Duration::ZERO,
+				touched_at: 0,
+			})],
+		})
+		.await
+		.unwrap();
+	let error = index
+		.batch(crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcessObjectGrants(
+				crate::process::object::grant::Arg {
+					authorize,
+					created_at: 0,
+					expires_at: None,
+					principal: tg::Principal::Process(process.clone()),
+					process: process.clone(),
+					roots: vec![crate::process::object::grant::Root {
+						object: object.clone(),
+						permissions: None,
+					}],
+					time_to_touch: None,
+				},
+			)],
+		})
+		.await
+		.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("process object grant authorization search exhausted")
+	);
+	let node = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	assert!(process_grant(&index, &process, &object, node).is_none());
 }
 
 fn object_id(value: u64) -> tg::object::Id {

@@ -7,7 +7,6 @@ use {
 
 impl Index {
 	pub(crate) fn put_process_object_grants_with_transaction(
-		authorize: crate::lmdb::AuthorizeConfig,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -50,7 +49,7 @@ impl Index {
 				})
 				.collect::<Vec<_>>();
 			let authorizations = Self::authorize_batch_with_transaction(
-				authorize.process_object_grant,
+				arg.authorize,
 				db,
 				subspace,
 				transaction,

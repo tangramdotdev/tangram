@@ -18,9 +18,6 @@ fn new_index() -> (tempfile::TempDir, Index) {
 fn new_index_with_usage_partition_total(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
-		authorize: super::AuthorizeConfig {
-			process_object_grant: crate::authorize::Config::default(),
-		},
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),

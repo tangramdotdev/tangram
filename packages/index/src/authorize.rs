@@ -21,25 +21,44 @@ pub enum Outcome {
 	Exhausted,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(
+	Clone, Copy, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
 pub struct Config {
+	#[tangram_serialize(id = 0)]
 	pub ancestor: SearchConfig,
+
+	#[tangram_serialize(id = 1)]
 	pub descendant: SearchConfig,
+
+	#[tangram_serialize(id = 2)]
 	pub subtree: SubtreeConfig,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct SearchConfig {
+	#[tangram_serialize(id = 0)]
 	pub max_depth: usize,
+
+	#[tangram_serialize(id = 1)]
 	pub max_edges: usize,
+
+	#[tangram_serialize(id = 2)]
 	pub max_nodes: usize,
+
+	#[tangram_serialize(id = 3)]
 	pub page_size: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct SubtreeConfig {
+	#[tangram_serialize(id = 0)]
 	pub max_depth: usize,
+
+	#[tangram_serialize(id = 1)]
 	pub max_objects: usize,
+
+	#[tangram_serialize(id = 2)]
 	pub max_processes: usize,
 }
 
