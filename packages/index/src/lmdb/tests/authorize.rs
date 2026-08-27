@@ -1845,3 +1845,74 @@ async fn authorize_uses_cached_subject_membership() {
 	.await;
 	assert!(output[0].output().unwrap().permissions.contains(node));
 }
+
+// Authorizing `near` proves near -> shared -> root within the depth budget. That
+// proof must memoize `shared`, so authorizing `far` (far -> middle -> shared) can
+// stop at `shared` at depth two instead of re-walking to `root` at depth three.
+#[tokio::test]
+async fn authorize_batch_memoizes_intermediate_nodes_on_an_authorized_path() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: 2,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_dir, index) = new_index();
+	let bystander = object_id(0);
+	let far = object_id(1);
+	let middle = object_id(2);
+	let near = object_id(3);
+	let root = object_id(4);
+	let shared = object_id(5);
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	for object in [&bystander, &far, &middle, &near, &root, &shared] {
+		put_object(&index, &mut txn, object);
+	}
+	put_child(&index, &mut txn, &root, &shared);
+	put_child(&index, &mut txn, &bystander, &shared);
+	put_child(&index, &mut txn, &shared, &near);
+	put_child(&index, &mut txn, &shared, &middle);
+	put_child(&index, &mut txn, &middle, &far);
+	put_grant(
+		&index,
+		&mut txn,
+		&root,
+		&user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	txn.commit().unwrap();
+
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
+	let args = [&root, &bystander, &near, &far].map(|object| crate::authorize::Arg {
+		permissions: subtree,
+		resource: tg::Selector::Id(object.clone().into()),
+		token: None,
+	});
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	assert!(matches!(
+		outcomes[0],
+		crate::authorize::Outcome::Authorized(_)
+	));
+	assert!(matches!(outcomes[1], crate::authorize::Outcome::Denied(_)));
+	assert!(matches!(
+		outcomes[2],
+		crate::authorize::Outcome::Authorized(_)
+	));
+	assert!(matches!(
+		outcomes[3],
+		crate::authorize::Outcome::Authorized(_)
+	));
+}
