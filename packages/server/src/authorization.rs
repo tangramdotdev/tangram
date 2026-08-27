@@ -83,11 +83,14 @@ impl Session {
 			let token = if let Some(token) = token {
 				// Authorize an exact token if there is one.
 				if self.authorize_token(&resource, permissions, &token) {
+					tracing::debug!(outcome = "exact", %resource, "authorize token");
 					outputs.push(Some(permissions));
 					continue;
 				}
+				tracing::debug!(outcome = "present", %resource, token_resource = %token.body.resource, "authorize token");
 				self.verify_token(&token).then_some(token.body)
 			} else {
+				tracing::debug!(outcome = "absent", %resource, "authorize token");
 				None
 			};
 

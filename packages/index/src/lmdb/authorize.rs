@@ -107,7 +107,10 @@ enum SearchOutcome {
 
 struct AncestorSearch {
 	budget: SearchBudget,
+	deepest: usize,
 	outcome: Option<SearchOutcome>,
+	proof: Option<&'static str>,
+	proof_depth: usize,
 	stack: Vec<AncestorTask>,
 	visited: HashSet<(tg::Id, tg::authorization::Permission)>,
 }
@@ -185,7 +188,10 @@ impl AncestorSearch {
 
 		Self {
 			budget,
+			deepest: 0,
 			outcome,
+			proof: None,
+			proof_depth: 0,
 			stack,
 			visited,
 		}
@@ -585,6 +591,7 @@ impl Index {
 			return Ok(*authorized);
 		}
 
+		let started = std::time::Instant::now();
 		let mut ancestor = AncestorSearch::new(context.authorize.ancestor, &root);
 		let mut ancestor_exhausted = false;
 		let mut descendant = DescendantSearch::new(context.authorize.descendant, context.requester);
@@ -595,10 +602,12 @@ impl Index {
 					Self::advance_ancestor_search_with_transaction(context, &mut ancestor)?;
 				match outcome {
 					SearchOutcome::Authorized => {
+						trace_search(resource, "ancestor", started, &ancestor, &descendant);
 						context.authorization.insert(root, true);
 						return Ok(true);
 					},
 					SearchOutcome::Denied => {
+						trace_search(resource, "ancestor", started, &ancestor, &descendant);
 						context.authorization.insert(root, false);
 						return Ok(false);
 					},
@@ -614,10 +623,12 @@ impl Index {
 				)?;
 				match outcome {
 					SearchOutcome::Authorized => {
+						trace_search(resource, "descendant", started, &ancestor, &descendant);
 						context.authorization.insert(root, true);
 						return Ok(true);
 					},
 					SearchOutcome::Denied => {
+						trace_search(resource, "descendant", started, &ancestor, &descendant);
 						context.authorization.insert(root, false);
 						return Ok(false);
 					},
@@ -626,6 +637,23 @@ impl Index {
 				}
 			}
 			if ancestor_exhausted && descendant_exhausted {
+				tracing::debug!(
+					ancestor_deepest = ancestor.deepest,
+					ancestor_edges = ancestor.budget.edges,
+					ancestor_max_depth = context.authorize.ancestor.max_depth,
+					ancestor_max_edges = context.authorize.ancestor.max_edges,
+					ancestor_max_nodes = context.authorize.ancestor.max_nodes,
+					ancestor_nodes = ancestor.budget.nodes,
+					ancestor_pending = ancestor.stack.len(),
+					descendant_edges = descendant.budget.edges,
+					descendant_max_nodes = context.authorize.descendant.max_nodes,
+					descendant_nodes = descendant.budget.nodes,
+					descendant_pending = descendant.stack.len(),
+					duration = started.elapsed().as_secs_f64(),
+					%permission,
+					%resource,
+					"authorize search exhausted",
+				);
 				return Err(crate::authorize::search_exhausted_error(
 					"the ancestor and descendant authorization searches exhausted",
 				));
@@ -641,6 +669,9 @@ impl Index {
 			return Ok(outcome);
 		}
 		let budget = &mut search.budget;
+		let deepest = &mut search.deepest;
+		let proof = &mut search.proof;
+		let proof_depth = &mut search.proof_depth;
 		let stack = &mut search.stack;
 		let visited = &mut search.visited;
 		let Some(task) = stack.pop() else {
@@ -650,19 +681,28 @@ impl Index {
 
 			return Ok(SearchOutcome::Denied);
 		};
+		*proof_depth = match &task {
+			AncestorTask::Node { depth, .. }
+			| AncestorTask::ObjectParents { depth, .. }
+			| AncestorTask::ProcessParents { depth, .. } => *depth,
+		};
 		match task {
 			AncestorTask::Node { depth, key } => {
 				if let Some(authorized) = context.authorization.get(&key) {
 					if *authorized {
+						*proof = Some("cached");
 						return Ok(SearchOutcome::Authorized);
 					}
 					return Ok(SearchOutcome::Pending);
 				}
 				let (resource, permission) = key.clone();
-				if Self::is_authorized_by_token(context, &resource, permission)
-					|| Self::is_directly_authorized_with_transaction(
-						context, &resource, permission,
-					)? {
+				if Self::is_authorized_by_token(context, &resource, permission) {
+					*proof = Some("token");
+					context.authorization.insert(key, true);
+					return Ok(SearchOutcome::Authorized);
+				}
+				if Self::is_directly_authorized_with_transaction(context, &resource, permission)? {
+					*proof = Some("grant");
 					context.authorization.insert(key, true);
 					return Ok(SearchOutcome::Authorized);
 				}
@@ -689,12 +729,14 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						*proof = Some("cached");
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
+					*deepest = (*deepest).max(depth);
 					stack.push(AncestorTask::Node { depth, key });
 				}
 
@@ -778,12 +820,14 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						*proof = Some("cached");
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
+					*deepest = (*deepest).max(depth);
 					stack.push(AncestorTask::Node { depth, key });
 				}
 			},
@@ -842,12 +886,14 @@ impl Index {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					if context.authorization.get(&key).copied() == Some(true) {
+						*proof = Some("cached");
 						return Ok(SearchOutcome::Authorized);
 					}
 					if !budget.add_node(depth) {
 						return Ok(SearchOutcome::Exhausted);
 					}
 					visited.insert(key.clone());
+					*deepest = (*deepest).max(depth);
 					stack.push(AncestorTask::Node { depth, key });
 				}
 			},
@@ -2438,4 +2484,27 @@ impl Index {
 			.insert(organization.clone(), members.clone());
 		Ok(members)
 	}
+}
+
+// Report what a completed search cost so its work can be attributed to the resource that provoked it.
+fn trace_search(
+	resource: &tg::Id,
+	search: &'static str,
+	started: std::time::Instant,
+	ancestor: &AncestorSearch,
+	descendant: &DescendantSearch,
+) {
+	tracing::debug!(
+		ancestor_deepest = ancestor.deepest,
+		ancestor_edges = ancestor.budget.edges,
+		ancestor_nodes = ancestor.budget.nodes,
+		descendant_edges = descendant.budget.edges,
+		descendant_nodes = descendant.budget.nodes,
+		duration = started.elapsed().as_secs_f64(),
+		proof = ancestor.proof,
+		proof_depth = ancestor.proof_depth,
+		%resource,
+		search,
+		"authorize search",
+	);
 }
