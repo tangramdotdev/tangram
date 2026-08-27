@@ -22,6 +22,7 @@ pub(super) type ProcessControlSender = crate::control::Sender<
 >;
 
 pub(crate) struct RunProcessControlTaskArg {
+	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<tg::process::Data>,
 	pub requests: BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 	pub retention_stopper: Stopper,
@@ -134,6 +135,7 @@ impl Session {
 		arg: RunProcessControlTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlTaskArg {
+			exited,
 			finish,
 			requests,
 			retention_stopper,
@@ -171,9 +173,8 @@ impl Session {
 			String,
 			tg::process::control::WriteServerRequestArg,
 		)>(256);
-		let stdin_finished = Stopper::new();
 		let stdin_task = self.spawn_process_control_stdin_task(RunProcessControlStdinTaskArg {
-			finished: stdin_finished.clone(),
+			exited,
 			receiver: stdin_receiver,
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
@@ -248,9 +249,6 @@ impl Session {
 		output
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
-
-		// The retention window below outlives the sandbox, which stdin cannot be written to once it is destroyed. Answer every write after the finish with EOF.
-		stdin_finished.stop();
 
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {

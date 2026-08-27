@@ -10,7 +10,7 @@ use {
 };
 
 pub(super) struct RunProcessControlStdinTaskArg {
-	pub(super) finished: Stopper,
+	pub(super) exited: Stopper,
 	pub(super) receiver:
 		tokio::sync::mpsc::Receiver<(String, tg::process::control::WriteServerRequestArg)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
@@ -38,7 +38,7 @@ impl Session {
 		arg: RunProcessControlStdinTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlStdinTaskArg {
-			finished,
+			exited,
 			mut receiver,
 			sandbox,
 			mut sandbox_process,
@@ -99,7 +99,7 @@ impl Session {
 			.await;
 
 			// Once the stdin is unavailable, report it closed without advancing the position.
-			let result = if closed || finished.stopped() {
+			let result = if closed || exited.stopped() {
 				Self::handle_closed_process_stdin_write_request(&request, position)
 			} else if let Some(sandbox_process) = &sandbox_process {
 				Self::handle_process_control_stdin_write_request(
