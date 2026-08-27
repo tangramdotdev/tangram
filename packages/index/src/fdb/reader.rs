@@ -10,7 +10,7 @@ use {
 };
 
 pub(super) struct Arg {
-	pub authorize: super::AuthorizeConfig,
+	pub authorize_concurrency: usize,
 	pub database: Arc<fdb::Database>,
 	pub partition_total: u64,
 	pub read_request_batch_size: usize,
@@ -22,7 +22,7 @@ pub(super) struct Arg {
 impl Index {
 	pub(super) async fn reader_task(arg: Arg) {
 		let Arg {
-			authorize,
+			authorize_concurrency,
 			database,
 			partition_total,
 			read_request_batch_size,
@@ -45,7 +45,13 @@ impl Index {
 			Some((requests, receiver))
 		})
 		.for_each_concurrent(read_transaction_concurrency, |requests| {
-			Self::execute_read_batch(authorize, &database, partition_total, &subspace, requests)
+			Self::execute_read_batch(
+				authorize_concurrency,
+				&database,
+				partition_total,
+				&subspace,
+				requests,
+			)
 		})
 		.await;
 	}
@@ -67,7 +73,7 @@ impl Index {
 	}
 
 	async fn execute_read_batch(
-		authorize: super::AuthorizeConfig,
+		authorize_concurrency: usize,
 		database: &fdb::Database,
 		partition_total: u64,
 		subspace: &fdbt::Subspace,
@@ -104,7 +110,7 @@ impl Index {
 					.into_iter()
 					.map(|(request, sender)| async move {
 						let result = Self::execute_read_request(
-							authorize,
+							authorize_concurrency,
 							partition_total,
 							transaction,
 							subspace,
@@ -177,16 +183,21 @@ impl Index {
 	}
 
 	async fn execute_read_request(
-		authorize: super::AuthorizeConfig,
+		authorize_concurrency: usize,
 		partition_total: u64,
 		transaction: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &crate::read::Request,
 	) -> tg::Result<ControlFlow<crate::read::Response, fdb::FdbError>> {
 		let response = match request {
-			crate::read::Request::AuthorizeBatch { args, principal } => {
+			crate::read::Request::AuthorizeBatch {
+				args,
+				config,
+				principal,
+			} => {
 				let result = Self::authorize_batch_with_transaction(
-					authorize,
+					authorize_concurrency,
+					*config,
 					transaction,
 					subspace,
 					args,

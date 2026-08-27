@@ -74,14 +74,20 @@ impl Session {
 		let authorizations = self
 			.server
 			.index
-			.authorize_batch(&authorize_args, &self.context.principal)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize process objects"))?;
-		let needs_index = authorizations.iter().any(|authorization| {
-			authorization
-				.as_ref()
-				.is_none_or(|authorization| !authorization.permissions.contains(subtree_permission))
-		});
+			.authorize_batch(
+				&authorize_args,
+				crate::authorization_search_config(&self.server.config.authorization.initial),
+				&self.context.principal,
+			)
+			.await;
+		let needs_index = match authorizations {
+			Ok(outcomes) => outcomes.iter().any(|outcome| {
+				outcome
+					.output()
+					.is_none_or(|output| !output.permissions.contains(subtree_permission))
+			}),
+			Err(_) => true,
+		};
 		if needs_index {
 			self.index()
 				.await

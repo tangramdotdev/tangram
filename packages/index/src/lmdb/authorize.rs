@@ -159,14 +159,14 @@ impl SearchBudget {
 }
 
 struct AuthorizationContext<'a, 'txn> {
-	db: &'a Db,
-	subspace: &'a fdbt::Subspace,
-	transaction: &'a lmdb::RoTxn<'txn>,
-	authorize: crate::lmdb::AuthorizeConfig,
-	requester: &'a Requester<'a>,
-	token: Option<(tg::authorization::Body, tg::Id)>,
 	authorization: &'a mut HashMap<(tg::Id, tg::authorization::Permission), bool>,
+	authorize: crate::authorize::Config,
 	cache: &'a mut Cache,
+	db: &'a Db,
+	requester: &'a Requester<'a>,
+	subspace: &'a fdbt::Subspace,
+	token: Option<(tg::authorization::Body, tg::Id)>,
+	transaction: &'a lmdb::RoTxn<'txn>,
 }
 
 impl AncestorSearch {
@@ -200,6 +200,15 @@ impl DescendantSearch {
 			requester.principal,
 			tg::Principal::Group(_) | tg::Principal::User(_)
 		);
+		if config.max_nodes == 0 {
+			return Self {
+				budget,
+				complete,
+				outcome: Some(SearchOutcome::Exhausted),
+				stack: Vec::new(),
+				visited: HashSet::new(),
+			};
+		}
 		let mut stack = Vec::new();
 		let mut visited = HashSet::new();
 
@@ -298,24 +307,27 @@ impl Index {
 	pub async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
+		config: crate::authorize::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+	) -> tg::Result<Vec<crate::authorize::Outcome>> {
+		config.validate()?;
 		if args.is_empty() {
 			return Ok(Vec::new());
 		}
 		if matches!(principal, tg::Principal::Root) {
-			let outputs = args
+			let outcomes = args
 				.iter()
 				.map(|arg| {
-					Some(crate::authorize::Output {
+					crate::authorize::Outcome::Authorized(crate::authorize::Output {
 						permissions: arg.permissions,
 					})
 				})
 				.collect();
-			return Ok(outputs);
+			return Ok(outcomes);
 		}
 		let request = crate::read::Request::AuthorizeBatch {
 			args: args.to_owned(),
+			config,
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
@@ -327,26 +339,26 @@ impl Index {
 	}
 
 	pub(crate) fn authorize_batch_with_transaction(
-		authorize: crate::lmdb::AuthorizeConfig,
+		config: crate::authorize::Config,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		args: &[crate::authorize::Arg],
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
+	) -> tg::Result<Vec<crate::authorize::Outcome>> {
 		if args.is_empty() {
 			return Ok(Vec::new());
 		}
 		if matches!(principal, tg::Principal::Root) {
-			let outputs = args
+			let outcomes = args
 				.iter()
 				.map(|arg| {
-					Some(crate::authorize::Output {
+					crate::authorize::Outcome::Authorized(crate::authorize::Output {
 						permissions: arg.permissions,
 					})
 				})
 				.collect();
-			return Ok(outputs);
+			return Ok(outcomes);
 		}
 		let mut requester = Requester::new(principal);
 		if PRECOMPUTE_REQUESTER_PRINCIPALS {
@@ -359,7 +371,7 @@ impl Index {
 		}
 		let mut cache = Cache::default();
 		let mut authorization = HashMap::new();
-		let mut outputs = Vec::with_capacity(args.len());
+		let mut outcomes = Vec::with_capacity(args.len());
 		for arg in args {
 			let Some((id, exact)) = Self::try_resolve_resource_with_transaction(
 				db,
@@ -368,7 +380,7 @@ impl Index {
 				&arg.resource,
 			)?
 			else {
-				outputs.push(None);
+				outcomes.push(crate::authorize::Outcome::Denied(None));
 				continue;
 			};
 			let permissions = if exact {
@@ -377,20 +389,22 @@ impl Index {
 				let Some(permissions) =
 					crate::authorize::permissions_for_specifier_prefix(&id, arg.permissions)?
 				else {
-					outputs.push(None);
+					outcomes.push(crate::authorize::Outcome::Denied(None));
 					continue;
 				};
 				permissions
 			};
 			if crate::authorize::validate(&id, permissions).is_err() {
-				outputs.push(None);
+				outcomes.push(crate::authorize::Outcome::Denied(None));
 				continue;
 			}
 			if matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == id)
 			{
-				outputs.push(Some(crate::authorize::Output {
-					permissions: arg.permissions,
-				}));
+				outcomes.push(crate::authorize::Outcome::Authorized(
+					crate::authorize::Output {
+						permissions: arg.permissions,
+					},
+				));
 				continue;
 			}
 			let token = if let Some(body) = arg.token.clone() {
@@ -407,7 +421,7 @@ impl Index {
 			};
 			let mut context = AuthorizationContext {
 				authorization,
-				authorize,
+				authorize: config,
 				cache: &mut cache,
 				db,
 				requester: &requester,
@@ -415,7 +429,15 @@ impl Index {
 				token,
 				transaction,
 			};
-			let authorized = Self::authorize_with_transaction(&mut context, &id, permissions)?;
+			let authorized = match Self::authorize_with_transaction(&mut context, &id, permissions)
+			{
+				Ok(authorized) => authorized,
+				Err(error) if crate::authorize::is_search_exhausted(&error) => {
+					outcomes.push(crate::authorize::Outcome::Exhausted);
+					continue;
+				},
+				Err(error) => return Err(error),
+			};
 			let permissions = if permissions == arg.permissions {
 				authorized
 			} else if authorized.contains(permissions) {
@@ -423,10 +445,12 @@ impl Index {
 			} else {
 				arg.permissions.empty_like()
 			};
-			outputs.push(Some(crate::authorize::Output { permissions }));
+			let output = crate::authorize::Output { permissions };
+			let outcome = crate::authorize::Outcome::from_output(Some(output), arg.permissions);
+			outcomes.push(outcome);
 		}
 
-		Ok(outputs)
+		Ok(outcomes)
 	}
 
 	fn load_requester_subjects_with_transaction(
@@ -508,7 +532,11 @@ impl Index {
 					resource,
 					&mut budget,
 				)?
-				.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+				.ok_or_else(|| {
+					crate::authorize::search_exhausted_error(
+						"the subtree authorization search exhausted",
+					)
+				})?;
 
 				Ok(authorized)
 			},
@@ -535,7 +563,11 @@ impl Index {
 					permission,
 					&mut budget,
 				)?
-				.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+				.ok_or_else(|| {
+					crate::authorize::search_exhausted_error(
+						"the subtree authorization search exhausted",
+					)
+				})?;
 
 				Ok(authorized)
 			},
@@ -594,8 +626,8 @@ impl Index {
 				}
 			}
 			if ancestor_exhausted && descendant_exhausted {
-				return Err(tg::error!(
-					"the ancestor and descendant authorization searches exhausted"
+				return Err(crate::authorize::search_exhausted_error(
+					"the ancestor and descendant authorization searches exhausted",
 				));
 			}
 		}
@@ -1677,6 +1709,11 @@ impl Index {
 		)? {
 			return Ok(true);
 		}
+		if context.authorize.subtree.max_objects == 0 {
+			return Err(crate::authorize::search_exhausted_error(
+				"the subtree authorization search exhausted",
+			));
+		}
 		let kind = match permission {
 			tg::authorization::permission::process::Permission::NodeCommand => {
 				crate::process::object::Kind::Command
@@ -1744,7 +1781,11 @@ impl Index {
 				&resource,
 				&mut budget,
 			)?
-			.ok_or_else(|| tg::error!("the subtree authorization search exhausted"))?;
+			.ok_or_else(|| {
+				crate::authorize::search_exhausted_error(
+					"the subtree authorization search exhausted",
+				)
+			})?;
 			if !authorized {
 				return Ok(false);
 			}

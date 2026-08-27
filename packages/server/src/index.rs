@@ -36,13 +36,14 @@ impl index::Index for Index {
 	async fn authorize_batch(
 		&self,
 		args: &[index::authorize::Arg],
+		config: index::authorize::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<Option<index::authorize::Output>>> {
+	) -> tg::Result<Vec<index::authorize::Outcome>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.authorize_batch(args, principal).await,
+			Self::Fdb(index) => index.authorize_batch(args, config, principal).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.authorize_batch(args, principal).await,
+			Self::Lmdb(index) => index.authorize_batch(args, config, principal).await,
 		}
 	}
 

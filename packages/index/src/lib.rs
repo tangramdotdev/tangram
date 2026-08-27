@@ -30,15 +30,17 @@ pub trait Index {
 	fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
+		config: crate::authorize::Config,
 		principal: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Vec<Option<crate::authorize::Output>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<crate::authorize::Outcome>>> + Send;
 
 	fn authorize(
 		&self,
 		resource: tg::Selector<tg::Id>,
 		permissions: tg::authorization::permission::Set,
+		config: crate::authorize::Config,
 		principal: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Option<crate::authorize::Output>>> + Send
+	) -> impl Future<Output = tg::Result<crate::authorize::Outcome>> + Send
 	where
 		Self: Sync,
 	{
@@ -48,9 +50,10 @@ pub trait Index {
 			token: None,
 		};
 		async move {
-			self.authorize_batch(&[arg], principal)
-				.await
-				.map(|mut output| output.pop().unwrap())
+			let mut outcomes = self.authorize_batch(&[arg], config, principal).await?;
+			let outcome = outcomes.pop().unwrap();
+
+			Ok(outcome)
 		}
 	}
 

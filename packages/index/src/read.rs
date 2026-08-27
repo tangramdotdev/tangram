@@ -9,6 +9,7 @@ pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 pub(crate) enum Request {
 	AuthorizeBatch {
 		args: Vec<crate::authorize::Arg>,
+		config: crate::authorize::Config,
 		principal: tg::Principal,
 	},
 	ContainsIds {
@@ -101,7 +102,7 @@ pub(crate) enum Request {
 }
 
 pub(crate) enum Response {
-	AuthorizeBatch(Vec<Option<crate::authorize::Output>>),
+	AuthorizeBatch(Vec<crate::authorize::Outcome>),
 	ContainsIds(Vec<bool>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterSubjects(Vec<tg::authorization::Subject>),

@@ -1,5 +1,7 @@
 use tangram_client::prelude::*;
 
+const SEARCH_EXHAUSTED: &str = "authorization_search_exhausted";
+
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub permissions: tg::authorization::permission::Set,
@@ -10,6 +12,20 @@ pub struct Arg {
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub permissions: tg::authorization::permission::Set,
+}
+
+#[derive(Clone, Debug)]
+pub enum Outcome {
+	Authorized(Output),
+	Denied(Option<Output>),
+	Exhausted,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Config {
+	pub ancestor: SearchConfig,
+	pub descendant: SearchConfig,
+	pub subtree: SubtreeConfig,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,6 +49,47 @@ enum NamedPermission {
 	Write,
 }
 
+impl Outcome {
+	#[must_use]
+	pub fn output(&self) -> Option<&Output> {
+		match self {
+			Self::Authorized(output) | Self::Denied(Some(output)) => Some(output),
+			Self::Denied(None) | Self::Exhausted => None,
+		}
+	}
+
+	pub fn into_result(self) -> tg::Result<Output> {
+		match self {
+			Self::Authorized(output) => Ok(output),
+			Self::Denied(_) => Err(tg::error!("authorization denied")),
+			Self::Exhausted => Err(search_exhausted_error("the authorization search exhausted")),
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn from_output(
+		output: Option<Output>,
+		permissions: tg::authorization::permission::Set,
+	) -> Self {
+		match output {
+			Some(output) if output.permissions.contains(permissions) => Self::Authorized(output),
+			output => Self::Denied(output),
+		}
+	}
+}
+
+impl Config {
+	pub fn validate(&self) -> tg::Result<()> {
+		if self.ancestor.page_size == 0 || self.descendant.page_size == 0 {
+			return Err(tg::error!(
+				"the authorization search page size must be greater than zero"
+			));
+		}
+
+		Ok(())
+	}
+}
+
 impl Default for SearchConfig {
 	fn default() -> Self {
 		Self {
@@ -52,6 +109,22 @@ impl Default for SubtreeConfig {
 			max_processes: 1024,
 		}
 	}
+}
+
+#[must_use]
+pub(crate) fn search_exhausted_error(message: &str) -> tg::Error {
+	let authorization_search_exhausted = true;
+
+	tg::error!(?authorization_search_exhausted, "{message}")
+}
+
+#[must_use]
+pub(crate) fn is_search_exhausted(error: &tg::Error) -> bool {
+	error.state().object().is_some_and(|object| {
+		object
+			.try_unwrap_error_ref()
+			.is_ok_and(|object| object.values.contains_key(SEARCH_EXHAUSTED))
+	})
 }
 
 /// Validate that the permission is coherent with the resource kind.

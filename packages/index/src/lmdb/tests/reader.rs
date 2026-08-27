@@ -65,11 +65,6 @@ async fn freezes_read_batches_without_reusing_an_old_snapshot() {
 		let transactions = transactions.clone();
 		move || {
 			Index::reader_task(&reader::Arg {
-				authorize: super::super::AuthorizeConfig {
-					ancestor: crate::authorize::SearchConfig::default(),
-					descendant: crate::authorize::SearchConfig::default(),
-					subtree: crate::authorize::SubtreeConfig::default(),
-				},
 				db,
 				env,
 				read_request_batch_size: 8,

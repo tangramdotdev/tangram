@@ -123,43 +123,79 @@ impl Session {
 			});
 		}
 
-		// Attempt to authorize.
-		let index_outputs = self
-			.server
-			.index
-			.authorize_batch(&index_args, &self.context.principal)
-			.await?;
-		// Refresh the index unless every required permission was already granted.
-		let needs_index =
-			std::iter::zip(&index_outputs, &index_required).any(|(output, required)| {
-				output
-					.as_ref()
-					.is_none_or(|output| !output.permissions.contains(*required))
-			});
-		for (position, output) in std::iter::zip(&index_positions, index_outputs) {
-			if let Some(output) = output {
-				outputs[*position] = Some(output.permissions);
-			}
-		}
-		if !needs_index {
+		if index_args.is_empty() {
 			return Ok(outputs);
 		}
 
-		// Index.
-		self.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?
-			.try_last()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index"))?;
+		// Race the initial search against the delayed final search.
+		let authorization = &self.server.config.authorization;
+		let delay = authorization.index.delay;
+		let initial_config = crate::authorization_search_config(&authorization.initial);
+		let grants_required = |outcomes: &[tangram_index::authorize::Outcome]| {
+			std::iter::zip(outcomes, &index_required).all(|(outcome, required)| {
+				outcome
+					.output()
+					.is_some_and(|output| output.permissions.contains(*required))
+			})
+		};
+		let initial =
+			self.server
+				.index
+				.authorize_batch(&index_args, initial_config, &self.context.principal);
+		tokio::pin!(initial);
+		let initial_result = match delay {
+			Some(delay) => tokio::select! {
+				result = &mut initial => Some(result),
+				() = tokio::time::sleep(delay) => None,
+			},
+			None => Some((&mut initial).await),
+		};
+		let final_config = crate::authorization_search_config(&authorization.final_);
+		let final_ = async {
+			self.index()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index"))?;
+			let outcomes = self
+				.server
+				.index
+				.authorize_batch(&index_args, final_config, &self.context.principal)
+				.await?;
 
-		// Attempt to authorize again.
-		let index_outputs = self
-			.server
-			.index
-			.authorize_batch(&index_args, &self.context.principal)
-			.await?;
-		for (position, output) in std::iter::zip(index_positions, index_outputs) {
+			ensure_authorization_search_complete(outcomes)
+		};
+		let index_outcomes = match initial_result {
+			Some(Ok(outcomes)) if grants_required(&outcomes) => outcomes,
+			Some(Ok(_)) => final_.await?,
+			Some(Err(error)) => return Err(error),
+			None => {
+				tokio::pin!(final_);
+				tokio::select! {
+					result = &mut initial => match result {
+						Ok(outcomes) if grants_required(&outcomes) => outcomes,
+						Ok(_) => final_.await?,
+						Err(error) => return Err(error),
+					},
+					result = &mut final_ => match result {
+						Ok(outcomes) => outcomes,
+						Err(error) => match initial.await {
+							Ok(outcomes) if grants_required(&outcomes) => outcomes,
+							Ok(_) | Err(_) => return Err(error),
+						},
+					},
+				}
+			},
+		};
+		for (position, outcome) in std::iter::zip(index_positions, index_outcomes) {
+			let output = match outcome {
+				tangram_index::authorize::Outcome::Authorized(output) => Some(output),
+				tangram_index::authorize::Outcome::Denied(output) => output,
+				outcome @ tangram_index::authorize::Outcome::Exhausted => {
+					Some(outcome.into_result()?)
+				},
+			};
 			if let Some(output) = output {
 				outputs[position] = Some(output.permissions);
 			}
@@ -307,4 +343,17 @@ where
 			self.options.tokens.local().cloned(),
 		)
 	}
+}
+
+fn ensure_authorization_search_complete(
+	outcomes: Vec<tangram_index::authorize::Outcome>,
+) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
+	if outcomes
+		.iter()
+		.any(|outcome| matches!(outcome, tangram_index::authorize::Outcome::Exhausted))
+	{
+		tangram_index::authorize::Outcome::Exhausted.into_result()?;
+	}
+
+	Ok(outcomes)
 }

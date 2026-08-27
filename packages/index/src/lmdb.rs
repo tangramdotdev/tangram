@@ -51,9 +51,7 @@ pub struct Config {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
-	pub ancestor: crate::authorize::SearchConfig,
-	pub descendant: crate::authorize::SearchConfig,
-	pub subtree: crate::authorize::SubtreeConfig,
+	pub process_object_grant: crate::authorize::Config,
 }
 
 pub struct Index {
@@ -126,11 +124,9 @@ impl Index {
 				let env = env.clone();
 				let reader_receiver = reader_receiver.clone();
 				let subspace = subspace.clone();
-				let authorize = config.authorize;
 				let read_request_batch_size = config.read_request_batch_size;
 				std::thread::spawn(move || {
 					Self::reader_task(&reader::Arg {
-						authorize,
 						db,
 						env,
 						read_request_batch_size,
@@ -182,11 +178,7 @@ impl Index {
 	}
 
 	fn validate_config(config: &Config) -> tg::Result<()> {
-		if config.authorize.ancestor.page_size == 0 || config.authorize.descendant.page_size == 0 {
-			return Err(tg::error!(
-				"the LMDB index authorization page size must be greater than zero"
-			));
-		}
+		config.authorize.process_object_grant.validate()?;
 		if config.read_request_batch_size == 0 {
 			return Err(tg::error!(
 				"the LMDB index read request batch size must be greater than zero"
@@ -286,9 +278,10 @@ impl crate::Index for Index {
 	async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
+		config: crate::authorize::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
-		self.authorize_batch(args, principal).await
+	) -> tg::Result<Vec<crate::authorize::Outcome>> {
+		self.authorize_batch(args, config, principal).await
 	}
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {

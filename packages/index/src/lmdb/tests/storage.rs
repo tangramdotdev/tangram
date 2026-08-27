@@ -65,9 +65,7 @@ fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
 		authorize: super::super::AuthorizeConfig {
-			ancestor: crate::authorize::SearchConfig::default(),
-			descendant: crate::authorize::SearchConfig::default(),
-			subtree: crate::authorize::SubtreeConfig::default(),
+			process_object_grant: crate::authorize::Config::default(),
 		},
 		map_size: 1 << 30,
 		max_process_depth: None,
@@ -708,9 +706,7 @@ fn rejects_zero_usage_partitions() {
 	let dir = tempfile::TempDir::new().unwrap();
 	let result = Index::new(&Config {
 		authorize: super::super::AuthorizeConfig {
-			ancestor: crate::authorize::SearchConfig::default(),
-			descendant: crate::authorize::SearchConfig::default(),
-			subtree: crate::authorize::SubtreeConfig::default(),
+			process_object_grant: crate::authorize::Config::default(),
 		},
 		map_size: 1 << 30,
 		max_process_depth: None,

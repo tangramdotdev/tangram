@@ -68,10 +68,8 @@ pub struct Options {
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
-	pub ancestor: crate::authorize::SearchConfig,
 	pub concurrency: usize,
-	pub descendant: crate::authorize::SearchConfig,
-	pub subtree: crate::authorize::SubtreeConfig,
+	pub process_object_grant: crate::authorize::Config,
 }
 
 impl Index {
@@ -102,12 +100,12 @@ impl Index {
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
-			let authorize = options.authorize;
+			let authorize_concurrency = options.authorize.concurrency;
 			let read_request_batch_size = options.read_request_batch_size;
 			let read_transaction_concurrency = options.read_transaction_concurrency;
 			async move {
 				Self::reader_task(reader::Arg {
-					authorize,
+					authorize_concurrency,
 					database,
 					partition_total,
 					read_request_batch_size,
@@ -162,12 +160,7 @@ impl Index {
 	}
 
 	fn validate_options(options: &Options) -> tg::Result<()> {
-		if options.authorize.ancestor.page_size == 0 || options.authorize.descendant.page_size == 0
-		{
-			return Err(tg::error!(
-				"the FDB index authorization page size must be greater than zero"
-			));
-		}
+		options.authorize.process_object_grant.validate()?;
 		if options.authorize.concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index authorization concurrency must be greater than zero"
@@ -270,9 +263,10 @@ impl crate::Index for Index {
 	async fn authorize_batch(
 		&self,
 		args: &[crate::authorize::Arg],
+		config: crate::authorize::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<Option<crate::authorize::Output>>> {
-		self.authorize_batch(args, principal).await
+	) -> tg::Result<Vec<crate::authorize::Outcome>> {
+		self.authorize_batch(args, config, principal).await
 	}
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {

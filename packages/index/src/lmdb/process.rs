@@ -1,6 +1,6 @@
 mod get;
+mod grant;
 mod key;
-mod object_grant;
 mod put;
 mod touch;
 

@@ -13,7 +13,6 @@ pub(super) struct TestHook {
 }
 
 pub(super) struct Arg {
-	pub authorize: super::AuthorizeConfig,
 	pub db: Db,
 	pub env: lmdb::Env,
 	pub read_request_batch_size: usize,
@@ -67,13 +66,8 @@ impl Index {
 
 			// Execute the requests sequentially against the shared snapshot.
 			for (request, sender) in requests {
-				let response = Self::execute_read_request(
-					arg.authorize,
-					&arg.db,
-					&arg.subspace,
-					&transaction,
-					request,
-				);
+				let response =
+					Self::execute_read_request(&arg.db, &arg.subspace, &transaction, request);
 				sender.send(response).ok();
 			}
 		}
@@ -116,16 +110,19 @@ impl Index {
 	}
 
 	fn execute_read_request(
-		authorize: super::AuthorizeConfig,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		request: crate::read::Request,
 	) -> tg::Result<crate::read::Response> {
 		let response = match request {
-			crate::read::Request::AuthorizeBatch { args, principal } => {
+			crate::read::Request::AuthorizeBatch {
+				args,
+				config,
+				principal,
+			} => {
 				let output = Self::authorize_batch_with_transaction(
-					authorize,
+					config,
 					db,
 					subspace,
 					transaction,

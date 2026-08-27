@@ -313,8 +313,79 @@ pub struct Stripe {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Authorization {
+	#[serde(default, rename = "final", skip_serializing_if = "Option::is_none")]
+	pub final_: Option<AuthorizationSearches>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<AuthorizationIndex>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub initial: Option<AuthorizationSearches>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationIndex {
+	#[serde(
+		default,
+		skip_serializing_if = "Option::is_none",
+		with = "serde_with::rust::double_option"
+	)]
+	pub delay: Option<Option<AuthorizationIndexDelay>>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationSearches {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ancestor: Option<AuthorizationSearch>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub descendant: Option<AuthorizationSearch>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub subtree: Option<AuthorizationSubtree>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct AuthorizationIndexDelay(#[serde_as(as = "DurationSecondsWithFrac")] pub Duration);
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationSearch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_edges: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_nodes: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub page_size: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationSubtree {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_objects: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_processes: Option<usize>,
 }
 
 #[serde_as]
@@ -561,61 +632,7 @@ pub enum Index {
 #[serde(deny_unknown_fields)]
 pub struct FdbIndexAuthorize {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ancestor: Option<IndexAuthorizeSearch>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub descendant: Option<IndexAuthorizeSearch>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subtree: Option<IndexAuthorizeSubtree>,
-}
-
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LmdbIndexAuthorize {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ancestor: Option<IndexAuthorizeSearch>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub descendant: Option<IndexAuthorizeSearch>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subtree: Option<IndexAuthorizeSubtree>,
-}
-
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct IndexAuthorizeSearch {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_depth: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_edges: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_nodes: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub page_size: Option<usize>,
-}
-
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct IndexAuthorizeSubtree {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_depth: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_objects: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_processes: Option<usize>,
 }
 
 #[serde_as]
@@ -654,9 +671,6 @@ pub struct FdbIndex {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LmdbIndex {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub authorize: Option<LmdbIndexAuthorize>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub map_size: Option<usize>,
 
@@ -2212,11 +2226,75 @@ fn resolve_stripe(source: Stripe) -> tg::Result<server::Stripe> {
 
 fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorization> {
 	let mut target = server::Authorization::default();
+	if let Some(source) = source.final_ {
+		target.final_ = resolve_authorization_searches(source, target.final_);
+	}
+	if let Some(source) = source.index {
+		target.index = resolve_authorization_index(source);
+	}
+	if let Some(source) = source.initial {
+		target.initial = resolve_authorization_searches(source, target.initial);
+	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
 	}
 
 	Ok(target)
+}
+
+fn resolve_authorization_index(source: AuthorizationIndex) -> server::AuthorizationIndex {
+	let mut target = server::AuthorizationIndex::default();
+	if let Some(delay) = source.delay {
+		target.delay = delay.map(|delay| delay.0);
+	}
+	target
+}
+
+fn resolve_authorization_searches(
+	source: AuthorizationSearches,
+	mut target: server::AuthorizationSearches,
+) -> server::AuthorizationSearches {
+	if let Some(source) = source.ancestor {
+		target.ancestor = resolve_authorization_search(source);
+	}
+	if let Some(source) = source.descendant {
+		target.descendant = resolve_authorization_search(source);
+	}
+	if let Some(source) = source.subtree {
+		target.subtree = resolve_authorization_subtree(source);
+	}
+	target
+}
+
+fn resolve_authorization_search(source: AuthorizationSearch) -> server::AuthorizationSearch {
+	let mut target = server::AuthorizationSearch::default();
+	if let Some(value) = source.max_depth {
+		target.max_depth = value;
+	}
+	if let Some(value) = source.max_edges {
+		target.max_edges = value;
+	}
+	if let Some(value) = source.max_nodes {
+		target.max_nodes = value;
+	}
+	if let Some(value) = source.page_size {
+		target.page_size = value;
+	}
+	target
+}
+
+fn resolve_authorization_subtree(source: AuthorizationSubtree) -> server::AuthorizationSubtree {
+	let mut target = server::AuthorizationSubtree::default();
+	if let Some(value) = source.max_depth {
+		target.max_depth = value;
+	}
+	if let Some(value) = source.max_objects {
+		target.max_objects = value;
+	}
+	if let Some(value) = source.max_processes {
+		target.max_processes = value;
+	}
+	target
 }
 
 fn resolve_token_keys(source: TokenKeys) -> tg::Result<server::TokenKeys> {
@@ -2476,7 +2554,7 @@ fn resolve_index(source: Index) -> server::Index {
 
 fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	let mut target = server::FdbIndex::default();
-	if let Some(source) = source.authorize {
+	if let Some(source) = &source.authorize {
 		target.authorize = resolve_fdb_index_authorize(source);
 	}
 	if let Some(value) = source.cluster {
@@ -2506,28 +2584,16 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	target
 }
 
-fn resolve_fdb_index_authorize(source: FdbIndexAuthorize) -> server::FdbIndexAuthorize {
+fn resolve_fdb_index_authorize(source: &FdbIndexAuthorize) -> server::FdbIndexAuthorize {
 	let mut target = server::FdbIndexAuthorize::default();
-	if let Some(source) = source.ancestor {
-		target.ancestor = resolve_index_authorize_search(source);
-	}
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
-	}
-	if let Some(source) = source.descendant {
-		target.descendant = resolve_index_authorize_search(source);
-	}
-	if let Some(source) = source.subtree {
-		target.subtree = resolve_index_authorize_subtree(source);
 	}
 	target
 }
 
 fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	let mut target = server::LmdbIndex::default();
-	if let Some(source) = source.authorize {
-		target.authorize = resolve_lmdb_index_authorize(source);
-	}
 	if let Some(value) = source.map_size {
 		target.map_size = value;
 	}
@@ -2548,52 +2614,6 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	target
 }
-
-fn resolve_lmdb_index_authorize(source: LmdbIndexAuthorize) -> server::LmdbIndexAuthorize {
-	let mut target = server::LmdbIndexAuthorize::default();
-	if let Some(source) = source.ancestor {
-		target.ancestor = resolve_index_authorize_search(source);
-	}
-	if let Some(source) = source.descendant {
-		target.descendant = resolve_index_authorize_search(source);
-	}
-	if let Some(source) = source.subtree {
-		target.subtree = resolve_index_authorize_subtree(source);
-	}
-	target
-}
-
-fn resolve_index_authorize_search(source: IndexAuthorizeSearch) -> server::IndexAuthorizeSearch {
-	let mut target = server::IndexAuthorizeSearch::default();
-	if let Some(value) = source.max_depth {
-		target.max_depth = value;
-	}
-	if let Some(value) = source.max_edges {
-		target.max_edges = value;
-	}
-	if let Some(value) = source.max_nodes {
-		target.max_nodes = value;
-	}
-	if let Some(value) = source.page_size {
-		target.page_size = value;
-	}
-	target
-}
-
-fn resolve_index_authorize_subtree(source: IndexAuthorizeSubtree) -> server::IndexAuthorizeSubtree {
-	let mut target = server::IndexAuthorizeSubtree::default();
-	if let Some(value) = source.max_depth {
-		target.max_depth = value;
-	}
-	if let Some(value) = source.max_objects {
-		target.max_objects = value;
-	}
-	if let Some(value) = source.max_processes {
-		target.max_processes = value;
-	}
-	target
-}
-
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
 	if let Some(value) = source.database_outbox_wakeup_interval {
@@ -3582,6 +3602,55 @@ mod tests {
 
 		assert_eq!(target.primary_region.as_deref(), Some("ash0"));
 		assert_eq!(target.region.as_deref(), Some("ewr0"));
+	}
+
+	#[test]
+	fn parses_and_resolves_authorization() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"authorization": {
+				"final": {
+					"ancestor": { "max_edges": 2 },
+					"descendant": { "max_edges": 3 },
+					"subtree": { "max_objects": 4 },
+				},
+				"initial": {
+					"ancestor": { "max_edges": 1 },
+				},
+				"index": {
+					"delay": 0.025,
+				},
+			},
+			"index": {
+				"kind": "lmdb",
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let authorization = target.authorization;
+		assert_eq!(authorization.final_.ancestor.max_edges, 2);
+		assert_eq!(authorization.final_.descendant.max_edges, 3);
+		assert_eq!(authorization.final_.subtree.max_objects, 4);
+		assert_eq!(authorization.initial.ancestor.max_edges, 1);
+		assert_eq!(authorization.initial.descendant.max_depth, 0);
+		assert_eq!(authorization.initial.descendant.max_edges, 0);
+		assert_eq!(authorization.initial.descendant.max_nodes, 0);
+		assert_eq!(authorization.initial.subtree.max_depth, 0);
+		assert_eq!(authorization.initial.subtree.max_objects, 0);
+		assert_eq!(authorization.initial.subtree.max_processes, 0);
+		assert_eq!(authorization.index.delay, Some(Duration::from_millis(25)));
+
+		let source: Authorization = serde_json::from_value(serde_json::json!({
+			"index": {
+				"delay": null,
+			},
+		}))
+		.unwrap();
+		let target = resolve_authorization(source).unwrap();
+		assert_eq!(target.index.delay, None);
+		assert_eq!(
+			server::AuthorizationIndex::default().delay,
+			Some(Duration::from_millis(10))
+		);
 	}
 
 	#[test]

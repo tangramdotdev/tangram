@@ -54,7 +54,8 @@ impl Index {
 				.collect::<Vec<_>>();
 			let authorizations = crate::fdb::propagate!(
 				Self::authorize_batch_with_transaction(
-					authorize,
+					authorize.concurrency,
+					authorize.process_object_grant,
 					txn,
 					subspace,
 					&authorize_args,
@@ -63,7 +64,17 @@ impl Index {
 				.await
 			);
 			let mut authorized = Vec::new();
-			for (object, authorization) in std::iter::zip(objects, authorizations) {
+			for (object, outcome) in std::iter::zip(objects, authorizations) {
+				let authorization = match outcome {
+					crate::authorize::Outcome::Authorized(output)
+					| crate::authorize::Outcome::Denied(Some(output)) => Some(output),
+					crate::authorize::Outcome::Denied(None) => None,
+					crate::authorize::Outcome::Exhausted => {
+						return Err(crate::authorize::search_exhausted_error(
+							"the process object grant authorization search exhausted",
+						));
+					},
+				};
 				let root_permissions = root_permissions
 					.get(&object)
 					.copied()

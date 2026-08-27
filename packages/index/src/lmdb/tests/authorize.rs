@@ -294,17 +294,8 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 
 fn new_index() -> (tempfile::TempDir, Index) {
 	let authorize = super::super::AuthorizeConfig {
-		ancestor: crate::authorize::SearchConfig::default(),
-		descendant: crate::authorize::SearchConfig::default(),
-		subtree: crate::authorize::SubtreeConfig::default(),
+		process_object_grant: crate::authorize::Config::default(),
 	};
-
-	new_index_with_authorize(authorize)
-}
-
-fn new_index_with_authorize(
-	authorize: super::super::AuthorizeConfig,
-) -> (tempfile::TempDir, Index) {
 	let dir = tempfile::TempDir::new().unwrap();
 	let index = Index::new(&Config {
 		authorize,
@@ -324,9 +315,13 @@ async fn authorize(
 	index: &Index,
 	args: Vec<crate::authorize::Arg>,
 	user: &tg::user::Id,
-) -> Vec<Option<crate::authorize::Output>> {
+) -> Vec<crate::authorize::Outcome> {
 	index
-		.authorize_batch(&args, &tg::Principal::User(user.clone()))
+		.authorize_batch(
+			&args,
+			crate::authorize::Config::default(),
+			&tg::Principal::User(user.clone()),
+		)
 		.await
 		.unwrap()
 }
@@ -343,13 +338,21 @@ async fn is_authorized(
 		resource: tg::Selector::Id(resource),
 		token: None,
 	};
-	let output = index.authorize_batch(&[arg], principal).await.unwrap();
+	let output = index
+		.authorize_batch(&[arg], crate::authorize::Config::default(), principal)
+		.await
+		.unwrap();
 	output[0]
-		.as_ref()
+		.output()
 		.is_some_and(|output| output.permissions.contains(permissions))
 }
 
-async fn authorize_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id) -> f64 {
+async fn authorize_secs(
+	index: &Index,
+	config: crate::authorize::Config,
+	resource: &tg::object::Id,
+	user: &tg::user::Id,
+) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
 		permissions: node,
@@ -358,20 +361,25 @@ async fn authorize_secs(index: &Index, resource: &tg::object::Id, user: &tg::use
 	};
 	let start = Instant::now();
 	let output = index
-		.authorize_batch(&[arg], &tg::Principal::User(user.clone()))
+		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
 	assert!(
 		output[0]
-			.as_ref()
+			.output()
 			.is_some_and(|output| output.permissions.contains(node)),
 		"the node should be authorized via the root's subtree grant"
 	);
 	elapsed
 }
 
-async fn deny_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id) -> f64 {
+async fn deny_secs(
+	index: &Index,
+	config: crate::authorize::Config,
+	resource: &tg::object::Id,
+	user: &tg::user::Id,
+) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
 		permissions: node,
@@ -380,11 +388,11 @@ async fn deny_secs(index: &Index, resource: &tg::object::Id, user: &tg::user::Id
 	};
 	let start = Instant::now();
 	let output = index
-		.authorize_batch(&[arg], &tg::Principal::User(user.clone()))
+		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
-	assert!(!output[0].as_ref().unwrap().permissions.contains(node));
+	assert!(!output[0].output().unwrap().permissions.contains(node));
 	elapsed
 }
 
@@ -448,24 +456,32 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		},
 	];
 	let outputs = index
-		.authorize_batch(&args, &tg::Principal::User(writer))
+		.authorize_batch(
+			&args,
+			crate::authorize::Config::default(),
+			&tg::Principal::User(writer),
+		)
 		.await
 		.unwrap();
 	assert!(
 		outputs[0]
-			.as_ref()
+			.output()
 			.is_some_and(|output| output.permissions.contains(permission))
 	);
-	assert!(outputs[1].is_none());
-	assert!(outputs[2].is_none());
+	assert!(outputs[1].output().is_none());
+	assert!(outputs[2].output().is_none());
 
 	let outputs = index
-		.authorize_batch(&args[..1], &tg::Principal::User(outsider))
+		.authorize_batch(
+			&args[..1],
+			crate::authorize::Config::default(),
+			&tg::Principal::User(outsider),
+		)
 		.await
 		.unwrap();
 	assert!(
 		outputs[0]
-			.as_ref()
+			.output()
 			.is_some_and(|output| !output.permissions.contains(permission))
 	);
 }
@@ -848,6 +864,22 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 
 #[tokio::test]
 async fn authorize_derives_process_permissions_without_materialized_grants() {
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let subtree = crate::authorize::SubtreeConfig {
+		max_depth: 0,
+		max_objects: 0,
+		max_processes: 0,
+	};
+	let initial_config = crate::authorize::Config {
+		ancestor: crate::authorize::SearchConfig::default(),
+		descendant,
+		subtree,
+	};
 	let (_dir, index) = new_index();
 	let child = tg::process::Id::new();
 	let parent = tg::process::Id::new();
@@ -896,6 +928,20 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	}
 	txn.commit().unwrap();
 
+	let permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::NodeCommand,
+	);
+	let arg = crate::authorize::Arg {
+		permissions: permission.into(),
+		resource: tg::Selector::Id(parent.clone().into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(&[arg], initial_config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	assert!(matches!(outcomes[0], crate::authorize::Outcome::Exhausted));
+
 	for permission in [
 		tg::authorization::permission::process::Permission::NodeCommand,
 		tg::authorization::permission::process::Permission::NodeError,
@@ -932,12 +978,12 @@ async fn authorize_deep_chain_scales_linearly() {
 		max_nodes: 2 * DEPTH,
 		..Default::default()
 	};
-	let authorize = super::super::AuthorizeConfig {
+	let config = crate::authorize::Config {
 		ancestor: search,
 		descendant: search,
 		subtree: crate::authorize::SubtreeConfig::default(),
 	};
-	let (_dir, index) = new_index_with_authorize(authorize);
+	let (_dir, index) = new_index();
 
 	// Build a chain nodes[0] (root) -> ... -> nodes[DEPTH] and grant the user only
 	// the root subtree. Nothing materializes it onto the descendants, so
@@ -962,8 +1008,8 @@ async fn authorize_deep_chain_scales_linearly() {
 
 	// Compare a ratio of two depths rather than an absolute time, so the bound is
 	// machine-independent.
-	let base = authorize_secs(&index, &nodes[DEPTH / 4], &user).await;
-	let deep = authorize_secs(&index, &nodes[DEPTH], &user).await;
+	let base = authorize_secs(&index, config, &nodes[DEPTH / 4], &user).await;
+	let deep = authorize_secs(&index, config, &nodes[DEPTH], &user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"depth {} = {:.1}ms, depth {DEPTH} = {:.1}ms, ratio = {ratio:.1}x",
@@ -983,12 +1029,11 @@ async fn authorize_descendant_search_can_deny() {
 		max_edges: 0,
 		..Default::default()
 	};
-	let authorize = super::super::AuthorizeConfig {
+	let config = crate::authorize::Config {
 		ancestor,
-		descendant: crate::authorize::SearchConfig::default(),
-		subtree: crate::authorize::SubtreeConfig::default(),
+		..Default::default()
 	};
-	let (_dir, index) = new_index_with_authorize(authorize);
+	let (_dir, index) = new_index();
 	let object = object_id(0);
 	let process = tg::process::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
@@ -1003,12 +1048,12 @@ async fn authorize_descendant_search_can_deny() {
 		token: None,
 	};
 	let output = index
-		.authorize_batch(&[arg], &tg::Principal::Process(process))
+		.authorize_batch(&[arg], config, &tg::Principal::Process(process))
 		.await
 		.unwrap();
 	assert!(
 		!output[0]
-			.as_ref()
+			.output()
 			.unwrap()
 			.permissions
 			.contains(permissions)
@@ -1016,24 +1061,37 @@ async fn authorize_descendant_search_can_deny() {
 }
 
 #[tokio::test]
-async fn authorize_returns_an_error_when_searches_exhaust() {
+async fn authorize_initial_search_limits_can_disable_descendants() {
 	let ancestor = crate::authorize::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
-	let authorize = super::super::AuthorizeConfig {
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let initial_config = crate::authorize::Config {
 		ancestor,
-		descendant: crate::authorize::SearchConfig::default(),
+		descendant,
 		subtree: crate::authorize::SubtreeConfig::default(),
 	};
-	let (_dir, index) = new_index_with_authorize(authorize);
+	let (_dir, index) = new_index();
 	let child = object_id(0);
-	let parent = object_id(1);
+	let root = object_id(1);
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &child);
-	put_object(&index, &mut txn, &parent);
-	put_child(&index, &mut txn, &parent, &child);
+	put_object(&index, &mut txn, &root);
+	put_child(&index, &mut txn, &root, &child);
+	put_grant(
+		&index,
+		&mut txn,
+		&root,
+		&user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
 	txn.commit().unwrap();
 
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
@@ -1043,29 +1101,224 @@ async fn authorize_returns_an_error_when_searches_exhaust() {
 		resource: tg::Selector::Id(child.into()),
 		token: None,
 	};
-	let error = index
-		.authorize_batch(&[arg], &tg::Principal::User(user))
+	let outcomes = index
+		.authorize_batch(
+			std::slice::from_ref(&arg),
+			initial_config,
+			&tg::Principal::User(user.clone()),
+		)
 		.await
-		.unwrap_err();
+		.unwrap();
+	assert!(matches!(outcomes[0], crate::authorize::Outcome::Exhausted));
+	let final_ = index
+		.authorize_batch(
+			&[arg],
+			crate::authorize::Config::default(),
+			&tg::Principal::User(user),
+		)
+		.await
+		.unwrap();
 	assert!(
-		error
-			.to_string()
-			.contains("authorization searches exhausted")
+		final_[0]
+			.output()
+			.unwrap()
+			.permissions
+			.contains(permissions)
 	);
 }
 
 #[tokio::test]
-async fn authorize_returns_an_error_when_the_subtree_search_exhausts() {
+async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let subtree = crate::authorize::SubtreeConfig {
+		max_depth: 0,
+		max_objects: 0,
+		max_processes: 0,
+	};
+	let initial_config = crate::authorize::Config {
+		ancestor: crate::authorize::SearchConfig::default(),
+		descendant,
+		subtree,
+	};
+	let (_dir, index) = new_index();
+	let child = object_id(0);
+	let root = object_id(1);
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	for object in [&child, &root] {
+		put_object(&index, &mut txn, object);
+		put_grant(
+			&index,
+			&mut txn,
+			object,
+			&user,
+			tg::authorization::permission::object::Permission::Node,
+		);
+	}
+	put_child(&index, &mut txn, &root, &child);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(root.into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(
+			std::slice::from_ref(&arg),
+			initial_config,
+			&tg::Principal::User(user.clone()),
+		)
+		.await
+		.unwrap();
+	assert!(matches!(outcomes[0], crate::authorize::Outcome::Exhausted));
+	let final_ = index
+		.authorize_batch(
+			&[arg],
+			crate::authorize::Config::default(),
+			&tg::Principal::User(user),
+		)
+		.await
+		.unwrap();
+	assert!(
+		final_[0]
+			.output()
+			.unwrap()
+			.permissions
+			.contains(permissions)
+	);
+}
+
+#[tokio::test]
+async fn authorize_trait_returns_authorized_and_denied_outcomes() {
+	let (_dir, index) = new_index();
+	let object = object_id(0);
+	let outsider = tg::user::Id::new();
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &object);
+	put_grant(
+		&index,
+		&mut txn,
+		&object,
+		&user,
+		tg::authorization::permission::object::Permission::Node,
+	);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let resource = tg::Selector::Id(object.into());
+	let outcome = crate::Index::authorize(
+		&index,
+		resource.clone(),
+		permissions,
+		crate::authorize::Config::default(),
+		&tg::Principal::User(user),
+	)
+	.await
+	.unwrap();
+	let output = outcome.into_result().unwrap();
+	assert!(output.permissions.contains(permissions));
+	let outcome = crate::Index::authorize(
+		&index,
+		resource,
+		permissions,
+		crate::authorize::Config::default(),
+		&tg::Principal::User(outsider),
+	)
+	.await
+	.unwrap();
+	let error = outcome.into_result().unwrap_err();
+	assert!(error.to_string().contains("authorization denied"));
+}
+
+#[tokio::test]
+async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_edges: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		..Default::default()
+	};
+	let (_dir, index) = new_index();
+	let authorized = object_id(2);
+	let child = object_id(0);
+	let parent = object_id(1);
+	let user = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_object(&index, &mut txn, &authorized);
+	put_object(&index, &mut txn, &child);
+	put_object(&index, &mut txn, &parent);
+	put_child(&index, &mut txn, &parent, &child);
+	put_grant(
+		&index,
+		&mut txn,
+		&authorized,
+		&user,
+		tg::authorization::permission::object::Permission::Node,
+	);
+	txn.commit().unwrap();
+
+	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let resource = tg::Selector::Id(child.into());
+	let arg = crate::authorize::Arg {
+		permissions,
+		resource: resource.clone(),
+		token: None,
+	};
+	let authorized_arg = crate::authorize::Arg {
+		permissions,
+		resource: tg::Selector::Id(authorized.into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(
+			&[authorized_arg, arg],
+			config,
+			&tg::Principal::User(user.clone()),
+		)
+		.await
+		.unwrap();
+	assert!(matches!(
+		outcomes[0],
+		crate::authorize::Outcome::Authorized(_)
+	));
+	assert!(matches!(outcomes[1], crate::authorize::Outcome::Exhausted));
+	let outcome = crate::Index::authorize(
+		&index,
+		resource,
+		permissions,
+		config,
+		&tg::Principal::User(user),
+	)
+	.await
+	.unwrap();
+	let error = outcome.into_result().unwrap_err();
+	assert!(error.to_string().contains("authorization search exhausted"));
+}
+
+#[tokio::test]
+async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() {
 	let subtree = crate::authorize::SubtreeConfig {
 		max_objects: 0,
 		..Default::default()
 	};
-	let authorize = super::super::AuthorizeConfig {
-		ancestor: crate::authorize::SearchConfig::default(),
-		descendant: crate::authorize::SearchConfig::default(),
+	let config = crate::authorize::Config {
 		subtree,
+		..Default::default()
 	};
-	let (_dir, index) = new_index_with_authorize(authorize);
+	let (_dir, index) = new_index();
 	let object = object_id(0);
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
@@ -1081,20 +1334,28 @@ async fn authorize_returns_an_error_when_the_subtree_search_exhausts() {
 
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
+	let resource = tg::Selector::Id(object.into());
 	let arg = crate::authorize::Arg {
 		permissions,
-		resource: tg::Selector::Id(object.into()),
+		resource: resource.clone(),
 		token: None,
 	};
-	let error = index
-		.authorize_batch(&[arg], &tg::Principal::User(user))
+	let outcomes = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
-		.unwrap_err();
-	assert!(
-		error
-			.to_string()
-			.contains("subtree authorization search exhausted")
-	);
+		.unwrap();
+	assert!(matches!(outcomes[0], crate::authorize::Outcome::Exhausted));
+	let outcome = crate::Index::authorize(
+		&index,
+		resource,
+		permissions,
+		config,
+		&tg::Principal::User(user),
+	)
+	.await
+	.unwrap();
+	let error = outcome.into_result().unwrap_err();
+	assert!(error.to_string().contains("authorization search exhausted"));
 }
 
 #[tokio::test]
@@ -1107,12 +1368,12 @@ async fn authorize_wide_fanout_scales_linearly() {
 		max_nodes: 2 * WIDE,
 		..Default::default()
 	};
-	let authorize = super::super::AuthorizeConfig {
+	let config = crate::authorize::Config {
 		ancestor: search,
 		descendant: search,
 		subtree: crate::authorize::SubtreeConfig::default(),
 	};
-	let (_dir, index) = new_index_with_authorize(authorize);
+	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let base = object_id(0);
 	let wide = object_id(1);
@@ -1129,8 +1390,8 @@ async fn authorize_wide_fanout_scales_linearly() {
 	}
 	txn.commit().unwrap();
 
-	let base_elapsed = deny_secs(&index, &base, &user).await;
-	let wide_elapsed = deny_secs(&index, &wide, &user).await;
+	let base_elapsed = deny_secs(&index, config, &base, &user).await;
+	let wide_elapsed = deny_secs(&index, config, &wide, &user).await;
 	let ratio = wide_elapsed / base_elapsed;
 	eprintln!(
 		"width {BASE} = {:.1}ms, width {WIDE} = {:.1}ms, ratio = {ratio:.1}x",
@@ -1176,11 +1437,11 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 	];
 	let reversed = vec![args[1].clone(), args[0].clone()];
 	let output = authorize(&index, args, &user).await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(node));
-	assert!(!output[1].as_ref().unwrap().permissions.contains(node));
+	assert!(output[0].output().unwrap().permissions.contains(node));
+	assert!(!output[1].output().unwrap().permissions.contains(node));
 	let output = authorize(&index, reversed, &user).await;
-	assert!(!output[0].as_ref().unwrap().permissions.contains(node));
-	assert!(output[1].as_ref().unwrap().permissions.contains(node));
+	assert!(!output[0].output().unwrap().permissions.contains(node));
+	assert!(output[1].output().unwrap().permissions.contains(node));
 }
 
 #[tokio::test]
@@ -1222,7 +1483,7 @@ async fn authorize_keeps_ordinary_and_derived_subtree_results_separate() {
 	assert!(
 		output
 			.iter()
-			.all(|output| output.as_ref().unwrap().permissions.contains(subtree))
+			.all(|outcome| outcome.output().unwrap().permissions.contains(subtree))
 	);
 }
 
@@ -1270,7 +1531,7 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(subtree));
+	assert!(output[0].output().unwrap().permissions.contains(subtree));
 }
 
 #[tokio::test]
@@ -1327,7 +1588,7 @@ async fn authorize_visits_shared_descendants_once() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(subtree));
+	assert!(output[0].output().unwrap().permissions.contains(subtree));
 }
 
 #[tokio::test]
@@ -1365,7 +1626,7 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(subtree));
+	assert!(output[0].output().unwrap().permissions.contains(subtree));
 }
 
 #[tokio::test]
@@ -1404,7 +1665,7 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 	.await;
 	assert!(
 		output[0]
-			.as_ref()
+			.output()
 			.unwrap()
 			.permissions
 			.contains(permissions)
@@ -1445,7 +1706,7 @@ async fn authorize_ordinary_cycle_with_an_authorized_escape() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(node));
+	assert!(output[0].output().unwrap().permissions.contains(node));
 }
 
 #[tokio::test]
@@ -1505,7 +1766,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(subtree));
+	assert!(output[0].output().unwrap().permissions.contains(subtree));
 }
 
 #[tokio::test]
@@ -1586,5 +1847,5 @@ async fn authorize_uses_cached_subject_membership() {
 		&user,
 	)
 	.await;
-	assert!(output[0].as_ref().unwrap().permissions.contains(node));
+	assert!(output[0].output().unwrap().permissions.contains(node));
 }

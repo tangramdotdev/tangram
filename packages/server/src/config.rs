@@ -175,7 +175,47 @@ pub struct Stripe {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Authorization {
+	pub final_: AuthorizationSearches,
+
+	pub index: AuthorizationIndex,
+
+	pub initial: AuthorizationSearches,
+
 	pub tokens: Option<TokenKeys>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuthorizationIndex {
+	pub delay: Option<Duration>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AuthorizationSearches {
+	pub ancestor: AuthorizationSearch,
+
+	pub descendant: AuthorizationSearch,
+
+	pub subtree: AuthorizationSubtree,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuthorizationSearch {
+	pub max_depth: usize,
+
+	pub max_edges: usize,
+
+	pub max_nodes: usize,
+
+	pub page_size: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuthorizationSubtree {
+	pub max_depth: usize,
+
+	pub max_objects: usize,
+
+	pub max_processes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -215,6 +255,9 @@ impl Default for AuthenticationTokens {
 impl Default for Authorization {
 	fn default() -> Self {
 		Self {
+			final_: AuthorizationSearches::default(),
+			index: AuthorizationIndex::default(),
+			initial: authorization_initial_default(),
 			tokens: default_authorization_tokens(),
 		}
 	}
@@ -371,42 +414,7 @@ pub enum Index {
 
 #[derive(Clone, Debug)]
 pub struct FdbIndexAuthorize {
-	pub ancestor: IndexAuthorizeSearch,
-
 	pub concurrency: usize,
-
-	pub descendant: IndexAuthorizeSearch,
-
-	pub subtree: IndexAuthorizeSubtree,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct LmdbIndexAuthorize {
-	pub ancestor: IndexAuthorizeSearch,
-
-	pub descendant: IndexAuthorizeSearch,
-
-	pub subtree: IndexAuthorizeSubtree,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexAuthorizeSearch {
-	pub max_depth: usize,
-
-	pub max_edges: usize,
-
-	pub max_nodes: usize,
-
-	pub page_size: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexAuthorizeSubtree {
-	pub max_depth: usize,
-
-	pub max_objects: usize,
-
-	pub max_processes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -432,8 +440,6 @@ pub struct FdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct LmdbIndex {
-	pub authorize: LmdbIndexAuthorize,
-
 	pub map_size: usize,
 
 	pub path: PathBuf,
@@ -1277,7 +1283,15 @@ impl Default for Index {
 	}
 }
 
-impl Default for IndexAuthorizeSearch {
+impl Default for AuthorizationIndex {
+	fn default() -> Self {
+		Self {
+			delay: Some(Duration::from_millis(10)),
+		}
+	}
+}
+
+impl Default for AuthorizationSearch {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
@@ -1288,7 +1302,7 @@ impl Default for IndexAuthorizeSearch {
 	}
 }
 
-impl Default for IndexAuthorizeSubtree {
+impl Default for AuthorizationSubtree {
 	fn default() -> Self {
 		Self {
 			max_depth: 16,
@@ -1300,12 +1314,7 @@ impl Default for IndexAuthorizeSubtree {
 
 impl Default for FdbIndexAuthorize {
 	fn default() -> Self {
-		Self {
-			ancestor: IndexAuthorizeSearch::default(),
-			concurrency: 64,
-			descendant: IndexAuthorizeSearch::default(),
-			subtree: IndexAuthorizeSubtree::default(),
-		}
+		Self { concurrency: 64 }
 	}
 }
 
@@ -1328,7 +1337,6 @@ impl Default for FdbIndex {
 impl Default for LmdbIndex {
 	fn default() -> Self {
 		Self {
-			authorize: LmdbIndexAuthorize::default(),
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("index.lmdb"),
 			read_request_batch_size: 64,
@@ -1848,6 +1856,27 @@ fn default_ip_ranges() -> Vec<IpRange> {
 
 fn default_dns() -> Vec<Ipv4Addr> {
 	Vec::new()
+}
+
+fn authorization_initial_default() -> AuthorizationSearches {
+	let ancestor = AuthorizationSearch::default();
+	let descendant = AuthorizationSearch {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		page_size: ancestor.page_size,
+	};
+	let subtree = AuthorizationSubtree {
+		max_depth: 0,
+		max_objects: 0,
+		max_processes: 0,
+	};
+
+	AuthorizationSearches {
+		ancestor,
+		descendant,
+		subtree,
+	}
 }
 
 fn database_retry_default() -> Retry {

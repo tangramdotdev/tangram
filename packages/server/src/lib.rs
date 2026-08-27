@@ -180,8 +180,16 @@ impl Owned {
 
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
-		// Validate the usage configuration.
+		// Validate the configuration.
 		config.usage.validate()?;
+		let initial_authorization = authorization_search_config(&config.authorization.initial);
+		initial_authorization
+			.validate()
+			.map_err(|error| tg::error!(!error, "invalid initial authorization configuration"))?;
+		let final_authorization = authorization_search_config(&config.authorization.final_);
+		final_authorization
+			.validate()
+			.map_err(|error| tg::error!(!error, "invalid final authorization configuration"))?;
 
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
@@ -648,24 +656,8 @@ impl Server {
 				#[cfg(feature = "foundationdb")]
 				{
 					let authorize = tangram_index::fdb::AuthorizeConfig {
-						ancestor: tangram_index::authorize::SearchConfig {
-							max_depth: options.authorize.ancestor.max_depth,
-							max_edges: options.authorize.ancestor.max_edges,
-							max_nodes: options.authorize.ancestor.max_nodes,
-							page_size: options.authorize.ancestor.page_size,
-						},
 						concurrency: options.authorize.concurrency,
-						descendant: tangram_index::authorize::SearchConfig {
-							max_depth: options.authorize.descendant.max_depth,
-							max_edges: options.authorize.descendant.max_edges,
-							max_nodes: options.authorize.descendant.max_nodes,
-							page_size: options.authorize.descendant.page_size,
-						},
-						subtree: tangram_index::authorize::SubtreeConfig {
-							max_depth: options.authorize.subtree.max_depth,
-							max_objects: options.authorize.subtree.max_objects,
-							max_processes: options.authorize.subtree.max_processes,
-						},
+						process_object_grant: final_authorization,
 					};
 					let options = tangram_index::fdb::Options {
 						authorize,
@@ -697,23 +689,7 @@ impl Server {
 				#[cfg(feature = "lmdb")]
 				{
 					let authorize = tangram_index::lmdb::AuthorizeConfig {
-						ancestor: tangram_index::authorize::SearchConfig {
-							max_depth: options.authorize.ancestor.max_depth,
-							max_edges: options.authorize.ancestor.max_edges,
-							max_nodes: options.authorize.ancestor.max_nodes,
-							page_size: options.authorize.ancestor.page_size,
-						},
-						descendant: tangram_index::authorize::SearchConfig {
-							max_depth: options.authorize.descendant.max_depth,
-							max_edges: options.authorize.descendant.max_edges,
-							max_nodes: options.authorize.descendant.max_nodes,
-							page_size: options.authorize.descendant.page_size,
-						},
-						subtree: tangram_index::authorize::SubtreeConfig {
-							max_depth: options.authorize.subtree.max_depth,
-							max_objects: options.authorize.subtree.max_objects,
-							max_processes: options.authorize.subtree.max_processes,
-						},
+						process_object_grant: final_authorization,
 					};
 					let path = directory.join(&options.path);
 					let config = tangram_index::lmdb::Config {
@@ -1672,6 +1648,33 @@ impl Drop for Owned {
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();
+	}
+}
+
+fn authorization_search_config(
+	config: &self::config::AuthorizationSearches,
+) -> tangram_index::authorize::Config {
+	let ancestor = tangram_index::authorize::SearchConfig {
+		max_depth: config.ancestor.max_depth,
+		max_edges: config.ancestor.max_edges,
+		max_nodes: config.ancestor.max_nodes,
+		page_size: config.ancestor.page_size,
+	};
+	let descendant = tangram_index::authorize::SearchConfig {
+		max_depth: config.descendant.max_depth,
+		max_edges: config.descendant.max_edges,
+		max_nodes: config.descendant.max_nodes,
+		page_size: config.descendant.page_size,
+	};
+	let subtree = tangram_index::authorize::SubtreeConfig {
+		max_depth: config.subtree.max_depth,
+		max_objects: config.subtree.max_objects,
+		max_processes: config.subtree.max_processes,
+	};
+	tangram_index::authorize::Config {
+		ancestor,
+		descendant,
+		subtree,
 	}
 }
 
