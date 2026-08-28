@@ -51,11 +51,6 @@ def build_background [path: string, name: string] {
 	}
 }
 
-let acquire_watch = (
-	tg checkpoint watch process.spawn.cached.lease.acquire
-	| from json
-	| get watch
-)
 let cancel_watch = (
 	tg checkpoint watch process.spawn.candidate.cancel
 	| from json
@@ -80,6 +75,11 @@ tg checkpoint wait runner.process.start $start_watch 1 | ignore
 
 # Hold the first caller immediately before it releases the candidate's lease.
 let cancel = tg checkpoint wait process.spawn.candidate.cancel $cancel_watch 0 | from json
+let acquire_watch = (
+	tg checkpoint watch process.spawn.cached.lease.acquire --params ({ process: $cancel.params.process } | to json --raw)
+	| from json
+	| get watch
+)
 
 # Prevent the second caller from selecting the remote result.
 tg remote delete default
