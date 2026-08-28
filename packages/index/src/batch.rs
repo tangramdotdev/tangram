@@ -170,7 +170,13 @@ mod tests {
 					organization,
 				}),
 				Item::PutProcessObjectGrants(crate::process::object::grant::Arg {
-					authorize: crate::authorize::Config::default(),
+					authorize: crate::authorize::Config {
+						ancestor: crate::authorize::SearchConfig {
+							max_depth: 7,
+							..Default::default()
+						},
+						..Default::default()
+					},
 					created_at: 1,
 					expires_at: None,
 					principal: tg::Principal::Process(process.clone()),
@@ -212,7 +218,7 @@ mod tests {
 		let Item::PutProcessObjectGrants(process_grant_arg) = &arg.items[10] else {
 			panic!();
 		};
-		assert_eq!(process_grant_arg.authorize.ancestor.max_depth, 16);
+		assert_eq!(process_grant_arg.authorize.ancestor.max_depth, 7);
 		let Item::PutSandbox(sandbox_arg) = &arg.items[11] else {
 			panic!();
 		};
