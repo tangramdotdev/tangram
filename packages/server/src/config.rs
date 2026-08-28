@@ -83,8 +83,31 @@ pub enum Archive {
 	S3(S3Archive),
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct S3Archive {}
+#[derive(Clone, Debug)]
+pub struct S3Archive {
+	pub access_key: String,
+
+	pub bucket: String,
+
+	pub endpoint: Uri,
+
+	pub pool: ArchivePool,
+
+	pub reconnect: Reconnect,
+
+	pub region: String,
+
+	pub secret_key: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ArchivePool {
+	pub max: usize,
+
+	pub min: usize,
+
+	pub ttl: Option<Duration>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
@@ -1170,6 +1193,16 @@ impl Default for Config {
 	}
 }
 
+impl Default for ArchivePool {
+	fn default() -> Self {
+		Self {
+			max: 64,
+			min: 8,
+			ttl: Some(Duration::from_mins(5)),
+		}
+	}
+}
+
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
@@ -1514,6 +1547,18 @@ impl Default for Process {
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for Reconnect {
+	fn default() -> Self {
+		let options = tangram_futures::retry::Options::default();
+		Self {
+			backoff: options.backoff,
+			jitter: options.jitter,
+			max_delay: options.max_delay,
+			max_retries: options.max_retries,
 		}
 	}
 }

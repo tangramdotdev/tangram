@@ -78,7 +78,9 @@ async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.50"
 async_zip = { version = "0.0.19", features = ["full"] }
+aws-credential-types = "1"
 aws-lc-rs = "1"
+aws-sigv4 = "1"
 axum = { version = "0.8", features = ["ws"] }
 blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
@@ -161,6 +163,7 @@ pin-project = "1"
 postgres-protocol = "0.6"
 pretty_assertions = "1"
 proc-macro2 = "1"
+quick-xml = { version = "0.41", features = ["serialize"] }
 quote = "1"
 radix_trie = "0.3.0"
 rand = "0.10"

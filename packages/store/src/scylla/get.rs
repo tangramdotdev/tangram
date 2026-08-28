@@ -56,6 +56,7 @@ impl Store {
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
 			bytes: Option<&'a [u8]>,
+			stored_at: i64,
 		}
 		let result = self
 			.session
@@ -79,7 +80,7 @@ impl Store {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			length: None,
-			stored_at: 0,
+			stored_at: row.stored_at,
 		}))
 	}
 }

@@ -312,7 +312,7 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
 		}
 
-		let entry = self.object_archive_outbox_entry(arg.id.clone());
+		let entry = self.object_archive_outbox_entry(arg.id.clone(), arg.stored_at);
 		let outbox_arg = crate::store::object::archive::outbox::put::Arg {
 			entries: vec![entry.clone()],
 		};
@@ -345,7 +345,7 @@ impl Server {
 
 		let entries = args
 			.iter()
-			.map(|arg| self.object_archive_outbox_entry(arg.id.clone()))
+			.map(|arg| self.object_archive_outbox_entry(arg.id.clone(), arg.stored_at))
 			.collect::<Vec<_>>();
 		let partitions = entries
 			.iter()
@@ -370,6 +370,7 @@ impl Server {
 	fn object_archive_outbox_entry(
 		&self,
 		id: tg::object::Id,
+		stored_at: i64,
 	) -> crate::store::object::archive::outbox::Entry {
 		let partition_total = self.config.object.archive_outbox.partition_total;
 		let bytes = id.to_bytes();
@@ -378,7 +379,11 @@ impl Server {
 		suffix[8 - (bytes.len() - start)..].copy_from_slice(&bytes[start..]);
 		let partition = u64::from_be_bytes(suffix) % partition_total;
 
-		crate::store::object::archive::outbox::Entry { id, partition }
+		crate::store::object::archive::outbox::Entry {
+			id,
+			partition,
+			stored_at,
+		}
 	}
 
 	fn spawn_publish_object_archive_outbox_notifications(&self, partitions: BTreeSet<u64>) {

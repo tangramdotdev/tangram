@@ -1,7 +1,7 @@
 use {
 	crate::object,
 	std::{
-		collections::{BTreeMap, BTreeSet, HashMap},
+		collections::{BTreeMap, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
 	},
 	tangram_client::prelude::*,
@@ -31,7 +31,7 @@ struct Log {
 #[derive(Default)]
 struct State {
 	logs: Logs,
-	object_archive_outbox: BTreeSet<(u64, tg::object::Id)>,
+	object_archive_outbox: BTreeMap<(u64, tg::object::Id), i64>,
 	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 	objects: Objects,
 }

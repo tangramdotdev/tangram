@@ -9,12 +9,13 @@ impl Store {
 		arg: outbox::delete::Arg,
 	) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
+			let timestamp = super::object_timestamp(entry.stored_at)?;
 			let partition = entry
 				.partition
 				.to_i64()
 				.ok_or_else(|| tg::error!("the object archive outbox partition exceeded an i64"))?;
 			let id = entry.id.to_bytes();
-			let params = (partition, id.as_ref());
+			let params = (timestamp, partition, id.as_ref());
 			self.session
 				.execute_unpaged(&self.statements.delete_object_archive_outbox_entry, params)
 				.await
@@ -57,6 +58,7 @@ impl Store {
 		struct Row<'a> {
 			id: &'a [u8],
 			partition: i64,
+			stored_at: i64,
 		}
 
 		let entries = result
@@ -70,7 +72,11 @@ impl Store {
 				let partition = row.partition.to_u64().ok_or_else(|| {
 					tg::error!("the object archive outbox partition was negative")
 				})?;
-				let entry = outbox::Entry { id, partition };
+				let entry = outbox::Entry {
+					id,
+					partition,
+					stored_at: row.stored_at,
+				};
 				Ok(entry)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -80,12 +86,13 @@ impl Store {
 
 	pub async fn put_object_archive_outbox_entries(&self, arg: outbox::put::Arg) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
+			let timestamp = super::object_timestamp(entry.stored_at)?;
 			let partition = entry
 				.partition
 				.to_i64()
 				.ok_or_else(|| tg::error!("the object archive outbox partition exceeded an i64"))?;
 			let id = entry.id.to_bytes();
-			let params = (id.as_ref(), partition);
+			let params = (id.as_ref(), partition, entry.stored_at, timestamp);
 			self.session
 				.execute_unpaged(&self.statements.put_object_archive_outbox_entry, params)
 				.await

@@ -15,6 +15,7 @@ create table if not exists object_index_outbox (
 create table if not exists object_archive_outbox (
 	id blob,
 	partition bigint,
+	stored_at bigint,
 	primary key ((partition), id)
 );
 

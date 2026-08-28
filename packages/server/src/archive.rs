@@ -10,11 +10,32 @@ pub enum Archive {
 }
 
 impl Archive {
-	#[must_use]
-	pub fn new_s3(_config: &crate::config::S3Archive) -> Self {
-		let config = archive::s3::Config {};
-		let archive = archive::s3::Archive::new(&config);
-		Self::S3(archive)
+	#[must_use = "the archive construction result must be checked"]
+	pub fn new_s3(config: &crate::config::S3Archive) -> tg::Result<Self> {
+		let pool = tangram_pool::Options {
+			max: config.pool.max,
+			min: config.pool.min,
+			shared: 1,
+			ttl: config.pool.ttl,
+		};
+		let reconnect = tangram_futures::retry::Options {
+			backoff: config.reconnect.backoff,
+			jitter: config.reconnect.jitter,
+			max_delay: config.reconnect.max_delay,
+			max_retries: config.reconnect.max_retries,
+		};
+		let config = archive::s3::Config {
+			access_key: config.access_key.clone(),
+			bucket: config.bucket.clone(),
+			endpoint: config.endpoint.clone(),
+			pool,
+			reconnect,
+			region: config.region.clone(),
+			secret_key: config.secret_key.clone(),
+		};
+		let archive = archive::s3::Archive::new(&config)?;
+
+		Ok(Self::S3(archive))
 	}
 }
 

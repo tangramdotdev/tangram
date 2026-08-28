@@ -48,11 +48,22 @@ impl Store {
 		arg: outbox::delete::Arg,
 	) -> tg::Result<()> {
 		for entry in arg.entries {
+			let entry_stored_at = entry.stored_at;
 			let key = Key::ObjectArchiveOutbox(entry);
-			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|error| {
-					tg::error!(!error, "failed to delete an object archive outbox entry")
-				})?;
+			let key = key.pack_to_vec();
+			let Some(bytes) = db.get(transaction, &key).map_err(|error| {
+				tg::error!(!error, "failed to get an object archive outbox entry")
+			})?
+			else {
+				continue;
+			};
+			let stored_at = deserialize_stored_at(bytes)?;
+			if stored_at > entry_stored_at {
+				continue;
+			}
+			db.delete(transaction, &key).map_err(|error| {
+				tg::error!(!error, "failed to delete an object archive outbox entry")
+			})?;
 		}
 
 		Ok(())
@@ -73,7 +84,7 @@ impl Store {
 				if entries.len() >= arg.batch_size {
 					return Ok(entries);
 				}
-				let (key, _) = entry.map_err(|error| {
+				let (key, value) = entry.map_err(|error| {
 					tg::error!(!error, "failed to get an object archive outbox entry")
 				})?;
 				let (_, partition, id): (i32, u64, Vec<u8>) =
@@ -81,7 +92,12 @@ impl Store {
 						tg::error!(!error, "failed to unpack an object archive outbox key")
 					})?;
 				let id = tg::object::Id::from_slice(&id)?;
-				entries.push(outbox::Entry { id, partition });
+				let stored_at = deserialize_stored_at(value)?;
+				entries.push(outbox::Entry {
+					id,
+					partition,
+					stored_at,
+				});
 			}
 		}
 
@@ -94,8 +110,19 @@ impl Store {
 		arg: outbox::put::Arg,
 	) -> tg::Result<()> {
 		for entry in arg.entries {
+			let entry_stored_at = entry.stored_at;
 			let key = Key::ObjectArchiveOutbox(entry);
-			db.put(transaction, &key.pack_to_vec(), &[])
+			let key = key.pack_to_vec();
+			let stored_at = db
+				.get(transaction, &key)
+				.map_err(|error| {
+					tg::error!(!error, "failed to get an object archive outbox entry")
+				})?
+				.map(deserialize_stored_at)
+				.transpose()?
+				.unwrap_or(i64::MIN)
+				.max(entry_stored_at);
+			db.put(transaction, &key, &stored_at.to_be_bytes())
 				.map_err(|error| {
 					tg::error!(
 						!error,
@@ -106,6 +133,15 @@ impl Store {
 
 		Ok(())
 	}
+}
+
+fn deserialize_stored_at(bytes: &[u8]) -> tg::Result<i64> {
+	let bytes = bytes
+		.try_into()
+		.map_err(|_| tg::error!("invalid object archive outbox entry data"))?;
+	let stored_at = i64::from_be_bytes(bytes);
+
+	Ok(stored_at)
 }
 
 #[cfg(test)]
@@ -129,12 +165,20 @@ mod tests {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"object"));
-		let entry = outbox::Entry { id, partition: 1 };
+		let entry = outbox::Entry {
+			id,
+			partition: 1,
+			stored_at: 1,
+		};
+		let newer = outbox::Entry {
+			stored_at: 2,
+			..entry.clone()
+		};
 		{
 			let store = store(temp.path());
 			store
 				.put_object_archive_outbox_entries(outbox::put::Arg {
-					entries: vec![entry.clone()],
+					entries: vec![entry.clone(), newer.clone()],
 				})
 				.await
 				.unwrap();
@@ -149,10 +193,25 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(entries, vec![entry.clone()]);
+		assert_eq!(entries, vec![newer.clone()]);
 		store
 			.delete_object_archive_outbox_entries(outbox::delete::Arg {
 				entries: vec![entry],
+			})
+			.await
+			.unwrap();
+		let entries = store
+			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				batch_size: usize::MAX,
+				partition_end: 2,
+				partition_start: 0,
+			})
+			.await
+			.unwrap();
+		assert_eq!(entries, vec![newer.clone()]);
+		store
+			.delete_object_archive_outbox_entries(outbox::delete::Arg {
+				entries: vec![newer],
 			})
 			.await
 			.unwrap();

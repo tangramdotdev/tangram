@@ -298,9 +298,13 @@ impl Server {
 		}
 
 		// Create the archive.
-		let archive = config.archive.as_ref().map(|config| match config {
-			self::config::Archive::S3(config) => Archive::new_s3(config),
-		});
+		let archive = config
+			.archive
+			.as_ref()
+			.map(|config| match config {
+				self::config::Archive::S3(config) => Archive::new_s3(config),
+			})
+			.transpose()?;
 
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {

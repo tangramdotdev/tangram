@@ -128,7 +128,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select bytes
+				select bytes, stored_at
 				from objects
 				where id = ?;
 			"
@@ -157,6 +157,7 @@ impl Store {
 		let statement = indoc!(
 			"
 				delete from object_archive_outbox
+				using timestamp ?
 				where partition = ? and id = ?;
 			"
 		);
@@ -173,7 +174,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select id, partition
+				select id, partition, stored_at
 				from object_archive_outbox
 				where partition in ?
 				limit ?;
@@ -192,8 +193,9 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into object_archive_outbox (id, partition)
-				values (?, ?);
+				insert into object_archive_outbox (id, partition, stored_at)
+				values (?, ?, ?)
+				using timestamp ?;
 			"
 		);
 		let mut put_object_archive_outbox_entry =

@@ -781,8 +781,11 @@ impl Indexer {
 		let mut error = None;
 		for (entry, result) in results {
 			match result {
-				Ok(true) => completed.push(entry),
-				Ok(false) => {},
+				Ok(Some(stored_at)) => {
+					let entry = crate::store::object::archive::outbox::Entry { stored_at, ..entry };
+					completed.push(entry);
+				},
+				Ok(None) => {},
 				Err(current) => {
 					error.get_or_insert(current);
 				},
@@ -810,7 +813,7 @@ impl Indexer {
 	async fn object_archive_outbox_entry(
 		&self,
 		entry: &crate::store::object::archive::outbox::Entry,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<i64>> {
 		let arg = crate::store::object::get::Arg {
 			id: entry.id.clone(),
 		};
@@ -818,10 +821,14 @@ impl Indexer {
 			|error| tg::error!(!error, id = %entry.id, "failed to get an object from the store"),
 		)?;
 		let Some(object) = output.object else {
-			return Ok(false);
+			return Ok(None);
 		};
+		if object.stored_at < entry.stored_at {
+			return Ok(None);
+		}
+		let stored_at = object.stored_at;
 		let Some(bytes) = object.bytes else {
-			return Ok(false);
+			return Ok(None);
 		};
 		let Some(archive) = &self.server.archive else {
 			return Err(tg::error!("the archive is unavailable"));
@@ -829,12 +836,13 @@ impl Indexer {
 		let arg = tangram_archive::object::put::Arg {
 			bytes: bytes.into_owned().into(),
 			id: entry.id.clone(),
+			stored_at,
 		};
 		archive.put_object(arg).await.map_err(
 			|error| tg::error!(!error, id = %entry.id, "failed to put an object in the archive"),
 		)?;
 
-		Ok(true)
+		Ok(Some(stored_at))
 	}
 
 	async fn object_index_outbox_task(

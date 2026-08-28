@@ -159,9 +159,45 @@ pub enum Archive {
 	S3(S3Archive),
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3Archive {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access_key: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub bucket: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub endpoint: Option<Uri>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<ArchivePool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub region: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub secret_key: Option<String>,
+}
+
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct S3Archive {}
+pub struct ArchivePool {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
@@ -2001,7 +2037,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.advanced = resolve_advanced(source);
 	}
 	if let Some(source) = source.archive {
-		target.archive = Some(resolve_archive(&source));
+		target.archive = Some(resolve_archive(source)?);
 	}
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
@@ -2120,10 +2156,47 @@ fn resolve_role(source: Role) -> server::Role {
 	}
 }
 
-fn resolve_archive(source: &Archive) -> server::Archive {
-	match source {
-		Archive::S3(_) => server::Archive::S3(server::S3Archive {}),
+fn resolve_archive(source: Archive) -> tg::Result<server::Archive> {
+	let target = match source {
+		Archive::S3(source) => server::Archive::S3(resolve_s3_archive(source)?),
+	};
+
+	Ok(target)
+}
+
+fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
+	let access_key = required(source.access_key, "archive.access_key")?;
+	let bucket = required(source.bucket, "archive.bucket")?;
+	let endpoint = required(source.endpoint, "archive.endpoint")?;
+	let mut pool = server::ArchivePool::default();
+	if let Some(source) = source.pool {
+		if let Some(value) = source.max {
+			pool.max = value;
+		}
+		if let Some(value) = source.min {
+			pool.min = value;
+		}
+		if let Some(value) = source.ttl {
+			pool.ttl = Some(value);
+		}
 	}
+	let reconnect = source
+		.reconnect
+		.map(|source| resolve_reconnect_with_default(source, server::Reconnect::default()))
+		.unwrap_or_default();
+	let region = required(source.region, "archive.region")?;
+	let secret_key = required(source.secret_key, "archive.secret_key")?;
+	let target = server::S3Archive {
+		access_key,
+		bucket,
+		endpoint,
+		pool,
+		reconnect,
+		region,
+		secret_key,
+	};
+
+	Ok(target)
 }
 
 fn resolve_advanced(source: Advanced) -> server::Advanced {
@@ -3041,6 +3114,25 @@ pub(crate) fn resolve_reconnect(source: Reconnect) -> tg::Result<server::Reconne
 	Ok(target)
 }
 
+fn resolve_reconnect_with_default(
+	source: Reconnect,
+	mut target: server::Reconnect,
+) -> server::Reconnect {
+	if let Some(value) = source.backoff {
+		target.backoff = value;
+	}
+	if let Some(value) = source.jitter {
+		target.jitter = value;
+	}
+	if let Some(value) = source.max_delay {
+		target.max_delay = value;
+	}
+	if let Some(value) = source.max_retries {
+		target.max_retries = value;
+	}
+	target
+}
+
 pub(crate) fn resolve_retry(source: Retry) -> tg::Result<server::Retry> {
 	let backoff = required(source.backoff, "retry.backoff")?;
 	let jitter = required(source.jitter, "retry.jitter")?;
@@ -3662,6 +3754,54 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn parses_and_resolves_an_s3_archive() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+				"access_key": "access",
+				"bucket": "bucket",
+				"endpoint": "https://objects.example.com",
+				"pool": {
+					"max": 32,
+					"min": 4,
+					"ttl": 30,
+				},
+				"reconnect": {
+					"max_retries": 12,
+				},
+				"region": "us-east-1",
+				"secret_key": "secret",
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let server::Archive::S3(target) = target.archive.unwrap();
+
+		assert_eq!(target.access_key, "access");
+		assert_eq!(target.bucket, "bucket");
+		assert_eq!(target.endpoint.as_str(), "https://objects.example.com");
+		assert_eq!(target.pool.max, 32);
+		assert_eq!(target.pool.min, 4);
+		assert_eq!(target.pool.ttl, Some(Duration::from_secs(30)));
+		assert_eq!(target.reconnect.max_retries, 12);
+		assert_eq!(target.region, "us-east-1");
+		assert_eq!(target.secret_key, "secret");
+	}
+
+	#[test]
+	fn rejects_an_incomplete_s3_archive() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+			},
+		}))
+		.unwrap();
+		let error = resolve_server_config(&source).unwrap_err();
+
+		assert_eq!(error.to_string(), "a required config field is missing");
+	}
 
 	#[test]
 	fn parses_primary_region() {
