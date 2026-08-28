@@ -13,6 +13,7 @@ const OBJECT_CONCURRENCY: usize = 64;
 pub struct Config {
 	pub addr: String,
 	pub connections: Option<usize>,
+	pub keepalive: bool,
 	pub keyspace: String,
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
@@ -52,6 +53,10 @@ impl Store {
 	pub async fn new(config: &Config) -> tg::Result<Self> {
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
+		if !config.keepalive {
+			builder.config.keepalive_interval = None;
+			builder.config.keepalive_timeout = None;
+		}
 		if let (Some(username), Some(password)) = (&config.username, &config.password) {
 			builder = builder.user(username, password);
 		}

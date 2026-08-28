@@ -64,6 +64,7 @@ impl Store {
 		let config = store::scylla::Config {
 			addr: config.addr.clone(),
 			connections: config.connections,
+			keepalive: config.keepalive,
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution,

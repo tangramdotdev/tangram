@@ -908,6 +908,9 @@ pub struct ScyllaStore {
 	pub connections: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub keepalive: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub keyspace: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2840,6 +2843,7 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 	let target = server::ScyllaStore {
 		addr,
 		connections: source.connections,
+		keepalive: source.keepalive.unwrap_or(true),
 		keyspace,
 		password: source.password,
 		speculative_execution,

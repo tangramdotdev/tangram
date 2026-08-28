@@ -595,6 +595,8 @@ pub struct ScyllaStore {
 
 	pub connections: Option<usize>,
 
+	pub keepalive: bool,
+
 	pub keyspace: String,
 
 	pub password: Option<String>,
