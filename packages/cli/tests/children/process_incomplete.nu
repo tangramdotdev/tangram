@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# An incomplete local children list falls through to a remote instead of appearing empty.
+# A process's complete direct children list is available before its child processes are pulled.
 
 let remote = server spawn --cloud --name remote
 let source = server spawn --name source --config {
@@ -27,7 +27,7 @@ tg --url $remote.url wait $process
 let remote_children = tg --url $remote.url process children --local $process | from json
 assert equal ($remote_children | length) 1 "the remote process should have a child"
 
-# Pause a pull after storing the process data but before completing its children list.
+# Pause a pull after storing the process data but before the sync finishes.
 let watch = (
 	tg checkpoint watch sync.get.store.process --params ({ id: $process } | to json)
 	| from json
@@ -40,17 +40,18 @@ let pull = job spawn {
 }
 tg checkpoint wait sync.get.store.process $watch 0 | ignore
 
-failure (tg process children --local $process | complete) "incomplete local children should not appear empty"
-
-# The default location order should fall through to the remote.
-let children = tg process children $process | from json
+# The direct children list is authoritative even though the child process was not pulled.
+let children = tg process children --local $process | from json
 let remote_child = $remote_children | first | get process
 let child = $children | first | get process
-assert equal ($child | split row '?' | first) ($remote_child | split row '?' | first) "the child process should be read from the remote"
+let child_id = $child | split row '?' | first
+assert equal $child_id ($remote_child | split row '?' | first) "the local children list should match the remote"
 assert ($remote_child | str contains '?location=local') "the remote should describe its child as local"
-assert ($child | str contains '?location=remote') "the local server should describe the remote child as remote"
+assert ($child | str contains '?location=local') "the local server should describe its authoritative child referent as local"
+failure (tg process get --local $child_id | complete) "the child process should not be present locally"
+success (tg process get $child_id | complete) "the child process should still be readable from the remote"
 
-# Complete the pull and read the authoritative local children list.
+# Complete the pull and confirm the direct children list remains available locally.
 tg checkpoint continue sync.get.store.process $watch 0
 tg checkpoint unwatch sync.get.store.process $watch
 success (job recv --tag $pull --timeout 10sec)

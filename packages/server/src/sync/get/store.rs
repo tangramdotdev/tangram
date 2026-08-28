@@ -278,7 +278,7 @@ impl Session {
 			.iter()
 			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
 				cached: false,
-				children: None,
+				children: data.children.clone(),
 				command: data.command.node.clone().into(),
 				data: Some(data.clone()),
 				error: None,
