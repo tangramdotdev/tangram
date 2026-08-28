@@ -2,8 +2,8 @@ use ../../test.nu *
 
 # An exact remote get can be served from the principal-scoped remote cache.
 
-let remote = server spawn --cloud --name remote --tokens
-let local = server spawn --name local --tokens --config {
+let remote = server spawn --cloud --name remote
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 

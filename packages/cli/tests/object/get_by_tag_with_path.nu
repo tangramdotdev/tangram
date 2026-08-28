@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Getting an object by a tag reference with a get path option resolves to the nested file and reports the resolved referent on stderr.
 
-let server = server spawn --tokens
+let server = server spawn
 
 # Create a directory with nested structure.
 let path = artifact {

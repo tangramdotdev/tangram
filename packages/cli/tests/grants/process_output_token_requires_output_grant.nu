@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A process's output entitlement token is created only for a principal with the output permission; a process_node grant reveals the output object id but withholds the token that grants access to its content.
 
-let server = server spawn --tokens --config { authentication: { users: { providers: { insecure: true } } } }
+let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 

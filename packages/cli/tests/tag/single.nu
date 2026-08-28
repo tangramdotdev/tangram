@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A single tag put on a checked-in artifact can be listed and retrieved with tg list and tg tag get.
 
-let server = server spawn --tokens
+let server = server spawn
 
 # Write the artifact to a temp.
 let path = artifact 'test'
