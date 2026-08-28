@@ -13,6 +13,9 @@ let before = tg --token $alice.token usage | from json
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
 let process = tg --token $alice.token build --detach --owner alice/team $path | str trim
 tg --token $alice.token wait $process
+let sandbox = tg --token $alice.token process get $process | from json | get sandbox
+tg --token $alice.token wait $sandbox
+tg index
 let after = tg --token $alice.token usage | from json
 
 assert ($after.sandbox_cpu > $before.sandbox_cpu) "a group-owned sandbox must charge CPU usage"

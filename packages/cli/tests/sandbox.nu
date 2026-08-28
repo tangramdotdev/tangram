@@ -22,9 +22,11 @@ assert (($sandbox.network? | is-empty))
 assert (($sandbox | get --optional tokens.local) != null) "sandbox list should return a token"
 
 tg sandbox destroy $create
+tg wait $create
+tg index
 
 let list = tg sandbox list | from json
-assert (($list | where id == $create | is-empty))
+assert ($list | where id == $create | is-empty) "the destroyed sandbox should leave the list"
 
 wait_until { (tg sandbox get $create | complete | get exit_code) != 0 } "the sandbox should be cleaned"
 let output = tg sandbox get $create | complete
