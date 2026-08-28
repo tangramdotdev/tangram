@@ -95,18 +95,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
-	const envs: tg.Args<std.env.Arg> = [
-		bunEnvArg(build),
-		librustyv8(cargoLock, build, host),
-		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
-		openssl({ build, host }),
-		sandboxRootfs(host),
-	];
-
-	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
-	if (std.triple.os(host) === "linux") {
-		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
-	}
+	const envs: tg.Args<std.env.Arg> = [toolchainEnv({ build, cargoLock, host })];
 
 	if (build !== host) {
 		envs.push({
@@ -114,13 +103,6 @@ export const build = async (...args: tg.Args<Arg>) => {
 			[`CXX_${host}`]: `${host}-c++`,
 		});
 	}
-
-	// Build node_modules and set NODE_PATH for esbuild and build scripts.
-	const nodeModulesArtifact = nodeModules(build);
-	envs.push({
-		NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
-		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
-	});
 
 	// Configure foundationdb.
 	let pre: tg.Unresolved<tg.Template.Arg> = null;
@@ -254,6 +236,8 @@ export const release = async () => {
 
 // Test targets.
 
+export { testRust } from "./test.tg.ts";
+
 export const test = async () => {
 	await assertHelp(build());
 };
@@ -306,6 +290,37 @@ const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
 		.then(tg.File.expect)
 		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
+};
+
+/** The environment every sandboxed cargo invocation over this workspace needs. */
+export const toolchainEnv = async (arg: {
+	build: string;
+	cargoLock: tg.File;
+	host: string;
+}) => {
+	const { build, cargoLock, host } = arg;
+	const nodeModulesArtifact = nodeModules(build);
+	const envs: tg.Args<std.env.Arg> = [
+		bunEnvArg(build),
+		librustyv8(cargoLock, build, host),
+		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
+		openssl({ build, host }),
+		sandboxRootfs(host),
+		{
+			NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
+			PATH: tg.Mutation.suffix(
+				tg`${nodeModulesArtifact}/node_modules/.bin`,
+				":",
+			),
+		},
+	];
+
+	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
+	if (std.triple.os(host) === "linux") {
+		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
+	}
+
+	return await std.env.arg(...envs);
 };
 
 const nodeModules = async (hostArg?: string) => {
