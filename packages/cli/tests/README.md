@@ -4,24 +4,27 @@ These are the end-to-end tests for tangram. Each `.nu`
 file is one self-contained test, run by the harness in `packages/cli/test.nu`.
 Run them with `nu packages/cli/test.nu [pattern]`, where `pattern` is an
 optional regex matched against each test's path. Pass `--accept` to accept new
-or changed snapshots.
+or changed snapshots. Pass `--no-progress-details` to show only the aggregate
+progress bar during highly concurrent runs.
 
 ## Cloud databases
 
-Cloud database tests are supported on Linux and macOS. Install Docker,
-PostgreSQL, and `nats-server`, then start the shared databases in a separate
+Cloud database tests are supported on Linux and macOS. On Linux, install native
+FoundationDB, PostgreSQL, ScyllaDB, and `nats-server`. On macOS, install Docker,
+PostgreSQL, and `nats-server`. Then start the shared databases in a separate
 terminal:
 
 ```sh
 nu packages/cli/test.nu --databases
 ```
 
-The command runs PostgreSQL and NATS as local processes and FoundationDB and
-ScyllaDB in Docker, waits for them to become ready, and removes their temporary
-state after Ctrl-C. Existing services, processes, or containers must not be
-using ports 5432, 4500, 9042, or 4222. Database output is written to the log
-directory shown at startup and tailed automatically if startup fails or a
-database exits unexpectedly.
+The command runs every database as a native process on Linux. On macOS, it runs
+PostgreSQL and NATS as native processes and FoundationDB and ScyllaDB in Docker.
+It waits for them to become ready and removes their temporary state after
+Ctrl-C. Existing services, processes, or containers must not be using ports
+5432, 4500, 9042, or 4222. Database output is written to the log directory shown
+at startup and tailed automatically if startup fails or a database exits
+unexpectedly.
 The runner builds and uses `tangram_scylla_client` from
 `packages/scylla/client` for ScyllaDB administration.
 
