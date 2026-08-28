@@ -102,14 +102,19 @@ impl Session {
 			let result = if closed || exited.stopped() {
 				Self::handle_closed_process_stdin_write_request(&request, position)
 			} else if let Some(sandbox_process) = &sandbox_process {
-				Self::handle_process_control_stdin_write_request(
-					&sandbox,
-					sandbox_process,
-					request,
-					&mut position,
-					&mut closed,
-				)
-				.await
+				tokio::select! {
+					biased;
+					() = exited.wait() => {
+						Self::handle_closed_process_stdin_write_request(&request, position)
+					},
+					result = Self::handle_process_control_stdin_write_request(
+						&sandbox,
+						sandbox_process,
+						&request,
+						&mut position,
+						&mut closed,
+					) => result,
+				}
 			} else {
 				Self::handle_closed_process_stdin_write_request(&request, position)
 			};
@@ -148,11 +153,11 @@ impl Session {
 	async fn handle_process_control_stdin_write_request(
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
-		request: tg::process::control::WriteServerRequestArg,
+		request: &tg::process::control::WriteServerRequestArg,
 		position: &mut u64,
 		closed: &mut bool,
 	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
-		let mut chunk = request.chunk;
+		let mut chunk = request.chunk.clone();
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
 		}
