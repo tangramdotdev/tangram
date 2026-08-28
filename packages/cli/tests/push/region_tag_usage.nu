@@ -6,11 +6,9 @@ use ../../test.nu *
 let region_a_directory = mktemp -d
 let region_b_directory = mktemp -d
 let database_path = mktemp -d | path join database
-let region_a_url = $'http+unix://($region_a_directory | url encode --all)%2Fsocket'
-let region_b_url = $'http+unix://($region_b_directory | url encode --all)%2Fsocket'
 let regions = [
-	{ name: a, url: $region_a_url },
-	{ name: b, url: $region_b_url },
+	{ name: a },
+	{ name: b },
 ]
 let common = {
 	authentication: { users: { providers: { insecure: true } } },
@@ -19,8 +17,8 @@ let common = {
 	usage: true,
 }
 let instance = instance --primary-region a --regions $regions --config $common
-let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --directory $region_a_directory --url $region_a_url
-let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --directory $region_b_directory --url $region_b_url
+let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --directory $region_a_directory --url (instance region url $instance a)
+let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --directory $region_b_directory --url (instance region url $instance b)
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let bob = tg --url $region_a.url login --verbose --name bob | from json
 let local = server spawn --name local --config {

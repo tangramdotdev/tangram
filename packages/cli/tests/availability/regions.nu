@@ -6,18 +6,16 @@ let region_a_directory = mktemp -d
 let region_b_directory = mktemp -d
 let database_directory = mktemp -d
 let database_path = $database_directory | path join 'database'
-let region_a_url = $'http+unix://($region_a_directory | url encode --all)%2Fsocket'
-let region_b_url = $'http+unix://($region_b_directory | url encode --all)%2Fsocket'
 let regions = [
-	{ name: 'a', url: $region_a_url },
-	{ name: 'b', url: $region_b_url },
+	{ name: 'a' },
+	{ name: 'b' },
 ]
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
 }
 let instance = instance --primary-region a --regions $regions --config $common
-let region_a = server spawn --instance $instance --region a --name region-a --directory $region_a_directory --url $region_a_url
-let region_b = server spawn --instance $instance --region b --name region-b --directory $region_b_directory --url $region_b_url
+let region_a = server spawn --instance $instance --region a --name region-a --directory $region_a_directory --url (instance region url $instance a)
+let region_b = server spawn --instance $instance --region b --name region-b --directory $region_b_directory --url (instance region url $instance b)
 
 let directory = tg --url $region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
 tg --url $region_a.url index

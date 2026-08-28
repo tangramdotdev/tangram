@@ -6,8 +6,7 @@ use ../../test.nu *
 let root_token = random chars
 let remote_directory = mktemp -d
 let indexer_directory = mktemp -d
-let remote_url = $'http+unix://($remote_directory | url encode --all)%2Fsocket'
-let regions = [{ name: 'a', url: $remote_url }]
+let regions = [{ name: 'a' }]
 let common = {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
@@ -15,7 +14,7 @@ let common = {
 let instance = instance --cloud --primary-region a --regions $regions --config $common
 
 # Start the remote server.
-let remote = server spawn --instance $instance --region a --preserve-keys --name remote --directory $remote_directory --url $remote_url --config {
+let remote = server spawn --instance $instance --region a --preserve-keys --name remote --directory $remote_directory --url (instance region url $instance a) --config {
 	roles: [cleaner http indexer scheduler],
 }
 

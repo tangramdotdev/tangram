@@ -20,11 +20,9 @@ let database_directory = mktemp -d
 let database_path = $database_directory | path join 'database'
 let primary_directory = mktemp -d
 let secondary_directory = mktemp -d
-let primary_url = $'http+unix://($primary_directory | url encode --all)%2Fsocket'
-let secondary_url = $'http+unix://($secondary_directory | url encode --all)%2Fsocket'
 let regions = [
-	{ name: 'primary', url: $primary_url },
-	{ name: 'secondary', url: $secondary_url },
+	{ name: 'primary' },
+	{ name: 'secondary' },
 ]
 let common = {
 	advanced: {
@@ -36,8 +34,8 @@ let common = {
 	database: { kind: 'sqlite', path: $database_path },
 }
 let instance = instance --primary-region primary --regions $regions --config $common
-let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --directory $primary_directory --url $primary_url
-let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --directory $secondary_directory --url $secondary_url
+let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --directory $primary_directory --url (instance region url $instance primary)
+let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --directory $secondary_directory --url (instance region url $instance secondary)
 tg --url $secondary.url remote put default $source.url
 tg --url $secondary.url pull $sandbox
 

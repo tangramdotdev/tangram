@@ -6,11 +6,9 @@ let database_directory = mktemp -d
 let database_path = $database_directory | path join 'database'
 let east_directory = mktemp -d
 let west_directory = mktemp -d
-let east_url = $'http+unix://($east_directory | url encode --all)%2Fsocket'
-let west_url = $'http+unix://($west_directory | url encode --all)%2Fsocket'
 let regions = [
-	{ name: 'east', url: $east_url },
-	{ name: 'west', url: $west_url },
+	{ name: 'east' },
+	{ name: 'west' },
 ]
 let common = {
 	database: { kind: 'sqlite', path: $database_path },
@@ -18,8 +16,8 @@ let common = {
 }
 let instance = instance --primary-region east --regions $regions --config $common
 let producer = { roles: [cleaner http runner scheduler] }
-let east = server spawn --instance $instance --region east --name east --directory $east_directory --url $east_url --config $producer
-let west = server spawn --instance $instance --region west --name west --directory $west_directory --url $west_url --config $producer
+let east = server spawn --instance $instance --region east --name east --directory $east_directory --url (instance region url $instance east) --config $producer
+let west = server spawn --instance $instance --region west --name west --directory $west_directory --url (instance region url $instance west) --config $producer
 
 let east_group = tg --url $east.url group create east-project | from json
 let west_group = tg --url $west.url group create west-project | from json
@@ -35,8 +33,8 @@ assert equal $next 2
 server stop $east
 server stop $west
 
-let east = server spawn --instance $instance --region east --name east-indexer --directory $east_directory --url $east_url
-let west = server spawn --instance $instance --region west --name west-indexer --directory $west_directory --url $west_url
+let east = server spawn --instance $instance --region east --name east-indexer --directory $east_directory --url (instance region url $instance east)
+let west = server spawn --instance $instance --region west --name west-indexer --directory $west_directory --url (instance region url $instance west)
 tg --url $east.url index
 tg --url $west.url index
 

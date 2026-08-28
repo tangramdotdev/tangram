@@ -1953,10 +1953,6 @@ export def --env "server spawn" [
 		}
 	}
 
-	# Create the server directory.
-	let directory_path = $directory | default (mktemp -d)
-	try { mkdir $directory_path }
-
 	if $cloud and $instance != null {
 		error make { msg: '--cloud may not be combined with --instance' }
 	}
@@ -1975,6 +1971,17 @@ export def --env "server spawn" [
 			error make { msg: $'invalid instance kind: ($instance_kind)' }
 		},
 	}
+
+	# Create the server directory. Local instances own one directory, while every cloud server owns its own directory.
+	let directory_path = if $directory != null {
+		$directory
+	} else if $instance_kind == 'local' {
+		$instance.directory
+	} else {
+		mktemp -d
+	}
+	try { mkdir $directory_path }
+
 	let cloud_instance = if $use_cloud { $instance.id } else { null }
 	let region_names = validate_instance_config $instance.config
 	if not ($region_names | is-empty) and $region == null {
@@ -2123,7 +2130,7 @@ export def --env "server spawn" [
 	$config | to json | save -f $config_path
 
 	# Determine the url.
-	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
+	let url = $url | default (unix_socket_url $directory_path)
 	$env.TANGRAM_URL = $url
 
 	# Create a path for the server's captured output.
@@ -2388,10 +2395,17 @@ export def instance [
 	let config = $config | default {}
 	let config = if $primary_region == null { $config } else { $config | upsert primary_region $primary_region }
 	let config = if $regions == null { $config } else { $config | upsert regions $regions }
+	let config = if $config.regions? == null {
+		$config
+	} else {
+		$config | upsert regions (allocate_region_urls $config.regions)
+	}
 	validate_instance_config $config | ignore
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default '') | str length) > 0
 	if not $use_cloud {
-		return { config: $config, kind: 'local' }
+		let directory = mktemp -d
+
+		return { config: $config, directory: $directory, kind: 'local' }
 	}
 	let pool_path = $env.TANGRAM_TEST_DATABASE_POOL? | default ''
 	if ($pool_path | is-empty) {
@@ -2401,6 +2415,30 @@ export def instance [
 	track_database_pool_instance $id
 
 	{ config: $config, id: $id, kind: 'cloud' }
+}
+
+export def "instance region url" [instance: record, region: string] {
+	let matches = $instance.config.regions? | default [] | where name == $region
+	if ($matches | is-empty) {
+		error make { msg: $'the instance does not contain region ($region)' }
+	}
+
+	$matches | first | get url
+}
+
+def allocate_region_urls [regions: list] {
+	$regions | each { |region|
+		if $region.url? != null {
+			$region
+		} else {
+			let socket_directory = mktemp -d
+			$region | upsert url (unix_socket_url $socket_directory)
+		}
+	}
+}
+
+def unix_socket_url [directory: string] {
+	$'http+unix://($directory | url encode --all)%2Fsocket'
 }
 
 def validate_instance_config [config: record] {

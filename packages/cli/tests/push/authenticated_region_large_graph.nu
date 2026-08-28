@@ -4,19 +4,17 @@ use ../../test.nu *
 # instance completes under bidirectional backpressure.
 
 skip_if_no_cloud
-let region_a_port = port
-let region_b_port = port ($region_a_port + 1)
-let region_a_url = $'http://127.0.0.1:($region_a_port)'
-let region_b_url = $'http://127.0.0.1:($region_b_port)'
 let regions = [
-	{ name: a, url: $region_a_url },
-	{ name: b, url: $region_b_url },
+	{ name: a },
+	{ name: b },
 ]
 let instance = instance --cloud --primary-region a --regions $regions --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
-let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --url $region_a_url
-let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --url $region_b_url
+let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --url (instance region url $instance a)
+let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --url (instance region url $instance b)
+assert ($instance.directory? == null) 'a cloud instance must not own a directory'
+assert ($region_a.directory != $region_b.directory) 'cloud servers must own separate directories'
 let alice = tg --url $region_a.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $region_b.url } },
