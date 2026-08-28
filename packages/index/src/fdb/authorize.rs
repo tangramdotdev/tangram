@@ -1223,7 +1223,7 @@ impl Index {
 
 		let mut budget = SearchBudget::with_root_total(context.config.descendant, targets.len());
 		let mut complete = matches!(context.requester.principal, tg::Principal::Anonymous);
-		let mut stack = Vec::new();
+		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
 		let mut target_permissions = HashMap::<_, Vec<_>>::new();
 		for (resource, permission) in &targets {
 			target_permissions
@@ -1235,18 +1235,24 @@ impl Index {
 		let mut visited = HashSet::new();
 
 		let public = tg::authorization::Subject::Public;
-		stack.push(DescendantTask::SubjectGrants {
-			after: None,
-			subject: public.clone(),
-		});
-		if context.requester.subject != public {
-			stack.push(DescendantTask::SubjectGrants {
+		queues
+			.entry(0)
+			.or_default()
+			.push_back(DescendantTask::SubjectGrants {
 				after: None,
-				subject: context.requester.subject.clone(),
+				subject: public.clone(),
 			});
+		if context.requester.subject != public {
+			queues
+				.entry(0)
+				.or_default()
+				.push_back(DescendantTask::SubjectGrants {
+					after: None,
+					subject: context.requester.subject.clone(),
+				});
 		}
 
-		let inherent = match context.requester.principal {
+		let mut sources = match context.requester.principal {
 			tg::Principal::User(user) => {
 				crate::authorize::permissions_implied_by(tg::authorization::Permission::User(
 					tg::authorization::permission::user::Permission::Admin,
@@ -1257,17 +1263,31 @@ impl Index {
 			},
 			_ => Vec::new(),
 		};
-		for key in inherent {
+		if let Some((body, resource)) = context.token {
+			sources.extend(
+				body.permissions
+					.iter()
+					.map(|permission| (resource.clone(), *permission)),
+			);
+		}
+		for key in sources {
 			if !visited.insert(key.clone()) {
 				continue;
 			}
 			if !budget.add_node(0) {
 				return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 			}
-			stack.push(DescendantTask::Node { depth: 0, key });
+			queues
+				.entry(0)
+				.or_default()
+				.push_front(DescendantTask::Node { depth: 0, key });
 		}
 
-		while let Some(task) = stack.pop() {
+		while let Some((priority, mut queue)) = queues.pop_first() {
+			let task = queue.pop_front().unwrap();
+			if !queue.is_empty() {
+				queues.insert(priority, queue);
+			}
 			match task {
 				DescendantTask::Node { depth, key } => {
 					if let Some(target_permissions) = target_permissions.get(&key.0) {
@@ -1310,7 +1330,10 @@ impl Index {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
 						visited.insert(key.clone());
-						stack.push(DescendantTask::Node { depth, key });
+						queues
+							.entry(depth)
+							.or_default()
+							.push_back(DescendantTask::Node { depth, key });
 					}
 
 					match permission {
@@ -1318,11 +1341,13 @@ impl Index {
 							tg::authorization::permission::object::Permission::Subtree,
 						) => {
 							let object = tg::object::Id::try_from(resource)?;
-							stack.push(DescendantTask::ObjectChildren {
-								after: None,
-								depth,
-								object,
-							});
+							queues.entry(depth).or_default().push_back(
+								DescendantTask::ObjectChildren {
+									after: None,
+									depth,
+									object,
+								},
+							);
 						},
 						tg::authorization::Permission::Object(
 							tg::authorization::permission::object::Permission::Node,
@@ -1359,11 +1384,13 @@ impl Index {
 						.await
 					);
 					if let Some(after) = after {
-						stack.push(DescendantTask::ObjectChildren {
-							after: Some(after),
-							depth,
-							object,
-						});
+						queues.entry(depth).or_default().push_back(
+							DescendantTask::ObjectChildren {
+								after: Some(after),
+								depth,
+								object,
+							},
+						);
 					}
 					for key in keys.into_iter().rev() {
 						let crate::fdb::Key::Object(crate::fdb::object::Key::ObjectChild {
@@ -1399,7 +1426,10 @@ impl Index {
 								return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 							}
 							visited.insert(key.clone());
-							stack.push(DescendantTask::Node { depth, key });
+							queues
+								.entry(depth)
+								.or_default()
+								.push_back(DescendantTask::Node { depth, key });
 						}
 					}
 				},
@@ -1421,12 +1451,6 @@ impl Index {
 						)
 						.await
 					);
-					if let Some(after) = after {
-						stack.push(DescendantTask::SubjectGrants {
-							after: Some(after),
-							subject,
-						});
-					}
 					for key in keys.into_iter().rev() {
 						let crate::fdb::Key::Grant(crate::fdb::grant::Key::SubjectGrant {
 							permission,
@@ -1446,7 +1470,19 @@ impl Index {
 						if !budget.add_node(0) {
 							return Ok(ControlFlow::Break(SearchOutcome::Exhausted));
 						}
-						stack.push(DescendantTask::Node { depth: 0, key });
+						queues
+							.entry(0)
+							.or_default()
+							.push_back(DescendantTask::Node { depth: 0, key });
+					}
+					if let Some(after) = after {
+						queues
+							.entry(0)
+							.or_default()
+							.push_back(DescendantTask::SubjectGrants {
+								after: Some(after),
+								subject,
+							});
 					}
 				},
 			}
