@@ -66,6 +66,7 @@ impl Store {
 			connections: config.connections,
 			keepalive: config.keepalive,
 			keyspace: config.keyspace.clone(),
+			partition_offset: config.partition_offset,
 			password: config.password.clone(),
 			speculative_execution,
 			username: config.username.clone(),

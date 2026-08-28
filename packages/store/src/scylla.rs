@@ -15,6 +15,7 @@ pub struct Config {
 	pub connections: Option<usize>,
 	pub keepalive: bool,
 	pub keyspace: String,
+	pub partition_offset: u64,
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
 	pub username: Option<String>,
@@ -33,6 +34,7 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
+	partition_offset: u64,
 	statements: Statements,
 	session: scylla::client::session::Session,
 }
@@ -51,6 +53,8 @@ struct Statements {
 
 impl Store {
 	pub async fn new(config: &Config) -> tg::Result<Self> {
+		physical_outbox_partition(0, config.partition_offset)?;
+
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
 		if !config.keepalive {
@@ -240,6 +244,7 @@ impl Store {
 		let log = log::Statements::new(&session).await?;
 
 		let scylla = Self {
+			partition_offset: config.partition_offset,
 			statements: Statements {
 				delete_object,
 				delete_outbox_fragment,
@@ -346,4 +351,43 @@ fn object_timestamp(stored_at: i64) -> tg::Result<i64> {
 	stored_at
 		.checked_mul(1_000_000)
 		.ok_or_else(|| tg::error!(%stored_at, "the object timestamp is out of range"))
+}
+
+fn logical_outbox_partition(partition: i64, offset: u64) -> tg::Result<u64> {
+	let partition = u64::try_from(partition)
+		.map_err(|_| tg::error!(%partition, "the physical outbox partition was negative"))?;
+	let partition = partition.checked_sub(offset).ok_or_else(
+		|| tg::error!(%offset, %partition, "the physical outbox partition preceded the configured offset"),
+	)?;
+
+	Ok(partition)
+}
+
+fn physical_outbox_partition(partition: u64, offset: u64) -> tg::Result<i64> {
+	let partition = partition
+		.checked_add(offset)
+		.and_then(|partition| i64::try_from(partition).ok())
+		.ok_or_else(
+			|| tg::error!(%offset, %partition, "the physical outbox partition exceeded an i64"),
+		)?;
+
+	Ok(partition)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn partition_offset_round_trips() {
+		let partition = physical_outbox_partition(7, 42).unwrap();
+		assert_eq!(partition, 49);
+		assert_eq!(logical_outbox_partition(partition, 42).unwrap(), 7);
+	}
+
+	#[test]
+	fn partition_offset_rejects_overflow() {
+		assert!(physical_outbox_partition(u64::MAX, 1).is_err());
+		assert!(logical_outbox_partition(41, 42).is_err());
+	}
 }

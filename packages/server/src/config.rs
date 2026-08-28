@@ -599,6 +599,8 @@ pub struct ScyllaStore {
 
 	pub keyspace: String,
 
+	pub partition_offset: u64,
+
 	pub password: Option<String>,
 
 	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,

@@ -9,10 +9,8 @@ use {
 impl Store {
 	pub async fn delete_outbox_fragments(&self, arg: fragment::delete::Arg) -> tg::Result<()> {
 		futures::future::try_join_all(arg.fragments.into_iter().map(|fragment| async move {
-			let partition = fragment
-				.partition
-				.to_i64()
-				.ok_or_else(|| tg::error!("the outbox partition exceeded an i64"))?;
+			let partition =
+				super::physical_outbox_partition(fragment.partition, self.partition_offset)?;
 			let index = fragment
 				.index
 				.value()
@@ -35,7 +33,11 @@ impl Store {
 		&self,
 		arg: fragment::dequeue::Arg,
 	) -> tg::Result<Vec<fragment::Fragment>> {
-		let partitions = partitions(arg.partition_start, arg.partition_end)?;
+		let partitions = partitions(
+			arg.partition_start,
+			arg.partition_end,
+			self.partition_offset,
+		)?;
 		if partitions.is_empty() || arg.batch_size == 0 {
 			return Ok(Vec::new());
 		}
@@ -75,10 +77,8 @@ impl Store {
 					.fragment
 					.to_u64()
 					.ok_or_else(|| tg::error!("the outbox fragment index was negative"))?;
-				let partition = row
-					.partition
-					.to_u64()
-					.ok_or_else(|| tg::error!("the outbox partition was negative"))?;
+				let partition =
+					super::logical_outbox_partition(row.partition, self.partition_offset)?;
 				let fragment = fragment::Fragment {
 					batch: batch::Id::new(batch),
 					index: fragment::Index::new(index),
@@ -93,10 +93,7 @@ impl Store {
 	}
 
 	pub async fn enqueue_outbox_batch(&self, arg: batch::enqueue::Arg) -> tg::Result<()> {
-		let partition = arg
-			.partition
-			.to_i64()
-			.ok_or_else(|| tg::error!("the outbox partition exceeded an i64"))?;
+		let partition = super::physical_outbox_partition(arg.partition, self.partition_offset)?;
 		let batch_id = arg.id.value();
 		for (index, payload) in arg.fragments.into_iter().enumerate() {
 			let index = index
@@ -116,7 +113,11 @@ impl Store {
 		&self,
 		arg: batch::get::Arg,
 	) -> tg::Result<Option<batch::Id>> {
-		let partitions = partitions(arg.partition_start, arg.partition_end)?;
+		let partitions = partitions(
+			arg.partition_start,
+			arg.partition_end,
+			self.partition_offset,
+		)?;
 		if partitions.is_empty() {
 			return Ok(None);
 		}
@@ -154,12 +155,12 @@ impl Store {
 	}
 }
 
-fn partitions(partition_start: u64, partition_end: u64) -> tg::Result<Vec<i64>> {
+fn partitions(
+	partition_start: u64,
+	partition_end: u64,
+	partition_offset: u64,
+) -> tg::Result<Vec<i64>> {
 	(partition_start..partition_end)
-		.map(|partition| {
-			partition
-				.to_i64()
-				.ok_or_else(|| tg::error!("the outbox partition exceeded an i64"))
-		})
+		.map(|partition| super::physical_outbox_partition(partition, partition_offset))
 		.collect()
 }

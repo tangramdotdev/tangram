@@ -914,6 +914,9 @@ pub struct ScyllaStore {
 	pub keyspace: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_offset: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2845,6 +2848,7 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 		connections: source.connections,
 		keepalive: source.keepalive.unwrap_or(true),
 		keyspace,
+		partition_offset: source.partition_offset.unwrap_or_default(),
 		password: source.password,
 		speculative_execution,
 		username: source.username,
