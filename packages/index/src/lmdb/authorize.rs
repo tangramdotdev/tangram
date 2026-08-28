@@ -6,6 +6,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(test)]
+mod tests;
+
 const PRECOMPUTE_REQUESTER_PRINCIPALS: bool = false;
 
 #[derive(Default)]
