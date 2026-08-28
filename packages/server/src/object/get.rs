@@ -766,12 +766,12 @@ impl Server {
 		let Some(object) = output.object else {
 			return Ok(None);
 		};
-		self.spawn_cache_put_object(id.clone(), object.bytes.clone(), object.stored_at);
+		self.spawn_put_object_in_store_task(id.clone(), object.bytes.clone(), object.stored_at);
 
 		Ok(Some(object.bytes))
 	}
 
-	fn spawn_cache_put_object(&self, id: tg::object::Id, bytes: Bytes, stored_at: i64) {
+	fn spawn_put_object_in_store_task(&self, id: tg::object::Id, bytes: Bytes, stored_at: i64) {
 		tokio::spawn({
 			let server = self.clone();
 			async move {
@@ -783,7 +783,7 @@ impl Server {
 					stored_at,
 				};
 				if let Err(error) = server.store.put_object(arg).await {
-					tracing::error!(error = %error.trace(), %id, "failed to cache put an object in the store");
+					tracing::error!(error = %error.trace(), %id, "failed to put an object in the store after reading it from the archive");
 				}
 			}
 		});
