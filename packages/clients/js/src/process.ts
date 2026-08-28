@@ -557,10 +557,10 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	/** Wait for this process to exit. */
 	async wait(): Promise<tg.Process.Wait> {
-		if (this.#stdioPromise !== null) {
-			await this.#stdioPromise;
-		}
 		if (this.#wait !== null) {
+			if (this.#stdioPromise !== null) {
+				await this.#stdioPromise;
+			}
 			let location =
 				this.#location === null
 					? null
@@ -571,7 +571,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== null);
-			let wait = await this.#promise;
+			let wait =
+				this.#stdioPromise === null
+					? await this.#promise
+					: (await Promise.all([this.#promise, this.#stdioPromise]))[0];
 			let location =
 				this.#location === null
 					? null
@@ -591,7 +594,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		arg.tokens = this.#tokens;
 		let promise = await tg.client.waitProcessPromise(this.#id, arg);
-		let wait = await promise();
+		let waitPromise = promise();
+		let wait =
+			this.#stdioPromise === null
+				? await waitPromise
+				: (await Promise.all([waitPromise, this.#stdioPromise]))[0];
 		if (wait === null) {
 			throw new Error("failed to find the process");
 		}
