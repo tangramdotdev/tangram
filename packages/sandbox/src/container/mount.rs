@@ -598,8 +598,8 @@ fn create_mountpoint_if_not_exists(
 	target: impl AsRef<Path>,
 ) -> std::io::Result<()> {
 	let source = source.as_ref();
-	let is_dir = source.is_dir();
-	if is_dir {
+	let metadata = std::fs::metadata(source)?;
+	if metadata.is_dir() {
 		std::fs::create_dir_all(target)?;
 	} else {
 		let target = target.as_ref();
