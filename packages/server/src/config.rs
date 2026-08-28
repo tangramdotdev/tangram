@@ -1298,7 +1298,7 @@ impl Default for AuthorizationIndex {
 impl Default for AuthorizationSearch {
 	fn default() -> Self {
 		Self {
-			max_depth: 16,
+			max_depth: 256,
 			max_edges: 1024,
 			max_nodes: 1024,
 			page_size: 64,
@@ -1309,7 +1309,7 @@ impl Default for AuthorizationSearch {
 impl Default for AuthorizationSubtree {
 	fn default() -> Self {
 		Self {
-			max_depth: 16,
+			max_depth: 256,
 			max_objects: 1024,
 			max_processes: 1024,
 		}
