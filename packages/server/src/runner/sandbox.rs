@@ -1070,13 +1070,6 @@ impl Session {
 		});
 		drop(state);
 
-		// Stop and await the serve task.
-		serve_task.stop();
-		serve_task
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
-
 		// Stop the VFS while the sandbox still owns its mount namespace.
 		#[cfg(target_os = "linux")]
 		if let Some(vfs) = vfs.take() {
@@ -1089,6 +1082,13 @@ impl Session {
 			.destroy()
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox process"))?;
+
+		// Stop and await the serve task.
+		serve_task.stop();
+		serve_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
 		let data = {
 			let mut state = self
