@@ -851,8 +851,10 @@ impl Session {
 			.await
 			.ok()
 			.and_then(|(command, _)| command.stdin.map(tg::Blob::with_id));
+		let exited = Stopper::new();
 		let control_task = Task::spawn({
 			let session = session.clone();
+			let exited = exited.clone();
 			let sandbox = sandbox.clone();
 			let stdin = state.stdin.clone();
 			let stdout = state.stdout.clone();
@@ -860,6 +862,7 @@ impl Session {
 			|_| async move {
 				session
 					.run_process_control_task(RunProcessControlTaskArg {
+						exited,
 						finish: finish_receiver,
 						requests,
 						retention_stopper,
@@ -908,6 +911,10 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
+
+		// The sandbox's connection is closed once the process exits, so stdin can no longer be written to.
+		exited.stop();
+
 		let result = match result {
 			Ok(output) => {
 				let context = crate::Context {
