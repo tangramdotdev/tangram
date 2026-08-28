@@ -13,8 +13,8 @@ use self::darwin as platform;
 #[cfg(target_os = "linux")]
 use self::linux as platform;
 
-pub(crate) fn resolve(tangram_path: &Path) -> tg::Result<Vec<PathBuf>> {
-	platform::resolve(tangram_path)
+pub(crate) fn resolve() -> tg::Result<Vec<PathBuf>> {
+	platform::resolve()
 }
 
 pub(crate) fn stage(target_dir: &Path, sources: &[PathBuf]) -> tg::Result<()> {

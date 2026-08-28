@@ -1,7 +1,4 @@
-use {
-	std::path::{Path, PathBuf},
-	tangram_client::prelude::*,
-};
+use {std::path::PathBuf, tangram_client::prelude::*};
 
 #[cfg(feature = "foundationdb")]
 const RUNTIME_LIBRARIES: &[&str] = &["libfdb_c", "liblzma.5"];
@@ -9,7 +6,7 @@ const RUNTIME_LIBRARIES: &[&str] = &["libfdb_c", "liblzma.5"];
 #[cfg(not(feature = "foundationdb"))]
 const RUNTIME_LIBRARIES: &[&str] = &["liblzma.5"];
 
-pub(super) fn resolve(_tangram_path: &Path) -> tg::Result<Vec<PathBuf>> {
+pub(super) fn resolve() -> tg::Result<Vec<PathBuf>> {
 	let mut libraries = Vec::new();
 	for stem in RUNTIME_LIBRARIES {
 		let path = resolve_library(stem)?;

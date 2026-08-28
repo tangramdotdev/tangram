@@ -1,72 +1,41 @@
 use {
-	std::path::{Path, PathBuf},
+	std::{
+		ffi::{CStr, OsStr, c_int, c_void},
+		os::unix::ffi::OsStrExt as _,
+		path::PathBuf,
+	},
 	tangram_client::prelude::*,
 };
 
-pub(super) fn resolve(tangram_path: &Path) -> tg::Result<Vec<PathBuf>> {
+#[expect(clippy::unnecessary_wraps)]
+pub(super) fn resolve() -> tg::Result<Vec<PathBuf>> {
 	let mut libraries = Vec::new();
-	resolve_linux(&mut libraries, tangram_path)?;
+	let data = std::ptr::from_mut(&mut libraries).cast::<c_void>();
+	// SAFETY: `data` points to `libraries`, which outlives the call because `dl_iterate_phdr` invokes the callback synchronously.
+	unsafe {
+		libc::dl_iterate_phdr(Some(callback), data);
+	}
 	Ok(libraries)
 }
 
-fn resolve_linux(libraries: &mut Vec<PathBuf>, path: &Path) -> tg::Result<()> {
-	let output = std::process::Command::new("ldd")
-		.arg(path)
-		.output()
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to inspect the dynamic library dependencies"
-			)
-		})?;
-	if !output.status.success() {
-		return Err(tg::error!(
-			path = %path.display(),
-			"failed to inspect the dynamic library dependencies"
-		));
-	}
-	let mut names = libraries
-		.iter()
-		.filter_map(|path| path.file_name())
-		.map(std::borrow::ToOwned::to_owned)
-		.collect::<std::collections::BTreeSet<_>>();
-	for line in String::from_utf8_lossy(&output.stdout).lines() {
-		let Some(dependency) = parse_ldd_line(line)? else {
-			continue;
-		};
-		let Some(name) = dependency.file_name() else {
-			continue;
-		};
-		if names.insert(name.to_owned()) {
-			libraries.push(dependency);
+unsafe extern "C" fn callback(
+	info: *mut libc::dl_phdr_info,
+	_size: usize,
+	data: *mut c_void,
+) -> c_int {
+	// SAFETY: `data` is the pointer to `libraries` passed to `dl_iterate_phdr`, and `info` and its name are valid for the duration of the callback.
+	let (libraries, name) = unsafe {
+		let libraries = &mut *data.cast::<Vec<PathBuf>>();
+		let name = (*info).dlpi_name;
+		if name.is_null() {
+			return 0;
 		}
+		(libraries, CStr::from_ptr(name))
+	};
+	let path = PathBuf::from(OsStr::from_bytes(name.to_bytes()));
+	// The main executable is reported with an empty name and the vDSO with a bare name, so keep only the paths the loader resolved.
+	if path.is_absolute() {
+		libraries.push(path);
 	}
-	Ok(())
-}
-
-fn parse_ldd_line(line: &str) -> tg::Result<Option<PathBuf>> {
-	let line = line.trim();
-	if line.is_empty() || line.starts_with("linux-vdso.so") {
-		return Ok(None);
-	}
-	if let Some((name, target)) = line.split_once("=>") {
-		let target = target.trim();
-		if target == "not found" {
-			return Err(tg::error!(
-				library = %name.trim(),
-				"failed to find a dynamic library dependency"
-			));
-		}
-		return Ok(target
-			.split_whitespace()
-			.next()
-			.map(PathBuf::from)
-			.filter(|path| path.is_absolute()));
-	}
-	Ok(line
-		.split_whitespace()
-		.next()
-		.map(PathBuf::from)
-		.filter(|path| path.is_absolute()))
+	0
 }

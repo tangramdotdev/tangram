@@ -935,7 +935,6 @@ impl Server {
 		#[cfg(target_os = "linux")]
 		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
 			path: sandbox_container_root.clone(),
-			tangram_path: tangram_path.clone(),
 		})?;
 		#[cfg(target_os = "macos")]
 		tangram_sandbox::seatbelt::root::create(&tangram_sandbox::seatbelt::root::Arg {

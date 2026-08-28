@@ -9,7 +9,6 @@ const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/ro
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub path: PathBuf,
-	pub tangram_path: PathBuf,
 }
 
 pub fn create(arg: &Arg) -> tg::Result<()> {
@@ -28,7 +27,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	restore_rootfs_symlinks(&arg.path)?;
 	create_rootfs_mountpoints(&arg.path)?;
 
-	let libraries = libraries::resolve(&arg.tangram_path)?;
+	let libraries = libraries::resolve()?;
 	let lib_path = arg.path.join("opt/tangram/lib");
 	libraries::stage(&lib_path, &libraries)?;
 	Ok(())
