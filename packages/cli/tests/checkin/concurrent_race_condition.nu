@@ -22,7 +22,7 @@ def checkin_background [path: path] {
 }
 
 def receive_checkin [job: int] {
-	let output = job recv --tag $job --timeout 10sec
+	let output = try { job recv --tag $job --timeout 10sec } catch { null }
 	if $output == null {
 		error make { msg: 'the checkin timed out' }
 	}

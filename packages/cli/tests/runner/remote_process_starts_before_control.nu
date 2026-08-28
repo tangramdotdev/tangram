@@ -68,7 +68,7 @@ tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 tg --url $runner.url checkpoint continue runner.process.control.connect $control_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.control.connect $control_watch
 
-let output = job recv --tag $build --timeout 30sec
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "the build did not complete after process control connected" }
 }

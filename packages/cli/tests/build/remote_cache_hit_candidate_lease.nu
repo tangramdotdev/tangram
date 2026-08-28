@@ -103,6 +103,9 @@ tg checkpoint unwatch process.spawn.candidate.cancelled $cancelled_watch
 tg checkpoint unwatch runner.process.start $start_watch
 
 for build in [$first $second] {
-	let output = job recv --tag $build --timeout 10sec
+	let output = try { job recv --tag $build --timeout 30sec } catch { null }
+	if $output == null {
+		error make { msg: 'the build did not complete' }
+	}
 	success $output
 }

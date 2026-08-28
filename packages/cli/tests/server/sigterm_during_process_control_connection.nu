@@ -45,5 +45,5 @@ kill --signal 15 $pid
 
 # The server and build request must exit without process control connecting.
 wait_until --timeout 20sec { ps | where pid == $pid | is-empty } "the server must exit without waiting for process control"
-let output = job recv --tag $build --timeout 10sec
+let output = try { job recv --tag $build --timeout 10sec } catch { null }
 assert ($output != null) "the build request must exit with the server"

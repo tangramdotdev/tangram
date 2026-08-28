@@ -24,7 +24,7 @@ def build_background [path: path] {
 }
 
 def receive_build [job: int] {
-	let output = job recv --tag $job --timeout 10sec
+	let output = try { job recv --tag $job --timeout 10sec } catch { null }
 	if $output == null {
 		error make { msg: 'the build timed out' }
 	}

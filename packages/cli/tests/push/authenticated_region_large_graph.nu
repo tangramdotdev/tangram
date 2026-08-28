@@ -42,7 +42,7 @@ let push = job spawn {
 	let output = tg --url $local.url push $directory | complete
 	$output | job send --tag $job_id 0
 }
-let output = job recv --tag $push --timeout 10sec
+let output = try { job recv --tag $push --timeout 10sec } catch { null }
 if $output == null {
 	error make { msg: 'the push timed out' }
 }

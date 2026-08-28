@@ -45,7 +45,7 @@ success $output "Bob's process should re-pull artifact A from an untrusted remot
 tg --url $runner.url checkpoint continue sync.get.input.object $watch 0
 tg --url $runner.url checkpoint unwatch sync.get.input.object $watch
 
-let output = job recv --tag $build --timeout 30sec
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "Bob's build did not complete after artifact A was transferred" }
 }

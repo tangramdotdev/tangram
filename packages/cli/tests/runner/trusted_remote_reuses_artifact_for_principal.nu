@@ -40,7 +40,7 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-let output = job recv --tag $build --timeout 30sec
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
 	tg --url $runner.url checkpoint unwatch sync.get.input.object $watch
 	error make { msg: "Bob's build blocked while re-pulling artifact A" }

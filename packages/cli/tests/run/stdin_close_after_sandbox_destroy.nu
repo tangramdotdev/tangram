@@ -96,14 +96,14 @@ tg checkpoint unwatch runner.process.control.stdin.write $stdin_watch
 tg checkpoint continue runner.process.control.retention.finished $retention_watch 0
 tg checkpoint unwatch runner.process.control.retention.finished $retention_watch
 
-let output = job recv --tag $close --timeout 10sec
+let output = try { job recv --tag $close --timeout 10sec } catch { null }
 if $output == null {
 	error make { msg: 'the stdin close did not complete' }
 }
 success $output "a stdin close serviced after the sandbox is destroyed must return EOF"
 
 touch $trigger_path
-let output = job recv --tag $run --timeout 15sec
+let output = try { job recv --tag $run --timeout 15sec } catch { null }
 if $output == null {
 	error make { msg: 'the run did not complete' }
 }

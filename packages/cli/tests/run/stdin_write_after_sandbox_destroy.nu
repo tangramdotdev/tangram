@@ -94,7 +94,7 @@ success $output "process control should reach the end of its retention window"
 tg checkpoint continue runner.process.control.stdin.write $stdin_watch 0
 tg checkpoint unwatch runner.process.control.stdin.write $stdin_watch
 
-let output = job recv --tag $write --timeout 10sec
+let output = try { job recv --tag $write --timeout 10sec } catch { null }
 if $output == null {
 	error make { msg: 'the stdin write did not complete' }
 }
@@ -104,7 +104,7 @@ tg checkpoint continue runner.process.control.retention.finished $retention_watc
 tg checkpoint unwatch runner.process.control.retention.finished $retention_watch
 
 touch $trigger_path
-let output = job recv --tag $run --timeout 15sec
+let output = try { job recv --tag $run --timeout 15sec } catch { null }
 if $output == null {
 	error make { msg: 'the run did not complete' }
 }

@@ -29,7 +29,7 @@ tg --url $local.url remote put default $replacement.url
 tg --url $local.url checkpoint continue push.source.remote.resolved $watch 0
 tg --url $local.url checkpoint unwatch push.source.remote.resolved $watch
 
-let output = job recv --tag $pull --timeout 30sec
+let output = try { job recv --tag $pull --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "the pull did not complete" }
 }
