@@ -763,25 +763,18 @@ impl Server {
 		let output = archive.try_get_object(arg).await.map_err(
 			|error| tg::error!(!error, %id, "failed to get the object from the archive"),
 		)?;
-		let Some(bytes) = output.bytes else {
+		let Some(object) = output.object else {
 			return Ok(None);
 		};
-		self.spawn_put_archived_object(id.clone(), bytes.clone());
+		self.spawn_cache_put_object(id.clone(), object.bytes.clone(), object.stored_at);
 
-		Ok(Some(bytes))
+		Ok(Some(object.bytes))
 	}
 
-	fn spawn_put_archived_object(&self, id: tg::object::Id, bytes: Bytes) {
+	fn spawn_cache_put_object(&self, id: tg::object::Id, bytes: Bytes, stored_at: i64) {
 		tokio::spawn({
 			let server = self.clone();
 			async move {
-				let stored_at = match server.clock.unix_timestamp() {
-					Ok(stored_at) => stored_at,
-					Err(error) => {
-						tracing::error!(error = %error.trace(), %id, "failed to get the time for an object store refill");
-						return;
-					},
-				};
 				let arg = crate::store::object::put::Arg {
 					bytes: Some(bytes),
 					checkout_pointer: None,
@@ -790,7 +783,7 @@ impl Server {
 					stored_at,
 				};
 				if let Err(error) = server.store.put_object(arg).await {
-					tracing::error!(error = %error.trace(), %id, "failed to refill an object in the store");
+					tracing::error!(error = %error.trace(), %id, "failed to cache put an object in the store");
 				}
 			}
 		});

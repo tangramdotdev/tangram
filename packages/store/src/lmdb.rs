@@ -667,21 +667,42 @@ mod tests {
 			})
 			.await
 			.unwrap();
+		store
+			.put_object(crate::object::put::Arg {
+				bytes: Some(Bytes::from_static(b"stale")),
+				checkout_pointer: None,
+				id: id.clone(),
+				length: None,
+				stored_at: 9,
+			})
+			.await
+			.unwrap();
 
 		let output = store
 			.try_get_object(crate::object::get::Arg { id: id.clone() })
 			.await
 			.unwrap();
-		assert_eq!(
-			output.object.and_then(|object| object.bytes),
-			Some(Cow::Owned(bytes.to_vec()))
-		);
+		let object = output.object.unwrap();
+		assert_eq!(object.bytes, Some(Cow::Owned(bytes.to_vec())));
+		assert_eq!(object.stored_at, 10);
 
 		store
 			.delete_object(crate::object::delete::Arg {
 				id: id.clone(),
-				now: 16,
-				ttl: 5,
+				touched_at: 9,
+			})
+			.await
+			.unwrap();
+		let output = store
+			.try_get_object(crate::object::get::Arg { id: id.clone() })
+			.await
+			.unwrap();
+		assert!(output.object.is_some());
+
+		store
+			.delete_object(crate::object::delete::Arg {
+				id: id.clone(),
+				touched_at: 11,
 			})
 			.await
 			.unwrap();

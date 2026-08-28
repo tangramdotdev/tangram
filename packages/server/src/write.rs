@@ -508,7 +508,6 @@ impl Session {
 			.then_some(&self.context.principal),
 			grant_expires_at,
 			self.server.config.object.grant_time_to_touch,
-			self.server.config.object.time_to_touch,
 		);
 		let account = self.usage_account(&self.context.principal).await?;
 		let root_object = tg::object::Id::from(blob.id.clone());
@@ -552,7 +551,6 @@ impl Session {
 		principal: Option<&tg::Principal>,
 		grant_expires_at: i64,
 		grant_time_to_touch: std::time::Duration,
-		time_to_touch: std::time::Duration,
 	) -> (
 		Vec<tangram_index::checkout::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
@@ -583,7 +581,6 @@ impl Session {
 				id,
 				metadata: blob.metadata.clone(),
 				storage: tangram_index::object::Storage { subtree: true },
-				time_to_touch,
 				touched_at,
 			};
 			put_object_args.push(arg);

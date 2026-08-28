@@ -1,7 +1,7 @@
 use {
 	crate::object,
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::{BTreeMap, BTreeSet, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
 	},
 	tangram_client::prelude::*,
@@ -31,7 +31,7 @@ struct Log {
 #[derive(Default)]
 struct State {
 	logs: Logs,
-	object_archive_outbox: BTreeMap<(u64, tg::object::Id), i64>,
+	object_archive_outbox: BTreeSet<(u64, i64, tg::object::Id)>,
 	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 	objects: Objects,
 }
@@ -241,17 +241,29 @@ mod tests {
 			length: Some(content.len().to_u64().unwrap()),
 			stored_at: 10,
 		});
+		store.put_object(object::put::Arg {
+			bytes: Some(Bytes::from_static(b"stale")),
+			checkout_pointer: None,
+			id: id.clone(),
+			length: None,
+			stored_at: 9,
+		});
 
 		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
-		assert_eq!(
-			output.object.and_then(|object| object.bytes),
-			Some(Cow::Owned(bytes.to_vec()))
-		);
+		let object = output.object.unwrap();
+		assert_eq!(object.bytes, Some(Cow::Owned(bytes.to_vec())));
+		assert_eq!(object.stored_at, 10);
 
 		store.delete_object(object::delete::Arg {
 			id: id.clone(),
-			now: 16,
-			ttl: 5,
+			touched_at: 9,
+		});
+		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
+		assert!(output.object.is_some());
+
+		store.delete_object(object::delete::Arg {
+			id: id.clone(),
+			touched_at: 11,
 		});
 
 		let output = store.try_get_object_sync(&object::get::Arg { id });

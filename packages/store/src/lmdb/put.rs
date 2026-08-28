@@ -99,6 +99,15 @@ impl Store {
 		let id = &request.id;
 		let key = Key::Object(lmdb_object::Key::Object(id));
 		let key_bytes = key.pack_to_vec();
+		let previous = db
+			.get(transaction, &key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+			.map(object::Object::deserialize)
+			.transpose()
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		if previous.is_some_and(|object| object.stored_at > request.stored_at) {
+			return Ok(());
+		}
 
 		let value = object::Object {
 			bytes: request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),

@@ -7,5 +7,11 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub struct Output {
-	pub bytes: Option<Bytes>,
+	pub object: Option<Object>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Object {
+	pub bytes: Bytes,
+	pub stored_at: i64,
 }

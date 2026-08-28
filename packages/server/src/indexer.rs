@@ -771,21 +771,25 @@ impl Indexer {
 		}
 		let count = entries.len();
 
+		// Group entries for the same object.
+		let mut groups = BTreeMap::<_, Vec<_>>::new();
+		for entry in entries {
+			groups.entry(entry.id.clone()).or_default().push(entry);
+		}
+
 		// Archive the objects.
-		let results = future::join_all(entries.into_iter().map(|entry| async move {
-			let result = self.object_archive_outbox_entry(&entry).await;
-			(entry, result)
+		let results = future::join_all(groups.into_iter().map(|(id, entries)| async move {
+			let stored_at = entries.iter().map(|entry| entry.stored_at).max().unwrap();
+			let result = self.object_archive_outbox_object(&id, stored_at).await;
+			(entries, result)
 		}))
 		.await;
 		let mut completed = Vec::new();
 		let mut error = None;
-		for (entry, result) in results {
+		for (entries, result) in results {
 			match result {
-				Ok(Some(stored_at)) => {
-					let entry = crate::store::object::archive::outbox::Entry { stored_at, ..entry };
-					completed.push(entry);
-				},
-				Ok(None) => {},
+				Ok(true) => completed.extend(entries),
+				Ok(false) => {},
 				Err(current) => {
 					error.get_or_insert(current);
 				},
@@ -810,39 +814,40 @@ impl Indexer {
 		Ok(count)
 	}
 
-	async fn object_archive_outbox_entry(
+	async fn object_archive_outbox_object(
 		&self,
-		entry: &crate::store::object::archive::outbox::Entry,
-	) -> tg::Result<Option<i64>> {
-		let arg = crate::store::object::get::Arg {
-			id: entry.id.clone(),
-		};
-		let output = self.server.store.try_get_object(arg).await.map_err(
-			|error| tg::error!(!error, id = %entry.id, "failed to get an object from the store"),
-		)?;
+		id: &tg::object::Id,
+		stored_at: i64,
+	) -> tg::Result<bool> {
+		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let output =
+			self.server.store.try_get_object(arg).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get an object from the store"),
+			)?;
 		let Some(object) = output.object else {
-			return Ok(None);
+			return Ok(false);
 		};
-		if object.stored_at < entry.stored_at {
-			return Ok(None);
+		if object.stored_at < stored_at {
+			return Ok(false);
 		}
 		let stored_at = object.stored_at;
 		let Some(bytes) = object.bytes else {
-			return Ok(None);
+			return Ok(false);
 		};
 		let Some(archive) = &self.server.archive else {
 			return Err(tg::error!("the archive is unavailable"));
 		};
 		let arg = tangram_archive::object::put::Arg {
 			bytes: bytes.into_owned().into(),
-			id: entry.id.clone(),
+			id: id.clone(),
 			stored_at,
 		};
-		archive.put_object(arg).await.map_err(
-			|error| tg::error!(!error, id = %entry.id, "failed to put an object in the archive"),
-		)?;
+		archive
+			.put_object(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
 
-		Ok(Some(stored_at))
+		Ok(true)
 	}
 
 	async fn object_index_outbox_task(

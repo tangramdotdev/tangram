@@ -2,15 +2,7 @@ use {bytes::Bytes, futures::TryStreamExt as _, tangram_client::prelude::*};
 
 impl super::super::Archive {
 	pub async fn delete_object(&self, arg: crate::object::delete::Arg) -> tg::Result<()> {
-		// Compute the maximum stored timestamp.
-		let ttl = i64::try_from(arg.ttl).map_err(
-			|error| tg::error!(!error, ttl = %arg.ttl, "the object TTL is out of range"),
-		)?;
-		let max_stored_at = arg.now.checked_sub(ttl).ok_or_else(
-			|| tg::error!(now = %arg.now, %ttl, "the object timestamp is out of range"),
-		)?;
-
-		// Get the archived generation and ETag.
+		// Get the archived object timestamp and ETag.
 		let path = format!("/{}", arg.id);
 		let mut headers = http::HeaderMap::new();
 		headers.insert(
@@ -38,7 +30,7 @@ impl super::super::Archive {
 		let stored_at = super::deserialize_stored_at(&response.bytes).map_err(
 			|error| tg::error!(!error, id = %arg.id, "failed to deserialize an S3 object header"),
 		)?;
-		if stored_at > max_stored_at {
+		if stored_at > arg.touched_at {
 			return Ok(());
 		}
 		let etag = response
@@ -47,7 +39,7 @@ impl super::super::Archive {
 			.cloned()
 			.ok_or_else(|| tg::error!(id = %arg.id, "the S3 object response has no ETag"))?;
 
-		// Delete the archived generation if it has not been replaced.
+		// Delete the archived object if it has not been replaced.
 		let mut headers = http::HeaderMap::new();
 		headers.insert(http::header::IF_MATCH, etag);
 		let response = self

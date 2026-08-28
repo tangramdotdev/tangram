@@ -10,12 +10,10 @@ impl Store {
 	) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
 			let timestamp = super::object_timestamp(entry.stored_at)?;
-			let partition = entry
-				.partition
-				.to_i64()
-				.ok_or_else(|| tg::error!("the object archive outbox partition exceeded an i64"))?;
+			let partition =
+				super::physical_outbox_partition(entry.partition, self.partition_offset)?;
 			let id = entry.id.to_bytes();
-			let params = (timestamp, partition, id.as_ref());
+			let params = (timestamp, partition, entry.stored_at, id.as_ref());
 			self.session
 				.execute_unpaged(&self.statements.delete_object_archive_outbox_entry, params)
 				.await
@@ -33,7 +31,11 @@ impl Store {
 		&self,
 		arg: outbox::dequeue::Arg,
 	) -> tg::Result<Vec<outbox::Entry>> {
-		let partitions = partitions(arg.partition_start, arg.partition_end)?;
+		let partitions = partitions(
+			arg.partition_start,
+			arg.partition_end,
+			self.partition_offset,
+		)?;
 		if partitions.is_empty() || arg.batch_size == 0 {
 			return Ok(Vec::new());
 		}
@@ -69,9 +71,8 @@ impl Store {
 					tg::error!(!error, "failed to get an object archive outbox row")
 				})?;
 				let id = tg::object::Id::from_slice(row.id)?;
-				let partition = row.partition.to_u64().ok_or_else(|| {
-					tg::error!("the object archive outbox partition was negative")
-				})?;
+				let partition =
+					super::logical_outbox_partition(row.partition, self.partition_offset)?;
 				let entry = outbox::Entry {
 					id,
 					partition,
@@ -87,10 +88,8 @@ impl Store {
 	pub async fn put_object_archive_outbox_entries(&self, arg: outbox::put::Arg) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
 			let timestamp = super::object_timestamp(entry.stored_at)?;
-			let partition = entry
-				.partition
-				.to_i64()
-				.ok_or_else(|| tg::error!("the object archive outbox partition exceeded an i64"))?;
+			let partition =
+				super::physical_outbox_partition(entry.partition, self.partition_offset)?;
 			let id = entry.id.to_bytes();
 			let params = (id.as_ref(), partition, entry.stored_at, timestamp);
 			self.session
@@ -110,12 +109,12 @@ impl Store {
 	}
 }
 
-fn partitions(partition_start: u64, partition_end: u64) -> tg::Result<Vec<i64>> {
+fn partitions(
+	partition_start: u64,
+	partition_end: u64,
+	partition_offset: u64,
+) -> tg::Result<Vec<i64>> {
 	(partition_start..partition_end)
-		.map(|partition| {
-			partition
-				.to_i64()
-				.ok_or_else(|| tg::error!("the object archive outbox partition exceeded an i64"))
-		})
+		.map(|partition| super::physical_outbox_partition(partition, partition_offset))
 		.collect()
 }

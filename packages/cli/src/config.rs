@@ -172,6 +172,9 @@ pub struct S3Archive {
 	pub endpoint: Option<Uri>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub express: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<ArchivePool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2168,6 +2171,7 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 	let access_key = required(source.access_key, "archive.access_key")?;
 	let bucket = required(source.bucket, "archive.bucket")?;
 	let endpoint = required(source.endpoint, "archive.endpoint")?;
+	let express = required(source.express, "archive.express")?;
 	let mut pool = server::ArchivePool::default();
 	if let Some(source) = source.pool {
 		if let Some(value) = source.max {
@@ -2190,6 +2194,7 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 		access_key,
 		bucket,
 		endpoint,
+		express,
 		pool,
 		reconnect,
 		region,
@@ -3763,6 +3768,7 @@ mod tests {
 				"access_key": "access",
 				"bucket": "bucket",
 				"endpoint": "https://objects.example.com",
+				"express": true,
 				"pool": {
 					"max": 32,
 					"min": 4,
@@ -3782,6 +3788,7 @@ mod tests {
 		assert_eq!(target.access_key, "access");
 		assert_eq!(target.bucket, "bucket");
 		assert_eq!(target.endpoint.as_str(), "https://objects.example.com");
+		assert!(target.express);
 		assert_eq!(target.pool.max, 32);
 		assert_eq!(target.pool.min, 4);
 		assert_eq!(target.pool.ttl, Some(Duration::from_secs(30)));
@@ -3795,6 +3802,24 @@ mod tests {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"archive": {
 				"kind": "s3",
+			},
+		}))
+		.unwrap();
+		let error = resolve_server_config(&source).unwrap_err();
+
+		assert_eq!(error.to_string(), "a required config field is missing");
+	}
+
+	#[test]
+	fn rejects_an_s3_archive_without_an_explicit_express_setting() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+				"access_key": "access",
+				"bucket": "bucket",
+				"endpoint": "https://objects.example.com",
+				"region": "us-east-1",
+				"secret_key": "secret",
 			},
 		}))
 		.unwrap();

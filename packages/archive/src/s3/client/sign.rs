@@ -58,7 +58,7 @@ impl Client {
 		}
 
 		let identity = credentials.clone().into();
-		let signing_name = signing_name(authority);
+		let signing_name = signing_name(self.express);
 		let mut settings = http_request::SigningSettings::default();
 		settings
 			.excluded_headers
@@ -116,18 +116,8 @@ impl Client {
 	}
 }
 
-pub(super) fn is_express(authority: &str) -> bool {
-	authority
-		.split('.')
-		.any(|label| label.starts_with("s3express-"))
-}
-
-fn signing_name(authority: &str) -> &'static str {
-	if is_express(authority) {
-		"s3express"
-	} else {
-		"s3"
-	}
+fn signing_name(express: bool) -> &'static str {
+	if express { "s3express" } else { "s3" }
 }
 
 #[cfg(test)]
@@ -138,8 +128,8 @@ mod tests {
 		let config = super::super::super::Config {
 			access_key: "root-access".into(),
 			bucket: "bucket--use1-az4--x-s3".into(),
-			endpoint: tangram_uri::Uri::parse("https://s3express-use1-az4.us-east-1.amazonaws.com")
-				.unwrap(),
+			endpoint: tangram_uri::Uri::parse("https://objects.example.com").unwrap(),
+			express: true,
 			pool: tangram_pool::Options::default(),
 			reconnect: tangram_futures::retry::Options::default(),
 			region: "us-east-1".into(),
@@ -203,15 +193,7 @@ mod tests {
 
 	#[test]
 	fn signing_name() {
-		assert_eq!(
-			super::signing_name("bucket.s3.us-east-1.amazonaws.com"),
-			"s3"
-		);
-		assert_eq!(
-			super::signing_name(
-				"bucket--use1-az4--x-s3.s3express-use1-az4.us-east-1.amazonaws.com"
-			),
-			"s3express"
-		);
+		assert_eq!(super::signing_name(false), "s3");
+		assert_eq!(super::signing_name(true), "s3express");
 	}
 }

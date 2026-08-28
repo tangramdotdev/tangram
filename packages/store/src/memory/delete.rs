@@ -1,4 +1,4 @@
-use {super::Store, crate::object, num::ToPrimitive as _};
+use {super::Store, crate::object};
 
 impl Store {
 	#[expect(clippy::needless_pass_by_value)]
@@ -7,7 +7,7 @@ impl Store {
 		let remove = state
 			.objects
 			.get(&arg.id)
-			.is_some_and(|entry| entry.stored_at <= arg.now - arg.ttl.to_i64().unwrap());
+			.is_some_and(|entry| entry.stored_at <= arg.touched_at);
 		if remove {
 			state.objects.remove(&arg.id);
 		}
@@ -19,7 +19,7 @@ impl Store {
 			let remove = state
 				.objects
 				.get(&arg.id)
-				.is_some_and(|entry| entry.stored_at <= arg.now - arg.ttl.to_i64().unwrap());
+				.is_some_and(|entry| entry.stored_at <= arg.touched_at);
 			if remove {
 				state.objects.remove(&arg.id);
 			}

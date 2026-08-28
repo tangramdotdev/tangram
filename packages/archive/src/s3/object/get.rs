@@ -17,7 +17,7 @@ impl super::super::Archive {
 			.await
 			.map_err(|error| tg::error!(!error, id = %arg.id, "failed to get an S3 object"))?;
 		if response.status == http::StatusCode::NOT_FOUND {
-			return Ok(crate::object::get::Output { bytes: None });
+			return Ok(crate::object::get::Output { object: None });
 		}
 		if !response.status.is_success() {
 			return Err(tg::error!(
@@ -27,11 +27,11 @@ impl super::super::Archive {
 				"failed to get an S3 object"
 			));
 		}
-		let bytes = super::deserialize(&response.bytes).map_err(
+		let object = super::deserialize(&response.bytes).map_err(
 			|error| tg::error!(!error, id = %arg.id, "failed to deserialize an S3 object"),
 		)?;
-		let bytes = Some(bytes);
-		let output = crate::object::get::Output { bytes };
+		let object = Some(object);
+		let output = crate::object::get::Output { object };
 
 		Ok(output)
 	}

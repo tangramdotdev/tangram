@@ -28,6 +28,7 @@ impl Archive {
 			access_key: config.access_key.clone(),
 			bucket: config.bucket.clone(),
 			endpoint: config.endpoint.clone(),
+			express: config.express,
 			pool,
 			reconnect,
 			region: config.region.clone(),

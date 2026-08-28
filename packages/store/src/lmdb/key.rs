@@ -70,6 +70,7 @@ impl fdbt::TuplePack for Key<'_> {
 			Self::ObjectArchiveOutbox(entry) => (
 				Kind::ObjectArchiveOutbox.to_i32().unwrap(),
 				entry.partition,
+				entry.stored_at,
 				entry.id.to_bytes().as_ref(),
 			)
 				.pack(writer, tuple_depth),

@@ -1508,7 +1508,6 @@ impl Session {
 							id,
 							metadata,
 							storage,
-							time_to_touch: self.server.config.object.time_to_touch,
 							touched_at,
 						};
 						put_object_args.push(arg);

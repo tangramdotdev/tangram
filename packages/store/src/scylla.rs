@@ -158,7 +158,7 @@ impl Store {
 			"
 				delete from object_archive_outbox
 				using timestamp ?
-				where partition = ? and id = ?;
+				where partition = ? and stored_at = ? and id = ?;
 			"
 		);
 		let mut delete_object_archive_outbox_entry =

@@ -3,22 +3,19 @@ use {
 	crate::object,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
-	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
 pub(super) struct Request {
 	pub id: tg::object::Id,
-	pub now: i64,
-	pub ttl: u64,
+	pub touched_at: i64,
 }
 
 impl Store {
 	pub(super) async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
 		let request = super::request::Request::DeleteObject(Request {
 			id: arg.id,
-			now: arg.now,
-			ttl: arg.ttl,
+			touched_at: arg.touched_at,
 		});
 
 		self.send_write_request(request).await
@@ -35,8 +32,7 @@ impl Store {
 			args.into_iter()
 				.map(|arg| Request {
 					id: arg.id,
-					now: arg.now,
-					ttl: arg.ttl,
+					touched_at: arg.touched_at,
 				})
 				.collect(),
 		);
@@ -51,8 +47,7 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let request = Request {
 			id: arg.id,
-			now: arg.now,
-			ttl: arg.ttl,
+			touched_at: arg.touched_at,
 		};
 		Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		transaction
@@ -72,8 +67,7 @@ impl Store {
 		for arg in args {
 			let request = Request {
 				id: arg.id,
-				now: arg.now,
-				ttl: arg.ttl,
+				touched_at: arg.touched_at,
 			};
 			Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		}
@@ -102,7 +96,7 @@ impl Store {
 		let value = object::Object::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 
-		if request.now - value.stored_at >= request.ttl.to_i64().unwrap() {
+		if value.stored_at <= request.touched_at {
 			db.delete(transaction, &key_bytes)
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
 		}

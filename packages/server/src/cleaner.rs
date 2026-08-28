@@ -225,12 +225,14 @@ impl Server {
 		}
 
 		// Delete archived and stored objects.
-		let ttl = object_time_to_live.as_secs();
 		let store_args = output
 			.objects
 			.iter()
 			.cloned()
-			.map(|id| crate::store::object::delete::Arg { id, now, ttl })
+			.map(|object| crate::store::object::delete::Arg {
+				id: object.id,
+				touched_at: object.touched_at,
+			})
 			.collect();
 		let delete_archive_future = async {
 			if let Some(archive) = &self.archive {
@@ -238,7 +240,10 @@ impl Server {
 					.objects
 					.iter()
 					.cloned()
-					.map(|id| tangram_archive::object::delete::Arg { id, now, ttl })
+					.map(|object| tangram_archive::object::delete::Arg {
+						id: object.id,
+						touched_at: object.touched_at,
+					})
 					.collect();
 				archive.delete_object_batch(args).await.map_err(|error| {
 					tg::error!(!error, "failed to delete objects from the archive")

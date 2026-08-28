@@ -91,6 +91,8 @@ pub struct S3Archive {
 
 	pub endpoint: Uri,
 
+	pub express: bool,
+
 	pub pool: ArchivePool,
 
 	pub reconnect: Reconnect,

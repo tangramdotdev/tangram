@@ -16,6 +16,7 @@ type Pool = tangram_pool::Pool<Connection, tg::Error>;
 
 pub(super) struct Client {
 	credentials: Credentials,
+	express: bool,
 	pool: Pool,
 	region: String,
 	session: Option<tokio::sync::Mutex<Option<Session>>>,
@@ -54,7 +55,7 @@ impl Client {
 			.endpoint
 			.authority()
 			.ok_or_else(|| tg::error!("the S3 archive endpoint has no authority"))?;
-		let session = sign::is_express(authority).then(Default::default);
+		let session = config.express.then(Default::default);
 		if !matches!(config.endpoint.path(), "" | "/")
 			|| config.endpoint.query().is_some()
 			|| config.endpoint.fragment().is_some()
@@ -83,6 +84,7 @@ impl Client {
 
 		Ok(Self {
 			credentials,
+			express: config.express,
 			pool,
 			region,
 			session,

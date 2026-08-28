@@ -28,7 +28,6 @@ pub(super) struct CheckinCreateArtifactsArg<'a> {
 	pub index_checkout_args: &'a mut IndexCheckoutArgs,
 	pub graph_data: &'a mut GraphData,
 	pub root: &'a Path,
-	pub time_to_touch: std::time::Duration,
 	pub touched_at: i64,
 }
 
@@ -39,7 +38,6 @@ struct CheckinCreateNodeArtifactArg<'a> {
 	store_args: &'a mut StoreArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	index: usize,
-	time_to_touch: std::time::Duration,
 	touched_at: i64,
 }
 
@@ -50,7 +48,6 @@ struct CheckinCreateGraphArg<'a> {
 	index_object_args: &'a mut IndexObjectArgs,
 	graph_data: &'a mut GraphData,
 	scc: &'a [usize],
-	time_to_touch: std::time::Duration,
 	touched_at: i64,
 }
 
@@ -61,7 +58,6 @@ struct CheckinCreatePointerArtifactArg<'a> {
 	graph_id: &'a tg::graph::Id,
 	local: usize,
 	global: usize,
-	time_to_touch: std::time::Duration,
 	touched_at: i64,
 }
 
@@ -90,7 +86,6 @@ impl Session {
 			index_checkout_args,
 			graph_data,
 			root,
-			time_to_touch,
 			touched_at,
 		} = arg;
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
@@ -118,7 +113,6 @@ impl Session {
 					store_args,
 					index_object_args,
 					index: scc[0],
-					time_to_touch,
 					touched_at,
 				};
 				Self::checkin_create_node_artifact(arg)?;
@@ -130,7 +124,6 @@ impl Session {
 					index_object_args,
 					graph_data,
 					scc,
-					time_to_touch,
 					touched_at,
 				};
 				Self::checkin_create_graph(arg)?;
@@ -161,7 +154,6 @@ impl Session {
 				graph_id: pointer.graph.as_ref().unwrap(),
 				local: pointer.index,
 				global: index,
-				time_to_touch,
 				touched_at,
 			};
 			Self::checkin_create_pointer_artifact(arg)?;
@@ -178,7 +170,6 @@ impl Session {
 			store_args,
 			index_object_args,
 			index,
-			time_to_touch,
 			touched_at,
 		} = arg;
 		// Get the node.
@@ -227,7 +218,6 @@ impl Session {
 					entries,
 					store_args,
 					index_object_args,
-					time_to_touch,
 					touched_at,
 				)?;
 				tg::directory::Data::Node(node).into()
@@ -320,7 +310,6 @@ impl Session {
 			&[index],
 			store_args,
 			index_object_args,
-			time_to_touch,
 			touched_at,
 		)?;
 
@@ -343,7 +332,6 @@ impl Session {
 			index_object_args,
 			graph_data,
 			scc,
-			time_to_touch,
 			touched_at,
 		} = arg;
 		// Run WL to compute canonical labels for all nodes in the SCC.
@@ -385,7 +373,6 @@ impl Session {
 			&unique_indices,
 			store_args,
 			index_object_args,
-			time_to_touch,
 			touched_at,
 		)?;
 		graph_data.insert(
@@ -614,7 +601,6 @@ impl Session {
 			graph_id,
 			local,
 			global,
-			time_to_touch,
 			touched_at,
 		} = arg;
 		let node = graph.nodes.get(&global).unwrap();
@@ -651,7 +637,6 @@ impl Session {
 			&[global],
 			store_args,
 			index_object_args,
-			time_to_touch,
 			touched_at,
 		)?;
 
@@ -669,7 +654,6 @@ impl Session {
 		scc: &[usize],
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
-		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
 		let data = data.clone().without_location_and_tokens();
@@ -795,7 +779,6 @@ impl Session {
 			id: id.clone(),
 			metadata: metadata.clone(),
 			storage: tangram_index::object::Storage { subtree: stored },
-			time_to_touch,
 			touched_at,
 		};
 
@@ -935,7 +918,6 @@ impl Session {
 			id: id.clone(),
 			metadata: node.metadata.clone().unwrap_or_default(),
 			storage: node.storage.clone(),
-			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
 		let arg = tangram_index::batch::Arg {
@@ -1165,7 +1147,6 @@ impl Session {
 		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
-		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the entries fit in a single leaf, then return a leaf.
@@ -1195,7 +1176,6 @@ impl Session {
 				&leaf_data,
 				store_args,
 				index_object_args,
-				time_to_touch,
 				touched_at,
 			)?;
 
@@ -1212,7 +1192,6 @@ impl Session {
 			children,
 			store_args,
 			index_object_args,
-			time_to_touch,
 			touched_at,
 		)
 	}
@@ -1223,7 +1202,6 @@ impl Session {
 		children: Vec<tg::graph::data::DirectoryChild>,
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
-		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the children fit in a single branch, return a branch.
@@ -1252,7 +1230,6 @@ impl Session {
 				&branch_data,
 				store_args,
 				index_object_args,
-				time_to_touch,
 				touched_at,
 			)?;
 
@@ -1269,7 +1246,6 @@ impl Session {
 			branch_children,
 			store_args,
 			index_object_args,
-			time_to_touch,
 			touched_at,
 		)
 	}
@@ -1279,7 +1255,6 @@ impl Session {
 		directory: &tg::graph::data::Directory,
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
-		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	) -> tg::Result<tg::directory::Id> {
 		// Create the directory data.
@@ -1359,7 +1334,6 @@ impl Session {
 			id: id.clone(),
 			metadata,
 			storage: tangram_index::object::Storage { subtree: true },
-			time_to_touch,
 			touched_at,
 		};
 

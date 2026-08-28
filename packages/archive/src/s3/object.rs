@@ -10,11 +10,12 @@ mod put;
 const FORMAT: u8 = 0;
 pub(super) const HEADER_LENGTH: usize = 9;
 
-pub(super) fn deserialize(bytes: &Bytes) -> tg::Result<Bytes> {
-	deserialize_stored_at(bytes)?;
+pub(super) fn deserialize(bytes: &Bytes) -> tg::Result<crate::object::get::Object> {
+	let stored_at = deserialize_stored_at(bytes)?;
 	let bytes = bytes.slice(HEADER_LENGTH..);
+	let object = crate::object::get::Object { bytes, stored_at };
 
-	Ok(bytes)
+	Ok(object)
 }
 
 pub(super) fn deserialize_stored_at(bytes: &[u8]) -> tg::Result<i64> {
@@ -49,6 +50,8 @@ mod tests {
 		let stored_at = 1_234_567_890;
 		let serialized = serialize(stored_at, &bytes);
 		assert_eq!(deserialize_stored_at(&serialized).unwrap(), stored_at);
-		assert_eq!(deserialize(&serialized).unwrap(), bytes);
+		let object = deserialize(&serialized).unwrap();
+		assert_eq!(object.bytes, bytes);
+		assert_eq!(object.stored_at, stored_at);
 	}
 }

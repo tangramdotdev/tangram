@@ -8,6 +8,7 @@ pub struct Config {
 	pub access_key: String,
 	pub bucket: String,
 	pub endpoint: Uri,
+	pub express: bool,
 	pub pool: tangram_pool::Options,
 	pub reconnect: tangram_futures::retry::Options,
 	pub region: String,
@@ -64,6 +65,7 @@ mod tests {
 			access_key,
 			bucket,
 			endpoint: Uri::from_str(&endpoint).unwrap(),
+			express: false,
 			pool: tangram_pool::Options {
 				max: 4,
 				min: 2,
@@ -85,26 +87,28 @@ mod tests {
 		archive.put_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id: id.clone() };
 		let output = archive.try_get_object(arg).await.unwrap();
-		assert_eq!(output.bytes.as_ref(), Some(&bytes));
+		let object = output.object.unwrap();
+		assert_eq!(object.bytes, bytes);
+		assert_eq!(object.stored_at, 12_345);
 
 		let arg = crate::object::delete::Arg {
 			id: id.clone(),
-			now: 12_345,
-			ttl: 1,
+			touched_at: 12_344,
 		};
 		archive.delete_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id: id.clone() };
 		let output = archive.try_get_object(arg).await.unwrap();
-		assert_eq!(output.bytes.as_ref(), Some(&bytes));
+		let object = output.object.unwrap();
+		assert_eq!(object.bytes, bytes);
+		assert_eq!(object.stored_at, 12_345);
 
 		let arg = crate::object::delete::Arg {
 			id: id.clone(),
-			now: 12_346,
-			ttl: 1,
+			touched_at: 12_345,
 		};
 		archive.delete_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id };
 		let output = archive.try_get_object(arg).await.unwrap();
-		assert!(output.bytes.is_none());
+		assert!(output.object.is_none());
 	}
 }

@@ -213,7 +213,10 @@ impl Index {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 					Item::Checkout(id) => output.checkouts.push(id),
-					Item::Object(id) => output.objects.push(id),
+					Item::Object(id) => output.objects.push(crate::clean::Object {
+						id,
+						touched_at: candidate.touched_at,
+					}),
 					Item::Process(id) => output.processes.push(id),
 					Item::Sandbox(id) => output.sandboxes.push(id),
 				}

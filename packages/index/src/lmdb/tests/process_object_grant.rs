@@ -31,7 +31,6 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 			id,
 			metadata: tg::object::Metadata::default(),
 			storage: crate::object::Storage::default(),
-			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
 		})
 	};
@@ -152,7 +151,6 @@ async fn process_object_grants_abort_when_authorization_exhausts() {
 				id: object.clone(),
 				metadata: tg::object::Metadata::default(),
 				storage: crate::object::Storage::default(),
-				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 0,
 			})],
 		})
