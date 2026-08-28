@@ -158,7 +158,10 @@ impl Session {
 		};
 		let resource =
 			tg::Referent::with_node_and_token(id.clone(), options.tokens.local().cloned());
-		let Some(permissions) = self.authorize(resource, permissions).await? else {
+		let mut authorizations = self
+			.authorize_batch_with_required([(resource, permissions)], required.into())
+			.await?;
+		let Some(permissions) = authorizations.pop().unwrap() else {
 			return Err(tg::error!(%id, "failed to find the node"));
 		};
 		if !permissions.contains(required) {

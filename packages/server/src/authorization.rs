@@ -117,7 +117,8 @@ impl Session {
 			index_positions.push(position);
 			index_required.push(required);
 			index_args.push(tangram_index::authorize::Arg {
-				permissions,
+				required,
+				requested: permissions,
 				resource,
 				token,
 			});
@@ -127,7 +128,7 @@ impl Session {
 			return Ok(outputs);
 		}
 
-		// Race the initial search against the delayed final search.
+		// Run at most one authorization search at a time while indexing catches up.
 		let authorization = &self.server.config.authorization;
 		let delay = authorization.index.delay;
 		let initial_config = crate::authorization_search_config(&authorization.initial);
@@ -151,14 +152,18 @@ impl Session {
 			},
 			None => Some((&mut initial).await),
 		};
-		let final_config = crate::authorization_search_config(&authorization.final_);
-		let final_ = async {
+		let index_wait = async {
 			self.index()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index"))?
 				.try_last()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index"))?;
+
+			Ok::<_, tg::Error>(())
+		};
+		let final_config = crate::authorization_search_config(&authorization.final_);
+		let final_authorization = || async {
 			let outcomes = self
 				.server
 				.index
@@ -169,18 +174,27 @@ impl Session {
 		};
 		let index_outcomes = match initial_result {
 			Some(Ok(outcomes)) if grants_required(&outcomes) => outcomes,
-			Some(Ok(_)) => final_.await?,
+			Some(Ok(_)) => {
+				index_wait.await?;
+				final_authorization().await?
+			},
 			Some(Err(error)) => return Err(error),
 			None => {
-				tokio::pin!(final_);
+				tokio::pin!(index_wait);
 				tokio::select! {
 					result = &mut initial => match result {
 						Ok(outcomes) if grants_required(&outcomes) => outcomes,
-						Ok(_) => final_.await?,
+						Ok(_) => {
+							index_wait.await?;
+							final_authorization().await?
+						},
 						Err(error) => return Err(error),
 					},
-					result = &mut final_ => match result {
-						Ok(outcomes) => outcomes,
+					result = &mut index_wait => match result {
+						Ok(()) => match initial.await {
+							Ok(outcomes) if grants_required(&outcomes) => outcomes,
+							Ok(_) | Err(_) => final_authorization().await?,
+						},
 						Err(error) => match initial.await {
 							Ok(outcomes) if grants_required(&outcomes) => outcomes,
 							Ok(_) | Err(_) => return Err(error),

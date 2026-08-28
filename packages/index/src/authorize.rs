@@ -4,7 +4,8 @@ const SEARCH_EXHAUSTED: &str = "authorization_search_exhausted";
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub permissions: tg::authorization::permission::Set,
+	pub required: tg::authorization::permission::Set,
+	pub requested: tg::authorization::permission::Set,
 	pub resource: tg::Selector<tg::Id>,
 	pub token: Option<tg::authorization::Body>,
 }
@@ -66,6 +67,18 @@ enum NamedPermission {
 	Admin,
 	Read,
 	Write,
+}
+
+impl Arg {
+	pub(crate) fn validate(&self) -> tg::Result<()> {
+		if !self.requested.contains(self.required) {
+			return Err(tg::error!(
+				"the required permissions must be contained in the requested permissions"
+			));
+		}
+
+		Ok(())
+	}
 }
 
 impl Outcome {
@@ -343,6 +356,43 @@ pub(crate) fn permissions_implied_by(
 		.into_iter()
 		.filter(|needed| permission.implies(*needed))
 		.collect()
+}
+
+pub(crate) fn insert_implied_permissions(
+	authorized: &mut tg::authorization::permission::Set,
+	requested: tg::authorization::permission::Set,
+	permission: tg::authorization::Permission,
+) {
+	for permission in permissions_implied_by(permission) {
+		let permission = tg::authorization::permission::Set::from_permission(permission);
+		if requested.contains(permission) {
+			authorized.insert(permission);
+		}
+	}
+}
+
+#[must_use]
+pub(crate) fn permissions_in_search_order(
+	permissions: tg::authorization::permission::Set,
+) -> Vec<tg::authorization::Permission> {
+	let mut permissions = permissions.iter().collect::<Vec<_>>();
+	permissions.sort();
+	let mut ordered = Vec::with_capacity(permissions.len());
+	while !permissions.is_empty() {
+		let index = permissions
+			.iter()
+			.position(|permission| {
+				!permissions.iter().any(|candidate| {
+					candidate != permission
+						&& candidate.implies(*permission)
+						&& !permission.implies(*candidate)
+				})
+			})
+			.unwrap_or_default();
+		ordered.push(permissions.remove(index));
+	}
+
+	ordered
 }
 
 pub(crate) fn permission_for_named_parent(

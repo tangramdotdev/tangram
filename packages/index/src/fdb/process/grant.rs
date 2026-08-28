@@ -47,7 +47,8 @@ impl Index {
 				.iter()
 				.cloned()
 				.map(|object| crate::authorize::Arg {
-					permissions: requested,
+					required: node.into(),
+					requested,
 					resource: tg::Selector::Id(object.into()),
 					token: None,
 				})

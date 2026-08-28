@@ -64,7 +64,8 @@ impl Session {
 					let resource = tg::Selector::Id(resource);
 					let token = token.map(|token| token.body);
 					index_args.push(tangram_index::authorize::Arg {
-						permissions,
+						required: permissions,
+						requested: permissions,
 						resource,
 						token,
 					});

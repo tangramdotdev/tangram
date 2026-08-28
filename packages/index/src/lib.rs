@@ -45,7 +45,8 @@ pub trait Index {
 		Self: Sync,
 	{
 		let arg = crate::authorize::Arg {
-			permissions,
+			required: permissions,
+			requested: permissions,
 			resource,
 			token: None,
 		};

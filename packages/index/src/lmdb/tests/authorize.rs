@@ -330,7 +330,8 @@ async fn is_authorized(
 ) -> bool {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: tg::Selector::Id(resource),
 		token: None,
 	};
@@ -351,7 +352,8 @@ async fn authorize_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		permissions: node,
+		required: node,
+		requested: node,
 		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
@@ -370,6 +372,273 @@ async fn authorize_secs(
 	elapsed
 }
 
+async fn authorize_batch_chain_secs(
+	index: &Index,
+	config: crate::authorize::Config,
+	nodes: &[tg::object::Id],
+	user: &tg::user::Id,
+) -> f64 {
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let args = nodes
+		.iter()
+		.rev()
+		.map(|resource| crate::authorize::Arg {
+			required: node,
+			requested: node,
+			resource: tg::Selector::Id(resource.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let start = Instant::now();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	let elapsed = start.elapsed().as_secs_f64();
+	assert!(outcomes.iter().all(|outcome| {
+		outcome
+			.output()
+			.is_some_and(|output| output.permissions.contains(node))
+	}));
+
+	elapsed
+}
+
+#[must_use]
+fn put_overlapping_ancestor_component(
+	index: &Index,
+	transaction: &mut lmdb::RwTxn<'_>,
+	offset: usize,
+	depth: usize,
+	leaf_total: usize,
+) -> Vec<tg::object::Id> {
+	let chain = (offset..=offset + depth).map(object_id).collect::<Vec<_>>();
+	for (position, object) in chain.iter().enumerate() {
+		put_object(index, transaction, object);
+		if position > 0 {
+			put_child(index, transaction, &chain[position - 1], object);
+		}
+	}
+	let leaves = (offset + depth + 1..offset + depth + 1 + leaf_total)
+		.map(object_id)
+		.collect::<Vec<_>>();
+	for leaf in &leaves {
+		put_object(index, transaction, leaf);
+		put_child(index, transaction, chain.last().unwrap(), leaf);
+	}
+
+	leaves
+}
+
+async fn authorize_overlapping_exhausted_secs(
+	index: &Index,
+	depth: usize,
+	leaves: &[tg::object::Id],
+	user: &tg::user::Id,
+) -> f64 {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: depth / 2,
+		max_edges: 4 * depth,
+		max_nodes: 2 * depth,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let args = leaves
+		.iter()
+		.map(|leaf| crate::authorize::Arg {
+			required: node,
+			requested: node,
+			resource: tg::Selector::Id(leaf.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let start = Instant::now();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	let elapsed = start.elapsed().as_secs_f64();
+	assert!(
+		outcomes
+			.iter()
+			.all(|outcome| matches!(outcome, crate::authorize::Outcome::Exhausted))
+	);
+
+	elapsed
+}
+
+async fn authorize_overlapping_descendant_secs(
+	index: &Index,
+	depth: usize,
+	leaves: &[tg::object::Id],
+	user: &tg::user::Id,
+) -> f64 {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: depth,
+		max_edges: 0,
+		max_nodes: 2 * depth,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: depth + 1,
+		max_edges: 4 * (depth + leaves.len()),
+		max_nodes: 2 * (depth + leaves.len()),
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let args = leaves
+		.iter()
+		.map(|leaf| crate::authorize::Arg {
+			required: node,
+			requested: node,
+			resource: tg::Selector::Id(leaf.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let start = Instant::now();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	let elapsed = start.elapsed().as_secs_f64();
+	assert!(outcomes.iter().all(|outcome| {
+		outcome
+			.output()
+			.is_some_and(|output| output.permissions.contains(node))
+	}));
+
+	elapsed
+}
+
+async fn authorize_overlapping_subtree_secs(
+	index: &Index,
+	nodes: &[tg::object::Id],
+	user: &tg::user::Id,
+) -> f64 {
+	let length = nodes.len();
+	let search = crate::authorize::SearchConfig {
+		max_depth: length,
+		max_edges: 4 * length,
+		max_nodes: 2 * length,
+		..Default::default()
+	};
+	let subtree_config = crate::authorize::SubtreeConfig {
+		max_depth: length,
+		max_objects: length,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor: search,
+		descendant: search,
+		subtree: subtree_config,
+	};
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
+	let args = nodes
+		.iter()
+		.map(|node| crate::authorize::Arg {
+			required: subtree,
+			requested: subtree,
+			resource: tg::Selector::Id(node.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let start = Instant::now();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	let elapsed = start.elapsed().as_secs_f64();
+	assert!(outcomes.iter().all(|outcome| {
+		outcome
+			.output()
+			.is_some_and(|output| output.permissions.contains(subtree))
+	}));
+
+	elapsed
+}
+
+#[must_use]
+fn put_authorized_subtree_chain(
+	index: &Index,
+	transaction: &mut lmdb::RwTxn<'_>,
+	offset: usize,
+	length: usize,
+	user: &tg::user::Id,
+) -> Vec<tg::object::Id> {
+	let nodes = (offset..offset + length).map(object_id).collect::<Vec<_>>();
+	for (position, node) in nodes.iter().enumerate() {
+		put_object(index, transaction, node);
+		put_grant(
+			index,
+			transaction,
+			node,
+			user,
+			tg::authorization::permission::object::Permission::Node,
+		);
+		if position > 0 {
+			put_child(index, transaction, &nodes[position - 1], node);
+		}
+	}
+
+	nodes
+}
+
+async fn authorize_object_process_grants_secs(
+	index: &Index,
+	object: &tg::object::Id,
+	user: &tg::user::Id,
+) -> f64 {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 1,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let arg = crate::authorize::Arg {
+		required: node,
+		requested: node,
+		resource: tg::Selector::Id(object.clone().into()),
+		token: None,
+	};
+	let start = Instant::now();
+	let outcomes = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	let elapsed = start.elapsed().as_secs_f64();
+	assert!(matches!(outcomes[0], crate::authorize::Outcome::Exhausted));
+
+	elapsed
+}
+
 async fn deny_secs(
 	index: &Index,
 	config: crate::authorize::Config,
@@ -378,7 +647,8 @@ async fn deny_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		permissions: node,
+		required: node,
+		requested: node,
 		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
@@ -436,17 +706,20 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 	let permissions = tg::authorization::permission::Set::from_permission(permission);
 	let args = [
 		crate::authorize::Arg {
-			permissions,
+			required: permissions,
+			requested: permissions,
 			resource: tg::Selector::Specifier("alice/new".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			permissions,
+			required: permissions,
+			requested: permissions,
 			resource: tg::Selector::Specifier("alice/taken".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			permissions,
+			required: permissions,
+			requested: permissions,
 			resource: tg::Selector::Specifier("unclaimed/new".parse().unwrap()),
 			token: None,
 		},
@@ -928,7 +1201,8 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 		tg::authorization::permission::process::Permission::NodeCommand,
 	);
 	let arg = crate::authorize::Arg {
-		permissions: permission.into(),
+		required: permission.into(),
+		requested: permission.into(),
 		resource: tg::Selector::Id(parent.clone().into()),
 		token: None,
 	};
@@ -1020,6 +1294,153 @@ async fn authorize_deep_chain_scales_linearly() {
 }
 
 #[tokio::test]
+async fn authorize_deep_chain_batch_scales_linearly() {
+	const BASE: usize = 128;
+	const DEEP: usize = 512;
+
+	let search = crate::authorize::SearchConfig {
+		max_depth: DEEP,
+		max_edges: 4 * DEEP,
+		max_nodes: 2 * DEEP,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor: search,
+		descendant: search,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_directory, index) = new_index();
+	let nodes = (0..=DEEP).map(object_id).collect::<Vec<_>>();
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	for (position, node) in nodes.iter().enumerate() {
+		put_object(&index, &mut transaction, node);
+		if position > 0 {
+			put_child(&index, &mut transaction, &nodes[position - 1], node);
+		}
+	}
+	put_grant(
+		&index,
+		&mut transaction,
+		&nodes[0],
+		&user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	transaction.commit().unwrap();
+
+	let base = authorize_batch_chain_secs(&index, config, &nodes[1..=BASE], &user).await;
+	let deep = authorize_batch_chain_secs(&index, config, &nodes[1..=DEEP], &user).await;
+	let ratio = deep / base;
+	eprintln!(
+		"no-token batch: {BASE} nodes = {:.1}ms, {DEEP} nodes = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		deep * 1e3,
+	);
+	assert!(
+		ratio < 8.0,
+		"authorization compounded {ratio:.1}x over a 4x deeper batch: positive proofs were not reused"
+	);
+}
+
+#[tokio::test]
+async fn authorize_overlapping_exhausted_ancestor_batch_scales_linearly() {
+	const BASE: usize = 128;
+	const DEEP: usize = 512;
+
+	let (_directory, index) = new_index();
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	let base_leaves = put_overlapping_ancestor_component(&index, &mut transaction, 0, BASE, BASE);
+	let deep_leaves =
+		put_overlapping_ancestor_component(&index, &mut transaction, 10_000, DEEP, DEEP);
+	transaction.commit().unwrap();
+
+	let base = authorize_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user).await;
+	let deep = authorize_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user).await;
+	let ratio = deep / base;
+	eprintln!(
+		"overlapping exhausted ancestor batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		deep * 1e3,
+	);
+	assert!(
+		ratio < 8.0,
+		"authorization compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
+	);
+}
+
+#[tokio::test]
+async fn authorize_overlapping_descendant_batch_scales_linearly() {
+	const BASE: usize = 512;
+	const DEEP: usize = 2048;
+
+	let (_directory, index) = new_index();
+	let base_user = tg::user::Id::new();
+	let deep_user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	let base_leaves = put_overlapping_ancestor_component(&index, &mut transaction, 0, BASE, BASE);
+	put_grant(
+		&index,
+		&mut transaction,
+		&object_id(0),
+		&base_user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	let deep_leaves =
+		put_overlapping_ancestor_component(&index, &mut transaction, 10_000, DEEP, DEEP);
+	put_grant(
+		&index,
+		&mut transaction,
+		&object_id(10_000),
+		&deep_user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	transaction.commit().unwrap();
+
+	let base = authorize_overlapping_descendant_secs(&index, BASE, &base_leaves, &base_user).await;
+	let deep = authorize_overlapping_descendant_secs(&index, DEEP, &deep_leaves, &deep_user).await;
+	let ratio = deep / base;
+	eprintln!(
+		"overlapping descendant batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		deep * 1e3,
+	);
+	assert!(
+		ratio < 6.0,
+		"authorization compounded {ratio:.1}x over a 4x larger overlapping descendant graph: descendant work was repeated per root"
+	);
+}
+
+#[tokio::test]
+async fn authorize_overlapping_subtree_batch_scales_linearly() {
+	const BASE: usize = 128;
+	const DEEP: usize = 512;
+
+	let (_directory, index) = new_index();
+	let base_user = tg::user::Id::new();
+	let deep_user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	let base_nodes =
+		put_authorized_subtree_chain(&index, &mut transaction, 20_000, BASE, &base_user);
+	let deep_nodes =
+		put_authorized_subtree_chain(&index, &mut transaction, 30_000, DEEP, &deep_user);
+	transaction.commit().unwrap();
+
+	let base = authorize_overlapping_subtree_secs(&index, &base_nodes, &base_user).await;
+	let deep = authorize_overlapping_subtree_secs(&index, &deep_nodes, &deep_user).await;
+	let ratio = deep / base;
+	eprintln!(
+		"overlapping subtree batch: {BASE} roots = {:.1}ms, {DEEP} roots = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		deep * 1e3,
+	);
+	assert!(
+		ratio < 8.0,
+		"authorization compounded {ratio:.1}x over a 4x larger overlapping subtree graph: derived subtree proofs were not reused"
+	);
+}
+
+#[tokio::test]
 async fn authorize_descendant_search_can_deny() {
 	let ancestor = crate::authorize::SearchConfig {
 		max_edges: 0,
@@ -1039,7 +1460,8 @@ async fn authorize_descendant_search_can_deny() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: tg::Selector::Id(object.into()),
 		token: None,
 	};
@@ -1093,7 +1515,8 @@ async fn authorize_initial_search_limits_can_disable_descendants() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: tg::Selector::Id(child.into()),
 		token: None,
 	};
@@ -1162,7 +1585,8 @@ async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: tg::Selector::Id(root.into()),
 		token: None,
 	};
@@ -1269,12 +1693,14 @@ async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(child.into());
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: resource.clone(),
 		token: None,
 	};
 	let authorized_arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: tg::Selector::Id(authorized.into()),
 		token: None,
 	};
@@ -1332,7 +1758,8 @@ async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(object.into());
 	let arg = crate::authorize::Arg {
-		permissions,
+		required: permissions,
+		requested: permissions,
 		resource: resource.clone(),
 		token: None,
 	};
@@ -1352,6 +1779,54 @@ async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts
 	.unwrap();
 	let error = outcome.into_result().unwrap_err();
 	assert!(error.to_string().contains("authorization search exhausted"));
+}
+
+#[tokio::test]
+async fn authorize_returns_required_permissions_when_an_optional_search_exhausts() {
+	let subtree = crate::authorize::SubtreeConfig {
+		max_objects: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		subtree,
+		..Default::default()
+	};
+	let (_directory, index) = new_index();
+	let object = object_id(0);
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	put_object(&index, &mut transaction, &object);
+	put_grant(
+		&index,
+		&mut transaction,
+		&object,
+		&user,
+		tg::authorization::permission::object::Permission::Node,
+	);
+	transaction.commit().unwrap();
+
+	let node = object_permission(tg::authorization::permission::object::Permission::Node);
+	let permissions = object_permissions([
+		tg::authorization::permission::object::Permission::Node,
+		tg::authorization::permission::object::Permission::Subtree,
+	]);
+	let required = tg::authorization::permission::Set::from(node);
+	let arg = crate::authorize::Arg {
+		required,
+		requested: permissions,
+		resource: tg::Selector::Id(object.into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	let output = outcomes[0].output().unwrap();
+	assert!(output.permissions.contains(required));
+	assert!(matches!(
+		outcomes[0],
+		crate::authorize::Outcome::Denied(Some(_))
+	));
 }
 
 #[tokio::test]
@@ -1401,6 +1876,53 @@ async fn authorize_wide_fanout_scales_linearly() {
 }
 
 #[tokio::test]
+async fn authorize_object_process_grants_scale_linearly() {
+	const BASE: usize = 2048;
+	const WIDE: usize = 8192;
+
+	let (_directory, index) = new_index();
+	let base_object = object_id(0);
+	let wide_object = object_id(1);
+	let user = tg::user::Id::new();
+	let node = object_permission(tg::authorization::permission::object::Permission::Node);
+	let mut transaction = index.env.write_txn().unwrap();
+	for (object, length) in [(&base_object, BASE), (&wide_object, WIDE)] {
+		put_object(&index, &mut transaction, object);
+		for _ in 0..length {
+			let process = tg::process::Id::new();
+			put_process_object(
+				&index,
+				&mut transaction,
+				&process,
+				object,
+				crate::process::object::Kind::Command,
+			);
+			put_process_implicit_grant(
+				&index,
+				&mut transaction,
+				object.clone().into(),
+				&process,
+				node,
+			);
+		}
+	}
+	transaction.commit().unwrap();
+
+	let base = authorize_object_process_grants_secs(&index, &base_object, &user).await;
+	let wide = authorize_object_process_grants_secs(&index, &wide_object, &user).await;
+	let ratio = wide / base;
+	eprintln!(
+		"object-process grants: {BASE} relations/grants = {:.1}ms, {WIDE} relations/grants = {:.1}ms, ratio = {ratio:.1}x",
+		base * 1e3,
+		wide * 1e3,
+	);
+	assert!(
+		ratio < 8.0,
+		"authorization compounded {ratio:.1}x over a 4x wider relation/grant set"
+	);
+}
+
+#[tokio::test]
 async fn authorize_does_not_share_token_results_between_batch_arguments() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
@@ -1415,7 +1937,8 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = vec![
 		crate::authorize::Arg {
-			permissions: node,
+			required: node,
+			requested: node,
 			resource: tg::Selector::Id(child.clone().into()),
 			token: Some(tg::authorization::Body {
 				expires_at: i64::MAX,
@@ -1426,7 +1949,8 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 			}),
 		},
 		crate::authorize::Arg {
-			permissions: node,
+			required: node,
+			requested: node,
 			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
@@ -1465,12 +1989,14 @@ async fn authorize_keeps_ordinary_and_derived_subtree_results_separate() {
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = vec![
 		crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
@@ -1481,6 +2007,110 @@ async fn authorize_keeps_ordinary_and_derived_subtree_results_separate() {
 			.iter()
 			.all(|outcome| outcome.output().unwrap().permissions.contains(subtree))
 	);
+}
+
+#[tokio::test]
+async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
+	let subtree_config = crate::authorize::SubtreeConfig {
+		max_objects: 2,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		subtree: subtree_config,
+		..Default::default()
+	};
+	let (_directory, index) = new_index();
+	let user = tg::user::Id::new();
+	let root = object_id(0);
+	let child = object_id(1);
+	let leaf = object_id(2);
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in [&root, &child, &leaf] {
+		put_object(&index, &mut transaction, object);
+	}
+	for object in [&root, &child] {
+		put_grant(
+			&index,
+			&mut transaction,
+			object,
+			&user,
+			tg::authorization::permission::object::Permission::Node,
+		);
+	}
+	put_child(&index, &mut transaction, &root, &child);
+	put_child(&index, &mut transaction, &child, &leaf);
+	transaction.commit().unwrap();
+
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
+	let args = [&child, &root]
+		.into_iter()
+		.map(|object| crate::authorize::Arg {
+			required: subtree,
+			requested: subtree,
+			resource: tg::Selector::Id(object.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	assert!(outcomes.iter().all(|outcome| {
+		outcome
+			.output()
+			.is_some_and(|output| !output.permissions.contains(subtree))
+	}));
+}
+
+#[tokio::test]
+async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
+	let subtree_config = crate::authorize::SubtreeConfig {
+		max_objects: 2,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		subtree: subtree_config,
+		..Default::default()
+	};
+	let (_directory, index) = new_index();
+	let user = tg::user::Id::new();
+	let root = object_id(0);
+	let child = object_id(1);
+	let leaf = object_id(2);
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in [&root, &child, &leaf] {
+		put_object(&index, &mut transaction, object);
+		put_grant(
+			&index,
+			&mut transaction,
+			object,
+			&user,
+			tg::authorization::permission::object::Permission::Node,
+		);
+	}
+	put_child(&index, &mut transaction, &root, &child);
+	put_child(&index, &mut transaction, &child, &leaf);
+	transaction.commit().unwrap();
+
+	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
+	let args = [&child, &root]
+		.into_iter()
+		.map(|object| crate::authorize::Arg {
+			required: subtree,
+			requested: subtree,
+			resource: tg::Selector::Id(object.clone().into()),
+			token: None,
+		})
+		.collect::<Vec<_>>();
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	assert!(outcomes.iter().all(|outcome| {
+		outcome
+			.output()
+			.is_some_and(|output| output.permissions.contains(subtree))
+	}));
 }
 
 #[tokio::test]
@@ -1520,7 +2150,8 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -1577,7 +2208,8 @@ async fn authorize_visits_shared_descendants_once() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -1615,7 +2247,8 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(objects[0].clone().into()),
 			token: None,
 		}],
@@ -1652,7 +2285,8 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions,
+			required: permissions,
+			requested: permissions,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -1695,7 +2329,8 @@ async fn authorize_ordinary_cycle_with_an_authorized_escape() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: node,
+			required: node,
+			requested: node,
 			resource: tg::Selector::Id(first.into()),
 			token: None,
 		}],
@@ -1755,7 +2390,8 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: subtree,
+			required: subtree,
+			requested: subtree,
 			resource: tg::Selector::Id(object.into()),
 			token: None,
 		}],
@@ -1836,7 +2472,8 @@ async fn authorize_uses_cached_subject_membership() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			permissions: node,
+			required: node,
+			requested: node,
 			resource: tg::Selector::Id(object.into()),
 			token: None,
 		}],
@@ -1844,4 +2481,161 @@ async fn authorize_uses_cached_subject_membership() {
 	)
 	.await;
 	assert!(output[0].output().unwrap().permissions.contains(node));
+}
+
+#[tokio::test]
+async fn authorize_ancestor_search_finishes_the_shallow_frontier_first() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: 16,
+		max_edges: 5,
+		max_nodes: 32,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_directory, index) = new_index();
+	let target = object_id(0);
+	let branch = (1..=8).map(object_id).collect::<Vec<_>>();
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	put_object(&index, &mut transaction, &target);
+	for object in &branch {
+		put_object(&index, &mut transaction, object);
+	}
+	put_child(&index, &mut transaction, &branch[0], &target);
+	for pair in branch.windows(2) {
+		put_child(&index, &mut transaction, &pair[1], &pair[0]);
+	}
+	put_process(&index, &mut transaction, &process, &sandbox);
+	put_process_object(
+		&index,
+		&mut transaction,
+		&process,
+		&target,
+		crate::process::object::Kind::Command,
+	);
+	let node = object_permission(tg::authorization::permission::object::Permission::Node);
+	put_process_implicit_grant(
+		&index,
+		&mut transaction,
+		target.clone().into(),
+		&process,
+		node,
+	);
+	put_resource_grant(
+		&index,
+		&mut transaction,
+		process.clone().into(),
+		tg::authorization::Subject::User(user.clone()),
+		tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		),
+	);
+	transaction.commit().unwrap();
+
+	let permissions = node.into();
+	let arg = crate::authorize::Arg {
+		required: permissions,
+		requested: permissions,
+		resource: tg::Selector::Id(target.into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	assert!(matches!(
+		outcomes[0],
+		crate::authorize::Outcome::Authorized(_)
+	));
+}
+
+#[tokio::test]
+async fn authorize_batch_propagates_a_converging_positive_proof() {
+	let ancestor = crate::authorize::SearchConfig {
+		max_depth: 2,
+		max_edges: 64,
+		max_nodes: 64,
+		..Default::default()
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor,
+		descendant,
+		subtree: crate::authorize::SubtreeConfig::default(),
+	};
+	let (_directory, index) = new_index();
+	let target = object_id(20);
+	let first = object_id(21);
+	let second = object_id(22);
+	let granted = object_id(23);
+	let first_middle = object_id(24);
+	let first_far = object_id(25);
+	let second_middle = object_id(26);
+	let second_far = object_id(27);
+	let user = tg::user::Id::new();
+	let objects = [
+		&target,
+		&first,
+		&second,
+		&granted,
+		&first_middle,
+		&first_far,
+		&second_middle,
+		&second_far,
+	];
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in objects {
+		put_object(&index, &mut transaction, object);
+	}
+	put_child(&index, &mut transaction, &first, &target);
+	put_child(&index, &mut transaction, &second, &target);
+	put_child(&index, &mut transaction, &granted, &first);
+	put_child(&index, &mut transaction, &granted, &second);
+	put_child(&index, &mut transaction, &first, &first_middle);
+	put_child(&index, &mut transaction, &first_middle, &first_far);
+	put_child(&index, &mut transaction, &second, &second_middle);
+	put_child(&index, &mut transaction, &second_middle, &second_far);
+	put_grant(
+		&index,
+		&mut transaction,
+		&granted,
+		&user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	transaction.commit().unwrap();
+
+	let permissions =
+		object_permissions([tg::authorization::permission::object::Permission::Subtree]);
+	let args = [&target, &first_far, &second_far].map(|object| crate::authorize::Arg {
+		required: permissions,
+		requested: permissions,
+		resource: tg::Selector::Id(object.clone().into()),
+		token: None,
+	});
+	let outcomes = index
+		.authorize_batch(&args, config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+	assert!(
+		outcomes
+			.iter()
+			.all(|outcome| matches!(outcome, crate::authorize::Outcome::Authorized(_)))
+	);
 }
