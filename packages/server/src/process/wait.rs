@@ -26,6 +26,34 @@ impl Session {
 			.await
 	}
 
+	pub(crate) async fn create_wait_process_finished_future_local(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<BoxFuture<'static, tg::Result<()>>> {
+		let mut stream = self
+			.create_process_status_stream_local(id, None, None)
+			.await?;
+		let future = async move {
+			while let Some(event) = stream.next().await {
+				match event? {
+					tg::process::status::Event::End => break,
+					tg::process::status::Event::Status(status) => {
+						if status.is_finished() {
+							return Ok(());
+						}
+					},
+				}
+			}
+
+			Err(tg::error!(
+				"the process status stream ended before the process finished"
+			))
+		}
+		.boxed();
+
+		Ok(future)
+	}
+
 	async fn try_wait_process_stream(
 		&self,
 		id: &tg::process::Id,

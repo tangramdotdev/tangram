@@ -1,7 +1,11 @@
 use {
 	crate::Session,
 	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{
+		StreamExt as _, TryStreamExt as _,
+		future::{self, BoxFuture},
+		stream::BoxStream,
+	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
@@ -315,6 +319,13 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
 	) -> tg::Result<()> {
+		let stdin_pipe = streams.contains(&tg::process::stdio::Stream::Stdin)
+			&& get_destination(data, tg::process::stdio::Stream::Stdin)? == Destination::Pipe;
+		let mut wait = if stdin_pipe {
+			Some(self.create_wait_process_finished_future_local(id).await?)
+		} else {
+			None
+		};
 		let combined = streams.len() > 1;
 		let mut input = pin!(input);
 		let mut position = 0;
@@ -361,7 +372,15 @@ impl Session {
 							position: end,
 						},
 						Destination::Pipe => {
-							self.write_process_stdio_chunk_local(id, chunk).await?
+							if chunk.stream == tg::process::stdio::Stream::Stdin {
+								let wait = wait
+									.as_mut()
+									.ok_or_else(|| tg::error!("missing the process wait future"))?;
+								self.write_process_stdin_chunk_local(id, chunk, wait)
+									.await?
+							} else {
+								self.write_process_stdio_chunk_local(id, chunk).await?
+							}
 						},
 					};
 					position = output.position;
@@ -387,7 +406,12 @@ impl Session {
 							stream_position: position,
 							timestamp: None,
 						};
-						let output = self.write_process_stdio_chunk_local(id, chunk).await?;
+						let wait = wait
+							.as_mut()
+							.ok_or_else(|| tg::error!("missing the process wait future"))?;
+						let output = self
+							.write_process_stdin_chunk_local(id, chunk, wait)
+							.await?;
 						position = output.position;
 						send_write_notification(sender, position).await;
 					}
@@ -401,6 +425,38 @@ impl Session {
 		Err(tg::error!(
 			"the stdio write stream ended before the end request"
 		))
+	}
+
+	async fn write_process_stdin_chunk_local(
+		&self,
+		id: &tg::process::Id,
+		chunk: tg::process::stdio::Chunk,
+		wait: &mut BoxFuture<'static, tg::Result<()>>,
+	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
+		let position = chunk.stream_position;
+		crate::checkpoint!(
+			self.server,
+			"process.stdio.write.request",
+			close = %chunk.bytes.is_empty(),
+			stream = %chunk.stream,
+		)
+		.await;
+
+		let response = self.write_process_stdio_chunk_local(id, chunk);
+		let mut response = std::pin::pin!(response);
+		let output = tokio::select! {
+			biased;
+			result = wait.as_mut() => {
+				result?;
+				tg::process::control::WriteClientResponseOutput {
+					closed: true,
+					position,
+				}
+			},
+			response = &mut response => response?,
+		};
+
+		Ok(output)
 	}
 
 	async fn write_process_stdio_chunk_local(

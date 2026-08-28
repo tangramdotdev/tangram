@@ -273,6 +273,8 @@ impl Session {
 		signal_task.abort();
 		tty_task.abort();
 
+		crate::checkpoint!(self.server, "runner.process.control.finished").await;
+
 		Ok(())
 	}
 
