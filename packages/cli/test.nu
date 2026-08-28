@@ -1096,7 +1096,7 @@ wait_for_exit() {
 		for index in "${!pids[@]}"; do
 			pid=${pids[$index]}
 			if ! process_running "$pid"; then
-				wait "$pid"
+				wait "$pid" 2>/dev/null
 				return $?
 			fi
 		done
@@ -1118,7 +1118,7 @@ provision_database_pool() {
 		done
 		failed=false
 		for pid in "${provision_pids[@]}"; do
-			if ! wait "$pid"; then
+			if ! wait "$pid" 2>/dev/null; then
 				failed=true
 			fi
 		done
@@ -1215,11 +1215,16 @@ else
 		--developer-mode=1 \
 		--kernel-page-cache=1 \
 		--max-partition-key-restrictions-per-query=1024 \
+		--memory=1280MiB \
 		--overprovisioned=1 \
 		--schema-commitlog-segment-size-in-mb=32 \
+		--smp=1 \
 		--unsafe-bypass-fsync=1 \
 		--write-request-timeout-in-ms=20000
 fi
+
+# Preserve the database process groups without printing job notifications.
+set +m
 
 configure_foundationdb
 wait_for NATS 600 bash -c 'exec 3<>/dev/tcp/127.0.0.1/4222; IFS= read -r line <&3; case "$line" in INFO*) exit 0;; *) exit 1;; esac'
@@ -1453,6 +1458,8 @@ def run_test [test: record, options: record] {
 	} else {
 		let cleanup_stderr = $cleanup_errors | each { |error|
 			let message = $error.msg? | default ($error | to nuon)
+			let help = $error.help? | default '' | str trim
+			let message = if ($help | is-empty) { $message } else { $"($message)\n($help)" }
 
 			$'cleanup: ($message)'
 		} | str join "\n"
@@ -2811,7 +2818,7 @@ def process_supervisor [] {
 	fi
 
 	containment=group
-	if command -v setsid >/dev/null 2>&1; then
+	if command -v setsid >/dev/null 2>&1 && ps -o sid= -p $$ >/dev/null 2>&1; then
 		setsid "$@" &
 		child=$!
 		containment=session
@@ -2819,6 +2826,7 @@ def process_supervisor [] {
 		set -m
 		"$@" &
 		child=$!
+		set +m
 	fi
 
 	child_done() {
@@ -2871,7 +2879,7 @@ def process_supervisor [] {
 
 	trap "terminate_tree" TERM INT HUP
 
-	wait "$child"
+	wait "$child" 2>/dev/null
 	status=$?
 	if ! tree_done; then
 		terminate_tree
@@ -2904,19 +2912,18 @@ def test_process_cleanup_script [] {
 	r#'
 	set -u
 	path=$1
-	current_sid=$(ps -o sid= -p $$ | tr -d ' ')
 	current_pgid=$(ps -o pgid= -p $$ | tr -d ' ')
 
 	list_targets() {
-		ps -axo pid=,sid=,pgid=,stat=,command= | while read -r pid sid pgid stat command; do
+		ps -axo pid=,pgid=,stat=,command= | while read -r pid pgid stat command; do
 			case "$stat" in
 				Z*) continue ;;
 			esac
-			if [ "$sid" = "$current_sid" ]; then
+			if [ "$pgid" = "$current_pgid" ]; then
 				continue
 			fi
 			case "$command" in
-				*"$path"*) printf '%s %s %s\n' "$pid" "$sid" "$pgid" ;;
+				*"$path"*) printf '%s %s\n' "$pid" "$pgid" ;;
 			esac
 		done
 	}
@@ -2943,10 +2950,8 @@ def test_process_cleanup_script [] {
 	done
 	descriptions=$(printf '%s\n' "$targets" | describe_targets)
 
-	printf '%s\n' "$targets" | while read -r pid sid pgid; do
-		if [ "$pgid" != "$current_pgid" ]; then
-			kill -TERM -- -"$pgid" 2>/dev/null || true
-		fi
+	printf '%s\n' "$targets" | while read -r pid pgid; do
+		kill -TERM -- -"$pgid" 2>/dev/null || true
 		kill -TERM "$pid" 2>/dev/null || true
 	done
 
@@ -2960,10 +2965,8 @@ def test_process_cleanup_script [] {
 	done
 
 	remaining=$(list_targets)
-	printf '%s\n' "$remaining" | while read -r pid sid pgid; do
-		if [ "$pgid" != "$current_pgid" ]; then
-			kill -KILL -- -"$pgid" 2>/dev/null || true
-		fi
+	printf '%s\n' "$remaining" | while read -r pid pgid; do
+		kill -KILL -- -"$pgid" 2>/dev/null || true
 		kill -KILL "$pid" 2>/dev/null || true
 	done
 
