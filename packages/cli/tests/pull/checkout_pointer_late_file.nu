@@ -42,12 +42,9 @@ tg --url $local.url checkpoint wait sync.get.input.object $file_watch 0 | ignore
 
 let default_path = $local.checkout_directory | path join $default_file
 let file_path = $local.checkout_directory | path join $file
-for _ in 1..100 {
-	if ($default_path | path exists) {
-		break
-	}
-	sleep 10ms
-}
+wait_until {
+	$default_path | path exists
+} 'expected the blob to be published through its default checkout before the file arrived'
 tg --url $local.url checkpoint continue sync.get.input.object $file_watch 0
 tg --url $local.url checkpoint unwatch sync.get.input.object $file_watch
 

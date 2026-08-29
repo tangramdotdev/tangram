@@ -61,21 +61,43 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 	);
 	let checkout_a = tg::artifact::Id::from(tg::file::Id::new(b"checkout_a"));
 	let checkout_b = tg::artifact::Id::from(tg::file::Id::new(b"checkout_b"));
+	let tag = tg::tag::Id::new();
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutCheckout(put_checkout_arg(checkout_a.clone())),
-			crate::batch::Item::PutCheckout(put_checkout_arg(checkout_b.clone())),
 			crate::batch::Item::PutObject(object_arg(object.clone(), Some(checkout_a.clone()))),
+			crate::batch::Item::PutTag(crate::tag::put::Arg {
+				account: None,
+				id: tag,
+				name: "tag".to_owned(),
+				parent: None,
+				permissions: Vec::new(),
+				specifier: "tag".parse().unwrap(),
+				target: tg::Either::Left(object.clone()),
+			}),
 		],
 	};
 	index.batch(arg).await.unwrap();
 	assert!(relationship_exists(&index, &object, &checkout_a));
+	let output = index
+		.clean(crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: 0,
+			max_process_touched_at: 0,
+			max_sandbox_touched_at: 0,
+			now: 0,
+			partition_end: 1,
+			partition_start: 0,
+		})
+		.await
+		.unwrap();
+	assert!(output.checkouts.is_empty());
 
 	let arg = crate::batch::Arg {
-		items: vec![crate::batch::Item::PutObject(object_arg(
-			object.clone(),
-			Some(checkout_b.clone()),
-		))],
+		items: vec![
+			crate::batch::Item::PutCheckout(put_checkout_arg(checkout_b.clone())),
+			crate::batch::Item::PutObject(object_arg(object.clone(), Some(checkout_b.clone()))),
+		],
 	};
 	index.batch(arg).await.unwrap();
 

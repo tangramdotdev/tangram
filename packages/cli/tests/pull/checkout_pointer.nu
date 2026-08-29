@@ -64,6 +64,10 @@ let disabled_path = $skipped.checkout_directory | path join $file
 let large_disabled_path = $skipped.checkout_directory | path join $large_file
 assert (not ($disabled_path | path exists)) 'expected checkout pointers to be configurable'
 assert (not ($large_disabled_path | path exists)) 'expected checkout pointers to be configurable'
+assert equal (
+	tg --url $skipped.url read $blob
+	| str trim
+) $contents 'expected disabled checkout pointers to retain leaf bytes in the store'
 
 server stop $skipped
 open $skipped.config_path
