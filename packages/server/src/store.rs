@@ -43,13 +43,14 @@ impl Store {
 
 	#[cfg(feature = "scylla")]
 	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> tg::Result<Self> {
-		let capacity = config.capacity.as_ref().map(|capacity| {
-			let prometheus_url = capacity.prometheus_url.to_string();
-			let selector = capacity.selector.clone();
-			store::scylla::CapacityConfig {
-				prometheus_url,
-				selector,
-			}
+		let capacity = config.capacity.as_ref().map(|capacity| match capacity {
+			crate::config::ScyllaStoreCapacity::Prometheus(capacity) => {
+				store::scylla::CapacityConfig {
+					available_query: capacity.available_query.clone(),
+					total_query: capacity.total_query.clone(),
+					url: capacity.url.to_string(),
+				}
+			},
 		});
 		let speculative_execution =
 			config

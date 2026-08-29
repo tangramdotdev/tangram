@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
 
-let server = server spawn --config { cleaner: {}, sandbox: { ttl: 0 } }
+let server = server spawn --config { indexer: { cleaner: {} }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create | str trim
 let sandbox = tg sandbox get $default | from json

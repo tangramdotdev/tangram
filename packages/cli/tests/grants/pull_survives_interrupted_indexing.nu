@@ -5,7 +5,7 @@ use ../../test.nu *
 let directory = mktemp -d
 let producer = server spawn --name producer --directory $directory --config {
 	advanced: { single_process: false },
-	roles: [cleaner http runner scheduler],
+	roles: [http runner scheduler],
 }
 
 let directory_id = tg --url $producer.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim

@@ -32,7 +32,7 @@ tg --url $seed.url index
 stop $seed
 
 # Commit an update followed by a delete with the indexer disabled.
-let producer_config = $config | merge { roles: [cleaner http runner scheduler] }
+let producer_config = $config | merge { roles: [http runner scheduler] }
 let producer = server spawn --name producer --directory $directory --config $producer_config
 tg --url $producer.url --token $alice.token grant $bob.user.id read project | ignore
 let put_batch = latest_batch $directory

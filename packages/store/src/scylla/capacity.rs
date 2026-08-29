@@ -33,13 +33,20 @@ struct Sample {
 
 impl Client {
 	pub fn new(config: &CapacityConfig) -> tg::Result<Self> {
-		let prometheus_url = config.prometheus_url.trim_end_matches('/');
-		let url = format!("{prometheus_url}/api/v1/query")
+		if config.available_query.trim().is_empty() {
+			return Err(tg::error!(
+				"the Prometheus available query must not be empty"
+			));
+		}
+		if config.total_query.trim().is_empty() {
+			return Err(tg::error!("the Prometheus total query must not be empty"));
+		}
+		let url = config.url.trim_end_matches('/');
+		let url = format!("{url}/api/v1/query")
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the Prometheus URL"))?;
-		let selector = &config.selector;
-		let available_query = format!("avg(node_filesystem_avail_bytes{{{selector}}})");
-		let total_query = format!("avg(node_filesystem_size_bytes{{{selector}}})");
+		let available_query = config.available_query.clone();
+		let total_query = config.total_query.clone();
 		let http = reqwest::Client::new();
 
 		Ok(Self {
@@ -104,5 +111,24 @@ impl Store {
 		let capacity = client.get().await?;
 
 		Ok(Some(capacity))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn uses_the_configured_prometheus_queries() {
+		let config = CapacityConfig {
+			available_query: "sum(available)".into(),
+			total_query: "sum(total)".into(),
+			url: "http://prometheus:9090/".into(),
+		};
+		let client = Client::new(&config).unwrap();
+
+		assert_eq!(client.available_query, "sum(available)");
+		assert_eq!(client.total_query, "sum(total)");
+		assert_eq!(client.url.as_str(), "http://prometheus:9090/api/v1/query");
 	}
 }

@@ -27,8 +27,9 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct CapacityConfig {
-	pub prometheus_url: String,
-	pub selector: String,
+	pub available_query: String,
+	pub total_query: String,
+	pub url: String,
 }
 
 #[derive(Clone, Debug)]

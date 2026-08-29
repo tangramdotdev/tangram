@@ -8587,7 +8587,6 @@ dependencies = [
  "num-derive 0.5.1",
  "num-traits",
  "reqwest 0.13.4",
- "rustix 1.1.4",
  "scylla",
  "serde",
  "serde_json",

@@ -25,8 +25,6 @@ pub struct Config {
 
 	pub checkouts: bool,
 
-	pub cleaner: Cleaner,
-
 	pub database: Database,
 
 	pub directory: Option<PathBuf>,
@@ -113,8 +111,6 @@ pub struct ArchivePool {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
-	Cleaner,
-
 	Http,
 
 	Indexer,
@@ -344,17 +340,6 @@ pub struct CheckinDirectory {
 }
 
 #[derive(Clone, Debug)]
-pub struct Cleaner {
-	pub batch_size: usize,
-
-	pub concurrency: usize,
-
-	pub partition_end: u64,
-
-	pub partition_start: u64,
-}
-
-#[derive(Clone, Debug)]
 pub enum Database {
 	Postgres(PostgresDatabase),
 
@@ -490,6 +475,8 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug)]
 pub struct Indexer {
+	pub cleaner: IndexerCleaner,
+
 	pub database_index_outbox_wakeup_interval: Duration,
 
 	pub log_compaction: IndexerLogCompaction,
@@ -513,6 +500,40 @@ pub struct Indexer {
 	pub updates: IndexerUpdates,
 
 	pub usage: IndexerUsage,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCleaner {
+	pub batch_size: usize,
+
+	pub capacity: Option<IndexerCleanerCapacity>,
+
+	pub concurrency: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub enum IndexerCleanerCapacity {
+	Filesystem(IndexerCleanerFilesystemCapacity),
+
+	Limit(IndexerCleanerLimitCapacity),
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCleanerFilesystemCapacity {
+	pub minimum_available: f64,
+
+	pub target_available: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCleanerLimitCapacity {
+	pub maximum_used: u64,
+
+	pub target_used: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -674,10 +695,17 @@ pub struct ScyllaStore {
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaStoreCapacity {
-	pub prometheus_url: Uri,
+pub enum ScyllaStoreCapacity {
+	Prometheus(ScyllaStorePrometheusCapacity),
+}
 
-	pub selector: String,
+#[derive(Clone, Debug)]
+pub struct ScyllaStorePrometheusCapacity {
+	pub available_query: String,
+
+	pub total_query: String,
+
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
@@ -1191,7 +1219,6 @@ impl Default for Config {
 			billing: None,
 			checkin: Checkin::default(),
 			checkouts: true,
-			cleaner: Cleaner::default(),
 			database: Database::default(),
 			directory: None,
 			http: Http::default(),
@@ -1275,17 +1302,6 @@ impl Default for CheckinDirectory {
 		Self {
 			max_branch_children: 128,
 			max_leaf_entries: 1024,
-		}
-	}
-}
-
-impl Default for Cleaner {
-	fn default() -> Self {
-		Self {
-			batch_size: 1024,
-			concurrency: 1,
-			partition_end: 1,
-			partition_start: 0,
 		}
 	}
 }
@@ -1439,6 +1455,7 @@ impl Default for LmdbIndex {
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
+			cleaner: IndexerCleaner::default(),
 			database_index_outbox_wakeup_interval: Duration::from_mins(1),
 			log_compaction: IndexerLogCompaction::default(),
 			max_process_depth: 1024,
@@ -1451,6 +1468,27 @@ impl Default for Indexer {
 			poll_interval: Duration::from_millis(10),
 			updates: IndexerUpdates::default(),
 			usage: IndexerUsage::default(),
+		}
+	}
+}
+
+impl Default for IndexerCleaner {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			capacity: None,
+			concurrency: 1,
+			enabled: true,
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerCleanerFilesystemCapacity {
+	fn default() -> Self {
+		Self {
+			minimum_available: 0.1,
+			target_available: 0.2,
 		}
 	}
 }
@@ -2095,15 +2133,9 @@ fn default_authorization_tokens() -> Option<TokenKeys> {
 }
 
 fn default_roles() -> BTreeSet<Role> {
-	[
-		Role::Cleaner,
-		Role::Http,
-		Role::Indexer,
-		Role::Runner,
-		Role::Scheduler,
-	]
-	.into_iter()
-	.collect()
+	[Role::Http, Role::Indexer, Role::Runner, Role::Scheduler]
+		.into_iter()
+		.collect()
 }
 
 fn default_scheduler_cpu() -> u64 {

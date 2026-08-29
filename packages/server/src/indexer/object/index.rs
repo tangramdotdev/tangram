@@ -1,0 +1,162 @@
+use {
+	super::super::Indexer,
+	futures::{FutureExt as _, StreamExt as _, future, stream},
+	std::{collections::BTreeMap, time::Duration},
+	tangram_client::prelude::*,
+	tangram_index::prelude::*,
+	tangram_messenger::Messenger as _,
+	tangram_store::Store as _,
+	tokio_stream::wrappers::IntervalStream,
+};
+
+impl Indexer {
+	pub(in crate::indexer) async fn object_index_outbox_task(
+		&self,
+		config: &crate::config::Indexer,
+		outbox: Option<&crate::config::ObjectIndexOutbox>,
+	) -> tg::Result<()> {
+		let Some(outbox) = outbox else {
+			return future::pending().await;
+		};
+		let wakeup_interval = config.object_index_outbox_wakeup_interval;
+		future::try_join_all(
+			(config.partition_start..config.partition_end).map(|partition| {
+				self.object_index_outbox_partition_task(outbox, partition, wakeup_interval)
+			}),
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn object_index_outbox_partition_task(
+		&self,
+		outbox: &crate::config::ObjectIndexOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		loop {
+			let result = self
+				.object_index_outbox_partition_task_inner(outbox, partition, wakeup_interval)
+				.await;
+			if let Err(error) = result {
+				tracing::error!(error = %error.trace(), %partition, "failed to service the object index outbox");
+				tokio::time::sleep(Duration::from_secs(1)).await;
+			}
+		}
+	}
+
+	async fn object_index_outbox_partition_task_inner(
+		&self,
+		outbox: &crate::config::ObjectIndexOutbox,
+		partition: u64,
+		wakeup_interval: Duration,
+	) -> tg::Result<()> {
+		let subject = object_index_outbox_subject(partition);
+		let notifications = self
+			.server
+			.messenger
+			.subscribe::<()>(subject.clone())
+			.await
+			.map_err(
+				|error| tg::error!(!error, %subject, "failed to subscribe to object index outbox notifications"),
+			)?
+			.map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(wakeup_interval))
+			.skip(1)
+			.map(|_| ());
+		let wakeups = stream::select(notifications, interval);
+		let mut wakeups = wakeups.boxed();
+		loop {
+			while wakeups.next().now_or_never().flatten().is_some() {}
+			let count = self.object_index_outbox_batch(outbox, partition).await?;
+			if count == 0 && wakeups.next().await.is_none() {
+				return Err(tg::error!("the object index outbox wakeup stream ended"));
+			}
+		}
+	}
+
+	async fn object_index_outbox_batch(
+		&self,
+		outbox: &crate::config::ObjectIndexOutbox,
+		partition: u64,
+	) -> tg::Result<usize> {
+		// Dequeue a batch.
+		let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
+			batch_size: outbox.batch_size,
+			partition_end: partition + 1,
+			partition_start: partition,
+		};
+		let fragments = self
+			.server
+			.store
+			.dequeue_object_index_outbox_fragments(arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to dequeue the object index outbox fragments"
+				)
+			})?;
+		if fragments.is_empty() {
+			return Ok(0);
+		}
+
+		// Combine the fragments into batches.
+		let count = fragments.len();
+		let mut batches = BTreeMap::<_, Vec<_>>::new();
+		let mut keys = Vec::with_capacity(count);
+		for fragment in fragments {
+			let arg = tangram_index::batch::Arg::deserialize(&fragment.payload)?;
+			batches
+				.entry(fragment.batch)
+				.or_default()
+				.push((fragment.index, arg));
+			let key = crate::store::object::index::outbox::fragment::Key {
+				batch: fragment.batch,
+				index: fragment.index,
+				partition: fragment.partition,
+			};
+			keys.push(key);
+		}
+
+		// Submit the batches concurrently and each batch's fragments sequentially.
+		future::try_join_all(batches.into_values().map(|mut fragments| async move {
+			fragments.sort_unstable_by_key(|(index, _)| *index);
+			for (_, arg) in fragments {
+				crate::checkpoint!(self.server, "index.batch").await;
+				self.server.index.batch(arg).await?;
+			}
+			Ok::<_, tg::Error>(())
+		}))
+		.await
+		.map_err(|error| tg::error!(!error, "failed to index an object index outbox batch"))?;
+		let arg = crate::store::object::index::outbox::fragment::delete::Arg { fragments: keys };
+		self.server
+			.store
+			.delete_object_index_outbox_fragments(arg)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to delete object index outbox fragments")
+			})?;
+
+		Ok(count)
+	}
+}
+
+pub(crate) fn object_index_outbox_subject(partition: u64) -> String {
+	format!("stores.object.index.outbox.{partition}")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn subject_includes_the_partition() {
+		assert_eq!(
+			object_index_outbox_subject(42),
+			"stores.object.index.outbox.42"
+		);
+	}
+}

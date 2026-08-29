@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-lmdb = ["dep:heed", "dep:rustix"]
+lmdb = ["dep:heed"]
 scylla = ["dep:reqwest", "dep:scylla"]
 
 [lib]
@@ -36,7 +36,6 @@ num = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
 reqwest = { workspace = true, optional = true }
-rustix = { workspace = true, optional = true }
 scylla = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

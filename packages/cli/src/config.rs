@@ -38,9 +38,6 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkouts: Option<bool>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cleaner: Option<Cleaner>,
-
 	/// Configure the client.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub client: Option<Client>,
@@ -215,8 +212,6 @@ pub enum BoolOr<T> {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-	Cleaner,
-
 	Http,
 
 	Indexer,
@@ -523,23 +518,6 @@ pub struct CheckinDirectory {
 	pub max_leaf_entries: Option<usize>,
 }
 
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Cleaner {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_end: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_start: Option<u64>,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Database {
@@ -746,6 +724,9 @@ pub struct LmdbIndex {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cleaner: Option<BoolOr<IndexerCleaner>>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database_index_outbox_wakeup_interval: Option<Duration>,
@@ -786,6 +767,52 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<IndexerUsage>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerCleaner {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<IndexerCleanerCapacity>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum IndexerCleanerCapacity {
+	Filesystem(IndexerCleanerFilesystemCapacity),
+
+	Limit(IndexerCleanerLimitCapacity),
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerCleanerFilesystemCapacity {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub minimum_available: Option<f64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub target_available: Option<f64>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerCleanerLimitCapacity {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub maximum_used: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub target_used: Option<u64>,
 }
 
 #[serde_as]
@@ -1027,15 +1054,24 @@ pub struct ScyllaStore {
 	pub username: Option<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum ScyllaStoreCapacity {
+	Prometheus(ScyllaStorePrometheusCapacity),
+}
+
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStoreCapacity {
+pub struct ScyllaStorePrometheusCapacity {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub prometheus_url: Option<Uri>,
+	pub available_query: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub selector: Option<String>,
+	pub total_query: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -2099,9 +2135,6 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
 	}
-	if let Some(source) = source.cleaner {
-		target.cleaner = resolve_cleaner(source);
-	}
 	if let Some(source) = source.database {
 		target.database = resolve_database(source);
 	}
@@ -2115,7 +2148,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.index = resolve_index(source);
 	}
 	if let Some(source) = source.indexer {
-		target.indexer = resolve_indexer(&source);
+		target.indexer = resolve_indexer(&source)?;
 	}
 	if let Some(instance) = source.instance {
 		target.instance = Some(instance);
@@ -2193,7 +2226,6 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 
 fn resolve_role(source: Role) -> server::Role {
 	match source {
-		Role::Cleaner => server::Role::Cleaner,
 		Role::Http => server::Role::Http,
 		Role::Indexer => server::Role::Indexer,
 		Role::Runner => server::Role::Runner,
@@ -2552,23 +2584,6 @@ fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirecto
 	target
 }
 
-fn resolve_cleaner(source: Cleaner) -> server::Cleaner {
-	let mut target = server::Cleaner::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
-	if let Some(value) = source.partition_end {
-		target.partition_end = value;
-	}
-	if let Some(value) = source.partition_start {
-		target.partition_start = value;
-	}
-	target
-}
-
 fn resolve_database(source: Database) -> server::Database {
 	match source {
 		Database::Postgres(source) => server::Database::Postgres(resolve_postgres_database(source)),
@@ -2784,8 +2799,11 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	target
 }
-fn resolve_indexer(source: &Indexer) -> server::Indexer {
+fn resolve_indexer(source: &Indexer) -> tg::Result<server::Indexer> {
 	let mut target = server::Indexer::default();
+	if let Some(source) = source.cleaner {
+		target.cleaner = resolve_indexer_cleaner(source)?;
+	}
 	if let Some(value) = source.database_index_outbox_wakeup_interval {
 		target.database_index_outbox_wakeup_interval = value;
 	}
@@ -2822,7 +2840,62 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.usage {
 		target.usage = resolve_indexer_usage(source);
 	}
-	target
+
+	Ok(target)
+}
+
+fn resolve_indexer_cleaner(source: BoolOr<IndexerCleaner>) -> tg::Result<server::IndexerCleaner> {
+	let mut target = server::IndexerCleaner::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
+		}
+		if let Some(source) = source.capacity {
+			target.capacity = Some(resolve_indexer_cleaner_capacity(source)?);
+		}
+		if let Some(value) = source.concurrency {
+			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
+	}
+
+	Ok(target)
+}
+
+fn resolve_indexer_cleaner_capacity(
+	source: IndexerCleanerCapacity,
+) -> tg::Result<server::IndexerCleanerCapacity> {
+	let target = match source {
+		IndexerCleanerCapacity::Filesystem(source) => {
+			let mut target = server::IndexerCleanerFilesystemCapacity::default();
+			if let Some(value) = source.minimum_available {
+				target.minimum_available = value;
+			}
+			if let Some(value) = source.target_available {
+				target.target_available = value;
+			}
+			server::IndexerCleanerCapacity::Filesystem(target)
+		},
+		IndexerCleanerCapacity::Limit(source) => {
+			let maximum_used =
+				required(source.maximum_used, "indexer.cleaner.capacity.maximum_used")?;
+			let target_used = required(source.target_used, "indexer.cleaner.capacity.target_used")?;
+			let target = server::IndexerCleanerLimitCapacity {
+				maximum_used,
+				target_used,
+			};
+			server::IndexerCleanerCapacity::Limit(target)
+		},
+	};
+
+	Ok(target)
 }
 
 fn resolve_indexer_log_compaction(
@@ -3073,11 +3146,19 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 fn resolve_scylla_store_capacity(
 	source: ScyllaStoreCapacity,
 ) -> tg::Result<server::ScyllaStoreCapacity> {
-	let prometheus_url = required(source.prometheus_url, "store.capacity.prometheus_url")?;
-	let selector = required(source.selector, "store.capacity.selector")?;
-	let target = server::ScyllaStoreCapacity {
-		prometheus_url,
-		selector,
+	let target = match source {
+		ScyllaStoreCapacity::Prometheus(source) => {
+			let available_query =
+				required(source.available_query, "store.capacity.available_query")?;
+			let total_query = required(source.total_query, "store.capacity.total_query")?;
+			let url = required(source.url, "store.capacity.url")?;
+			let target = server::ScyllaStorePrometheusCapacity {
+				available_query,
+				total_query,
+				url,
+			};
+			server::ScyllaStoreCapacity::Prometheus(target)
+		},
 	};
 
 	Ok(target)
@@ -3872,19 +3953,27 @@ mod tests {
 		let source: ScyllaStore = serde_json::from_value(serde_json::json!({
 			"addr": "127.0.0.1:9042",
 			"capacity": {
-				"prometheus_url": "http://127.0.0.1:9090",
-				"selector": "job=\"node\",mountpoint=\"/var/lib/scylla\"",
+				"kind": "prometheus",
+				"available_query": "sum(kubelet_volume_stats_available_bytes)",
+				"total_query": "sum(kubelet_volume_stats_capacity_bytes)",
+				"url": "http://127.0.0.1:9090",
 			},
 			"keyspace": "store",
 		}))
 		.unwrap();
 		let target = resolve_scylla_store(source).unwrap();
-		let capacity = target.capacity.unwrap();
-		assert_eq!(capacity.prometheus_url.to_string(), "http://127.0.0.1:9090");
+		let Some(server::ScyllaStoreCapacity::Prometheus(capacity)) = target.capacity else {
+			panic!("expected Prometheus capacity");
+		};
 		assert_eq!(
-			capacity.selector,
-			"job=\"node\",mountpoint=\"/var/lib/scylla\""
+			capacity.available_query,
+			"sum(kubelet_volume_stats_available_bytes)"
 		);
+		assert_eq!(
+			capacity.total_query,
+			"sum(kubelet_volume_stats_capacity_bytes)"
+		);
+		assert_eq!(capacity.url.to_string(), "http://127.0.0.1:9090");
 	}
 
 	#[test]
@@ -4210,6 +4299,64 @@ mod tests {
 	}
 
 	#[test]
+	fn parses_and_resolves_indexer_cleaner() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"cleaner": {
+					"batch_size": 11,
+					"capacity": {
+						"kind": "filesystem",
+						"minimum_available": 0.15,
+						"target_available": 0.25,
+					},
+					"concurrency": 2,
+					"poll_interval": 0.5,
+				},
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let cleaner = target.indexer.cleaner;
+
+		assert_eq!(cleaner.batch_size, 11);
+		assert_eq!(cleaner.concurrency, 2);
+		assert!(cleaner.enabled);
+		assert_eq!(cleaner.poll_interval, Duration::from_millis(500));
+		let Some(server::IndexerCleanerCapacity::Filesystem(capacity)) = cleaner.capacity else {
+			panic!("expected filesystem capacity");
+		};
+		assert!((capacity.minimum_available - 0.15).abs() < f64::EPSILON);
+		assert!((capacity.target_available - 0.25).abs() < f64::EPSILON);
+
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"cleaner": {
+					"capacity": {
+						"kind": "limit",
+						"maximum_used": 1000,
+						"target_used": 900,
+					},
+				},
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let Some(server::IndexerCleanerCapacity::Limit(capacity)) = target.indexer.cleaner.capacity
+		else {
+			panic!("expected limit capacity");
+		};
+		assert_eq!(capacity.maximum_used, 1000);
+		assert_eq!(capacity.target_used, 900);
+
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": { "cleaner": false },
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		assert!(!target.indexer.cleaner.enabled);
+	}
+
+	#[test]
 	fn resolves_indexer_log_compaction() {
 		let source = Indexer {
 			log_compaction: Some(BoolOr::Value(IndexerLogCompaction {
@@ -4219,7 +4366,7 @@ mod tests {
 			})),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source);
+		let target = resolve_indexer(&source).unwrap();
 
 		assert_eq!(target.log_compaction.batch_size, 11);
 		assert_eq!(target.log_compaction.concurrency, 2);
@@ -4233,7 +4380,7 @@ mod tests {
 			log_compaction: Some(BoolOr::Bool(false)),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source);
+		let target = resolve_indexer(&source).unwrap();
 		assert!(!target.log_compaction.enabled);
 	}
 
@@ -4259,7 +4406,7 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source);
+		let target = resolve_indexer(&source).unwrap();
 
 		assert_eq!(target.updates.grants.batch_size, 11);
 		assert_eq!(target.updates.grants.concurrency, 2);
@@ -4282,7 +4429,7 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source);
+		let target = resolve_indexer(&source).unwrap();
 
 		assert_eq!(target.usage.aggregation.batch_size, 11);
 		assert_eq!(target.usage.aggregation.concurrency, 2);
@@ -4299,7 +4446,7 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source);
+		let target = resolve_indexer(&source).unwrap();
 		assert!(!target.usage.aggregation.enabled);
 	}
 

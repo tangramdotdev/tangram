@@ -8,7 +8,7 @@ let config = {
 		single_process: false,
 	},
 	authentication: { root: { token: $root_token } },
-	roles: [cleaner http indexer scheduler],
+	roles: [http indexer scheduler],
 	scheduler: {
 		heartbeat_ttl: 3,
 	},

@@ -43,7 +43,6 @@ mod checkpoint;
 mod checksum;
 mod children;
 mod clean;
-mod cleaner;
 mod clock;
 mod compiler;
 mod context;
@@ -486,10 +485,19 @@ impl Server {
 							"the Scylla store capacity configuration is required for the object cache"
 						));
 					};
-					if capacity.selector.trim().is_empty() {
-						return Err(tg::error!(
-							"the Scylla store capacity selector must not be empty"
-						));
+					match capacity {
+						self::config::ScyllaStoreCapacity::Prometheus(capacity) => {
+							if capacity.available_query.trim().is_empty() {
+								return Err(tg::error!(
+									"the Scylla store capacity available query must not be empty"
+								));
+							}
+							if capacity.total_query.trim().is_empty() {
+								return Err(tg::error!(
+									"the Scylla store capacity total query must not be empty"
+								));
+							}
+						},
 					}
 				},
 			}
@@ -1186,24 +1194,6 @@ impl Server {
 				})
 			});
 
-		// Spawn the cleaner task.
-		let cleaner_task = server
-			.config
-			.roles
-			.contains(&self::config::Role::Cleaner)
-			.then(|| {
-				let config = server.config.cleaner.clone();
-				Task::spawn({
-					let server = server.clone();
-					|_| async move {
-						let result = server.cleaner_task(&config).await;
-						if let Err(error) = result {
-							tracing::error!(error = %error.trace());
-						}
-					}
-				})
-			});
-
 		// Spawn the scheduler task.
 		let scheduler_task = server
 			.config
@@ -1485,18 +1475,6 @@ impl Server {
 				// Abort the index tasks.
 				server.index_tasks.abort_all();
 				server.index_tasks.wait().await;
-
-				// Abort the cleaner task.
-				if let Some(task) = cleaner_task {
-					task.abort();
-					let result = task.wait().await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the clean task panicked");
-					}
-					tracing::trace!("cleaner task");
-				}
 
 				// Abort the indexer task.
 				if let Some(task) = indexer_task {

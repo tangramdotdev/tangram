@@ -30,7 +30,6 @@ pub struct Config {
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
-	path: PathBuf,
 	reader_handles: Vec<std::thread::JoinHandle<()>>,
 	reader_sender: Option<crate::read::Sender>,
 	writer_handle: Option<std::thread::JoinHandle<()>>,
@@ -96,7 +95,6 @@ impl Store {
 		Ok(Self {
 			db,
 			env,
-			path: config.path.clone(),
 			reader_handles,
 			reader_sender: Some(reader_sender),
 			writer_handle: Some(writer_handle),
@@ -138,7 +136,6 @@ impl Store {
 		Ok(Self {
 			db,
 			env,
-			path: config.path.clone(),
 			reader_handles,
 			reader_sender: Some(reader_sender),
 			writer_handle: None,

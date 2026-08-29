@@ -102,7 +102,7 @@ impl Session {
 			sandboxes: 0,
 			tags: 0,
 		};
-		let batch_size = self.server.config.cleaner.batch_size;
+		let batch_size = self.server.config.indexer.cleaner.batch_size;
 		let now = self.server.clock.unix_timestamp()?;
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
@@ -141,8 +141,8 @@ impl Session {
 		loop {
 			let inner_output = match self
 				.server
-				.cleaner_task_inner(crate::cleaner::CleanerTaskInnerArg {
-					n: batch_size,
+				.cleaner_task_inner(crate::indexer::CleanerTaskInnerArg {
+					batch_size,
 					now,
 					object_time_to_live,
 					partition_end: partition_total,
