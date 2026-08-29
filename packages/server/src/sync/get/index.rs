@@ -27,6 +27,7 @@ impl Session {
 	pub(super) async fn sync_get_index(
 		&self,
 		state: Arc<State>,
+		checkout_sender: tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 		index_object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessNode>,
 	) -> tg::Result<()> {
@@ -39,6 +40,7 @@ impl Session {
 		let object_batch_timeout = self.server.config.sync.get.index.object_batch_timeout;
 		let object_concurrency = self.server.config.sync.get.index.object_concurrency;
 		let object_retry_sender = retry_sender.clone();
+		let object_checkout_sender = checkout_sender.clone();
 		let object_session = self.clone();
 		let object_state = state.clone();
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
@@ -48,12 +50,18 @@ impl Session {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, move |nodes| {
+			let checkout_sender = object_checkout_sender.clone();
 			let retry_sender = object_retry_sender.clone();
 			let session = object_session.clone();
 			let state = object_state.clone();
 			async move {
 				session
-					.sync_get_index_object_batch(&state, nodes, Some(&retry_sender))
+					.sync_get_index_object_batch(
+						&state,
+						&checkout_sender,
+						nodes,
+						Some(&retry_sender),
+					)
 					.await
 			}
 		});
@@ -121,7 +129,7 @@ impl Session {
 					if objects.is_empty() {
 						return Ok(());
 					}
-					self.sync_get_index_object_batch(&state, objects, None)
+					self.sync_get_index_object_batch(&state, &checkout_sender, objects, None)
 						.await
 				};
 				let processes_future = async {
@@ -146,6 +154,7 @@ impl Session {
 	async fn sync_get_index_object_batch(
 		&self,
 		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 		nodes: Vec<ObjectNode>,
 		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
 	) -> tg::Result<()> {
@@ -161,6 +170,10 @@ impl Session {
 			})
 		};
 		for node in available_nodes {
+			if self.sync_get_checkout_pointers_enabled() {
+				self.sync_get_queue_checkout_object(state, checkout_sender, node.id.clone())
+					.await?;
+			}
 			Self::sync_get_index_send_object_available(state, &node.id).await?;
 		}
 		if nodes.is_empty() {
@@ -222,6 +235,10 @@ impl Session {
 
 			// Send the object's availability.
 			if availability.subtree {
+				if self.sync_get_checkout_pointers_enabled() {
+					self.sync_get_queue_checkout_object(state, checkout_sender, node.id.clone())
+						.await?;
+				}
 				Self::sync_get_index_send_object_available(state, &node.id).await?;
 			}
 
@@ -257,7 +274,23 @@ impl Session {
 						requested: None,
 						storage: None,
 					};
-					state.graph.lock().unwrap().update_object_local(arg);
+					{
+						let mut graph = state.graph.lock().unwrap();
+						graph.update_object_local(arg);
+						graph.update_checkout_object(&node.id, &data);
+					}
+					if self.sync_get_checkout_pointers_enabled()
+						&& matches!(&data, tg::object::Data::Blob(_))
+					{
+						let node = super::checkout::ObjectNode {
+							bytes: None,
+							id: node.id.unwrap_blob_ref().clone(),
+							metadata: output.as_ref().map(|object| object.metadata.clone()),
+						};
+						checkout_sender.send(node).await.map_err(|_| {
+							tg::error!("failed to send the blob to the checkout task")
+						})?;
+					}
 
 					// Enqueue the children.
 					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, None);
@@ -525,7 +558,8 @@ impl Session {
 
 		// Create the index args and update the graph with the permissions being granted.
 		let account = self.usage_account(&self.context.principal).await?;
-		let (put_grant_args, put_object_args, put_process_args, storage_roots) = {
+		let touched_at = self.server.clock.unix_timestamp()?;
+		let (put_checkout_args, put_grant_args, put_object_args, put_process_args, storage_roots) = {
 			let mut graph = graph.lock().unwrap();
 			let args = self
 				.sync_get_index_create_args(&mut graph)
@@ -542,16 +576,28 @@ impl Session {
 					),
 				}
 			}
+			let put_checkout_args = graph
+				.checkouts
+				.iter()
+				.map(|(id, dependencies)| tangram_index::checkout::put::Arg {
+					dependencies: dependencies.clone(),
+					id: id.clone().into(),
+					touched_at,
+				})
+				.collect::<Vec<_>>();
 			let storage_roots = graph.remote_roots.iter().cloned().collect::<Vec<_>>();
-			(args.0, args.1, args.2, storage_roots)
+			(put_checkout_args, args.0, args.1, args.2, storage_roots)
 		};
-		let touched_at = self.server.clock.unix_timestamp()?;
-
 		// Index the objects, processes, and sandboxes.
 		let arg = tangram_index::batch::Arg {
-			items: put_object_args
+			items: put_checkout_args
 				.into_iter()
-				.map(tangram_index::batch::Item::PutObject)
+				.map(tangram_index::batch::Item::PutCheckout)
+				.chain(
+					put_object_args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutObject),
+				)
 				.chain(
 					put_process_args
 						.into_iter()
@@ -1455,8 +1501,9 @@ impl Session {
 							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
 						let metadata = node.metadata.clone().unwrap();
 						let storage = node.local_storage.clone().unwrap();
+						let checkout = graph.checkout_objects.get(&id).cloned();
 						let arg = tangram_index::object::put::Arg {
-							checkout: None,
+							checkout,
 							children,
 							id,
 							metadata,

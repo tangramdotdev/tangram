@@ -12,10 +12,13 @@ use {
 	tangram_client::prelude::*,
 };
 
+const CHECKOUT_BATCH_SIZE: usize = 64;
+
 impl Session {
 	pub(super) async fn sync_get_queue(
 		&self,
 		state: Arc<State>,
+		checkout_sender: tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 		queue_database_receiver: async_channel::Receiver<DatabaseNode>,
 		queue_object_receiver: async_channel::Receiver<ObjectNode>,
 		queue_process_receiver: async_channel::Receiver<ProcessNode>,
@@ -38,9 +41,14 @@ impl Session {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, |nodes| {
+			let checkout_sender = checkout_sender.clone();
 			let session = self.clone();
 			let state = state.clone();
-			async move { session.sync_get_queue_object_batch(&state, nodes).await }
+			async move {
+				session
+					.sync_get_queue_object_batch(&state, &checkout_sender, nodes)
+					.await
+			}
 		});
 
 		// Create the processes future.
@@ -124,6 +132,7 @@ impl Session {
 	async fn sync_get_queue_object_batch(
 		&self,
 		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		// Store the provided tokens.
@@ -218,6 +227,15 @@ impl Session {
 						.get_object_local_availability(&node.id);
 
 					if availability.subtree {
+						if self.sync_get_checkout_pointers_enabled() {
+							self.sync_get_queue_checkout_object(
+								state,
+								checkout_sender,
+								node.id.clone(),
+							)
+							.await?;
+						}
+
 						// Send the object's availability.
 						let message =
 							tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Object(
@@ -258,7 +276,24 @@ impl Session {
 							requested: None,
 							storage: None,
 						};
-						state.graph.lock().unwrap().update_object_local(arg);
+						{
+							let mut graph = state.graph.lock().unwrap();
+							graph.update_object_local(arg);
+							graph.update_checkout_object(&node.id, &data);
+						}
+						if self.sync_get_checkout_pointers_enabled()
+							&& matches!(data, tg::object::Data::Blob(_))
+						{
+							let id = node.id.unwrap_blob_ref().clone();
+							let node = super::checkout::ObjectNode {
+								bytes: None,
+								id,
+								metadata: Some(metadata.clone()),
+							};
+							checkout_sender.send(node).await.map_err(|_| {
+								tg::error!("failed to send the blob to the checkout task")
+							})?;
+						}
 
 						Self::sync_get_enqueue_object_children(
 							state,
@@ -279,6 +314,77 @@ impl Session {
 		let end = state.graph.lock().unwrap().end_local();
 		if end {
 			state.queue.close();
+		}
+
+		Ok(())
+	}
+
+	pub(super) async fn sync_get_queue_checkout_object(
+		&self,
+		state: &State,
+		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
+		id: tg::object::Id,
+	) -> tg::Result<()> {
+		let mut stack = vec![id];
+		while !stack.is_empty() {
+			let mut ids = Vec::with_capacity(CHECKOUT_BATCH_SIZE);
+			while ids.len() < CHECKOUT_BATCH_SIZE
+				&& let Some(id) = stack.pop()
+			{
+				let queued = state.graph.lock().unwrap().queue_checkout_object(&id);
+				if queued {
+					ids.push(id);
+				}
+			}
+			let (blobs, objects): (Vec<_>, Vec<_>) = ids
+				.into_iter()
+				.partition(|id| id.kind() == tg::object::Kind::Blob);
+			for id in blobs {
+				let node = super::checkout::ObjectNode {
+					bytes: None,
+					id: id.unwrap_blob_ref().clone(),
+					metadata: None,
+				};
+				checkout_sender
+					.send(node)
+					.await
+					.map_err(|_| tg::error!("failed to send the blob to the checkout task"))?;
+			}
+			if objects.is_empty() {
+				continue;
+			}
+			let outputs = self
+				.server
+				.try_get_object_batch_local(&objects, false)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the existing objects"))?;
+			for (id, output) in std::iter::zip(objects, outputs) {
+				let Some(output) = output else {
+					state.graph.lock().unwrap().unqueue_checkout_object(&id);
+					continue;
+				};
+				let bytes = output.bytes;
+				let data = tg::object::Data::deserialize(id.kind(), bytes).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the existing object")
+				})?;
+				let arg = UpdateObjectLocalArg {
+					data: Some(&data),
+					id: &id,
+					marked: None,
+					metadata: None,
+					permissions: None,
+					requested: None,
+					storage: None,
+				};
+				{
+					let mut graph = state.graph.lock().unwrap();
+					graph.update_object_local(arg);
+					graph.update_checkout_object(&id, &data);
+				}
+				let mut children = BTreeSet::new();
+				data.children(&mut children);
+				stack.extend(children);
+			}
 		}
 
 		Ok(())

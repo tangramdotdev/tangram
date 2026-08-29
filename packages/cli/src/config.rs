@@ -1362,6 +1362,9 @@ pub struct SyncOptions {
 #[serde(deny_unknown_fields)]
 pub struct SyncGet {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub checkout_pointers: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<SyncGetDatabase>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3266,6 +3269,9 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 
 fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 	let mut target = server::SyncGet::default();
+	if let Some(value) = source.checkout_pointers {
+		target.checkout_pointers = value;
+	}
 	if let Some(source) = source.database {
 		target.database = resolve_sync_get_database(source);
 	}
