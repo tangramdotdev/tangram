@@ -19,6 +19,13 @@ create table if not exists object_archive_outbox (
 	primary key ((partition), stored_at, id)
 ) with clustering order by (stored_at asc, id asc);
 
+create table if not exists object_cache (
+	partition bigint,
+	cached_at bigint,
+	id blob,
+	primary key ((partition), cached_at, id)
+) with clustering order by (cached_at asc, id asc);
+
 create table if not exists logs (
 	process blob,
 	kind tinyint,

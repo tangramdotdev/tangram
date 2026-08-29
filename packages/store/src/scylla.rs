@@ -1,6 +1,8 @@
 use {crate::object, futures::FutureExt as _, indoc::indoc, tangram_client::prelude::*};
 
 mod archive;
+mod cache;
+mod capacity;
 mod delete;
 mod flush;
 mod get;
@@ -13,6 +15,7 @@ const OBJECT_CONCURRENCY: usize = 64;
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub addr: String,
+	pub capacity: Option<CapacityConfig>,
 	pub connections: Option<usize>,
 	pub keepalive: bool,
 	pub keyspace: String,
@@ -20,6 +23,12 @@ pub struct Config {
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityConfig {
+	pub prometheus_url: String,
+	pub selector: String,
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +44,7 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
+	capacity: Option<capacity::Client>,
 	partition_offset: u64,
 	statements: Statements,
 	session: scylla::client::session::Session,
@@ -43,21 +53,24 @@ pub struct Store {
 struct Statements {
 	delete_object: scylla::statement::prepared::PreparedStatement,
 	delete_object_archive_outbox_entry: scylla::statement::prepared::PreparedStatement,
+	delete_object_cache_entry: scylla::statement::prepared::PreparedStatement,
 	delete_object_index_outbox_fragment: scylla::statement::prepared::PreparedStatement,
 	dequeue_object_archive_outbox_entries: scylla::statement::prepared::PreparedStatement,
 	dequeue_object_index_outbox_fragments: scylla::statement::prepared::PreparedStatement,
 	enqueue_object_index_outbox_fragment: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
+	get_object_cache_entries: scylla::statement::prepared::PreparedStatement,
 	log: log::Statements,
 	put_object: scylla::statement::prepared::PreparedStatement,
 	put_object_archive_outbox_entry: scylla::statement::prepared::PreparedStatement,
+	put_object_cache_entry: scylla::statement::prepared::PreparedStatement,
 	try_get_object_index_outbox_batch: scylla::statement::prepared::PreparedStatement,
 	try_get_object_index_outbox_batch_at_or_before: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Store {
 	pub async fn new(config: &Config) -> tg::Result<Self> {
-		physical_outbox_partition(0, config.partition_offset)?;
+		physical_partition(0, config.partition_offset)?;
 
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
@@ -153,6 +166,55 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to prepare the put statement"))?;
 		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		put_object.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				delete from object_cache
+				using timestamp ?
+				where partition = ? and cached_at = ? and id = ?;
+			"
+		);
+		let mut delete_object_cache_entry = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the delete object cache entry statement"
+			)
+		})?;
+		delete_object_cache_entry.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_cache_entry.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				select cached_at, id, partition
+				from object_cache
+				where partition = ?
+				limit ?;
+			"
+		);
+		let mut get_object_cache_entries = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the get object cache entries statement"
+			)
+		})?;
+		get_object_cache_entries.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		get_object_cache_entries.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				insert into object_cache (cached_at, id, partition)
+				values (?, ?, ?)
+				using timestamp ?;
+			"
+		);
+		let mut put_object_cache_entry = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the put object cache entry statement"
+			)
+		})?;
+		put_object_cache_entry.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_object_cache_entry.set_is_idempotent(true);
 
 		let statement = indoc!(
 			"
@@ -298,13 +360,16 @@ impl Store {
 			for statement in [
 				&mut delete_object,
 				&mut delete_object_archive_outbox_entry,
+				&mut delete_object_cache_entry,
 				&mut delete_object_index_outbox_fragment,
 				&mut dequeue_object_archive_outbox_entries,
 				&mut dequeue_object_index_outbox_fragments,
 				&mut enqueue_object_index_outbox_fragment,
 				&mut get_object,
+				&mut get_object_cache_entries,
 				&mut put_object,
 				&mut put_object_archive_outbox_entry,
+				&mut put_object_cache_entry,
 				&mut try_get_object_index_outbox_batch,
 				&mut try_get_object_index_outbox_batch_at_or_before,
 			] {
@@ -313,19 +378,28 @@ impl Store {
 		}
 		let log = log::Statements::new(&session).await?;
 
+		let capacity = config
+			.capacity
+			.as_ref()
+			.map(capacity::Client::new)
+			.transpose()?;
 		let scylla = Self {
+			capacity,
 			partition_offset: config.partition_offset,
 			statements: Statements {
 				delete_object,
 				delete_object_archive_outbox_entry,
+				delete_object_cache_entry,
 				delete_object_index_outbox_fragment,
 				dequeue_object_archive_outbox_entries,
 				dequeue_object_index_outbox_fragments,
 				enqueue_object_index_outbox_fragment,
 				get_object,
+				get_object_cache_entries,
 				log,
 				put_object,
 				put_object_archive_outbox_entry,
+				put_object_cache_entry,
 				try_get_object_index_outbox_batch,
 				try_get_object_index_outbox_batch_at_or_before,
 			},
@@ -337,6 +411,13 @@ impl Store {
 }
 
 impl crate::Store for Store {
+	async fn delete_object_cache_entry(
+		&self,
+		arg: crate::object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_cache_entry(arg).await
+	}
+
 	async fn delete_object_archive_outbox_entries(
 		&self,
 		arg: crate::object::archive::outbox::delete::Arg,
@@ -375,6 +456,24 @@ impl crate::Store for Store {
 		arg: crate::object::archive::outbox::dequeue::Arg,
 	) -> tg::Result<Vec<crate::object::archive::outbox::Entry>> {
 		self.dequeue_object_archive_outbox_entries(arg).await
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: crate::object::cache::get::Arg,
+	) -> tg::Result<Vec<crate::object::cache::Entry>> {
+		self.get_object_cache_entries(arg).await
+	}
+
+	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
+		self.put_object_cache_entry(arg).await
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: crate::object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		self.put_object_cache_entry_with_object(arg).await
 	}
 
 	async fn put_object_archive_outbox_entries(
@@ -434,6 +533,10 @@ impl crate::Store for Store {
 			.await
 	}
 
+	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
+		self.try_get_capacity().await
+	}
+
 	async fn try_read_log(
 		&self,
 		arg: crate::log::read::Arg,
@@ -442,13 +545,7 @@ impl crate::Store for Store {
 	}
 }
 
-fn object_timestamp(stored_at: i64) -> tg::Result<i64> {
-	stored_at
-		.checked_mul(1_000_000)
-		.ok_or_else(|| tg::error!(%stored_at, "the object timestamp is out of range"))
-}
-
-fn logical_outbox_partition(partition: i64, offset: u64) -> tg::Result<u64> {
+fn logical_partition(partition: i64, offset: u64) -> tg::Result<u64> {
 	let partition = u64::try_from(partition)
 		.map_err(|_| tg::error!(%partition, "the physical outbox partition was negative"))?;
 	let partition = partition.checked_sub(offset).ok_or_else(
@@ -458,7 +555,7 @@ fn logical_outbox_partition(partition: i64, offset: u64) -> tg::Result<u64> {
 	Ok(partition)
 }
 
-fn physical_outbox_partition(partition: u64, offset: u64) -> tg::Result<i64> {
+fn physical_partition(partition: u64, offset: u64) -> tg::Result<i64> {
 	let partition = partition
 		.checked_add(offset)
 		.and_then(|partition| i64::try_from(partition).ok())
@@ -475,14 +572,14 @@ mod tests {
 
 	#[test]
 	fn partition_offset_round_trips() {
-		let partition = physical_outbox_partition(7, 42).unwrap();
+		let partition = physical_partition(7, 42).unwrap();
 		assert_eq!(partition, 49);
-		assert_eq!(logical_outbox_partition(partition, 42).unwrap(), 7);
+		assert_eq!(logical_partition(partition, 42).unwrap(), 7);
 	}
 
 	#[test]
 	fn partition_offset_rejects_overflow() {
-		assert!(physical_outbox_partition(u64::MAX, 1).is_err());
-		assert!(logical_outbox_partition(41, 42).is_err());
+		assert!(physical_partition(u64::MAX, 1).is_err());
+		assert!(logical_partition(41, 42).is_err());
 	}
 }

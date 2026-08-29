@@ -2543,7 +2543,7 @@ def reset_database_instance_once [instance: string, pool_path: string] {
 				(^timeout --kill-after 2s $database_reset_timeout_secs psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate logs; truncate objects; truncate object_index_outbox; truncate object_archive_outbox;' | complete)
+				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate logs; truncate objects; truncate object_cache; truncate object_index_outbox; truncate object_archive_outbox;' | complete)
 			},
 		}
 

@@ -1,6 +1,7 @@
 use {bytes::Bytes, std::borrow::Cow, tangram_client::prelude::*};
 
 pub mod archive;
+pub mod cache;
 pub mod checkout;
 pub mod delete;
 pub mod get;

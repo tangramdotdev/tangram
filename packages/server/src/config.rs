@@ -579,6 +579,8 @@ pub struct NatsMessenger {
 pub struct Object {
 	pub archive_outbox: ObjectArchiveOutbox,
 
+	pub cache: Option<ObjectCache>,
+
 	pub grant_time_to_live: Duration,
 
 	pub grant_time_to_touch: Duration,
@@ -590,6 +592,21 @@ pub struct Object {
 	pub time_to_live: Duration,
 
 	pub time_to_touch: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct ObjectCache {
+	pub batch_size: usize,
+
+	pub metrics_stale_after: Duration,
+
+	pub minimum_available: f64,
+
+	pub partition_total: u64,
+
+	pub poll_interval: Duration,
+
+	pub target_available: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -639,6 +656,8 @@ pub struct MemoryStore {}
 pub struct ScyllaStore {
 	pub addr: String,
 
+	pub capacity: Option<ScyllaStoreCapacity>,
+
 	pub connections: Option<usize>,
 
 	pub keepalive: bool,
@@ -652,6 +671,13 @@ pub struct ScyllaStore {
 	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
 
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScyllaStoreCapacity {
+	pub prometheus_url: Uri,
+
+	pub selector: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1476,12 +1502,26 @@ impl Default for Object {
 	fn default() -> Self {
 		Self {
 			archive_outbox: ObjectArchiveOutbox::default(),
+			cache: None,
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			index_outbox: ObjectIndexOutbox::default(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for ObjectCache {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			metrics_stale_after: Duration::from_mins(5),
+			minimum_available: 0.3,
+			partition_total: 1,
+			poll_interval: Duration::from_secs(10),
+			target_available: 0.4,
 		}
 	}
 }

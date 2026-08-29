@@ -12,6 +12,7 @@ pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 pub(crate) enum Request {
 	DequeueObjectArchiveOutboxEntries(object::archive::outbox::dequeue::Arg),
 	DequeueObjectIndexOutboxFragments(object::index::outbox::fragment::dequeue::Arg),
+	GetObjectCacheEntries(object::cache::get::Arg),
 	#[cfg(test)]
 	GetTransactionId,
 	TryGetLogLength(log::length::Arg),
@@ -24,6 +25,7 @@ pub(crate) enum Request {
 pub(crate) enum Response {
 	DequeueObjectArchiveOutboxEntries(Vec<object::archive::outbox::Entry>),
 	DequeueObjectIndexOutboxFragments(Vec<object::index::outbox::fragment::Fragment>),
+	GetObjectCacheEntries(Vec<object::cache::Entry>),
 	#[cfg(test)]
 	GetTransactionId(u64),
 	TryGetLogLength(Option<u64>),

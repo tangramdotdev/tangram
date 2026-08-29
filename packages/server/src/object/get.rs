@@ -9,6 +9,7 @@ use {
 	std::{
 		io::{Read as _, Seek as _},
 		path::PathBuf,
+		sync::atomic::Ordering,
 	},
 	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
@@ -775,14 +776,35 @@ impl Server {
 		tokio::spawn({
 			let server = self.clone();
 			async move {
-				let arg = crate::store::object::put::Arg {
+				let object = crate::store::object::put::Arg {
 					bytes: Some(bytes),
 					checkout_pointer: None,
 					id: id.clone(),
 					length: None,
 					stored_at,
 				};
-				if let Err(error) = server.store.put_object(arg).await {
+				let result = if let Some(cache) = &server.config.object.cache {
+					if !server.object_cache_puts_enabled.load(Ordering::Acquire) {
+						return;
+					}
+					let cached_at = match server.clock.unix_timestamp() {
+						Ok(cached_at) => cached_at,
+						Err(error) => {
+							tracing::error!(error = %error.trace(), %id, "failed to get the object cache timestamp");
+							return;
+						},
+					};
+					let partition = rand::random_range(0..cache.partition_total);
+					let arg = crate::store::object::cache::put::object::Arg {
+						cached_at,
+						object,
+						partition,
+					};
+					server.store.put_object_cache_entry_with_object(arg).await
+				} else {
+					server.store.put_object(object).await
+				};
+				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), %id, "failed to put an object in the store after reading it from the archive");
 				}
 			}

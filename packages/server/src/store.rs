@@ -43,6 +43,14 @@ impl Store {
 
 	#[cfg(feature = "scylla")]
 	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> tg::Result<Self> {
+		let capacity = config.capacity.as_ref().map(|capacity| {
+			let prometheus_url = capacity.prometheus_url.to_string();
+			let selector = capacity.selector.clone();
+			store::scylla::CapacityConfig {
+				prometheus_url,
+				selector,
+			}
+		});
 		let speculative_execution =
 			config
 				.speculative_execution
@@ -63,6 +71,7 @@ impl Store {
 				});
 		let config = store::scylla::Config {
 			addr: config.addr.clone(),
+			capacity,
 			connections: config.connections,
 			keepalive: config.keepalive,
 			keyspace: config.keyspace.clone(),
@@ -86,7 +95,7 @@ impl Store {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(store) => store.put_object_sync(arg)?,
-			Self::Memory(store) => store.put_object(arg),
+			Self::Memory(store) => store.put_object(arg)?,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => return Err(tg::error!("unimplemented")),
 		}
@@ -123,6 +132,16 @@ impl Store {
 }
 
 impl store::Store for Store {
+	async fn delete_object_cache_entry(&self, arg: object::cache::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.delete_object_cache_entry(arg).await,
+			Self::Memory(store) => store::Store::delete_object_cache_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.delete_object_cache_entry(arg).await,
+		}
+	}
+
 	async fn delete_object_archive_outbox_entries(
 		&self,
 		arg: object::archive::outbox::delete::Arg,
@@ -210,6 +229,44 @@ impl store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.dequeue_object_archive_outbox_entries(arg).await,
+		}
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: object::cache::get::Arg,
+	) -> tg::Result<Vec<object::cache::Entry>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.get_object_cache_entries(arg).await,
+			Self::Memory(store) => store::Store::get_object_cache_entries(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.get_object_cache_entries(arg).await,
+		}
+	}
+
+	async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_object_cache_entry(arg).await,
+			Self::Memory(store) => store::Store::put_object_cache_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_object_cache_entry(arg).await,
+		}
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_object_cache_entry_with_object(arg).await,
+			Self::Memory(store) => {
+				store::Store::put_object_cache_entry_with_object(store, arg).await
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_object_cache_entry_with_object(arg).await,
 		}
 	}
 
@@ -346,6 +403,16 @@ impl store::Store for Store {
 					.try_get_object_index_outbox_batch_at_or_before(arg)
 					.await
 			},
+		}
+	}
+
+	async fn try_get_capacity(&self) -> tg::Result<Option<store::capacity::Capacity>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store::Store::try_get_capacity(store).await,
+			Self::Memory(store) => store::Store::try_get_capacity(store).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store::Store::try_get_capacity(store).await,
 		}
 	}
 

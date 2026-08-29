@@ -30,7 +30,7 @@ impl Store {
 		let Some(entry) = state.objects.get(id) else {
 			return Ok(None);
 		};
-		let Some(bytes) = &entry.bytes else {
+		let Some(bytes) = &entry.object.bytes else {
 			return Ok(None);
 		};
 		let size = bytes.len().to_u64().unwrap();
@@ -43,6 +43,6 @@ impl Store {
 		state: &super::State,
 		id: &tg::object::Id,
 	) -> Option<object::Object<'static>> {
-		state.objects.get(id).cloned()
+		state.objects.get(id).map(|object| object.object.clone())
 	}
 }

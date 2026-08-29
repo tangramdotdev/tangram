@@ -12,8 +12,7 @@ impl Store {
 		arg: fragment::delete::Arg,
 	) -> tg::Result<()> {
 		futures::future::try_join_all(arg.fragments.into_iter().map(|fragment| async move {
-			let partition =
-				super::physical_outbox_partition(fragment.partition, self.partition_offset)?;
+			let partition = super::physical_partition(fragment.partition, self.partition_offset)?;
 			let index = fragment.index.value().to_i64().ok_or_else(|| {
 				tg::error!("the object index outbox fragment index exceeded an i64")
 			})?;
@@ -88,8 +87,7 @@ impl Store {
 				let index = row.fragment.to_u64().ok_or_else(|| {
 					tg::error!("the object index outbox fragment index was negative")
 				})?;
-				let partition =
-					super::logical_outbox_partition(row.partition, self.partition_offset)?;
+				let partition = super::logical_partition(row.partition, self.partition_offset)?;
 				let fragment = fragment::Fragment {
 					batch: batch::Id::new(batch),
 					index: fragment::Index::new(index),
@@ -107,7 +105,7 @@ impl Store {
 		&self,
 		arg: batch::enqueue::Arg,
 	) -> tg::Result<()> {
-		let partition = super::physical_outbox_partition(arg.partition, self.partition_offset)?;
+		let partition = super::physical_partition(arg.partition, self.partition_offset)?;
 		let batch_id = arg.id.value();
 		for (index, payload) in arg.fragments.into_iter().enumerate() {
 			let index = index.to_i64().ok_or_else(|| {
@@ -185,6 +183,6 @@ fn partitions(
 	partition_offset: u64,
 ) -> tg::Result<Vec<i64>> {
 	(partition_start..partition_end)
-		.map(|partition| super::physical_outbox_partition(partition, partition_offset))
+		.map(|partition| super::physical_partition(partition, partition_offset))
 		.collect()
 }

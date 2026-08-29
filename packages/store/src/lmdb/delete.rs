@@ -93,10 +93,10 @@ impl Store {
 		else {
 			return Ok(());
 		};
-		let value = object::Object::deserialize(bytes)
+		let value = lmdb_object::Value::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
-
-		if value.stored_at <= request.touched_at {
+		let timestamp = object::cache::stored_at_timestamp(request.touched_at)?;
+		if value.timestamp <= timestamp {
 			db.delete(transaction, &key_bytes)
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
 		}

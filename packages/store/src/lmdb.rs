@@ -1,6 +1,8 @@
 use {heed as lmdb, std::path::PathBuf, tangram_client::prelude::*};
 
 mod archive;
+mod cache;
+mod capacity;
 mod delete;
 mod flush;
 mod get;
@@ -28,6 +30,7 @@ pub struct Config {
 pub struct Store {
 	db: Db,
 	env: lmdb::Env,
+	path: PathBuf,
 	reader_handles: Vec<std::thread::JoinHandle<()>>,
 	reader_sender: Option<crate::read::Sender>,
 	writer_handle: Option<std::thread::JoinHandle<()>>,
@@ -93,6 +96,7 @@ impl Store {
 		Ok(Self {
 			db,
 			env,
+			path: config.path.clone(),
 			reader_handles,
 			reader_sender: Some(reader_sender),
 			writer_handle: Some(writer_handle),
@@ -134,6 +138,7 @@ impl Store {
 		Ok(Self {
 			db,
 			env,
+			path: config.path.clone(),
 			reader_handles,
 			reader_sender: Some(reader_sender),
 			writer_handle: None,
@@ -215,6 +220,13 @@ impl Drop for Store {
 }
 
 impl crate::Store for Store {
+	async fn delete_object_cache_entry(
+		&self,
+		arg: crate::object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_cache_entry(arg).await
+	}
+
 	async fn delete_object_archive_outbox_entries(
 		&self,
 		arg: crate::object::archive::outbox::delete::Arg,
@@ -253,6 +265,24 @@ impl crate::Store for Store {
 		arg: crate::object::archive::outbox::dequeue::Arg,
 	) -> tg::Result<Vec<crate::object::archive::outbox::Entry>> {
 		self.dequeue_object_archive_outbox_entries(arg).await
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: crate::object::cache::get::Arg,
+	) -> tg::Result<Vec<crate::object::cache::Entry>> {
+		self.get_object_cache_entries(arg).await
+	}
+
+	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
+		self.put_object_cache_entry(arg).await
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: crate::object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		self.put_object_cache_entry_with_object(arg).await
 	}
 
 	async fn put_object_archive_outbox_entries(
@@ -313,6 +343,10 @@ impl crate::Store for Store {
 	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
 		self.try_get_object_index_outbox_batch_at_or_before(arg)
 			.await
+	}
+
+	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
+		self.try_get_capacity().map(Some)
 	}
 
 	async fn try_read_log(

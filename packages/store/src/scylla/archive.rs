@@ -9,9 +9,8 @@ impl Store {
 		arg: outbox::delete::Arg,
 	) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
-			let timestamp = super::object_timestamp(entry.stored_at)?;
-			let partition =
-				super::physical_outbox_partition(entry.partition, self.partition_offset)?;
+			let timestamp = crate::object::cache::stored_at_timestamp(entry.stored_at)?;
+			let partition = super::physical_partition(entry.partition, self.partition_offset)?;
 			let id = entry.id.to_bytes();
 			let params = (timestamp, partition, entry.stored_at, id.as_ref());
 			self.session
@@ -71,8 +70,7 @@ impl Store {
 					tg::error!(!error, "failed to get an object archive outbox row")
 				})?;
 				let id = tg::object::Id::from_slice(row.id)?;
-				let partition =
-					super::logical_outbox_partition(row.partition, self.partition_offset)?;
+				let partition = super::logical_partition(row.partition, self.partition_offset)?;
 				let entry = outbox::Entry {
 					id,
 					partition,
@@ -87,9 +85,8 @@ impl Store {
 
 	pub async fn put_object_archive_outbox_entries(&self, arg: outbox::put::Arg) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
-			let timestamp = super::object_timestamp(entry.stored_at)?;
-			let partition =
-				super::physical_outbox_partition(entry.partition, self.partition_offset)?;
+			let timestamp = crate::object::cache::stored_at_timestamp(entry.stored_at)?;
+			let partition = super::physical_partition(entry.partition, self.partition_offset)?;
 			let id = entry.id.to_bytes();
 			let params = (id.as_ref(), partition, entry.stored_at, timestamp);
 			self.session
@@ -115,6 +112,6 @@ fn partitions(
 	partition_offset: u64,
 ) -> tg::Result<Vec<i64>> {
 	(partition_start..partition_end)
-		.map(|partition| super::physical_outbox_partition(partition, partition_offset))
+		.map(|partition| super::physical_partition(partition, partition_offset))
 		.collect()
 }

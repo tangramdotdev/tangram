@@ -5,6 +5,7 @@ pub enum Key<'a> {
 	Log(crate::lmdb::log::Key<'a>),
 	Object(crate::lmdb::object::Key<'a>),
 	ObjectArchiveOutbox(crate::object::archive::outbox::Entry),
+	ObjectCache(crate::object::cache::Entry),
 	ObjectIndexOutbox(crate::lmdb::outbox::Key),
 }
 
@@ -15,6 +16,7 @@ pub enum Kind {
 	LogStreamPosition = 3,
 	Object = 0,
 	ObjectArchiveOutbox = 4,
+	ObjectCache = 5,
 	ObjectIndexOutboxFragment = 1,
 }
 
@@ -71,6 +73,13 @@ impl fdbt::TuplePack for Key<'_> {
 				Kind::ObjectArchiveOutbox.to_i32().unwrap(),
 				entry.partition,
 				entry.stored_at,
+				entry.id.to_bytes().as_ref(),
+			)
+				.pack(writer, tuple_depth),
+			Self::ObjectCache(entry) => (
+				Kind::ObjectCache.to_i32().unwrap(),
+				entry.partition,
+				entry.cached_at,
 				entry.id.to_bytes().as_ref(),
 			)
 				.pack(writer, tuple_depth),

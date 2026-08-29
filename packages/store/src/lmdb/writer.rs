@@ -191,6 +191,9 @@ impl Store {
 			Request::DeleteObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::DeleteObjectBatch)
 			},
+			Request::DeleteObjectCacheEntry(arg) => {
+				vec![(Request::DeleteObjectCacheEntry(arg), 1)]
+			},
 			Request::DeleteObjectIndexOutboxFragments(arg) => {
 				Self::split_items(arg.fragments, write_batch_size, |fragments| {
 					Request::DeleteObjectIndexOutboxFragments(
@@ -215,6 +218,10 @@ impl Store {
 			},
 			Request::PutObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::PutObjectBatch)
+			},
+			Request::PutObjectCacheEntry(arg) => vec![(Request::PutObjectCacheEntry(arg), 1)],
+			Request::PutObjectCacheEntryWithObject(arg) => {
+				vec![(Request::PutObjectCacheEntryWithObject(arg), 1)]
 			},
 		}
 	}
@@ -257,6 +264,9 @@ impl Store {
 			Request::DeleteObjectBatch(requests) => requests.into_iter().try_for_each(|request| {
 				Self::delete_inner_with_transaction(db, transaction, request)
 			}),
+			Request::DeleteObjectCacheEntry(arg) => {
+				Self::delete_object_cache_entry_with_transaction(db, transaction, arg)
+			},
 			Request::DeleteObjectIndexOutboxFragments(arg) => {
 				Self::delete_object_index_outbox_fragments_with_transaction(db, transaction, arg)
 			},
@@ -275,6 +285,12 @@ impl Store {
 			Request::PutObjectBatch(requests) => requests
 				.into_iter()
 				.try_for_each(|request| Self::put_inner_with_transaction(db, transaction, request)),
+			Request::PutObjectCacheEntry(arg) => {
+				Self::put_object_cache_entry_with_transaction(db, transaction, arg)
+			},
+			Request::PutObjectCacheEntryWithObject(arg) => {
+				Self::put_object_cache_entry_with_object_with_transaction(db, transaction, arg)
+			},
 		}
 	}
 

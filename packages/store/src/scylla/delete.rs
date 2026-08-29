@@ -9,7 +9,7 @@ impl Store {
 	pub(super) async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
-		let timestamp = super::object_timestamp(arg.touched_at)?;
+		let timestamp = object::cache::stored_at_timestamp(arg.touched_at)?;
 		let params = (timestamp, id_bytes);
 		self.session
 			.execute_unpaged(&self.statements.delete_object, params)

@@ -1,6 +1,7 @@
 #[cfg(feature = "lmdb")]
 mod read;
 
+pub mod capacity;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod log;
@@ -11,6 +12,11 @@ pub mod prelude;
 pub mod scylla;
 
 pub trait Store {
+	fn delete_object_cache_entry(
+		&self,
+		arg: object::cache::delete::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
 	fn delete_object_archive_outbox_entries(
 		&self,
 		arg: object::archive::outbox::delete::Arg,
@@ -48,6 +54,21 @@ pub trait Store {
 		arg: object::archive::outbox::dequeue::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::archive::outbox::Entry>>>
 	+ Send;
+
+	fn get_object_cache_entries(
+		&self,
+		arg: object::cache::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::cache::Entry>>> + Send;
+
+	fn put_object_cache_entry(
+		&self,
+		arg: object::cache::put::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn put_object_cache_entry_with_object(
+		&self,
+		arg: object::cache::put::object::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn put_object_archive_outbox_entries(
 		&self,
@@ -102,6 +123,10 @@ pub trait Store {
 	) -> impl std::future::Future<
 		Output = tangram_client::Result<Option<object::index::outbox::batch::Id>>,
 	> + Send;
+
+	fn try_get_capacity(
+		&self,
+	) -> impl std::future::Future<Output = tangram_client::Result<Option<capacity::Capacity>>> + Send;
 
 	fn try_read_log(
 		&self,

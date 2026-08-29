@@ -17,7 +17,10 @@ use {
 		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex, atomic::AtomicU64},
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, AtomicU64},
+		},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -134,6 +137,7 @@ pub struct State {
 	log_notifications: self::process::log::Notifications,
 	messenger: Messenger,
 	next_watch_id: AtomicU64,
+	object_cache_puts_enabled: AtomicBool,
 	object_get_tasks: self::object::get::Tasks,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
@@ -398,6 +402,13 @@ impl Server {
 					"the indexer partition range exceeds the object archive outbox partition total"
 				));
 			}
+			if let Some(cache) = &config.object.cache
+				&& indexer.partition_end > cache.partition_total
+			{
+				return Err(tg::error!(
+					"the indexer partition range exceeds the object cache partition total"
+				));
+			}
 			if indexer.poll_interval.is_zero() {
 				return Err(tg::error!(
 					"the indexer poll interval must be greater than zero"
@@ -424,6 +435,64 @@ impl Server {
 			return Err(tg::error!(
 				"the object archive outbox partition total must be greater than zero"
 			));
+		}
+
+		// Validate the object cache configuration.
+		if let Some(cache) = &config.object.cache {
+			if cache.batch_size == 0 {
+				return Err(tg::error!(
+					"the object cache batch size must be greater than zero"
+				));
+			}
+			if cache.metrics_stale_after.is_zero() {
+				return Err(tg::error!(
+					"the object cache metrics stale duration must be greater than zero"
+				));
+			}
+			if !cache.minimum_available.is_finite()
+				|| cache.minimum_available < 0.0
+				|| cache.minimum_available >= 1.0
+			{
+				return Err(tg::error!(
+					"the object cache minimum available ratio must be between zero and one"
+				));
+			}
+			if cache.partition_total == 0 {
+				return Err(tg::error!(
+					"the object cache partition total must be greater than zero"
+				));
+			}
+			if cache.poll_interval.is_zero() {
+				return Err(tg::error!(
+					"the object cache poll interval must be greater than zero"
+				));
+			}
+			if !cache.target_available.is_finite()
+				|| cache.target_available <= cache.minimum_available
+				|| cache.target_available > 1.0
+			{
+				return Err(tg::error!(
+					"the object cache target available ratio must exceed the minimum and be at most one"
+				));
+			}
+			match &config.store {
+				self::config::Store::Lmdb(_) => {},
+				self::config::Store::Memory(_) => {
+					return Err(tg::error!("the memory store does not report capacity"));
+				},
+				self::config::Store::Scylla(store) => {
+					let Some(capacity) = &store.capacity else {
+						return Err(tg::error!(
+							"the Scylla store capacity configuration is required for the object cache"
+						));
+					};
+					if capacity.selector.trim().is_empty() {
+						return Err(tg::error!(
+							"the Scylla store capacity selector must not be empty"
+						));
+					}
+				},
+			}
 		}
 
 		// Validate the object index outbox configuration.
@@ -902,6 +971,7 @@ impl Server {
 
 		// Create the watches.
 		let next_watch_id = AtomicU64::new(0);
+		let object_cache_puts_enabled = AtomicBool::new(config.object.cache.is_none());
 		let watches = DashMap::default();
 
 		// Create the token keys.
@@ -940,6 +1010,7 @@ impl Server {
 			log_notifications,
 			messenger,
 			next_watch_id,
+			object_cache_puts_enabled,
 			object_get_tasks,
 			path,
 			regions,

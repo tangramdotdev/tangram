@@ -128,6 +128,11 @@ impl Store {
 				)?;
 				crate::read::Response::DequeueObjectIndexOutboxFragments(output)
 			},
+			crate::read::Request::GetObjectCacheEntries(arg) => {
+				let output =
+					Self::get_object_cache_entries_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetObjectCacheEntries(output)
+			},
 			#[cfg(test)]
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)

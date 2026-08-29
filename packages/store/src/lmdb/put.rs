@@ -99,13 +99,14 @@ impl Store {
 		let id = &request.id;
 		let key = Key::Object(lmdb_object::Key::Object(id));
 		let key_bytes = key.pack_to_vec();
+		let timestamp = object::cache::stored_at_timestamp(request.stored_at)?;
 		let previous = db
 			.get(transaction, &key_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-			.map(object::Object::deserialize)
+			.map(super::object::Value::deserialize)
 			.transpose()
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
-		if previous.is_some_and(|object| object.stored_at > request.stored_at) {
+		if previous.is_some_and(|object| object.timestamp > timestamp) {
 			return Ok(());
 		}
 
@@ -115,7 +116,8 @@ impl Store {
 			length: request.length,
 			stored_at: request.stored_at,
 		};
-		let value_bytes = value.serialize().unwrap();
+		let value = super::object::Value::new(value, timestamp);
+		let value_bytes = value.serialize()?;
 		db.put(transaction, &key_bytes, &value_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 

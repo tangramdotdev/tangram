@@ -880,6 +880,9 @@ pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub archive_outbox: Option<ObjectArchiveOutbox>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<ObjectCache>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_live: Option<Duration>,
@@ -902,6 +905,31 @@ pub struct Object {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "ttt", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_touch: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub metrics_stale_after: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub minimum_available: Option<f64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub target_available: Option<f64>,
 }
 
 #[serde_as]
@@ -975,6 +1003,9 @@ pub struct ScyllaStore {
 	pub addr: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<ScyllaStoreCapacity>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -994,6 +1025,17 @@ pub struct ScyllaStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaStoreCapacity {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prometheus_url: Option<Uri>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub selector: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -2895,6 +2937,9 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(source) = source.archive_outbox {
 		target.archive_outbox = resolve_object_archive_outbox(source);
 	}
+	if let Some(source) = source.cache {
+		target.cache = Some(resolve_object_cache(source));
+	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
 	}
@@ -2912,6 +2957,30 @@ fn resolve_object(source: &Object) -> server::Object {
 	}
 	if let Some(value) = source.time_to_touch {
 		target.time_to_touch = value;
+	}
+
+	target
+}
+
+fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
+	let mut target = server::ObjectCache::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.metrics_stale_after {
+		target.metrics_stale_after = value;
+	}
+	if let Some(value) = source.minimum_available {
+		target.minimum_available = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	if let Some(value) = source.target_available {
+		target.target_available = value;
 	}
 
 	target
@@ -2977,6 +3046,10 @@ fn resolve_lmdb_store(source: LmdbStore) -> server::LmdbStore {
 
 fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> {
 	let addr = required(source.addr, "store.addr")?;
+	let capacity = source
+		.capacity
+		.map(resolve_scylla_store_capacity)
+		.transpose()?;
 	let keyspace = required(source.keyspace, "store.keyspace")?;
 	let speculative_execution = source
 		.speculative_execution
@@ -2984,6 +3057,7 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 		.transpose()?;
 	let target = server::ScyllaStore {
 		addr,
+		capacity,
 		connections: source.connections,
 		keepalive: source.keepalive.unwrap_or(true),
 		keyspace,
@@ -2991,6 +3065,19 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 		password: source.password,
 		speculative_execution,
 		username: source.username,
+	};
+
+	Ok(target)
+}
+
+fn resolve_scylla_store_capacity(
+	source: ScyllaStoreCapacity,
+) -> tg::Result<server::ScyllaStoreCapacity> {
+	let prometheus_url = required(source.prometheus_url, "store.capacity.prometheus_url")?;
+	let selector = required(source.selector, "store.capacity.selector")?;
+	let target = server::ScyllaStoreCapacity {
+		prometheus_url,
+		selector,
 	};
 
 	Ok(target)
@@ -3759,6 +3846,46 @@ fn required<T>(value: Option<T>, field: &'static str) -> tg::Result<T> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn parses_and_resolves_object_cache_and_scylla_capacity() {
+		let source: Object = serde_json::from_value(serde_json::json!({
+			"cache": {
+				"batch_size": 128,
+				"metrics_stale_after": 60,
+				"minimum_available": 0.2,
+				"partition_total": 16,
+				"poll_interval": 5,
+				"target_available": 0.3,
+			},
+		}))
+		.unwrap();
+		let target = resolve_object(&source);
+		let cache = target.cache.unwrap();
+		assert_eq!(cache.batch_size, 128);
+		assert_eq!(cache.metrics_stale_after, Duration::from_secs(60));
+		assert!((cache.minimum_available - 0.2).abs() < f64::EPSILON);
+		assert_eq!(cache.partition_total, 16);
+		assert_eq!(cache.poll_interval, Duration::from_secs(5));
+		assert!((cache.target_available - 0.3).abs() < f64::EPSILON);
+
+		let source: ScyllaStore = serde_json::from_value(serde_json::json!({
+			"addr": "127.0.0.1:9042",
+			"capacity": {
+				"prometheus_url": "http://127.0.0.1:9090",
+				"selector": "job=\"node\",mountpoint=\"/var/lib/scylla\"",
+			},
+			"keyspace": "store",
+		}))
+		.unwrap();
+		let target = resolve_scylla_store(source).unwrap();
+		let capacity = target.capacity.unwrap();
+		assert_eq!(capacity.prometheus_url.to_string(), "http://127.0.0.1:9090");
+		assert_eq!(
+			capacity.selector,
+			"job=\"node\",mountpoint=\"/var/lib/scylla\""
+		);
+	}
 
 	#[test]
 	fn parses_and_resolves_an_s3_archive() {

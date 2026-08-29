@@ -103,9 +103,9 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let value = object::Object::deserialize(bytes)
+		let value = lmdb_object::Value::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
-		Ok(Some(value))
+		Ok(Some(value.object))
 	}
 
 	pub fn try_get_object_data_with_transaction(
