@@ -65,10 +65,10 @@ pub trait Index {
 
 	fn contains_ids(&self, ids: &[tg::Id]) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
-	fn clean_usage(
+	fn expire_usage(
 		&self,
-		arg: crate::usage::clean::Arg,
-	) -> impl Future<Output = tg::Result<crate::usage::clean::Output>> + Send;
+		arg: crate::usage::expire::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::expire::Output>> + Send;
 
 	fn aggregate_usage(
 		&self,

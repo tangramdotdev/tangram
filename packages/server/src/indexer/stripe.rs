@@ -7,16 +7,17 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
+const POLL_INTERVAL: Duration = Duration::from_hours(1);
 const WEBHOOK_TTL: Duration = Duration::from_hours(35 * 24);
 
 impl Indexer {
-	pub(super) async fn stripe_cleaner_task(&self, poll_interval: Duration) -> tg::Result<()> {
+	pub(super) async fn stripe_cleanup_task(&self) -> tg::Result<()> {
 		loop {
 			let now = self.server.clock.unix_timestamp()?;
 			if let Err(error) = self.clean_stripe_webhooks(now).await {
 				tracing::error!(error = %error.trace(), "failed to clean the Stripe webhook events");
 			}
-			tokio::time::sleep(poll_interval).await;
+			tokio::time::sleep(POLL_INTERVAL).await;
 		}
 	}
 

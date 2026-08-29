@@ -1,7 +1,6 @@
 use {
-	super::Indexer,
+	super::{Indexer, partition},
 	futures::future,
-	num::ToPrimitive as _,
 	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -15,8 +14,6 @@ impl Indexer {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
-		let concurrency = config.concurrency.to_u64().unwrap();
-		let partition_length = partition_end - partition_start;
 		let checkpoint = match kind {
 			tangram_index::update::Kind::Grant => "indexer.update.grant.batch",
 			tangram_index::update::Kind::Node => "indexer.update.node.batch",
@@ -24,18 +21,12 @@ impl Indexer {
 		};
 		loop {
 			crate::checkpoint!(self.server, checkpoint).await;
-			let futures = (0..config.concurrency).map(|task_index| {
-				let task_index = task_index.to_u64().unwrap();
-				let partitions_per_task = partition_length / concurrency;
-				let extra = partition_length % concurrency;
-				let task_start =
-					partition_start + task_index * partitions_per_task + task_index.min(extra);
-				let task_count = partitions_per_task + u64::from(task_index < extra);
-				let task_end = task_start + task_count;
-				self.server
-					.index
-					.update_batch(kind, config.batch_size, task_start, task_end)
-			});
+			let futures = partition::ranges(partition_start, partition_end, config.concurrency)
+				.map(|range| {
+					self.server
+						.index
+						.update_batch(kind, config.batch_size, range.start, range.end)
+				});
 			let result = future::try_join_all(futures).await.map(|outputs| {
 				outputs.into_iter().fold(
 					tangram_index::update::Output::default(),

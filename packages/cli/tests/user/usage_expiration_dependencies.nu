@@ -8,7 +8,7 @@ def --wrapped usage [token: string, ...period: string] {
 
 def --wrapped unavailable [token: string, ...period: string] {
 	let output = tg --token $token usage ...$period | complete
-	failure $output "cleaned usage should be unavailable"
+	failure $output "expired usage should be unavailable"
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
@@ -33,7 +33,7 @@ set_time $server '2026-01-01T23:59:59Z'
 tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T00:00:00Z).object_count 2
 
-# After the day is aggregated and the hourly TTL elapses, cleaning can expire the first hour.
+# After the day is aggregated and the hourly TTL elapses, expiration can remove the first hour.
 set_time $server '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z

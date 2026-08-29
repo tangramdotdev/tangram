@@ -1,8 +1,7 @@
 use {
-	super::Indexer,
+	super::{Indexer, partition},
 	crate::Server,
 	futures::{FutureExt as _, StreamExt as _, future, stream},
-	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -31,19 +30,8 @@ impl Indexer {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
-		let concurrency = config.concurrency.to_u64().unwrap();
-		let partition_length = partition_end - partition_start;
-		let futures = (0..config.concurrency).filter_map(|task_index| {
-			let task_index = task_index.to_u64().unwrap();
-			let partitions_per_task = partition_length / concurrency;
-			let extra = partition_length % concurrency;
-			let task_start =
-				partition_start + task_index * partitions_per_task + task_index.min(extra);
-			let task_count = partitions_per_task + u64::from(task_index < extra);
-			let task_end = task_start + task_count;
-			(task_count > 0)
-				.then(|| self.log_compaction_partition_task(config, task_start, task_end))
-		});
+		let futures = partition::ranges(partition_start, partition_end, config.concurrency)
+			.map(|range| self.log_compaction_partition_task(config, range.start, range.end));
 		future::try_join_all(futures).await?;
 
 		Ok(())

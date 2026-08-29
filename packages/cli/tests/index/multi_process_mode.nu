@@ -9,7 +9,7 @@ let server = server spawn --config {
 		path: 'database.sqlite3',
 	},
 	indexer: {
-		partition_end: 4,
+		partitions: { end: 4 },
 	},
 	object: {
 		index_outbox: { partition_total: 4 },

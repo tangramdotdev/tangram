@@ -109,6 +109,34 @@ pub struct ArchivePool {
 	pub ttl: Option<Duration>,
 }
 
+#[derive(Clone, Debug)]
+pub enum CapacityThreshold {
+	Bytes(CapacityThresholdDirection<u64>),
+
+	Ratio(CapacityThresholdDirection<f64>),
+}
+
+#[derive(Clone, Debug)]
+pub enum CapacityThresholdDirection<T> {
+	Above(CapacityThresholdAbove<T>),
+
+	Below(CapacityThresholdBelow<T>),
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityThresholdAbove<T> {
+	pub start_above: T,
+
+	pub stop_at: T,
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityThresholdBelow<T> {
+	pub start_below: T,
+
+	pub stop_at: T,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
 	Http,
@@ -351,6 +379,8 @@ pub enum Database {
 #[derive(Clone, Debug)]
 pub struct DatabaseIndexOutbox {
 	pub batch_size: usize,
+
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -473,29 +503,15 @@ pub struct LmdbIndex {
 	pub write_operation_batch_size: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Indexer {
-	pub cleaner: IndexerCleaner,
-
-	pub database_index_outbox_wakeup_interval: Duration,
+	pub cleaning: IndexerCleaning,
 
 	pub log_compaction: IndexerLogCompaction,
 
-	pub max_process_depth: usize,
+	pub partitions: IndexerPartitions,
 
-	pub message_retry: Retry,
-
-	pub message_timeout: Duration,
-
-	pub object_archive_outbox_wakeup_interval: Duration,
-
-	pub object_index_outbox_wakeup_interval: Duration,
-
-	pub partition_end: u64,
-
-	pub partition_start: u64,
-
-	pub poll_interval: Duration,
+	pub request: IndexerRequest,
 
 	pub updates: IndexerUpdates,
 
@@ -503,10 +519,10 @@ pub struct Indexer {
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerCleaner {
+pub struct IndexerCleaning {
 	pub batch_size: usize,
 
-	pub capacity: Option<IndexerCleanerCapacity>,
+	pub capacity: Option<CapacityThreshold>,
 
 	pub concurrency: usize,
 
@@ -516,24 +532,19 @@ pub struct IndexerCleaner {
 }
 
 #[derive(Clone, Debug)]
-pub enum IndexerCleanerCapacity {
-	Filesystem(IndexerCleanerFilesystemCapacity),
+pub struct IndexerPartitions {
+	pub end: u64,
 
-	Limit(IndexerCleanerLimitCapacity),
+	pub start: u64,
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerCleanerFilesystemCapacity {
-	pub minimum_available: f64,
+pub struct IndexerRequest {
+	pub poll_interval: Duration,
 
-	pub target_available: f64,
-}
+	pub retry: Retry,
 
-#[derive(Clone, Debug)]
-pub struct IndexerCleanerLimitCapacity {
-	pub maximum_used: u64,
-
-	pub target_used: u64,
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -551,7 +562,7 @@ pub struct IndexerLogCompaction {
 pub struct IndexerUsage {
 	pub aggregation: IndexerUsageAggregation,
 
-	pub storage: IndexerUpdate,
+	pub expiration: IndexerUsageExpiration,
 }
 
 #[derive(Clone, Debug)]
@@ -565,11 +576,24 @@ pub struct IndexerUsageAggregation {
 	pub poll_interval: Duration,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
+pub struct IndexerUsageExpiration {
+	pub batch_size: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
 pub struct IndexerUpdates {
 	pub grants: IndexerUpdate,
 
+	pub max_process_depth: usize,
+
 	pub nodes: IndexerUpdate,
+
+	pub storage: IndexerUpdate,
 }
 
 #[derive(Clone, Debug)]
@@ -619,15 +643,13 @@ pub struct Object {
 pub struct ObjectCache {
 	pub batch_size: usize,
 
-	pub metrics_stale_after: Duration,
+	pub capacity: CapacityThreshold,
 
-	pub minimum_available: f64,
+	pub metrics_stale_after: Duration,
 
 	pub partition_total: u64,
 
 	pub poll_interval: Duration,
-
-	pub target_available: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -635,6 +657,8 @@ pub struct ObjectArchiveOutbox {
 	pub batch_size: usize,
 
 	pub partition_total: u64,
+
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -644,6 +668,8 @@ pub struct ObjectIndexOutbox {
 	pub fragment_size: usize,
 
 	pub partition_total: u64,
+
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -1258,6 +1284,63 @@ impl Default for ArchivePool {
 	}
 }
 
+impl CapacityThreshold {
+	pub(crate) fn should_start(&self, available: u64, total: u64) -> bool {
+		if total == 0 {
+			return true;
+		}
+		match self {
+			Self::Bytes(threshold) => {
+				let used = total.saturating_sub(available);
+				threshold.should_start(available, used)
+			},
+			Self::Ratio(threshold) => {
+				let used = total.saturating_sub(available);
+				let available = capacity_ratio(available, total);
+				let used = capacity_ratio(used, total);
+				threshold.should_start(available, used)
+			},
+		}
+	}
+
+	pub(crate) fn should_stop(&self, available: u64, total: u64) -> bool {
+		if total == 0 {
+			return false;
+		}
+		match self {
+			Self::Bytes(threshold) => {
+				let used = total.saturating_sub(available);
+				threshold.should_stop(available, used)
+			},
+			Self::Ratio(threshold) => {
+				let used = total.saturating_sub(available);
+				let available = capacity_ratio(available, total);
+				let used = capacity_ratio(used, total);
+				threshold.should_stop(available, used)
+			},
+		}
+	}
+}
+
+impl<T> CapacityThresholdDirection<T>
+where
+	T: Copy + PartialOrd,
+{
+	fn should_start(&self, free: T, used: T) -> bool {
+		match self {
+			Self::Above(threshold) => used > threshold.start_above,
+			Self::Below(threshold) => free < threshold.start_below,
+		}
+	}
+
+	fn should_stop(&self, free: T, used: T) -> bool {
+		match self {
+			Self::Above(threshold) => used <= threshold.stop_at,
+			Self::Below(threshold) => free >= threshold.stop_at,
+		}
+	}
+}
+
 impl Default for Advanced {
 	fn default() -> Self {
 		Self {
@@ -1325,7 +1408,10 @@ impl Database {
 
 impl Default for DatabaseIndexOutbox {
 	fn default() -> Self {
-		Self { batch_size: 1024 }
+		Self {
+			batch_size: 1024,
+			wakeup_interval: Duration::from_mins(1),
+		}
 	}
 }
 
@@ -1452,27 +1538,7 @@ impl Default for LmdbIndex {
 	}
 }
 
-impl Default for Indexer {
-	fn default() -> Self {
-		Self {
-			cleaner: IndexerCleaner::default(),
-			database_index_outbox_wakeup_interval: Duration::from_mins(1),
-			log_compaction: IndexerLogCompaction::default(),
-			max_process_depth: 1024,
-			message_retry: message_retry_default(),
-			message_timeout: Duration::from_secs(10),
-			object_archive_outbox_wakeup_interval: Duration::from_mins(1),
-			object_index_outbox_wakeup_interval: Duration::from_mins(1),
-			partition_end: 1,
-			partition_start: 0,
-			poll_interval: Duration::from_millis(10),
-			updates: IndexerUpdates::default(),
-			usage: IndexerUsage::default(),
-		}
-	}
-}
-
-impl Default for IndexerCleaner {
+impl Default for IndexerCleaning {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
@@ -1484,11 +1550,18 @@ impl Default for IndexerCleaner {
 	}
 }
 
-impl Default for IndexerCleanerFilesystemCapacity {
+impl Default for IndexerPartitions {
+	fn default() -> Self {
+		Self { end: 1, start: 0 }
+	}
+}
+
+impl Default for IndexerRequest {
 	fn default() -> Self {
 		Self {
-			minimum_available: 0.1,
-			target_available: 0.2,
+			poll_interval: Duration::from_millis(10),
+			retry: message_retry_default(),
+			timeout: Duration::from_secs(10),
 		}
 	}
 }
@@ -1511,6 +1584,27 @@ impl Default for IndexerUsageAggregation {
 			concurrency: 1,
 			enabled: true,
 			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerUsageExpiration {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			enabled: true,
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerUpdates {
+	fn default() -> Self {
+		Self {
+			grants: IndexerUpdate::default(),
+			max_process_depth: 1024,
+			nodes: IndexerUpdate::default(),
+			storage: IndexerUpdate::default(),
 		}
 	}
 }
@@ -1553,13 +1647,17 @@ impl Default for Object {
 
 impl Default for ObjectCache {
 	fn default() -> Self {
+		let capacity =
+			CapacityThreshold::Ratio(CapacityThresholdDirection::Below(CapacityThresholdBelow {
+				start_below: 0.3,
+				stop_at: 0.4,
+			}));
 		Self {
 			batch_size: 1024,
+			capacity,
 			metrics_stale_after: Duration::from_mins(5),
-			minimum_available: 0.3,
 			partition_total: 1,
 			poll_interval: Duration::from_secs(10),
-			target_available: 0.4,
 		}
 	}
 }
@@ -1569,6 +1667,7 @@ impl Default for ObjectArchiveOutbox {
 		Self {
 			batch_size: 1024,
 			partition_total: 1,
+			wakeup_interval: Duration::from_mins(1),
 		}
 	}
 }
@@ -1579,6 +1678,7 @@ impl Default for ObjectIndexOutbox {
 			batch_size: 1024,
 			fragment_size: 1024,
 			partition_total: 1,
+			wakeup_interval: Duration::from_mins(1),
 		}
 	}
 }
@@ -2053,6 +2153,14 @@ fn authorization_initial_default() -> AuthorizationSearches {
 		descendant,
 		subtree,
 	}
+}
+
+#[expect(
+	clippy::cast_precision_loss,
+	reason = "the ratio does not require integer precision"
+)]
+fn capacity_ratio(value: u64, total: u64) -> f64 {
+	value as f64 / total as f64
 }
 
 fn database_retry_default() -> Retry {

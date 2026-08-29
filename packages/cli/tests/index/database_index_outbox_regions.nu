@@ -11,8 +11,11 @@ let regions = [
 	{ name: 'west' },
 ]
 let common = {
-	database: { kind: 'sqlite', path: $database_path },
-	indexer: { database_index_outbox_wakeup_interval: 0.01 },
+	database: {
+		kind: 'sqlite',
+		index_outbox: { wakeup_interval: 0.01 },
+		path: $database_path,
+	},
 }
 let instance = instance --primary-region east --regions $regions --config $common
 let producer = { roles: [http runner scheduler] }

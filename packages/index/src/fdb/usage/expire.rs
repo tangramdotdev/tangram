@@ -1,101 +1,108 @@
 use {
-	crate::lmdb::{Db, Index, Key, Kind, Request, Response},
-	foundationdb_tuple as fdbt, heed as lmdb,
+	crate::fdb::{Index, Key, Kind, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeMap,
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn clean_usage(
+	pub async fn expire_usage(
 		&self,
-		arg: crate::usage::clean::Arg,
-	) -> tg::Result<crate::usage::clean::Output> {
-		let response = self.send_write_request(Request::CleanUsage(arg)).await?;
-		let Response::CleanUsageOutput(output) = response else {
+		arg: crate::usage::expire::Arg,
+	) -> tg::Result<crate::usage::expire::Output> {
+		let response = self.send_write_request(Request::ExpireUsage(arg)).await?;
+		let Response::ExpireUsageOutput(output) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
 
 		Ok(output)
 	}
 
-	pub(crate) fn clean_usage_with_transaction(
-		db: &Db,
+	pub(crate) async fn expire_usage_with_transaction(
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &crate::usage::clean::Arg,
+		arg: &crate::usage::expire::Arg,
 		partition_total: u64,
-	) -> tg::Result<crate::usage::clean::Output> {
+	) -> tg::Result<ControlFlow<crate::usage::expire::Output, fdb::FdbError>> {
 		if arg.partition_start > arg.partition_end || arg.partition_end > partition_total {
-			return Err(tg::error!("the usage cleaning partition range is invalid"));
+			return Err(tg::error!(
+				"the usage expiration partition range is invalid"
+			));
 		}
 		let mut keys = Vec::new();
 		let mut pending = false;
 		let mut unavailable = BTreeMap::new();
-		Self::find_usage_delta_candidates(db, subspace, transaction, arg, &mut keys, &mut pending)?;
+		crate::fdb::propagate!(
+			Self::find_usage_delta_candidates(txn, subspace, arg, &mut keys, &mut pending).await
+		);
 		if keys.len() < arg.batch_size {
-			Self::find_usage_aggregate_candidates(
-				db,
-				subspace,
-				transaction,
-				arg,
-				&mut keys,
-				&mut pending,
-				&mut unavailable,
-			)?;
+			crate::fdb::propagate!(
+				Self::find_usage_aggregate_candidates(
+					txn,
+					subspace,
+					arg,
+					&mut keys,
+					&mut pending,
+					&mut unavailable,
+				)
+				.await
+			);
 		}
 		for ((account, kind, partition), through) in unavailable {
 			Self::mark_usage_unavailable_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&account,
-				kind,
-				partition,
-				through,
-			)?;
+				txn, subspace, &account, kind, partition, through,
+			);
 		}
 		for key in &keys {
-			db.delete(transaction, key)
-				.map_err(|error| tg::error!(!error, "failed to delete usage data"))?;
+			txn.clear(key);
 		}
-		let output = crate::usage::clean::Output {
+		let output = crate::usage::expire::Output {
 			deleted: keys.len(),
 			done: keys.is_empty() && !pending,
 		};
 
-		Ok(output)
+		Ok(ControlFlow::Break(output))
 	}
 
-	fn find_usage_delta_candidates(
-		db: &Db,
+	async fn find_usage_delta_candidates(
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
-		arg: &crate::usage::clean::Arg,
+		arg: &crate::usage::expire::Arg,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let cutoff = arg
 			.now
 			.checked_sub(arg.delta_time_to_live)
 			.unwrap_or(jiff::Timestamp::MIN);
 		for partition in arg.partition_start..arg.partition_end {
-			let prefix = Self::pack(subspace, &(Kind::UsageDelta.to_i32().unwrap(), partition));
-			let entries = db
-				.prefix_iter(transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to iterate the usage deltas"))?;
-			for entry in entries {
-				if keys.len() == arg.batch_size {
-					return Ok(());
-				}
-				let (key, _) =
-					entry.map_err(|error| tg::error!(!error, "failed to read a usage delta"))?;
-				let Key::Usage(crate::lmdb::usage::Key::Delta {
+			let start = Self::pack(subspace, &(Kind::UsageDelta.to_i32().unwrap(), partition));
+			let end = Self::pack(
+				subspace,
+				&(
+					Kind::UsageDelta.to_i32().unwrap(),
+					partition,
+					cutoff.as_second(),
+				),
+			);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::Iterator,
+				..fdb::RangeOption::from((start.as_slice(), end.as_slice()))
+			};
+			let mut entries = txn.get_ranges_keyvalues(range, false);
+			while keys.len() < arg.batch_size {
+				let result = entries.try_next().await;
+				let Some(entry) = crate::fdb::retry!(result) else {
+					break;
+				};
+				let Key::Usage(crate::fdb::usage::Key::Delta {
 					account,
 					hour,
 					partition,
 					..
-				}) = Self::unpack(subspace, key)?
+				}) = Self::unpack(subspace, entry.key())?
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -106,35 +113,35 @@ impl Index {
 				if period.end() > cutoff {
 					break;
 				}
-				let aggregating = Self::contains_usage_aggregation_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&account,
-					hour,
-					partition,
-				)?;
+				let aggregating = crate::fdb::propagate!(
+					Self::contains_usage_aggregation_with_transaction(
+						txn, subspace, &account, hour, partition,
+					)
+					.await
+				);
 				if aggregating {
 					let current_hour = arg.now.as_second().div_euclid(60 * 60) * 60 * 60;
 					*pending |= hour < current_hour;
 				} else {
-					keys.push(key.to_vec());
+					keys.push(entry.key().to_vec());
 				}
+			}
+			if keys.len() == arg.batch_size {
+				break;
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 
-	fn find_usage_aggregate_candidates(
-		db: &Db,
+	async fn find_usage_aggregate_candidates(
+		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
-		arg: &crate::usage::clean::Arg,
+		arg: &crate::usage::expire::Arg,
 		keys: &mut Vec<Vec<u8>>,
 		pending: &mut bool,
 		unavailable: &mut BTreeMap<(crate::usage::Account, crate::usage::PeriodKind, u64), i64>,
-	) -> tg::Result<()> {
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for partition in arg.partition_start..arg.partition_end {
 			for kind in [
 				crate::usage::PeriodKind::Hour,
@@ -152,7 +159,7 @@ impl Index {
 					.now
 					.checked_sub(time_to_live)
 					.unwrap_or(jiff::Timestamp::MIN);
-				let prefix = Self::pack(
+				let start = Self::pack(
 					subspace,
 					&(
 						Kind::UsageAggregate.to_i32().unwrap(),
@@ -160,20 +167,30 @@ impl Index {
 						i32::from(kind as u8),
 					),
 				);
-				let entries = db
-					.prefix_iter(transaction, &prefix)
-					.map_err(|error| tg::error!(!error, "failed to iterate usage aggregates"))?;
-				for entry in entries {
-					if keys.len() == arg.batch_size {
-						return Ok(());
-					}
-					let (key, _) = entry
-						.map_err(|error| tg::error!(!error, "failed to read a usage aggregate"))?;
-					let Key::Usage(crate::lmdb::usage::Key::Aggregate {
+				let end = Self::pack(
+					subspace,
+					&(
+						Kind::UsageAggregate.to_i32().unwrap(),
+						partition,
+						i32::from(kind as u8),
+						cutoff.as_second(),
+					),
+				);
+				let range = fdb::RangeOption {
+					mode: fdb::options::StreamingMode::Iterator,
+					..fdb::RangeOption::from((start.as_slice(), end.as_slice()))
+				};
+				let mut entries = txn.get_ranges_keyvalues(range, false);
+				while keys.len() < arg.batch_size {
+					let result = entries.try_next().await;
+					let Some(entry) = crate::fdb::retry!(result) else {
+						break;
+					};
+					let Key::Usage(crate::fdb::usage::Key::Aggregate {
 						account,
 						partition,
 						period,
-					}) = Self::unpack(subspace, key)?
+					}) = Self::unpack(subspace, entry.key())?
 					else {
 						return Err(tg::error!("unexpected key type"));
 					};
@@ -193,22 +210,22 @@ impl Index {
 								period.start(),
 							);
 							let closing_hour = crate::usage::closing_hour(day)?;
-							let next = Self::contains_usage_aggregation_with_transaction(
-								db,
-								subspace,
-								transaction,
-								&account,
-								next_hour,
-								partition,
-							)?;
-							let closing = Self::contains_usage_aggregation_with_transaction(
-								db,
-								subspace,
-								transaction,
-								&account,
-								closing_hour,
-								partition,
-							)?;
+							let next = crate::fdb::propagate!(
+								Self::contains_usage_aggregation_with_transaction(
+									txn, subspace, &account, next_hour, partition,
+								)
+								.await
+							);
+							let closing = crate::fdb::propagate!(
+								Self::contains_usage_aggregation_with_transaction(
+									txn,
+									subspace,
+									&account,
+									closing_hour,
+									partition,
+								)
+								.await
+							);
 							let dependency = next || closing;
 							let eligible = (next && next_hour < current_hour)
 								|| (closing && closing_hour < current_hour);
@@ -223,14 +240,16 @@ impl Index {
 							] {
 								let parent = crate::usage::Period::containing(kind, period.start());
 								let closing_hour = crate::usage::closing_hour(parent)?;
-								let contains = Self::contains_usage_aggregation_with_transaction(
-									db,
-									subspace,
-									transaction,
-									&account,
-									closing_hour,
-									partition,
-								)?;
+								let contains = crate::fdb::propagate!(
+									Self::contains_usage_aggregation_with_transaction(
+										txn,
+										subspace,
+										&account,
+										closing_hour,
+										partition,
+									)
+									.await
+								);
 								dependency |= contains;
 								eligible |= contains && closing_hour < current_hour;
 							}
@@ -248,12 +267,15 @@ impl Index {
 							.entry((account, period.kind(), partition))
 							.and_modify(|value| *value = (*value).max(through))
 							.or_insert(through);
-						keys.push(key.to_vec());
+						keys.push(entry.key().to_vec());
 					}
+				}
+				if keys.len() == arg.batch_size {
+					return Ok(ControlFlow::Break(()));
 				}
 			}
 		}
 
-		Ok(())
+		Ok(ControlFlow::Break(()))
 	}
 }

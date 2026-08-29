@@ -5,7 +5,7 @@ use ../../test.nu *
 # Configure the indexer with a low maximum depth.
 let server = server spawn --config {
 	indexer: {
-		max_process_depth: 2
+		updates: { max_process_depth: 2 }
 	},
 	roles: [http indexer runner scheduler],
 }

@@ -4,11 +4,11 @@ use ../../test.nu *
 
 let server = server spawn --config {
 	indexer: {
-		cleaner: {
+		cleaning: {
 			capacity: {
-				kind: limit
-				maximum_used: 1
-				target_used: 0
+				kind: bytes
+				start_above: 1
+				stop_at: 0
 			}
 			poll_interval: 0.1
 		}

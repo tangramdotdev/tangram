@@ -56,15 +56,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn clean_usage(
+	async fn expire_usage(
 		&self,
-		arg: index::usage::clean::Arg,
-	) -> tg::Result<index::usage::clean::Output> {
+		arg: index::usage::expire::Arg,
+	) -> tg::Result<index::usage::expire::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.clean_usage(arg).await,
+			Self::Fdb(index) => index.expire_usage(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.clean_usage(arg).await,
+			Self::Lmdb(index) => index.expire_usage(arg).await,
 		}
 	}
 

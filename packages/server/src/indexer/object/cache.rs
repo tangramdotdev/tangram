@@ -6,32 +6,33 @@ use {
 	tangram_store::Store as _,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Mode {
+	Delete,
+	Put,
+}
+
 impl Indexer {
 	pub(in crate::indexer) async fn object_cache_task(
 		&self,
-		config: &crate::config::Indexer,
+		partitions: &crate::config::IndexerPartitions,
 		cache: Option<&crate::config::ObjectCache>,
 	) -> tg::Result<()> {
 		let Some(cache) = cache else {
 			return future::pending().await;
 		};
-		let mut deleting = false;
+		let mut mode = Mode::Put;
 		let mut last_capacity = None;
-		let mut partition = config.partition_start;
+		let mut partition = partitions.start;
 		loop {
 			match self.server.store.try_get_capacity().await {
 				Ok(Some(capacity)) => {
 					last_capacity = Some(Instant::now());
-					let available = capacity.available_ratio();
-					if deleting {
-						deleting = available < cache.target_available;
-					} else {
-						deleting = available < cache.minimum_available;
-					}
+					mode = mode.next(&cache.capacity, capacity);
 					self.server
 						.object_cache_puts_enabled
-						.store(!deleting, Ordering::Release);
-					if deleting {
+						.store(mode == Mode::Put, Ordering::Release);
+					if mode == Mode::Delete {
 						let result = self.object_cache_partition_batch(cache, partition).await;
 						if let Err(error) = result {
 							tracing::error!(
@@ -41,8 +42,8 @@ impl Indexer {
 							);
 						}
 						partition += 1;
-						if partition == config.partition_end {
-							partition = config.partition_start;
+						if partition == partitions.end {
+							partition = partitions.start;
 						}
 					}
 				},
@@ -91,5 +92,19 @@ impl Indexer {
 		.await?;
 
 		Ok(())
+	}
+}
+
+impl Mode {
+	fn next(
+		self,
+		config: &crate::config::CapacityThreshold,
+		capacity: tangram_store::capacity::Capacity,
+	) -> Self {
+		match self {
+			Self::Delete if !config.should_stop(capacity.available, capacity.total) => Self::Delete,
+			Self::Put if config.should_start(capacity.available, capacity.total) => Self::Delete,
+			Self::Delete | Self::Put => Self::Put,
+		}
 	}
 }

@@ -12,18 +12,16 @@ use {
 impl Indexer {
 	pub(in crate::indexer) async fn object_index_outbox_task(
 		&self,
-		config: &crate::config::Indexer,
+		partitions: &crate::config::IndexerPartitions,
 		outbox: Option<&crate::config::ObjectIndexOutbox>,
 	) -> tg::Result<()> {
 		let Some(outbox) = outbox else {
 			return future::pending().await;
 		};
-		let wakeup_interval = config.object_index_outbox_wakeup_interval;
-		future::try_join_all(
-			(config.partition_start..config.partition_end).map(|partition| {
-				self.object_index_outbox_partition_task(outbox, partition, wakeup_interval)
-			}),
-		)
+		let wakeup_interval = outbox.wakeup_interval;
+		future::try_join_all((partitions.start..partitions.end).map(|partition| {
+			self.object_index_outbox_partition_task(outbox, partition, wakeup_interval)
+		}))
 		.await?;
 
 		Ok(())

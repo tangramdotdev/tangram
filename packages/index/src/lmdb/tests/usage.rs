@@ -182,7 +182,7 @@ async fn usage_unavailability_is_scoped_by_account_and_partition() {
 	let retained = std::time::Duration::from_hours(365 * 24);
 	let now = jiff::Timestamp::new(2 * 60 * 60, 0).unwrap();
 	index
-		.clean_usage(crate::usage::clean::Arg {
+		.expire_usage(crate::usage::expire::Arg {
 			batch_size: 1_000,
 			day_time_to_live: retained,
 			delta_time_to_live: retained,
@@ -437,7 +437,7 @@ async fn aggregates_parent_periods_without_boundary_usage() {
 }
 
 #[tokio::test]
-async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
+async fn expire_usage_preserves_aggregates_before_deleting_deltas() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::ObjectCount, 1);
@@ -446,7 +446,7 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 	let expected = index.get_usage(&account, period, now).await.unwrap();
 	aggregate(&index, now).await;
 	let retained = std::time::Duration::new(365 * 86_400, 0);
-	let arg = crate::usage::clean::Arg {
+	let arg = crate::usage::expire::Arg {
 		batch_size: 1_000,
 		day_time_to_live: retained,
 		delta_time_to_live: std::time::Duration::ZERO,
@@ -457,22 +457,22 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 		partition_start: 0,
 		week_time_to_live: retained,
 	};
-	index.clean_usage(arg.clone()).await.unwrap();
+	index.expire_usage(arg.clone()).await.unwrap();
 	let actual = index.get_usage(&account, period, now).await.unwrap();
 	assert_eq!(actual, expected);
 
-	let arg = crate::usage::clean::Arg {
+	let arg = crate::usage::expire::Arg {
 		hour_time_to_live: std::time::Duration::ZERO,
 		..arg
 	};
-	index.clean_usage(arg.clone()).await.unwrap();
+	index.expire_usage(arg.clone()).await.unwrap();
 	let actual = index.get_usage(&account, period, now).await.unwrap();
 	assert_eq!(actual, expected);
 
 	let now = jiff::Timestamp::new(24 * 60 * 60, 0).unwrap();
 	aggregate(&index, now).await;
-	let arg = crate::usage::clean::Arg { now, ..arg };
-	index.clean_usage(arg).await.unwrap();
+	let arg = crate::usage::expire::Arg { now, ..arg };
+	index.expire_usage(arg).await.unwrap();
 	let error = index.get_usage(&account, period, now).await.unwrap_err();
 	assert!(error.to_string().contains("usage is unavailable"));
 	let day = crate::usage::Period::day("1970-01-01").unwrap();
@@ -481,7 +481,7 @@ async fn clean_usage_preserves_aggregates_before_deleting_deltas() {
 }
 
 #[tokio::test]
-async fn clean_usage_preserves_a_zero_storage_checkpoint() {
+async fn expire_usage_preserves_a_zero_storage_checkpoint() {
 	let (_dir, index) = new_index();
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	add_delta(&index, &account, 1, crate::usage::DeltaKind::ObjectCount, 1);
@@ -494,7 +494,7 @@ async fn clean_usage_preserves_a_zero_storage_checkpoint() {
 	);
 	let now = jiff::Timestamp::new(4 * 60 * 60, 0).unwrap();
 	let retained = std::time::Duration::new(365 * 86_400, 0);
-	let arg = crate::usage::clean::Arg {
+	let arg = crate::usage::expire::Arg {
 		batch_size: 1_000,
 		day_time_to_live: retained,
 		delta_time_to_live: std::time::Duration::ZERO,
@@ -505,7 +505,7 @@ async fn clean_usage_preserves_a_zero_storage_checkpoint() {
 		partition_start: 0,
 		week_time_to_live: retained,
 	};
-	index.clean_usage(arg).await.unwrap();
+	index.expire_usage(arg).await.unwrap();
 
 	let usage = index
 		.get_usage(&account, hour(3 * 60 * 60), now)

@@ -5,17 +5,18 @@ use {
 	tangram_futures::task::Task,
 };
 
-mod cleaner;
+mod cleaning;
 mod compaction;
 mod database;
 mod object;
+mod partition;
 mod request;
 mod stripe;
 mod update;
 mod usage;
 
 pub(crate) use {
-	cleaner::CleanerTaskInnerArg,
+	cleaning::CleanBatchArg,
 	database::database_index_outbox_subject,
 	object::{object_archive_outbox_subject, object_index_outbox_subject},
 	request::RequestArg,
@@ -28,32 +29,24 @@ struct Indexer {
 
 impl Server {
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
-		if config.cleaner.enabled {
-			cleaner::validate(
-				&config.cleaner,
-				config.partition_start,
-				config.partition_end,
-			)?;
-		}
 		let indexer = Indexer {
 			server: self.clone(),
 		};
-		let poll_interval = config.poll_interval;
 		let usage_enabled = self.config.usage.enabled;
 
-		// Spawn the cleaner task.
-		let cleaner_task = Task::spawn({
+		// Spawn the cleaning task.
+		let cleaning_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |_| async move {
-				if !config.cleaner.enabled {
+				if !config.cleaning.enabled {
 					return future::pending().await;
 				}
 				indexer
-					.cleaner_task(
-						&config.cleaner,
-						config.partition_start,
-						config.partition_end,
+					.cleaning_task(
+						&config.cleaning,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
@@ -61,15 +54,10 @@ impl Server {
 
 		// Spawn the database index outbox task.
 		let database_index_outbox_task = Task::spawn({
-			let config = config.clone();
 			let indexer = indexer.clone();
 			let outbox = self.config.database.index_outbox().clone();
 			let region = self.config.region.clone().unwrap_or_default();
-			move |_| async move {
-				indexer
-					.database_index_outbox_task(&config, &outbox, &region)
-					.await
-			}
+			move |_| async move { indexer.database_index_outbox_task(&outbox, &region).await }
 		});
 
 		// Spawn the object archive outbox task.
@@ -82,7 +70,7 @@ impl Server {
 				.map(|_| self.config.object.archive_outbox.clone());
 			move |_| async move {
 				indexer
-					.object_archive_outbox_task(&config, outbox.as_ref())
+					.object_archive_outbox_task(&config.partitions, outbox.as_ref())
 					.await
 			}
 		});
@@ -92,7 +80,11 @@ impl Server {
 			let cache = self.config.object.cache.clone();
 			let config = config.clone();
 			let indexer = indexer.clone();
-			move |_| async move { indexer.object_cache_task(&config, cache.as_ref()).await }
+			move |_| async move {
+				indexer
+					.object_cache_task(&config.partitions, cache.as_ref())
+					.await
+			}
 		});
 
 		// Spawn the object index outbox task.
@@ -103,7 +95,7 @@ impl Server {
 			let indexer = indexer.clone();
 			move |_| async move {
 				indexer
-					.object_index_outbox_task(&config, outbox.as_ref())
+					.object_index_outbox_task(&config.partitions, outbox.as_ref())
 					.await
 			}
 		});
@@ -119,24 +111,21 @@ impl Server {
 				indexer
 					.log_compaction_task(
 						&config.log_compaction,
-						config.partition_start,
-						config.partition_end,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
 		});
 
-		// Spawn the Stripe cleaner task.
-		let stripe_cleaner_task = Task::spawn({
-			let config = config.clone();
+		// Spawn the Stripe cleanup task.
+		let stripe_cleanup_task = Task::spawn({
 			let indexer = indexer.clone();
 			move |_| async move {
-				if !config.cleaner.enabled || !indexer.server.is_primary_region() {
+				if !indexer.server.is_primary_region() {
 					return future::pending().await;
 				}
-				indexer
-					.stripe_cleaner_task(config.cleaner.poll_interval)
-					.await
+				indexer.stripe_cleanup_task().await
 			}
 		});
 
@@ -151,26 +140,26 @@ impl Server {
 				indexer
 					.usage_aggregation_task(
 						&config.usage.aggregation,
-						config.partition_start,
-						config.partition_end,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
 		});
 
-		// Spawn the usage cleaner task.
-		let usage_cleaner_task = Task::spawn({
+		// Spawn the usage expiration task.
+		let usage_expiration_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |_| async move {
-				if !config.cleaner.enabled {
+				if !config.usage.expiration.enabled {
 					return future::pending().await;
 				}
 				indexer
-					.usage_cleaner_task(
-						&config.cleaner,
-						config.partition_start,
-						config.partition_end,
+					.usage_expiration_task(
+						&config.usage.expiration,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
@@ -185,8 +174,8 @@ impl Server {
 					.update_task(
 						tangram_index::update::Kind::Grant,
 						&config.updates.grants,
-						config.partition_start,
-						config.partition_end,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
@@ -201,8 +190,8 @@ impl Server {
 					.update_task(
 						tangram_index::update::Kind::Node,
 						&config.updates.nodes,
-						config.partition_start,
-						config.partition_end,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
@@ -216,9 +205,9 @@ impl Server {
 				indexer
 					.update_task(
 						tangram_index::update::Kind::Storage,
-						&config.usage.storage,
-						config.partition_start,
-						config.partition_end,
+						&config.updates.storage,
+						config.partitions.start,
+						config.partitions.end,
 					)
 					.await
 			}
@@ -226,13 +215,14 @@ impl Server {
 
 		// Spawn the request task.
 		let request_task = Task::spawn({
+			let config = config.clone();
 			let indexer = indexer.clone();
-			move |_| async move { indexer.request_task(poll_interval).await }
+			move |_| async move { indexer.request_task(&config.request).await }
 		});
 
 		// Wait for the tasks independently.
 		future::join_all([
-			wait_for_task("cleaner", cleaner_task).boxed(),
+			wait_for_task("cleaning", cleaning_task).boxed(),
 			wait_for_task("database index outbox", database_index_outbox_task).boxed(),
 			wait_for_task("grant update", grant_update_task).boxed(),
 			wait_for_task("log compaction", log_compaction_task).boxed(),
@@ -242,9 +232,9 @@ impl Server {
 			wait_for_task("object index outbox", object_index_outbox_task).boxed(),
 			wait_for_task("request", request_task).boxed(),
 			wait_for_task("storage update", storage_update_task).boxed(),
-			wait_for_task("Stripe cleaner", stripe_cleaner_task).boxed(),
+			wait_for_task("Stripe cleanup", stripe_cleanup_task).boxed(),
 			wait_for_task("usage aggregation", usage_aggregation_task).boxed(),
-			wait_for_task("usage cleaner", usage_cleaner_task).boxed(),
+			wait_for_task("usage expiration", usage_expiration_task).boxed(),
 		])
 		.await;
 

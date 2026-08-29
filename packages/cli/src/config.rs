@@ -207,6 +207,38 @@ pub enum BoolOr<T> {
 	Value(T),
 }
 
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum CapacityThreshold {
+	Bytes(CapacityThresholdDirection<u64>),
+
+	Ratio(CapacityThresholdDirection<f64>),
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum CapacityThresholdDirection<T> {
+	Above(CapacityThresholdAbove<T>),
+
+	Below(CapacityThresholdBelow<T>),
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapacityThresholdAbove<T> {
+	pub start_above: T,
+
+	pub stop_at: T,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapacityThresholdBelow<T> {
+	pub start_below: T,
+
+	pub stop_at: T,
+}
+
 #[derive(
 	Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
@@ -534,6 +566,10 @@ pub enum Database {
 pub struct DatabaseIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -725,42 +761,16 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cleaner: Option<BoolOr<IndexerCleaner>>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub database_index_outbox_wakeup_interval: Option<Duration>,
+	pub cleaning: Option<BoolOr<IndexerCleaning>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_process_depth: Option<usize>,
+	pub partitions: Option<IndexerPartitions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_timeout: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub object_archive_outbox_wakeup_interval: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub object_index_outbox_wakeup_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_end: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_start: Option<u64>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub poll_interval: Option<Duration>,
+	pub request: Option<IndexerRequest>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub updates: Option<IndexerUpdates>,
@@ -772,12 +782,12 @@ pub struct Indexer {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerCleaner {
+pub struct IndexerCleaning {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub capacity: Option<IndexerCleanerCapacity>,
+	pub capacity: Option<CapacityThreshold>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
@@ -787,32 +797,30 @@ pub struct IndexerCleaner {
 	pub poll_interval: Option<Duration>,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum IndexerCleanerCapacity {
-	Filesystem(IndexerCleanerFilesystemCapacity),
-
-	Limit(IndexerCleanerLimitCapacity),
-}
-
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerCleanerFilesystemCapacity {
+pub struct IndexerPartitions {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub minimum_available: Option<f64>,
+	pub end: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub target_available: Option<f64>,
+	pub start: Option<u64>,
 }
 
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerCleanerLimitCapacity {
+pub struct IndexerRequest {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub maximum_used: Option<u64>,
+	pub poll_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub target_used: Option<u64>,
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -837,7 +845,7 @@ pub struct IndexerUsage {
 	pub aggregation: Option<BoolOr<IndexerUsageAggregation>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage: Option<IndexerUpdate>,
+	pub expiration: Option<BoolOr<IndexerUsageExpiration>>,
 }
 
 #[serde_as]
@@ -855,6 +863,18 @@ pub struct IndexerUsageAggregation {
 	pub poll_interval: Option<Duration>,
 }
 
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUsageExpiration {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerUpdates {
@@ -862,7 +882,13 @@ pub struct IndexerUpdates {
 	pub grants: Option<IndexerUpdate>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_process_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub nodes: Option<IndexerUpdate>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<IndexerUpdate>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -941,12 +967,12 @@ pub struct ObjectCache {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<CapacityThreshold>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metrics_stale_after: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub minimum_available: Option<f64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
@@ -954,9 +980,6 @@ pub struct ObjectCache {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub target_available: Option<f64>,
 }
 
 #[serde_as]
@@ -968,6 +991,10 @@ pub struct ObjectArchiveOutbox {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -982,6 +1009,10 @@ pub struct ObjectIndexOutbox {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -2148,7 +2179,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.index = resolve_index(source);
 	}
 	if let Some(source) = source.indexer {
-		target.indexer = resolve_indexer(&source)?;
+		target.indexer = resolve_indexer(&source);
 	}
 	if let Some(instance) = source.instance {
 		target.instance = Some(instance);
@@ -2661,6 +2692,9 @@ fn resolve_database_index_outbox(source: DatabaseIndexOutbox) -> server::Databas
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
+	}
 	target
 }
 
@@ -2799,40 +2833,19 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	target
 }
-fn resolve_indexer(source: &Indexer) -> tg::Result<server::Indexer> {
+fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
-	if let Some(source) = source.cleaner {
-		target.cleaner = resolve_indexer_cleaner(source)?;
-	}
-	if let Some(value) = source.database_index_outbox_wakeup_interval {
-		target.database_index_outbox_wakeup_interval = value;
+	if let Some(source) = source.cleaning {
+		target.cleaning = resolve_indexer_cleaning(source);
 	}
 	if let Some(source) = source.log_compaction {
 		target.log_compaction = resolve_indexer_log_compaction(source);
 	}
-	if let Some(source) = source.message_retry {
-		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	if let Some(source) = source.partitions {
+		target.partitions = resolve_indexer_partitions(source);
 	}
-	if let Some(value) = source.max_process_depth {
-		target.max_process_depth = value;
-	}
-	if let Some(value) = source.message_timeout {
-		target.message_timeout = value;
-	}
-	if let Some(value) = source.object_archive_outbox_wakeup_interval {
-		target.object_archive_outbox_wakeup_interval = value;
-	}
-	if let Some(value) = source.object_index_outbox_wakeup_interval {
-		target.object_index_outbox_wakeup_interval = value;
-	}
-	if let Some(value) = source.partition_end {
-		target.partition_end = value;
-	}
-	if let Some(value) = source.partition_start {
-		target.partition_start = value;
-	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
+	if let Some(source) = source.request {
+		target.request = resolve_indexer_request(source);
 	}
 	if let Some(source) = source.updates {
 		target.updates = resolve_indexer_updates(source);
@@ -2841,11 +2854,11 @@ fn resolve_indexer(source: &Indexer) -> tg::Result<server::Indexer> {
 		target.usage = resolve_indexer_usage(source);
 	}
 
-	Ok(target)
+	target
 }
 
-fn resolve_indexer_cleaner(source: BoolOr<IndexerCleaner>) -> tg::Result<server::IndexerCleaner> {
-	let mut target = server::IndexerCleaner::default();
+fn resolve_indexer_cleaning(source: BoolOr<IndexerCleaning>) -> server::IndexerCleaning {
+	let mut target = server::IndexerCleaning::default();
 	let (enabled, source) = match source {
 		BoolOr::Bool(enabled) => (enabled, None),
 		BoolOr::Value(source) => (true, Some(source)),
@@ -2856,7 +2869,7 @@ fn resolve_indexer_cleaner(source: BoolOr<IndexerCleaner>) -> tg::Result<server:
 			target.batch_size = value;
 		}
 		if let Some(source) = source.capacity {
-			target.capacity = Some(resolve_indexer_cleaner_capacity(source)?);
+			target.capacity = Some(resolve_capacity_threshold(source));
 		}
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
@@ -2866,36 +2879,64 @@ fn resolve_indexer_cleaner(source: BoolOr<IndexerCleaner>) -> tg::Result<server:
 		}
 	}
 
-	Ok(target)
+	target
 }
 
-fn resolve_indexer_cleaner_capacity(
-	source: IndexerCleanerCapacity,
-) -> tg::Result<server::IndexerCleanerCapacity> {
-	let target = match source {
-		IndexerCleanerCapacity::Filesystem(source) => {
-			let mut target = server::IndexerCleanerFilesystemCapacity::default();
-			if let Some(value) = source.minimum_available {
-				target.minimum_available = value;
-			}
-			if let Some(value) = source.target_available {
-				target.target_available = value;
-			}
-			server::IndexerCleanerCapacity::Filesystem(target)
-		},
-		IndexerCleanerCapacity::Limit(source) => {
-			let maximum_used =
-				required(source.maximum_used, "indexer.cleaner.capacity.maximum_used")?;
-			let target_used = required(source.target_used, "indexer.cleaner.capacity.target_used")?;
-			let target = server::IndexerCleanerLimitCapacity {
-				maximum_used,
-				target_used,
-			};
-			server::IndexerCleanerCapacity::Limit(target)
-		},
-	};
+fn resolve_indexer_partitions(source: IndexerPartitions) -> server::IndexerPartitions {
+	let mut target = server::IndexerPartitions::default();
+	if let Some(value) = source.end {
+		target.end = value;
+	}
+	if let Some(value) = source.start {
+		target.start = value;
+	}
+	target
+}
 
-	Ok(target)
+fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
+	let mut target = server::IndexerRequest::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.timeout {
+		target.timeout = value;
+	}
+	target
+}
+
+fn resolve_capacity_threshold(source: CapacityThreshold) -> server::CapacityThreshold {
+	match source {
+		CapacityThreshold::Bytes(source) => {
+			server::CapacityThreshold::Bytes(resolve_capacity_threshold_direction(source))
+		},
+		CapacityThreshold::Ratio(source) => {
+			server::CapacityThreshold::Ratio(resolve_capacity_threshold_direction(source))
+		},
+	}
+}
+
+fn resolve_capacity_threshold_direction<T>(
+	source: CapacityThresholdDirection<T>,
+) -> server::CapacityThresholdDirection<T> {
+	match source {
+		CapacityThresholdDirection::Above(source) => {
+			let threshold = server::CapacityThresholdAbove {
+				start_above: source.start_above,
+				stop_at: source.stop_at,
+			};
+			server::CapacityThresholdDirection::Above(threshold)
+		},
+		CapacityThresholdDirection::Below(source) => {
+			let threshold = server::CapacityThresholdBelow {
+				start_below: source.start_below,
+				stop_at: source.stop_at,
+			};
+			server::CapacityThresholdDirection::Below(threshold)
+		},
+	}
 }
 
 fn resolve_indexer_log_compaction(
@@ -2926,8 +2967,14 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	if let Some(source) = source.grants {
 		target.grants = resolve_indexer_update(source);
 	}
+	if let Some(value) = source.max_process_depth {
+		target.max_process_depth = value;
+	}
 	if let Some(source) = source.nodes {
 		target.nodes = resolve_indexer_update(source);
+	}
+	if let Some(source) = source.storage {
+		target.storage = resolve_indexer_update(source);
 	}
 	target
 }
@@ -2937,8 +2984,8 @@ fn resolve_indexer_usage(source: IndexerUsage) -> server::IndexerUsage {
 	if let Some(source) = source.aggregation {
 		target.aggregation = resolve_indexer_usage_aggregation(source);
 	}
-	if let Some(source) = source.storage {
-		target.storage = resolve_indexer_update(source);
+	if let Some(source) = source.expiration {
+		target.expiration = resolve_indexer_usage_expiration(source);
 	}
 	target
 }
@@ -2958,6 +3005,26 @@ fn resolve_indexer_usage_aggregation(
 		}
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
+	}
+	target
+}
+
+fn resolve_indexer_usage_expiration(
+	source: BoolOr<IndexerUsageExpiration>,
+) -> server::IndexerUsageExpiration {
+	let mut target = server::IndexerUsageExpiration::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
 		}
 		if let Some(value) = source.poll_interval {
 			target.poll_interval = value;
@@ -3040,20 +3107,17 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
+	if let Some(source) = source.capacity {
+		target.capacity = resolve_capacity_threshold(source);
+	}
 	if let Some(value) = source.metrics_stale_after {
 		target.metrics_stale_after = value;
-	}
-	if let Some(value) = source.minimum_available {
-		target.minimum_available = value;
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
 	}
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
-	}
-	if let Some(value) = source.target_available {
-		target.target_available = value;
 	}
 
 	target
@@ -3066,6 +3130,9 @@ fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectA
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
+	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
 	}
 	target
 }
@@ -3080,6 +3147,9 @@ fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndex
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
+	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
 	}
 	target
 }
@@ -3933,22 +4003,31 @@ mod tests {
 		let source: Object = serde_json::from_value(serde_json::json!({
 			"cache": {
 				"batch_size": 128,
+				"capacity": {
+					"kind": "ratio",
+					"start_below": 0.2,
+					"stop_at": 0.3,
+				},
 				"metrics_stale_after": 60,
-				"minimum_available": 0.2,
 				"partition_total": 16,
 				"poll_interval": 5,
-				"target_available": 0.3,
 			},
 		}))
 		.unwrap();
 		let target = resolve_object(&source);
 		let cache = target.cache.unwrap();
 		assert_eq!(cache.batch_size, 128);
+		let server::CapacityThreshold::Ratio(threshold) = cache.capacity else {
+			panic!("expected a ratio capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Below(threshold) = threshold else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert!((threshold.start_below - 0.2).abs() < f64::EPSILON);
+		assert!((threshold.stop_at - 0.3).abs() < f64::EPSILON);
 		assert_eq!(cache.metrics_stale_after, Duration::from_secs(60));
-		assert!((cache.minimum_available - 0.2).abs() < f64::EPSILON);
 		assert_eq!(cache.partition_total, 16);
 		assert_eq!(cache.poll_interval, Duration::from_secs(5));
-		assert!((cache.target_available - 0.3).abs() < f64::EPSILON);
 
 		let source: ScyllaStore = serde_json::from_value(serde_json::json!({
 			"addr": "127.0.0.1:9042",
@@ -3974,6 +4053,47 @@ mod tests {
 			"sum(kubelet_volume_stats_capacity_bytes)"
 		);
 		assert_eq!(capacity.url.to_string(), "http://127.0.0.1:9090");
+	}
+
+	#[test]
+	fn parses_capacity_threshold_variants() {
+		let source: CapacityThreshold = serde_json::from_value(serde_json::json!({
+			"kind": "ratio",
+			"start_above": 0.9,
+			"stop_at": 0.8,
+		}))
+		.unwrap();
+		let server::CapacityThreshold::Ratio(threshold) = resolve_capacity_threshold(source) else {
+			panic!("expected a ratio capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Above(threshold) = threshold else {
+			panic!("expected a start-above capacity threshold");
+		};
+		assert!((threshold.start_above - 0.9).abs() < f64::EPSILON);
+		assert!((threshold.stop_at - 0.8).abs() < f64::EPSILON);
+
+		let source: CapacityThreshold = serde_json::from_value(serde_json::json!({
+			"kind": "bytes",
+			"start_below": 100,
+			"stop_at": 200,
+		}))
+		.unwrap();
+		let server::CapacityThreshold::Bytes(threshold) = resolve_capacity_threshold(source) else {
+			panic!("expected a bytes capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Below(threshold) = threshold else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert_eq!(threshold.start_below, 100);
+		assert_eq!(threshold.stop_at, 200);
+
+		let source = serde_json::json!({
+			"kind": "ratio",
+			"start_above": 0.9,
+			"start_below": 0.1,
+			"stop_at": 0.8,
+		});
+		assert!(serde_json::from_value::<CapacityThreshold>(source).is_err());
 	}
 
 	#[test]
@@ -4251,63 +4371,99 @@ mod tests {
 	#[test]
 	fn parses_and_resolves_wakeup_intervals() {
 		let source: Config = serde_json::from_value(serde_json::json!({
-			"indexer": {
-				"database_index_outbox_wakeup_interval": 0.1,
-				"object_index_outbox_wakeup_interval": 0.2,
+			"database": {
+				"kind": "sqlite",
+				"index_outbox": { "wakeup_interval": 0.1 },
+			},
+			"object": {
+				"archive_outbox": { "wakeup_interval": 0.2 },
+				"index_outbox": { "wakeup_interval": 0.3 },
 			},
 			"process": {
-				"children_wakeup_interval": 0.3,
-				"status_wakeup_interval": 0.4,
-				"stdio_wakeup_interval": 0.5,
+				"children_wakeup_interval": 0.4,
+				"status_wakeup_interval": 0.5,
+				"stdio_wakeup_interval": 0.6,
 			},
 			"sandbox": {
-				"processes_wakeup_interval": 0.6,
-				"status_wakeup_interval": 0.7,
+				"processes_wakeup_interval": 0.7,
+				"status_wakeup_interval": 0.8,
 			},
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
 
 		assert_eq!(
-			target.indexer.database_index_outbox_wakeup_interval,
+			target.database.index_outbox().wakeup_interval,
 			Duration::from_millis(100)
 		);
 		assert_eq!(
-			target.indexer.object_index_outbox_wakeup_interval,
+			target.object.archive_outbox.wakeup_interval,
 			Duration::from_millis(200)
 		);
 		assert_eq!(
-			target.process.children_wakeup_interval,
+			target.object.index_outbox.wakeup_interval,
 			Duration::from_millis(300)
 		);
 		assert_eq!(
-			target.process.status_wakeup_interval,
+			target.process.children_wakeup_interval,
 			Duration::from_millis(400)
 		);
 		assert_eq!(
-			target.process.stdio_wakeup_interval,
+			target.process.status_wakeup_interval,
 			Duration::from_millis(500)
 		);
 		assert_eq!(
-			target.sandbox.processes_wakeup_interval,
+			target.process.stdio_wakeup_interval,
 			Duration::from_millis(600)
 		);
 		assert_eq!(
-			target.sandbox.status_wakeup_interval,
+			target.sandbox.processes_wakeup_interval,
 			Duration::from_millis(700)
+		);
+		assert_eq!(
+			target.sandbox.status_wakeup_interval,
+			Duration::from_millis(800)
 		);
 	}
 
 	#[test]
-	fn parses_and_resolves_indexer_cleaner() {
+	fn parses_and_resolves_indexer_groups() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"indexer": {
-				"cleaner": {
+				"partitions": {
+					"end": 9,
+					"start": 3,
+				},
+				"request": {
+					"poll_interval": 0.25,
+					"timeout": 2,
+				},
+				"updates": { "max_process_depth": 64 },
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+
+		assert_eq!(target.indexer.partitions.end, 9);
+		assert_eq!(target.indexer.partitions.start, 3);
+		assert_eq!(
+			target.indexer.request.poll_interval,
+			Duration::from_millis(250)
+		);
+		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
+		assert_eq!(target.indexer.updates.max_process_depth, 64);
+	}
+
+	#[test]
+	fn parses_and_resolves_indexer_cleaning() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"cleaning": {
 					"batch_size": 11,
 					"capacity": {
-						"kind": "filesystem",
-						"minimum_available": 0.15,
-						"target_available": 0.25,
+						"kind": "ratio",
+						"start_below": 0.15,
+						"stop_at": 0.25,
 					},
 					"concurrency": 2,
 					"poll_interval": 0.5,
@@ -4316,44 +4472,50 @@ mod tests {
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
-		let cleaner = target.indexer.cleaner;
+		let cleaning = target.indexer.cleaning;
 
-		assert_eq!(cleaner.batch_size, 11);
-		assert_eq!(cleaner.concurrency, 2);
-		assert!(cleaner.enabled);
-		assert_eq!(cleaner.poll_interval, Duration::from_millis(500));
-		let Some(server::IndexerCleanerCapacity::Filesystem(capacity)) = cleaner.capacity else {
-			panic!("expected filesystem capacity");
+		assert_eq!(cleaning.batch_size, 11);
+		assert_eq!(cleaning.concurrency, 2);
+		assert!(cleaning.enabled);
+		assert_eq!(cleaning.poll_interval, Duration::from_millis(500));
+		let Some(server::CapacityThreshold::Ratio(capacity)) = cleaning.capacity else {
+			panic!("expected a ratio capacity threshold");
 		};
-		assert!((capacity.minimum_available - 0.15).abs() < f64::EPSILON);
-		assert!((capacity.target_available - 0.25).abs() < f64::EPSILON);
+		let server::CapacityThresholdDirection::Below(capacity) = capacity else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert!((capacity.start_below - 0.15).abs() < f64::EPSILON);
+		assert!((capacity.stop_at - 0.25).abs() < f64::EPSILON);
 
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"indexer": {
-				"cleaner": {
+				"cleaning": {
 					"capacity": {
-						"kind": "limit",
-						"maximum_used": 1000,
-						"target_used": 900,
+						"kind": "bytes",
+						"start_above": 1000,
+						"stop_at": 900,
 					},
 				},
 			},
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
-		let Some(server::IndexerCleanerCapacity::Limit(capacity)) = target.indexer.cleaner.capacity
+		let Some(server::CapacityThreshold::Bytes(capacity)) = target.indexer.cleaning.capacity
 		else {
-			panic!("expected limit capacity");
+			panic!("expected a bytes capacity threshold");
 		};
-		assert_eq!(capacity.maximum_used, 1000);
-		assert_eq!(capacity.target_used, 900);
+		let server::CapacityThresholdDirection::Above(capacity) = capacity else {
+			panic!("expected a start-above capacity threshold");
+		};
+		assert_eq!(capacity.start_above, 1000);
+		assert_eq!(capacity.stop_at, 900);
 
 		let source: Config = serde_json::from_value(serde_json::json!({
-			"indexer": { "cleaner": false },
+			"indexer": { "cleaning": false },
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
-		assert!(!target.indexer.cleaner.enabled);
+		assert!(!target.indexer.cleaning.enabled);
 	}
 
 	#[test]
@@ -4366,7 +4528,7 @@ mod tests {
 			})),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source).unwrap();
+		let target = resolve_indexer(&source);
 
 		assert_eq!(target.log_compaction.batch_size, 11);
 		assert_eq!(target.log_compaction.concurrency, 2);
@@ -4380,7 +4542,7 @@ mod tests {
 			log_compaction: Some(BoolOr::Bool(false)),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source).unwrap();
+		let target = resolve_indexer(&source);
 		assert!(!target.log_compaction.enabled);
 	}
 
@@ -4392,28 +4554,27 @@ mod tests {
 					batch_size: Some(11),
 					concurrency: Some(2),
 				}),
+				max_process_depth: Some(55),
 				nodes: Some(IndexerUpdate {
 					batch_size: Some(22),
 					concurrency: Some(3),
 				}),
-			}),
-			usage: Some(IndexerUsage {
 				storage: Some(IndexerUpdate {
 					batch_size: Some(33),
 					concurrency: Some(4),
 				}),
-				..IndexerUsage::default()
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source).unwrap();
+		let target = resolve_indexer(&source);
 
 		assert_eq!(target.updates.grants.batch_size, 11);
 		assert_eq!(target.updates.grants.concurrency, 2);
+		assert_eq!(target.updates.max_process_depth, 55);
 		assert_eq!(target.updates.nodes.batch_size, 22);
 		assert_eq!(target.updates.nodes.concurrency, 3);
-		assert_eq!(target.usage.storage.batch_size, 33);
-		assert_eq!(target.usage.storage.concurrency, 4);
+		assert_eq!(target.updates.storage.batch_size, 33);
+		assert_eq!(target.updates.storage.concurrency, 4);
 	}
 
 	#[test]
@@ -4429,7 +4590,7 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source).unwrap();
+		let target = resolve_indexer(&source);
 
 		assert_eq!(target.usage.aggregation.batch_size, 11);
 		assert_eq!(target.usage.aggregation.concurrency, 2);
@@ -4446,8 +4607,40 @@ mod tests {
 			}),
 			..Indexer::default()
 		};
-		let target = resolve_indexer(&source).unwrap();
+		let target = resolve_indexer(&source);
 		assert!(!target.usage.aggregation.enabled);
+	}
+
+	#[test]
+	fn resolves_indexer_usage_expiration() {
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				expiration: Some(BoolOr::Value(IndexerUsageExpiration {
+					batch_size: Some(11),
+					poll_interval: Some(Duration::from_millis(250)),
+				})),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+
+		assert_eq!(target.usage.expiration.batch_size, 11);
+		assert!(target.usage.expiration.enabled);
+		assert_eq!(
+			target.usage.expiration.poll_interval,
+			Duration::from_millis(250)
+		);
+
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				expiration: Some(BoolOr::Bool(false)),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+		assert!(!target.usage.expiration.enabled);
 	}
 
 	#[test]

@@ -19,11 +19,10 @@ struct NamedCheckout {
 impl Indexer {
 	pub(in crate::indexer) async fn database_index_outbox_task(
 		&self,
-		config: &crate::config::Indexer,
 		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
 	) -> tg::Result<()> {
-		let wakeup_interval = config.database_index_outbox_wakeup_interval;
+		let wakeup_interval = outbox.wakeup_interval;
 		loop {
 			let result = self
 				.database_index_outbox_task_inner(outbox, region, wakeup_interval)

@@ -312,10 +312,25 @@ impl Server {
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
-			if indexer.database_index_outbox_wakeup_interval.is_zero() {
-				return Err(tg::error!(
-					"the indexer database index outbox wakeup interval must be greater than zero"
-				));
+			if indexer.cleaning.enabled {
+				if indexer.cleaning.batch_size == 0 {
+					return Err(tg::error!(
+						"the indexer cleaning batch size must be greater than zero"
+					));
+				}
+				if indexer.cleaning.concurrency == 0 {
+					return Err(tg::error!(
+						"the indexer cleaning concurrency must be greater than zero"
+					));
+				}
+				if indexer.cleaning.poll_interval.is_zero() {
+					return Err(tg::error!(
+						"the indexer cleaning poll interval must be greater than zero"
+					));
+				}
+				if let Some(capacity) = &indexer.cleaning.capacity {
+					validate_capacity_threshold(capacity, "indexer cleaning")?;
+				}
 			}
 			if indexer.log_compaction.enabled {
 				if indexer.log_compaction.batch_size == 0 {
@@ -337,7 +352,7 @@ impl Server {
 			for (name, update) in [
 				("grant", &indexer.updates.grants),
 				("node", &indexer.updates.nodes),
-				("storage", &indexer.usage.storage),
+				("storage", &indexer.updates.storage),
 			] {
 				if update.batch_size == 0 {
 					return Err(tg::error!(
@@ -367,50 +382,52 @@ impl Server {
 					));
 				}
 			}
-			if indexer.message_timeout.is_zero() {
+			if indexer.usage.expiration.enabled {
+				if indexer.usage.expiration.batch_size == 0 {
+					return Err(tg::error!(
+						"the indexer usage expiration batch size must be greater than zero"
+					));
+				}
+				if indexer.usage.expiration.poll_interval.is_zero() {
+					return Err(tg::error!(
+						"the indexer usage expiration poll interval must be greater than zero"
+					));
+				}
+			}
+			if indexer.request.timeout.is_zero() {
 				return Err(tg::error!(
-					"the indexer message timeout must be greater than zero"
+					"the indexer request timeout must be greater than zero"
 				));
 			}
-			if indexer.object_index_outbox_wakeup_interval.is_zero() {
-				return Err(tg::error!(
-					"the indexer object index outbox wakeup interval must be greater than zero"
-				));
-			}
-			if config.archive.is_some() && indexer.object_archive_outbox_wakeup_interval.is_zero() {
-				return Err(tg::error!(
-					"the indexer object archive outbox wakeup interval must be greater than zero"
-				));
-			}
-			if indexer.partition_end <= indexer.partition_start {
+			if indexer.partitions.end <= indexer.partitions.start {
 				return Err(tg::error!(
 					"the indexer partition end must be greater than the partition start"
 				));
 			}
 			if !config.advanced.single_process
-				&& indexer.partition_end > config.object.index_outbox.partition_total
+				&& indexer.partitions.end > config.object.index_outbox.partition_total
 			{
 				return Err(tg::error!(
 					"the indexer partition range exceeds the object index outbox partition total"
 				));
 			}
 			if config.archive.is_some()
-				&& indexer.partition_end > config.object.archive_outbox.partition_total
+				&& indexer.partitions.end > config.object.archive_outbox.partition_total
 			{
 				return Err(tg::error!(
 					"the indexer partition range exceeds the object archive outbox partition total"
 				));
 			}
 			if let Some(cache) = &config.object.cache
-				&& indexer.partition_end > cache.partition_total
+				&& indexer.partitions.end > cache.partition_total
 			{
 				return Err(tg::error!(
 					"the indexer partition range exceeds the object cache partition total"
 				));
 			}
-			if indexer.poll_interval.is_zero() {
+			if indexer.request.poll_interval.is_zero() {
 				return Err(tg::error!(
-					"the indexer poll interval must be greater than zero"
+					"the indexer request poll interval must be greater than zero"
 				));
 			}
 		}
@@ -420,6 +437,11 @@ impl Server {
 		if outbox.batch_size == 0 {
 			return Err(tg::error!(
 				"the database index outbox batch size must be greater than zero"
+			));
+		}
+		if outbox.wakeup_interval.is_zero() {
+			return Err(tg::error!(
+				"the database index outbox wakeup interval must be greater than zero"
 			));
 		}
 
@@ -435,6 +457,11 @@ impl Server {
 				"the object archive outbox partition total must be greater than zero"
 			));
 		}
+		if outbox.wakeup_interval.is_zero() {
+			return Err(tg::error!(
+				"the object archive outbox wakeup interval must be greater than zero"
+			));
+		}
 
 		// Validate the object cache configuration.
 		if let Some(cache) = &config.object.cache {
@@ -448,14 +475,7 @@ impl Server {
 					"the object cache metrics stale duration must be greater than zero"
 				));
 			}
-			if !cache.minimum_available.is_finite()
-				|| cache.minimum_available < 0.0
-				|| cache.minimum_available >= 1.0
-			{
-				return Err(tg::error!(
-					"the object cache minimum available ratio must be between zero and one"
-				));
-			}
+			validate_capacity_threshold(&cache.capacity, "object cache")?;
 			if cache.partition_total == 0 {
 				return Err(tg::error!(
 					"the object cache partition total must be greater than zero"
@@ -464,14 +484,6 @@ impl Server {
 			if cache.poll_interval.is_zero() {
 				return Err(tg::error!(
 					"the object cache poll interval must be greater than zero"
-				));
-			}
-			if !cache.target_available.is_finite()
-				|| cache.target_available <= cache.minimum_available
-				|| cache.target_available > 1.0
-			{
-				return Err(tg::error!(
-					"the object cache target available ratio must exceed the minimum and be at most one"
 				));
 			}
 			match &config.store {
@@ -518,6 +530,11 @@ impl Server {
 		if outbox.partition_total == 0 {
 			return Err(tg::error!(
 				"the object index outbox partition total must be greater than zero"
+			));
+		}
+		if outbox.wakeup_interval.is_zero() {
+			return Err(tg::error!(
+				"the object index outbox wakeup interval must be greater than zero"
 			));
 		}
 
@@ -782,7 +799,9 @@ impl Server {
 						max_process_depth: config
 							.roles
 							.contains(&self::config::Role::Indexer)
-							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
+							.then(|| {
+								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
+							}),
 						partition_total: options.partition_total,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
@@ -810,7 +829,9 @@ impl Server {
 						max_process_depth: config
 							.roles
 							.contains(&self::config::Role::Indexer)
-							.then(|| u64::try_from(config.indexer.max_process_depth).unwrap()),
+							.then(|| {
+								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
+							}),
 						path,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
@@ -1831,4 +1852,65 @@ async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Token
 	};
 
 	Ok(tokens)
+}
+
+fn validate_capacity_threshold(
+	config: &self::config::CapacityThreshold,
+	name: &str,
+) -> tg::Result<()> {
+	match config {
+		self::config::CapacityThreshold::Bytes(config) => {
+			validate_capacity_threshold_direction(config, name)?;
+		},
+		self::config::CapacityThreshold::Ratio(config) => {
+			let values = match config {
+				self::config::CapacityThresholdDirection::Above(config) => {
+					[config.start_above, config.stop_at]
+				},
+				self::config::CapacityThresholdDirection::Below(config) => {
+					[config.start_below, config.stop_at]
+				},
+			};
+			if values
+				.into_iter()
+				.any(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+			{
+				return Err(tg::error!(
+					"the {name} capacity ratios must be finite and between zero and one"
+				));
+			}
+			validate_capacity_threshold_direction(config, name)?;
+		},
+	}
+
+	Ok(())
+}
+
+fn validate_capacity_threshold_direction<T>(
+	config: &self::config::CapacityThresholdDirection<T>,
+	name: &str,
+) -> tg::Result<()>
+where
+	T: PartialOrd,
+{
+	match config {
+		self::config::CapacityThresholdDirection::Above(config)
+			if config.stop_at >= config.start_above =>
+		{
+			return Err(tg::error!(
+				"the {name} capacity stop threshold must be less than the start-above threshold"
+			));
+		},
+		self::config::CapacityThresholdDirection::Below(config)
+			if config.stop_at <= config.start_below =>
+		{
+			return Err(tg::error!(
+				"the {name} capacity stop threshold must be greater than the start-below threshold"
+			));
+		},
+		self::config::CapacityThresholdDirection::Above(_)
+		| self::config::CapacityThresholdDirection::Below(_) => {},
+	}
+
+	Ok(())
 }

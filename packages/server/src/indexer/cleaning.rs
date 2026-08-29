@@ -1,5 +1,5 @@
 use {
-	super::Indexer,
+	super::{Indexer, partition},
 	crate::{Server, temp::Temp},
 	futures::future,
 	num::ToPrimitive as _,
@@ -24,7 +24,7 @@ enum CleanMode {
 	Ttl,
 }
 
-pub(crate) struct CleanerTaskInnerArg {
+pub(crate) struct CleanBatchArg {
 	pub batch_size: usize,
 	pub now: i64,
 	pub object_time_to_live: Duration,
@@ -35,30 +35,28 @@ pub(crate) struct CleanerTaskInnerArg {
 }
 
 impl Indexer {
-	pub(super) async fn cleaner_task(
+	pub(super) async fn cleaning_task(
 		&self,
-		config: &crate::config::IndexerCleaner,
+		config: &crate::config::IndexerCleaning,
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<()> {
-		let partition_length = partition_end - partition_start;
-		let concurrency = config.concurrency.to_u64().unwrap();
 		let mut mode = CleanMode::default();
 		loop {
 			if let Some(config) = &config.capacity {
-				match self.server.cleaner_capacity() {
+				match self.server.cleaning_capacity() {
 					Ok(capacity) => {
 						let previous_mode = mode;
 						mode = mode.next(config, capacity);
 						if mode != previous_mode {
 							let available = capacity.available;
 							let total = capacity.total;
-							tracing::info!(available, ?mode, total, "the cleaner mode changed");
+							tracing::info!(available, ?mode, total, "the cleaning mode changed");
 						}
 					},
 					Err(error) => {
 						mode = CleanMode::Ttl;
-						tracing::error!(error = %error.trace(), "failed to get the cleaner capacity");
+						tracing::error!(error = %error.trace(), "failed to get the cleaning capacity");
 					},
 				}
 			}
@@ -74,26 +72,18 @@ impl Indexer {
 			};
 			let batch_size = config.batch_size;
 
-			let futures = (0..config.concurrency).filter_map(|task_index| {
-				let task_index = task_index.to_u64().unwrap();
-				let partitions_per_task = partition_length / concurrency;
-				let extra = partition_length % concurrency;
-				let task_start =
-					partition_start + task_index * partitions_per_task + task_index.min(extra);
-				let task_count = partitions_per_task + u64::from(task_index < extra);
-				let task_end = task_start + task_count;
-				(task_count > 0).then(|| {
-					self.server.cleaner_task_inner(CleanerTaskInnerArg {
+			let futures = partition::ranges(partition_start, partition_end, config.concurrency)
+				.map(|range| {
+					self.server.clean_batch(CleanBatchArg {
 						batch_size,
 						now,
 						object_time_to_live,
-						partition_end: task_end,
-						partition_start: task_start,
+						partition_end: range.end,
+						partition_start: range.start,
 						process_time_to_live,
 						sandbox_time_to_live,
 					})
-				})
-			});
+				});
 			let results = future::join_all(futures).await;
 			let mut done = true;
 			let mut failed = false;
@@ -102,7 +92,7 @@ impl Indexer {
 					Ok(output) => {
 						done &= output.done;
 						for process in output.processes {
-							crate::checkpoint!(self.server, "cleaner.process.delete", process = %process)
+							crate::checkpoint!(self.server, "cleaning.process.delete", process = %process)
 								.await;
 						}
 					},
@@ -120,7 +110,7 @@ impl Indexer {
 }
 
 impl Server {
-	fn cleaner_capacity(&self) -> tg::Result<Capacity> {
+	fn cleaning_capacity(&self) -> tg::Result<Capacity> {
 		let status = rustix::fs::statvfs(&self.path).map_err(
 			|error| tg::error!(!error, path = %self.path.display(), "failed to get the server filesystem capacity"),
 		)?;
@@ -131,11 +121,11 @@ impl Server {
 		Ok(capacity)
 	}
 
-	pub(crate) async fn cleaner_task_inner(
+	pub(crate) async fn clean_batch(
 		&self,
-		arg: CleanerTaskInnerArg,
+		arg: CleanBatchArg,
 	) -> tg::Result<tangram_index::clean::Output> {
-		let CleanerTaskInnerArg {
+		let CleanBatchArg {
 			batch_size,
 			now,
 			object_time_to_live,
@@ -279,65 +269,15 @@ impl Server {
 }
 
 impl CleanMode {
-	fn next(self, config: &crate::config::IndexerCleanerCapacity, capacity: Capacity) -> Self {
-		match config {
-			crate::config::IndexerCleanerCapacity::Filesystem(config) => {
-				let available = if capacity.total == 0 {
-					0.0
-				} else {
-					#[expect(
-						clippy::cast_precision_loss,
-						reason = "the ratio does not require integer precision"
-					)]
-					let available = capacity.available as f64 / capacity.total as f64;
-					available
-				};
-				match self {
-					Self::Capacity if available < config.target_available => Self::Capacity,
-					Self::Ttl if available < config.minimum_available => Self::Capacity,
-					Self::Capacity | Self::Ttl => Self::Ttl,
-				}
+	fn next(self, config: &crate::config::CapacityThreshold, capacity: Capacity) -> Self {
+		match self {
+			Self::Capacity if !config.should_stop(capacity.available, capacity.total) => {
+				Self::Capacity
 			},
-			crate::config::IndexerCleanerCapacity::Limit(config) => {
-				let used = capacity.total.saturating_sub(capacity.available);
-				match self {
-					Self::Capacity if used > config.target_used => Self::Capacity,
-					Self::Ttl if used > config.maximum_used => Self::Capacity,
-					Self::Capacity | Self::Ttl => Self::Ttl,
-				}
-			},
+			Self::Ttl if config.should_start(capacity.available, capacity.total) => Self::Capacity,
+			Self::Capacity | Self::Ttl => Self::Ttl,
 		}
 	}
-}
-
-pub(super) fn validate(
-	config: &crate::config::IndexerCleaner,
-	partition_start: u64,
-	partition_end: u64,
-) -> tg::Result<()> {
-	if config.batch_size == 0 {
-		return Err(tg::error!(
-			"the cleaner batch size must be greater than zero"
-		));
-	}
-	if config.concurrency == 0 {
-		return Err(tg::error!(
-			"the cleaner concurrency must be greater than zero"
-		));
-	}
-	if partition_end <= partition_start {
-		return Err(tg::error!(
-			"the cleaner partition end must be greater than the partition start"
-		));
-	}
-	if config.poll_interval.is_zero() {
-		return Err(tg::error!(
-			"the cleaner poll interval must be greater than zero"
-		));
-	}
-	validate_capacity(config.capacity.as_ref())?;
-
-	Ok(())
 }
 
 fn delete_checkout_path(path: &Path, temp_path: &Path) {
@@ -352,45 +292,4 @@ fn delete_checkout_path(path: &Path, temp_path: &Path) {
 			tracing::error!(?error, path = %path.display(), "failed to move a checkout path for deletion");
 		},
 	}
-}
-
-fn validate_capacity(config: Option<&crate::config::IndexerCleanerCapacity>) -> tg::Result<()> {
-	match config {
-		None => {},
-		Some(crate::config::IndexerCleanerCapacity::Filesystem(config)) => {
-			if !config.minimum_available.is_finite()
-				|| !(0.0..=1.0).contains(&config.minimum_available)
-			{
-				return Err(tg::error!(
-					"the cleaner minimum available capacity must be between zero and one"
-				));
-			}
-			if !config.target_available.is_finite()
-				|| !(0.0..=1.0).contains(&config.target_available)
-			{
-				return Err(tg::error!(
-					"the cleaner target available capacity must be between zero and one"
-				));
-			}
-			if config.target_available <= config.minimum_available {
-				return Err(tg::error!(
-					"the cleaner target available capacity must be greater than the minimum available capacity"
-				));
-			}
-		},
-		Some(crate::config::IndexerCleanerCapacity::Limit(config)) => {
-			if config.maximum_used == 0 {
-				return Err(tg::error!(
-					"the cleaner maximum used capacity must be greater than zero"
-				));
-			}
-			if config.target_used >= config.maximum_used {
-				return Err(tg::error!(
-					"the cleaner target used capacity must be less than the maximum used capacity"
-				));
-			}
-		},
-	}
-
-	Ok(())
 }

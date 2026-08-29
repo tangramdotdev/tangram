@@ -289,8 +289,8 @@ impl Index {
 				Response::AggregateUsageOutput(crate::usage::aggregate::Output::default())
 			},
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::CleanUsage(_) => {
-				Response::CleanUsageOutput(crate::usage::clean::Output::default())
+			Request::ExpireUsage(_) => {
+				Response::ExpireUsageOutput(crate::usage::expire::Output::default())
 			},
 			Request::Batch(_)
 			| Request::CompleteLogCompaction(_)
@@ -348,7 +348,7 @@ impl Index {
 					},
 				)
 			},
-			Request::CleanUsage(arg) => (vec![Item::CleanUsage], Kind::CleanUsage(arg)),
+			Request::ExpireUsage(arg) => (vec![Item::ExpireUsage], Kind::ExpireUsage(arg)),
 			Request::CompleteLogCompaction(entry) => (
 				vec![Item::CompleteLogCompaction(entry)],
 				Kind::CompleteLogCompaction,
@@ -540,12 +540,12 @@ impl Index {
 				partition_end: *partition_end,
 				partition_start: *partition_start,
 			}),
-			Kind::CleanUsage(arg) => {
+			Kind::ExpireUsage(arg) => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::CleanUsage] = items else {
+				let [Item::ExpireUsage] = items else {
 					unreachable!();
 				};
-				Request::CleanUsage(arg.clone())
+				Request::ExpireUsage(arg.clone())
 			},
 			Kind::CompleteLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
@@ -860,7 +860,7 @@ impl Index {
 				existing.processes.extend(new.processes);
 				existing.done = new.done;
 			},
-			(Response::CleanUsageOutput(existing), Response::CleanUsageOutput(new)) => {
+			(Response::ExpireUsageOutput(existing), Response::ExpireUsageOutput(new)) => {
 				*existing = new;
 			},
 			(Response::UpdateOutput(existing), Response::UpdateOutput(new)) => {
@@ -1002,7 +1002,7 @@ impl Index {
 				Request::AggregateUsage(_)
 					| Request::Batch(_)
 					| Request::Clean(_)
-					| Request::CleanUsage(_)
+					| Request::ExpireUsage(_)
 					| Request::CompleteLogCompaction(_)
 					| Request::EnqueueLogCompaction(_)
 					| Request::GetUsage { .. }
@@ -1168,12 +1168,12 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				Response::CleanOutput(output)
 			},
-			Request::CleanUsage(arg) => {
+			Request::ExpireUsage(arg) => {
 				let result =
-					Self::clean_usage_with_transaction(txn, subspace, arg, usage_partition_total)
+					Self::expire_usage_with_transaction(txn, subspace, arg, usage_partition_total)
 						.await;
 				let output = crate::fdb::propagate!(result);
-				Response::CleanUsageOutput(output)
+				Response::ExpireUsageOutput(output)
 			},
 			Request::CompleteLogCompaction(entry) => {
 				let result =

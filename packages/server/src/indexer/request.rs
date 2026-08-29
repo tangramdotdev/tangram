@@ -99,18 +99,21 @@ impl Session {
 	}
 
 	fn indexer_message_options(&self) -> crate::control::Options {
-		let config = self.server.config.indexer.clone();
+		let config = self.server.config.indexer.request.clone();
 		crate::control::Options {
-			retry: config.message_retry.into(),
-			timeout: config.message_timeout,
+			retry: config.retry.into(),
+			timeout: config.timeout,
 		}
 	}
 }
 
 impl Indexer {
-	pub(super) async fn request_task(&self, poll_interval: Duration) -> tg::Result<()> {
+	pub(super) async fn request_task(
+		&self,
+		config: &crate::config::IndexerRequest,
+	) -> tg::Result<()> {
 		loop {
-			let result = self.request_task_inner(poll_interval).await;
+			let result = self.request_task_inner(config.poll_interval).await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the indexer request task failed");
 				tokio::time::sleep(Duration::from_secs(1)).await;

@@ -102,7 +102,7 @@ impl Session {
 			sandboxes: 0,
 			tags: 0,
 		};
-		let batch_size = self.server.config.indexer.cleaner.batch_size;
+		let batch_size = self.server.config.indexer.cleaning.batch_size;
 		let now = self.server.clock.unix_timestamp()?;
 		let object_time_to_live = Duration::from_secs(0);
 		let process_time_to_live = Duration::from_secs(0);
@@ -141,7 +141,7 @@ impl Session {
 		loop {
 			let inner_output = match self
 				.server
-				.cleaner_task_inner(crate::indexer::CleanerTaskInnerArg {
+				.clean_batch(crate::indexer::CleanBatchArg {
 					batch_size,
 					now,
 					object_time_to_live,
@@ -179,7 +179,7 @@ impl Session {
 			}
 		}
 
-		// Clean the usage data.
+		// Expire the usage data.
 		let usage = self.server.config.usage;
 		let usage_partition_total = self.server.index.usage_partition_total();
 		let now = jiff::Timestamp::new(now, 0).unwrap();
@@ -187,7 +187,7 @@ impl Session {
 			let output = self
 				.server
 				.index
-				.clean_usage(tangram_index::usage::clean::Arg {
+				.expire_usage(tangram_index::usage::expire::Arg {
 					batch_size,
 					day_time_to_live: usage.day_time_to_live,
 					delta_time_to_live: usage.delta_time_to_live,

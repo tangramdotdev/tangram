@@ -12,7 +12,7 @@ pub(super) enum Request {
 	AggregateUsage(crate::usage::aggregate::Arg),
 	Batch(crate::batch::Arg),
 	Clean(Clean),
-	CleanUsage(crate::usage::clean::Arg),
+	ExpireUsage(crate::usage::expire::Arg),
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
@@ -87,7 +87,7 @@ pub(super) struct Update {
 pub(super) enum Item {
 	AggregateUsage,
 	Clean,
-	CleanUsage,
+	ExpireUsage,
 	CompleteLogCompaction(crate::log::Entry),
 	DeleteGrant(crate::grant::delete::Arg),
 	DeleteGroup(tg::group::Id),
@@ -124,7 +124,7 @@ pub(super) enum Kind {
 		max_sandbox_touched_at: i64,
 		now: i64,
 	},
-	CleanUsage(crate::usage::clean::Arg),
+	ExpireUsage(crate::usage::expire::Arg),
 	CompleteLogCompaction,
 	DeleteGrants,
 	DeleteGroupMembers,
@@ -188,7 +188,7 @@ impl Request {
 			| Self::PutProcesses(_)
 			| Self::PutSandboxes(_)
 			| Self::PutUsers(_) => Priority::Medium,
-			Self::AggregateUsage(_) | Self::Clean(_) | Self::CleanUsage(_) | Self::Update(_) => {
+			Self::AggregateUsage(_) | Self::Clean(_) | Self::ExpireUsage(_) | Self::Update(_) => {
 				Priority::Low
 			},
 			Self::DeleteGrants(_)
