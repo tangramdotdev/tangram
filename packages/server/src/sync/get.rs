@@ -12,6 +12,7 @@ use {
 	tracing::Instrument as _,
 };
 
+mod checkout;
 mod database;
 mod index;
 mod input;
@@ -64,6 +65,12 @@ impl State {
 }
 
 impl Session {
+	pub(super) fn sync_get_checkout_pointers_enabled(&self) -> bool {
+		self.server.config.sync.get.checkout_pointers
+			&& self.server.checkouts_enabled()
+			&& self.server.config.advanced.single_directory
+	}
+
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
@@ -136,6 +143,8 @@ impl Session {
 			tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
 		let (store_process_sender, store_process_receiver) =
 			tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
+		let (checkout_sender, checkout_receiver) =
+			tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
 		let (index_object_sender, index_object_receiver) =
 			tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
 		let (index_process_sender, index_process_receiver) =
@@ -144,10 +153,11 @@ impl Session {
 		let input_future = {
 			let session = self.clone();
 			let arg = self::input::SyncGetInputArg {
+				checkout_sender: checkout_sender.clone(),
 				index_object_sender,
 				index_process_sender,
 				state: state.clone(),
-				store_object_sender,
+				store_object_sender: store_object_sender.clone(),
 				store_process_sender,
 				stream,
 				verify_object_ids,
@@ -159,6 +169,7 @@ impl Session {
 		let queue_future = self
 			.sync_get_queue(
 				state.clone(),
+				checkout_sender.clone(),
 				queue_database_receiver,
 				queue_object_receiver,
 				queue_process_receiver,
@@ -166,9 +177,23 @@ impl Session {
 			)
 			.instrument(tracing::Span::current());
 
+		// Create the checkout future.
+		let checkout_future = self
+			.sync_get_checkout(
+				state.graph.clone(),
+				checkout_receiver,
+				store_object_sender.clone(),
+			)
+			.instrument(tracing::Span::current());
+
 		// Create the index future.
 		let index_future = self
-			.sync_get_index(state.clone(), index_object_receiver, index_process_receiver)
+			.sync_get_index(
+				state.clone(),
+				checkout_sender,
+				index_object_receiver,
+				index_process_receiver,
+			)
 			.instrument(tracing::Span::current());
 
 		// Create the store future.
@@ -182,6 +207,7 @@ impl Session {
 			}
 			.instrument(tracing::Span::current())
 		};
+		drop(store_object_sender);
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
@@ -214,7 +240,13 @@ impl Session {
 		});
 
 		// Await the futures.
-		futures::try_join!(index_future, input_future, queue_future, store_future)?;
+		futures::try_join!(
+			checkout_future,
+			index_future,
+			input_future,
+			queue_future,
+			store_future
+		)?;
 
 		// Index the objects, processes, and sandboxes and update the graph permissions.
 		let graph = scopeguard::ScopeGuard::into_inner(index_guard);

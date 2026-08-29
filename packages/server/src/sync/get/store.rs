@@ -16,9 +16,13 @@ use {
 };
 
 pub struct ObjectNode {
+	pub bytes: Option<Bytes>,
+	pub checkout_pointer: Option<tangram_store::object::checkout::Pointer>,
 	pub id: tg::object::Id,
-	pub bytes: Bytes,
+	pub length: Option<u64>,
 	pub metadata: Option<tg::object::Metadata>,
+	pub storage: Option<tangram_index::object::Storage>,
+	pub transferred_bytes: u64,
 }
 
 pub struct ProcessNode {
@@ -71,11 +75,16 @@ impl Session {
 			let mut batch_bytes = state
 				.node
 				.as_ref()
-				.map(|node| node.bytes.len().to_u64().unwrap())
+				.and_then(|node| node.bytes.as_ref())
+				.map(|bytes| bytes.len().to_u64().unwrap())
 				.unwrap_or_default();
 			let mut batch = state.node.take().map(|node| vec![node]).unwrap_or_default();
 			while let Some(node) = state.object_receiver.recv().await {
-				let size = node.bytes.len().to_u64().unwrap();
+				let size = node
+					.bytes
+					.as_ref()
+					.map(|bytes| bytes.len().to_u64().unwrap())
+					.unwrap_or_default();
 				if !batch.is_empty()
 					&& (batch.len() + 1 >= max_objects_per_batch
 						|| batch_bytes + size >= max_bytes_per_batch)
@@ -114,15 +123,19 @@ impl Session {
 		let mut datas = Vec::with_capacity(nodes.len());
 		let mut args = Vec::with_capacity(nodes.len());
 		for node in &nodes {
-			let data = tg::object::Data::deserialize(node.id.kind(), node.bytes.as_ref())
+			let data = node
+				.bytes
+				.as_ref()
+				.map(|bytes| tg::object::Data::deserialize(node.id.kind(), bytes.as_ref()))
+				.transpose()
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-			let length = match &data {
-				tg::object::Data::Blob(blob) => Some(blob.length()),
+			let length = node.length.or_else(|| match &data {
+				Some(tg::object::Data::Blob(blob)) => Some(blob.length()),
 				_ => None,
-			};
+			});
 			args.push(crate::store::object::put::Arg {
-				bytes: Some(node.bytes.clone()),
-				checkout_pointer: None,
+				bytes: node.bytes.clone(),
+				checkout_pointer: node.checkout_pointer.clone(),
 				id: node.id.clone(),
 				length,
 				stored_at: touched_at,
@@ -142,13 +155,13 @@ impl Session {
 		for (node, data) in nodes.iter().zip(&datas) {
 			// Get the metadata.
 			let metadata = node.metadata.clone().unwrap_or_else(|| {
-				let size = node.bytes.len().to_u64().unwrap();
+				let size = node.transferred_bytes;
 				let (node_solvable, node_solved) = match data {
-					tg::object::Data::File(file) => match file {
+					Some(tg::object::Data::File(file)) => match file {
 						tg::file::Data::Pointer(_) => (false, true),
 						tg::file::Data::Node(node) => (node.solvable(), node.solved()),
 					},
-					tg::object::Data::Graph(graph) => {
+					Some(tg::object::Data::Graph(graph)) => {
 						graph
 							.nodes
 							.iter()
@@ -174,24 +187,26 @@ impl Session {
 
 			// Update the graph.
 			let arg = UpdateObjectLocalArg {
-				data: Some(data),
+				data: data.as_ref(),
 				id: &node.id,
 				marked: Some(true),
 				metadata: Some(metadata),
 				permissions: None,
 				requested: None,
-				storage: None,
+				storage: node.storage.clone(),
 			};
 			graph.update_object_local(arg);
 		}
 		drop(graph);
 
 		// Update the progress.
-		let objects = nodes.len().to_u64().unwrap();
-		let bytes = nodes
+		let objects = nodes
 			.iter()
-			.map(|node| node.bytes.len().to_u64().unwrap())
-			.sum();
+			.filter(|node| node.transferred_bytes > 0)
+			.count()
+			.to_u64()
+			.unwrap();
+		let bytes = nodes.iter().map(|node| node.transferred_bytes).sum();
 		state.progress.increment_transferred(0, objects, bytes);
 
 		let end = state.graph.lock().unwrap().end_local();

@@ -993,7 +993,7 @@ impl Index {
 		Ok(())
 	}
 
-	fn decrement_checkout_reference_count(
+	pub(super) fn decrement_checkout_reference_count(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,

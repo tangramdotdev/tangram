@@ -8,6 +8,7 @@ use {
 };
 
 pub(super) struct SyncGetInputArg {
+	pub checkout_sender: tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 	pub index_object_sender: tokio::sync::mpsc::Sender<super::index::ObjectNode>,
 	pub index_process_sender: tokio::sync::mpsc::Sender<super::index::ProcessNode>,
 	pub state: std::sync::Arc<State>,
@@ -21,6 +22,7 @@ impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(&self, arg: SyncGetInputArg) -> tg::Result<()> {
 		let SyncGetInputArg {
+			checkout_sender,
 			index_object_sender,
 			index_process_sender,
 			state,
@@ -42,8 +44,17 @@ impl Session {
 						.await;
 
 					// Deserialize the object.
-					let data =
-						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
+					let data = if self.sync_get_checkout_pointers_enabled()
+						&& message.id.kind() == tg::object::Kind::Blob
+						&& message.bytes.first() == Some(&0)
+					{
+						let leaf = tg::blob::data::Leaf {
+							bytes: bytes::Bytes::new(),
+						};
+						tg::object::Data::Blob(tg::blob::Data::Leaf(leaf))
+					} else {
+						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?
+					};
 
 					if verify_object_ids {
 						// Validate the ID.
@@ -77,7 +88,11 @@ impl Session {
 						requested: None,
 						storage: None,
 					};
-					state.graph.lock().unwrap().update_object_local(arg);
+					{
+						let mut graph = state.graph.lock().unwrap();
+						graph.update_object_local(arg);
+						graph.update_checkout_object(&message.id, &data);
+					}
 
 					// Close the queue if necessary.
 					if state.graph.lock().unwrap().end_local() {
@@ -111,16 +126,35 @@ impl Session {
 						);
 					}
 
-					// Send to the store task.
-					let node = super::store::ObjectNode {
-						id: message.id,
-						bytes: message.bytes,
-						metadata: message.metadata,
-					};
-					store_object_sender
-						.send(node)
-						.await
-						.map_err(|_| tg::error!("failed to send the object to the store task"))?;
+					if self.sync_get_checkout_pointers_enabled()
+						&& matches!(data, tg::object::Data::Blob(_))
+					{
+						// Send the blob to the checkout task.
+						let id = message.id.unwrap_blob_ref().clone();
+						let node = super::checkout::ObjectNode {
+							bytes: Some(message.bytes),
+							id,
+							metadata: message.metadata,
+						};
+						checkout_sender.send(node).await.map_err(|_| {
+							tg::error!("failed to send the blob to the checkout task")
+						})?;
+					} else {
+						// Send the object directly to the store task.
+						let transferred_bytes = u64::try_from(message.bytes.len()).unwrap();
+						let node = super::store::ObjectNode {
+							bytes: Some(message.bytes),
+							checkout_pointer: None,
+							id: message.id,
+							length: None,
+							metadata: message.metadata,
+							storage: None,
+							transferred_bytes,
+						};
+						store_object_sender.send(node).await.map_err(|_| {
+							tg::error!("failed to send the object to the store task")
+						})?;
+					}
 				},
 
 				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Organization(message)) => {

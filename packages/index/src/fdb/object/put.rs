@@ -13,6 +13,12 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let id = &arg.id;
+		if arg.checkout.is_some() {
+			return Err(tg::error!(
+				%id,
+				"checkout pointers are not supported by the FDB index"
+			));
+		}
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 

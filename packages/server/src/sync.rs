@@ -196,7 +196,8 @@ impl Session {
 		verify_object_ids: bool,
 	) -> tg::Result<()> {
 		// Create the graph.
-		let graph = Arc::new(Mutex::new(Graph::new(&arg)));
+		let checkout_pointers = self.sync_get_checkout_pointers_enabled();
+		let graph = Arc::new(Mutex::new(Graph::new(&arg, checkout_pointers)));
 
 		// Spawn the input task to receive the input.
 		let (get_input_sender, get_input_receiver) =

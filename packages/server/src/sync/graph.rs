@@ -2,12 +2,18 @@ use {
 	indexmap::{IndexMap, IndexSet},
 	petgraph::visit::IntoNeighbors as _,
 	smallvec::SmallVec,
-	std::collections::{BTreeSet, HashMap, HashSet, VecDeque},
+	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 	tangram_util::iter::Ext as _,
 };
 
 pub struct Graph {
+	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
+	pub checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
+	pub checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
+	checkout_pointers: bool,
+	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
+	pub checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
 	pub get_end_received: bool,
 	local_pending_roots: usize,
 	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
@@ -21,6 +27,13 @@ pub struct Graph {
 	remote_pending_roots: usize,
 	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckoutFile {
+	pub dependencies: Vec<tg::Id>,
+	pub executable: bool,
+	pub id: tg::file::Id,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -174,9 +187,15 @@ pub struct UpdateProcessLocalArg<'a> {
 
 impl Graph {
 	#[must_use]
-	pub fn new(arg: &tg::sync::Arg) -> Self {
+	pub fn new(arg: &tg::sync::Arg, checkout_pointers: bool) -> Self {
 		// Create the graph.
 		let mut graph = Graph {
+			checkout_contained_blobs: HashSet::default(),
+			checkout_files: BTreeMap::new(),
+			checkout_objects: BTreeMap::new(),
+			checkout_pointers,
+			checkout_queued_objects: HashSet::default(),
+			checkouts: BTreeMap::new(),
 			get_end_received: false,
 			local_pending_roots: 0,
 			local_roots: HashSet::default(),
@@ -228,6 +247,23 @@ impl Graph {
 		}
 
 		graph
+	}
+
+	pub fn finish_checkout(&mut self) {
+		self.checkout_contained_blobs = HashSet::default();
+	}
+
+	pub fn finish_checkout_input(&mut self) -> BTreeMap<tg::blob::Id, Vec<CheckoutFile>> {
+		self.checkout_queued_objects = HashSet::default();
+		std::mem::take(&mut self.checkout_files)
+	}
+
+	pub fn queue_checkout_object(&mut self, id: &tg::object::Id) -> bool {
+		self.checkout_queued_objects.insert(id.clone())
+	}
+
+	pub fn unqueue_checkout_object(&mut self, id: &tg::object::Id) {
+		self.checkout_queued_objects.remove(id);
 	}
 
 	fn update_root_token(&mut self, id: &tg::Id, token: tg::authorization::Token) {
@@ -708,6 +744,113 @@ impl Graph {
 
 		// Update the remote End state.
 		self.update_remote_end(index);
+	}
+
+	#[must_use]
+	pub fn checkout_blob_contained(&self, id: &tg::blob::Id) -> bool {
+		self.checkout_contained_blobs.contains(id)
+	}
+
+	pub fn update_checkout_object(&mut self, id: &tg::object::Id, data: &tg::object::Data) {
+		if !self.checkout_pointers {
+			return;
+		}
+		match data {
+			tg::object::Data::Blob(tg::blob::Data::Branch(branch)) => {
+				self.checkout_contained_blobs
+					.extend(branch.children.iter().map(|child| child.blob.clone()));
+			},
+			tg::object::Data::File(tg::file::Data::Node(file)) => {
+				let Some(contents) = &file.contents else {
+					return;
+				};
+				let Ok(id) = tg::file::Id::try_from(id.clone()) else {
+					return;
+				};
+				let dependencies = Self::checkout_file_dependencies(file, None);
+				self.insert_checkout_file(contents.clone(), dependencies, id, file.executable);
+			},
+			tg::object::Data::Graph(graph) => {
+				let Ok(graph_id) = tg::graph::Id::try_from(id.clone()) else {
+					return;
+				};
+				for (index, node) in graph.nodes.iter().enumerate() {
+					let tg::graph::data::Node::File(file) = node else {
+						continue;
+					};
+					let Some(contents) = &file.contents else {
+						continue;
+					};
+					let pointer = tg::graph::data::Pointer {
+						graph: Some(graph_id.clone()),
+						index,
+						kind: tg::artifact::Kind::File,
+					};
+					let data = tg::file::Data::Pointer(pointer);
+					let Ok(bytes) = data.serialize() else {
+						continue;
+					};
+					let id = tg::file::Id::new(&bytes);
+					let dependencies = Self::checkout_file_dependencies(file, Some(&graph_id));
+					self.insert_checkout_file(contents.clone(), dependencies, id, file.executable);
+				}
+			},
+			_ => {},
+		}
+	}
+
+	fn checkout_file_dependencies(
+		file: &tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
+	) -> Vec<tg::Id> {
+		file.dependencies
+			.values()
+			.flatten()
+			.filter_map(|dependency| dependency.node.as_ref())
+			.filter_map(|edge| match edge {
+				tg::graph::data::Edge::Object(id) => {
+					tg::artifact::Id::try_from(id.clone()).ok().map(Into::into)
+				},
+				tg::graph::data::Edge::Pointer(pointer) => {
+					let mut pointer = pointer.clone();
+					if pointer.graph.is_none() {
+						pointer.graph = graph.cloned();
+					}
+					pointer.graph.as_ref()?;
+					let kind = pointer.kind;
+					let bytes = match kind {
+						tg::artifact::Kind::Directory => {
+							tg::directory::Data::Pointer(pointer).serialize().ok()?
+						},
+						tg::artifact::Kind::File => {
+							tg::file::Data::Pointer(pointer).serialize().ok()?
+						},
+						tg::artifact::Kind::Symlink => {
+							tg::symlink::Data::Pointer(pointer).serialize().ok()?
+						},
+					};
+					Some(tg::Id::from(tg::artifact::Id::new(kind, &bytes)))
+				},
+			})
+			.collect()
+	}
+
+	fn insert_checkout_file(
+		&mut self,
+		contents: tg::blob::Id,
+		dependencies: Vec<tg::Id>,
+		id: tg::file::Id,
+		executable: bool,
+	) {
+		let files = self.checkout_files.entry(contents).or_default();
+		let file = CheckoutFile {
+			dependencies,
+			executable,
+			id,
+		};
+		if !files.contains(&file) {
+			files.push(file);
+		}
 	}
 
 	pub fn update_process_local(&mut self, update: UpdateProcessLocalArg) {

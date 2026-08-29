@@ -881,8 +881,10 @@ pub struct Sync {
 	pub retry: Retry,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SyncGet {
+	pub checkout_pointers: bool,
+
 	pub database: SyncGetDatabase,
 
 	pub index: SyncGetIndex,
@@ -1598,6 +1600,18 @@ impl Default for Sync {
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
+		}
+	}
+}
+
+impl Default for SyncGet {
+	fn default() -> Self {
+		Self {
+			checkout_pointers: true,
+			database: SyncGetDatabase::default(),
+			index: SyncGetIndex::default(),
+			queue: SyncGetQueue::default(),
+			store: SyncGetStore::default(),
 		}
 	}
 }

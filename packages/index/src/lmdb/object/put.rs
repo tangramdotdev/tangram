@@ -16,19 +16,17 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 
 		let merge = !arg.complete();
-		let existing = if merge {
-			db.get(transaction, &key)
-				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-				.and_then(|bytes| crate::object::Object::deserialize(bytes).ok())
-		} else {
-			None
-		};
+		let existing = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+			.and_then(|bytes| crate::object::Object::deserialize(bytes).ok());
+		let merged = existing.as_ref().filter(|_| merge);
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
-		let touch = existing.as_ref().is_none_or(|existing| {
+		let touch = merged.is_none_or(|existing| {
 			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
 		});
-		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+		let touched_at = merged.map_or(arg.touched_at, |existing| {
 			if touch {
 				existing.touched_at.max(arg.touched_at)
 			} else {
@@ -36,34 +34,35 @@ impl Index {
 			}
 		});
 
-		let checkout = arg.checkout.clone().or_else(|| {
-			existing
-				.as_ref()
-				.and_then(|existing| existing.checkout.clone())
-		});
+		let checkout = arg
+			.checkout
+			.clone()
+			.or_else(|| merged.and_then(|existing| existing.checkout.clone()));
+		let previous_checkout = existing
+			.as_ref()
+			.and_then(|existing| existing.checkout.clone());
+		let checkout_changed = previous_checkout != checkout;
 
 		let storage = crate::object::Storage {
-			subtree: arg.storage.subtree
-				|| existing
-					.as_ref()
-					.is_some_and(|existing| existing.storage.subtree),
+			subtree: arg.storage.subtree || merged.is_some_and(|existing| existing.storage.subtree),
 		};
 
 		let mut metadata = arg.metadata.clone();
-		if let Some(ref existing) = existing {
+		if let Some(existing) = merged {
 			metadata.merge(&existing.metadata);
 		}
-		let changed = existing.as_ref().is_none_or(|existing| {
-			existing.checkout != checkout
-				|| existing.metadata != metadata
-				|| existing.storage != storage
-		});
+		let changed = !merge
+			|| existing.as_ref().is_none_or(|existing| {
+				existing.checkout != checkout
+					|| existing.metadata != metadata
+					|| existing.storage != storage
+			});
 		if !changed && !touch {
 			return Ok(());
 		}
 
 		let value = crate::object::Object {
-			checkout,
+			checkout: checkout.clone(),
 			metadata,
 			reference_count: 0,
 			storage,
@@ -91,7 +90,27 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the child object"))?;
 		}
 
-		if changed && let Some(checkout) = &arg.checkout {
+		if checkout_changed && let Some(checkout) = &previous_checkout {
+			let key = Key::Object(crate::lmdb::object::Key::ObjectCheckout {
+				object: id.clone(),
+				checkout: checkout.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the object checkout"))?;
+
+			let key = Key::Object(crate::lmdb::object::Key::CheckoutObject {
+				checkout: checkout.clone(),
+				object: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the checkout object"))?;
+
+			Self::decrement_checkout_reference_count(db, subspace, transaction, checkout)?;
+		}
+
+		if checkout_changed && let Some(checkout) = &checkout {
 			let key = Key::Object(crate::lmdb::object::Key::ObjectCheckout {
 				object: id.clone(),
 				checkout: checkout.clone(),
