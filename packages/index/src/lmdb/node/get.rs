@@ -125,35 +125,7 @@ impl Index {
 			.collect()
 	}
 
-	pub(crate) fn try_resolve_resource_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		resource: &tg::Selector<tg::Id>,
-	) -> tg::Result<Option<(tg::Id, bool)>> {
-		match resource {
-			tg::Selector::Id(id) => {
-				Self::try_resolve_id_with_transaction(db, subspace, transaction, id)
-					.map(|id| id.map(|id| (id, true)))
-			},
-			tg::Selector::Specifier(specifier) => {
-				// Resolve the deepest existing prefix of the specifier.
-				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-				prefixes.reverse();
-				for prefix in &prefixes {
-					let id =
-						Self::try_get_node_with_transaction(db, subspace, transaction, prefix)?;
-					if let Some(id) = id {
-						let exact = prefix == specifier;
-						return Ok(Some((id, exact)));
-					}
-				}
-				Ok(None)
-			},
-		}
-	}
-
-	fn try_resolve_id_with_transaction(
+	pub(crate) fn try_resolve_id_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

@@ -1,8 +1,6 @@
 use {
-	super::{AncestorSearch, AncestorTask, AuthorizationContext, Cache, Requester, SearchOutcome},
 	crate::lmdb::{Config, Index, Key, grant::Key as GrantKey, object::Key as ObjectKey},
 	heed as lmdb,
-	std::collections::{HashMap, HashSet},
 	tangram_client::prelude::*,
 };
 
@@ -123,71 +121,31 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	put_grant(&index, &mut txn, &proof, &user, subtree);
 	txn.commit().unwrap();
 
-	// Create the search.
+	// Authorize the target.
 	let permission = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
-	let root = (tg::Id::from(target.clone()), permission);
-	let mut search = AncestorSearch::new(ancestor, std::slice::from_ref(&root));
 	let principal = tg::Principal::User(user);
-	let requester = Requester::new(&principal);
 	let transaction = index.env.read_txn().unwrap();
-	let mut authorization = HashMap::new();
-	let mut cache = Cache::default();
-	let mut dependents = HashMap::new();
-	let mut derived_authorization = HashMap::new();
-	let mut derived_exhausted_roots = HashSet::new();
-	let mut exhausted_roots = HashSet::new();
-	let mut context = AuthorizationContext {
-		authorization: &mut authorization,
-		authorize,
-		cache: &mut cache,
-		db: &index.db,
-		dependents: &mut dependents,
-		derived_authorization: &mut derived_authorization,
-		derived_exhausted_roots: &mut derived_exhausted_roots,
-		exhausted_roots: &mut exhausted_roots,
-		requester: &requester,
-		subspace: &index.subspace,
+	let requested = tg::authorization::permission::Set::from_permission(permission);
+	let arg = crate::authorize::Arg {
+		required: requested,
+		requested,
+		resource: tg::Selector::Id(target.into()),
 		token: None,
-		transaction: &transaction,
 	};
+	let outcomes = Index::authorize_batch_with_transaction(
+		authorize,
+		&index.db,
+		&index.subspace,
+		&transaction,
+		std::slice::from_ref(&arg),
+		&principal,
+	)
+	.unwrap();
 
-	// Advance the search until it settles.
-	let outcome = loop {
-		let outcome =
-			Index::advance_ancestor_search_with_transaction(&mut context, &mut search).unwrap();
-		if outcome != SearchOutcome::Pending {
-			break outcome;
-		}
-	};
-
-	// Describe the frontier the search was holding when it settled.
-	let proof = tg::Id::from(proof);
-	let pending = search
-		.queues
-		.values()
-		.flat_map(|queue| queue.iter())
-		.map(|task| match task {
-			AncestorTask::Node { depth, key } => (*depth, key.0.clone()),
-			AncestorTask::ObjectParents { depth, object, .. } => {
-				(*depth, tg::Id::from(object.clone()))
-			},
-			AncestorTask::ProcessParents { depth, process, .. } => {
-				(*depth, tg::Id::from(process.clone()))
-			},
-		})
-		.collect::<Vec<_>>();
-	let nearest = pending.iter().map(|(depth, _)| *depth).min().unwrap_or(0);
-	let enqueued = pending.contains(&(1, proof.clone()));
-
-	assert_eq!(
-		outcome,
-		SearchOutcome::Authorized,
-		"the search spent {} of its {} edges and gave up holding {} queued tasks, the nearest {} hop from the target, with the proof enqueued at depth one: {enqueued}",
-		search.budget.edges,
-		ancestor.max_edges,
-		pending.len(),
-		nearest,
-	);
+	assert!(matches!(
+		outcomes[0],
+		crate::authorize::Outcome::Authorized(_)
+	));
 }

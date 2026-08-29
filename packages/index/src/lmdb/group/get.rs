@@ -52,31 +52,6 @@ impl Index {
 		Ok(Some(crate::group::Group::deserialize(bytes)?))
 	}
 
-	pub(crate) fn get_group_members_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		group: &tg::group::Id,
-	) -> tg::Result<Vec<tg::group::Member>> {
-		let group_bytes = tg::Id::from(group.clone()).to_bytes();
-		let prefix = &(Kind::GroupMember.to_i32().unwrap(), group_bytes.as_ref());
-		let prefix = Self::pack(subspace, prefix);
-		let mut members = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the group members"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|error| tg::error!(!error, "failed to read the group member entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Group(crate::lmdb::group::Key::GroupMember { member, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			members.push(member);
-		}
-		Ok(members)
-	}
-
 	pub(crate) fn get_member_groups_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

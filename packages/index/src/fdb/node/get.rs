@@ -172,37 +172,7 @@ impl Index {
 		Ok(ControlFlow::Break(specifiers))
 	}
 
-	pub(crate) async fn try_resolve_resource_with_transaction(
-		txn: &crate::fdb::Transaction,
-		subspace: &Subspace,
-		resource: &tg::Selector<tg::Id>,
-	) -> tg::Result<ControlFlow<Option<(tg::Id, bool)>, fdb::FdbError>> {
-		let output = match resource {
-			tg::Selector::Id(id) => crate::fdb::propagate!(
-				Self::try_resolve_id_with_transaction(txn, subspace, id).await
-			)
-			.map(|id| (id, true)),
-			tg::Selector::Specifier(specifier) => {
-				// Resolve the deepest existing prefix of the specifier.
-				let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-				prefixes.reverse();
-				for prefix in &prefixes {
-					let id = crate::fdb::propagate!(
-						Self::try_get_node_with_transaction(txn, subspace, prefix).await
-					);
-					if let Some(id) = id {
-						let exact = prefix == specifier;
-						return Ok(ControlFlow::Break(Some((id, exact))));
-					}
-				}
-				None
-			},
-		};
-
-		Ok(ControlFlow::Break(output))
-	}
-
-	async fn try_resolve_id_with_transaction(
+	pub(crate) async fn try_resolve_id_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Id,

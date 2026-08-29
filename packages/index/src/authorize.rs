@@ -1,6 +1,11 @@
 use tangram_client::prelude::*;
 
-const SEARCH_EXHAUSTED: &str = "authorization_search_exhausted";
+mod engine;
+pub(crate) mod facts;
+
+pub(crate) mod search;
+
+pub(crate) use engine::Batch;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
@@ -148,15 +153,6 @@ pub(crate) fn search_exhausted_error(message: &str) -> tg::Error {
 	let authorization_search_exhausted = true;
 
 	tg::error!(?authorization_search_exhausted, "{message}")
-}
-
-#[must_use]
-pub(crate) fn is_search_exhausted(error: &tg::Error) -> bool {
-	error.state().object().is_some_and(|object| {
-		object
-			.try_unwrap_error_ref()
-			.is_ok_and(|object| object.values.contains_key(SEARCH_EXHAUSTED))
-	})
 }
 
 /// Validate that the permission is coherent with the resource kind.

@@ -90,37 +90,6 @@ impl Index {
 		Ok(ControlFlow::Break((groups, organizations)))
 	}
 
-	pub(crate) async fn get_group_members_with_transaction(
-		txn: &crate::fdb::Transaction,
-		subspace: &Subspace,
-		group: &tg::group::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::group::Member>, fdb::FdbError>> {
-		let bytes = tg::Id::from(group.clone()).to_bytes();
-		let key = (Kind::GroupMember.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::fdb::retry!(result);
-
-		let members = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Group(crate::fdb::group::Key::GroupMember { member, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(member)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		Ok(ControlFlow::Break(members))
-	}
-
 	pub(crate) async fn get_member_groups_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,

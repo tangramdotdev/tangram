@@ -11,13 +11,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<
-		Vec<(
-			tg::authorization::Subject,
-			tg::authorization::Permission,
-			bool,
-		)>,
-	> {
+	) -> tg::Result<Vec<crate::grant::Fact>> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
 			Kind::ResourceGrant.to_i32().unwrap(),
@@ -42,9 +36,14 @@ impl Index {
 				return Err(tg::error!("unexpected key type"));
 			};
 			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
-			let process_implicit =
-				crate::lmdb::grant::is_process_implicit(creator.as_ref(), value.implicit, &subject);
-			grants.push((subject, permission, process_implicit));
+			let fact = crate::grant::Fact {
+				creator,
+				implicit: value.implicit.is_some(),
+				permission,
+				resource: resource.clone(),
+				subject,
+			};
+			grants.push(fact);
 		}
 		Ok(grants)
 	}

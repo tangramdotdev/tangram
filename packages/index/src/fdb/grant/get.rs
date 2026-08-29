@@ -12,16 +12,7 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
-	) -> tg::Result<
-		ControlFlow<
-			Vec<(
-				tg::authorization::Subject,
-				tg::authorization::Permission,
-				bool,
-			)>,
-			fdb::FdbError,
-		>,
-	> {
+	) -> tg::Result<ControlFlow<Vec<crate::grant::Fact>, fdb::FdbError>> {
 		let bytes = resource.to_bytes();
 		let key = (Kind::ResourceGrant.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
@@ -48,12 +39,13 @@ impl Index {
 					return Err(tg::error!("unexpected key type"));
 				};
 				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
-				let process_implicit = crate::fdb::grant::is_process_implicit(
-					creator.as_ref(),
-					value.implicit,
-					&subject,
-				);
-				Ok((subject, permission, process_implicit))
+				Ok(crate::grant::Fact {
+					creator,
+					implicit: value.implicit.is_some(),
+					permission,
+					resource: resource.clone(),
+					subject,
+				})
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 

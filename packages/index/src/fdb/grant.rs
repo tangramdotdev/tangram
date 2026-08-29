@@ -214,24 +214,12 @@ impl GrantEntry {
 
 	pub(crate) fn is_non_expiring_process_implicit(&self) -> bool {
 		self.implicit == Some(None)
-			&& is_process_implicit(self.creator.as_ref(), self.implicit, &self.subject)
+			&& crate::grant::is_process_implicit(
+				self.creator.as_ref(),
+				self.implicit.is_some(),
+				&self.subject,
+			)
 	}
-}
-
-#[allow(clippy::option_option)]
-pub(crate) fn is_process_implicit(
-	creator: Option<&tangram_client::Principal>,
-	implicit: Option<Option<i64>>,
-	subject: &tangram_client::authorization::Subject,
-) -> bool {
-	implicit.is_some()
-		&& matches!(
-			(creator, subject),
-			(
-				Some(tangram_client::Principal::Process(creator)),
-				tangram_client::authorization::Subject::Process(subject),
-			) if creator == subject
-		)
 }
 
 pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i64> {
