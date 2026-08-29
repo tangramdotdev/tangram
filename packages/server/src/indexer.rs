@@ -152,7 +152,7 @@ impl Server {
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |_| async move {
-				if !config.usage.expiration.enabled {
+				if !usage_enabled || !config.usage.expiration.enabled {
 					return future::pending().await;
 				}
 				indexer
