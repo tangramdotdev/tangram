@@ -330,8 +330,8 @@ async fn is_authorized(
 ) -> bool {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(resource),
 		token: None,
 	};
@@ -352,8 +352,8 @@ async fn authorize_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		required: node,
 		requested: node,
+		required: node,
 		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
@@ -383,8 +383,8 @@ async fn authorize_batch_chain_secs(
 		.iter()
 		.rev()
 		.map(|resource| crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(resource.clone().into()),
 			token: None,
 		})
@@ -457,8 +457,8 @@ async fn authorize_overlapping_exhausted_secs(
 	let args = leaves
 		.iter()
 		.map(|leaf| crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(leaf.clone().into()),
 			token: None,
 		})
@@ -505,8 +505,8 @@ async fn authorize_overlapping_descendant_secs(
 	let args = leaves
 		.iter()
 		.map(|leaf| crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(leaf.clone().into()),
 			token: None,
 		})
@@ -552,8 +552,8 @@ async fn authorize_overlapping_subtree_secs(
 	let args = nodes
 		.iter()
 		.map(|node| crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(node.clone().into()),
 			token: None,
 		})
@@ -623,8 +623,8 @@ async fn authorize_object_process_grants_secs(
 	};
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		required: node,
 		requested: node,
+		required: node,
 		resource: tg::Selector::Id(object.clone().into()),
 		token: None,
 	};
@@ -647,8 +647,8 @@ async fn deny_secs(
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		required: node,
 		requested: node,
+		required: node,
 		resource: tg::Selector::Id(resource.clone().into()),
 		token: None,
 	};
@@ -706,20 +706,20 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 	let permissions = tg::authorization::permission::Set::from_permission(permission);
 	let args = [
 		crate::authorize::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Specifier("alice/new".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Specifier("alice/taken".parse().unwrap()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Specifier("unclaimed/new".parse().unwrap()),
 			token: None,
 		},
@@ -1201,8 +1201,8 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 		tg::authorization::permission::process::Permission::NodeCommand,
 	);
 	let arg = crate::authorize::Arg {
-		required: permission.into(),
 		requested: permission.into(),
+		required: permission.into(),
 		resource: tg::Selector::Id(parent.clone().into()),
 		token: None,
 	};
@@ -1330,8 +1330,8 @@ async fn authorize_combines_ancestor_and_descendant_searches() {
 
 	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(nodes[DEPTH].clone().into()),
 		token: None,
 	};
@@ -1513,8 +1513,8 @@ async fn authorize_descendant_search_can_deny() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(object.into()),
 		token: None,
 	};
@@ -1568,8 +1568,8 @@ async fn authorize_initial_search_limits_can_disable_descendants() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(child.into()),
 		token: None,
 	};
@@ -1638,8 +1638,8 @@ async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(root.into()),
 		token: None,
 	};
@@ -1746,14 +1746,14 @@ async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(child.into());
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: resource.clone(),
 		token: None,
 	};
 	let authorized_arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(authorized.into()),
 		token: None,
 	};
@@ -1811,8 +1811,8 @@ async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(object.into());
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: resource.clone(),
 		token: None,
 	};
@@ -1865,8 +1865,8 @@ async fn authorize_returns_required_permissions_when_an_optional_search_exhausts
 	]);
 	let required = tg::authorization::permission::Set::from(node);
 	let arg = crate::authorize::Arg {
-		required,
 		requested: permissions,
+		required,
 		resource: tg::Selector::Id(object.into()),
 		token: None,
 	};
@@ -2030,8 +2030,8 @@ async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
 	);
 	let permissions = permission.into();
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(process.into()),
 		token: None,
 	};
@@ -2058,8 +2058,8 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = vec![
 		crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(child.clone().into()),
 			token: Some(tg::authorization::Body {
 				expires_at: i64::MAX,
@@ -2070,8 +2070,8 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 			}),
 		},
 		crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
@@ -2110,14 +2110,14 @@ async fn authorize_keeps_ancestor_or_descendant_and_derived_subtree_results_sepa
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = vec![
 		crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		},
 		crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(child.into()),
 			token: None,
 		},
@@ -2167,8 +2167,8 @@ async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
 		let args = objects
 			.into_iter()
 			.map(|object| crate::authorize::Arg {
-				required: subtree,
 				requested: subtree,
+				required: subtree,
 				resource: tg::Selector::Id(object.clone().into()),
 				token: None,
 			})
@@ -2220,8 +2220,8 @@ async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
 		let args = objects
 			.into_iter()
 			.map(|object| crate::authorize::Arg {
-				required: subtree,
 				requested: subtree,
+				required: subtree,
 				resource: tg::Selector::Id(object.clone().into()),
 				token: None,
 			})
@@ -2275,8 +2275,8 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -2333,8 +2333,8 @@ async fn authorize_visits_shared_descendants_once() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -2372,8 +2372,8 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(objects[0].clone().into()),
 			token: None,
 		}],
@@ -2410,8 +2410,8 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Id(root.into()),
 			token: None,
 		}],
@@ -2454,8 +2454,8 @@ async fn authorize_ancestor_or_descendant_cycle_with_an_authorized_escape() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: node,
 			requested: node,
+			required: node,
 			resource: tg::Selector::Id(first.into()),
 			token: None,
 		}],
@@ -2515,8 +2515,8 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 	let output = authorize(
 		&index,
 		vec![crate::authorize::Arg {
-			required: subtree,
 			requested: subtree,
+			required: subtree,
 			resource: tg::Selector::Id(object.into()),
 			token: None,
 		}],
@@ -2595,8 +2595,8 @@ async fn authorize_uses_precomputed_membership_in_the_descendant_search() {
 
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let arg = crate::authorize::Arg {
-		required: node,
 		requested: node,
+		required: node,
 		resource: tg::Selector::Id(object.into()),
 		token: None,
 	};
@@ -2678,8 +2678,8 @@ async fn authorize_ancestor_search_finishes_the_shallow_frontier_first() {
 
 	let permissions = node.into();
 	let arg = crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(target.into()),
 		token: None,
 	};
@@ -2730,8 +2730,8 @@ async fn authorize_derived_search_can_finish_after_ancestor_or_descendant_search
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let arg = crate::authorize::Arg {
-		required: subtree,
 		requested: subtree,
+		required: subtree,
 		resource: tg::Selector::Id(root.into()),
 		token: None,
 	};
@@ -2810,8 +2810,8 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 	let permissions =
 		object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = [&target, &first_far, &second_far].map(|object| crate::authorize::Arg {
-		required: permissions,
 		requested: permissions,
+		required: permissions,
 		resource: tg::Selector::Id(object.clone().into()),
 		token: None,
 	});

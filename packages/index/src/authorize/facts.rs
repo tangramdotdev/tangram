@@ -12,6 +12,9 @@ use {
 };
 
 pub(crate) type LmdbError = Infallible;
+pub(crate) type Receiver<E> = mpsc::Receiver<Message<E>>;
+type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
+type ResponseFuture<E> = futures::future::Shared<futures::future::BoxFuture<'static, Response<E>>>;
 
 #[derive(Clone, Debug)]
 pub(crate) enum Request {
@@ -120,11 +123,6 @@ pub(crate) struct Message<E> {
 	pub sender: oneshot::Sender<Result<ControlFlow<Output, E>, tg::Error>>,
 }
 
-pub(crate) type Receiver<E> = mpsc::Receiver<Message<E>>;
-
-type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
-type ResponseFuture<E> = futures::future::Shared<futures::future::BoxFuture<'static, Response<E>>>;
-
 #[derive(Clone, Eq, Hash, PartialEq)]
 enum CacheKey {
 	Group(tg::group::Id),
@@ -147,14 +145,34 @@ pub(crate) struct Client<E> {
 	sender: mpsc::Sender<Message<E>>,
 }
 
-impl<E> Clone for Client<E> {
-	fn clone(&self) -> Self {
-		Self {
-			cache: self.cache.clone(),
-			concurrency: self.concurrency,
-			sender: self.sender.clone(),
-		}
-	}
+#[must_use]
+pub(crate) fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
+	let concurrency = concurrency.max(1);
+	let (sender, receiver) = mpsc::channel(concurrency);
+	let client = Client {
+		cache: Arc::new(Mutex::new(HashMap::new())),
+		concurrency,
+		sender,
+	};
+
+	(client, receiver)
+}
+
+pub(crate) async fn serve<E, F, Fut>(receiver: Receiver<E>, concurrency: usize, handler: F)
+where
+	F: Clone + Fn(Request) -> Fut,
+	Fut: Future<Output = Response<E>>,
+{
+	let concurrency = concurrency.max(1);
+	receiver
+		.for_each_concurrent(concurrency, move |message| {
+			let handler = handler.clone();
+			async move {
+				let response = handler(message.request).await;
+				message.sender.send(response).ok();
+			}
+		})
+		.await;
 }
 
 impl Request {
@@ -345,34 +363,14 @@ where
 	}
 }
 
-#[must_use]
-pub(crate) fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
-	let concurrency = concurrency.max(1);
-	let (sender, receiver) = mpsc::channel(concurrency);
-	let client = Client {
-		cache: Arc::new(Mutex::new(HashMap::new())),
-		concurrency,
-		sender,
-	};
-
-	(client, receiver)
-}
-
-pub(crate) async fn serve<E, F, Fut>(receiver: Receiver<E>, concurrency: usize, handler: F)
-where
-	F: Clone + Fn(Request) -> Fut,
-	Fut: Future<Output = Response<E>>,
-{
-	let concurrency = concurrency.max(1);
-	receiver
-		.for_each_concurrent(concurrency, move |message| {
-			let handler = handler.clone();
-			async move {
-				let response = handler(message.request).await;
-				message.sender.send(response).ok();
-			}
-		})
-		.await;
+impl<E> Clone for Client<E> {
+	fn clone(&self) -> Self {
+		Self {
+			cache: self.cache.clone(),
+			concurrency: self.concurrency,
+			sender: self.sender.clone(),
+		}
+	}
 }
 
 #[cfg(test)]

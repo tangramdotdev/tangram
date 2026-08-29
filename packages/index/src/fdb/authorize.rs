@@ -49,10 +49,11 @@ impl Index {
 		let concurrency = concurrency.max(1);
 		let (client, receiver) = facts::channel(concurrency);
 		let authorize = Batch::authorize(args, client, config, principal);
-		let context = Arc::new(FactContext {
+		let context = FactContext {
 			subspace: subspace.clone(),
 			txn: txn.clone(),
-		});
+		};
+		let context = Arc::new(context);
 		let provide = facts::serve(receiver, concurrency, move |request| {
 			let context = context.clone();
 			async move {

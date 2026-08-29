@@ -1,8 +1,10 @@
 use {
-	super::facts,
-	super::search::{
-		AncestorOrDescendantSearch, FinalSearch, Key, Outcome, ProcessFacts, Read, ReadOutput,
-		State, SubtreeAction, SubtreeSearch,
+	super::{
+		facts,
+		search::{
+			AncestorOrDescendantSearch, FinalSearch, Key, Outcome, ProcessFacts, Read, ReadOutput,
+			State, SubtreeAction, SubtreeSearch,
+		},
 	},
 	std::{
 		collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
@@ -14,8 +16,8 @@ use {
 pub(crate) struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
-	members: VecDeque<tg::Id>,
 	member_visited: HashSet<tg::Id>,
+	members: VecDeque<tg::Id>,
 	outcomes: Option<Vec<super::Outcome>>,
 	phase: BatchPhase,
 	principal: tg::Principal,
@@ -195,8 +197,8 @@ impl Batch {
 		Ok(Self {
 			args: args.to_vec(),
 			config,
-			members,
 			member_visited: HashSet::new(),
+			members,
 			outcomes,
 			phase,
 			principal: principal.clone(),
@@ -427,418 +429,6 @@ impl Batch {
 		}
 		self.outcomes = Some(outcomes);
 		self.phase = BatchPhase::Complete;
-	}
-}
-
-async fn execute_reads<E>(
-	client: &facts::Client<E>,
-	reads: Vec<Read>,
-) -> Result<ControlFlow<Vec<(Read, ReadOutput)>, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	let results = futures::future::try_join_all(reads.into_iter().map(|read| {
-		let client = client.clone();
-		async move {
-			let output = execute_read(&client, &read).await?;
-
-			Ok::<_, tg::Error>((read, output))
-		}
-	}))
-	.await?;
-	let mut outputs = Vec::with_capacity(results.len());
-	for (read, output) in results {
-		let output = match output {
-			ControlFlow::Break(output) => output,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		outputs.push((read, output));
-	}
-
-	Ok(ControlFlow::Break(outputs))
-}
-
-async fn execute_token_search<E>(
-	client: &facts::Client<E>,
-	mut search: TokenSearch,
-) -> Result<ControlFlow<TokenSearch, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	while !search.complete() {
-		let reads = search.take_reads(client.concurrency())?;
-		let results = match execute_reads(client, reads).await? {
-			ControlFlow::Break(results) => results,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		for (read, output) in results {
-			search.apply(read, output)?;
-		}
-	}
-
-	Ok(ControlFlow::Break(search))
-}
-
-async fn execute_read<E>(
-	client: &facts::Client<E>,
-	read: &Read,
-) -> Result<ControlFlow<ReadOutput, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	macro_rules! read {
-		($request:expr) => {{
-			match client.read($request).await? {
-				ControlFlow::Break(output) => output,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-		}};
-	}
-
-	let output = match read {
-		Read::AncestorNode { key, .. } => {
-			let facts = match ancestor_node_facts(client, &key.0).await? {
-				ControlFlow::Break(facts) => facts,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			ReadOutput::AncestorNode(facts)
-		},
-		Read::Member { member } => {
-			let groups = client.read(facts::Request::MemberGroups {
-				member: member.clone(),
-			});
-			let organizations = client.read(facts::Request::MemberOrganizations {
-				member: member.clone(),
-			});
-			let (groups, organizations) = futures::try_join!(groups, organizations)?;
-			let groups = match groups {
-				ControlFlow::Break(groups) => groups.into_member_groups()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let organizations = match organizations {
-				ControlFlow::Break(organizations) => organizations.into_member_organizations()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let facts = super::search::MemberFacts {
-				groups,
-				organizations,
-			};
-
-			ReadOutput::Member(facts)
-		},
-		Read::ObjectChildren {
-			after,
-			limit,
-			object,
-			..
-		}
-		| Read::SubtreeObjectChildren {
-			after,
-			limit,
-			object,
-			..
-		} => {
-			let output = read!(facts::Request::ObjectChildren {
-				after: after.clone(),
-				limit: *limit,
-				object: object.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::ObjectParents {
-			after,
-			limit,
-			object,
-			..
-		} => {
-			let output = read!(facts::Request::ObjectParents {
-				after: after.clone(),
-				limit: *limit,
-				object: object.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::OwnerSandboxes {
-			after,
-			limit,
-			owner,
-			..
-		} => {
-			let output = read!(facts::Request::OwnerSandboxes {
-				after: after.clone(),
-				limit: *limit,
-				owner: owner.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::Process { process } => {
-			let objects = client.read(facts::Request::ProcessObjects {
-				process: process.clone(),
-			});
-			let value = client.read(facts::Request::Process {
-				process: process.clone(),
-			});
-			let (objects, value) = futures::try_join!(objects, value)?;
-			let objects = match objects {
-				ControlFlow::Break(objects) => objects.into_process_objects()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let process = match value {
-				ControlFlow::Break(process) => process.into_process()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let facts = ProcessFacts { objects, process };
-
-			ReadOutput::Process(facts)
-		},
-		Read::ProcessChildren {
-			after,
-			limit,
-			process,
-			..
-		}
-		| Read::SubtreeProcessChildren {
-			after,
-			limit,
-			process,
-			..
-		} => {
-			let output = read!(facts::Request::ProcessChildren {
-				after: after.clone(),
-				limit: *limit,
-				process: process.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::ProcessGrants {
-			after,
-			limit,
-			process,
-			..
-		} => {
-			let output = read!(facts::Request::ProcessGrants {
-				after: after.clone(),
-				limit: *limit,
-				process: process.clone(),
-			});
-			let (after, grants) = output.into_grants()?;
-
-			ReadOutput::Grants { after, grants }
-		},
-		Read::ProcessParents {
-			after,
-			limit,
-			process,
-			..
-		} => {
-			let output = read!(facts::Request::ProcessParents {
-				after: after.clone(),
-				limit: *limit,
-				process: process.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::Resolve { selector, .. } => {
-			let resource = match resolve(client, selector).await? {
-				ControlFlow::Break(resource) => resource,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-
-			ReadOutput::Resolved(resource)
-		},
-		Read::SandboxProcesses {
-			after,
-			limit,
-			sandbox,
-			..
-		} => {
-			let output = read!(facts::Request::SandboxProcesses {
-				after: after.clone(),
-				limit: *limit,
-				sandbox: sandbox.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
-		},
-		Read::SubjectGrants {
-			after,
-			limit,
-			subject,
-		} => {
-			let output = read!(facts::Request::SubjectGrants {
-				after: after.clone(),
-				limit: *limit,
-				subject: subject.clone(),
-			});
-			let (after, grants) = output.into_grants()?;
-
-			ReadOutput::Grants { after, grants }
-		},
-	};
-
-	Ok(ControlFlow::Break(output))
-}
-
-async fn ancestor_node_facts<E>(
-	client: &facts::Client<E>,
-	resource: &tg::Id,
-) -> Result<ControlFlow<super::search::AncestorNodeFacts, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	macro_rules! output {
-		($output:expr) => {{
-			match $output {
-				ControlFlow::Break(output) => output,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-		}};
-	}
-
-	let grants = client.read(facts::Request::ResourceGrants {
-		resource: resource.clone(),
-	});
-	let mut facts = super::search::AncestorNodeFacts::default();
-	if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
-		let processes = client.read(facts::Request::ObjectProcesses { object });
-		let tags = authorization_tags(client, resource);
-		let (grants, processes, tags) = futures::try_join!(grants, processes, tags)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.object_processes = output!(processes).into_object_processes()?;
-		facts.tags = output!(tags);
-	} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-		let process = client.read(facts::Request::Process { process });
-		let tags = authorization_tags(client, resource);
-		let (grants, process, tags) = futures::try_join!(grants, process, tags)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.process_sandbox = output!(process)
-			.into_process()?
-			.and_then(|process| process.sandbox);
-		facts.tags = output!(tags);
-	} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
-		let owner = client.read(facts::Request::SandboxOwner { sandbox });
-		let (grants, owner) = futures::try_join!(grants, owner)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.sandbox_owner = output!(owner).into_sandbox_owner()?;
-	} else if let Ok(tag) = tg::tag::Id::try_from(resource.clone()) {
-		let tag = client.read(facts::Request::Tag { tag });
-		let (grants, tag) = futures::try_join!(grants, tag)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.parent = output!(tag).into_tag()?.and_then(|tag| tag.parent);
-	} else if let Ok(group) = tg::group::Id::try_from(resource.clone()) {
-		let group = client.read(facts::Request::Group { group });
-		let (grants, group) = futures::try_join!(grants, group)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.parent = output!(group).into_group()?.and_then(|group| group.parent);
-	} else {
-		facts.grants = output!(grants.await?).into_grants()?.1;
-	}
-
-	Ok(ControlFlow::Break(facts))
-}
-
-async fn authorization_tags<E>(
-	client: &facts::Client<E>,
-	target: &tg::Id,
-) -> Result<ControlFlow<Vec<(tg::tag::Id, Vec<tg::authorization::Permission>)>, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	let tags = match client
-		.read(facts::Request::TargetTags {
-			target: target.clone(),
-		})
-		.await?
-	{
-		ControlFlow::Break(tags) => tags.into_tags()?,
-		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-	};
-	let results = futures::future::try_join_all(tags.into_iter().map(|tag| {
-		let client = client.clone();
-		async move {
-			let output = client
-				.read(facts::Request::Tag { tag: tag.clone() })
-				.await?;
-
-			Ok::<_, tg::Error>((tag, output))
-		}
-	}))
-	.await?;
-	let mut facts = Vec::with_capacity(results.len());
-	for (tag, output) in results {
-		let value = match output {
-			ControlFlow::Break(output) => output.into_tag()?,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		if let Some(value) = value {
-			facts.push((tag, value.permissions));
-		}
-	}
-
-	Ok(ControlFlow::Break(facts))
-}
-
-async fn resolve<E>(
-	client: &facts::Client<E>,
-	selector: &tg::Selector<tg::Id>,
-) -> Result<ControlFlow<Option<(tg::Id, bool)>, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	match selector {
-		tg::Selector::Id(id) => {
-			let output = client.read(facts::Request::Id { id: id.clone() }).await?;
-			let id = match output {
-				ControlFlow::Break(output) => output.into_id()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-
-			Ok(ControlFlow::Break(id.map(|id| (id, true))))
-		},
-		tg::Selector::Specifier(specifier) => {
-			let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
-			prefixes.reverse();
-			for prefixes in prefixes.chunks(client.concurrency()) {
-				let results =
-					futures::future::try_join_all(prefixes.iter().cloned().map(|specifier| {
-						let client = client.clone();
-						async move {
-							let output = client
-								.read(facts::Request::Specifier {
-									specifier: specifier.clone(),
-								})
-								.await?;
-
-							Ok::<_, tg::Error>((specifier, output))
-						}
-					}))
-					.await?;
-				for (prefix, output) in results {
-					let id = match output {
-						ControlFlow::Break(output) => output.into_id()?,
-						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-					};
-					if let Some(id) = id {
-						let exact = &prefix == specifier;
-
-						return Ok(ControlFlow::Break(Some((id, exact))));
-					}
-				}
-			}
-
-			Ok(ControlFlow::Break(None))
-		},
 	}
 }
 
@@ -1399,6 +989,416 @@ impl ProcessSearch {
 	}
 }
 
+async fn execute_reads<E>(
+	client: &facts::Client<E>,
+	reads: Vec<Read>,
+) -> Result<ControlFlow<Vec<(Read, ReadOutput)>, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	let results = futures::future::try_join_all(reads.into_iter().map(|read| {
+		let client = client.clone();
+		async move {
+			let output = execute_read(&client, &read).await?;
+
+			Ok::<_, tg::Error>((read, output))
+		}
+	}))
+	.await?;
+	let mut outputs = Vec::with_capacity(results.len());
+	for (read, output) in results {
+		let output = match output {
+			ControlFlow::Break(output) => output,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		outputs.push((read, output));
+	}
+
+	Ok(ControlFlow::Break(outputs))
+}
+
+async fn execute_token_search<E>(
+	client: &facts::Client<E>,
+	mut search: TokenSearch,
+) -> Result<ControlFlow<TokenSearch, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	while !search.complete() {
+		let reads = search.take_reads(client.concurrency())?;
+		let results = match execute_reads(client, reads).await? {
+			ControlFlow::Break(results) => results,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		for (read, output) in results {
+			search.apply(read, output)?;
+		}
+	}
+
+	Ok(ControlFlow::Break(search))
+}
+
+async fn execute_read<E>(
+	client: &facts::Client<E>,
+	read: &Read,
+) -> Result<ControlFlow<ReadOutput, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	macro_rules! read {
+		($request:expr) => {{
+			match client.read($request).await? {
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}};
+	}
+
+	let output = match read {
+		Read::AncestorNode { key, .. } => {
+			let facts = match ancestor_node_facts(client, &key.0).await? {
+				ControlFlow::Break(facts) => facts,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			ReadOutput::AncestorNode(facts)
+		},
+		Read::Member { member } => {
+			let groups = client.read(facts::Request::MemberGroups {
+				member: member.clone(),
+			});
+			let organizations = client.read(facts::Request::MemberOrganizations {
+				member: member.clone(),
+			});
+			let (groups, organizations) = futures::try_join!(groups, organizations)?;
+			let groups = match groups {
+				ControlFlow::Break(groups) => groups.into_member_groups()?,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let organizations = match organizations {
+				ControlFlow::Break(organizations) => organizations.into_member_organizations()?,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let facts = super::search::MemberFacts {
+				groups,
+				organizations,
+			};
+
+			ReadOutput::Member(facts)
+		},
+		Read::ObjectChildren {
+			after,
+			limit,
+			object,
+			..
+		}
+		| Read::SubtreeObjectChildren {
+			after,
+			limit,
+			object,
+			..
+		} => {
+			let output = read!(facts::Request::ObjectChildren {
+				after: after.clone(),
+				limit: *limit,
+				object: object.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::ObjectParents {
+			after,
+			limit,
+			object,
+			..
+		} => {
+			let output = read!(facts::Request::ObjectParents {
+				after: after.clone(),
+				limit: *limit,
+				object: object.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::OwnerSandboxes {
+			after,
+			limit,
+			owner,
+			..
+		} => {
+			let output = read!(facts::Request::OwnerSandboxes {
+				after: after.clone(),
+				limit: *limit,
+				owner: owner.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::Process { process } => {
+			let objects = client.read(facts::Request::ProcessObjects {
+				process: process.clone(),
+			});
+			let value = client.read(facts::Request::Process {
+				process: process.clone(),
+			});
+			let (objects, value) = futures::try_join!(objects, value)?;
+			let objects = match objects {
+				ControlFlow::Break(objects) => objects.into_process_objects()?,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let process = match value {
+				ControlFlow::Break(process) => process.into_process()?,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			let facts = ProcessFacts { objects, process };
+
+			ReadOutput::Process(facts)
+		},
+		Read::ProcessChildren {
+			after,
+			limit,
+			process,
+			..
+		}
+		| Read::SubtreeProcessChildren {
+			after,
+			limit,
+			process,
+			..
+		} => {
+			let output = read!(facts::Request::ProcessChildren {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::ProcessGrants {
+			after,
+			limit,
+			process,
+			..
+		} => {
+			let output = read!(facts::Request::ProcessGrants {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			});
+			let (after, grants) = output.into_grants()?;
+
+			ReadOutput::Grants { after, grants }
+		},
+		Read::ProcessParents {
+			after,
+			limit,
+			process,
+			..
+		} => {
+			let output = read!(facts::Request::ProcessParents {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::Resolve { selector, .. } => {
+			let resource = match resolve(client, selector).await? {
+				ControlFlow::Break(resource) => resource,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+
+			ReadOutput::Resolved(resource)
+		},
+		Read::SandboxProcesses {
+			after,
+			limit,
+			sandbox,
+			..
+		} => {
+			let output = read!(facts::Request::SandboxProcesses {
+				after: after.clone(),
+				limit: *limit,
+				sandbox: sandbox.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::SubjectGrants {
+			after,
+			limit,
+			subject,
+		} => {
+			let output = read!(facts::Request::SubjectGrants {
+				after: after.clone(),
+				limit: *limit,
+				subject: subject.clone(),
+			});
+			let (after, grants) = output.into_grants()?;
+
+			ReadOutput::Grants { after, grants }
+		},
+	};
+
+	Ok(ControlFlow::Break(output))
+}
+
+async fn ancestor_node_facts<E>(
+	client: &facts::Client<E>,
+	resource: &tg::Id,
+) -> Result<ControlFlow<super::search::AncestorNodeFacts, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	macro_rules! output {
+		($output:expr) => {{
+			match $output {
+				ControlFlow::Break(output) => output,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			}
+		}};
+	}
+
+	let grants = client.read(facts::Request::ResourceGrants {
+		resource: resource.clone(),
+	});
+	let mut facts = super::search::AncestorNodeFacts::default();
+	if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+		let processes = client.read(facts::Request::ObjectProcesses { object });
+		let tags = authorization_tags(client, resource);
+		let (grants, processes, tags) = futures::try_join!(grants, processes, tags)?;
+		facts.grants = output!(grants).into_grants()?.1;
+		facts.object_processes = output!(processes).into_object_processes()?;
+		facts.tags = output!(tags);
+	} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
+		let process = client.read(facts::Request::Process { process });
+		let tags = authorization_tags(client, resource);
+		let (grants, process, tags) = futures::try_join!(grants, process, tags)?;
+		facts.grants = output!(grants).into_grants()?.1;
+		facts.process_sandbox = output!(process)
+			.into_process()?
+			.and_then(|process| process.sandbox);
+		facts.tags = output!(tags);
+	} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
+		let owner = client.read(facts::Request::SandboxOwner { sandbox });
+		let (grants, owner) = futures::try_join!(grants, owner)?;
+		facts.grants = output!(grants).into_grants()?.1;
+		facts.sandbox_owner = output!(owner).into_sandbox_owner()?;
+	} else if let Ok(tag) = tg::tag::Id::try_from(resource.clone()) {
+		let tag = client.read(facts::Request::Tag { tag });
+		let (grants, tag) = futures::try_join!(grants, tag)?;
+		facts.grants = output!(grants).into_grants()?.1;
+		facts.parent = output!(tag).into_tag()?.and_then(|tag| tag.parent);
+	} else if let Ok(group) = tg::group::Id::try_from(resource.clone()) {
+		let group = client.read(facts::Request::Group { group });
+		let (grants, group) = futures::try_join!(grants, group)?;
+		facts.grants = output!(grants).into_grants()?.1;
+		facts.parent = output!(group).into_group()?.and_then(|group| group.parent);
+	} else {
+		facts.grants = output!(grants.await?).into_grants()?.1;
+	}
+
+	Ok(ControlFlow::Break(facts))
+}
+
+async fn authorization_tags<E>(
+	client: &facts::Client<E>,
+	target: &tg::Id,
+) -> Result<ControlFlow<Vec<(tg::tag::Id, Vec<tg::authorization::Permission>)>, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	let tags = match client
+		.read(facts::Request::TargetTags {
+			target: target.clone(),
+		})
+		.await?
+	{
+		ControlFlow::Break(tags) => tags.into_tags()?,
+		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+	};
+	let results = futures::future::try_join_all(tags.into_iter().map(|tag| {
+		let client = client.clone();
+		let request = facts::Request::Tag { tag: tag.clone() };
+		async move {
+			let output = client.read(request).await?;
+
+			Ok::<_, tg::Error>((tag, output))
+		}
+	}))
+	.await?;
+	let mut facts = Vec::with_capacity(results.len());
+	for (tag, output) in results {
+		let value = match output {
+			ControlFlow::Break(output) => output.into_tag()?,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if let Some(value) = value {
+			facts.push((tag, value.permissions));
+		}
+	}
+
+	Ok(ControlFlow::Break(facts))
+}
+
+async fn resolve<E>(
+	client: &facts::Client<E>,
+	selector: &tg::Selector<tg::Id>,
+) -> Result<ControlFlow<Option<(tg::Id, bool)>, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	match selector {
+		tg::Selector::Id(id) => {
+			let output = client.read(facts::Request::Id { id: id.clone() }).await?;
+			let id = match output {
+				ControlFlow::Break(output) => output.into_id()?,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+
+			Ok(ControlFlow::Break(id.map(|id| (id, true))))
+		},
+		tg::Selector::Specifier(specifier) => {
+			let mut prefixes = specifier.prefixes().collect::<Vec<_>>();
+			prefixes.reverse();
+			for prefixes in prefixes.chunks(client.concurrency()) {
+				let results =
+					futures::future::try_join_all(prefixes.iter().cloned().map(|specifier| {
+						let client = client.clone();
+						let request = facts::Request::Specifier {
+							specifier: specifier.clone(),
+						};
+						async move {
+							let output = client.read(request).await?;
+
+							Ok::<_, tg::Error>((specifier, output))
+						}
+					}))
+					.await?;
+				for (prefix, output) in results {
+					let id = match output {
+						ControlFlow::Break(output) => output.into_id()?,
+						ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+					};
+					if let Some(id) = id {
+						let exact = &prefix == specifier;
+
+						return Ok(ControlFlow::Break(Some((id, exact))));
+					}
+				}
+			}
+
+			Ok(ControlFlow::Break(None))
+		},
+	}
+}
+
 fn aspect_matches(
 	wanted: crate::process::object::Kind,
 	actual: crate::process::object::Kind,
@@ -1419,8 +1419,8 @@ fn finish_process(state: &mut State, key: &Key, authorized: bool) -> Outcome {
 	}
 	match state.outcome(key) {
 		outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
-		Outcome::Pending => Outcome::Exhausted,
 		Outcome::Exhausted => unreachable!(),
+		Outcome::Pending => Outcome::Exhausted,
 	}
 }
 
@@ -1551,8 +1551,8 @@ mod tests {
 			),
 		);
 		let arg = super::super::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Id(object.into()),
 			token: None,
 		};
@@ -1763,8 +1763,8 @@ mod tests {
 		let permissions = tg::authorization::permission::Set::from_permission(permission);
 
 		super::super::Arg {
-			required: permissions,
 			requested: permissions,
+			required: permissions,
 			resource: tg::Selector::Id(resource),
 			token,
 		}

@@ -43,8 +43,8 @@ impl Index {
 				.iter()
 				.cloned()
 				.map(|object| crate::authorize::Arg {
-					required: node.into(),
 					requested,
+					required: node.into(),
 					resource: tg::Selector::Id(object.into()),
 					token: None,
 				})

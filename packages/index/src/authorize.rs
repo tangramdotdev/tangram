@@ -1,16 +1,14 @@
 use tangram_client::prelude::*;
 
 mod engine;
-pub(crate) mod facts;
-
-pub(crate) mod search;
-
 pub(crate) use engine::Batch;
+pub(crate) mod facts;
+pub(crate) mod search;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub required: tg::authorization::permission::Set,
 	pub requested: tg::authorization::permission::Set,
+	pub required: tg::authorization::permission::Set,
 	pub resource: tg::Selector<tg::Id>,
 	pub token: Option<tg::authorization::Body>,
 }

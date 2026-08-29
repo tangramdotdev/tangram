@@ -1,6 +1,10 @@
 use {
-	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-	std::sync::Arc,
+	ancestor::Search as AncestorSearch,
+	descendant::Search as DescendantSearch,
+	std::{
+		collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -8,13 +12,12 @@ mod ancestor;
 mod descendant;
 mod subtree;
 
-pub(crate) use subtree::{Action as SubtreeAction, Search as SubtreeSearch};
-
-use {ancestor::Search as AncestorSearch, descendant::Search as DescendantSearch};
+pub(crate) use {
+	crate::grant::Fact as Grant,
+	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
+};
 
 pub(crate) type Key = (tg::Id, tg::authorization::Permission);
-
-pub(crate) use crate::grant::Fact as Grant;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
@@ -135,6 +138,101 @@ pub(crate) enum ReadOutput {
 	Resolved(Option<(tg::Id, bool)>),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Outcome {
+	Authorized,
+	Denied,
+	Exhausted,
+	Pending,
+}
+
+struct Budget {
+	config: crate::authorize::SearchConfig,
+	edges: usize,
+	nodes: usize,
+}
+
+enum Phase {
+	Ancestor(AncestorSearch),
+	Complete,
+	Descendant { search: DescendantSearch },
+}
+
+pub(crate) struct AncestorOrDescendantSearch {
+	config: crate::authorize::Config,
+	exhausted: HashSet<Key>,
+	phase: Phase,
+	principal: tg::Principal,
+	roots: Vec<Key>,
+	subjects: Vec<tg::authorization::Subject>,
+	token: Option<(tg::authorization::Body, tg::Id)>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Evaluation {
+	Denied,
+	Pending,
+}
+
+struct Fact {
+	// A proof from either evaluation authorizes the fact for every search strategy.
+	ancestor_or_descendant: Evaluation,
+	authorized: bool,
+	derived: Option<Evaluation>,
+}
+
+#[derive(Default)]
+pub(crate) struct State {
+	// Retain admitted proof edges, evaluations, and traversal cursors, never database pages.
+	ancestor_complete: BTreeSet<Key>,
+	ancestor_cursors: BTreeMap<Key, Vec<u8>>,
+	ancestor_facts: HashMap<tg::Id, Arc<AncestorNodeFacts>>,
+	ancestor_nodes: BTreeSet<Key>,
+	authorization_dependencies: BTreeMap<Key, BTreeSet<Key>>,
+	authorization_dependents: BTreeMap<Key, BTreeSet<Key>>,
+	authorization_log: Vec<Key>,
+	derived_complete: BTreeSet<Key>,
+	derived_cursors: BTreeMap<Key, Vec<u8>>,
+	derived_dependencies: BTreeMap<Key, BTreeSet<Key>>,
+	derived_dependents: BTreeMap<Key, BTreeSet<Key>>,
+	derived_unresolved: BTreeMap<Key, usize>,
+	descendant: Option<DescendantSearch>,
+	facts: HashMap<Key, Fact>,
+	newly_evaluated: BTreeSet<Key>,
+	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
+}
+
+pub(crate) struct FinalSearch {
+	deferred: BTreeSet<Key>,
+	outcomes: BTreeMap<Key, Outcome>,
+	pending: VecDeque<Key>,
+	queued: BTreeSet<Key>,
+}
+
+#[must_use]
+pub(crate) fn process_node_permission(
+	permission: tg::authorization::permission::process::Permission,
+) -> tg::authorization::permission::process::Permission {
+	match permission {
+		tg::authorization::permission::process::Permission::Subtree => {
+			tg::authorization::permission::process::Permission::Node
+		},
+		tg::authorization::permission::process::Permission::SubtreeCommand => {
+			tg::authorization::permission::process::Permission::NodeCommand
+		},
+		tg::authorization::permission::process::Permission::SubtreeError => {
+			tg::authorization::permission::process::Permission::NodeError
+		},
+		tg::authorization::permission::process::Permission::SubtreeLog => {
+			tg::authorization::permission::process::Permission::NodeLog
+		},
+		tg::authorization::permission::process::Permission::SubtreeOutput => {
+			tg::authorization::permission::process::Permission::NodeOutput
+		},
+		_ => unreachable!(),
+	}
+}
+
 impl ReadOutput {
 	fn into_ancestor_node(self) -> tg::Result<AncestorNodeFacts> {
 		let Self::AncestorNode(facts) = self else {
@@ -187,101 +285,6 @@ impl ReadOutput {
 
 		Ok(resource)
 	}
-}
-
-#[must_use]
-pub(crate) fn process_node_permission(
-	permission: tg::authorization::permission::process::Permission,
-) -> tg::authorization::permission::process::Permission {
-	match permission {
-		tg::authorization::permission::process::Permission::Subtree => {
-			tg::authorization::permission::process::Permission::Node
-		},
-		tg::authorization::permission::process::Permission::SubtreeCommand => {
-			tg::authorization::permission::process::Permission::NodeCommand
-		},
-		tg::authorization::permission::process::Permission::SubtreeError => {
-			tg::authorization::permission::process::Permission::NodeError
-		},
-		tg::authorization::permission::process::Permission::SubtreeLog => {
-			tg::authorization::permission::process::Permission::NodeLog
-		},
-		tg::authorization::permission::process::Permission::SubtreeOutput => {
-			tg::authorization::permission::process::Permission::NodeOutput
-		},
-		_ => unreachable!(),
-	}
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Outcome {
-	Authorized,
-	Denied,
-	Exhausted,
-	Pending,
-}
-
-struct Budget {
-	config: crate::authorize::SearchConfig,
-	edges: usize,
-	nodes: usize,
-}
-
-enum Phase {
-	Ancestor(AncestorSearch),
-	Complete,
-	Descendant { search: DescendantSearch },
-}
-
-pub(crate) struct AncestorOrDescendantSearch {
-	config: crate::authorize::Config,
-	exhausted: HashSet<Key>,
-	phase: Phase,
-	principal: tg::Principal,
-	roots: Vec<Key>,
-	subjects: Vec<tg::authorization::Subject>,
-	token: Option<(tg::authorization::Body, tg::Id)>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Evaluation {
-	Denied,
-	Pending,
-}
-
-struct Fact {
-	// A proof from either evaluation authorizes the fact for every search strategy.
-	authorized: bool,
-	derived: Option<Evaluation>,
-	ancestor_or_descendant: Evaluation,
-}
-
-#[derive(Default)]
-pub(crate) struct State {
-	// Retain admitted proof edges, evaluations, and traversal cursors, never database pages.
-	ancestor_complete: BTreeSet<Key>,
-	ancestor_cursors: BTreeMap<Key, Vec<u8>>,
-	ancestor_facts: HashMap<tg::Id, Arc<AncestorNodeFacts>>,
-	ancestor_nodes: BTreeSet<Key>,
-	authorization_dependencies: BTreeMap<Key, BTreeSet<Key>>,
-	authorization_dependents: BTreeMap<Key, BTreeSet<Key>>,
-	authorization_log: Vec<Key>,
-	derived_complete: BTreeSet<Key>,
-	derived_cursors: BTreeMap<Key, Vec<u8>>,
-	derived_dependencies: BTreeMap<Key, BTreeSet<Key>>,
-	derived_dependents: BTreeMap<Key, BTreeSet<Key>>,
-	derived_unresolved: BTreeMap<Key, usize>,
-	descendant: Option<DescendantSearch>,
-	facts: HashMap<Key, Fact>,
-	newly_evaluated: BTreeSet<Key>,
-	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
-}
-
-pub(crate) struct FinalSearch {
-	deferred: BTreeSet<Key>,
-	outcomes: BTreeMap<Key, Outcome>,
-	pending: VecDeque<Key>,
-	queued: BTreeSet<Key>,
 }
 
 impl Budget {
@@ -478,9 +481,9 @@ impl Fact {
 		let derived = has_derived_proof(permission).then_some(Evaluation::Pending);
 
 		Self {
+			ancestor_or_descendant: Evaluation::Pending,
 			authorized: false,
 			derived,
-			ancestor_or_descendant: Evaluation::Pending,
 		}
 	}
 
@@ -877,8 +880,8 @@ impl FinalSearch {
 					self.deferred.remove(&key);
 					self.outcomes.insert(key, outcome);
 				},
-				Outcome::Pending => return Some(key),
 				Outcome::Exhausted => unreachable!(),
+				Outcome::Pending => return Some(key),
 			}
 		}
 
@@ -888,8 +891,8 @@ impl FinalSearch {
 	pub(crate) fn apply(&mut self, state: &mut State, key: &Key, outcome: Outcome) {
 		let outcome = match state.outcome(key) {
 			outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
-			Outcome::Pending => outcome,
 			Outcome::Exhausted => unreachable!(),
+			Outcome::Pending => outcome,
 		};
 		self.outcomes.insert(key.clone(), outcome);
 		match outcome {
@@ -907,12 +910,12 @@ impl FinalSearch {
 	pub(crate) fn outcome(&self, state: &State, key: &Key) -> Outcome {
 		match state.outcome(key) {
 			outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
+			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => self
 				.outcomes
 				.get(key)
 				.copied()
 				.unwrap_or(Outcome::Exhausted),
-			Outcome::Exhausted => unreachable!(),
 		}
 	}
 

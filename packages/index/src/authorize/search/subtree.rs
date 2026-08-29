@@ -35,12 +35,12 @@ enum Phase {
 }
 
 pub(crate) struct Search {
+	ancestor_or_descendant: HashMap<Key, Outcome>,
 	budget: Budget,
 	depth: usize,
 	frontier: Vec<tg::Id>,
 	kind: Kind,
 	next: Vec<tg::Id>,
-	ancestor_or_descendant: HashMap<Key, Outcome>,
 	pending: VecDeque<(tg::Id, Option<Vec<u8>>)>,
 	phase: Phase,
 	root: Key,
@@ -101,6 +101,31 @@ impl Search {
 		Ok(Self::new(budget, kind, root, permission))
 	}
 
+	#[must_use]
+	fn new(
+		budget: Budget,
+		kind: Kind,
+		root: tg::Id,
+		permission: tg::authorization::Permission,
+	) -> Self {
+		let frontier = vec![root.clone()];
+		let root_key = (root.clone(), permission);
+		let visited = HashSet::from([root]);
+
+		Self {
+			ancestor_or_descendant: HashMap::new(),
+			budget,
+			depth: 0,
+			frontier,
+			kind,
+			next: Vec::new(),
+			pending: VecDeque::new(),
+			phase: Phase::Frontier,
+			root: root_key,
+			visited,
+		}
+	}
+
 	pub(crate) fn next_action(
 		&mut self,
 		state: &mut State,
@@ -125,8 +150,8 @@ impl Search {
 
 									return Ok(self.complete(state, Outcome::Denied));
 								},
-								Outcome::Pending => incomplete = true,
 								Outcome::Exhausted => unreachable!(),
+								Outcome::Pending => incomplete = true,
 							}
 						}
 						if incomplete {
@@ -170,8 +195,8 @@ impl Search {
 
 								return Ok(self.complete(state, Outcome::Denied));
 							},
-							Outcome::Pending => incomplete = true,
 							Outcome::Exhausted => unreachable!(),
+							Outcome::Pending => incomplete = true,
 						}
 					}
 					if incomplete {
@@ -233,8 +258,8 @@ impl Search {
 
 								return Ok(self.complete(state, Outcome::Denied));
 							},
-							Outcome::Pending => nodes.push(node.clone()),
 							Outcome::Exhausted => unreachable!(),
+							Outcome::Pending => nodes.push(node.clone()),
 						}
 					}
 					if nodes.is_empty() {
@@ -309,8 +334,8 @@ impl Search {
 					denied |= !covered;
 					continue;
 				},
-				Outcome::Pending => {},
 				Outcome::Exhausted => unreachable!(),
+				Outcome::Pending => {},
 			}
 			if !complete && !exhausted && !covered && !self.try_schedule_child(child.0, depth) {
 				exhausted = true;
@@ -345,30 +370,6 @@ impl Search {
 		Ok(())
 	}
 
-	fn new(
-		budget: Budget,
-		kind: Kind,
-		root: tg::Id,
-		permission: tg::authorization::Permission,
-	) -> Self {
-		let frontier = vec![root.clone()];
-		let root_key = (root.clone(), permission);
-		let visited = HashSet::from([root]);
-
-		Self {
-			budget,
-			depth: 0,
-			frontier,
-			kind,
-			next: Vec::new(),
-			ancestor_or_descendant: HashMap::new(),
-			pending: VecDeque::new(),
-			phase: Phase::Frontier,
-			root: root_key,
-			visited,
-		}
-	}
-
 	fn complete(&mut self, state: &mut State, outcome: Outcome) -> Action {
 		match outcome {
 			Outcome::Authorized => {
@@ -384,8 +385,8 @@ impl Search {
 		let outcome = match state.outcome(&self.root) {
 			Outcome::Authorized => Outcome::Authorized,
 			Outcome::Denied => Outcome::Denied,
-			Outcome::Pending => Outcome::Exhausted,
 			Outcome::Exhausted => unreachable!(),
+			Outcome::Pending => Outcome::Exhausted,
 		};
 		self.phase = Phase::Complete { outcome };
 
@@ -421,6 +422,7 @@ impl Search {
 
 						return;
 					},
+					Outcome::Exhausted => unreachable!(),
 					Outcome::Pending => {
 						if !self.try_schedule_child(child.0, self.depth) {
 							self.complete(state, Outcome::Exhausted);
@@ -428,7 +430,6 @@ impl Search {
 							return;
 						}
 					},
-					Outcome::Exhausted => unreachable!(),
 				}
 			}
 			if !state.derived_is_complete(&dependent) {

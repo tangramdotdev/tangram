@@ -129,6 +129,7 @@ impl Search {
 			match task {
 				AncestorTask::Node { depth, key } => match state.ancestor_or_descendant(&key) {
 					Outcome::Authorized | Outcome::Denied => {},
+					Outcome::Exhausted => unreachable!(),
 					Outcome::Pending => {
 						if state.ancestor_node_is_complete(&key) {
 							for dependency in state.authorization_dependencies(&key) {
@@ -150,7 +151,6 @@ impl Search {
 							deferred.push(AncestorTask::Node { depth, key });
 						}
 					},
-					Outcome::Exhausted => unreachable!(),
 				},
 				AncestorTask::ObjectParents {
 					after,
@@ -307,6 +307,36 @@ impl Search {
 		}
 
 		Ok(())
+	}
+
+	pub(super) fn finish(&mut self, state: &mut State) {
+		if self.unresolved.is_empty() {
+			self.incomplete.clear();
+			self.queues.clear();
+			return;
+		}
+
+		// Propagate incomplete paths to every unresolved dependent.
+		let mut incomplete = HashSet::new();
+		let mut stack = std::mem::take(&mut self.incomplete)
+			.into_iter()
+			.collect::<Vec<_>>();
+		while let Some(key) = stack.pop() {
+			if state.is_authorized(&key) || !incomplete.insert(key.clone()) {
+				continue;
+			}
+			stack.extend(state.authorization_dependents(&key));
+		}
+		self.incomplete = incomplete;
+
+		// Preserve complete negative proofs for later roots in the request.
+		for key in &self.visited {
+			if !self.incomplete.contains(key) && !self.is_deferred(key) {
+				state.deny_ancestor_or_descendant(key);
+			}
+		}
+		let authorized = state.authorization_changes_since(&mut self.authorization_revision);
+		self.remove_authorized(state, authorized);
 	}
 
 	fn expand_node(
@@ -474,36 +504,6 @@ impl Search {
 			.collect()
 	}
 
-	pub(super) fn finish(&mut self, state: &mut State) {
-		if self.unresolved.is_empty() {
-			self.incomplete.clear();
-			self.queues.clear();
-			return;
-		}
-
-		// Propagate incomplete paths to every unresolved dependent.
-		let mut incomplete = HashSet::new();
-		let mut stack = std::mem::take(&mut self.incomplete)
-			.into_iter()
-			.collect::<Vec<_>>();
-		while let Some(key) = stack.pop() {
-			if state.is_authorized(&key) || !incomplete.insert(key.clone()) {
-				continue;
-			}
-			stack.extend(state.authorization_dependents(&key));
-		}
-		self.incomplete = incomplete;
-
-		// Preserve complete negative proofs for later roots in the request.
-		for key in &self.visited {
-			if !self.incomplete.contains(key) && !self.is_deferred(key) {
-				state.deny_ancestor_or_descendant(key);
-			}
-		}
-		let authorized = state.authorization_changes_since(&mut self.authorization_revision);
-		self.remove_authorized(state, authorized);
-	}
-
 	fn queue_parents(&mut self, state: &mut State, depth: usize, key: &Key) -> tg::Result<()> {
 		if state.ancestor_parents_are_complete(key) {
 			return Ok(());
@@ -567,8 +567,8 @@ impl Search {
 
 		match state.ancestor_or_descendant(&dependency) {
 			Outcome::Authorized | Outcome::Denied => return true,
-			Outcome::Pending => {},
 			Outcome::Exhausted => unreachable!(),
+			Outcome::Pending => {},
 		}
 		if self.visited.contains(&dependency) {
 			return true;

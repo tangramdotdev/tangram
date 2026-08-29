@@ -129,8 +129,8 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	let transaction = index.env.read_txn().unwrap();
 	let requested = tg::authorization::permission::Set::from_permission(permission);
 	let arg = crate::authorize::Arg {
-		required: requested,
 		requested,
+		required: requested,
 		resource: tg::Selector::Id(target.into()),
 		token: None,
 	};
