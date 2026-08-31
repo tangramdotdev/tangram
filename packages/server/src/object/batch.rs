@@ -1,6 +1,5 @@
 use {
 	crate::Session,
-	futures::future,
 	num::ToPrimitive as _,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
@@ -200,22 +199,9 @@ impl Session {
 				}))
 				.collect(),
 		};
-		if self.server.config.advanced.single_process {
-			self.server
-				.put_object_batch(put_args)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-			self.server
-				.index_batch(index_arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
-		} else {
-			let object_put = self.server.put_object_batch(put_args);
-			let index_put = self.server.index_batch(index_arg);
-			let (object_result, index_result) = future::join(object_put, index_put).await;
-			object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-			index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
-		}
+		self.server
+			.put_object_batch_and_index(put_args, index_arg)
+			.await?;
 
 		let objects = arg
 			.objects

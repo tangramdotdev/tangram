@@ -213,7 +213,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select cache, id, partition, put
+				select cache, object, partition, put
 				from object_cache
 				where partition = ?
 				limit ?;
@@ -230,7 +230,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into object_cache (cache, id, partition, put)
+				insert into object_cache (cache, object, partition, put)
 				values (?, ?, ?, ?);
 			"
 		);
@@ -279,7 +279,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select id, partition, put
+				select object, partition, put
 				from object_archive_outbox
 				where partition in ?
 				limit ?;
@@ -298,7 +298,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into object_archive_outbox (id, partition, put)
+				insert into object_archive_outbox (object, partition, put)
 				values (?, ?, ?);
 			"
 		);

@@ -47,7 +47,7 @@ impl Store {
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
 			cache: &'a [u8],
-			id: &'a [u8],
+			object: &'a [u8],
 			partition: i64,
 			put: &'a [u8],
 		}
@@ -62,7 +62,7 @@ impl Store {
 					.cache
 					.try_into()
 					.map_err(|_| tg::error!("invalid object cache id"))?;
-				let id = tg::object::Id::from_slice(row.id)?;
+				let id = tg::object::Id::from_slice(row.object)?;
 				let partition = super::logical_partition(row.partition, self.partition_offset)?;
 				let put = row
 					.put

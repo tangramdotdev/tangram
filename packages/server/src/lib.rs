@@ -17,10 +17,7 @@ use {
 		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{
-			Arc, Mutex,
-			atomic::{AtomicBool, AtomicU64},
-		},
+		sync::{Arc, Mutex, atomic::AtomicU64},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -136,7 +133,6 @@ pub struct State {
 	log_notifications: self::process::log::Notifications,
 	messenger: Messenger,
 	next_watch_id: AtomicU64,
-	object_cache_puts_enabled: AtomicBool,
 	object_get_tasks: self::object::get::Tasks,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
@@ -470,11 +466,6 @@ impl Server {
 					"the object cache batch size must be greater than zero"
 				));
 			}
-			if cache.metrics_stale_after.is_zero() {
-				return Err(tg::error!(
-					"the object cache metrics stale duration must be greater than zero"
-				));
-			}
 			validate_capacity_threshold(&cache.capacity, "object cache")?;
 			if cache.partition_total == 0 {
 				return Err(tg::error!(
@@ -535,6 +526,13 @@ impl Server {
 		if outbox.wakeup_interval.is_zero() {
 			return Err(tg::error!(
 				"the object index outbox wakeup interval must be greater than zero"
+			));
+		}
+
+		// Validate the object put configuration.
+		if config.object.put_timeout.is_zero() {
+			return Err(tg::error!(
+				"the object put timeout must be greater than zero"
 			));
 		}
 
@@ -1000,7 +998,6 @@ impl Server {
 
 		// Create the watches.
 		let next_watch_id = AtomicU64::new(0);
-		let object_cache_puts_enabled = AtomicBool::new(config.object.cache.is_none());
 		let watches = DashMap::default();
 
 		// Create the token keys.
@@ -1039,7 +1036,6 @@ impl Server {
 			log_notifications,
 			messenger,
 			next_watch_id,
-			object_cache_puts_enabled,
 			object_get_tasks,
 			path,
 			regions,

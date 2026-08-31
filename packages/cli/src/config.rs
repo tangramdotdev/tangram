@@ -948,6 +948,10 @@ pub struct Object {
 	pub index_outbox: Option<ObjectIndexOutbox>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub put_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
 	pub time_to_index: Option<Duration>,
 
@@ -969,10 +973,6 @@ pub struct ObjectCache {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub capacity: Option<CapacityThreshold>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub metrics_stale_after: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
@@ -3095,6 +3095,9 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(source) = source.index_outbox {
 		target.index_outbox = resolve_object_index_outbox(source);
 	}
+	if let Some(value) = source.put_timeout {
+		target.put_timeout = value;
+	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
 	}
@@ -3115,9 +3118,6 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 	}
 	if let Some(source) = source.capacity {
 		target.capacity = resolve_capacity_threshold(source);
-	}
-	if let Some(value) = source.metrics_stale_after {
-		target.metrics_stale_after = value;
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
@@ -4020,7 +4020,6 @@ mod tests {
 					"start_below": 0.2,
 					"stop_at": 0.3,
 				},
-				"metrics_stale_after": 60,
 				"partition_total": 16,
 				"poll_interval": 5,
 			},
@@ -4037,7 +4036,6 @@ mod tests {
 		};
 		assert!((threshold.start_below - 0.2).abs() < f64::EPSILON);
 		assert!((threshold.stop_at - 0.3).abs() < f64::EPSILON);
-		assert_eq!(cache.metrics_stale_after, Duration::from_secs(60));
 		assert_eq!(cache.partition_total, 16);
 		assert_eq!(cache.poll_interval, Duration::from_secs(5));
 
@@ -4403,6 +4401,7 @@ mod tests {
 					},
 					"wakeup_interval": 0.3,
 				},
+				"put_timeout": 0.15,
 			},
 			"process": {
 				"children_wakeup_interval": 0.4,
@@ -4455,6 +4454,7 @@ mod tests {
 			Duration::from_millis(60)
 		);
 		assert_eq!(target.object.index_outbox.retry.max_retries, 7);
+		assert_eq!(target.object.put_timeout, Duration::from_millis(150));
 		assert_eq!(
 			target.process.children_wakeup_interval,
 			Duration::from_millis(400)

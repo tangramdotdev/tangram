@@ -632,6 +632,8 @@ pub struct Object {
 
 	pub index_outbox: ObjectIndexOutbox,
 
+	pub put_timeout: Duration,
+
 	pub time_to_index: Duration,
 
 	pub time_to_live: Duration,
@@ -644,8 +646,6 @@ pub struct ObjectCache {
 	pub batch_size: usize,
 
 	pub capacity: CapacityThreshold,
-
-	pub metrics_stale_after: Duration,
 
 	pub partition_total: u64,
 
@@ -1642,6 +1642,7 @@ impl Default for Object {
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			index_outbox: ObjectIndexOutbox::default(),
+			put_timeout: default_object_put_timeout(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1659,7 +1660,6 @@ impl Default for ObjectCache {
 		Self {
 			batch_size: 1024,
 			capacity,
-			metrics_stale_after: Duration::from_mins(5),
 			partition_total: 1,
 			poll_interval: Duration::from_secs(10),
 		}
@@ -2196,12 +2196,17 @@ fn message_retry_default() -> Retry {
 }
 
 fn object_outbox_retry_default() -> Retry {
+	// Keep the default retry duration longer than the default object put timeout.
 	Retry {
 		backoff: Duration::from_millis(25),
 		jitter: Duration::from_millis(25),
 		max_delay: Duration::from_secs(1),
-		max_retries: 6,
+		max_retries: 64,
 	}
+}
+
+fn default_object_put_timeout() -> Duration {
+	Duration::from_secs(30)
 }
 
 fn default_time_to_index() -> Duration {

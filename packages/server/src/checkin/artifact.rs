@@ -924,12 +924,7 @@ impl Session {
 			length: None,
 			put,
 		};
-		self.server
-			.put_object(store_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to store the reference artifact"))?;
-
-		// Index the object.
+		// Create the index arg.
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
 		let put_object_arg = tangram_index::object::put::Arg {
@@ -945,10 +940,13 @@ impl Session {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutObject(put_object_arg)],
 		};
+		// Store and index the object.
 		self.server
-			.index_batch(arg)
+			.put_object_and_index(store_arg, arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to store and index the reference artifact")
+			})?;
 
 		let id = id.try_into().unwrap();
 

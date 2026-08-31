@@ -1,6 +1,6 @@
 use {
 	crate::{Server, Session},
-	futures::future,
+	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -161,22 +161,7 @@ impl Session {
 				}))
 				.collect(),
 		};
-		if self.server.config.advanced.single_process {
-			self.server
-				.put_object(put_arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
-			self.server
-				.index_batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
-		} else {
-			let object_put = self.server.put_object(put_arg);
-			let index_put = self.server.index_batch(arg);
-			let (object_result, index_result) = future::join(object_put, index_put).await;
-			object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
-			index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
-		}
+		self.server.put_object_and_index(put_arg, arg).await?;
 
 		let token = self.create_token(
 			id.clone().into(),
@@ -312,7 +297,56 @@ impl Session {
 }
 
 impl Server {
+	pub(crate) async fn put_object_and_index(
+		&self,
+		object: crate::store::object::put::Arg,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		let future = self.put_object_and_index_inner(object, index).boxed();
+		let result = tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting and indexing the object"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_and_index_inner(
+		&self,
+		object: crate::store::object::put::Arg,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		if self.config.advanced.single_process {
+			self.put_object_inner(object)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+			self.index_batch(index)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+
+			return Ok(());
+		}
+
+		let object_put = self.put_object_inner(object);
+		let index_put = self.index_batch(index);
+		let (object_result, index_result) = future::join(object_put, index_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+		index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+
+		Ok(())
+	}
+
 	pub(crate) async fn put_object(&self, arg: crate::store::object::put::Arg) -> tg::Result<()> {
+		let future = self.put_object_inner(arg).boxed();
+		let result = tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting the object"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_inner(&self, arg: crate::store::object::put::Arg) -> tg::Result<()> {
 		if self.archive.is_none() {
 			return self
 				.store
@@ -340,7 +374,63 @@ impl Server {
 		Ok(())
 	}
 
+	pub(crate) async fn put_object_batch_and_index(
+		&self,
+		objects: Vec<crate::store::object::put::Arg>,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		let future = self
+			.put_object_batch_and_index_inner(objects, index)
+			.boxed();
+		let result = tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "timed out putting and indexing the object batch")
+			})?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_batch_and_index_inner(
+		&self,
+		objects: Vec<crate::store::object::put::Arg>,
+		index: tangram_index::batch::Arg,
+	) -> tg::Result<()> {
+		if self.config.advanced.single_process {
+			self.put_object_batch_inner(objects)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			self.index_batch(index)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+
+			return Ok(());
+		}
+
+		let object_put = self.put_object_batch_inner(objects);
+		let index_put = self.index_batch(index);
+		let (object_result, index_result) = future::join(object_put, index_put).await;
+		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+
+		Ok(())
+	}
+
 	pub(crate) async fn put_object_batch(
+		&self,
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		let future = self.put_object_batch_inner(args).boxed();
+		let result = tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out putting the objects"))?;
+		result?;
+
+		Ok(())
+	}
+
+	async fn put_object_batch_inner(
 		&self,
 		args: Vec<crate::store::object::put::Arg>,
 	) -> tg::Result<()> {

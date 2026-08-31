@@ -1,15 +1,11 @@
 use {
-	super::super::Indexer,
-	futures::future,
-	std::{sync::atomic::Ordering, time::Instant},
-	tangram_client::prelude::*,
-	tangram_store::Store as _,
+	super::super::Indexer, futures::future, tangram_client::prelude::*, tangram_store::Store as _,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
 	Delete,
-	Put,
+	Idle,
 }
 
 impl Indexer {
@@ -21,29 +17,52 @@ impl Indexer {
 		let Some(cache) = cache else {
 			return future::pending().await;
 		};
-		let mut mode = Mode::Put;
-		let mut last_capacity = None;
+		let mut mode = Mode::Idle;
+		let mut empty_partition_count = 0;
 		let mut partition = partitions.start;
 		loop {
-			match self.server.store.try_get_capacity().await {
+			let should_sleep = match self.server.store.try_get_capacity().await {
 				Ok(Some(capacity)) => {
-					last_capacity = Some(Instant::now());
 					mode = mode.next(&cache.capacity, capacity);
-					self.server
-						.object_cache_puts_enabled
-						.store(mode == Mode::Put, Ordering::Release);
-					if mode == Mode::Delete {
-						let result = self.object_cache_partition_batch(cache, partition).await;
-						if let Err(error) = result {
-							tracing::error!(
-								error = %error.trace(),
-								%partition,
-								"failed to delete object cache entries"
-							);
-						}
+					if mode == Mode::Idle {
+						empty_partition_count = 0;
+
+						true
+					} else {
+						let current_partition = partition;
+						let result = self
+							.object_cache_partition_batch(cache, current_partition)
+							.await;
 						partition += 1;
 						if partition == partitions.end {
 							partition = partitions.start;
+						}
+						match result {
+							Ok(0) => {
+								empty_partition_count += 1;
+								if empty_partition_count == partitions.end - partitions.start {
+									empty_partition_count = 0;
+
+									true
+								} else {
+									false
+								}
+							},
+							Ok(_) => {
+								empty_partition_count = 0;
+
+								false
+							},
+							Err(error) => {
+								tracing::error!(
+									error = %error.trace(),
+									partition = current_partition,
+									"failed to delete object cache entries"
+								);
+								empty_partition_count = 0;
+
+								true
+							},
 						}
 					}
 				},
@@ -52,16 +71,14 @@ impl Indexer {
 				},
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to get the store capacity");
-					if last_capacity.is_none_or(|last_capacity| {
-						last_capacity.elapsed() >= cache.metrics_stale_after
-					}) {
-						self.server
-							.object_cache_puts_enabled
-							.store(false, Ordering::Release);
-					}
+					empty_partition_count = 0;
+
+					true
 				},
+			};
+			if should_sleep {
+				tokio::time::sleep(cache.poll_interval).await;
 			}
-			tokio::time::sleep(cache.poll_interval).await;
 		}
 	}
 
@@ -69,7 +86,7 @@ impl Indexer {
 		&self,
 		cache: &crate::config::ObjectCache,
 		partition: u64,
-	) -> tg::Result<()> {
+	) -> tg::Result<usize> {
 		let arg = crate::store::object::cache::get::Arg {
 			batch_size: cache.batch_size,
 			partition,
@@ -80,6 +97,7 @@ impl Indexer {
 			.get_object_cache_entries(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get object cache entries"))?;
+		let count = entries.len();
 		future::try_join_all(entries.into_iter().map(|entry| async move {
 			let id = entry.id.clone();
 			let arg = crate::store::object::cache::delete::Arg { entry };
@@ -91,7 +109,7 @@ impl Indexer {
 		}))
 		.await?;
 
-		Ok(())
+		Ok(count)
 	}
 }
 
@@ -103,8 +121,8 @@ impl Mode {
 	) -> Self {
 		match self {
 			Self::Delete if !config.should_stop(capacity.available, capacity.total) => Self::Delete,
-			Self::Put if config.should_start(capacity.available, capacity.total) => Self::Delete,
-			Self::Delete | Self::Put => Self::Put,
+			Self::Idle if config.should_start(capacity.available, capacity.total) => Self::Delete,
+			Self::Delete | Self::Idle => Self::Idle,
 		}
 	}
 }

@@ -9,7 +9,6 @@ use {
 	std::{
 		io::{Read as _, Seek as _},
 		path::PathBuf,
-		sync::atomic::Ordering,
 	},
 	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
@@ -798,9 +797,6 @@ impl Server {
 					put,
 				};
 				let result = if let Some(cache) = &server.config.object.cache {
-					if !server.object_cache_puts_enabled.load(Ordering::Acquire) {
-						return;
-					}
 					let partition = rand::random_range(0..cache.partition_total);
 					let arg = crate::store::object::cache::put::object::Arg {
 						cache: uuid::Uuid::now_v7().into_bytes(),

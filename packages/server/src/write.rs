@@ -95,20 +95,14 @@ impl Session {
 		};
 
 		// Store and index the blob.
-		if self.server.config.advanced.single_process {
-			self.write_store(&blob, checkout_pointer.clone())
-				.await
-				.map_err(|error| tg::error!(!error, "failed to store the blob"))?;
-			self.write_index(&blob, checkout_pointer.clone(), touched_at)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
-		} else {
-			let store = self.write_store(&blob, checkout_pointer.clone());
-			let index = self.write_index(&blob, checkout_pointer.clone(), touched_at);
-			let (store_result, index_result) = futures::future::join(store, index).await;
-			store_result.map_err(|error| tg::error!(!error, "failed to store the blob"))?;
-			index_result.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
-		}
+		let store_args = Self::write_store_args(&blob, checkout_pointer.as_ref());
+		let index_arg = self
+			.write_index_arg(&blob, checkout_pointer, touched_at)
+			.await?;
+		self.server
+			.put_object_batch_and_index(store_args, index_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to store and index the blob"))?;
 
 		// Create the output.
 		let output = tg::write::Output {
@@ -444,19 +438,6 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn write_store(
-		&self,
-		blob: &Output,
-		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
-	) -> tg::Result<()> {
-		let arg = Self::write_store_args(blob, checkout_pointer.as_ref());
-		self.server
-			.put_object_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
-		Ok(())
-	}
-
 	pub(crate) fn write_store_args(
 		blob: &Output,
 		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
@@ -488,12 +469,12 @@ impl Session {
 		args
 	}
 
-	async fn write_index(
+	async fn write_index_arg(
 		&self,
 		blob: &Output,
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> tg::Result<tangram_index::batch::Arg> {
 		let grant_expires_at = touched_at
 			+ self
 				.server
@@ -543,12 +524,8 @@ impl Session {
 				}))
 				.collect(),
 		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the write"))?;
 
-		Ok(())
+		Ok(arg)
 	}
 
 	pub(crate) fn write_index_args(
