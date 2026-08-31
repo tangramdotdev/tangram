@@ -4256,9 +4256,10 @@ mod tests {
 		assert_eq!(authorization.final_.descendant.max_edges, 3);
 		assert_eq!(authorization.final_.subtree.max_objects, 4);
 		assert_eq!(authorization.initial.ancestor.max_edges, 1);
-		assert_eq!(authorization.initial.descendant.max_depth, 0);
-		assert_eq!(authorization.initial.descendant.max_edges, 0);
-		assert_eq!(authorization.initial.descendant.max_nodes, 0);
+		assert_eq!(
+			authorization.initial.descendant,
+			server::AuthorizationSearch::default()
+		);
 		assert_eq!(authorization.initial.subtree.max_depth, 0);
 		assert_eq!(authorization.initial.subtree.max_objects, 0);
 		assert_eq!(authorization.initial.subtree.max_processes, 0);

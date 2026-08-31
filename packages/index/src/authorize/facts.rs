@@ -6,7 +6,10 @@ use {
 		future::Future,
 		hash::Hash,
 		ops::ControlFlow,
-		sync::{Arc, Mutex},
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicUsize, Ordering},
+		},
 	},
 	tangram_client::prelude::*,
 };
@@ -142,6 +145,7 @@ enum CacheKey {
 pub(crate) struct Client<E> {
 	cache: Arc<Mutex<HashMap<CacheKey, ResponseFuture<E>>>>,
 	concurrency: usize,
+	reads: Arc<AtomicUsize>,
 	sender: mpsc::Sender<Message<E>>,
 }
 
@@ -152,6 +156,7 @@ pub(crate) fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
 	let client = Client {
 		cache: Arc::new(Mutex::new(HashMap::new())),
 		concurrency,
+		reads: Arc::new(AtomicUsize::new(0)),
 		sender,
 	};
 
@@ -324,7 +329,13 @@ where
 		self.concurrency
 	}
 
+	#[must_use]
+	pub(crate) fn reads(&self) -> usize {
+		self.reads.load(Ordering::Relaxed)
+	}
+
 	pub(crate) async fn read(&self, request: Request) -> Response<E> {
+		self.reads.fetch_add(1, Ordering::Relaxed);
 		if let Request::ObjectParents { object, .. } = &request {
 			tracing::debug!(%object, "read object parents for authorization");
 		}
@@ -371,6 +382,7 @@ impl<E> Clone for Client<E> {
 		Self {
 			cache: self.cache.clone(),
 			concurrency: self.concurrency,
+			reads: self.reads.clone(),
 			sender: self.sender.clone(),
 		}
 	}

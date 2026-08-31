@@ -121,6 +121,30 @@ impl Batch {
 	where
 		E: Clone + Send + Sync + 'static,
 	{
+		let client_for_reads = client.clone();
+		let result = Self::authorize_inner(args, client, config, principal).await;
+		let reads = client_for_reads.reads();
+		for arg in args {
+			tracing::debug!(
+				args = args.len(),
+				reads,
+				resource = %arg.resource,
+				"authorize batch"
+			);
+		}
+
+		result
+	}
+
+	async fn authorize_inner<E>(
+		args: &[super::Arg],
+		client: facts::Client<E>,
+		config: super::Config,
+		principal: &tg::Principal,
+	) -> Result<ControlFlow<Vec<super::Outcome>, E>, tg::Error>
+	where
+		E: Clone + Send + Sync + 'static,
+	{
 		let mut batch = Self::new(args, config, principal)?;
 
 		// Resolve the resources and expand the principal's memberships.
@@ -441,7 +465,7 @@ impl TokenSearch {
 		subjects: &[tg::authorization::Subject],
 		token: Option<tg::authorization::Body>,
 	) -> Self {
-		let state = State::default();
+		let mut state = State::default();
 		let token = token.map(|body| {
 			let resource = body.resource.clone();
 			(body, resource)
@@ -451,8 +475,8 @@ impl TokenSearch {
 			principal,
 			&roots,
 			subjects,
-			token.clone(),
-			&state,
+			token.as_ref(),
+			&mut state,
 		);
 		let final_search = FinalSearch::new(roots.iter().cloned());
 
@@ -721,12 +745,7 @@ impl SubtreeEvaluation {
 					{
 						SubtreeAction::AuthorizeAncestorOrDescendant { roots } => {
 							let search = AncestorOrDescendantSearch::new(
-								config,
-								principal,
-								&roots,
-								subjects,
-								token.cloned(),
-								state,
+								config, principal, &roots, subjects, token, state,
 							);
 							self.phase = SubtreePhase::AncestorOrDescendant { roots, search };
 						},
@@ -977,14 +996,8 @@ impl ProcessSearch {
 
 			return;
 		}
-		let search = AncestorOrDescendantSearch::new(
-			config,
-			principal,
-			&roots,
-			subjects,
-			token.cloned(),
-			state,
-		);
+		let search =
+			AncestorOrDescendantSearch::new(config, principal, &roots, subjects, token, state);
 		self.phase = ProcessPhase::ObjectInitial { roots, search };
 	}
 }
@@ -1607,6 +1620,10 @@ mod tests {
 								after: None,
 								grants: Vec::new(),
 							}
+						},
+						facts::Request::SubjectGrants { .. } => facts::Output::Grants {
+							after: None,
+							grants: Vec::new(),
 						},
 						facts::Request::TargetTags { .. } => facts::Output::Tags(Vec::new()),
 						request => panic!("received an unexpected fact request: {request:?}"),

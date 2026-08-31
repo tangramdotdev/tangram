@@ -152,20 +152,20 @@ struct Budget {
 	nodes: usize,
 }
 
-enum Phase {
-	Ancestor(AncestorSearch),
-	Complete,
-	Descendant { search: DescendantSearch },
+pub(crate) struct AncestorOrDescendantSearch {
+	ancestor: Option<AncestorSearch>,
+	ancestor_exhausted: HashSet<Key>,
+	complete: bool,
+	descendant: Option<DescendantSearch>,
+	descendant_exhausted: HashSet<Key>,
+	next: Direction,
+	roots: Vec<Key>,
 }
 
-pub(crate) struct AncestorOrDescendantSearch {
-	config: crate::authorize::Config,
-	exhausted: HashSet<Key>,
-	phase: Phase,
-	principal: tg::Principal,
-	roots: Vec<Key>,
-	subjects: Vec<tg::authorization::Subject>,
-	token: Option<(tg::authorization::Body, tg::Id)>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Direction {
+	Ancestor,
+	Descendant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -347,8 +347,8 @@ impl AncestorOrDescendantSearch {
 		principal: &tg::Principal,
 		roots: &[Key],
 		subjects: &[tg::authorization::Subject],
-		token: Option<(tg::authorization::Body, tg::Id)>,
-		state: &State,
+		token: Option<&(tg::authorization::Body, tg::Id)>,
+		state: &mut State,
 	) -> Self {
 		let mut seen = HashSet::new();
 		let roots = roots
@@ -359,39 +359,61 @@ impl AncestorOrDescendantSearch {
 			})
 			.cloned()
 			.collect::<Vec<_>>();
-		let phase = if roots.is_empty() {
-			Phase::Complete
+		let complete = roots.is_empty();
+		let (ancestor, descendant) = if complete {
+			(None, None)
 		} else {
-			Phase::Ancestor(AncestorSearch::new(
+			let ancestor = AncestorSearch::new(
 				config.ancestor,
 				principal,
 				&roots,
 				subjects,
-				token.clone(),
+				token.cloned(),
 				state,
-			))
+			);
+			let descendant = if let Some(mut descendant) = state.take_descendant() {
+				descendant.add_targets(config.descendant, roots.clone());
+				descendant
+			} else {
+				let token = token.map(|(body, resource)| (body, resource));
+				DescendantSearch::new(
+					config.descendant,
+					principal,
+					state,
+					subjects,
+					roots.clone(),
+					token,
+				)
+			};
+
+			(Some(ancestor), Some(descendant))
 		};
 
 		Self {
-			config,
-			exhausted: HashSet::new(),
-			phase,
-			principal: principal.clone(),
+			ancestor,
+			ancestor_exhausted: HashSet::new(),
+			complete,
+			descendant,
+			descendant_exhausted: HashSet::new(),
+			next: Direction::Descendant,
 			roots,
-			subjects: subjects.to_vec(),
-			token,
 		}
 	}
 
 	#[must_use]
 	pub(crate) fn complete(&self) -> bool {
-		matches!(self.phase, Phase::Complete)
+		self.complete
 	}
 
 	#[must_use]
 	pub(crate) fn outcome(&self, state: &State, root: &Key) -> Outcome {
 		match state.ancestor_or_descendant(root) {
-			Outcome::Pending if self.exhausted.contains(root) => Outcome::Exhausted,
+			Outcome::Pending
+				if self.ancestor_exhausted.contains(root)
+					&& self.descendant_exhausted.contains(root) =>
+			{
+				Outcome::Exhausted
+			},
 			outcome => outcome,
 		}
 	}
@@ -399,62 +421,81 @@ impl AncestorOrDescendantSearch {
 	pub(crate) fn take_reads(&mut self, state: &mut State, limit: usize) -> tg::Result<Vec<Read>> {
 		assert!(limit > 0);
 		loop {
-			let reads = match &mut self.phase {
-				Phase::Ancestor(search) => search.take_reads(state, limit)?,
-				Phase::Complete => return Ok(Vec::new()),
-				Phase::Descendant { search } => search.take_reads(state, limit),
-			};
-			if !reads.is_empty() {
-				return Ok(reads);
+			if self.complete {
+				return Ok(Vec::new());
 			}
 
-			let phase = std::mem::replace(&mut self.phase, Phase::Complete);
-			match phase {
-				Phase::Ancestor(mut search) => {
+			if self.roots.iter().all(|root| {
+				state.ancestor_or_descendant(root) != Outcome::Pending
+					|| (self.ancestor_exhausted.contains(root)
+						&& self.descendant_exhausted.contains(root))
+			}) {
+				self.finish(state);
+
+				return Ok(Vec::new());
+			}
+
+			// Give both directions part of the batch so their reads execute concurrently.
+			let mut reads = Vec::new();
+			let both = self.ancestor.is_some() && self.descendant.is_some();
+			let direction = self.next;
+			if both && limit == 1 {
+				self.next = match direction {
+					Direction::Ancestor => Direction::Descendant,
+					Direction::Descendant => Direction::Ancestor,
+				};
+			}
+			let descendant_limit = if both && limit == 1 {
+				usize::from(direction == Direction::Descendant)
+			} else if both {
+				limit.div_ceil(2)
+			} else if self.descendant.is_some() {
+				limit
+			} else {
+				0
+			};
+			if descendant_limit > 0
+				&& let Some(search) = &mut self.descendant
+			{
+				let descendant_reads = search.take_reads(state, descendant_limit);
+				if descendant_reads.is_empty() {
+					let mut search = self.descendant.take().unwrap();
+					if search.finish(state) == Outcome::Exhausted {
+						self.descendant_exhausted
+							.extend(search.unresolved.iter().cloned());
+					}
+					search.reset_visited_if_complete();
+					state.set_descendant(search);
+				} else {
+					reads.extend(descendant_reads);
+				}
+			}
+
+			let remaining = limit - reads.len();
+			if remaining > 0
+				&& let Some(search) = &mut self.ancestor
+			{
+				let ancestor_reads = search.take_reads(state, remaining)?;
+				if ancestor_reads.is_empty() {
+					let mut search = self.ancestor.take().unwrap();
 					search.finish(state);
-					let mut roots = Vec::new();
 					for root in &self.roots {
 						if state.is_authorized(root) {
 							continue;
 						}
 						if search.incomplete.contains(root) {
-							roots.push(root.clone());
+							self.ancestor_exhausted.insert(root.clone());
 						} else {
 							state.deny_ancestor_or_descendant(root);
 						}
 					}
-					if roots.is_empty() {
-						continue;
-					}
-					let descendant = if let Some(mut descendant) = state.take_descendant() {
-						descendant.add_targets(self.config.descendant, roots.clone());
-						descendant
-					} else {
-						let token = self.token.as_ref().map(|(body, resource)| (body, resource));
-						DescendantSearch::new(
-							self.config.descendant,
-							&self.principal,
-							state,
-							&self.subjects,
-							roots.clone(),
-							token,
-						)
-					};
-					self.phase = Phase::Descendant { search: descendant };
-				},
-				Phase::Complete => {},
-				Phase::Descendant { mut search } => {
-					let outcome = search.finish(state);
-					match outcome {
-						Outcome::Authorized | Outcome::Denied => {},
-						Outcome::Exhausted => {
-							self.exhausted.extend(search.unresolved.iter().cloned());
-						},
-						Outcome::Pending => unreachable!(),
-					}
-					search.reset_visited_if_complete();
-					state.set_descendant(search);
-				},
+				} else {
+					reads.extend(ancestor_reads);
+				}
+			}
+
+			if !reads.is_empty() {
+				return Ok(reads);
 			}
 		}
 	}
@@ -465,13 +506,41 @@ impl AncestorOrDescendantSearch {
 		read: Read,
 		output: ReadOutput,
 	) -> tg::Result<()> {
-		match &mut self.phase {
-			Phase::Ancestor(search) => search.apply(state, read, output),
-			Phase::Complete => Err(tg::error!(
-				"received a read after the ancestor or descendant search completed"
+		match read {
+			read @ (Read::AncestorNode { .. }
+			| Read::ObjectParents { .. }
+			| Read::ProcessParents { .. }) => self
+				.ancestor
+				.as_mut()
+				.ok_or_else(|| tg::error!("received a read after the ancestor search completed"))?
+				.apply(state, read, output),
+			read @ (Read::ObjectChildren { .. }
+			| Read::OwnerSandboxes { .. }
+			| Read::ProcessChildren { .. }
+			| Read::ProcessGrants { .. }
+			| Read::SandboxProcesses { .. }
+			| Read::SubjectGrants { .. }) => self
+				.descendant
+				.as_mut()
+				.ok_or_else(|| tg::error!("received a read after the descendant search completed"))?
+				.apply(state, read, output),
+			Read::Member { .. }
+			| Read::Process { .. }
+			| Read::Resolve { .. }
+			| Read::SubtreeObjectChildren { .. }
+			| Read::SubtreeProcessChildren { .. } => Err(tg::error!(
+				"received an invalid read for an ancestor or descendant search"
 			)),
-			Phase::Descendant { search } => search.apply(state, read, output),
 		}
+	}
+
+	fn finish(&mut self, state: &mut State) {
+		self.ancestor = None;
+		if let Some(mut descendant) = self.descendant.take() {
+			descendant.reset_visited_if_complete();
+			state.set_descendant(descendant);
+		}
+		self.complete = true;
 	}
 }
 
@@ -992,6 +1061,59 @@ fn has_derived_proof(permission: tg::authorization::Permission) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn ancestor_and_descendant_searches_share_a_read_batch() {
+		let root = key();
+		let mut state = State::default();
+		let mut search = AncestorOrDescendantSearch::new(
+			crate::authorize::Config::default(),
+			&tg::Principal::Anonymous,
+			std::slice::from_ref(&root),
+			&[tg::authorization::Subject::Public],
+			None,
+			&mut state,
+		);
+
+		let reads = search.take_reads(&mut state, 2).unwrap();
+
+		assert!(
+			reads
+				.iter()
+				.any(|read| matches!(read, Read::AncestorNode { .. }))
+		);
+		assert!(
+			reads
+				.iter()
+				.any(|read| matches!(read, Read::SubjectGrants { .. }))
+		);
+	}
+
+	#[test]
+	fn ancestor_and_descendant_searches_take_turns_with_one_read() {
+		let root = key();
+		let mut state = State::default();
+		let mut search = AncestorOrDescendantSearch::new(
+			crate::authorize::Config::default(),
+			&tg::Principal::Anonymous,
+			std::slice::from_ref(&root),
+			&[tg::authorization::Subject::Public],
+			None,
+			&mut state,
+		);
+		let mut reads = search.take_reads(&mut state, 1).unwrap();
+		let read = reads.pop().unwrap();
+		assert!(matches!(read, Read::SubjectGrants { .. }));
+		let output = ReadOutput::Grants {
+			after: None,
+			grants: Vec::new(),
+		};
+		search.apply(&mut state, read, output).unwrap();
+
+		let reads = search.take_reads(&mut state, 1).unwrap();
+
+		assert!(matches!(reads.as_slice(), [Read::AncestorNode { .. }]));
+	}
 
 	#[test]
 	fn authorization_propagates_across_an_edge_added_after_the_proof() {

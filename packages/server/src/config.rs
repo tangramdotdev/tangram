@@ -2144,12 +2144,7 @@ fn default_dns() -> Vec<Ipv4Addr> {
 
 fn authorization_initial_default() -> AuthorizationSearches {
 	let ancestor = AuthorizationSearch::default();
-	let descendant = AuthorizationSearch {
-		max_depth: 0,
-		max_edges: 0,
-		max_nodes: 0,
-		page_size: ancestor.page_size,
-	};
+	let descendant = AuthorizationSearch::default();
 	let subtree = AuthorizationSubtree {
 		max_depth: 0,
 		max_objects: 0,

@@ -129,7 +129,7 @@ impl Search {
 		self.unresolved.extend(targets);
 		let added = self.unresolved.len() - previous;
 		self.budget.add_root_total(config, added);
-		if added > 0 {
+		if added > 0 && (config.max_edges > 0 || config.max_nodes > 0) {
 			self.exhausted = false;
 		}
 	}
