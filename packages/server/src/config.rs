@@ -735,6 +735,8 @@ pub struct ScyllaStorePrometheusCapacity {
 
 	pub total_query: String,
 
+	pub ttl: Duration,
+
 	pub url: Uri,
 }
 

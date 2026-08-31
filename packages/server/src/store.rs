@@ -48,6 +48,7 @@ impl Store {
 				store::scylla::CapacityConfig {
 					available_query: capacity.available_query.clone(),
 					total_query: capacity.total_query.clone(),
+					ttl: capacity.ttl,
 					url: capacity.url.to_string(),
 				}
 			},

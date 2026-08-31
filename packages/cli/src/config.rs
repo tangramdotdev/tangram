@@ -1107,6 +1107,10 @@ pub struct ScyllaStorePrometheusCapacity {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub total_query: Option<String>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
 }
@@ -3233,10 +3237,12 @@ fn resolve_scylla_store_capacity(
 			let available_query =
 				required(source.available_query, "store.capacity.available_query")?;
 			let total_query = required(source.total_query, "store.capacity.total_query")?;
+			let ttl = source.ttl.unwrap_or(Duration::from_secs(1));
 			let url = required(source.url, "store.capacity.url")?;
 			let target = server::ScyllaStorePrometheusCapacity {
 				available_query,
 				total_query,
+				ttl,
 				url,
 			};
 			server::ScyllaStoreCapacity::Prometheus(target)
@@ -4045,6 +4051,7 @@ mod tests {
 				"kind": "prometheus",
 				"available_query": "sum(kubelet_volume_stats_available_bytes)",
 				"total_query": "sum(kubelet_volume_stats_capacity_bytes)",
+				"ttl": 2.5,
 				"url": "http://127.0.0.1:9090",
 			},
 			"keyspace": "store",
@@ -4062,6 +4069,7 @@ mod tests {
 			capacity.total_query,
 			"sum(kubelet_volume_stats_capacity_bytes)"
 		);
+		assert_eq!(capacity.ttl, Duration::from_millis(2_500));
 		assert_eq!(capacity.url.to_string(), "http://127.0.0.1:9090");
 	}
 

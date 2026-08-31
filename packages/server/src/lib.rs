@@ -500,6 +500,11 @@ impl Server {
 									"the Scylla store capacity total query must not be empty"
 								));
 							}
+							if capacity.ttl.is_zero() {
+								return Err(tg::error!(
+									"the Scylla store capacity TTL must be greater than zero"
+								));
+							}
 						},
 					}
 				},

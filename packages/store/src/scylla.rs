@@ -29,6 +29,7 @@ pub struct Config {
 pub struct CapacityConfig {
 	pub available_query: String,
 	pub total_query: String,
+	pub ttl: std::time::Duration,
 	pub url: String,
 }
 
