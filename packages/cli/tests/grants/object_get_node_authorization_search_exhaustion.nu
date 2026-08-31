@@ -22,9 +22,14 @@ tg --token $alice.token index
 
 let output = tg --token $bob.token object get --availability --bytes --metadata $directory | complete
 success $output "Bob should read the directory node even when its optional subtree authorization is indeterminate."
+assert not ($output.stderr | str contains '"subtree"') "Bob should not see the directory subtree metadata or availability."
 
 let metadata = tg --token $bob.token metadata $directory | complete
 success $metadata "Bob should read the directory metadata even when its optional subtree authorization is indeterminate."
+let metadata = $metadata.stdout | from json
+assert equal ($metadata | columns) [] "Bob should not see the directory subtree metadata."
 
 let availability = tg --token $bob.token availability $directory | complete
 success $availability "Bob should read the directory availability even when its optional subtree authorization is indeterminate."
+let availability = $availability.stdout | from json
+assert equal ($availability | columns) [] "Bob should not see the directory subtree availability."
