@@ -929,8 +929,13 @@ impl State {
 impl FinalSearch {
 	#[must_use]
 	pub(crate) fn new(roots: impl IntoIterator<Item = Key>) -> Self {
-		let queued = roots.into_iter().collect::<BTreeSet<_>>();
-		let pending = queued.iter().cloned().collect();
+		let mut pending = VecDeque::new();
+		let mut queued = BTreeSet::new();
+		for root in roots {
+			if queued.insert(root.clone()) {
+				pending.push_back(root);
+			}
+		}
 
 		Self {
 			deferred: BTreeSet::new(),
@@ -1147,6 +1152,21 @@ mod tests {
 		state.authorize_derived(child);
 
 		assert!(state.is_authorized(&parent));
+	}
+
+	#[test]
+	fn a_final_search_preserves_permission_order() {
+		let subtree = subtree_key(0);
+		let node = (
+			subtree.0.clone(),
+			tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			),
+		);
+		let mut search = FinalSearch::new([subtree.clone(), node]);
+		let mut state = State::default();
+
+		assert_eq!(search.next(&mut state), Some(subtree));
 	}
 
 	#[test]

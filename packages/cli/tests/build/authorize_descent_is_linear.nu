@@ -44,5 +44,5 @@ let reads = open $server.log
 	| values
 	| each { |events| $events | length }
 	| sort
-let expected = $directories | each { 2 }
+let expected = $directories | each { 1 }
 assert equal $reads $expected

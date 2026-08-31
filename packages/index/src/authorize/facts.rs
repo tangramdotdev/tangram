@@ -132,9 +132,19 @@ enum CacheKey {
 	Id(tg::Id),
 	MemberGroups(tg::Id),
 	MemberOrganizations(tg::Id),
+	ObjectParents {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		object: tg::object::Id,
+	},
 	ObjectProcesses(tg::object::Id),
 	Process(tg::process::Id),
 	ProcessObjects(tg::process::Id),
+	ProcessParents {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		process: tg::process::Id,
+	},
 	ResourceGrants(tg::Id),
 	SandboxOwner(tg::sandbox::Id),
 	Specifier(tg::Specifier),
@@ -188,20 +198,36 @@ impl Request {
 			Self::Id { id } => CacheKey::Id(id.clone()),
 			Self::MemberGroups { member } => CacheKey::MemberGroups(member.clone()),
 			Self::MemberOrganizations { member } => CacheKey::MemberOrganizations(member.clone()),
+			Self::ObjectParents {
+				after,
+				limit,
+				object,
+			} => CacheKey::ObjectParents {
+				after: after.clone(),
+				limit: *limit,
+				object: object.clone(),
+			},
 			Self::ObjectProcesses { object } => CacheKey::ObjectProcesses(object.clone()),
 			Self::Process { process } => CacheKey::Process(process.clone()),
 			Self::ProcessObjects { process } => CacheKey::ProcessObjects(process.clone()),
+			Self::ProcessParents {
+				after,
+				limit,
+				process,
+			} => CacheKey::ProcessParents {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			},
 			Self::ResourceGrants { resource } => CacheKey::ResourceGrants(resource.clone()),
 			Self::SandboxOwner { sandbox } => CacheKey::SandboxOwner(sandbox.clone()),
 			Self::Specifier { specifier } => CacheKey::Specifier(specifier.clone()),
 			Self::Tag { tag } => CacheKey::Tag(tag.clone()),
 			Self::TargetTags { target } => CacheKey::TargetTags(target.clone()),
 			Self::ObjectChildren { .. }
-			| Self::ObjectParents { .. }
 			| Self::OwnerSandboxes { .. }
 			| Self::ProcessChildren { .. }
 			| Self::ProcessGrants { .. }
-			| Self::ProcessParents { .. }
 			| Self::SandboxProcesses { .. }
 			| Self::SubjectGrants { .. } => return None,
 		};
@@ -335,11 +361,9 @@ where
 	}
 
 	pub(crate) async fn read(&self, request: Request) -> Response<E> {
-		self.reads.fetch_add(1, Ordering::Relaxed);
-		if let Request::ObjectParents { object, .. } = &request {
-			tracing::debug!(%object, "read object parents for authorization");
-		}
 		let Some(key) = request.cache_key() else {
+			self.record_read(&request);
+
 			return Self::request(self.sender.clone(), request).await;
 		};
 		let response = {
@@ -347,6 +371,7 @@ where
 			match cache.entry(key) {
 				std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
 				std::collections::hash_map::Entry::Vacant(entry) => {
+					self.record_read(&request);
 					let sender = self.sender.clone();
 					let response = Self::request(sender, request).boxed().shared();
 
@@ -357,6 +382,13 @@ where
 		};
 
 		response.await
+	}
+
+	fn record_read(&self, request: &Request) {
+		self.reads.fetch_add(1, Ordering::Relaxed);
+		if let Request::ObjectParents { object, .. } = request {
+			tracing::debug!(%object, "read object parents for authorization");
+		}
 	}
 
 	async fn request(
@@ -523,7 +555,52 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn relationship_pages_are_not_cached() {
+	async fn parent_pages_are_cached() {
+		let requests = Arc::new(AtomicUsize::new(0));
+		let (client, receiver) = channel::<LmdbError>(2);
+		let provide = serve(receiver, 2, {
+			let requests = requests.clone();
+			move |_| {
+				let requests = requests.clone();
+				async move {
+					requests.fetch_add(1, Ordering::SeqCst);
+
+					Ok(ControlFlow::Break(Output::Ids {
+						after: None,
+						ids: Vec::new(),
+					}))
+				}
+			}
+		});
+		let authorize = async move {
+			let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+			let object_request = Request::ObjectParents {
+				after: None,
+				limit: 1,
+				object,
+			};
+			let first = client.read(object_request.clone()).await?;
+			assert!(matches!(first, ControlFlow::Break(Output::Ids { .. })));
+			let second = client.read(object_request).await?;
+			assert!(matches!(second, ControlFlow::Break(Output::Ids { .. })));
+			let process_request = Request::ProcessParents {
+				after: None,
+				limit: 1,
+				process: tg::process::Id::new(),
+			};
+			let third = client.read(process_request.clone()).await?;
+			assert!(matches!(third, ControlFlow::Break(Output::Ids { .. })));
+			client.read(process_request).await
+		};
+		let (response, ()) = futures::future::join(authorize, provide).await;
+
+		let response = response.unwrap();
+		assert!(matches!(response, ControlFlow::Break(Output::Ids { .. })));
+		assert_eq!(requests.load(Ordering::SeqCst), 2);
+	}
+
+	#[tokio::test]
+	async fn object_child_pages_are_not_cached() {
 		let requests = Arc::new(AtomicUsize::new(0));
 		let (client, receiver) = channel::<LmdbError>(2);
 		let provide = serve(receiver, 2, {
