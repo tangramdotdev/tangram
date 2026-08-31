@@ -39,6 +39,7 @@ struct Reader {
 	error: Option<tg::Error>,
 	input: BoxStream<'static, InputEvent>,
 	input_ended: bool,
+	progress_stream: tg::process::stdio::Stream,
 	sources: BTreeMap<tg::process::stdio::Stream, usize>,
 	stderr_position: u64,
 	stdout_position: u64,
@@ -133,14 +134,19 @@ impl Session {
 			*sources.entry(stream_name).or_default() += 1;
 			inputs.push(input);
 		}
+		// When stdout and stderr share a tty, the pty merges the streams and reads request only stdout, so tag progress as stdout.
+		let progress_stream = if shared_tty {
+			tg::process::stdio::Stream::Stdout
+		} else {
+			tg::process::stdio::Stream::Stderr
+		};
 		if let Some(progress) = stderr_progress {
-			let stream_name = tg::process::stdio::Stream::Stderr;
 			let input = progress
 				.map(|result| InputEvent::Progress(Some(result)))
 				.chain(stream::once(future::ready(InputEvent::Progress(None))))
 				.boxed();
-			eof.remove(&stream_name);
-			*sources.entry(stream_name).or_default() += 1;
+			eof.remove(&progress_stream);
+			*sources.entry(progress_stream).or_default() += 1;
 			inputs.push(input);
 		}
 		let input = stream::select_all(inputs).boxed();
@@ -153,6 +159,7 @@ impl Session {
 			error: None,
 			input,
 			input_ended: false,
+			progress_stream,
 			sources,
 			stderr_position: 0,
 			stdout_position: 0,
@@ -273,7 +280,7 @@ impl Reader {
 				self.fail(tg::error!("the sandbox stdio stream ended unexpectedly"));
 			},
 			InputEvent::Progress(None) => {
-				self.end_source(tg::process::stdio::Stream::Stderr);
+				self.end_source(self.progress_stream);
 			},
 			InputEvent::Sandbox { event: None, .. } => (),
 			InputEvent::Progress(Some(Err(error)))
@@ -282,7 +289,7 @@ impl Reader {
 				..
 			} => self.fail(error),
 			InputEvent::Progress(Some(Ok(bytes))) => {
-				self.push(bytes, tg::process::stdio::Stream::Stderr);
+				self.push(bytes, self.progress_stream);
 			},
 			InputEvent::Sandbox {
 				event: Some(Ok(tangram_sandbox::stdio::read::Event::Chunk(chunk))),
