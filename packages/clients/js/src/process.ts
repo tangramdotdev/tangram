@@ -326,8 +326,12 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		arg.tokens = this.#tokens;
 		let output = await tg.client.getProcess(this.#id, arg);
-		if (output.tokens !== undefined && output.tokens !== null) {
-			tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
+		if (
+			output.tokens !== undefined &&
+			output.tokens !== null &&
+			!tg.Authorization.Tokens.isEmpty(output.tokens)
+		) {
+			this.#tokens = { ...output.tokens };
 		}
 		this.#location =
 			output.location === undefined || output.location === null

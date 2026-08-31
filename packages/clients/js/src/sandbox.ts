@@ -52,7 +52,13 @@ export class Sandbox {
 			arg.location = this.#location;
 		}
 		let output = await tg.client.getSandbox(this.#id, arg);
-		tg.Authorization.Tokens.inherit(this.#tokens, output.tokens ?? {});
+		if (
+			output.tokens !== undefined &&
+			output.tokens !== null &&
+			!tg.Authorization.Tokens.isEmpty(output.tokens)
+		) {
+			this.#tokens = { ...output.tokens };
+		}
 		this.#location =
 			output.location === undefined || output.location === null
 				? null

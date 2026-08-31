@@ -182,8 +182,12 @@ export namespace Object {
 					tokens: this.#tokens,
 				};
 				let output = await tg.client.getObject(this.#id!, arg);
-				if (output.tokens !== undefined && output.tokens !== null) {
-					tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
+				if (
+					output.tokens !== undefined &&
+					output.tokens !== null &&
+					!tg.Authorization.Tokens.isEmpty(output.tokens)
+				) {
+					this.#tokens = { ...output.tokens };
 				}
 				this.#object = tg.Object.Object.fromData(output.data);
 			}

@@ -325,6 +325,9 @@ where
 	}
 
 	pub(crate) async fn read(&self, request: Request) -> Response<E> {
+		if let Request::ObjectParents { object, .. } = &request {
+			tracing::debug!(%object, "read object parents for authorization");
+		}
 		let Some(key) = request.cache_key() else {
 			return Self::request(self.sender.clone(), request).await;
 		};

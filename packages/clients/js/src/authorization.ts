@@ -3,6 +3,10 @@ export namespace Authorization {
 	export type Tokens = Record<string, Token>;
 
 	export namespace Tokens {
+		export let isEmpty = (tokens: Authorization.Tokens): boolean => {
+			return Object.keys(tokens).length === 0;
+		};
+
 		export let local = (
 			tokens: Authorization.Tokens,
 		): Authorization.Token | null => {
