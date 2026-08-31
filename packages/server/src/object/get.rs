@@ -10,6 +10,7 @@ use {
 		io::{Read as _, Seek as _},
 		path::PathBuf,
 	},
+	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -615,7 +616,10 @@ impl Server {
 		id: &tg::object::Id,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = self.store.try_get_object_sync(&arg)?;
 		let object = output.object;
 		let Some(object) = object else {
@@ -716,29 +720,98 @@ impl Server {
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
+		let output = ids
+			.iter()
+			.zip(output)
+			.map(|(id, bytes)| async move {
+				if bytes.is_some() {
+					return Ok(bytes);
+				}
+
+				self.try_get_object_bytes_archive(id).await
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
 		Ok(output)
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = self
 			.store
 			.try_get_object(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let object = output.object;
-		let Some(object) = object else {
+		if let Some(object) = output.object {
+			if let Some(bytes) = object.bytes {
+				return Ok(Some(bytes.into_owned().into()));
+			}
+			if self.checkouts_enabled()
+				&& let Some(checkout_pointer) = object.checkout_pointer
+				&& let Some(bytes) = self.try_read_checkout_pointer(&checkout_pointer).await?
+			{
+				return Ok(Some(bytes));
+			}
+		}
+
+		self.try_get_object_bytes_archive(id).await
+	}
+
+	async fn try_get_object_bytes_archive(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let Some(archive) = &self.archive else {
 			return Ok(None);
 		};
-		if let Some(bytes) = object.bytes {
-			return Ok(Some(bytes.into_owned().into()));
+		let object =
+			self.index.try_get_object(id).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the object from the index"),
+			)?;
+		if object.is_none() {
+			return Ok(None);
 		}
-		if self.checkouts_enabled()
-			&& let Some(checkout_pointer) = object.checkout_pointer
-		{
-			return self.try_read_checkout_pointer(&checkout_pointer).await;
-		}
-		Ok(None)
+		let arg = tangram_archive::object::get::Arg { id: id.clone() };
+		let output = archive.try_get_object(arg).await.map_err(
+			|error| tg::error!(!error, %id, "failed to get the object from the archive"),
+		)?;
+		let Some(object) = output.object else {
+			return Ok(None);
+		};
+		self.spawn_put_object_in_store_task(id.clone(), object.bytes.clone());
+
+		Ok(Some(object.bytes))
+	}
+
+	fn spawn_put_object_in_store_task(&self, id: tg::object::Id, bytes: Bytes) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				let put = uuid::Uuid::now_v7().into_bytes();
+				let object = crate::store::object::put::Arg {
+					bytes: Some(bytes),
+					checkout_pointer: None,
+					id: id.clone(),
+					length: None,
+					put,
+				};
+				let result = if let Some(cache) = &server.config.object.cache {
+					let partition = rand::random_range(0..cache.partition_total);
+					let arg = crate::store::object::cache::put::object::Arg {
+						cache: uuid::Uuid::now_v7().into_bytes(),
+						object,
+						partition,
+					};
+					server.store.put_object_cache_entry_with_object(arg).await
+				} else {
+					server.store.put_object(object).await
+				};
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), %id, "failed to put an object in the store after reading it from the archive");
+				}
+			}
+		});
 	}
 
 	async fn try_read_checkout_pointer(

@@ -9,7 +9,7 @@ mod retry;
 
 pub(crate) use retry::retry;
 
-pub(crate) mod outbox;
+pub(crate) mod index;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 #[cfg(feature = "turso")]

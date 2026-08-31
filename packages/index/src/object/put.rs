@@ -10,6 +10,8 @@ pub struct Arg {
 	pub id: tg::object::Id,
 	#[tangram_serialize(id = 3)]
 	pub metadata: tg::object::Metadata,
+	#[tangram_serialize(id = 7)]
+	pub put: [u8; 16],
 	#[tangram_serialize(id = 4)]
 	pub storage: Storage,
 	#[tangram_serialize(id = 5)]

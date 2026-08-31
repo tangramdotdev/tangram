@@ -3,8 +3,8 @@ use tangram_client::prelude::*;
 pub use tangram_client::usage::{Account, Aggregate, Period, PeriodKind};
 
 pub mod aggregate;
-pub mod clean;
 pub mod compute;
+pub mod expire;
 pub mod storage;
 
 #[derive(

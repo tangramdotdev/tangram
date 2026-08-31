@@ -17,7 +17,14 @@ pub struct Output {
 	pub checkouts: Vec<tg::Id>,
 	pub done: bool,
 	pub grants: usize,
-	pub objects: Vec<tg::object::Id>,
+	pub objects: Vec<Object>,
 	pub processes: Vec<tg::process::Id>,
 	pub sandboxes: Vec<tg::sandbox::Id>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Object {
+	pub id: tg::object::Id,
+	pub put: [u8; 16],
+	pub touched_at: i64,
 }

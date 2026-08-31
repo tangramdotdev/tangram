@@ -15,12 +15,12 @@ let instance = instance --cloud --primary-region a --regions $regions --config $
 
 # Start the remote server.
 let remote = server spawn --instance $instance --region a --preserve-keys --name remote --directory $remote_directory --url (instance region url $instance a) --config {
-	roles: [cleaner http indexer scheduler],
+	roles: [http indexer scheduler],
 }
 
 # Start a separate indexer server that shares the remote's databases, as the cloud does.
 let indexer = server spawn --instance $instance --region a --preserve-keys --name indexer --directory $indexer_directory --config {
-	roles: [cleaner indexer],
+	roles: [indexer],
 }
 
 # Create the runner.
@@ -30,7 +30,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	roles: [cleaner indexer runner],
+	roles: [indexer runner],
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
 }
 

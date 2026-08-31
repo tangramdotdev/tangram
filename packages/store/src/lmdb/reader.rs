@@ -112,10 +112,26 @@ impl Store {
 		request: crate::read::Request,
 	) -> tg::Result<crate::read::Response> {
 		let response = match request {
-			crate::read::Request::DequeueOutboxFragments(arg) => {
+			crate::read::Request::DequeueObjectArchiveOutboxEntries(arg) => {
+				let output = Self::dequeue_object_archive_outbox_entries_with_transaction(
+					db,
+					transaction,
+					&arg,
+				)?;
+				crate::read::Response::DequeueObjectArchiveOutboxEntries(output)
+			},
+			crate::read::Request::DequeueObjectIndexOutboxFragments(arg) => {
+				let output = Self::dequeue_object_index_outbox_fragments_with_transaction(
+					db,
+					transaction,
+					&arg,
+				)?;
+				crate::read::Response::DequeueObjectIndexOutboxFragments(output)
+			},
+			crate::read::Request::GetObjectCacheEntries(arg) => {
 				let output =
-					Self::dequeue_outbox_fragments_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::DequeueOutboxFragments(output)
+					Self::get_object_cache_entries_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetObjectCacheEntries(output)
 			},
 			#[cfg(test)]
 			crate::read::Request::GetTransactionId => {
@@ -126,21 +142,20 @@ impl Store {
 				crate::read::Response::TryGetLogLength(output)
 			},
 			crate::read::Request::TryGetObject(arg) => {
-				let output = Self::try_get_object_inner_with_transaction(db, transaction, &arg.id)?;
-				let output = crate::object::get::Output { object: output };
+				let output = Self::try_get_object_with_arg_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetObject(output)
 			},
 			crate::read::Request::TryGetObjectBatch(arg) => {
 				let output = Self::try_get_object_batch_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetObjectBatch(output)
 			},
-			crate::read::Request::TryGetOutboxBatchAtOrBefore(arg) => {
-				let output = Self::try_get_outbox_batch_at_or_before_with_transaction(
+			crate::read::Request::TryGetObjectIndexOutboxBatchAtOrBefore(arg) => {
+				let output = Self::try_get_object_index_outbox_batch_at_or_before_with_transaction(
 					db,
 					transaction,
 					&arg,
 				)?;
-				crate::read::Response::TryGetOutboxBatchAtOrBefore(output)
+				crate::read::Response::TryGetObjectIndexOutboxBatchAtOrBefore(output)
 			},
 			crate::read::Request::TryReadLog(arg) => {
 				let output = Self::try_read_log_with_transaction(db, transaction, &arg)?;

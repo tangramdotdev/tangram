@@ -181,26 +181,50 @@ impl Store {
 		match request {
 			Request::DeleteLog(arg) => vec![(Request::DeleteLog(arg), 1)],
 			Request::DeleteObject(request) => vec![(Request::DeleteObject(request), 1)],
+			Request::DeleteObjectArchiveOutboxEntries(arg) => {
+				Self::split_items(arg.entries, write_batch_size, |entries| {
+					Request::DeleteObjectArchiveOutboxEntries(
+						crate::object::archive::outbox::delete::Arg { entries },
+					)
+				})
+			},
 			Request::DeleteObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::DeleteObjectBatch)
 			},
-			Request::DeleteOutboxFragments(arg) => {
+			Request::DeleteObjectCacheEntry(arg) => {
+				vec![(Request::DeleteObjectCacheEntry(arg), 1)]
+			},
+			Request::DeleteObjectIndexOutboxBatch(arg) => {
+				vec![(Request::DeleteObjectIndexOutboxBatch(arg), 1)]
+			},
+			Request::DeleteObjectIndexOutboxFragments(arg) => {
 				Self::split_items(arg.fragments, write_batch_size, |fragments| {
-					Request::DeleteOutboxFragments(crate::outbox::fragment::delete::Arg {
-						fragments,
-					})
+					Request::DeleteObjectIndexOutboxFragments(
+						crate::object::index::outbox::fragment::delete::Arg { fragments },
+					)
 				})
 			},
-			Request::EnqueueOutboxBatch(batch) => {
+			Request::EnqueueObjectIndexOutboxBatch(batch) => {
 				let size = batch.fragments.len().max(1);
-				vec![(Request::EnqueueOutboxBatch(batch), size)]
+				vec![(Request::EnqueueObjectIndexOutboxBatch(batch), size)]
 			},
 			Request::PutLogBatch(args) => {
 				Self::split_items(args, write_batch_size, Request::PutLogBatch)
 			},
 			Request::PutObject(request) => vec![(Request::PutObject(request), 1)],
+			Request::PutObjectArchiveOutboxEntries(arg) => {
+				Self::split_items(arg.entries, write_batch_size, |entries| {
+					Request::PutObjectArchiveOutboxEntries(
+						crate::object::archive::outbox::put::Arg { entries },
+					)
+				})
+			},
 			Request::PutObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::PutObjectBatch)
+			},
+			Request::PutObjectCacheEntry(arg) => vec![(Request::PutObjectCacheEntry(arg), 1)],
+			Request::PutObjectCacheEntryWithObject(arg) => {
+				vec![(Request::PutObjectCacheEntryWithObject(arg), 1)]
 			},
 		}
 	}
@@ -237,14 +261,23 @@ impl Store {
 			Request::DeleteObject(request) => {
 				Self::delete_inner_with_transaction(db, transaction, request)
 			},
+			Request::DeleteObjectArchiveOutboxEntries(arg) => {
+				Self::delete_object_archive_outbox_entries_with_transaction(db, transaction, arg)
+			},
 			Request::DeleteObjectBatch(requests) => requests.into_iter().try_for_each(|request| {
 				Self::delete_inner_with_transaction(db, transaction, request)
 			}),
-			Request::DeleteOutboxFragments(arg) => {
-				Self::delete_outbox_fragments_with_transaction(db, transaction, arg)
+			Request::DeleteObjectCacheEntry(arg) => {
+				Self::delete_object_cache_entry_with_transaction(db, transaction, arg)
 			},
-			Request::EnqueueOutboxBatch(batch) => {
-				Self::enqueue_outbox_batch_with_transaction(db, transaction, batch)
+			Request::DeleteObjectIndexOutboxBatch(arg) => {
+				Self::delete_object_index_outbox_batch_with_transaction(db, transaction, arg)
+			},
+			Request::DeleteObjectIndexOutboxFragments(arg) => {
+				Self::delete_object_index_outbox_fragments_with_transaction(db, transaction, arg)
+			},
+			Request::EnqueueObjectIndexOutboxBatch(batch) => {
+				Self::enqueue_object_index_outbox_batch_with_transaction(db, transaction, batch)
 			},
 			Request::PutLogBatch(args) => args
 				.iter()
@@ -252,9 +285,18 @@ impl Store {
 			Request::PutObject(request) => {
 				Self::put_inner_with_transaction(db, transaction, request)
 			},
+			Request::PutObjectArchiveOutboxEntries(arg) => {
+				Self::put_object_archive_outbox_entries_with_transaction(db, transaction, arg)
+			},
 			Request::PutObjectBatch(requests) => requests
 				.into_iter()
 				.try_for_each(|request| Self::put_inner_with_transaction(db, transaction, request)),
+			Request::PutObjectCacheEntry(arg) => {
+				Self::put_object_cache_entry_with_transaction(db, transaction, arg)
+			},
+			Request::PutObjectCacheEntryWithObject(arg) => {
+				Self::put_object_cache_entry_with_object_with_transaction(db, transaction, arg)
+			},
 		}
 	}
 

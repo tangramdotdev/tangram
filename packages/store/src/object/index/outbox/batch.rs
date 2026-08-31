@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Id([u8; 16]);
 
+pub mod delete;
 pub mod enqueue;
 pub mod get;
 

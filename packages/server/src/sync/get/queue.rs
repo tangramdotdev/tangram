@@ -181,6 +181,7 @@ impl Session {
 								marked: None,
 								metadata: None,
 								permissions: None,
+								put: None,
 								requested: Some(requested),
 								storage: None,
 							};
@@ -216,6 +217,7 @@ impl Session {
 						marked: None,
 						metadata: Some(metadata.clone()),
 						permissions,
+						put: Some(object.put),
 						requested: None,
 						storage: Some(storage.clone()),
 					};
@@ -273,6 +275,7 @@ impl Session {
 							marked: None,
 							metadata: None,
 							permissions: None,
+							put: None,
 							requested: None,
 							storage: None,
 						};
@@ -289,6 +292,7 @@ impl Session {
 								bytes: None,
 								id,
 								metadata: Some(metadata.clone()),
+								put: uuid::Uuid::now_v7().into_bytes(),
 							};
 							checkout_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the blob to the checkout task")
@@ -344,6 +348,7 @@ impl Session {
 					bytes: None,
 					id: id.unwrap_blob_ref().clone(),
 					metadata: None,
+					put: uuid::Uuid::now_v7().into_bytes(),
 				};
 				checkout_sender
 					.send(node)
@@ -373,6 +378,7 @@ impl Session {
 					marked: None,
 					metadata: None,
 					permissions: None,
+					put: None,
 					requested: None,
 					storage: None,
 				};

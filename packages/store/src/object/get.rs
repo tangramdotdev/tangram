@@ -5,6 +5,7 @@ pub mod batch;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub id: tg::object::Id,
+	pub put: Option<[u8; 16]>,
 }
 
 #[derive(Clone, Debug)]

@@ -13,6 +13,8 @@ use {
 pub struct Config {
 	pub advanced: Advanced,
 
+	pub archive: Option<Archive>,
+
 	pub authentication: Authentication,
 
 	pub authorization: Authorization,
@@ -22,8 +24,6 @@ pub struct Config {
 	pub checkin: Checkin,
 
 	pub checkouts: bool,
-
-	pub cleaner: Cleaner,
 
 	pub database: Database,
 
@@ -76,10 +76,69 @@ pub struct Config {
 	pub write: Write,
 }
 
+#[derive(Clone, Debug)]
+pub enum Archive {
+	S3(S3Archive),
+}
+
+#[derive(Clone, Debug)]
+pub struct S3Archive {
+	pub access_key: String,
+
+	pub bucket: String,
+
+	pub endpoint: Uri,
+
+	pub express: bool,
+
+	pub pool: ArchivePool,
+
+	pub reconnect: Reconnect,
+
+	pub region: String,
+
+	pub secret_key: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ArchivePool {
+	pub max: usize,
+
+	pub min: usize,
+
+	pub ttl: Option<Duration>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CapacityThreshold {
+	Bytes(CapacityThresholdDirection<u64>),
+
+	Ratio(CapacityThresholdDirection<f64>),
+}
+
+#[derive(Clone, Debug)]
+pub enum CapacityThresholdDirection<T> {
+	Above(CapacityThresholdAbove<T>),
+
+	Below(CapacityThresholdBelow<T>),
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityThresholdAbove<T> {
+	pub start_above: T,
+
+	pub stop_at: T,
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityThresholdBelow<T> {
+	pub start_below: T,
+
+	pub stop_at: T,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
-	Cleaner,
-
 	Http,
 
 	Indexer,
@@ -309,17 +368,6 @@ pub struct CheckinDirectory {
 }
 
 #[derive(Clone, Debug)]
-pub struct Cleaner {
-	pub batch_size: usize,
-
-	pub concurrency: usize,
-
-	pub partition_end: u64,
-
-	pub partition_start: u64,
-}
-
-#[derive(Clone, Debug)]
 pub enum Database {
 	Postgres(PostgresDatabase),
 
@@ -329,13 +377,15 @@ pub enum Database {
 }
 
 #[derive(Clone, Debug)]
-pub struct DatabaseOutbox {
+pub struct DatabaseIndexOutbox {
 	pub batch_size: usize,
+
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
 pub struct PostgresDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub read: PostgresDatabaseConnection,
 
@@ -362,7 +412,7 @@ pub struct DatabasePool {
 
 #[derive(Clone, Debug)]
 pub struct SqliteDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub path: PathBuf,
 
@@ -373,7 +423,7 @@ pub struct SqliteDatabase {
 
 #[derive(Clone, Debug)]
 pub struct TursoDatabase {
-	pub outbox: DatabaseOutbox,
+	pub index_outbox: DatabaseIndexOutbox,
 
 	pub path: PathBuf,
 
@@ -453,29 +503,48 @@ pub struct LmdbIndex {
 	pub write_operation_batch_size: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Indexer {
-	pub database_outbox_wakeup_interval: Duration,
+	pub cleaning: IndexerCleaning,
 
 	pub log_compaction: IndexerLogCompaction,
 
-	pub max_process_depth: usize,
+	pub partitions: IndexerPartitions,
 
-	pub message_retry: Retry,
-
-	pub message_timeout: Duration,
-
-	pub object_outbox_wakeup_interval: Duration,
-
-	pub partition_end: u64,
-
-	pub partition_start: u64,
-
-	pub poll_interval: Duration,
+	pub request: IndexerRequest,
 
 	pub updates: IndexerUpdates,
 
 	pub usage: IndexerUsage,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCleaning {
+	pub batch_size: usize,
+
+	pub capacity: Option<CapacityThreshold>,
+
+	pub concurrency: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerPartitions {
+	pub end: u64,
+
+	pub start: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerRequest {
+	pub poll_interval: Duration,
+
+	pub retry: Retry,
+
+	pub timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -493,7 +562,7 @@ pub struct IndexerLogCompaction {
 pub struct IndexerUsage {
 	pub aggregation: IndexerUsageAggregation,
 
-	pub storage: IndexerUpdate,
+	pub expiration: IndexerUsageExpiration,
 }
 
 #[derive(Clone, Debug)]
@@ -507,11 +576,24 @@ pub struct IndexerUsageAggregation {
 	pub poll_interval: Duration,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
+pub struct IndexerUsageExpiration {
+	pub batch_size: usize,
+
+	pub enabled: bool,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
 pub struct IndexerUpdates {
 	pub grants: IndexerUpdate,
 
+	pub max_process_depth: usize,
+
 	pub nodes: IndexerUpdate,
+
+	pub storage: IndexerUpdate,
 }
 
 #[derive(Clone, Debug)]
@@ -540,11 +622,17 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug)]
 pub struct Object {
+	pub archive_outbox: ObjectArchiveOutbox,
+
+	pub cache: Option<ObjectCache>,
+
 	pub grant_time_to_live: Duration,
 
 	pub grant_time_to_touch: Duration,
 
-	pub outbox: ObjectOutbox,
+	pub index_outbox: ObjectIndexOutbox,
+
+	pub put_timeout: Duration,
 
 	pub time_to_index: Duration,
 
@@ -554,12 +642,38 @@ pub struct Object {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectOutbox {
+pub struct ObjectCache {
+	pub batch_size: usize,
+
+	pub capacity: CapacityThreshold,
+
+	pub partition_total: u64,
+
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct ObjectArchiveOutbox {
+	pub batch_size: usize,
+
+	pub partition_total: u64,
+
+	pub retry: Retry,
+
+	pub wakeup_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct ObjectIndexOutbox {
 	pub batch_size: usize,
 
 	pub fragment_size: usize,
 
 	pub partition_total: u64,
+
+	pub retry: Retry,
+
+	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -593,6 +707,8 @@ pub struct MemoryStore {}
 pub struct ScyllaStore {
 	pub addr: String,
 
+	pub capacity: Option<ScyllaStoreCapacity>,
+
 	pub connections: Option<usize>,
 
 	pub keepalive: bool,
@@ -606,6 +722,20 @@ pub struct ScyllaStore {
 	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
 
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ScyllaStoreCapacity {
+	Prometheus(ScyllaStorePrometheusCapacity),
+}
+
+#[derive(Clone, Debug)]
+pub struct ScyllaStorePrometheusCapacity {
+	pub available_query: String,
+
+	pub total_query: String,
+
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug)]
@@ -1113,12 +1243,12 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
+			archive: None,
 			authentication: Authentication::default(),
 			authorization: Authorization::default(),
 			billing: None,
 			checkin: Checkin::default(),
 			checkouts: true,
-			cleaner: Cleaner::default(),
 			database: Database::default(),
 			directory: None,
 			http: Http::default(),
@@ -1144,6 +1274,73 @@ impl Default for Config {
 			vfs: None,
 			watch: Some(Watch::default()),
 			write: Write::default(),
+		}
+	}
+}
+
+impl Default for ArchivePool {
+	fn default() -> Self {
+		Self {
+			max: 64,
+			min: 8,
+			ttl: Some(Duration::from_mins(5)),
+		}
+	}
+}
+
+impl CapacityThreshold {
+	pub(crate) fn should_start(&self, available: u64, total: u64) -> bool {
+		if total == 0 {
+			return true;
+		}
+		match self {
+			Self::Bytes(threshold) => {
+				let used = total.saturating_sub(available);
+				threshold.should_start(available, used)
+			},
+			Self::Ratio(threshold) => {
+				let used = total.saturating_sub(available);
+				let available = capacity_ratio(available, total);
+				let used = capacity_ratio(used, total);
+				threshold.should_start(available, used)
+			},
+		}
+	}
+
+	pub(crate) fn should_stop(&self, available: u64, total: u64) -> bool {
+		if total == 0 {
+			return false;
+		}
+		match self {
+			Self::Bytes(threshold) => {
+				let used = total.saturating_sub(available);
+				threshold.should_stop(available, used)
+			},
+			Self::Ratio(threshold) => {
+				let used = total.saturating_sub(available);
+				let available = capacity_ratio(available, total);
+				let used = capacity_ratio(used, total);
+				threshold.should_stop(available, used)
+			},
+		}
+	}
+}
+
+impl<T> CapacityThresholdDirection<T>
+where
+	T: Copy + PartialOrd,
+{
+	fn should_start(&self, free: T, used: T) -> bool {
+		match self {
+			Self::Above(threshold) => used > threshold.start_above,
+			Self::Below(threshold) => free < threshold.start_below,
+		}
+	}
+
+	fn should_stop(&self, free: T, used: T) -> bool {
+		match self {
+			Self::Above(threshold) => used <= threshold.stop_at,
+			Self::Below(threshold) => free >= threshold.stop_at,
 		}
 	}
 }
@@ -1196,17 +1393,6 @@ impl Default for CheckinDirectory {
 	}
 }
 
-impl Default for Cleaner {
-	fn default() -> Self {
-		Self {
-			batch_size: 1024,
-			concurrency: 1,
-			partition_end: 1,
-			partition_start: 0,
-		}
-	}
-}
-
 impl Default for Database {
 	fn default() -> Self {
 		Self::Sqlite(SqliteDatabase::default())
@@ -1215,18 +1401,21 @@ impl Default for Database {
 
 impl Database {
 	#[must_use]
-	pub fn outbox(&self) -> &DatabaseOutbox {
+	pub fn index_outbox(&self) -> &DatabaseIndexOutbox {
 		match self {
-			Self::Postgres(config) => &config.outbox,
-			Self::Sqlite(config) => &config.outbox,
-			Self::Turso(config) => &config.outbox,
+			Self::Postgres(config) => &config.index_outbox,
+			Self::Sqlite(config) => &config.index_outbox,
+			Self::Turso(config) => &config.index_outbox,
 		}
 	}
 }
 
-impl Default for DatabaseOutbox {
+impl Default for DatabaseIndexOutbox {
 	fn default() -> Self {
-		Self { batch_size: 1024 }
+		Self {
+			batch_size: 1024,
+			wakeup_interval: Duration::from_mins(1),
+		}
 	}
 }
 
@@ -1234,7 +1423,7 @@ impl Default for PostgresDatabase {
 	fn default() -> Self {
 		let connection = PostgresDatabaseConnection::default();
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			read: connection.clone(),
 			retry: database_retry_default(),
 			write: connection,
@@ -1254,7 +1443,7 @@ impl Default for PostgresDatabaseConnection {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1265,7 +1454,7 @@ impl Default for SqliteDatabase {
 impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
-			outbox: DatabaseOutbox::default(),
+			index_outbox: DatabaseIndexOutbox::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1353,20 +1542,30 @@ impl Default for LmdbIndex {
 	}
 }
 
-impl Default for Indexer {
+impl Default for IndexerCleaning {
 	fn default() -> Self {
 		Self {
-			database_outbox_wakeup_interval: Duration::from_mins(1),
-			log_compaction: IndexerLogCompaction::default(),
-			max_process_depth: 1024,
-			message_retry: message_retry_default(),
-			message_timeout: Duration::from_secs(10),
-			object_outbox_wakeup_interval: Duration::from_mins(1),
-			partition_end: 1,
-			partition_start: 0,
+			batch_size: 1024,
+			capacity: None,
+			concurrency: 1,
+			enabled: true,
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerPartitions {
+	fn default() -> Self {
+		Self { end: 1, start: 0 }
+	}
+}
+
+impl Default for IndexerRequest {
+	fn default() -> Self {
+		Self {
 			poll_interval: Duration::from_millis(10),
-			updates: IndexerUpdates::default(),
-			usage: IndexerUsage::default(),
+			retry: message_retry_default(),
+			timeout: Duration::from_secs(10),
 		}
 	}
 }
@@ -1389,6 +1588,27 @@ impl Default for IndexerUsageAggregation {
 			concurrency: 1,
 			enabled: true,
 			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerUsageExpiration {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			enabled: true,
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerUpdates {
+	fn default() -> Self {
+		Self {
+			grants: IndexerUpdate::default(),
+			max_process_depth: 1024,
+			nodes: IndexerUpdate::default(),
+			storage: IndexerUpdate::default(),
 		}
 	}
 }
@@ -1417,9 +1637,12 @@ impl Default for NatsMessenger {
 impl Default for Object {
 	fn default() -> Self {
 		Self {
+			archive_outbox: ObjectArchiveOutbox::default(),
+			cache: None,
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			outbox: ObjectOutbox::default(),
+			index_outbox: ObjectIndexOutbox::default(),
+			put_timeout: default_object_put_timeout(),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1427,12 +1650,41 @@ impl Default for Object {
 	}
 }
 
-impl Default for ObjectOutbox {
+impl Default for ObjectCache {
+	fn default() -> Self {
+		let capacity =
+			CapacityThreshold::Ratio(CapacityThresholdDirection::Below(CapacityThresholdBelow {
+				start_below: 0.3,
+				stop_at: 0.4,
+			}));
+		Self {
+			batch_size: 1024,
+			capacity,
+			partition_total: 1,
+			poll_interval: Duration::from_secs(10),
+		}
+	}
+}
+
+impl Default for ObjectArchiveOutbox {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			partition_total: 1,
+			retry: object_outbox_retry_default(),
+			wakeup_interval: Duration::from_mins(1),
+		}
+	}
+}
+
+impl Default for ObjectIndexOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
 			fragment_size: 1024,
 			partition_total: 1,
+			retry: object_outbox_retry_default(),
+			wakeup_interval: Duration::from_mins(1),
 		}
 	}
 }
@@ -1481,6 +1733,18 @@ impl Default for Process {
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
+impl Default for Reconnect {
+	fn default() -> Self {
+		let options = tangram_futures::retry::Options::default();
+		Self {
+			backoff: options.backoff,
+			jitter: options.jitter,
+			max_delay: options.max_delay,
+			max_retries: options.max_retries,
 		}
 	}
 }
@@ -1897,6 +2161,14 @@ fn authorization_initial_default() -> AuthorizationSearches {
 	}
 }
 
+#[expect(
+	clippy::cast_precision_loss,
+	reason = "the ratio does not require integer precision"
+)]
+fn capacity_ratio(value: u64, total: u64) -> f64 {
+	value as f64 / total as f64
+}
+
 fn database_retry_default() -> Retry {
 	let options = tangram_futures::retry::Options {
 		max_retries: 20,
@@ -1921,6 +2193,20 @@ fn message_retry_default() -> Retry {
 		max_delay: options.max_delay,
 		max_retries: options.max_retries,
 	}
+}
+
+fn object_outbox_retry_default() -> Retry {
+	// Keep the default retry duration longer than the default object put timeout.
+	Retry {
+		backoff: Duration::from_millis(25),
+		jitter: Duration::from_millis(25),
+		max_delay: Duration::from_secs(1),
+		max_retries: 64,
+	}
+}
+
+fn default_object_put_timeout() -> Duration {
+	Duration::from_secs(30)
 }
 
 fn default_time_to_index() -> Duration {
@@ -1975,15 +2261,9 @@ fn default_authorization_tokens() -> Option<TokenKeys> {
 }
 
 fn default_roles() -> BTreeSet<Role> {
-	[
-		Role::Cleaner,
-		Role::Http,
-		Role::Indexer,
-		Role::Runner,
-		Role::Scheduler,
-	]
-	.into_iter()
-	.collect()
+	[Role::Http, Role::Indexer, Role::Runner, Role::Scheduler]
+		.into_iter()
+		.collect()
 }
 
 fn default_scheduler_cpu() -> u64 {

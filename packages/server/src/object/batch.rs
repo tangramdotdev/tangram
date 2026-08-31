@@ -6,7 +6,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_store::prelude::*,
 };
 
 impl Session {
@@ -83,12 +82,13 @@ impl Session {
 				tg::object::Data::Blob(blob) => Some(blob.length()),
 				_ => None,
 			};
+			let put = uuid::Uuid::now_v7().into_bytes();
 			put_args.push(crate::store::object::put::Arg {
 				bytes: Some(object.bytes.clone()),
 				checkout_pointer: None,
 				id: object.id.clone(),
 				length,
-				stored_at: now,
+				put,
 			});
 
 			// Get the children.
@@ -112,6 +112,7 @@ impl Session {
 				children,
 				id: object.id.clone(),
 				metadata,
+				put,
 				storage: tangram_index::object::Storage::default(),
 				time_to_touch: self.server.config.object.time_to_touch,
 				touched_at: now,
@@ -119,13 +120,6 @@ impl Session {
 
 			put_object_args.push(arg);
 		}
-
-		// Store the objects.
-		self.server
-			.store
-			.put_object_batch(put_args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
 		// Determine which objects can receive subtree grants.
 		let mut subtree_objects = BTreeSet::new();
@@ -206,9 +200,8 @@ impl Session {
 				.collect(),
 		};
 		self.server
-			.index_batch(index_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+			.put_object_batch_and_index(put_args, index_arg)
+			.await?;
 
 		let objects = arg
 			.objects

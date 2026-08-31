@@ -271,11 +271,11 @@ impl crate::Index for Index {
 		self.contains_ids(ids).await
 	}
 
-	async fn clean_usage(
+	async fn expire_usage(
 		&self,
-		arg: crate::usage::clean::Arg,
-	) -> tg::Result<crate::usage::clean::Output> {
-		self.clean_usage(arg).await
+		arg: crate::usage::expire::Arg,
+	) -> tg::Result<crate::usage::expire::Output> {
+		self.expire_usage(arg).await
 	}
 
 	fn usage_partition_total(&self) -> u64 {

@@ -73,9 +73,7 @@ impl Session {
 							let destination = if checkout_pointers {
 								None
 							} else {
-								Some(Destination::Store {
-									stored_at: touched_at,
-								})
+								Some(Destination::Store)
 							};
 							session
 								.write_inner_sync(file, destination.as_ref(), &progress)
@@ -119,7 +117,7 @@ impl Session {
 						checkout_pointer: None,
 						id: id.clone(),
 						length: Some(output.length),
-						stored_at: touched_at,
+						put: output.put,
 					})
 				} else {
 					None
@@ -131,6 +129,7 @@ impl Session {
 					children,
 					id: id.clone(),
 					metadata,
+					put: output.put,
 					storage: tangram_index::object::Storage { subtree: true },
 					time_to_touch: self.server.config.object.time_to_touch,
 					touched_at,

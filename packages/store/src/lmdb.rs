@@ -1,5 +1,8 @@
 use {heed as lmdb, std::path::PathBuf, tangram_client::prelude::*};
 
+mod archive;
+mod cache;
+mod capacity;
 mod delete;
 mod flush;
 mod get;
@@ -214,6 +217,30 @@ impl Drop for Store {
 }
 
 impl crate::Store for Store {
+	async fn contains_object(&self, arg: crate::object::contains::Arg) -> tg::Result<bool> {
+		let arg = crate::object::get::Arg {
+			id: arg.id,
+			put: Some(arg.put),
+		};
+		let output = self.try_get_object(arg).await?;
+
+		Ok(output.object.is_some())
+	}
+
+	async fn delete_object_cache_entry(
+		&self,
+		arg: crate::object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_cache_entry(arg).await
+	}
+
+	async fn delete_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_archive_outbox_entries(arg).await
+	}
+
 	async fn delete_log(&self, arg: crate::log::delete::Arg) -> tg::Result<()> {
 		self.delete_log(arg).await
 	}
@@ -226,25 +253,64 @@ impl crate::Store for Store {
 		self.delete_object_batch(args).await
 	}
 
-	async fn delete_outbox_fragments(
+	async fn delete_object_index_outbox_batch(
 		&self,
-		arg: crate::outbox::fragment::delete::Arg,
+		arg: crate::object::index::outbox::batch::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_outbox_fragments(arg).await
+		self.delete_object_index_outbox_batch(arg).await
 	}
 
-	async fn dequeue_outbox_fragments(
+	async fn delete_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<crate::outbox::fragment::Fragment>> {
-		self.dequeue_outbox_fragments(arg).await
+		arg: crate::object::index::outbox::fragment::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_index_outbox_fragments(arg).await
 	}
 
-	async fn enqueue_outbox_batch(
+	async fn dequeue_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::batch::enqueue::Arg,
+		arg: crate::object::index::outbox::fragment::dequeue::Arg,
+	) -> tg::Result<Vec<crate::object::index::outbox::fragment::Fragment>> {
+		self.dequeue_object_index_outbox_fragments(arg).await
+	}
+
+	async fn dequeue_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::dequeue::Arg,
+	) -> tg::Result<Vec<crate::object::archive::outbox::Entry>> {
+		self.dequeue_object_archive_outbox_entries(arg).await
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: crate::object::cache::get::Arg,
+	) -> tg::Result<Vec<crate::object::cache::Entry>> {
+		self.get_object_cache_entries(arg).await
+	}
+
+	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
+		self.put_object_cache_entry(arg).await
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: crate::object::cache::put::object::Arg,
 	) -> tg::Result<()> {
-		self.enqueue_outbox_batch(arg).await
+		self.put_object_cache_entry_with_object(arg).await
+	}
+
+	async fn put_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::put::Arg,
+	) -> tg::Result<()> {
+		self.put_object_archive_outbox_entries(arg).await
+	}
+
+	async fn enqueue_object_index_outbox_batch(
+		&self,
+		arg: crate::object::index::outbox::batch::enqueue::Arg,
+	) -> tg::Result<()> {
+		self.enqueue_object_index_outbox_batch(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -285,11 +351,16 @@ impl crate::Store for Store {
 		self.try_get_object_batch(arg).await
 	}
 
-	async fn try_get_outbox_batch_at_or_before(
+	async fn try_get_object_index_outbox_batch_at_or_before(
 		&self,
-		arg: crate::outbox::batch::get::Arg,
-	) -> tg::Result<Option<crate::outbox::batch::Id>> {
-		self.try_get_outbox_batch_at_or_before(arg).await
+		arg: crate::object::index::outbox::batch::get::Arg,
+	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
+		self.try_get_object_index_outbox_batch_at_or_before(arg)
+			.await
+	}
+
+	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
+		self.try_get_capacity().map(Some)
 	}
 
 	async fn try_read_log(
@@ -336,18 +407,52 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 12345,
+				put: [1; 16],
 			})
 			.await
 			.unwrap();
 
 		// Get the object.
-		let arg = crate::object::get::Arg { id: id.clone() };
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let result = store.try_get_object(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
+
+		// Get the object by its exact put.
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: Some([0; 16]),
+		};
+		let result = store.try_get_object(arg).await.unwrap().object;
+		assert!(result.is_none());
+		let contains = crate::Store::contains_object(
+			&store,
+			crate::object::contains::Arg {
+				id: id.clone(),
+				put: [0; 16],
+			},
+		)
+		.await
+		.unwrap();
+		assert!(!contains);
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: Some([1; 16]),
+		};
+		let result = store.try_get_object(arg).await.unwrap().object;
+		assert_eq!(result.unwrap().put, [1; 16]);
+		let contains = crate::Store::contains_object(
+			&store,
+			crate::object::contains::Arg { id, put: [1; 16] },
+		)
+		.await
+		.unwrap();
+		assert!(contains);
 	}
 
 	// An object first put without bytes stores no bytes and a later put with bytes makes the bytes retrievable.
@@ -380,13 +485,16 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
-				stored_at: 12345,
+				put: [1; 16],
 			})
 			.await
 			.unwrap();
 
 		// Verify object bytes do not exist (object may exist with bytes=None).
-		let arg = crate::object::get::Arg { id: id.clone() };
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let result = store.try_get_object(arg).await.unwrap().object;
 		assert!(
 			result.is_none()
@@ -403,13 +511,16 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 12346,
+				put: [2; 16],
 			})
 			.await
 			.unwrap();
 
 		// Verify object now exists.
-		let arg = crate::object::get::Arg { id: id.clone() };
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let result = store.try_get_object(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -448,12 +559,15 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 12345,
+				put: [1; 16],
 			})
 			.unwrap();
 
 		// Get the object using sync function.
-		let arg = crate::object::get::Arg { id: id.clone() };
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let result = store.try_get_object_sync(&arg).unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -496,26 +610,32 @@ mod tests {
 					checkout_pointer: None,
 					id: id.clone(),
 					length: Some(content.len().to_u64().unwrap()),
-					stored_at: 12345,
+					put: [1; 16],
 				},
 				crate::object::put::Arg {
 					bytes: Some(other_bytes.clone()),
 					checkout_pointer: None,
 					id: other_id.clone(),
 					length: Some(other_content.len().to_u64().unwrap()),
-					stored_at: 12345,
+					put: [1; 16],
 				},
 			])
 			.await
 			.unwrap();
 
-		let arg = crate::object::get::Arg { id: id.clone() };
+		let arg = crate::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let result = store.try_get_object(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
 		);
-		let arg = crate::object::get::Arg { id: other_id };
+		let arg = crate::object::get::Arg {
+			id: other_id,
+			put: None,
+		};
 		let result = store.try_get_object(arg).await.unwrap().object;
 		assert_eq!(
 			result.and_then(|object| object.bytes),
@@ -552,12 +672,15 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 12345,
+				put: [1; 16],
 			})
 			.await
 			.unwrap();
 		let object = store
-			.try_get_object(crate::object::get::Arg { id: id.clone() })
+			.try_get_object(crate::object::get::Arg {
+				id: id.clone(),
+				put: None,
+			})
 			.await
 			.unwrap()
 			.object
@@ -571,12 +694,15 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
-				stored_at: 12346,
+				put: [2; 16],
 			})
 			.await
 			.unwrap();
 		let object = store
-			.try_get_object(crate::object::get::Arg { id: id.clone() })
+			.try_get_object(crate::object::get::Arg {
+				id: id.clone(),
+				put: None,
+			})
 			.await
 			.unwrap()
 			.object
@@ -591,12 +717,15 @@ mod tests {
 				checkout_pointer: None,
 				id: other.clone(),
 				length: None,
-				stored_at: 12345,
+				put: [1; 16],
 			})
 			.await
 			.unwrap();
 		let object = store
-			.try_get_object(crate::object::get::Arg { id: other })
+			.try_get_object(crate::object::get::Arg {
+				id: other,
+				put: None,
+			})
 			.await
 			.unwrap()
 			.object
@@ -606,7 +735,10 @@ mod tests {
 		// An absent object has no length.
 		let absent = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"absent"));
 		let output = store
-			.try_get_object(crate::object::get::Arg { id: absent })
+			.try_get_object(crate::object::get::Arg {
+				id: absent,
+				put: None,
+			})
 			.await
 			.unwrap();
 		assert!(output.object.is_none());
@@ -640,31 +772,58 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 10,
+				put: [10; 16],
+			})
+			.await
+			.unwrap();
+		store
+			.put_object(crate::object::put::Arg {
+				bytes: Some(Bytes::from_static(b"stale")),
+				checkout_pointer: None,
+				id: id.clone(),
+				length: None,
+				put: [9; 16],
 			})
 			.await
 			.unwrap();
 
 		let output = store
-			.try_get_object(crate::object::get::Arg { id: id.clone() })
+			.try_get_object(crate::object::get::Arg {
+				id: id.clone(),
+				put: None,
+			})
 			.await
 			.unwrap();
-		assert_eq!(
-			output.object.and_then(|object| object.bytes),
-			Some(Cow::Owned(bytes.to_vec()))
-		);
+		let object = output.object.unwrap();
+		assert_eq!(object.bytes, Some(Cow::Owned(bytes.to_vec())));
+		assert_eq!(object.put, [10; 16]);
 
 		store
 			.delete_object(crate::object::delete::Arg {
 				id: id.clone(),
-				now: 16,
-				ttl: 5,
+				put: [9; 16],
+			})
+			.await
+			.unwrap();
+		let output = store
+			.try_get_object(crate::object::get::Arg {
+				id: id.clone(),
+				put: None,
+			})
+			.await
+			.unwrap();
+		assert!(output.object.is_some());
+
+		store
+			.delete_object(crate::object::delete::Arg {
+				id: id.clone(),
+				put: [10; 16],
 			})
 			.await
 			.unwrap();
 
 		let output = store
-			.try_get_object(crate::object::get::Arg { id })
+			.try_get_object(crate::object::get::Arg { id, put: None })
 			.await
 			.unwrap();
 		assert!(output.object.is_none());

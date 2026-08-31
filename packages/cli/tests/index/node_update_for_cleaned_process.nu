@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# The cleaner deletes a process while a node update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
+# Cleaning deletes a process while a node update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
 let server = server spawn --config {
 	advanced: {
@@ -36,17 +36,17 @@ tg checkpoint wait indexer.update.node.batch $batch_watch 0 | ignore
 # Putting the process queues a node update for it.
 $data | tg process put $process
 
-# Watch the cleaner only now, so that the hit below is necessarily a deletion that follows the queued update.
+# Watch cleaning only now, so that the hit below is necessarily a deletion that follows the queued update.
 let delete_watch = (
-	tg checkpoint watch cleaner.process.delete --params $'{"process": "($process)"}'
+	tg checkpoint watch cleaning.process.delete --params $'{"process": "($process)"}'
 	| from json
 	| get watch
 )
 
-# Wait for the cleaner to delete the process, so that the queued node update refers to a process that is gone.
-tg checkpoint wait cleaner.process.delete $delete_watch 0 | ignore
-tg checkpoint continue cleaner.process.delete $delete_watch 0
-tg checkpoint unwatch cleaner.process.delete $delete_watch
+# Wait for cleaning to delete the process, so that the queued node update refers to a process that is gone.
+tg checkpoint wait cleaning.process.delete $delete_watch 0 | ignore
+tg checkpoint continue cleaning.process.delete $delete_watch 0
+tg checkpoint unwatch cleaning.process.delete $delete_watch
 
 # Release the update task.
 tg checkpoint continue indexer.update.node.batch $batch_watch 0

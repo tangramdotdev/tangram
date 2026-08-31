@@ -21,6 +21,9 @@ pub struct Config {
 	pub advanced: Option<Advanced>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive: Option<Archive>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -34,9 +37,6 @@ pub struct Config {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkouts: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cleaner: Option<Cleaner>,
 
 	/// Configure the client.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +150,55 @@ pub struct Config {
 	pub write: Option<Write>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum Archive {
+	S3(S3Archive),
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3Archive {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access_key: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub bucket: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub endpoint: Option<Uri>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub express: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pool: Option<ArchivePool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub region: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub secret_key: Option<String>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchivePool {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub min: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<Duration>,
+}
+
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub enum BoolOr<T> {
@@ -158,13 +207,43 @@ pub enum BoolOr<T> {
 	Value(T),
 }
 
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum CapacityThreshold {
+	Bytes(CapacityThresholdDirection<u64>),
+
+	Ratio(CapacityThresholdDirection<f64>),
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum CapacityThresholdDirection<T> {
+	Above(CapacityThresholdAbove<T>),
+
+	Below(CapacityThresholdBelow<T>),
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapacityThresholdAbove<T> {
+	pub start_above: T,
+
+	pub stop_at: T,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapacityThresholdBelow<T> {
+	pub start_below: T,
+
+	pub stop_at: T,
+}
+
 #[derive(
 	Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-	Cleaner,
-
 	Http,
 
 	Indexer,
@@ -471,23 +550,6 @@ pub struct CheckinDirectory {
 	pub max_leaf_entries: Option<usize>,
 }
 
-#[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Cleaner {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub concurrency: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_end: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_start: Option<u64>,
-}
-
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Database {
@@ -501,9 +563,13 @@ pub enum Database {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct DatabaseOutbox {
+pub struct DatabaseIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -511,7 +577,7 @@ pub struct DatabaseOutbox {
 #[serde(deny_unknown_fields)]
 pub struct PostgresDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read: Option<PostgresDatabaseConnection>,
@@ -553,7 +619,7 @@ pub struct DatabasePool {
 #[serde(deny_unknown_fields)]
 pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -570,7 +636,7 @@ pub struct SqliteDatabase {
 #[serde(deny_unknown_fields)]
 pub struct TursoDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<DatabaseOutbox>,
+	pub index_outbox: Option<DatabaseIndexOutbox>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -694,42 +760,67 @@ pub struct LmdbIndex {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub database_outbox_wakeup_interval: Option<Duration>,
+	pub cleaning: Option<BoolOr<IndexerCleaning>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_process_depth: Option<usize>,
+	pub partitions: Option<IndexerPartitions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub message_timeout: Option<Duration>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub object_outbox_wakeup_interval: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_end: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_start: Option<u64>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub poll_interval: Option<Duration>,
+	pub request: Option<IndexerRequest>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub updates: Option<IndexerUpdates>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<IndexerUsage>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerCleaning {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<CapacityThreshold>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerPartitions {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub end: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start: Option<u64>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerRequest {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
 }
 
 #[serde_as]
@@ -754,7 +845,7 @@ pub struct IndexerUsage {
 	pub aggregation: Option<BoolOr<IndexerUsageAggregation>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage: Option<IndexerUpdate>,
+	pub expiration: Option<BoolOr<IndexerUsageExpiration>>,
 }
 
 #[serde_as]
@@ -772,6 +863,18 @@ pub struct IndexerUsageAggregation {
 	pub poll_interval: Option<Duration>,
 }
 
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerUsageExpiration {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerUpdates {
@@ -779,7 +882,13 @@ pub struct IndexerUpdates {
 	pub grants: Option<IndexerUpdate>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_process_depth: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub nodes: Option<IndexerUpdate>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage: Option<IndexerUpdate>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -821,6 +930,12 @@ pub struct NatsMessenger {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Object {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive_outbox: Option<ObjectArchiveOutbox>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<ObjectCache>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_live: Option<Duration>,
@@ -830,7 +945,11 @@ pub struct Object {
 	pub grant_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub outbox: Option<ObjectOutbox>,
+	pub index_outbox: Option<ObjectIndexOutbox>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub put_timeout: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -848,7 +967,43 @@ pub struct Object {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectOutbox {
+pub struct ObjectCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<CapacityThreshold>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectArchiveOutbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -857,6 +1012,13 @@ pub struct ObjectOutbox {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wakeup_interval: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -905,6 +1067,9 @@ pub struct ScyllaStore {
 	pub addr: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub capacity: Option<ScyllaStoreCapacity>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -924,6 +1089,26 @@ pub struct ScyllaStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
+pub enum ScyllaStoreCapacity {
+	Prometheus(ScyllaStorePrometheusCapacity),
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaStorePrometheusCapacity {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub available_query: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub total_query: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -1922,6 +2107,7 @@ impl Default for Tracing {
 		Self {
 			filter: [
 				"tangram=info",
+				"tangram_archive=info",
 				"tangram_client=info",
 				"tangram_compiler=info",
 				"tangram_database=info",
@@ -1968,6 +2154,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.advanced {
 		target.advanced = resolve_advanced(source);
 	}
+	if let Some(source) = source.archive {
+		target.archive = Some(resolve_archive(source)?);
+	}
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
 	}
@@ -1982,9 +2171,6 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
-	}
-	if let Some(source) = source.cleaner {
-		target.cleaner = resolve_cleaner(source);
 	}
 	if let Some(source) = source.database {
 		target.database = resolve_database(source);
@@ -2077,12 +2263,56 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 
 fn resolve_role(source: Role) -> server::Role {
 	match source {
-		Role::Cleaner => server::Role::Cleaner,
 		Role::Http => server::Role::Http,
 		Role::Indexer => server::Role::Indexer,
 		Role::Runner => server::Role::Runner,
 		Role::Scheduler => server::Role::Scheduler,
 	}
+}
+
+fn resolve_archive(source: Archive) -> tg::Result<server::Archive> {
+	let target = match source {
+		Archive::S3(source) => server::Archive::S3(resolve_s3_archive(source)?),
+	};
+
+	Ok(target)
+}
+
+fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
+	let access_key = required(source.access_key, "archive.access_key")?;
+	let bucket = required(source.bucket, "archive.bucket")?;
+	let endpoint = required(source.endpoint, "archive.endpoint")?;
+	let express = required(source.express, "archive.express")?;
+	let mut pool = server::ArchivePool::default();
+	if let Some(source) = source.pool {
+		if let Some(value) = source.max {
+			pool.max = value;
+		}
+		if let Some(value) = source.min {
+			pool.min = value;
+		}
+		if let Some(value) = source.ttl {
+			pool.ttl = Some(value);
+		}
+	}
+	let reconnect = source
+		.reconnect
+		.map(|source| resolve_reconnect_with_default(source, server::Reconnect::default()))
+		.unwrap_or_default();
+	let region = required(source.region, "archive.region")?;
+	let secret_key = required(source.secret_key, "archive.secret_key")?;
+	let target = server::S3Archive {
+		access_key,
+		bucket,
+		endpoint,
+		express,
+		pool,
+		reconnect,
+		region,
+		secret_key,
+	};
+
+	Ok(target)
 }
 
 fn resolve_advanced(source: Advanced) -> server::Advanced {
@@ -2391,23 +2621,6 @@ fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirecto
 	target
 }
 
-fn resolve_cleaner(source: Cleaner) -> server::Cleaner {
-	let mut target = server::Cleaner::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.concurrency {
-		target.concurrency = value;
-	}
-	if let Some(value) = source.partition_end {
-		target.partition_end = value;
-	}
-	if let Some(value) = source.partition_start {
-		target.partition_start = value;
-	}
-	target
-}
-
 fn resolve_database(source: Database) -> server::Database {
 	match source {
 		Database::Postgres(source) => server::Database::Postgres(resolve_postgres_database(source)),
@@ -2418,8 +2631,8 @@ fn resolve_database(source: Database) -> server::Database {
 
 fn resolve_postgres_database(source: PostgresDatabase) -> server::PostgresDatabase {
 	let mut target = server::PostgresDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.read {
 		target.read = resolve_postgres_database_connection(source, target.read);
@@ -2448,8 +2661,8 @@ fn resolve_postgres_database_connection(
 
 fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 	let mut target = server::SqliteDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2465,8 +2678,8 @@ fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 
 fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	let mut target = server::TursoDatabase::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_database_outbox(source);
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_database_index_outbox(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2480,10 +2693,13 @@ fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	target
 }
 
-fn resolve_database_outbox(source: DatabaseOutbox) -> server::DatabaseOutbox {
-	let mut target = server::DatabaseOutbox::default();
+fn resolve_database_index_outbox(source: DatabaseIndexOutbox) -> server::DatabaseIndexOutbox {
+	let mut target = server::DatabaseIndexOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
+	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
 	}
 	target
 }
@@ -2625,32 +2841,17 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 }
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
-	if let Some(value) = source.database_outbox_wakeup_interval {
-		target.database_outbox_wakeup_interval = value;
+	if let Some(source) = source.cleaning {
+		target.cleaning = resolve_indexer_cleaning(source);
 	}
 	if let Some(source) = source.log_compaction {
 		target.log_compaction = resolve_indexer_log_compaction(source);
 	}
-	if let Some(source) = source.message_retry {
-		target.message_retry = resolve_retry_with_default(source, target.message_retry);
+	if let Some(source) = source.partitions {
+		target.partitions = resolve_indexer_partitions(source);
 	}
-	if let Some(value) = source.max_process_depth {
-		target.max_process_depth = value;
-	}
-	if let Some(value) = source.message_timeout {
-		target.message_timeout = value;
-	}
-	if let Some(value) = source.object_outbox_wakeup_interval {
-		target.object_outbox_wakeup_interval = value;
-	}
-	if let Some(value) = source.partition_end {
-		target.partition_end = value;
-	}
-	if let Some(value) = source.partition_start {
-		target.partition_start = value;
-	}
-	if let Some(value) = source.poll_interval {
-		target.poll_interval = value;
+	if let Some(source) = source.request {
+		target.request = resolve_indexer_request(source);
 	}
 	if let Some(source) = source.updates {
 		target.updates = resolve_indexer_updates(source);
@@ -2658,7 +2859,90 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.usage {
 		target.usage = resolve_indexer_usage(source);
 	}
+
 	target
+}
+
+fn resolve_indexer_cleaning(source: BoolOr<IndexerCleaning>) -> server::IndexerCleaning {
+	let mut target = server::IndexerCleaning::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
+		}
+		if let Some(source) = source.capacity {
+			target.capacity = Some(resolve_capacity_threshold(source));
+		}
+		if let Some(value) = source.concurrency {
+			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
+	}
+
+	target
+}
+
+fn resolve_indexer_partitions(source: IndexerPartitions) -> server::IndexerPartitions {
+	let mut target = server::IndexerPartitions::default();
+	if let Some(value) = source.end {
+		target.end = value;
+	}
+	if let Some(value) = source.start {
+		target.start = value;
+	}
+	target
+}
+
+fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
+	let mut target = server::IndexerRequest::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.timeout {
+		target.timeout = value;
+	}
+	target
+}
+
+fn resolve_capacity_threshold(source: CapacityThreshold) -> server::CapacityThreshold {
+	match source {
+		CapacityThreshold::Bytes(source) => {
+			server::CapacityThreshold::Bytes(resolve_capacity_threshold_direction(source))
+		},
+		CapacityThreshold::Ratio(source) => {
+			server::CapacityThreshold::Ratio(resolve_capacity_threshold_direction(source))
+		},
+	}
+}
+
+fn resolve_capacity_threshold_direction<T>(
+	source: CapacityThresholdDirection<T>,
+) -> server::CapacityThresholdDirection<T> {
+	match source {
+		CapacityThresholdDirection::Above(source) => {
+			let threshold = server::CapacityThresholdAbove {
+				start_above: source.start_above,
+				stop_at: source.stop_at,
+			};
+			server::CapacityThresholdDirection::Above(threshold)
+		},
+		CapacityThresholdDirection::Below(source) => {
+			let threshold = server::CapacityThresholdBelow {
+				start_below: source.start_below,
+				stop_at: source.stop_at,
+			};
+			server::CapacityThresholdDirection::Below(threshold)
+		},
+	}
 }
 
 fn resolve_indexer_log_compaction(
@@ -2689,8 +2973,14 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	if let Some(source) = source.grants {
 		target.grants = resolve_indexer_update(source);
 	}
+	if let Some(value) = source.max_process_depth {
+		target.max_process_depth = value;
+	}
 	if let Some(source) = source.nodes {
 		target.nodes = resolve_indexer_update(source);
+	}
+	if let Some(source) = source.storage {
+		target.storage = resolve_indexer_update(source);
 	}
 	target
 }
@@ -2700,8 +2990,8 @@ fn resolve_indexer_usage(source: IndexerUsage) -> server::IndexerUsage {
 	if let Some(source) = source.aggregation {
 		target.aggregation = resolve_indexer_usage_aggregation(source);
 	}
-	if let Some(source) = source.storage {
-		target.storage = resolve_indexer_update(source);
+	if let Some(source) = source.expiration {
+		target.expiration = resolve_indexer_usage_expiration(source);
 	}
 	target
 }
@@ -2721,6 +3011,26 @@ fn resolve_indexer_usage_aggregation(
 		}
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
+		}
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
+		}
+	}
+	target
+}
+
+fn resolve_indexer_usage_expiration(
+	source: BoolOr<IndexerUsageExpiration>,
+) -> server::IndexerUsageExpiration {
+	let mut target = server::IndexerUsageExpiration::default();
+	let (enabled, source) = match source {
+		BoolOr::Bool(enabled) => (enabled, None),
+		BoolOr::Value(source) => (true, Some(source)),
+	};
+	target.enabled = enabled;
+	if let Some(source) = source {
+		if let Some(value) = source.batch_size {
+			target.batch_size = value;
 		}
 		if let Some(value) = source.poll_interval {
 			target.poll_interval = value;
@@ -2770,14 +3080,23 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 
 fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
-	if let Some(source) = source.outbox {
-		target.outbox = resolve_object_outbox(source);
+	if let Some(source) = source.archive_outbox {
+		target.archive_outbox = resolve_object_archive_outbox(source);
+	}
+	if let Some(source) = source.cache {
+		target.cache = Some(resolve_object_cache(source));
 	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;
 	}
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
+	}
+	if let Some(source) = source.index_outbox {
+		target.index_outbox = resolve_object_index_outbox(source);
+	}
+	if let Some(value) = source.put_timeout {
+		target.put_timeout = value;
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
@@ -2792,8 +3111,43 @@ fn resolve_object(source: &Object) -> server::Object {
 	target
 }
 
-fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
-	let mut target = server::ObjectOutbox::default();
+fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
+	let mut target = server::ObjectCache::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(source) = source.capacity {
+		target.capacity = resolve_capacity_threshold(source);
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+
+	target
+}
+
+fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectArchiveOutbox {
+	let mut target = server::ObjectArchiveOutbox::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.partition_total {
+		target.partition_total = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
+	}
+	target
+}
+
+fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndexOutbox {
+	let mut target = server::ObjectIndexOutbox::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
@@ -2802,6 +3156,12 @@ fn resolve_object_outbox(source: ObjectOutbox) -> server::ObjectOutbox {
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.wakeup_interval {
+		target.wakeup_interval = value;
 	}
 	target
 }
@@ -2841,6 +3201,10 @@ fn resolve_lmdb_store(source: LmdbStore) -> server::LmdbStore {
 
 fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> {
 	let addr = required(source.addr, "store.addr")?;
+	let capacity = source
+		.capacity
+		.map(resolve_scylla_store_capacity)
+		.transpose()?;
 	let keyspace = required(source.keyspace, "store.keyspace")?;
 	let speculative_execution = source
 		.speculative_execution
@@ -2848,6 +3212,7 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 		.transpose()?;
 	let target = server::ScyllaStore {
 		addr,
+		capacity,
 		connections: source.connections,
 		keepalive: source.keepalive.unwrap_or(true),
 		keyspace,
@@ -2855,6 +3220,27 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 		password: source.password,
 		speculative_execution,
 		username: source.username,
+	};
+
+	Ok(target)
+}
+
+fn resolve_scylla_store_capacity(
+	source: ScyllaStoreCapacity,
+) -> tg::Result<server::ScyllaStoreCapacity> {
+	let target = match source {
+		ScyllaStoreCapacity::Prometheus(source) => {
+			let available_query =
+				required(source.available_query, "store.capacity.available_query")?;
+			let total_query = required(source.total_query, "store.capacity.total_query")?;
+			let url = required(source.url, "store.capacity.url")?;
+			let target = server::ScyllaStorePrometheusCapacity {
+				available_query,
+				total_query,
+				url,
+			};
+			server::ScyllaStoreCapacity::Prometheus(target)
+		},
 	};
 
 	Ok(target)
@@ -2981,6 +3367,25 @@ pub(crate) fn resolve_reconnect(source: Reconnect) -> tg::Result<server::Reconne
 	};
 
 	Ok(target)
+}
+
+fn resolve_reconnect_with_default(
+	source: Reconnect,
+	mut target: server::Reconnect,
+) -> server::Reconnect {
+	if let Some(value) = source.backoff {
+		target.backoff = value;
+	}
+	if let Some(value) = source.jitter {
+		target.jitter = value;
+	}
+	if let Some(value) = source.max_delay {
+		target.max_delay = value;
+	}
+	if let Some(value) = source.max_retries {
+		target.max_retries = value;
+	}
+	target
 }
 
 pub(crate) fn resolve_retry(source: Retry) -> tg::Result<server::Retry> {
@@ -3606,6 +4011,170 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn parses_and_resolves_object_cache_and_scylla_capacity() {
+		let source: Object = serde_json::from_value(serde_json::json!({
+			"cache": {
+				"batch_size": 128,
+				"capacity": {
+					"kind": "ratio",
+					"start_below": 0.2,
+					"stop_at": 0.3,
+				},
+				"partition_total": 16,
+				"poll_interval": 5,
+			},
+		}))
+		.unwrap();
+		let target = resolve_object(&source);
+		let cache = target.cache.unwrap();
+		assert_eq!(cache.batch_size, 128);
+		let server::CapacityThreshold::Ratio(threshold) = cache.capacity else {
+			panic!("expected a ratio capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Below(threshold) = threshold else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert!((threshold.start_below - 0.2).abs() < f64::EPSILON);
+		assert!((threshold.stop_at - 0.3).abs() < f64::EPSILON);
+		assert_eq!(cache.partition_total, 16);
+		assert_eq!(cache.poll_interval, Duration::from_secs(5));
+
+		let source: ScyllaStore = serde_json::from_value(serde_json::json!({
+			"addr": "127.0.0.1:9042",
+			"capacity": {
+				"kind": "prometheus",
+				"available_query": "sum(kubelet_volume_stats_available_bytes)",
+				"total_query": "sum(kubelet_volume_stats_capacity_bytes)",
+				"url": "http://127.0.0.1:9090",
+			},
+			"keyspace": "store",
+		}))
+		.unwrap();
+		let target = resolve_scylla_store(source).unwrap();
+		let Some(server::ScyllaStoreCapacity::Prometheus(capacity)) = target.capacity else {
+			panic!("expected Prometheus capacity");
+		};
+		assert_eq!(
+			capacity.available_query,
+			"sum(kubelet_volume_stats_available_bytes)"
+		);
+		assert_eq!(
+			capacity.total_query,
+			"sum(kubelet_volume_stats_capacity_bytes)"
+		);
+		assert_eq!(capacity.url.to_string(), "http://127.0.0.1:9090");
+	}
+
+	#[test]
+	fn parses_capacity_threshold_variants() {
+		let source: CapacityThreshold = serde_json::from_value(serde_json::json!({
+			"kind": "ratio",
+			"start_above": 0.9,
+			"stop_at": 0.8,
+		}))
+		.unwrap();
+		let server::CapacityThreshold::Ratio(threshold) = resolve_capacity_threshold(source) else {
+			panic!("expected a ratio capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Above(threshold) = threshold else {
+			panic!("expected a start-above capacity threshold");
+		};
+		assert!((threshold.start_above - 0.9).abs() < f64::EPSILON);
+		assert!((threshold.stop_at - 0.8).abs() < f64::EPSILON);
+
+		let source: CapacityThreshold = serde_json::from_value(serde_json::json!({
+			"kind": "bytes",
+			"start_below": 100,
+			"stop_at": 200,
+		}))
+		.unwrap();
+		let server::CapacityThreshold::Bytes(threshold) = resolve_capacity_threshold(source) else {
+			panic!("expected a bytes capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Below(threshold) = threshold else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert_eq!(threshold.start_below, 100);
+		assert_eq!(threshold.stop_at, 200);
+
+		let source = serde_json::json!({
+			"kind": "ratio",
+			"start_above": 0.9,
+			"start_below": 0.1,
+			"stop_at": 0.8,
+		});
+		assert!(serde_json::from_value::<CapacityThreshold>(source).is_err());
+	}
+
+	#[test]
+	fn parses_and_resolves_an_s3_archive() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+				"access_key": "access",
+				"bucket": "bucket",
+				"endpoint": "https://objects.example.com",
+				"express": true,
+				"pool": {
+					"max": 32,
+					"min": 4,
+					"ttl": 30,
+				},
+				"reconnect": {
+					"max_retries": 12,
+				},
+				"region": "us-east-1",
+				"secret_key": "secret",
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let server::Archive::S3(target) = target.archive.unwrap();
+
+		assert_eq!(target.access_key, "access");
+		assert_eq!(target.bucket, "bucket");
+		assert_eq!(target.endpoint.as_str(), "https://objects.example.com");
+		assert!(target.express);
+		assert_eq!(target.pool.max, 32);
+		assert_eq!(target.pool.min, 4);
+		assert_eq!(target.pool.ttl, Some(Duration::from_secs(30)));
+		assert_eq!(target.reconnect.max_retries, 12);
+		assert_eq!(target.region, "us-east-1");
+		assert_eq!(target.secret_key, "secret");
+	}
+
+	#[test]
+	fn rejects_an_incomplete_s3_archive() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+			},
+		}))
+		.unwrap();
+		let error = resolve_server_config(&source).unwrap_err();
+
+		assert_eq!(error.to_string(), "a required config field is missing");
+	}
+
+	#[test]
+	fn rejects_an_s3_archive_without_an_explicit_express_setting() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"archive": {
+				"kind": "s3",
+				"access_key": "access",
+				"bucket": "bucket",
+				"endpoint": "https://objects.example.com",
+				"region": "us-east-1",
+				"secret_key": "secret",
+			},
+		}))
+		.unwrap();
+		let error = resolve_server_config(&source).unwrap_err();
+
+		assert_eq!(error.to_string(), "a required config field is missing");
+	}
+
+	#[test]
 	fn parses_primary_region() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"primary_region": "ash0",
@@ -3810,53 +4379,194 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_wakeup_intervals() {
+	fn parses_and_resolves_outbox_configuration() {
 		let source: Config = serde_json::from_value(serde_json::json!({
-			"indexer": {
-				"database_outbox_wakeup_interval": 0.1,
-				"object_outbox_wakeup_interval": 0.2,
+			"database": {
+				"kind": "sqlite",
+				"index_outbox": { "wakeup_interval": 0.1 },
+			},
+			"object": {
+				"archive_outbox": {
+					"retry": {
+						"max_retries": 4,
+					},
+					"wakeup_interval": 0.2,
+				},
+				"index_outbox": {
+					"retry": {
+						"backoff": 0.04,
+						"jitter": 0.05,
+						"max_delay": 0.06,
+						"max_retries": 7,
+					},
+					"wakeup_interval": 0.3,
+				},
+				"put_timeout": 0.15,
 			},
 			"process": {
-				"children_wakeup_interval": 0.3,
-				"status_wakeup_interval": 0.4,
-				"stdio_wakeup_interval": 0.5,
+				"children_wakeup_interval": 0.4,
+				"status_wakeup_interval": 0.5,
+				"stdio_wakeup_interval": 0.6,
 			},
 			"sandbox": {
-				"processes_wakeup_interval": 0.6,
-				"status_wakeup_interval": 0.7,
+				"processes_wakeup_interval": 0.7,
+				"status_wakeup_interval": 0.8,
 			},
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
 
 		assert_eq!(
-			target.indexer.database_outbox_wakeup_interval,
+			target.database.index_outbox().wakeup_interval,
 			Duration::from_millis(100)
 		);
 		assert_eq!(
-			target.indexer.object_outbox_wakeup_interval,
+			target.object.archive_outbox.wakeup_interval,
 			Duration::from_millis(200)
 		);
 		assert_eq!(
-			target.process.children_wakeup_interval,
+			target.object.archive_outbox.retry.backoff,
+			Duration::from_millis(25)
+		);
+		assert_eq!(
+			target.object.archive_outbox.retry.jitter,
+			Duration::from_millis(25)
+		);
+		assert_eq!(
+			target.object.archive_outbox.retry.max_delay,
+			Duration::from_secs(1)
+		);
+		assert_eq!(target.object.archive_outbox.retry.max_retries, 4);
+		assert_eq!(
+			target.object.index_outbox.wakeup_interval,
 			Duration::from_millis(300)
 		);
 		assert_eq!(
-			target.process.status_wakeup_interval,
+			target.object.index_outbox.retry.backoff,
+			Duration::from_millis(40)
+		);
+		assert_eq!(
+			target.object.index_outbox.retry.jitter,
+			Duration::from_millis(50)
+		);
+		assert_eq!(
+			target.object.index_outbox.retry.max_delay,
+			Duration::from_millis(60)
+		);
+		assert_eq!(target.object.index_outbox.retry.max_retries, 7);
+		assert_eq!(target.object.put_timeout, Duration::from_millis(150));
+		assert_eq!(
+			target.process.children_wakeup_interval,
 			Duration::from_millis(400)
 		);
 		assert_eq!(
-			target.process.stdio_wakeup_interval,
+			target.process.status_wakeup_interval,
 			Duration::from_millis(500)
 		);
 		assert_eq!(
-			target.sandbox.processes_wakeup_interval,
+			target.process.stdio_wakeup_interval,
 			Duration::from_millis(600)
 		);
 		assert_eq!(
-			target.sandbox.status_wakeup_interval,
+			target.sandbox.processes_wakeup_interval,
 			Duration::from_millis(700)
 		);
+		assert_eq!(
+			target.sandbox.status_wakeup_interval,
+			Duration::from_millis(800)
+		);
+	}
+
+	#[test]
+	fn parses_and_resolves_indexer_groups() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"partitions": {
+					"end": 9,
+					"start": 3,
+				},
+				"request": {
+					"poll_interval": 0.25,
+					"timeout": 2,
+				},
+				"updates": { "max_process_depth": 64 },
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+
+		assert_eq!(target.indexer.partitions.end, 9);
+		assert_eq!(target.indexer.partitions.start, 3);
+		assert_eq!(
+			target.indexer.request.poll_interval,
+			Duration::from_millis(250)
+		);
+		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
+		assert_eq!(target.indexer.updates.max_process_depth, 64);
+	}
+
+	#[test]
+	fn parses_and_resolves_indexer_cleaning() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"cleaning": {
+					"batch_size": 11,
+					"capacity": {
+						"kind": "ratio",
+						"start_below": 0.15,
+						"stop_at": 0.25,
+					},
+					"concurrency": 2,
+					"poll_interval": 0.5,
+				},
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let cleaning = target.indexer.cleaning;
+
+		assert_eq!(cleaning.batch_size, 11);
+		assert_eq!(cleaning.concurrency, 2);
+		assert!(cleaning.enabled);
+		assert_eq!(cleaning.poll_interval, Duration::from_millis(500));
+		let Some(server::CapacityThreshold::Ratio(capacity)) = cleaning.capacity else {
+			panic!("expected a ratio capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Below(capacity) = capacity else {
+			panic!("expected a start-below capacity threshold");
+		};
+		assert!((capacity.start_below - 0.15).abs() < f64::EPSILON);
+		assert!((capacity.stop_at - 0.25).abs() < f64::EPSILON);
+
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": {
+				"cleaning": {
+					"capacity": {
+						"kind": "bytes",
+						"start_above": 1000,
+						"stop_at": 900,
+					},
+				},
+			},
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		let Some(server::CapacityThreshold::Bytes(capacity)) = target.indexer.cleaning.capacity
+		else {
+			panic!("expected a bytes capacity threshold");
+		};
+		let server::CapacityThresholdDirection::Above(capacity) = capacity else {
+			panic!("expected a start-above capacity threshold");
+		};
+		assert_eq!(capacity.start_above, 1000);
+		assert_eq!(capacity.stop_at, 900);
+
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": { "cleaning": false },
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		assert!(!target.indexer.cleaning.enabled);
 	}
 
 	#[test]
@@ -3895,17 +4605,15 @@ mod tests {
 					batch_size: Some(11),
 					concurrency: Some(2),
 				}),
+				max_process_depth: Some(55),
 				nodes: Some(IndexerUpdate {
 					batch_size: Some(22),
 					concurrency: Some(3),
 				}),
-			}),
-			usage: Some(IndexerUsage {
 				storage: Some(IndexerUpdate {
 					batch_size: Some(33),
 					concurrency: Some(4),
 				}),
-				..IndexerUsage::default()
 			}),
 			..Indexer::default()
 		};
@@ -3913,10 +4621,11 @@ mod tests {
 
 		assert_eq!(target.updates.grants.batch_size, 11);
 		assert_eq!(target.updates.grants.concurrency, 2);
+		assert_eq!(target.updates.max_process_depth, 55);
 		assert_eq!(target.updates.nodes.batch_size, 22);
 		assert_eq!(target.updates.nodes.concurrency, 3);
-		assert_eq!(target.usage.storage.batch_size, 33);
-		assert_eq!(target.usage.storage.concurrency, 4);
+		assert_eq!(target.updates.storage.batch_size, 33);
+		assert_eq!(target.updates.storage.concurrency, 4);
 	}
 
 	#[test]
@@ -3951,6 +4660,38 @@ mod tests {
 		};
 		let target = resolve_indexer(&source);
 		assert!(!target.usage.aggregation.enabled);
+	}
+
+	#[test]
+	fn resolves_indexer_usage_expiration() {
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				expiration: Some(BoolOr::Value(IndexerUsageExpiration {
+					batch_size: Some(11),
+					poll_interval: Some(Duration::from_millis(250)),
+				})),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+
+		assert_eq!(target.usage.expiration.batch_size, 11);
+		assert!(target.usage.expiration.enabled);
+		assert_eq!(
+			target.usage.expiration.poll_interval,
+			Duration::from_millis(250)
+		);
+
+		let source = Indexer {
+			usage: Some(IndexerUsage {
+				expiration: Some(BoolOr::Bool(false)),
+				..IndexerUsage::default()
+			}),
+			..Indexer::default()
+		};
+		let target = resolve_indexer(&source);
+		assert!(!target.usage.expiration.enabled);
 	}
 
 	#[test]

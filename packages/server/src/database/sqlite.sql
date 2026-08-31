@@ -182,13 +182,13 @@ create table remotes (
 
 create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);
 
-create table outbox_batch (
+create table index_outbox_batch (
 	next integer not null
 );
 
-insert into outbox_batch (next) values (0);
+insert into index_outbox_batch (next) values (0);
 
-create table outbox (
+create table index_outbox (
 	region text not null,
 	batch integer not null,
 	payload blob not null,

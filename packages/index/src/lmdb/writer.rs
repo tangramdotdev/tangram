@@ -189,14 +189,14 @@ impl Index {
 						transaction: &mut transaction,
 					})
 					.map(Response::CleanOutput),
-					Request::CleanUsage(arg) => Self::clean_usage_with_transaction(
+					Request::ExpireUsage(arg) => Self::expire_usage_with_transaction(
 						db,
 						subspace,
 						&mut transaction,
 						&arg,
 						usage_partition_total,
 					)
-					.map(Response::CleanUsageOutput),
+					.map(Response::ExpireUsageOutput),
 					Request::CompleteLogCompaction(entry) => {
 						Self::complete_log_compaction_with_transaction(
 							db,
@@ -546,8 +546,8 @@ impl Index {
 				Response::AggregateUsageOutput(crate::usage::aggregate::Output::default())
 			},
 			Request::Clean(_) => Response::CleanOutput(crate::clean::Output::default()),
-			Request::CleanUsage(_) => {
-				Response::CleanUsageOutput(crate::usage::clean::Output::default())
+			Request::ExpireUsage(_) => {
+				Response::ExpireUsageOutput(crate::usage::expire::Output::default())
 			},
 			Request::Batch(_)
 			| Request::CompleteLogCompaction(_)
@@ -601,7 +601,7 @@ impl Index {
 					},
 				)
 			},
-			Request::CleanUsage(arg) => (vec![Item::CleanUsage], Kind::CleanUsage(arg)),
+			Request::ExpireUsage(arg) => (vec![Item::ExpireUsage], Kind::ExpireUsage(arg)),
 			Request::CompleteLogCompaction(entry) => (
 				vec![Item::CompleteLogCompaction(entry)],
 				Kind::CompleteLogCompaction,
@@ -777,12 +777,12 @@ impl Index {
 				max_sandbox_touched_at: *max_sandbox_touched_at,
 				now: *now,
 			}),
-			Kind::CleanUsage(arg) => {
+			Kind::ExpireUsage(arg) => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::CleanUsage] = items else {
+				let [Item::ExpireUsage] = items else {
 					unreachable!();
 				};
-				Request::CleanUsage(arg.clone())
+				Request::ExpireUsage(arg.clone())
 			},
 			Kind::CompleteLogCompaction => {
 				let items: [Item; 1] = items.try_into().ok().unwrap();
@@ -1091,7 +1091,7 @@ impl Index {
 				existing.processes.extend(new.processes);
 				existing.done = new.done;
 			},
-			(Response::CleanUsageOutput(existing), Response::CleanUsageOutput(new)) => {
+			(Response::ExpireUsageOutput(existing), Response::ExpireUsageOutput(new)) => {
 				*existing = new;
 			},
 			(Response::UpdateOutput(existing), Response::UpdateOutput(new)) => {

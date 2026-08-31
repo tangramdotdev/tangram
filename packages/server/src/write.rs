@@ -13,7 +13,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
@@ -26,11 +25,12 @@ pub struct Output {
 	pub length: u64,
 	pub metadata: tg::object::Metadata,
 	pub position: u64,
+	pub put: [u8; 16],
 }
 
 pub enum Destination {
+	Store,
 	Temp(Temp),
-	Store { stored_at: i64 },
 }
 
 impl Session {
@@ -47,9 +47,7 @@ impl Session {
 			if self.server.checkouts_enabled() && self.server.config.advanced.single_directory {
 				Destination::Temp(Temp::new(&self.server))
 			} else {
-				Destination::Store {
-					stored_at: touched_at,
-				}
+				Destination::Store
 			};
 
 		// Create the blob.
@@ -96,15 +94,15 @@ impl Session {
 			None
 		};
 
-		// Store.
-		self.write_store(&blob, checkout_pointer.clone(), touched_at)
+		// Store and index the blob.
+		let store_args = Self::write_store_args(&blob, checkout_pointer.as_ref());
+		let index_arg = self
+			.write_index_arg(&blob, checkout_pointer, touched_at)
+			.await?;
+		self.server
+			.put_object_batch_and_index(store_args, index_arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to store the blob"))?;
-
-		// Publish index messages.
-		self.write_index(&blob, checkout_pointer.clone(), touched_at)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
+			.map_err(|error| tg::error!(!error, "failed to store and index the blob"))?;
 
 		// Create the output.
 		let output = tg::write::Output {
@@ -161,7 +159,7 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
-				Some(Destination::Store { stored_at }) => {
+				Some(Destination::Store) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::store::object::put::Arg {
@@ -169,10 +167,9 @@ impl Session {
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
 						length: Some(blob.length),
-						stored_at: *stored_at,
+						put: blob.put,
 					};
 					self.server
-						.store
 						.put_object(arg)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
@@ -258,7 +255,7 @@ impl Session {
 						.write_all(&chunk.data)
 						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
-				Some(Destination::Store { stored_at }) => {
+				Some(Destination::Store) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::store::object::put::Arg {
@@ -266,7 +263,7 @@ impl Session {
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
 						length: Some(blob.length),
-						stored_at: *stored_at,
+						put: blob.put,
 					};
 					self.server
 						.store
@@ -334,6 +331,7 @@ impl Session {
 				},
 			},
 			position: 0,
+			put: uuid::Uuid::now_v7().into_bytes(),
 		}
 	}
 
@@ -370,6 +368,7 @@ impl Session {
 				},
 			},
 			position: *position,
+			put: uuid::Uuid::now_v7().into_bytes(),
 		}
 	}
 
@@ -434,29 +433,14 @@ impl Session {
 			length,
 			metadata,
 			position,
+			put: uuid::Uuid::now_v7().into_bytes(),
 		};
 		Ok(output)
-	}
-
-	async fn write_store(
-		&self,
-		blob: &Output,
-		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
-		stored_at: i64,
-	) -> tg::Result<()> {
-		let arg = Self::write_store_args(blob, checkout_pointer.as_ref(), stored_at);
-		self.server
-			.store
-			.put_object_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to store the objects"))?;
-		Ok(())
 	}
 
 	pub(crate) fn write_store_args(
 		blob: &Output,
 		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
-		stored_at: i64,
 	) -> Vec<crate::store::object::put::Arg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
@@ -478,19 +462,19 @@ impl Session {
 				checkout_pointer,
 				id: blob.id.clone().into(),
 				length: Some(blob.length),
-				stored_at,
+				put: blob.put,
 			});
 			stack.extend(&blob.children);
 		}
 		args
 	}
 
-	async fn write_index(
+	async fn write_index_arg(
 		&self,
 		blob: &Output,
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-	) -> tg::Result<()> {
+	) -> tg::Result<tangram_index::batch::Arg> {
 		let grant_expires_at = touched_at
 			+ self
 				.server
@@ -540,12 +524,8 @@ impl Session {
 				}))
 				.collect(),
 		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the write"))?;
 
-		Ok(())
+		Ok(arg)
 	}
 
 	pub(crate) fn write_index_args(
@@ -585,6 +565,7 @@ impl Session {
 				children,
 				id,
 				metadata: blob.metadata.clone(),
+				put: blob.put,
 				storage: tangram_index::object::Storage { subtree: true },
 				time_to_touch,
 				touched_at,

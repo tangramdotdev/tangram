@@ -4,7 +4,7 @@ use ../../test.nu *
 
 def latest_batch [directory: string] {
 	open ($directory | path join database.sqlite3)
-	| query db 'select max(batch) as batch from outbox'
+	| query db 'select max(batch) as batch from index_outbox'
 	| get batch.0
 }
 
@@ -32,7 +32,7 @@ tg --url $seed.url index
 stop $seed
 
 # Commit an update followed by a delete with the indexer disabled.
-let producer_config = $config | merge { roles: [cleaner http runner scheduler] }
+let producer_config = $config | merge { roles: [http runner scheduler] }
 let producer = server spawn --name producer --directory $directory --config $producer_config
 tg --url $producer.url --token $alice.token grant $bob.user.id read project | ignore
 let put_batch = latest_batch $directory
@@ -42,7 +42,7 @@ let delete_batch = latest_batch $directory
 assert equal $delete_batch ($put_batch + 1)
 let next = (
 	open ($directory | path join database.sqlite3)
-	| query db 'select next from outbox_batch'
+	| query db 'select next from index_outbox_batch'
 	| get next.0
 )
 assert equal $next $delete_batch

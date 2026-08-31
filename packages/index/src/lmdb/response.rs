@@ -7,6 +7,6 @@ pub(super) enum Response {
 	Processes(Vec<Option<crate::process::Process>>),
 	Usage(crate::usage::Aggregate),
 	CleanOutput(crate::clean::Output),
-	CleanUsageOutput(crate::usage::clean::Output),
+	ExpireUsageOutput(crate::usage::expire::Output),
 	UpdateOutput(crate::update::Output),
 }

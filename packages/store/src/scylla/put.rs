@@ -16,9 +16,7 @@ impl Store {
 		}
 		let bytes = arg.bytes;
 		let id_bytes = id.to_bytes().to_vec();
-		let stored_at = arg.stored_at;
-		let timestamp = super::object_timestamp(stored_at)?;
-		let params = (bytes, id_bytes, stored_at, timestamp);
+		let params = (bytes, id_bytes, arg.put.as_slice());
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await

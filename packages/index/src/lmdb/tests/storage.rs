@@ -1,5 +1,6 @@
 use {
 	super::super::{Config, Index},
+	crate::Index as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
@@ -24,6 +25,7 @@ fn object_arg(
 			},
 			..Default::default()
 		},
+		put: [1; 16],
 		storage: crate::object::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
@@ -82,6 +84,22 @@ fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	index.db.put(&mut transaction, &key, &value).unwrap();
 	transaction.commit().unwrap();
 	(dir, index)
+}
+
+#[tokio::test]
+async fn object_put_touched_at_does_not_regress() {
+	let (_dir, index) = new_index(1);
+	let id = object_id(0);
+	for touched_at in [10, 5, 11] {
+		let mut arg = object_arg(id.clone(), [], 1);
+		arg.touched_at = touched_at;
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutObject(arg)],
+		};
+		index.batch(arg).await.unwrap();
+		let object = index.try_get_object(&id).await.unwrap().unwrap();
+		assert_eq!(object.touched_at, touched_at.max(10));
+	}
 }
 
 fn now() -> i64 {

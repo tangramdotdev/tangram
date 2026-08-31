@@ -9,7 +9,7 @@ let config =  {
 		single_process: false,
 	}
 	authentication: { root: { token: $root_token } },
-	roles: [cleaner http indexer scheduler],
+	roles: [http indexer scheduler],
 }
 let remote = server spawn --name remote --cloud --config $config
 let created = tg --url $remote.url --token $root_token runner create | from json

@@ -15,7 +15,6 @@ use {
 		path::Path,
 	},
 	tangram_client::prelude::*,
-	tangram_store::prelude::*,
 };
 
 pub(super) struct CheckinCreateArtifactsArg<'a> {
@@ -781,12 +780,13 @@ impl Session {
 		}
 
 		// Create the store arg.
+		let put = uuid::Uuid::now_v7().into_bytes();
 		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
-			stored_at: touched_at,
+			put,
 		};
 
 		// Create the index message.
@@ -795,6 +795,7 @@ impl Session {
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
+			put,
 			storage: tangram_index::object::Storage { subtree: stored },
 			time_to_touch,
 			touched_at,
@@ -915,20 +916,15 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Store the object.
+		let put = uuid::Uuid::now_v7().into_bytes();
 		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
-			stored_at: touched_at,
+			put,
 		};
-		self.server
-			.store
-			.put_object(store_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to store the reference artifact"))?;
-
-		// Index the object.
+		// Create the index arg.
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
 		let put_object_arg = tangram_index::object::put::Arg {
@@ -936,6 +932,7 @@ impl Session {
 			children,
 			id: id.clone(),
 			metadata: node.metadata.clone().unwrap_or_default(),
+			put,
 			storage: node.storage.clone(),
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
@@ -943,10 +940,13 @@ impl Session {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutObject(put_object_arg)],
 		};
+		// Store and index the object.
 		self.server
-			.index_batch(arg)
+			.put_object_and_index(store_arg, arg)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+			.map_err(|error| {
+				tg::error!(!error, "failed to store and index the reference artifact")
+			})?;
 
 		let id = id.try_into().unwrap();
 
@@ -1346,12 +1346,13 @@ impl Session {
 		}
 
 		// Create the store arg.
+		let put = uuid::Uuid::now_v7().into_bytes();
 		let store_arg = crate::store::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
 			length: None,
-			stored_at: touched_at,
+			put,
 		};
 
 		// Create the index message.
@@ -1360,6 +1361,7 @@ impl Session {
 			children: children_ids,
 			id: id.clone(),
 			metadata,
+			put,
 			storage: tangram_index::object::Storage { subtree: true },
 			time_to_touch,
 			touched_at,

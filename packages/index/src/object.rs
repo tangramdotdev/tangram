@@ -16,6 +16,9 @@ pub struct Object {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub metadata: tg::object::Metadata,
 
+	#[tangram_serialize(id = 5)]
+	pub put: [u8; 16],
+
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 

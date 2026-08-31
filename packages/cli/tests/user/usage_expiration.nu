@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Usage cleaning preserves coarser aggregates, expires each period independently, and retains zero storage checkpoints.
+# Usage expiration preserves coarser aggregates, expires each period independently, and retains zero storage checkpoints.
 
 def --wrapped usage [token: string, ...period: string] {
 	tg --token $token usage ...$period | from json
@@ -8,7 +8,7 @@ def --wrapped usage [token: string, ...period: string] {
 
 def --wrapped unavailable [token: string, ...period: string] {
 	let output = tg --token $token usage ...$period | complete
-	failure $output "cleaned usage should be unavailable"
+	failure $output "expired usage should be unavailable"
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
@@ -35,7 +35,7 @@ tg --token $alice.token put 'tg.file("remove")'
 tg --token $bob.token put 'tg.file("remove")'
 tg --token $alice.token index
 
-# Cleaning in the next hour preserves the completed hour and records the new storage gauges.
+# Expiration in the next hour preserves the completed hour and records the new storage gauges.
 advance_time $server 1hr
 tg --token $alice.token clean
 let alice_hour_0 = usage $alice.token --hour 2026-01-01T00:00:00Z
@@ -47,7 +47,7 @@ assert equal $alice_hour_1.object_count 2
 assert equal $bob_hour_0.object_count 2
 assert equal $bob_hour_1.object_count 0
 
-# Repeated cleaning must not subtract storage twice.
+# Repeated expiration must not subtract storage twice.
 tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T01:00:00Z) $alice_hour_1
 assert equal (usage $bob.token --hour 2026-01-01T01:00:00Z) $bob_hour_1

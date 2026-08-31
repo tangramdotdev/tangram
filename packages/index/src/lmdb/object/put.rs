@@ -15,18 +15,18 @@ impl Index {
 		let key = Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let merge = !arg.complete();
 		let existing = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			.and_then(|bytes| crate::object::Object::deserialize(bytes).ok());
+		let merge = !arg.complete();
 		let merged = existing.as_ref().filter(|_| merge);
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
-		let touch = merged.is_none_or(|existing| {
+		let touch = existing.as_ref().is_none_or(|existing| {
 			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
 		});
-		let touched_at = merged.map_or(arg.touched_at, |existing| {
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
 			if touch {
 				existing.touched_at.max(arg.touched_at)
 			} else {
@@ -51,19 +51,23 @@ impl Index {
 		if let Some(existing) = merged {
 			metadata.merge(&existing.metadata);
 		}
-		let changed = !merge
-			|| existing.as_ref().is_none_or(|existing| {
-				existing.checkout != checkout
-					|| existing.metadata != metadata
-					|| existing.storage != storage
-			});
-		if !changed && !touch {
+		let put = existing
+			.as_ref()
+			.map_or(arg.put, |existing| existing.put.max(arg.put));
+		let put_changed = existing.as_ref().is_none_or(|existing| existing.put != put);
+		let changed = existing.as_ref().is_none_or(|existing| {
+			existing.checkout != checkout
+				|| existing.metadata != metadata
+				|| existing.storage != storage
+		});
+		if !changed && !put_changed && !touch {
 			return Ok(());
 		}
 
 		let value = crate::object::Object {
 			checkout: checkout.clone(),
 			metadata,
+			put,
 			reference_count: 0,
 			storage,
 			touched_at,

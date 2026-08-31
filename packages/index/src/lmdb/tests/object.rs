@@ -23,6 +23,7 @@ fn object_arg(id: tg::object::Id, checkout: Option<tg::artifact::Id>) -> crate::
 		children: BTreeSet::new(),
 		id,
 		metadata: complete_metadata(),
+		put: [1; 16],
 		storage: crate::object::Storage { subtree: true },
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 10,
@@ -50,6 +51,37 @@ fn relationship_exists(
 	let key = Index::pack(&index.subspace, &key);
 
 	index.db.get(&transaction, &key).unwrap().is_some()
+}
+
+#[tokio::test]
+async fn put_updates_put_while_honoring_time_to_touch() {
+	let (_directory, index) = super::new_index();
+	let id = tg::object::Id::new(
+		tg::object::Kind::Blob,
+		&b"object".as_slice().to_vec().into(),
+	);
+	let mut arg = object_arg(id.clone(), None);
+	arg.time_to_touch = std::time::Duration::from_secs(100);
+	let batch = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutObject(arg.clone())],
+	};
+	index.batch(batch).await.unwrap();
+	arg.put = [2; 16];
+	arg.touched_at = 20;
+	let batch = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutObject(arg)],
+	};
+	index.batch(batch).await.unwrap();
+
+	let object = index
+		.try_get_objects(&[id])
+		.await
+		.unwrap()
+		.pop()
+		.unwrap()
+		.unwrap();
+	assert_eq!(object.put, [2; 16]);
+	assert_eq!(object.touched_at, 10);
 }
 
 #[tokio::test]

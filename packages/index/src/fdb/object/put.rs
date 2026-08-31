@@ -22,13 +22,11 @@ impl Index {
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let existing = if arg.complete() {
-			None
-		} else {
-			let result = txn.get(&key, false).await;
-			crate::fdb::retry!(result)
-				.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
-		};
+		let result = txn.get(&key, false).await;
+		let existing = crate::fdb::retry!(result)
+			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok());
+		let merge = !arg.complete();
+		let merged = existing.as_ref().filter(|_| merge);
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {
@@ -42,35 +40,36 @@ impl Index {
 			}
 		});
 
-		let checkout = arg.checkout.clone().or_else(|| {
-			existing
-				.as_ref()
-				.and_then(|existing| existing.checkout.clone())
-		});
+		let checkout = arg
+			.checkout
+			.clone()
+			.or_else(|| merged.and_then(|existing| existing.checkout.clone()));
 
 		let storage = crate::object::Storage {
-			subtree: arg.storage.subtree
-				|| existing
-					.as_ref()
-					.is_some_and(|existing| existing.storage.subtree),
+			subtree: arg.storage.subtree || merged.is_some_and(|existing| existing.storage.subtree),
 		};
 
 		let mut metadata = arg.metadata.clone();
-		if let Some(ref existing) = existing {
+		if let Some(existing) = merged {
 			metadata.merge(&existing.metadata);
 		}
+		let put = existing
+			.as_ref()
+			.map_or(arg.put, |existing| existing.put.max(arg.put));
+		let put_changed = existing.as_ref().is_none_or(|existing| existing.put != put);
 		let changed = existing.as_ref().is_none_or(|existing| {
 			existing.checkout != checkout
 				|| existing.metadata != metadata
 				|| existing.storage != storage
 		});
-		if !changed && !touch {
+		if !changed && !put_changed && !touch {
 			return Ok(ControlFlow::Break(()));
 		}
 
 		let value = crate::object::Object {
 			checkout,
 			metadata,
+			put,
 			reference_count: 0,
 			storage,
 			touched_at,

@@ -4,7 +4,9 @@ use {foundationdb_tuple as fdbt, num_traits::ToPrimitive as _, tangram_client::p
 pub enum Key<'a> {
 	Log(crate::lmdb::log::Key<'a>),
 	Object(crate::lmdb::object::Key<'a>),
-	Outbox(crate::lmdb::outbox::Key),
+	ObjectArchiveOutbox(crate::object::archive::outbox::Entry),
+	ObjectCache(crate::object::cache::Entry),
+	ObjectIndexOutbox(crate::lmdb::outbox::Key),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -13,7 +15,9 @@ pub enum Kind {
 	LogEntry = 2,
 	LogStreamPosition = 3,
 	Object = 0,
-	OutboxFragment = 1,
+	ObjectArchiveOutbox = 4,
+	ObjectCache = 5,
+	ObjectIndexOutboxFragment = 1,
 }
 
 impl fdbt::TuplePack for Key<'_> {
@@ -65,12 +69,24 @@ impl fdbt::TuplePack for Key<'_> {
 			Self::Object(crate::lmdb::object::Key::Object(id)) => {
 				(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(writer, tuple_depth)
 			},
-			Self::Outbox(crate::lmdb::outbox::Key::Fragment {
+			Self::ObjectArchiveOutbox(entry) => (
+				Kind::ObjectArchiveOutbox.to_i32().unwrap(),
+				entry.partition,
+				entry.put.as_slice(),
+			)
+				.pack(writer, tuple_depth),
+			Self::ObjectCache(entry) => (
+				Kind::ObjectCache.to_i32().unwrap(),
+				entry.partition,
+				entry.cache.as_slice(),
+			)
+				.pack(writer, tuple_depth),
+			Self::ObjectIndexOutbox(crate::lmdb::outbox::Key::Fragment {
 				batch,
 				index,
 				partition,
 			}) => (
-				Kind::OutboxFragment.to_i32().unwrap(),
+				Kind::ObjectIndexOutboxFragment.to_i32().unwrap(),
 				partition,
 				batch.as_slice(),
 				index,

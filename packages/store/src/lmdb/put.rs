@@ -13,7 +13,7 @@ pub(super) struct Request {
 	pub checkout_pointer: Option<object::checkout::Pointer>,
 	pub id: tg::object::Id,
 	pub length: Option<u64>,
-	pub stored_at: i64,
+	pub put: [u8; 16],
 }
 
 impl Store {
@@ -23,7 +23,7 @@ impl Store {
 			checkout_pointer: arg.checkout_pointer,
 			id: arg.id,
 			length: arg.length,
-			stored_at: arg.stored_at,
+			put: arg.put,
 		});
 
 		self.send_write_request(request).await
@@ -40,7 +40,7 @@ impl Store {
 					checkout_pointer: arg.checkout_pointer,
 					id: arg.id,
 					length: arg.length,
-					stored_at: arg.stored_at,
+					put: arg.put,
 				})
 				.collect(),
 		);
@@ -58,7 +58,7 @@ impl Store {
 			checkout_pointer: arg.checkout_pointer,
 			id: arg.id,
 			length: arg.length,
-			stored_at: arg.stored_at,
+			put: arg.put,
 		};
 		Self::put_inner_with_transaction(&self.db, &mut transaction, request)?;
 		transaction
@@ -81,7 +81,7 @@ impl Store {
 				checkout_pointer: arg.checkout_pointer,
 				id: arg.id,
 				length: arg.length,
-				stored_at: arg.stored_at,
+				put: arg.put,
 			};
 			Self::put_inner_with_transaction(&self.db, &mut transaction, request)?;
 		}
@@ -99,14 +99,24 @@ impl Store {
 		let id = &request.id;
 		let key = Key::Object(lmdb_object::Key::Object(id));
 		let key_bytes = key.pack_to_vec();
+		let previous = db
+			.get(transaction, &key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+			.map(super::object::Value::deserialize)
+			.transpose()
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		if previous.is_some_and(|object| object.object.put > request.put) {
+			return Ok(());
+		}
 
 		let value = object::Object {
 			bytes: request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 			checkout_pointer: request.checkout_pointer,
 			length: request.length,
-			stored_at: request.stored_at,
+			put: request.put,
 		};
-		let value_bytes = value.serialize().unwrap();
+		let value = super::object::Value::new(value);
+		let value_bytes = value.serialize()?;
 		db.put(transaction, &key_bytes, &value_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 

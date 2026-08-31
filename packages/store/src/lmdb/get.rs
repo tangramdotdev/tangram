@@ -72,7 +72,16 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		arg: &object::get::Arg,
 	) -> tg::Result<object::get::Output> {
-		let object = Self::try_get_object_inner_with_transaction(&self.db, transaction, &arg.id)?;
+		Self::try_get_object_with_arg_with_transaction(&self.db, transaction, arg)
+	}
+
+	pub(super) fn try_get_object_with_arg_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &object::get::Arg,
+	) -> tg::Result<object::get::Output> {
+		let object = Self::try_get_object_inner_with_transaction(db, transaction, &arg.id)?;
+		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
 		Ok(object::get::Output { object })
 	}
 
@@ -103,9 +112,9 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let value = object::Object::deserialize(bytes)
+		let value = lmdb_object::Value::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
-		Ok(Some(value))
+		Ok(Some(value.object))
 	}
 
 	pub fn try_get_object_data_with_transaction(

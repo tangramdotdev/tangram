@@ -7,7 +7,7 @@ let server = server spawn --config {
 		checkpoints: true,
 	},
 	indexer: {
-		poll_interval: 0.01,
+		request: { poll_interval: 0.01 },
 	},
 }
 let path = artifact {

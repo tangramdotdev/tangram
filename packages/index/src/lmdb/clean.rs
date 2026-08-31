@@ -193,7 +193,7 @@ impl Index {
 				},
 			};
 
-			let item = if reference_count > 0 {
+			let (item, put) = if reference_count > 0 {
 				Self::set_reference_count(
 					db,
 					subspace,
@@ -201,10 +201,20 @@ impl Index {
 					&candidate.item,
 					reference_count,
 				)?;
-				None
+				(None, None)
 			} else {
+				let put = if let Item::Object(id) = &candidate.item {
+					let object =
+						Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+							.ok_or_else(
+								|| tg::error!(%id, "the clean key referenced a missing object"),
+							)?;
+					Some(object.put)
+				} else {
+					None
+				};
 				Self::delete_item(db, subspace, transaction, &candidate.item)?;
-				Some(candidate.item.clone())
+				(Some(candidate.item.clone()), put)
 			};
 
 			Self::delete_clean_key(db, subspace, transaction, candidate)?;
@@ -213,7 +223,11 @@ impl Index {
 				match item {
 					Item::AccountObject { .. } | Item::AccountProcess { .. } => unreachable!(),
 					Item::Checkout(id) => output.checkouts.push(id),
-					Item::Object(id) => output.objects.push(id),
+					Item::Object(id) => output.objects.push(crate::clean::Object {
+						id,
+						put: put.unwrap(),
+						touched_at: candidate.touched_at,
+					}),
 					Item::Process(id) => output.processes.push(id),
 					Item::Sandbox(id) => output.sandboxes.push(id),
 				}

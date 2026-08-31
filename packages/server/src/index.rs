@@ -56,15 +56,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn clean_usage(
+	async fn expire_usage(
 		&self,
-		arg: index::usage::clean::Arg,
-	) -> tg::Result<index::usage::clean::Output> {
+		arg: index::usage::expire::Arg,
+	) -> tg::Result<index::usage::expire::Output> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.clean_usage(arg).await,
+			Self::Fdb(index) => index.expire_usage(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.clean_usage(arg).await,
+			Self::Lmdb(index) => index.expire_usage(arg).await,
 		}
 	}
 
@@ -753,7 +753,7 @@ impl Server {
 			return Ok(());
 		}
 		if !self.config.advanced.single_process {
-			let config = &self.config.object.outbox;
+			let config = &self.config.object.index_outbox;
 			let fragments = arg
 				.items
 				.chunks(config.fragment_size)
@@ -764,23 +764,25 @@ impl Server {
 					arg.serialize().map(Into::into)
 				})
 				.collect::<tg::Result<Vec<_>>>()?;
-			let batch_id = crate::store::outbox::batch::Id::new(uuid::Uuid::now_v7().into_bytes());
+			let batch_id = crate::store::object::index::outbox::batch::Id::new(
+				uuid::Uuid::now_v7().into_bytes(),
+			);
 			let partition = rand::random_range(0..config.partition_total);
-			let arg = crate::store::outbox::batch::enqueue::Arg {
+			let arg = crate::store::object::index::outbox::batch::enqueue::Arg {
 				fragments,
 				id: batch_id,
 				partition,
 			};
 			self.store
-				.enqueue_outbox_batch(arg)
+				.enqueue_object_index_outbox_batch(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
-			let subject = crate::indexer::object_outbox_subject(partition);
+			let subject = crate::indexer::object_index_outbox_subject(partition);
 			tokio::spawn({
 				let server = self.clone();
 				async move {
 					if let Err(error) = server.messenger.publish(subject, ()).await {
-						tracing::error!(%error, %partition, "failed to publish an object outbox notification");
+						tracing::error!(%error, %partition, "failed to publish an object index outbox notification");
 					}
 				}
 			});

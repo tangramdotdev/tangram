@@ -61,7 +61,7 @@ impl Session {
 		})
 		.await?;
 		self.server
-			.spawn_publish_database_outbox_notification_task();
+			.spawn_publish_database_index_outbox_notification_task();
 		self.checkout_index_barrier().await?;
 		Ok(())
 	}
@@ -192,7 +192,7 @@ impl Session {
 		}
 		match self
 			.server
-			.enqueue_database_outbox_with_transaction(transaction, &batch)
+			.enqueue_database_index_outbox_with_transaction(transaction, &batch)
 			.await?
 		{
 			ControlFlow::Break(()) => (),

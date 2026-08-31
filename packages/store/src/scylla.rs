@@ -1,5 +1,8 @@
 use {crate::object, futures::FutureExt as _, indoc::indoc, tangram_client::prelude::*};
 
+mod archive;
+mod cache;
+mod capacity;
 mod delete;
 mod flush;
 mod get;
@@ -12,6 +15,7 @@ const OBJECT_CONCURRENCY: usize = 64;
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub addr: String,
+	pub capacity: Option<CapacityConfig>,
 	pub connections: Option<usize>,
 	pub keepalive: bool,
 	pub keyspace: String,
@@ -19,6 +23,13 @@ pub struct Config {
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
 	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CapacityConfig {
+	pub available_query: String,
+	pub total_query: String,
+	pub url: String,
 }
 
 #[derive(Clone, Debug)]
@@ -34,26 +45,36 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
+	capacity: Option<capacity::Client>,
 	partition_offset: u64,
 	statements: Statements,
 	session: scylla::client::session::Session,
 }
 
 struct Statements {
+	contains_object: scylla::statement::prepared::PreparedStatement,
 	delete_object: scylla::statement::prepared::PreparedStatement,
-	delete_outbox_fragment: scylla::statement::prepared::PreparedStatement,
-	dequeue_outbox_fragments: scylla::statement::prepared::PreparedStatement,
-	enqueue_outbox_fragment: scylla::statement::prepared::PreparedStatement,
+	delete_object_archive_outbox_entry: scylla::statement::prepared::PreparedStatement,
+	delete_object_cache_entry: scylla::statement::prepared::PreparedStatement,
+	delete_object_index_outbox_batch: scylla::statement::prepared::PreparedStatement,
+	delete_object_index_outbox_fragment: scylla::statement::prepared::PreparedStatement,
+	dequeue_object_archive_outbox_entries: scylla::statement::prepared::PreparedStatement,
+	dequeue_object_index_outbox_fragments: scylla::statement::prepared::PreparedStatement,
+	enqueue_object_index_outbox_fragment: scylla::statement::prepared::PreparedStatement,
 	get_object: scylla::statement::prepared::PreparedStatement,
+	get_object_cache_entries: scylla::statement::prepared::PreparedStatement,
+	get_object_for_put: scylla::statement::prepared::PreparedStatement,
 	log: log::Statements,
 	put_object: scylla::statement::prepared::PreparedStatement,
-	try_get_outbox_batch: scylla::statement::prepared::PreparedStatement,
-	try_get_outbox_batch_at_or_before: scylla::statement::prepared::PreparedStatement,
+	put_object_archive_outbox_entry: scylla::statement::prepared::PreparedStatement,
+	put_object_cache_entry: scylla::statement::prepared::PreparedStatement,
+	try_get_object_index_outbox_batch: scylla::statement::prepared::PreparedStatement,
+	try_get_object_index_outbox_batch_at_or_before: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Store {
 	pub async fn new(config: &Config) -> tg::Result<Self> {
-		physical_outbox_partition(0, config.partition_offset)?;
+		physical_partition(0, config.partition_offset)?;
 
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
@@ -111,8 +132,7 @@ impl Store {
 		let statement = indoc!(
 			"
 				delete from objects
-				using timestamp ?
-				where id = ?;
+				where id = ? and put = ?;
 			"
 		);
 		let mut delete_object = session
@@ -124,9 +144,10 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select bytes
+				select bytes, put
 				from objects
-				where id = ?;
+				where id = ?
+				limit 1;
 			"
 		);
 		let mut get_object = session
@@ -138,9 +159,34 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into objects (bytes, id, stored_at)
-				values (?, ?, ?)
-				using timestamp ?;
+				select bytes, put
+				from objects
+				where id = ? and put = ?;
+			"
+		);
+		let mut get_object_for_put = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the get object for put statement")
+		})?;
+		get_object_for_put.set_consistency(scylla::statement::Consistency::One);
+		get_object_for_put.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				select put
+				from objects
+				where id = ? and put = ?;
+			"
+		);
+		let mut contains_object = session.prepare(statement).await.map_err(|error| {
+			tg::error!(!error, "failed to prepare the contains object statement")
+		})?;
+		contains_object.set_consistency(scylla::statement::Consistency::One);
+		contains_object.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				insert into objects (bytes, id, put)
+				values (?, ?, ?);
 			"
 		);
 		let mut put_object = session
@@ -151,110 +197,259 @@ impl Store {
 		put_object.set_is_idempotent(true);
 
 		let statement = indoc!(
+			"
+				delete from object_cache
+				where partition = ? and cache = ?;
+			"
+		);
+		let mut delete_object_cache_entry = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the delete object cache entry statement"
+			)
+		})?;
+		delete_object_cache_entry.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_cache_entry.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				select cache, object, partition, put
+				from object_cache
+				where partition = ?
+				limit ?;
+			"
+		);
+		let mut get_object_cache_entries = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the get object cache entries statement"
+			)
+		})?;
+		get_object_cache_entries.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		get_object_cache_entries.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				insert into object_cache (cache, object, partition, put)
+				values (?, ?, ?, ?);
+			"
+		);
+		let mut put_object_cache_entry = session.prepare(statement).await.map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to prepare the put object cache entry statement"
+			)
+		})?;
+		put_object_cache_entry.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_object_cache_entry.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				delete from object_archive_outbox
+				where partition = ? and put = ?;
+			"
+		);
+		let mut delete_object_archive_outbox_entry =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the delete object archive outbox entry statement"
+				)
+			})?;
+		delete_object_archive_outbox_entry
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_archive_outbox_entry.set_is_idempotent(true);
+
+		let statement = indoc!(
 			r#"
-				delete from outbox
+				delete from object_index_outbox
+				where partition = ? and "batch" = ?;
+			"#
+		);
+		let mut delete_object_index_outbox_batch =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the delete object index outbox batch statement"
+				)
+			})?;
+		delete_object_index_outbox_batch
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_index_outbox_batch.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				select object, partition, put
+				from object_archive_outbox
+				where partition in ?
+				limit ?;
+			"
+		);
+		let mut dequeue_object_archive_outbox_entries =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the dequeue object archive outbox entries statement"
+				)
+			})?;
+		dequeue_object_archive_outbox_entries
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		dequeue_object_archive_outbox_entries.set_is_idempotent(true);
+
+		let statement = indoc!(
+			"
+				insert into object_archive_outbox (object, partition, put)
+				values (?, ?, ?);
+			"
+		);
+		let mut put_object_archive_outbox_entry =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the object archive outbox write statement"
+				)
+			})?;
+		put_object_archive_outbox_entry
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_object_archive_outbox_entry.set_is_idempotent(true);
+
+		let statement = indoc!(
+			r#"
+				delete from object_index_outbox
 				where partition = ? and "batch" = ? and fragment = ?;
 			"#
 		);
-		let mut delete_outbox_fragment = session.prepare(statement).await.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to prepare the delete outbox fragment statement"
-			)
-		})?;
-		delete_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		delete_outbox_fragment.set_is_idempotent(true);
+		let mut delete_object_index_outbox_fragment =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the delete outbox fragment statement"
+				)
+			})?;
+		delete_object_index_outbox_fragment
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object_index_outbox_fragment.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
 				select "batch", fragment, partition, payload
-				from outbox
+				from object_index_outbox
 				where partition in ?
 				limit ?;
 			"#
 		);
-		let mut dequeue_outbox_fragments = session.prepare(statement).await.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to prepare the dequeue outbox fragments statement"
-			)
-		})?;
-		dequeue_outbox_fragments.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		dequeue_outbox_fragments.set_is_idempotent(true);
+		let mut dequeue_object_index_outbox_fragments =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the dequeue outbox fragments statement"
+				)
+			})?;
+		dequeue_object_index_outbox_fragments
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		dequeue_object_index_outbox_fragments.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
-				insert into outbox ("batch", fragment, partition, payload)
+				insert into object_index_outbox ("batch", fragment, partition, payload)
 				values (?, ?, ?, ?);
 			"#
 		);
-		let mut enqueue_outbox_fragment = session.prepare(statement).await.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to prepare the enqueue outbox fragment statement"
-			)
-		})?;
-		enqueue_outbox_fragment.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		enqueue_outbox_fragment.set_is_idempotent(true);
+		let mut enqueue_object_index_outbox_fragment =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the enqueue outbox fragment statement"
+				)
+			})?;
+		enqueue_object_index_outbox_fragment
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		enqueue_object_index_outbox_fragment.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
 				select max("batch")
-				from outbox
+				from object_index_outbox
 				where partition in ?;
 			"#
 		);
-		let mut try_get_outbox_batch = session.prepare(statement).await.map_err(|error| {
-			tg::error!(!error, "failed to prepare the get outbox batch statement")
-		})?;
-		try_get_outbox_batch.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		try_get_outbox_batch.set_is_idempotent(true);
+		let mut try_get_object_index_outbox_batch =
+			session.prepare(statement).await.map_err(|error| {
+				tg::error!(!error, "failed to prepare the get outbox batch statement")
+			})?;
+		try_get_object_index_outbox_batch
+			.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		try_get_object_index_outbox_batch.set_is_idempotent(true);
 
 		let statement = indoc!(
 			r#"
 				select max("batch")
-				from outbox
+				from object_index_outbox
 				where partition in ? and "batch" <= ?;
 			"#
 		);
-		let mut try_get_outbox_batch_at_or_before =
+		let mut try_get_object_index_outbox_batch_at_or_before =
 			session.prepare(statement).await.map_err(|error| {
 				tg::error!(
 					!error,
 					"failed to prepare the bounded get outbox batch statement"
 				)
 			})?;
-		try_get_outbox_batch_at_or_before
+		try_get_object_index_outbox_batch_at_or_before
 			.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		try_get_outbox_batch_at_or_before.set_is_idempotent(true);
+		try_get_object_index_outbox_batch_at_or_before.set_is_idempotent(true);
 		if let Some(handle) = execution_profile {
 			for statement in [
+				&mut contains_object,
 				&mut delete_object,
-				&mut delete_outbox_fragment,
-				&mut dequeue_outbox_fragments,
-				&mut enqueue_outbox_fragment,
+				&mut delete_object_archive_outbox_entry,
+				&mut delete_object_cache_entry,
+				&mut delete_object_index_outbox_batch,
+				&mut delete_object_index_outbox_fragment,
+				&mut dequeue_object_archive_outbox_entries,
+				&mut dequeue_object_index_outbox_fragments,
+				&mut enqueue_object_index_outbox_fragment,
 				&mut get_object,
+				&mut get_object_cache_entries,
+				&mut get_object_for_put,
 				&mut put_object,
-				&mut try_get_outbox_batch,
-				&mut try_get_outbox_batch_at_or_before,
+				&mut put_object_archive_outbox_entry,
+				&mut put_object_cache_entry,
+				&mut try_get_object_index_outbox_batch,
+				&mut try_get_object_index_outbox_batch_at_or_before,
 			] {
 				statement.set_execution_profile_handle(Some(handle.clone()));
 			}
 		}
 		let log = log::Statements::new(&session).await?;
 
+		let capacity = config
+			.capacity
+			.as_ref()
+			.map(capacity::Client::new)
+			.transpose()?;
 		let scylla = Self {
+			capacity,
 			partition_offset: config.partition_offset,
 			statements: Statements {
+				contains_object,
 				delete_object,
-				delete_outbox_fragment,
-				dequeue_outbox_fragments,
-				enqueue_outbox_fragment,
+				delete_object_archive_outbox_entry,
+				delete_object_cache_entry,
+				delete_object_index_outbox_batch,
+				delete_object_index_outbox_fragment,
+				dequeue_object_archive_outbox_entries,
+				dequeue_object_index_outbox_fragments,
+				enqueue_object_index_outbox_fragment,
 				get_object,
+				get_object_cache_entries,
+				get_object_for_put,
 				log,
 				put_object,
-				try_get_outbox_batch,
-				try_get_outbox_batch_at_or_before,
+				put_object_archive_outbox_entry,
+				put_object_cache_entry,
+				try_get_object_index_outbox_batch,
+				try_get_object_index_outbox_batch_at_or_before,
 			},
 			session,
 		};
@@ -264,6 +459,24 @@ impl Store {
 }
 
 impl crate::Store for Store {
+	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
+		self.contains_object(arg).await
+	}
+
+	async fn delete_object_cache_entry(
+		&self,
+		arg: crate::object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_cache_entry(arg).await
+	}
+
+	async fn delete_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_archive_outbox_entries(arg).await
+	}
+
 	async fn delete_log(&self, arg: crate::log::delete::Arg) -> tg::Result<()> {
 		self.delete_log_inner(arg).await
 	}
@@ -276,25 +489,64 @@ impl crate::Store for Store {
 		self.delete_object_batch(args).await
 	}
 
-	async fn delete_outbox_fragments(
+	async fn delete_object_index_outbox_batch(
 		&self,
-		arg: crate::outbox::fragment::delete::Arg,
+		arg: crate::object::index::outbox::batch::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_outbox_fragments(arg).await
+		self.delete_object_index_outbox_batch(arg).await
 	}
 
-	async fn dequeue_outbox_fragments(
+	async fn delete_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<crate::outbox::fragment::Fragment>> {
-		self.dequeue_outbox_fragments(arg).await
+		arg: crate::object::index::outbox::fragment::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_index_outbox_fragments(arg).await
 	}
 
-	async fn enqueue_outbox_batch(
+	async fn dequeue_object_index_outbox_fragments(
 		&self,
-		arg: crate::outbox::batch::enqueue::Arg,
+		arg: crate::object::index::outbox::fragment::dequeue::Arg,
+	) -> tg::Result<Vec<crate::object::index::outbox::fragment::Fragment>> {
+		self.dequeue_object_index_outbox_fragments(arg).await
+	}
+
+	async fn dequeue_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::dequeue::Arg,
+	) -> tg::Result<Vec<crate::object::archive::outbox::Entry>> {
+		self.dequeue_object_archive_outbox_entries(arg).await
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: crate::object::cache::get::Arg,
+	) -> tg::Result<Vec<crate::object::cache::Entry>> {
+		self.get_object_cache_entries(arg).await
+	}
+
+	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
+		self.put_object_cache_entry(arg).await
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: crate::object::cache::put::object::Arg,
 	) -> tg::Result<()> {
-		self.enqueue_outbox_batch(arg).await
+		self.put_object_cache_entry_with_object(arg).await
+	}
+
+	async fn put_object_archive_outbox_entries(
+		&self,
+		arg: crate::object::archive::outbox::put::Arg,
+	) -> tg::Result<()> {
+		self.put_object_archive_outbox_entries(arg).await
+	}
+
+	async fn enqueue_object_index_outbox_batch(
+		&self,
+		arg: crate::object::index::outbox::batch::enqueue::Arg,
+	) -> tg::Result<()> {
+		self.enqueue_object_index_outbox_batch(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -332,11 +584,16 @@ impl crate::Store for Store {
 		self.try_get_object_batch(arg).await
 	}
 
-	async fn try_get_outbox_batch_at_or_before(
+	async fn try_get_object_index_outbox_batch_at_or_before(
 		&self,
-		arg: crate::outbox::batch::get::Arg,
-	) -> tg::Result<Option<crate::outbox::batch::Id>> {
-		self.try_get_outbox_batch_at_or_before(arg).await
+		arg: crate::object::index::outbox::batch::get::Arg,
+	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
+		self.try_get_object_index_outbox_batch_at_or_before(arg)
+			.await
+	}
+
+	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
+		self.try_get_capacity().await
 	}
 
 	async fn try_read_log(
@@ -347,13 +604,7 @@ impl crate::Store for Store {
 	}
 }
 
-fn object_timestamp(stored_at: i64) -> tg::Result<i64> {
-	stored_at
-		.checked_mul(1_000_000)
-		.ok_or_else(|| tg::error!(%stored_at, "the object timestamp is out of range"))
-}
-
-fn logical_outbox_partition(partition: i64, offset: u64) -> tg::Result<u64> {
+fn logical_partition(partition: i64, offset: u64) -> tg::Result<u64> {
 	let partition = u64::try_from(partition)
 		.map_err(|_| tg::error!(%partition, "the physical outbox partition was negative"))?;
 	let partition = partition.checked_sub(offset).ok_or_else(
@@ -363,7 +614,7 @@ fn logical_outbox_partition(partition: i64, offset: u64) -> tg::Result<u64> {
 	Ok(partition)
 }
 
-fn physical_outbox_partition(partition: u64, offset: u64) -> tg::Result<i64> {
+fn physical_partition(partition: u64, offset: u64) -> tg::Result<i64> {
 	let partition = partition
 		.checked_add(offset)
 		.and_then(|partition| i64::try_from(partition).ok())
@@ -380,14 +631,14 @@ mod tests {
 
 	#[test]
 	fn partition_offset_round_trips() {
-		let partition = physical_outbox_partition(7, 42).unwrap();
+		let partition = physical_partition(7, 42).unwrap();
 		assert_eq!(partition, 49);
-		assert_eq!(logical_outbox_partition(partition, 42).unwrap(), 7);
+		assert_eq!(logical_partition(partition, 42).unwrap(), 7);
 	}
 
 	#[test]
 	fn partition_offset_rejects_overflow() {
-		assert!(physical_outbox_partition(u64::MAX, 1).is_err());
-		assert!(logical_outbox_partition(41, 42).is_err());
+		assert!(physical_partition(u64::MAX, 1).is_err());
+		assert!(logical_partition(41, 42).is_err());
 	}
 }
