@@ -861,7 +861,7 @@ impl Cli {
 				.collect();
 			tg::Value::Array(objects).store_with_handle(&client).await?;
 			let command = command.build_spawn_arg()?;
-			let stdin = command.stdin.clone();
+			let stdin = command.stdin.as_ref().map(|stdin| stdin.node.clone());
 			(tg::Either::Left(command), stdin)
 		} else {
 			let command = command.build()?;

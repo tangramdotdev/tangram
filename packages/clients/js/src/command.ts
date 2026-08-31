@@ -670,6 +670,9 @@ export namespace Command {
 				...globalThis.Object.values(data.env ?? {}).flatMap(
 					tg.Command.Value.Data.children,
 				),
+				...(data.stdin === undefined || data.stdin === null
+					? []
+					: [data.stdin]),
 			];
 		};
 

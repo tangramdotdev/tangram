@@ -7,6 +7,9 @@ use {
 	},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
 	args: Vec<tg::command::Value>,
@@ -35,8 +38,13 @@ impl Builder {
 			.into_iter()
 			.map(|(key, value)| Ok((key, tg::command::Value::try_from_data(value)?)))
 			.collect::<tg::Result<_>>()?;
-		let executable = tg::command::Executable::try_from_data(arg.executable)?;
-		let stdin = arg.stdin.map(tg::Blob::with_id);
+		let tg::Referent { node, options } = arg.executable;
+		let executable = tg::command::Executable::try_from_data(node)?;
+		if let Some(artifact) = &executable.artifact {
+			artifact.state().set_location(options.location);
+			artifact.state().set_tokens(options.tokens);
+		}
+		let stdin = arg.stdin.map(tg::Blob::with_referent);
 		let builder = Self {
 			args,
 			cwd: arg.cwd,
@@ -135,6 +143,13 @@ impl Builder {
 		let executable = self
 			.executable
 			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
+		let options = executable
+			.artifact
+			.as_ref()
+			.map_or_else(tg::referent::Options::default, |artifact| {
+				artifact.to_referent().options
+			});
+		let executable = tg::Referent::new(executable.to_data(), options);
 		Ok(tg::process::spawn::CommandArg {
 			args: self.args.iter().map(tg::command::Value::to_data).collect(),
 			cwd: self.cwd,
@@ -143,9 +158,9 @@ impl Builder {
 				.iter()
 				.map(|(key, value)| (key.clone(), value.to_data()))
 				.collect(),
-			executable: executable.to_data(),
+			executable,
 			host: self.host,
-			stdin: self.stdin.as_ref().map(tg::Blob::id),
+			stdin: self.stdin.as_ref().map(tg::Blob::to_referent),
 			user: self.user,
 		})
 	}

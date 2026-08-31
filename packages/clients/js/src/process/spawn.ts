@@ -179,6 +179,13 @@ let spawnArgFromResolvedWithSandbox = async (
 		...(stdin === null ? [] : [stdin]),
 	];
 	await tg.Value.store(objects);
+	let executableData = tg.Command.Executable.toData(executable_);
+	let executableReferent: tg.Referent<tg.Command.Data.Executable> = {
+		node: executableData,
+		...(executable_.artifact === null
+			? {}
+			: { options: tg.Object.toReferent(executable_.artifact).options }),
+	};
 	let command: tg.Process.Spawn.CommandArg = {
 		args: args.map(tg.Command.Value.toData),
 		env: globalThis.Object.fromEntries(
@@ -187,7 +194,7 @@ let spawnArgFromResolvedWithSandbox = async (
 				tg.Command.Value.toData(value),
 			]),
 		),
-		executable: tg.Command.Executable.toData(executable_),
+		executable: executableReferent,
 	};
 	if (cwd !== null) {
 		command.cwd = cwd;
@@ -198,7 +205,7 @@ let spawnArgFromResolvedWithSandbox = async (
 		command.host = tg.host.current;
 	}
 	if (stdin !== null) {
-		command.stdin = stdin.id;
+		command.stdin = tg.Object.toReferent(stdin);
 	}
 	if (user !== null) {
 		command.user = user;
@@ -449,15 +456,32 @@ export let prepareUnsandboxedCommand = async (
 		throw new Error("blob stdin is not supported for unsandboxed processes");
 	}
 
-	let command =
-		typeof arg.command.node === "string"
-			? await tg.Command.withReferent(
-					arg.command as tg.Referent<tg.Command.Id>,
-				).object()
-			: tg.Command.Object.fromData({
-					...arg.command.node,
-					host: arg.command.node.host ?? tg.host.current,
-				});
+	let command: tg.Command.Object;
+	if (typeof arg.command.node === "string") {
+		command = await tg.Command.withReferent(
+			arg.command as tg.Referent<tg.Command.Id>,
+		).object();
+	} else {
+		let commandArg = arg.command.node;
+		let { executable, stdin, ...commandData } = commandArg;
+		command = tg.Command.Object.fromData({
+			...commandData,
+			executable: executable.node,
+			host: commandArg.host ?? tg.host.current,
+			...(stdin === undefined || stdin === null ? {} : { stdin: stdin.node }),
+		});
+		if (command.executable.artifact !== null) {
+			command.executable.artifact = tg.Artifact.withReferent({
+				node: command.executable.artifact.id,
+				...(executable.options === undefined
+					? {}
+					: { options: executable.options }),
+			});
+		}
+		if (stdin !== undefined && stdin !== null) {
+			command.stdin = tg.Blob.withReferent(stdin);
+		}
+	}
 	if (command.stdin !== null) {
 		throw new Error(
 			"command stdin blobs are not supported for unsandboxed processes",
@@ -471,10 +495,7 @@ export let prepareUnsandboxedCommand = async (
 
 	let tempPath = await tg.host.mkdtemp();
 	outputPath ??= tg.path.join(tempPath, "output");
-	let artifacts = await checkoutArtifacts(
-		command,
-		arg.command.options?.tokens ?? {},
-	);
+	let artifacts = await checkoutArtifacts(command, arg.command.options ?? {});
 	let env = await renderEnv(command.env, artifacts, outputPath);
 	env.TANGRAM_JS_ENGINE =
 		typeof tg.process.env.TANGRAM_JS_ENGINE === "string"
@@ -692,21 +713,52 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 
 async function checkoutArtifacts(
 	command: tg.Command.Object,
-	tokens: tg.Authorization.Tokens,
+	options: tg.Referent.Options,
 ): Promise<Map<tg.Artifact.Id, string>> {
-	let artifacts = new Set<tg.Artifact.Id>();
-	let data = tg.Command.Object.toData(command);
-	for (let object of tg.Command.Data.children(data)) {
-		if (tg.Artifact.Id.is(object)) {
-			artifacts.add(object);
+	let artifacts = new Map<tg.Artifact.Id, tg.Referent<tg.Artifact.Id>>();
+	for (let object of tg.Command.Object.children(command)) {
+		if (!tg.Artifact.is(object)) {
+			continue;
+		}
+		let referent = tg.Object.toReferent(object);
+		referent.options ??= {};
+		referent.options.tokens ??= {};
+		tg.Authorization.Tokens.inherit(
+			referent.options.tokens,
+			options.tokens ?? {},
+		);
+		if (
+			(referent.options.location === undefined ||
+				referent.options.location === null) &&
+			options.location !== undefined
+		) {
+			referent.options.location = options.location;
+		}
+		let existing = artifacts.get(object.id);
+		if (existing === undefined) {
+			artifacts.set(object.id, referent);
+		} else {
+			existing.options ??= {};
+			existing.options.tokens ??= {};
+			tg.Authorization.Tokens.inherit(
+				existing.options.tokens,
+				referent.options.tokens,
+			);
+			if (
+				(existing.options.location === undefined ||
+					existing.options.location === null) &&
+				referent.options.location !== undefined
+			) {
+				existing.options.location = referent.options.location;
+			}
 		}
 	}
 	let output = new Map<tg.Artifact.Id, string>();
-	for (let artifact of artifacts) {
+	for (let [artifact, referent] of artifacts) {
 		let stream = await tg.client.checkout({
 			dependencies: true,
 			force: false,
-			nodes: [tg.Referent.withNodeAndTokens(artifact, tokens)],
+			nodes: [referent],
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === null) {

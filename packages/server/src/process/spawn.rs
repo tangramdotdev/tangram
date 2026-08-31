@@ -133,18 +133,12 @@ impl Session {
 					.or_else(|| sandbox_host.map(str::to_owned))
 					.or_else(|| self.server.config.process.spawn.host.clone())
 					.unwrap_or_else(|| tg::host::current().to_owned());
-				let data = tg::command::Data {
-					args: command_arg.args.clone(),
-					cwd: command_arg.cwd.clone(),
-					env: command_arg.env.clone(),
-					executable: command_arg.executable.clone(),
-					host,
-					stdin: command_arg.stdin.clone(),
-					user: command_arg.user.clone(),
-				};
-				let object = tg::command::Object::try_from_data(data)
+				let builder = tg::command::Builder::try_with_spawn_arg(command_arg.clone())
 					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
-				let command = tg::Command::with_object(object);
+				let command = builder
+					.host(host)
+					.build()
+					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
 				let id = command
 					.store_with_handle(self)
 					.await

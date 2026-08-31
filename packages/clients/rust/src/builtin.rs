@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	futures::{FutureExt as _, TryStreamExt as _, stream::FuturesOrdered},
 	std::path::{Path, PathBuf},
 	tangram_uri::Uri,
 };
@@ -75,7 +75,9 @@ pub async fn archive(
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<tg::Blob> {
 	let handle = tg::handle()?;
-	archive_with_handle(artifact, handle, format, compression).await
+	archive_with_handle(artifact, handle, format, compression)
+		.boxed_local()
+		.await
 }
 
 pub async fn archive_with_handle<H>(
@@ -226,7 +228,9 @@ pub async fn checksum(
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum> {
 	let handle = tg::handle()?;
-	checksum_with_handle(input, handle, algorithm).await
+	checksum_with_handle(input, handle, algorithm)
+		.boxed_local()
+		.await
 }
 
 pub async fn checksum_with_handle<H>(
@@ -306,7 +310,9 @@ pub fn checksum_command(
 
 pub async fn compress(input: &tg::Blob, format: tg::CompressionFormat) -> tg::Result<tg::Blob> {
 	let handle = tg::handle()?;
-	compress_with_handle(input, handle, format).await
+	compress_with_handle(input, handle, format)
+		.boxed_local()
+		.await
 }
 
 pub async fn compress_with_handle<H>(
@@ -379,7 +385,7 @@ pub fn compress_command(
 
 pub async fn decompress(input: &tg::Blob) -> tg::Result<tg::Blob> {
 	let handle = tg::handle()?;
-	decompress_with_handle(input, handle).await
+	decompress_with_handle(input, handle).boxed_local().await
 }
 
 pub async fn decompress_with_handle<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
@@ -445,7 +451,9 @@ pub async fn download(
 	options: Option<DownloadOptions>,
 ) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>> {
 	let handle = tg::handle()?;
-	download_with_handle(handle, url, checksum, options).await
+	download_with_handle(handle, url, checksum, options)
+		.boxed_local()
+		.await
 }
 
 pub async fn download_with_handle<H>(
@@ -527,7 +535,7 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 
 pub async fn extract(input: &tg::Blob) -> tg::Result<tg::Artifact> {
 	let handle = tg::handle()?;
-	extract_with_handle(handle, input).await
+	extract_with_handle(handle, input).boxed_local().await
 }
 
 pub async fn extract_with_handle<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>

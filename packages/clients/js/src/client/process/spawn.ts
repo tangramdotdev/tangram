@@ -35,7 +35,11 @@ export namespace Spawn {
 			if (arg.checksum !== undefined) {
 				output.checksum = arg.checksum;
 			}
-			output.command = tg.Referent.toData(arg.command, (command) => command);
+			output.command = tg.Referent.toData(arg.command, (command) =>
+				typeof command === "string"
+					? command
+					: tg.Process.Spawn.CommandArg.toJson(command),
+			);
 			if (arg.debug !== undefined) {
 				output.debug = arg.debug;
 			}
@@ -77,11 +81,26 @@ export namespace Spawn {
 		args?: Array<tg.Command.Value.Data>;
 		cwd?: string | null;
 		env?: { [key: string]: tg.Command.Value.Data };
-		executable: tg.Command.Data.Executable;
+		executable: tg.Referent<tg.Command.Data.Executable>;
 		host?: string | null;
-		stdin?: tg.Blob.Id | null;
+		stdin?: tg.Referent<tg.Blob.Id> | null;
 		user?: string | null;
 	};
+
+	export namespace CommandArg {
+		export let toJson = (arg: tg.Process.Spawn.CommandArg): unknown => {
+			return {
+				...arg,
+				executable: tg.Referent.toData(
+					arg.executable,
+					(executable) => executable,
+				),
+				...(arg.stdin === undefined || arg.stdin === null
+					? {}
+					: { stdin: tg.Referent.toData(arg.stdin, (stdin) => stdin) }),
+			};
+		};
+	}
 
 	export type Output = {
 		cached?: boolean;

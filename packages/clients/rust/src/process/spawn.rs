@@ -6,7 +6,7 @@ use {
 	},
 	serde_with::serde_as,
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::BTreeMap,
 		future::Future,
 		os::unix::process::ExitStatusExt as _,
 		path::{Path, PathBuf},
@@ -77,13 +77,13 @@ pub struct CommandArg {
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: BTreeMap<String, tg::command::data::Value>,
 
-	pub executable: tg::command::data::Executable,
+	pub executable: tg::Referent<tg::command::data::Executable>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub host: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::blob::Id>,
+	pub stdin: Option<tg::Referent<tg::blob::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
@@ -583,23 +583,27 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		let command = match &arg.command.node {
-			tg::Either::Left(command) => tg::command::Data {
-				args: command.args.clone(),
-				cwd: command.cwd.clone(),
-				env: command.env.clone(),
-				executable: command.executable.clone(),
-				host: command
+			tg::Either::Left(command) => {
+				let host = command
 					.host
 					.clone()
-					.unwrap_or_else(|| tg::host::current().to_owned()),
-				stdin: command.stdin.clone(),
-				user: command.user.clone(),
+					.unwrap_or_else(|| tg::host::current().to_owned());
+				let builder = tg::command::Builder::try_with_spawn_arg(command.clone())
+					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
+				let command = builder
+					.host(host)
+					.build()
+					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
+				command
+					.object_with_handle(handle)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the command"))?
 			},
 			tg::Either::Right(id) => {
 				let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
 				let command = tg::Command::with_referent(referent);
 				command
-					.data_with_handle(handle)
+					.object_with_handle(handle)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to load the command"))?
 			},
@@ -621,7 +625,8 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts = checkout_artifacts(handle, &command, &arg.command.options.tokens).await?;
+		let artifacts = checkout_artifacts(handle, &command, &arg.command.options).await?;
+		let command = command.to_data();
 		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
 		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
@@ -886,23 +891,37 @@ impl tg::Session {
 
 async fn checkout_artifacts<H>(
 	handle: &H,
-	command: &tg::command::Data,
-	tokens: &tg::authorization::Tokens,
+	command: &tg::command::Object,
+	options: &tg::referent::Options,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
 {
-	let mut objects = BTreeSet::new();
-	command.children(&mut objects);
-	let artifacts = objects
-		.into_iter()
-		.filter_map(|object| object.try_into().ok())
-		.collect::<BTreeSet<tg::artifact::Id>>();
-	let nodes = artifacts
-		.iter()
-		.cloned()
-		.map(|artifact| tg::Referent::with_node_and_tokens(artifact.into(), tokens.clone()))
-		.collect();
+	let mut artifacts: BTreeMap<tg::artifact::Id, tg::Referent<tg::Id>> = BTreeMap::new();
+	for object in command.children() {
+		let id = object.id();
+		let Ok(artifact) = id.clone().try_into() else {
+			continue;
+		};
+		let mut referent = object.to_referent().map(Into::into);
+		referent.options.tokens.inherit(&options.tokens);
+		if referent.options.location.is_none() {
+			referent.options.location.clone_from(&options.location);
+		}
+		artifacts
+			.entry(artifact)
+			.and_modify(|existing| {
+				existing.options.tokens.inherit(&referent.options.tokens);
+				if existing.options.location.is_none() {
+					existing
+						.options
+						.location
+						.clone_from(&referent.options.location);
+				}
+			})
+			.or_insert(referent);
+	}
+	let nodes = artifacts.values().cloned().collect();
 	let entry = tg::checkout::Arg {
 		dependencies: true,
 		extension: None,
@@ -921,7 +940,7 @@ where
 			"received an invalid number of checkout paths"
 		));
 	}
-	let output = std::iter::zip(artifacts, paths).collect();
+	let output = std::iter::zip(artifacts.into_keys(), paths).collect();
 
 	Ok(output)
 }

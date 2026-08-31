@@ -393,13 +393,13 @@ pub struct Stripe {
 #[serde(deny_unknown_fields)]
 pub struct Authorization {
 	#[serde(default, rename = "final", skip_serializing_if = "Option::is_none")]
-	pub final_: Option<AuthorizationSearches>,
+	pub final_: Option<BoolOr<AuthorizationSearches>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index: Option<AuthorizationIndex>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub initial: Option<AuthorizationSearches>,
+	pub initial: Option<BoolOr<AuthorizationSearches>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
@@ -2470,19 +2470,53 @@ fn resolve_stripe(source: Stripe) -> tg::Result<server::Stripe> {
 fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorization> {
 	let mut target = server::Authorization::default();
 	if let Some(source) = source.final_ {
-		target.final_ = resolve_authorization_searches(source, target.final_);
+		target.final_ = resolve_authorization_searches_bool_or(source, target.final_)?;
 	}
 	if let Some(source) = source.index {
 		target.index = resolve_authorization_index(source);
 	}
 	if let Some(source) = source.initial {
-		target.initial = resolve_authorization_searches(source, target.initial);
+		target.initial = resolve_authorization_searches_bool_or(source, target.initial)?;
 	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
 	}
 
 	Ok(target)
+}
+
+fn resolve_authorization_searches_bool_or(
+	source: BoolOr<AuthorizationSearches>,
+	target: server::AuthorizationSearches,
+) -> tg::Result<server::AuthorizationSearches> {
+	let target = resolve_bool_or(source, |source| {
+		Ok(resolve_authorization_searches(source, target))
+	})?
+	.unwrap_or_else(disabled_authorization_searches);
+
+	Ok(target)
+}
+
+fn disabled_authorization_searches() -> server::AuthorizationSearches {
+	let page_size = server::AuthorizationSearch::default().page_size;
+	let ancestor = server::AuthorizationSearch {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		page_size,
+	};
+	let descendant = ancestor.clone();
+	let subtree = server::AuthorizationSubtree {
+		max_depth: 0,
+		max_objects: 0,
+		max_processes: 0,
+	};
+
+	server::AuthorizationSearches {
+		ancestor,
+		descendant,
+		subtree,
+	}
 }
 
 fn resolve_authorization_index(source: AuthorizationIndex) -> server::AuthorizationIndex {
@@ -4242,6 +4276,29 @@ mod tests {
 			server::AuthorizationIndex::default().delay,
 			Some(Duration::from_millis(10))
 		);
+	}
+
+	#[test]
+	fn parses_and_resolves_authorization_search_booleans() {
+		let source: Authorization = serde_json::from_value(serde_json::json!({
+			"final": false,
+			"initial": false,
+		}))
+		.unwrap();
+		let target = resolve_authorization(source).unwrap();
+		let disabled = disabled_authorization_searches();
+		assert_eq!(target.final_, disabled);
+		assert_eq!(target.initial, disabled);
+
+		let source: Authorization = serde_json::from_value(serde_json::json!({
+			"final": true,
+			"initial": true,
+		}))
+		.unwrap();
+		let target = resolve_authorization(source).unwrap();
+		let enabled = server::AuthorizationSearches::default();
+		assert_eq!(target.final_, enabled);
+		assert_eq!(target.initial, enabled);
 	}
 
 	#[test]

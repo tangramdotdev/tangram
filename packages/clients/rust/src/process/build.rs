@@ -1,8 +1,8 @@
-use crate::prelude::*;
+use {crate::prelude::*, futures::FutureExt as _};
 
 pub async fn build(arg: tg::process::Arg) -> tg::Result<tg::Value> {
 	let handle = tg::handle()?;
-	build_with_handle(handle, arg).await
+	build_with_handle(handle, arg).boxed_local().await
 }
 
 pub async fn build_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>

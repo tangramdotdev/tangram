@@ -121,6 +121,9 @@ impl Command {
 		for value in self.env.values() {
 			value.children(children);
 		}
+		if let Some(stdin) = &self.stdin {
+			children.insert(stdin.clone().into());
+		}
 	}
 
 	#[must_use]

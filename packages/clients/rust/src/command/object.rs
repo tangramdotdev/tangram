@@ -89,6 +89,7 @@ impl Command {
 			.chain(self.executable.objects())
 			.chain(self.args.iter().flat_map(Value::objects))
 			.chain(self.env.values().flat_map(Value::objects))
+			.chain(self.stdin.iter().cloned().map(Into::into))
 			.collect()
 	}
 }
