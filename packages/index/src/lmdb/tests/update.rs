@@ -126,6 +126,7 @@ async fn process_permissions_promote_to_non_expiring_implicit_grants() {
 			id,
 			metadata: tg::object::Metadata::default(),
 			storage: crate::object::Storage::default(),
+			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
 		})
 	};

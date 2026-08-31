@@ -40,6 +40,7 @@ async fn object_output_includes_the_deleted_touched_at() {
 		id: id.clone(),
 		metadata: tg::object::Metadata::default(),
 		storage: crate::object::Storage::default(),
+		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 7,
 	};
 	let arg = crate::batch::Arg {
@@ -79,6 +80,7 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 			id,
 			metadata: tg::object::Metadata::default(),
 			storage: crate::object::Storage::default(),
+			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
 		})
 	};
@@ -162,6 +164,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 				id: object.clone(),
 				metadata: tg::object::Metadata::default(),
 				storage: crate::object::Storage::default(),
+				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 1,
 			}),
 			crate::batch::Item::PutAccountObject(crate::usage::storage::put::ObjectArg {

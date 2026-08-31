@@ -12,6 +12,8 @@ pub struct Arg {
 	pub metadata: tg::object::Metadata,
 	#[tangram_serialize(id = 4)]
 	pub storage: Storage,
+	#[tangram_serialize(id = 5)]
+	pub time_to_touch: std::time::Duration,
 	#[tangram_serialize(id = 6)]
 	pub touched_at: i64,
 }

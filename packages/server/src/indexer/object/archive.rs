@@ -9,6 +9,13 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
+const RETRY_INTERVAL: Duration = Duration::from_secs(1);
+
+struct BatchOutput {
+	count: usize,
+	incomplete: bool,
+}
+
 impl Indexer {
 	pub(in crate::indexer) async fn object_archive_outbox_task(
 		&self,
@@ -39,7 +46,7 @@ impl Indexer {
 				.await;
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), %partition, "failed to service the object archive outbox");
-				tokio::time::sleep(Duration::from_secs(1)).await;
+				tokio::time::sleep(RETRY_INTERVAL).await;
 			}
 		}
 	}
@@ -71,9 +78,13 @@ impl Indexer {
 		let mut wakeups = wakeups.boxed();
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let count = self.object_archive_outbox_batch(outbox, partition).await?;
-			if count == 0 && wakeups.next().await.is_none() {
-				return Err(tg::error!("the object archive outbox wakeup stream ended"));
+			let output = self.object_archive_outbox_batch(outbox, partition).await?;
+			if output.count == 0 {
+				if wakeups.next().await.is_none() {
+					return Err(tg::error!("the object archive outbox wakeup stream ended"));
+				}
+			} else if output.incomplete {
+				tokio::time::sleep(RETRY_INTERVAL).await;
 			}
 		}
 	}
@@ -82,7 +93,7 @@ impl Indexer {
 		&self,
 		outbox: &crate::config::ObjectArchiveOutbox,
 		partition: u64,
-	) -> tg::Result<usize> {
+	) -> tg::Result<BatchOutput> {
 		// Dequeue a batch.
 		let arg = crate::store::object::archive::outbox::dequeue::Arg {
 			batch_size: outbox.batch_size,
@@ -98,7 +109,12 @@ impl Indexer {
 				tg::error!(!error, "failed to dequeue object archive outbox entries")
 			})?;
 		if entries.is_empty() {
-			return Ok(0);
+			let output = BatchOutput {
+				count: 0,
+				incomplete: false,
+			};
+
+			return Ok(output);
 		}
 		let count = entries.len();
 
@@ -117,10 +133,11 @@ impl Indexer {
 		.await;
 		let mut completed = Vec::new();
 		let mut error = None;
+		let mut incomplete = false;
 		for (entries, result) in results {
 			match result {
 				Ok(true) => completed.extend(entries),
-				Ok(false) => {},
+				Ok(false) => incomplete = true,
 				Err(current) => {
 					error.get_or_insert(current);
 				},
@@ -142,7 +159,9 @@ impl Indexer {
 			return Err(error);
 		}
 
-		Ok(count)
+		let output = BatchOutput { count, incomplete };
+
+		Ok(output)
 	}
 
 	async fn object_archive_outbox_object(

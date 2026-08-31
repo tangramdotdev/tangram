@@ -14,7 +14,6 @@ pub struct Pool<T: Send + Sync + 'static, E: Send + 'static> {
 	expiration_sender: tokio::sync::mpsc::UnboundedSender<Instant>,
 	expiration_task: Option<Arc<Task<()>>>,
 	state: Arc<Mutex<State<T, E>>>,
-	warmup_task: Option<Arc<Task<()>>>,
 }
 
 struct State<T: Send + Sync + 'static, E: Send + 'static> {
@@ -146,33 +145,12 @@ where
 			});
 			Arc::new(expiration_task)
 		});
-		let mut pool = Self {
+		Self {
 			create,
 			expiration_sender,
 			expiration_task,
 			state,
-			warmup_task: None,
-		};
-		pool.warmup_task = (options.min > 0).then(|| {
-			let count = options.min;
-			let pool = pool.clone();
-			let task = Task::spawn(move |_| async move {
-				let futures = (0..count).map(|_| {
-					let pool = pool.clone();
-					async move {
-						let Ok(guard) = pool.get_exclusive(Priority::Low).await else {
-							return;
-						};
-						tokio::task::yield_now().await;
-						drop(guard);
-					}
-				});
-				futures::future::join_all(futures).await;
-			});
-			Arc::new(task)
-		});
-
-		pool
+		}
 	}
 
 	pub fn add(&self, value: T) {
@@ -188,9 +166,6 @@ where
 	}
 
 	pub fn clear(&self) {
-		if let Some(task) = &self.warmup_task {
-			task.abort();
-		}
 		{
 			let mut state = self.state.lock().unwrap();
 			state.clear();
@@ -709,7 +684,6 @@ where
 			expiration_sender: self.expiration_sender.clone(),
 			expiration_task: self.expiration_task.clone(),
 			state: self.state.clone(),
-			warmup_task: self.warmup_task.clone(),
 		}
 	}
 }
@@ -901,69 +875,6 @@ mod tests {
 	#[test]
 	fn pool_without_ttl_can_be_created_without_a_runtime() {
 		let _pool = Pool::new(options(1), || async { Ok::<_, Error>(0) });
-	}
-
-	// A new pool creates its configured minimum without waiting for demand.
-	#[tokio::test]
-	async fn new_eagerly_creates_the_minimum() {
-		let mut options = options(3);
-		options.min = 2;
-		let attempts = Arc::new(AtomicUsize::new(0));
-		let pool = Pool::new(options, {
-			let attempts = attempts.clone();
-			move || {
-				let attempts = attempts.clone();
-				async move { Ok::<_, Error>(attempts.fetch_add(1, Ordering::SeqCst)) }
-			}
-		});
-		tokio::time::timeout(Duration::from_secs(1), async {
-			while pool.available() < 2 {
-				tokio::task::yield_now().await;
-			}
-		})
-		.await
-		.unwrap();
-		assert_eq!(attempts.load(Ordering::SeqCst), 2);
-		assert_eq!(pool.available(), 2);
-	}
-
-	// The warmup releases each connection without waiting for slower connections.
-	#[tokio::test]
-	async fn new_releases_each_warm_connection_when_it_is_ready() {
-		let mut options = options(2);
-		options.min = 2;
-		let attempts = Arc::new(AtomicUsize::new(0));
-		let release = Arc::new(tokio::sync::Notify::new());
-		let pool = Pool::new(options, {
-			let attempts = attempts.clone();
-			let release = release.clone();
-			move || {
-				let attempt = attempts.fetch_add(1, Ordering::SeqCst);
-				let release = release.clone();
-				async move {
-					if attempt > 0 {
-						release.notified().await;
-					}
-
-					Ok::<_, Error>(attempt)
-				}
-			}
-		});
-		tokio::time::timeout(Duration::from_secs(1), async {
-			while attempts.load(Ordering::SeqCst) < 2 {
-				tokio::task::yield_now().await;
-			}
-		})
-		.await
-		.unwrap();
-		let guard =
-			tokio::time::timeout(Duration::from_secs(1), pool.get_exclusive(Priority::High))
-				.await
-				.unwrap()
-				.unwrap();
-		assert_eq!(*guard, 0);
-		drop(guard);
-		release.notify_one();
 	}
 
 	// Dropping an exclusive guard returns the value to the pool, preserving any mutations, so that it can be leased again.

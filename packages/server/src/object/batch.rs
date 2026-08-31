@@ -112,6 +112,7 @@ impl Session {
 				id: object.id.clone(),
 				metadata,
 				storage: tangram_index::object::Storage::default(),
+				time_to_touch: self.server.config.object.time_to_touch,
 				touched_at: now,
 			};
 

@@ -582,6 +582,7 @@ impl Session {
 			index_checkout_args: &mut index_checkout_args,
 			graph_data: &mut graph_data,
 			root,
+			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
 		Self::checkin_create_artifacts(create_artifacts_arg)?;

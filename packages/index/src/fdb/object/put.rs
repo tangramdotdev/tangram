@@ -22,16 +22,25 @@ impl Index {
 		let key = Key::Object(crate::fdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let result = txn.get(&key, false).await;
-		let previous = crate::fdb::retry!(result)
-			.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok());
-		let touch = previous
-			.as_ref()
-			.is_none_or(|previous| arg.touched_at > previous.touched_at);
-		let touched_at = previous.as_ref().map_or(arg.touched_at, |previous| {
-			previous.touched_at.max(arg.touched_at)
+		let existing = if arg.complete() {
+			None
+		} else {
+			let result = txn.get(&key, false).await;
+			crate::fdb::retry!(result)
+				.and_then(|bytes| crate::object::Object::deserialize(&bytes).ok())
+		};
+
+		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
+		let touch = existing.as_ref().is_none_or(|existing| {
+			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch
 		});
-		let existing = (!arg.complete()).then_some(previous).flatten();
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+			if touch {
+				existing.touched_at.max(arg.touched_at)
+			} else {
+				existing.touched_at
+			}
+		});
 
 		let checkout = arg.checkout.clone().or_else(|| {
 			existing
