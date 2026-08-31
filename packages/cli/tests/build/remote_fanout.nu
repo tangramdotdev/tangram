@@ -9,7 +9,7 @@ use ../../test.nu *
 let root_token = random chars
 let config = {
 	authentication: { root: { token: $root_token } },
-	roles: [http indexer scheduler],
+	roles: [api indexer scheduler],
 }
 let remote = server spawn --name remote --cloud --config $config
 

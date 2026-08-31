@@ -9,7 +9,7 @@ let scheduler = {
 
 # A server without a runner has nothing to schedule on.
 let server = server spawn --name server --config {
-	roles: [http indexer scheduler],
+	roles: [api indexer scheduler],
 	scheduler: $scheduler,
 }
 let output = tg --url $server.url sandbox create | complete

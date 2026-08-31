@@ -7,7 +7,7 @@ let server = server spawn --config {
 	indexer: {
 		updates: { max_process_depth: 2 }
 	},
-	roles: [http indexer runner scheduler],
+	roles: [api indexer runner scheduler],
 }
 
 # Create a build that goes deeper than the maximum process depth.

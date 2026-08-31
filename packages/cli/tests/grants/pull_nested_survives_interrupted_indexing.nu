@@ -5,7 +5,7 @@ use ../../test.nu *
 let directory = mktemp -d
 let producer = server spawn --name producer --directory $directory --config {
 	advanced: { single_process: false },
-	roles: [http runner scheduler],
+	roles: [api runner scheduler],
 }
 
 let nested_id = tg --url $producer.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim

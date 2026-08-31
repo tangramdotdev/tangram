@@ -14,7 +14,7 @@ def --wrapped unavailable [token: string, ...period: string] {
 
 let server = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
-	roles: [http indexer runner scheduler],
+	roles: [api indexer runner scheduler],
 	usage: {
 		day_time_to_live: 2678400,
 		delta_time_to_live: 3600,

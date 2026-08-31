@@ -2064,7 +2064,7 @@ export def --env "server spawn" [
 	let config = if $use_cloud { $config | upsert instance $cloud_instance } else { $config }
 	let config = if $region != null { $config | upsert region $region } else { $config }
 	let config = if $use_cloud and $config.roles? == null {
-		$config | upsert roles [http indexer scheduler]
+		$config | upsert roles [api indexer scheduler]
 	} else {
 		$config
 	}

@@ -244,7 +244,7 @@ pub struct CapacityThresholdBelow<T> {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
-	Http,
+	Api,
 
 	Indexer,
 
@@ -2267,7 +2267,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 
 fn resolve_role(source: Role) -> server::Role {
 	match source {
-		Role::Http => server::Role::Http,
+		Role::Api => server::Role::Api,
 		Role::Indexer => server::Role::Indexer,
 		Role::Runner => server::Role::Runner,
 		Role::Scheduler => server::Role::Scheduler,

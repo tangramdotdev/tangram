@@ -5,7 +5,7 @@ use ../../test.nu *
 let remote_root_token = random chars
 let remote = server spawn --name remote --cloud --config {
 	authentication: { root: { token: $remote_root_token } },
-	roles: [http indexer scheduler],
+	roles: [api indexer scheduler],
 }
 let created = tg --url $remote.url --token $remote_root_token runner create | from json
 
@@ -42,7 +42,7 @@ let runner = server spawn --name runner --directory $runner_directory --url $run
 		root: { token: $runner_root_token },
 		users: { providers: { insecure: true } },
 	},
-	roles: [http indexer],
+	roles: [api indexer],
 }
 
 let indexed = tg --url $runner.url --token $runner_root_token process get --local $process | complete

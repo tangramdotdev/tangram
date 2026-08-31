@@ -15,7 +15,7 @@ let instance = instance --cloud --primary-region a --regions $regions --config $
 
 # Start the remote server.
 let remote = server spawn --instance $instance --region a --preserve-keys --name remote --directory $remote_directory --url (instance region url $instance a) --config {
-	roles: [http indexer scheduler],
+	roles: [api indexer scheduler],
 }
 
 # Start a separate indexer server that shares the remote's databases, as the cloud does.

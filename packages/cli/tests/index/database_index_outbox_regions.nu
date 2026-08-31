@@ -18,7 +18,7 @@ let common = {
 	},
 }
 let instance = instance --primary-region east --regions $regions --config $common
-let producer = { roles: [http runner scheduler] }
+let producer = { roles: [api runner scheduler] }
 let east = server spawn --instance $instance --region east --name east --directory $east_directory --url (instance region url $instance east) --config $producer
 let west = server spawn --instance $instance --region west --name west --directory $west_directory --url (instance region url $instance west) --config $producer
 

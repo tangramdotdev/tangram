@@ -1232,7 +1232,7 @@ impl Server {
 			});
 
 		// Spawn the HTTP task.
-		let http_listeners = if server.config.roles.contains(&self::config::Role::Http) {
+		let http_listeners = if server.config.roles.contains(&self::config::Role::Api) {
 			let config = &server.config.http;
 			let mut listeners = if config.listeners.is_empty() {
 				let path = server.path.join("socket");

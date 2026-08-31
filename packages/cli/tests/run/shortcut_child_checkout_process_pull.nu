@@ -12,7 +12,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true }
 	remotes: { default: { token: $created.token.token, trusted: true, url: $remote.url } }
-	roles: [http indexer runner]
+	roles: [api indexer runner]
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token }
 }
 

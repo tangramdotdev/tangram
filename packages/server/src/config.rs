@@ -139,7 +139,7 @@ pub struct CapacityThresholdBelow<T> {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Role {
-	Http,
+	Api,
 
 	Indexer,
 
@@ -2258,7 +2258,7 @@ fn default_authorization_tokens() -> Option<TokenKeys> {
 }
 
 fn default_roles() -> BTreeSet<Role> {
-	[Role::Http, Role::Indexer, Role::Runner, Role::Scheduler]
+	[Role::Api, Role::Indexer, Role::Runner, Role::Scheduler]
 		.into_iter()
 		.collect()
 }

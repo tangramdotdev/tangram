@@ -34,7 +34,7 @@ let config = (
 	$server.config
 	| upsert advanced.single_process true
 	| upsert authorization.tokens null
-	| upsert roles [http runner scheduler]
+	| upsert roles [api runner scheduler]
 )
 
 # Restart without an indexer so an attempted barrier fails.

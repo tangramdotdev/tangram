@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = server spawn --config {
 	checkouts: false,
-	roles: [http],
+	roles: [api],
 }
 let store_path = $server.directory | path join store
 

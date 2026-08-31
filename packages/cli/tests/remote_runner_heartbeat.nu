@@ -6,7 +6,7 @@ let config = {
 		single_process: false,
 	},
 	authentication: { root: { token: $root_token } },
-	roles: [http indexer scheduler],
+	roles: [api indexer scheduler],
 	scheduler: {
 		runner_ttl: 3,
 	},
