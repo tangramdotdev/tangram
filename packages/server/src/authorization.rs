@@ -43,7 +43,7 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		self.authorize_batch_inner(args, None).await
+		self.authorize_batch_inner(args, None, false).await
 	}
 
 	pub(crate) async fn authorize_batch_with_required<R, I>(
@@ -55,13 +55,51 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		self.authorize_batch_inner(args, Some(required)).await
+		self.authorize_batch_inner(args, Some(required), false)
+			.await
+	}
+
+	pub(crate) async fn authorize_object_read(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		wait_for_subtree: bool,
+	) -> tg::Result<Option<tg::authorization::permission::Set>> {
+		let mut outputs = self
+			.authorize_object_read_batch([resource], wait_for_subtree)
+			.await?;
+		let output = outputs.pop().unwrap();
+
+		Ok(output)
+	}
+
+	pub(crate) async fn authorize_object_read_batch<R, I>(
+		&self,
+		resources: I,
+		wait_for_subtree: bool,
+	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	where
+		R: IntoAuthorizationResource,
+		I: IntoIterator<Item = R>,
+	{
+		// Request the optional subtree permission while requiring the node permission.
+		let mut requested = tg::authorization::permission::object::Set::empty();
+		requested.insert(tg::authorization::permission::object::Set::NODE);
+		requested.insert(tg::authorization::permission::object::Set::SUBTREE);
+		let requested = tg::authorization::permission::Set::Object(requested);
+		let required = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let args = resources.into_iter().map(|resource| (resource, requested));
+
+		self.authorize_batch_inner(args, Some(required.into()), wait_for_subtree)
+			.await
 	}
 
 	async fn authorize_batch_inner<R, I>(
 		&self,
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
+		wait_for_requested_permissions: bool,
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
 	where
 		R: IntoAuthorizationResource,
@@ -70,7 +108,6 @@ impl Session {
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();
-		let mut index_required = Vec::new();
 
 		for (position, (resource, permissions)) in args.into_iter().enumerate() {
 			let required = required.unwrap_or(permissions);
@@ -115,7 +152,6 @@ impl Session {
 
 			outputs.push(None);
 			index_positions.push(position);
-			index_required.push(required);
 			index_args.push(tangram_index::authorize::Arg {
 				required,
 				requested: permissions,
@@ -132,12 +168,17 @@ impl Session {
 		let authorization = &self.server.config.authorization;
 		let delay = authorization.index.delay;
 		let initial_config = crate::authorization_search_config(&authorization.initial);
-		let grants_required = |outcomes: &[tangram_index::authorize::Outcome]| {
-			outcomes.len() == index_required.len()
-				&& std::iter::zip(outcomes, &index_required).all(|(outcome, required)| {
+		let initial_is_sufficient = |outcomes: &[tangram_index::authorize::Outcome]| {
+			outcomes.len() == index_args.len()
+				&& std::iter::zip(outcomes, &index_args).all(|(outcome, arg)| {
+					let permissions = if wait_for_requested_permissions {
+						arg.requested
+					} else {
+						arg.required
+					};
 					outcome
 						.output()
-						.is_some_and(|output| output.permissions.contains(*required))
+						.is_some_and(|output| output.permissions.contains(permissions))
 				})
 		};
 		let initial =
@@ -173,7 +214,7 @@ impl Session {
 			ensure_authorization_search_complete(outcomes)
 		};
 		let index_outcomes = match initial_result {
-			Some(Ok(outcomes)) if grants_required(&outcomes) => outcomes,
+			Some(Ok(outcomes)) if initial_is_sufficient(&outcomes) => outcomes,
 			Some(Ok(_)) => {
 				index_wait.await?;
 				final_authorization().await?
@@ -183,7 +224,7 @@ impl Session {
 				tokio::pin!(index_wait);
 				tokio::select! {
 					result = &mut initial => match result {
-						Ok(outcomes) if grants_required(&outcomes) => outcomes,
+						Ok(outcomes) if initial_is_sufficient(&outcomes) => outcomes,
 						Ok(_) => {
 							index_wait.await?;
 							final_authorization().await?
@@ -192,11 +233,11 @@ impl Session {
 					},
 					result = &mut index_wait => match result {
 						Ok(()) => match initial.await {
-							Ok(outcomes) if grants_required(&outcomes) => outcomes,
+							Ok(outcomes) if initial_is_sufficient(&outcomes) => outcomes,
 							Ok(_) | Err(_) => final_authorization().await?,
 						},
 						Err(error) => match initial.await {
-							Ok(outcomes) if grants_required(&outcomes) => outcomes,
+							Ok(outcomes) if initial_is_sufficient(&outcomes) => outcomes,
 							Ok(_) | Err(_) => return Err(error),
 						},
 					},

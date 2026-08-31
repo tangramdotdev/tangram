@@ -72,29 +72,12 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let subtree = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		if self
-			.authorize(resource.clone(), subtree)
-			.await?
-			.is_some_and(|permissions| permissions.contains(subtree))
-		{
-			return Ok(Some(metadata));
-		}
+		let Some(permissions) = self.authorize_object_read(resource, true).await? else {
+			return Ok(None);
+		};
+		let output = Self::mask_object_metadata_with_permissions(metadata, permissions);
 
-		let node = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		);
-		if self
-			.authorize(resource, node)
-			.await?
-			.is_some_and(|permissions| permissions.contains(node))
-		{
-			return Ok(Some(tg::object::Metadata::default()));
-		}
-
-		Ok(None)
+		Ok(output)
 	}
 
 	pub(crate) fn mask_object_metadata_with_permissions(

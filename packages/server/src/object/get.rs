@@ -104,17 +104,17 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let mut permissions = tg::authorization::permission::object::Set::empty();
-		permissions.insert(tg::authorization::permission::object::Set::NODE);
-		permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
-		let permissions = tg::authorization::permission::Set::Object(permissions);
-		let Some(permissions) = self.authorize(resource, permissions).await? else {
-			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
-			return Ok(None);
-		};
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
+		let wait_for_subtree = metadata || availability;
+		let Some(permissions) = self
+			.authorize_object_read(resource, wait_for_subtree)
+			.await?
+		else {
+			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
+			return Ok(None);
+		};
 		if !permissions.contains(node) {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
@@ -135,10 +135,11 @@ impl Session {
 			output.tokens.set_local(token);
 		}
 		if let Some(metadata) = output.metadata {
-			output.metadata = self.mask_object_metadata(id, metadata, token).await?;
+			output.metadata = Self::mask_object_metadata_with_permissions(metadata, permissions);
 		}
 		if availability && let Some(storage) = self.server.try_get_object_storage_local(id).await? {
-			output.availability = self.compute_object_availability(id, storage, token).await?;
+			output.availability =
+				Self::compute_object_availability_with_permissions(&storage, permissions);
 		}
 		Ok(Some(output))
 	}
@@ -189,6 +190,7 @@ impl Session {
 		objects: &[tg::Referent<tg::object::Id>],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		// Get the objects.
 		let ids = objects
 			.iter()
 			.map(|object| object.node.clone())
@@ -197,39 +199,58 @@ impl Session {
 			.server
 			.try_get_object_batch_local(&ids, metadata)
 			.await?;
-		let outputs = std::iter::zip(objects, outputs)
-			.map(|(object, output)| async move {
-				if output.is_none() {
-					return Ok::<_, tg::Error>(None);
-				}
-				let permission = tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Node,
-				);
-				if !self
-					.authorize(object.clone(), permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
-				{
+
+		// Authorize the objects.
+		let node = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		);
+		let mut resources = Vec::new();
+		let mut positions = Vec::new();
+		for (position, (object, output)) in std::iter::zip(objects, &outputs).enumerate() {
+			if output.is_none() {
+				continue;
+			}
+			resources.push(object.clone());
+			positions.push(position);
+		}
+		let authorizations = self
+			.authorize_object_read_batch(resources, metadata)
+			.await?;
+		let mut permissions = vec![None; objects.len()];
+		for (position, authorization) in std::iter::zip(positions, authorizations) {
+			permissions[position] = authorization;
+		}
+
+		// Mask the outputs.
+		let outputs = std::iter::zip(std::iter::zip(objects, outputs), permissions)
+			.map(|((object, output), permissions)| {
+				let mut output = output?;
+				let Some(permissions) = permissions else {
 					tracing::trace!(
 						id = %object.node,
 						principal = ?self.context.principal,
 						"authorization denied"
 					);
-					return Ok(None);
+
+					return None;
+				};
+				if !permissions.contains(node) {
+					tracing::trace!(
+						id = %object.node,
+						principal = ?self.context.principal,
+						"authorization denied"
+					);
+
+					return None;
 				}
-				let mut output = output;
-				if let Some(output) = &mut output
-					&& let Some(metadata) = output.metadata.take()
-				{
-					output.metadata = self
-						.mask_object_metadata(&object.node, metadata, object.options.tokens.local())
-						.await?;
+				if let Some(metadata) = output.metadata.take() {
+					output.metadata =
+						Self::mask_object_metadata_with_permissions(metadata, permissions);
 				}
-				Ok::<_, tg::Error>(output)
+
+				Some(output)
 			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
+			.collect();
 
 		Ok(outputs)
 	}
