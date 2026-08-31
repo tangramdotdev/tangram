@@ -137,7 +137,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn push_or_pull_for_process(
+	pub(crate) async fn push_or_pull_for_process(
 		&self,
 		arg: &tg::push::Arg,
 		source: tg::Location,

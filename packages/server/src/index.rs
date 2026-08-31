@@ -789,15 +789,30 @@ impl Server {
 
 			return Ok(());
 		}
+		let command_object_grant = arg.items.iter().any(|item| {
+			matches!(
+				item,
+				index::batch::Item::PutObject(arg)
+					if arg.id.kind() == tg::object::Kind::Command
+			)
+		}) && arg.items.iter().any(|item| {
+			matches!(
+				item,
+				index::batch::Item::PutGrant(arg)
+					if arg.resource.kind() == tg::id::Kind::Command
+						&& arg.subject.is_process()
+			)
+		});
 		self.index_tasks
 			.spawn({
 				let server = self.clone();
 				|_| async move {
-					crate::checkpoint!(server, "index.batch").await;
+					crate::checkpoint!(server, "index.batch", command_object_grant).await;
 					let result = server.index.batch(arg).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
 					}
+					crate::checkpoint!(server, "index.batch.finished", command_object_grant).await;
 
 					result
 				}
