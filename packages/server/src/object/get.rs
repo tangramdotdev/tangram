@@ -107,8 +107,11 @@ impl Session {
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let search_subtree = metadata || availability;
-		let Some(permissions) = self.authorize_object_read(resource, search_subtree).await? else {
+		let wait_for_subtree = metadata || availability;
+		let Some(permissions) = self
+			.authorize_object_read(resource, wait_for_subtree)
+			.await?
+		else {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		};
@@ -198,7 +201,7 @@ impl Session {
 			.await?;
 
 		// Authorize the objects.
-		let required = tg::authorization::Permission::Object(
+		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
 		let mut resources = Vec::new();
@@ -231,7 +234,7 @@ impl Session {
 
 					return None;
 				};
-				if !permissions.contains(required) {
+				if !permissions.contains(node) {
 					tracing::trace!(
 						id = %object.node,
 						principal = ?self.context.principal,
