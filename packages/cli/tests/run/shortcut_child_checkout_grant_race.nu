@@ -1,8 +1,8 @@
 use ../../test.nu *
 
-# Reproduces a race condition between two nodes, one acting as [scheduler, http] and another as [cleaner, indexer], and a runner that treats their instance as a trusted remote.
+# Reproduces a bug when a parent process spawns a sandbox child via the shortcut path.
 #
-# When a parent process spawns a sandbox child via the shortcut path, the runner attempts to checkout under the parent process's session and authorizes teh command artifact before the child's Subtree grant has been written to the outbox. This fails with 'failed to find the artifact.' 
+# The child's checkout runs on behalf of a sandbox whose network access is disabled. The checkout's pull used the non-process remote path, which refuses a sandbox origin without network access, so it could not sync the child's command grant from the remote and fell back to the local index, which lacks the grant. This fails with 'failed to find the artifact.'
 
 let root_token = random chars
 let common = {
@@ -16,23 +16,23 @@ let instance = instance --cloud --primary-region a --regions $regions --config $
 let remote_directory = mktemp -d
 let remote = server spawn --instance $instance --region a --preserve-keys --name remote --directory $remote_directory --url (instance region url $instance a) --config {
 	roles: [http scheduler]
-	object: { outbox: { partition_total: 1 } }
+	object: { index_outbox: { partition_total: 1 } }
 }
 
 # A separate indexer drains the outbox.
 let indexer_directory = mktemp -d
 let indexer = server spawn --instance $instance --region a --preserve-keys --name indexer --directory $indexer_directory --config {
 	advanced: { single_process: false }
-	roles: [cleaner indexer]
-	object: { outbox: { partition_total: 1 } }
-	indexer: { partition_start: 0, partition_end: 1 }
+	roles: [indexer]
+	object: { index_outbox: { partition_total: 1 } }
+	indexer: { partitions: { start: 0, end: 1 } }
 }
 
-# The runner: a distinct instance with a TRUSTED remote, as the cloud deploys it.
+# The runner: a distinct instance with a distinct index, as the cloud deploys it.
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
-	remotes: { default: { token: $created.token.token, trusted: true, url: $remote.url } }
-	roles: [cleaner indexer runner]
+	remotes: { default: { token: $created.token.token, url: $remote.url } }
+	roles: [indexer runner]
 	runner: { id: $created.runner.id, remote: "default", token: $created.token.token }
 }
 
