@@ -142,8 +142,7 @@ impl Store {
 				crate::read::Response::TryGetLogLength(output)
 			},
 			crate::read::Request::TryGetObject(arg) => {
-				let output = Self::try_get_object_inner_with_transaction(db, transaction, &arg.id)?;
-				let output = crate::object::get::Output { object: output };
+				let output = Self::try_get_object_with_arg_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetObject(output)
 			},
 			crate::read::Request::TryGetObjectBatch(arg) => {

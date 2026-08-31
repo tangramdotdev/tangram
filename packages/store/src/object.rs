@@ -3,6 +3,7 @@ use {bytes::Bytes, std::borrow::Cow, tangram_client::prelude::*};
 pub mod archive;
 pub mod cache;
 pub mod checkout;
+pub mod contains;
 pub mod delete;
 pub mod get;
 pub mod index;
@@ -21,7 +22,7 @@ pub struct Object<'a> {
 	pub length: Option<u64>,
 
 	#[tangram_serialize(id = 2)]
-	pub stored_at: i64,
+	pub put: [u8; 16],
 }
 
 impl Object<'_> {
@@ -62,7 +63,7 @@ impl Object<'_> {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			checkout_pointer: self.checkout_pointer,
 			length: self.length,
-			stored_at: self.stored_at,
+			put: self.put,
 		}
 	}
 }

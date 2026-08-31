@@ -194,6 +194,9 @@ impl Store {
 			Request::DeleteObjectCacheEntry(arg) => {
 				vec![(Request::DeleteObjectCacheEntry(arg), 1)]
 			},
+			Request::DeleteObjectIndexOutboxBatch(arg) => {
+				vec![(Request::DeleteObjectIndexOutboxBatch(arg), 1)]
+			},
 			Request::DeleteObjectIndexOutboxFragments(arg) => {
 				Self::split_items(arg.fragments, write_batch_size, |fragments| {
 					Request::DeleteObjectIndexOutboxFragments(
@@ -266,6 +269,9 @@ impl Store {
 			}),
 			Request::DeleteObjectCacheEntry(arg) => {
 				Self::delete_object_cache_entry_with_transaction(db, transaction, arg)
+			},
+			Request::DeleteObjectIndexOutboxBatch(arg) => {
+				Self::delete_object_index_outbox_batch_with_transaction(db, transaction, arg)
 			},
 			Request::DeleteObjectIndexOutboxFragments(arg) => {
 				Self::delete_object_index_outbox_fragments_with_transaction(db, transaction, arg)

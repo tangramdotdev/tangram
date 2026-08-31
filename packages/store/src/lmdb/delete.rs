@@ -8,14 +8,14 @@ use {
 
 pub(super) struct Request {
 	pub id: tg::object::Id,
-	pub touched_at: i64,
+	pub put: [u8; 16],
 }
 
 impl Store {
 	pub(super) async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
 		let request = super::request::Request::DeleteObject(Request {
 			id: arg.id,
-			touched_at: arg.touched_at,
+			put: arg.put,
 		});
 
 		self.send_write_request(request).await
@@ -32,7 +32,7 @@ impl Store {
 			args.into_iter()
 				.map(|arg| Request {
 					id: arg.id,
-					touched_at: arg.touched_at,
+					put: arg.put,
 				})
 				.collect(),
 		);
@@ -47,7 +47,7 @@ impl Store {
 			.map_err(|error| tg::error!(!error, "failed to begin a transaction"))?;
 		let request = Request {
 			id: arg.id,
-			touched_at: arg.touched_at,
+			put: arg.put,
 		};
 		Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		transaction
@@ -67,7 +67,7 @@ impl Store {
 		for arg in args {
 			let request = Request {
 				id: arg.id,
-				touched_at: arg.touched_at,
+				put: arg.put,
 			};
 			Self::delete_inner_with_transaction(&self.db, &mut transaction, request)?;
 		}
@@ -95,8 +95,7 @@ impl Store {
 		};
 		let value = lmdb_object::Value::deserialize(bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
-		let timestamp = object::cache::stored_at_timestamp(request.touched_at)?;
-		if value.timestamp <= timestamp {
+		if value.object.put == request.put {
 			db.delete(transaction, &key_bytes)
 				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
 		}

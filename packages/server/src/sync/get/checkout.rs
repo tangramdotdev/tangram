@@ -38,6 +38,7 @@ struct Blob {
 	length: u64,
 	metadata: Option<tg::object::Metadata>,
 	published: bool,
+	put: [u8; 16],
 	received: bool,
 	registered: bool,
 	storage: Option<tangram_index::object::Storage>,
@@ -86,6 +87,7 @@ pub struct ObjectNode {
 	pub bytes: Option<Bytes>,
 	pub id: tg::blob::Id,
 	pub metadata: Option<tg::object::Metadata>,
+	pub put: [u8; 16],
 }
 
 impl Session {
@@ -212,7 +214,13 @@ impl Session {
 
 		match node.bytes {
 			Some(bytes) => {
-				Self::sync_get_checkout_insert_received(state, &node.id, bytes, node.metadata)?;
+				Self::sync_get_checkout_insert_received(
+					state,
+					&node.id,
+					bytes,
+					node.metadata,
+					node.put,
+				)?;
 			},
 			None => Self::sync_get_checkout_queue_load(state, node.id, true),
 		}
@@ -296,6 +304,7 @@ impl Session {
 		id: &tg::blob::Id,
 		bytes: Bytes,
 		metadata: Option<tg::object::Metadata>,
+		put: [u8; 16],
 	) -> tg::Result<()> {
 		if let Some(blob) = state.blobs.get_mut(id) {
 			blob.registered = true;
@@ -319,6 +328,7 @@ impl Session {
 			length,
 			metadata,
 			published: false,
+			put,
 			received: true,
 			registered: true,
 			storage: None,
@@ -441,6 +451,7 @@ impl Session {
 				length,
 				metadata: metadata.clone(),
 				published: false,
+				put: uuid::Uuid::now_v7().into_bytes(),
 				received: false,
 				registered,
 				storage: storage.clone(),
@@ -454,6 +465,7 @@ impl Session {
 				marked: None,
 				metadata,
 				permissions: None,
+				put: Some(blob.put),
 				requested: None,
 				storage,
 			};
@@ -844,6 +856,7 @@ impl Session {
 				id: id.clone().into(),
 				length: Some(blob.length),
 				metadata: blob.metadata.take(),
+				put: blob.put,
 				storage: blob.storage.take(),
 				transferred_bytes: blob.transferred_bytes,
 			};

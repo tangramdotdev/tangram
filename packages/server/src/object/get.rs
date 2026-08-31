@@ -617,7 +617,10 @@ impl Server {
 		id: &tg::object::Id,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = self.store.try_get_object_sync(&arg)?;
 		let object = output.object;
 		let Some(object) = object else {
@@ -735,7 +738,10 @@ impl Server {
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = self
 			.store
 			.try_get_object(arg)
@@ -760,6 +766,13 @@ impl Server {
 		let Some(archive) = &self.archive else {
 			return Ok(None);
 		};
+		let object =
+			self.index.try_get_object(id).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get the object from the index"),
+			)?;
+		if object.is_none() {
+			return Ok(None);
+		}
 		let arg = tangram_archive::object::get::Arg { id: id.clone() };
 		let output = archive.try_get_object(arg).await.map_err(
 			|error| tg::error!(!error, %id, "failed to get the object from the archive"),
@@ -767,36 +780,30 @@ impl Server {
 		let Some(object) = output.object else {
 			return Ok(None);
 		};
-		self.spawn_put_object_in_store_task(id.clone(), object.bytes.clone(), object.stored_at);
+		self.spawn_put_object_in_store_task(id.clone(), object.bytes.clone());
 
 		Ok(Some(object.bytes))
 	}
 
-	fn spawn_put_object_in_store_task(&self, id: tg::object::Id, bytes: Bytes, stored_at: i64) {
+	fn spawn_put_object_in_store_task(&self, id: tg::object::Id, bytes: Bytes) {
 		tokio::spawn({
 			let server = self.clone();
 			async move {
+				let put = uuid::Uuid::now_v7().into_bytes();
 				let object = crate::store::object::put::Arg {
 					bytes: Some(bytes),
 					checkout_pointer: None,
 					id: id.clone(),
 					length: None,
-					stored_at,
+					put,
 				};
 				let result = if let Some(cache) = &server.config.object.cache {
 					if !server.object_cache_puts_enabled.load(Ordering::Acquire) {
 						return;
 					}
-					let cached_at = match server.clock.unix_timestamp() {
-						Ok(cached_at) => cached_at,
-						Err(error) => {
-							tracing::error!(error = %error.trace(), %id, "failed to get the object cache timestamp");
-							return;
-						},
-					};
 					let partition = rand::random_range(0..cache.partition_total);
 					let arg = crate::store::object::cache::put::object::Arg {
-						cached_at,
+						cache: uuid::Uuid::now_v7().into_bytes(),
 						object,
 						partition,
 					};

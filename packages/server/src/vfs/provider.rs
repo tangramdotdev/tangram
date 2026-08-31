@@ -2610,7 +2610,10 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let object = self
 			.server
 			.store
@@ -3135,7 +3138,10 @@ impl Provider {
 		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
 			(&self.server.store, transaction)
 		{
-			let arg = crate::store::object::get::Arg { id: id.clone() };
+			let arg = crate::store::object::get::Arg {
+				id: id.clone(),
+				put: None,
+			};
 			return store
 				.try_get_object_with_transaction(transaction, &arg)
 				.map(|output| output.object)
@@ -3145,7 +3151,10 @@ impl Provider {
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
-		let arg = crate::store::object::get::Arg { id: id.clone() };
+		let arg = crate::store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		self.server
 			.store
 			.try_get_object_sync(&arg)

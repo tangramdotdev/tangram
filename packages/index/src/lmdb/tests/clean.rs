@@ -31,7 +31,7 @@ fn count_subject_grants(index: &Index, subject: &tg::authorization::Subject) -> 
 }
 
 #[tokio::test]
-async fn object_output_includes_the_deleted_touched_at() {
+async fn object_output_includes_the_deleted_put_and_touched_at() {
 	let (_dir, index) = super::new_index();
 	let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 	let object = crate::object::put::Arg {
@@ -39,6 +39,7 @@ async fn object_output_includes_the_deleted_touched_at() {
 		children: BTreeSet::new(),
 		id: id.clone(),
 		metadata: tg::object::Metadata::default(),
+		put: [1; 16],
 		storage: crate::object::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 7,
@@ -59,6 +60,7 @@ async fn object_output_includes_the_deleted_touched_at() {
 	let output = index.clean(arg).await.unwrap();
 	assert_eq!(output.objects.len(), 1);
 	assert_eq!(output.objects[0].id, id);
+	assert_eq!(output.objects[0].put, [1; 16]);
 	assert_eq!(output.objects[0].touched_at, 7);
 }
 
@@ -79,6 +81,7 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 			children: BTreeSet::new(),
 			id,
 			metadata: tg::object::Metadata::default(),
+			put: [1; 16],
 			storage: crate::object::Storage::default(),
 			time_to_touch: std::time::Duration::ZERO,
 			touched_at: 0,
@@ -163,6 +166,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 				children: BTreeSet::new(),
 				id: object.clone(),
 				metadata: tg::object::Metadata::default(),
+				put: [1; 16],
 				storage: crate::object::Storage::default(),
 				time_to_touch: std::time::Duration::ZERO,
 				touched_at: 1,

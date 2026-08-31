@@ -72,15 +72,13 @@ impl fdbt::TuplePack for Key<'_> {
 			Self::ObjectArchiveOutbox(entry) => (
 				Kind::ObjectArchiveOutbox.to_i32().unwrap(),
 				entry.partition,
-				entry.stored_at,
-				entry.id.to_bytes().as_ref(),
+				entry.put.as_slice(),
 			)
 				.pack(writer, tuple_depth),
 			Self::ObjectCache(entry) => (
 				Kind::ObjectCache.to_i32().unwrap(),
 				entry.partition,
-				entry.cached_at,
-				entry.id.to_bytes().as_ref(),
+				entry.cache.as_slice(),
 			)
 				.pack(writer, tuple_depth),
 			Self::ObjectIndexOutbox(crate::lmdb::outbox::Key::Fragment {

@@ -79,12 +79,14 @@ impl Session {
 
 					// Update the graph with data and metadata.
 					let metadata = message.metadata.clone();
+					let put = uuid::Uuid::now_v7().into_bytes();
 					let arg = UpdateObjectLocalArg {
 						data: Some(&data),
 						id: &message.id,
 						marked: None,
 						metadata,
 						permissions: None,
+						put: Some(put),
 						requested: None,
 						storage: None,
 					};
@@ -135,6 +137,7 @@ impl Session {
 							bytes: Some(message.bytes),
 							id,
 							metadata: message.metadata,
+							put,
 						};
 						checkout_sender.send(node).await.map_err(|_| {
 							tg::error!("failed to send the blob to the checkout task")
@@ -148,6 +151,7 @@ impl Session {
 							id: message.id,
 							length: None,
 							metadata: message.metadata,
+							put,
 							storage: None,
 							transferred_bytes,
 						};

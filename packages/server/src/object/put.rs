@@ -65,19 +65,15 @@ impl Session {
 			tg::object::Data::Blob(blob) => Some(blob.length()),
 			_ => None,
 		};
+		let put = uuid::Uuid::now_v7().into_bytes();
 
 		let put_arg = crate::store::object::put::Arg {
 			bytes: Some(arg.bytes.clone()),
 			checkout_pointer: None,
 			id: id.clone(),
 			length,
-			stored_at: now,
+			put,
 		};
-		self.server
-			.put_object(put_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
-
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
 		let permission = if self
@@ -131,6 +127,7 @@ impl Session {
 			children,
 			id: id.clone(),
 			metadata,
+			put,
 			storage: tangram_index::object::Storage::default(),
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at: now,
@@ -164,10 +161,22 @@ impl Session {
 				}))
 				.collect(),
 		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+		if self.server.config.advanced.single_process {
+			self.server
+				.put_object(put_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+			self.server
+				.index_batch(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+		} else {
+			let object_put = self.server.put_object(put_arg);
+			let index_put = self.server.index_batch(arg);
+			let (object_result, index_result) = future::join(object_put, index_put).await;
+			object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
+			index_result.map_err(|error| tg::error!(!error, "failed to index the object"))?;
+		}
 
 		let token = self.create_token(
 			id.clone().into(),
@@ -312,7 +321,7 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
 		}
 
-		let entry = self.object_archive_outbox_entry(arg.id.clone(), arg.stored_at);
+		let entry = self.object_archive_outbox_entry(arg.id.clone(), arg.put);
 		let outbox_arg = crate::store::object::archive::outbox::put::Arg {
 			entries: vec![entry.clone()],
 		};
@@ -345,7 +354,7 @@ impl Server {
 
 		let entries = args
 			.iter()
-			.map(|arg| self.object_archive_outbox_entry(arg.id.clone(), arg.stored_at))
+			.map(|arg| self.object_archive_outbox_entry(arg.id.clone(), arg.put))
 			.collect::<Vec<_>>();
 		let partitions = entries
 			.iter()
@@ -370,7 +379,7 @@ impl Server {
 	fn object_archive_outbox_entry(
 		&self,
 		id: tg::object::Id,
-		stored_at: i64,
+		put: [u8; 16],
 	) -> crate::store::object::archive::outbox::Entry {
 		let partition_total = self.config.object.archive_outbox.partition_total;
 		let bytes = id.to_bytes();
@@ -379,11 +388,7 @@ impl Server {
 		suffix[8 - (bytes.len() - start)..].copy_from_slice(&bytes[start..]);
 		let partition = u64::from_be_bytes(suffix) % partition_total;
 
-		crate::store::object::archive::outbox::Entry {
-			id,
-			partition,
-			stored_at,
-		}
+		crate::store::object::archive::outbox::Entry { id, partition, put }
 	}
 
 	fn spawn_publish_object_archive_outbox_notifications(&self, partitions: BTreeSet<u64>) {

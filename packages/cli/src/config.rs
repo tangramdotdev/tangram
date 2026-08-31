@@ -992,6 +992,9 @@ pub struct ObjectArchiveOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub wakeup_interval: Option<Duration>,
@@ -1009,6 +1012,9 @@ pub struct ObjectIndexOutbox {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3131,6 +3137,9 @@ fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectA
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
 	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
 	if let Some(value) = source.wakeup_interval {
 		target.wakeup_interval = value;
 	}
@@ -3147,6 +3156,9 @@ fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndex
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
+	}
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
 	}
 	if let Some(value) = source.wakeup_interval {
 		target.wakeup_interval = value;
@@ -4369,15 +4381,28 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_wakeup_intervals() {
+	fn parses_and_resolves_outbox_configuration() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"database": {
 				"kind": "sqlite",
 				"index_outbox": { "wakeup_interval": 0.1 },
 			},
 			"object": {
-				"archive_outbox": { "wakeup_interval": 0.2 },
-				"index_outbox": { "wakeup_interval": 0.3 },
+				"archive_outbox": {
+					"retry": {
+						"max_retries": 4,
+					},
+					"wakeup_interval": 0.2,
+				},
+				"index_outbox": {
+					"retry": {
+						"backoff": 0.04,
+						"jitter": 0.05,
+						"max_delay": 0.06,
+						"max_retries": 7,
+					},
+					"wakeup_interval": 0.3,
+				},
 			},
 			"process": {
 				"children_wakeup_interval": 0.4,
@@ -4401,9 +4426,35 @@ mod tests {
 			Duration::from_millis(200)
 		);
 		assert_eq!(
+			target.object.archive_outbox.retry.backoff,
+			Duration::from_millis(25)
+		);
+		assert_eq!(
+			target.object.archive_outbox.retry.jitter,
+			Duration::from_millis(25)
+		);
+		assert_eq!(
+			target.object.archive_outbox.retry.max_delay,
+			Duration::from_secs(1)
+		);
+		assert_eq!(target.object.archive_outbox.retry.max_retries, 4);
+		assert_eq!(
 			target.object.index_outbox.wakeup_interval,
 			Duration::from_millis(300)
 		);
+		assert_eq!(
+			target.object.index_outbox.retry.backoff,
+			Duration::from_millis(40)
+		);
+		assert_eq!(
+			target.object.index_outbox.retry.jitter,
+			Duration::from_millis(50)
+		);
+		assert_eq!(
+			target.object.index_outbox.retry.max_delay,
+			Duration::from_millis(60)
+		);
+		assert_eq!(target.object.index_outbox.retry.max_retries, 7);
 		assert_eq!(
 			target.process.children_wakeup_interval,
 			Duration::from_millis(400)

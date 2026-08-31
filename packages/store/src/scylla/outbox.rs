@@ -7,6 +7,23 @@ use {
 };
 
 impl Store {
+	pub async fn delete_object_index_outbox_batch(
+		&self,
+		arg: batch::delete::Arg,
+	) -> tg::Result<()> {
+		let partition = super::physical_partition(arg.partition, self.partition_offset)?;
+		let batch = arg.id.value();
+		let params = (partition, batch.as_slice());
+		self.session
+			.execute_unpaged(&self.statements.delete_object_index_outbox_batch, params)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to delete the object index outbox batch")
+			})?;
+
+		Ok(())
+	}
+
 	pub async fn delete_object_index_outbox_fragments(
 		&self,
 		arg: fragment::delete::Arg,

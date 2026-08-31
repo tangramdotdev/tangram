@@ -73,19 +73,18 @@ impl Store {
 				if entries.len() >= arg.batch_size {
 					return Ok(entries);
 				}
-				let (key, _) = entry.map_err(|error| {
+				let (key, value) = entry.map_err(|error| {
 					tg::error!(!error, "failed to get an object archive outbox entry")
 				})?;
-				let (_, partition, stored_at, id): (i32, u64, i64, Vec<u8>) = fdbt::unpack(key)
-					.map_err(|error| {
+				let (_, partition, put): (i32, u64, Vec<u8>) =
+					fdbt::unpack(key).map_err(|error| {
 						tg::error!(!error, "failed to unpack an object archive outbox key")
 					})?;
-				let id = tg::object::Id::from_slice(&id)?;
-				entries.push(outbox::Entry {
-					id,
-					partition,
-					stored_at,
-				});
+				let id = tg::object::Id::from_slice(value)?;
+				let put = put
+					.try_into()
+					.map_err(|_| tg::error!("invalid object archive outbox put"))?;
+				entries.push(outbox::Entry { id, partition, put });
 			}
 		}
 
@@ -98,9 +97,10 @@ impl Store {
 		arg: outbox::put::Arg,
 	) -> tg::Result<()> {
 		for entry in arg.entries {
+			let id = entry.id.to_bytes();
 			let key = Key::ObjectArchiveOutbox(entry);
 			let key = key.pack_to_vec();
-			db.put(transaction, &key, &[]).map_err(|error| {
+			db.put(transaction, &key, id.as_ref()).map_err(|error| {
 				tg::error!(
 					!error,
 					"failed to write an entry to the object archive outbox"
@@ -136,10 +136,10 @@ mod tests {
 		let entry = outbox::Entry {
 			id,
 			partition: 1,
-			stored_at: 1,
+			put: [1; 16],
 		};
 		let newer = outbox::Entry {
-			stored_at: 2,
+			put: [2; 16],
 			..entry.clone()
 		};
 		{

@@ -12,6 +12,11 @@ pub mod prelude;
 pub mod scylla;
 
 pub trait Store {
+	fn contains_object(
+		&self,
+		arg: object::contains::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<bool>> + Send;
+
 	fn delete_object_cache_entry(
 		&self,
 		arg: object::cache::delete::Arg,
@@ -35,6 +40,11 @@ pub trait Store {
 	fn delete_object_batch(
 		&self,
 		args: Vec<object::delete::Arg>,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn delete_object_index_outbox_batch(
+		&self,
+		arg: object::index::outbox::batch::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn delete_object_index_outbox_fragments(

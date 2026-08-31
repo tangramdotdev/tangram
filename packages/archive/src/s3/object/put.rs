@@ -3,7 +3,7 @@ use tangram_client::prelude::*;
 impl super::super::Archive {
 	pub async fn put_object(&self, arg: crate::object::put::Arg) -> tg::Result<()> {
 		let path = format!("/{}", arg.id);
-		let bytes = super::serialize(arg.stored_at, &arg.bytes);
+		let bytes = super::serialize(arg.put, &arg.bytes);
 		let mut headers = http::HeaderMap::new();
 		let content_length = http::HeaderValue::from_str(&bytes.len().to_string())
 			.map_err(|error| tg::error!(!error, "failed to create the content length header"))?;

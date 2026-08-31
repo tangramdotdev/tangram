@@ -3,5 +3,5 @@ use tangram_client::prelude::*;
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub id: tg::object::Id,
-	pub touched_at: i64,
+	pub put: [u8; 16],
 }

@@ -1,13 +1,21 @@
 use {
 	super::super::Indexer,
 	futures::{FutureExt as _, StreamExt as _, future, stream},
-	std::{collections::BTreeMap, time::Duration},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tangram_store::Store as _,
 	tokio_stream::wrappers::IntervalStream,
 };
+
+struct Fragment {
+	arg: tangram_index::batch::Arg,
+	key: crate::store::object::index::outbox::fragment::Key,
+}
 
 impl Indexer {
 	pub(in crate::indexer) async fn object_index_outbox_task(
@@ -103,33 +111,92 @@ impl Indexer {
 		// Combine the fragments into batches.
 		let count = fragments.len();
 		let mut batches = BTreeMap::<_, Vec<_>>::new();
-		let mut keys = Vec::with_capacity(count);
 		for fragment in fragments {
 			let arg = tangram_index::batch::Arg::deserialize(&fragment.payload)?;
-			batches
-				.entry(fragment.batch)
-				.or_default()
-				.push((fragment.index, arg));
 			let key = crate::store::object::index::outbox::fragment::Key {
 				batch: fragment.batch,
 				index: fragment.index,
 				partition: fragment.partition,
 			};
-			keys.push(key);
+			let fragment = Fragment { arg, key };
+			batches.entry(key.batch).or_default().push(fragment);
 		}
 
 		// Submit the batches concurrently and each batch's fragments sequentially.
-		future::try_join_all(batches.into_values().map(|mut fragments| async move {
-			fragments.sort_unstable_by_key(|(index, _)| *index);
-			for (_, arg) in fragments {
-				crate::checkpoint!(self.server, "index.batch").await;
-				self.server.index.batch(arg).await?;
-			}
-			Ok::<_, tg::Error>(())
+		let results = future::join_all(batches.into_iter().map(|(batch, fragments)| async move {
+			self.object_index_outbox_group(&outbox.retry, batch, fragments)
+				.await
 		}))
-		.await
-		.map_err(|error| tg::error!(!error, "failed to index an object index outbox batch"))?;
-		let arg = crate::store::object::index::outbox::fragment::delete::Arg { fragments: keys };
+		.await;
+		let mut error = None;
+		for result in results {
+			if let Err(current) = result {
+				error.get_or_insert(current);
+			}
+		}
+		if let Some(error) = error {
+			return Err(tg::error!(
+				!error,
+				"failed to index an object index outbox batch"
+			));
+		}
+
+		Ok(count)
+	}
+
+	async fn object_index_outbox_group(
+		&self,
+		retry: &crate::config::Retry,
+		batch: crate::store::object::index::outbox::batch::Id,
+		mut fragments: Vec<Fragment>,
+	) -> tg::Result<()> {
+		// Wait for every exact object put referenced by these fragments.
+		let puts = fragments
+			.iter()
+			.flat_map(|fragment| &fragment.arg.items)
+			.filter_map(|item| match item {
+				tangram_index::batch::Item::PutObject(arg) => Some((arg.id.clone(), arg.put)),
+				_ => None,
+			})
+			.collect::<BTreeSet<_>>();
+		let results = future::try_join_all(puts.into_iter().map(|(id, put)| async move {
+			let contains = self.wait_for_object_put(retry, &id, put).await?;
+
+			Ok::<_, tg::Error>((id, put, contains))
+		}))
+		.await?;
+		let missing = results
+			.into_iter()
+			.filter(|(_, _, exists)| !exists)
+			.collect::<Vec<_>>();
+		if let Some((id, put, _)) = missing.first() {
+			let partition = fragments.first().unwrap().key.partition;
+			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an object index outbox batch because an object put is absent from the store");
+			let arg = crate::store::object::index::outbox::batch::delete::Arg {
+				id: batch,
+				partition,
+			};
+			self.server
+				.store
+				.delete_object_index_outbox_batch(arg)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to delete an object index outbox batch")
+				})?;
+
+			return Ok(());
+		}
+
+		// Index the fragments in order.
+		fragments.sort_unstable_by_key(|fragment| fragment.key.index);
+		for fragment in &fragments {
+			crate::checkpoint!(self.server, "index.batch").await;
+			self.server.index.batch(fragment.arg.clone()).await?;
+		}
+
+		// Delete the indexed fragments.
+		let fragments = fragments.into_iter().map(|fragment| fragment.key).collect();
+		let arg = crate::store::object::index::outbox::fragment::delete::Arg { fragments };
 		self.server
 			.store
 			.delete_object_index_outbox_fragments(arg)
@@ -138,7 +205,7 @@ impl Indexer {
 				tg::error!(!error, "failed to delete object index outbox fragments")
 			})?;
 
-		Ok(count)
+		Ok(())
 	}
 }
 

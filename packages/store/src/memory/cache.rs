@@ -7,13 +7,11 @@ impl Store {
 		if state
 			.objects
 			.get(&entry.id)
-			.is_some_and(|object| object.timestamp <= entry.cached_at)
+			.is_some_and(|object| object.object.put == entry.put)
 		{
 			state.objects.remove(&entry.id);
 		}
-		state
-			.object_cache
-			.remove(&(entry.partition, entry.cached_at, entry.id));
+		state.object_cache.remove(&(entry.partition, entry.cache));
 	}
 
 	#[must_use]
@@ -25,21 +23,21 @@ impl Store {
 		state
 			.object_cache
 			.iter()
-			.filter(|(partition, _, _)| *partition == arg.partition)
+			.filter(|((partition, _), _)| *partition == arg.partition)
 			.take(arg.batch_size)
-			.map(|(partition, cached_at, id)| object::cache::Entry {
-				cached_at: *cached_at,
+			.map(|((partition, cache), (id, put))| object::cache::Entry {
+				cache: *cache,
 				id: id.clone(),
 				partition: *partition,
+				put: *put,
 			})
 			.collect()
 	}
 
 	pub fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
-		let cached_at = object::cache::stored_at_timestamp(arg.stored_at)?;
 		self.state()
 			.object_cache
-			.insert((arg.partition, cached_at, arg.id));
+			.insert((arg.partition, arg.cache), (arg.id, arg.put));
 
 		Ok(())
 	}
@@ -48,29 +46,22 @@ impl Store {
 		&self,
 		arg: object::cache::put::object::Arg,
 	) -> tg::Result<()> {
-		let cached_at = object::cache::cached_at_timestamp(arg.cached_at)?;
 		let object = arg.object;
 		let mut state = self.state();
 		state
 			.object_cache
-			.insert((arg.partition, cached_at, object.id.clone()));
+			.insert((arg.partition, arg.cache), (object.id.clone(), object.put));
 		let previous = state.objects.get(&object.id);
-		if previous.is_some_and(|object| object.timestamp > cached_at) {
+		if previous.is_some_and(|previous| previous.object.put > object.put) {
 			return Ok(());
 		}
-		let stored_at = previous.map_or(object.stored_at, |previous| {
-			previous.object.stored_at.max(object.stored_at)
-		});
 		let value = object::Object {
 			bytes: object.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 			checkout_pointer: object.checkout_pointer,
 			length: object.length,
-			stored_at,
+			put: object.put,
 		};
-		let value = super::Object {
-			object: value,
-			timestamp: cached_at,
-		};
+		let value = super::Object { object: value };
 		state.objects.insert(object.id, value);
 
 		Ok(())
@@ -81,13 +72,13 @@ impl Store {
 mod tests {
 	use {super::*, bytes::Bytes};
 
-	fn object(id: tg::object::Id, stored_at: i64) -> object::put::Arg {
+	fn object(id: tg::object::Id, put: u8) -> object::put::Arg {
 		object::put::Arg {
 			bytes: Some(Bytes::from_static(b"object")),
 			checkout_pointer: None,
 			id,
 			length: None,
-			stored_at,
+			put: [put; 16],
 		}
 	}
 
@@ -98,7 +89,7 @@ mod tests {
 		store.put_object(object(id.clone(), 10)).unwrap();
 		store
 			.put_object_cache_entry_with_object(object::cache::put::object::Arg {
-				cached_at: 10,
+				cache: [10; 16],
 				object: object(id.clone(), 1),
 				partition: 2,
 			})
@@ -111,18 +102,24 @@ mod tests {
 		store.delete_object_cache_entry(object::cache::delete::Arg {
 			entry: entries[0].clone(),
 		});
-		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
-		assert_eq!(output.object.unwrap().stored_at, 10);
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: None,
+		});
+		assert_eq!(output.object.unwrap().put, [10; 16]);
 
 		store
 			.put_object_cache_entry_with_object(object::cache::put::object::Arg {
-				cached_at: 11,
-				object: object(id.clone(), 1),
+				cache: [11; 16],
+				object: object(id.clone(), 11),
 				partition: 3,
 			})
 			.unwrap();
-		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
-		assert_eq!(output.object.unwrap().stored_at, 10);
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: None,
+		});
+		assert_eq!(output.object.unwrap().put, [11; 16]);
 		let entries = store.get_object_cache_entries(object::cache::get::Arg {
 			batch_size: usize::MAX,
 			partition: 3,
@@ -130,7 +127,7 @@ mod tests {
 		store.delete_object_cache_entry(object::cache::delete::Arg {
 			entry: entries[0].clone(),
 		});
-		let output = store.try_get_object_sync(&object::get::Arg { id });
+		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
 		assert!(output.object.is_none());
 	}
 
@@ -141,9 +138,10 @@ mod tests {
 		store.put_object(object(id.clone(), 10)).unwrap();
 		store
 			.put_object_cache_entry(object::cache::put::Arg {
+				cache: [20; 16],
 				id: id.clone(),
 				partition: 2,
-				stored_at: 10,
+				put: [10; 16],
 			})
 			.unwrap();
 		let entries = store.get_object_cache_entries(object::cache::get::Arg {
@@ -153,7 +151,7 @@ mod tests {
 		store.delete_object_cache_entry(object::cache::delete::Arg {
 			entry: entries[0].clone(),
 		});
-		let output = store.try_get_object_sync(&object::get::Arg { id });
+		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
 		assert!(output.object.is_none());
 	}
 }

@@ -7,18 +7,18 @@ mod delete;
 mod get;
 mod put;
 
-const FORMAT: u8 = 0;
-pub(super) const HEADER_LENGTH: usize = 9;
+const FORMAT: u8 = 1;
+pub(super) const HEADER_LENGTH: usize = 17;
 
 pub(super) fn deserialize(bytes: &Bytes) -> tg::Result<crate::object::get::Object> {
-	let stored_at = deserialize_stored_at(bytes)?;
+	let put = deserialize_put(bytes)?;
 	let bytes = bytes.slice(HEADER_LENGTH..);
-	let object = crate::object::get::Object { bytes, stored_at };
+	let object = crate::object::get::Object { bytes, put };
 
 	Ok(object)
 }
 
-pub(super) fn deserialize_stored_at(bytes: &[u8]) -> tg::Result<i64> {
+pub(super) fn deserialize_put(bytes: &[u8]) -> tg::Result<[u8; 16]> {
 	if bytes.len() < HEADER_LENGTH {
 		return Err(tg::error!("the S3 object header is too short"));
 	}
@@ -26,15 +26,15 @@ pub(super) fn deserialize_stored_at(bytes: &[u8]) -> tg::Result<i64> {
 	if format != FORMAT {
 		return Err(tg::error!(%format, "the S3 object format is invalid"));
 	}
-	let stored_at = i64::from_be_bytes(bytes[1..HEADER_LENGTH].try_into().unwrap());
+	let put = bytes[1..HEADER_LENGTH].try_into().unwrap();
 
-	Ok(stored_at)
+	Ok(put)
 }
 
-pub(super) fn serialize(stored_at: i64, bytes: &Bytes) -> Bytes {
+pub(super) fn serialize(put: [u8; 16], bytes: &Bytes) -> Bytes {
 	let mut output = BytesMut::with_capacity(HEADER_LENGTH + bytes.len());
 	output.put_u8(FORMAT);
-	output.put_i64(stored_at);
+	output.extend_from_slice(&put);
 	output.extend_from_slice(bytes);
 
 	output.freeze()
@@ -47,11 +47,11 @@ mod tests {
 	#[test]
 	fn serialization() {
 		let bytes = Bytes::from_static(b"object");
-		let stored_at = 1_234_567_890;
-		let serialized = serialize(stored_at, &bytes);
-		assert_eq!(deserialize_stored_at(&serialized).unwrap(), stored_at);
+		let put = [42; 16];
+		let serialized = serialize(put, &bytes);
+		assert_eq!(deserialize_put(&serialized).unwrap(), put);
 		let object = deserialize(&serialized).unwrap();
 		assert_eq!(object.bytes, bytes);
-		assert_eq!(object.stored_at, stored_at);
+		assert_eq!(object.put, put);
 	}
 }

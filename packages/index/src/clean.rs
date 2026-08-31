@@ -25,5 +25,6 @@ pub struct Output {
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub id: tg::object::Id,
+	pub put: [u8; 16],
 	pub touched_at: i64,
 }

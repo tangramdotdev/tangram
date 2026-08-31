@@ -79,32 +79,33 @@ mod tests {
 		let archive = Archive::new(&config).unwrap();
 		let bytes = Bytes::from_static(b"tangram S3 archive integration test");
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		let put = [42; 16];
 		let arg = crate::object::put::Arg {
 			bytes: bytes.clone(),
 			id: id.clone(),
-			stored_at: 12_345,
+			put,
 		};
 		archive.put_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id: id.clone() };
 		let output = archive.try_get_object(arg).await.unwrap();
 		let object = output.object.unwrap();
 		assert_eq!(object.bytes, bytes);
-		assert_eq!(object.stored_at, 12_345);
+		assert_eq!(object.put, put);
 
 		let arg = crate::object::delete::Arg {
 			id: id.clone(),
-			touched_at: 12_344,
+			put: [41; 16],
 		};
 		archive.delete_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id: id.clone() };
 		let output = archive.try_get_object(arg).await.unwrap();
 		let object = output.object.unwrap();
 		assert_eq!(object.bytes, bytes);
-		assert_eq!(object.stored_at, 12_345);
+		assert_eq!(object.put, put);
 
 		let arg = crate::object::delete::Arg {
 			id: id.clone(),
-			touched_at: 12_345,
+			put,
 		};
 		archive.delete_object(arg).await.unwrap();
 		let arg = crate::object::get::Arg { id };

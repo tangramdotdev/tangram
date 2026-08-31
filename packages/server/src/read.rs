@@ -254,6 +254,7 @@ impl Reader {
 		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
 			let arg = crate::store::object::get::Arg {
 				id: id.clone().into(),
+				put: None,
 			};
 			session
 				.server
@@ -294,6 +295,7 @@ impl Reader {
 		let id = blob.id();
 		let arg = crate::store::object::get::Arg {
 			id: id.clone().into(),
+			put: None,
 		};
 		let object = session
 			.server

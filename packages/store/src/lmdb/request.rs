@@ -4,6 +4,7 @@ pub(super) enum Request {
 	DeleteObjectArchiveOutboxEntries(crate::object::archive::outbox::delete::Arg),
 	DeleteObjectBatch(Vec<super::delete::Request>),
 	DeleteObjectCacheEntry(crate::object::cache::delete::Arg),
+	DeleteObjectIndexOutboxBatch(crate::object::index::outbox::batch::delete::Arg),
 	DeleteObjectIndexOutboxFragments(crate::object::index::outbox::fragment::delete::Arg),
 	EnqueueObjectIndexOutboxBatch(crate::object::index::outbox::batch::enqueue::Arg),
 	PutLogBatch(Vec<crate::log::put::Arg>),

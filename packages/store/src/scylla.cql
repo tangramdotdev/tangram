@@ -1,8 +1,9 @@
 create table if not exists objects (
 	bytes blob,
-	id blob primary key,
-	stored_at bigint
-);
+	id blob,
+	put blob,
+	primary key ((id), put)
+) with clustering order by (put desc);
 
 create table if not exists object_index_outbox (
 	"batch" blob,
@@ -15,16 +16,17 @@ create table if not exists object_index_outbox (
 create table if not exists object_archive_outbox (
 	id blob,
 	partition bigint,
-	stored_at bigint,
-	primary key ((partition), stored_at, id)
-) with clustering order by (stored_at asc, id asc);
+	put blob,
+	primary key ((partition), put)
+) with clustering order by (put asc);
 
 create table if not exists object_cache (
-	partition bigint,
-	cached_at bigint,
+	cache blob,
 	id blob,
-	primary key ((partition), cached_at, id)
-) with clustering order by (cached_at asc, id asc);
+	partition bigint,
+	put blob,
+	primary key ((partition), cache)
+) with clustering order by (cache asc);
 
 create table if not exists logs (
 	process blob,

@@ -1407,7 +1407,10 @@ impl Fast {
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<store::object::Object<'static>>> {
-		let arg = store::object::get::Arg { id: id.clone() };
+		let arg = store::object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		self.store
 			.try_get_object_with_transaction(transaction, &arg)
 			.map(|output| output.object)
@@ -2364,7 +2367,7 @@ mod tests {
 				checkout_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
 				length: None,
-				stored_at: 0,
+				put: [0; 16],
 			})
 			.unwrap();
 		drop(store);

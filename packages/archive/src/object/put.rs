@@ -4,5 +4,5 @@ use {bytes::Bytes, tangram_client::prelude::*};
 pub struct Arg {
 	pub bytes: Bytes,
 	pub id: tg::object::Id,
-	pub stored_at: i64,
+	pub put: [u8; 16],
 }

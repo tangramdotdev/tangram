@@ -13,7 +13,15 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 struct BatchOutput {
 	count: usize,
-	incomplete: bool,
+}
+
+struct GroupOutput {
+	completed: Vec<crate::store::object::archive::outbox::Entry>,
+}
+
+struct Object {
+	bytes: bytes::Bytes,
+	entry: crate::store::object::archive::outbox::Entry,
 }
 
 impl Indexer {
@@ -79,12 +87,8 @@ impl Indexer {
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
 			let output = self.object_archive_outbox_batch(outbox, partition).await?;
-			if output.count == 0 {
-				if wakeups.next().await.is_none() {
-					return Err(tg::error!("the object archive outbox wakeup stream ended"));
-				}
-			} else if output.incomplete {
-				tokio::time::sleep(RETRY_INTERVAL).await;
+			if output.count == 0 && wakeups.next().await.is_none() {
+				return Err(tg::error!("the object archive outbox wakeup stream ended"));
 			}
 		}
 	}
@@ -109,10 +113,7 @@ impl Indexer {
 				tg::error!(!error, "failed to dequeue object archive outbox entries")
 			})?;
 		if entries.is_empty() {
-			let output = BatchOutput {
-				count: 0,
-				incomplete: false,
-			};
+			let output = BatchOutput { count: 0 };
 
 			return Ok(output);
 		}
@@ -126,18 +127,17 @@ impl Indexer {
 
 		// Archive the objects.
 		let results = future::join_all(groups.into_iter().map(|(id, entries)| async move {
-			let stored_at = entries.iter().map(|entry| entry.stored_at).max().unwrap();
-			let result = self.object_archive_outbox_object(&id, stored_at).await;
-			(entries, result)
+			self.object_archive_outbox_group(&outbox.retry, &id, entries)
+				.await
 		}))
 		.await;
 		let mut completed = Vec::new();
 		let mut error = None;
-		let mut incomplete = false;
-		for (entries, result) in results {
+		for result in results {
 			match result {
-				Ok(true) => completed.extend(entries),
-				Ok(false) => incomplete = true,
+				Ok(output) => {
+					completed.extend(output.completed);
+				},
 				Err(current) => {
 					error.get_or_insert(current);
 				},
@@ -159,58 +159,75 @@ impl Indexer {
 			return Err(error);
 		}
 
-		let output = BatchOutput { count, incomplete };
+		let output = BatchOutput { count };
 
 		Ok(output)
 	}
 
-	async fn object_archive_outbox_object(
+	async fn object_archive_outbox_group(
 		&self,
+		retry: &crate::config::Retry,
 		id: &tg::object::Id,
-		stored_at: i64,
-	) -> tg::Result<bool> {
-		let arg = crate::store::object::get::Arg { id: id.clone() };
-		let output =
-			self.server.store.try_get_object(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get an object from the store"),
-			)?;
-		let Some(object) = output.object else {
-			return Ok(false);
-		};
-		if object.stored_at < stored_at {
-			return Ok(false);
+		entries: Vec<crate::store::object::archive::outbox::Entry>,
+	) -> tg::Result<GroupOutput> {
+		// Read every exact store row before completing its outbox entry.
+		let results = future::try_join_all(entries.iter().cloned().map(|entry| async move {
+			let object = self
+				.try_wait_for_object_put(retry, id, entry.put)
+				.await?
+				.and_then(|object| object.bytes)
+				.map(|bytes| Object {
+					bytes: bytes.into_owned().into(),
+					entry: entry.clone(),
+				});
+			if object.is_none() {
+				tracing::error!(%id, put = ?entry.put, "discarding an object archive outbox entry because the object put is absent from the store");
+			}
+
+			Ok::<_, tg::Error>(object)
+		}))
+		.await?;
+		let mut objects = results.into_iter().flatten().collect::<Vec<_>>();
+		if objects.is_empty() {
+			let output = GroupOutput { completed: entries };
+
+			return Ok(output);
 		}
-		let stored_at = object.stored_at;
-		let Some(bytes) = object.bytes else {
-			return Ok(false);
-		};
+		objects.sort_unstable_by_key(|object| object.entry.put);
+		let object = objects.last().unwrap();
+
+		// Archive the greatest available put.
 		let Some(archive) = &self.server.archive else {
 			return Err(tg::error!("the archive is unavailable"));
 		};
 		let arg = tangram_archive::object::put::Arg {
-			bytes: bytes.into_owned().into(),
+			bytes: object.bytes.clone(),
 			id: id.clone(),
-			stored_at,
+			put: object.entry.put,
 		};
 		archive
 			.put_object(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
-		if let Some(cache) = &self.server.config.object.cache {
-			let partition = rand::random_range(0..cache.partition_total);
-			let arg = crate::store::object::cache::put::Arg {
-				id: id.clone(),
-				partition,
-				stored_at,
-			};
-			self.server
-				.store
-				.put_object_cache_entry(arg)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to put an object cache entry"))?;
+		if let Some(config) = &self.server.config.object.cache {
+			future::try_join_all(objects.iter().map(|object| async move {
+				let arg = crate::store::object::cache::put::Arg {
+					cache: uuid::Uuid::now_v7().into_bytes(),
+					id: id.clone(),
+					partition: rand::random_range(0..config.partition_total),
+					put: object.entry.put,
+				};
+				self.server
+					.store
+					.put_object_cache_entry(arg)
+					.await
+					.map_err(|error| tg::error!(!error, %id, "failed to put an object cache entry"))
+			}))
+			.await?;
 		}
+		let output = GroupOutput { completed: entries };
 
-		Ok(true)
+		Ok(output)
 	}
 }
 

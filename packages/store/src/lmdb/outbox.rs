@@ -12,6 +12,15 @@ mod key;
 pub(super) use key::Key;
 
 impl Store {
+	pub async fn delete_object_index_outbox_batch(
+		&self,
+		arg: batch::delete::Arg,
+	) -> tg::Result<()> {
+		let request = super::request::Request::DeleteObjectIndexOutboxBatch(arg);
+
+		self.send_write_request(request).await
+	}
+
 	pub async fn delete_object_index_outbox_fragments(
 		&self,
 		arg: fragment::delete::Arg,
@@ -134,6 +143,40 @@ impl Store {
 				.map_err(|error| {
 					tg::error!(!error, "failed to delete the object index outbox fragment")
 				})?;
+		}
+
+		Ok(())
+	}
+
+	pub(super) fn delete_object_index_outbox_batch_with_transaction(
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: batch::delete::Arg,
+	) -> tg::Result<()> {
+		let prefix = fdbt::pack(&(
+			Kind::ObjectIndexOutboxFragment.to_i32().unwrap(),
+			arg.partition,
+			arg.id.value().as_slice(),
+		));
+		let entries = db.prefix_iter(transaction, &prefix).map_err(|error| {
+			tg::error!(!error, "failed to iterate the object index outbox batch")
+		})?;
+		let keys = entries
+			.map(|entry| {
+				let (key, _) = entry.map_err(|error| {
+					tg::error!(!error, "failed to get an object index outbox batch entry")
+				})?;
+
+				Ok::<_, tg::Error>(key.to_vec())
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for key in keys {
+			db.delete(transaction, &key).map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to delete an object index outbox batch entry"
+				)
+			})?;
 		}
 
 		Ok(())
@@ -279,6 +322,24 @@ mod tests {
 				.await
 				.unwrap(),
 			Some(second)
+		);
+		store
+			.delete_object_index_outbox_batch(batch::delete::Arg {
+				id: second,
+				partition: 1,
+			})
+			.await
+			.unwrap();
+		assert!(
+			store
+				.try_get_object_index_outbox_batch_at_or_before(batch::get::Arg {
+					batch: None,
+					partition_end: 2,
+					partition_start: 0,
+				})
+				.await
+				.unwrap()
+				.is_none()
 		);
 	}
 }

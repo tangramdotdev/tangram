@@ -9,10 +9,8 @@ impl Store {
 		arg: outbox::delete::Arg,
 	) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
-			let timestamp = crate::object::cache::stored_at_timestamp(entry.stored_at)?;
 			let partition = super::physical_partition(entry.partition, self.partition_offset)?;
-			let id = entry.id.to_bytes();
-			let params = (timestamp, partition, entry.stored_at, id.as_ref());
+			let params = (partition, entry.put.as_slice());
 			self.session
 				.execute_unpaged(&self.statements.delete_object_archive_outbox_entry, params)
 				.await
@@ -59,7 +57,7 @@ impl Store {
 		struct Row<'a> {
 			id: &'a [u8],
 			partition: i64,
-			stored_at: i64,
+			put: &'a [u8],
 		}
 
 		let entries = result
@@ -71,11 +69,11 @@ impl Store {
 				})?;
 				let id = tg::object::Id::from_slice(row.id)?;
 				let partition = super::logical_partition(row.partition, self.partition_offset)?;
-				let entry = outbox::Entry {
-					id,
-					partition,
-					stored_at: row.stored_at,
-				};
+				let put = row
+					.put
+					.try_into()
+					.map_err(|_| tg::error!("invalid object archive outbox put"))?;
+				let entry = outbox::Entry { id, partition, put };
 				Ok(entry)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -85,10 +83,9 @@ impl Store {
 
 	pub async fn put_object_archive_outbox_entries(&self, arg: outbox::put::Arg) -> tg::Result<()> {
 		futures::future::try_join_all(arg.entries.into_iter().map(|entry| async move {
-			let timestamp = crate::object::cache::stored_at_timestamp(entry.stored_at)?;
 			let partition = super::physical_partition(entry.partition, self.partition_offset)?;
 			let id = entry.id.to_bytes();
-			let params = (id.as_ref(), partition, entry.stored_at, timestamp);
+			let params = (id.as_ref(), partition, entry.put.as_slice());
 			self.session
 				.execute_unpaged(&self.statements.put_object_archive_outbox_entry, params)
 				.await

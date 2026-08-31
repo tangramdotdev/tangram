@@ -223,6 +223,7 @@ impl Session {
 				marked: None,
 				metadata: output.as_ref().map(|object| object.metadata.clone()),
 				permissions,
+				put: output.as_ref().map(|object| object.put),
 				requested: None,
 				storage: output.as_ref().map(|object| object.storage.clone()),
 			};
@@ -271,6 +272,7 @@ impl Session {
 						marked: None,
 						metadata: None,
 						permissions: None,
+						put: None,
 						requested: None,
 						storage: None,
 					};
@@ -286,6 +288,7 @@ impl Session {
 							bytes: None,
 							id: node.id.unwrap_blob_ref().clone(),
 							metadata: output.as_ref().map(|object| object.metadata.clone()),
+							put: uuid::Uuid::now_v7().into_bytes(),
 						};
 						checkout_sender.send(node).await.map_err(|_| {
 							tg::error!("failed to send the blob to the checkout task")
@@ -1490,6 +1493,9 @@ impl Session {
 				Node::Object(node) => {
 					let id = tg::object::Id::try_from(id.clone())?;
 					if node.marked {
+						let put = node.put.ok_or_else(
+							|| tg::error!(%id, "the stored object was missing its put"),
+						)?;
 						let children = node
 							.children
 							.as_ref()
@@ -1507,6 +1513,7 @@ impl Session {
 							children,
 							id,
 							metadata,
+							put,
 							storage,
 							time_to_touch: self.server.config.object.time_to_touch,
 							touched_at,

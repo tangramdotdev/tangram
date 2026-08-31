@@ -8,5 +8,5 @@ pub mod put;
 pub struct Entry {
 	pub id: tg::object::Id,
 	pub partition: u64,
-	pub stored_at: i64,
+	pub put: [u8; 16],
 }

@@ -1,5 +1,6 @@
 use {
 	crate::Session,
+	futures::future,
 	num::ToPrimitive as _,
 	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
@@ -82,12 +83,13 @@ impl Session {
 				tg::object::Data::Blob(blob) => Some(blob.length()),
 				_ => None,
 			};
+			let put = uuid::Uuid::now_v7().into_bytes();
 			put_args.push(crate::store::object::put::Arg {
 				bytes: Some(object.bytes.clone()),
 				checkout_pointer: None,
 				id: object.id.clone(),
 				length,
-				stored_at: now,
+				put,
 			});
 
 			// Get the children.
@@ -111,6 +113,7 @@ impl Session {
 				children,
 				id: object.id.clone(),
 				metadata,
+				put,
 				storage: tangram_index::object::Storage::default(),
 				time_to_touch: self.server.config.object.time_to_touch,
 				touched_at: now,
@@ -118,12 +121,6 @@ impl Session {
 
 			put_object_args.push(arg);
 		}
-
-		// Store the objects.
-		self.server
-			.put_object_batch(put_args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
 		// Determine which objects can receive subtree grants.
 		let mut subtree_objects = BTreeSet::new();
@@ -203,10 +200,22 @@ impl Session {
 				}))
 				.collect(),
 		};
-		self.server
-			.index_batch(index_arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+		if self.server.config.advanced.single_process {
+			self.server
+				.put_object_batch(put_args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			self.server
+				.index_batch(index_arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+		} else {
+			let object_put = self.server.put_object_batch(put_args);
+			let index_put = self.server.index_batch(index_arg);
+			let (object_result, index_result) = future::join(object_put, index_put).await;
+			object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			index_result.map_err(|error| tg::error!(!error, "failed to index the object batch"))?;
+		}
 
 		let objects = arg
 			.objects

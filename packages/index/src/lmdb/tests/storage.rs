@@ -25,6 +25,7 @@ fn object_arg(
 			},
 			..Default::default()
 		},
+		put: [1; 16],
 		storage: crate::object::Storage::default(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,

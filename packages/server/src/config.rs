@@ -658,6 +658,8 @@ pub struct ObjectArchiveOutbox {
 
 	pub partition_total: u64,
 
+	pub retry: Retry,
+
 	pub wakeup_interval: Duration,
 }
 
@@ -668,6 +670,8 @@ pub struct ObjectIndexOutbox {
 	pub fragment_size: usize,
 
 	pub partition_total: u64,
+
+	pub retry: Retry,
 
 	pub wakeup_interval: Duration,
 }
@@ -1667,6 +1671,7 @@ impl Default for ObjectArchiveOutbox {
 		Self {
 			batch_size: 1024,
 			partition_total: 1,
+			retry: object_outbox_retry_default(),
 			wakeup_interval: Duration::from_mins(1),
 		}
 	}
@@ -1678,6 +1683,7 @@ impl Default for ObjectIndexOutbox {
 			batch_size: 1024,
 			fragment_size: 1024,
 			partition_total: 1,
+			retry: object_outbox_retry_default(),
 			wakeup_interval: Duration::from_mins(1),
 		}
 	}
@@ -2186,6 +2192,15 @@ fn message_retry_default() -> Retry {
 		jitter: options.jitter,
 		max_delay: options.max_delay,
 		max_retries: options.max_retries,
+	}
+}
+
+fn object_outbox_retry_default() -> Retry {
+	Retry {
+		backoff: Duration::from_millis(25),
+		jitter: Duration::from_millis(25),
+		max_delay: Duration::from_secs(1),
+		max_retries: 6,
 	}
 }
 

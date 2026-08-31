@@ -7,14 +7,14 @@ impl Store {
 	) -> tg::Result<()> {
 		let entry = arg.entry;
 		let id = entry.id.to_bytes();
-		let params = (entry.cached_at, id.as_ref());
+		let params = (id.as_ref(), entry.put.as_slice());
 		self.session
 			.execute_unpaged(&self.statements.delete_object, params)
 			.await
 			.map_err(|error| tg::error!(!error, id = %entry.id, "failed to delete the object"))?;
 
 		let partition = super::physical_partition(entry.partition, self.partition_offset)?;
-		let params = (entry.cached_at, partition, entry.cached_at, id.as_ref());
+		let params = (partition, entry.cache.as_slice());
 		self.session
 			.execute_unpaged(&self.statements.delete_object_cache_entry, params)
 			.await
@@ -46,9 +46,10 @@ impl Store {
 
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
-			cached_at: i64,
+			cache: &'a [u8],
 			id: &'a [u8],
 			partition: i64,
+			put: &'a [u8],
 		}
 
 		result
@@ -57,12 +58,21 @@ impl Store {
 			.map(|result| {
 				let row = result
 					.map_err(|error| tg::error!(!error, "failed to get an object cache row"))?;
+				let cache = row
+					.cache
+					.try_into()
+					.map_err(|_| tg::error!("invalid object cache id"))?;
 				let id = tg::object::Id::from_slice(row.id)?;
 				let partition = super::logical_partition(row.partition, self.partition_offset)?;
+				let put = row
+					.put
+					.try_into()
+					.map_err(|_| tg::error!("invalid object cache put"))?;
 				let entry = object::cache::Entry {
-					cached_at: row.cached_at,
+					cache,
 					id,
 					partition,
+					put,
 				};
 
 				Ok(entry)
@@ -71,8 +81,7 @@ impl Store {
 	}
 
 	pub async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
-		let cached_at = object::cache::stored_at_timestamp(arg.stored_at)?;
-		self.put_object_cache_entry_inner(arg.id, arg.partition, cached_at)
+		self.put_object_cache_entry_inner(arg.cache, arg.id, arg.partition, arg.put)
 			.await
 	}
 
@@ -80,48 +89,43 @@ impl Store {
 		&self,
 		arg: object::cache::put::object::Arg,
 	) -> tg::Result<()> {
-		let cached_at = object::cache::cached_at_timestamp(arg.cached_at)?;
-		self.put_object_cache_entry_inner(arg.object.id.clone(), arg.partition, cached_at)
-			.await?;
-		self.put_object_with_timestamp(arg.object, cached_at)
-			.await?;
+		let object = arg.object;
+		let id = object.id.clone();
+		let put = object.put;
+		self.put_object(object).await?;
+		let result = self
+			.put_object_cache_entry_inner(arg.cache, id.clone(), arg.partition, put)
+			.await;
+		if let Err(error) = result {
+			let arg = object::delete::Arg {
+				id: id.clone(),
+				put,
+			};
+			if let Err(cleanup_error) = self.delete_object(arg).await {
+				return Err(tg::error!(
+					!error,
+					cleanup_error = %cleanup_error.trace(),
+					%id,
+					"failed to put an object cache entry and delete the untracked object"
+				));
+			}
 
-		Ok(())
-	}
-
-	async fn put_object_with_timestamp(
-		&self,
-		arg: object::put::Arg,
-		timestamp: i64,
-	) -> tg::Result<()> {
-		let id = &arg.id;
-		if arg.checkout_pointer.is_some() {
-			return Err(tg::error!(
-				%id,
-				"checkout pointers are not supported by the scylla store"
-			));
+			return Err(error);
 		}
-		let bytes = arg.bytes;
-		let id_bytes = id.to_bytes().to_vec();
-		let stored_at = arg.stored_at;
-		let params = (bytes, id_bytes, stored_at, timestamp);
-		self.session
-			.execute_unpaged(&self.statements.put_object, params)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?;
 
 		Ok(())
 	}
 
 	async fn put_object_cache_entry_inner(
 		&self,
+		cache: [u8; 16],
 		id: tg::object::Id,
 		partition: u64,
-		cached_at: i64,
+		put: [u8; 16],
 	) -> tg::Result<()> {
 		let partition = super::physical_partition(partition, self.partition_offset)?;
 		let id = id.to_bytes();
-		let params = (cached_at, id.as_ref(), partition, cached_at);
+		let params = (cache.as_slice(), id.as_ref(), partition, put.as_slice());
 		self.session
 			.execute_unpaged(&self.statements.put_object_cache_entry, params)
 			.await

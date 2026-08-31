@@ -4,7 +4,7 @@ impl Store {
 	pub fn delete_object_archive_outbox_entries(&self, arg: outbox::delete::Arg) {
 		let mut state = self.state();
 		for entry in arg.entries {
-			let key = (entry.partition, entry.stored_at, entry.id);
+			let key = (entry.partition, entry.put);
 			state.object_archive_outbox.remove(&key);
 		}
 	}
@@ -17,14 +17,14 @@ impl Store {
 		let entries = state
 			.object_archive_outbox
 			.iter()
-			.filter(|(partition, _, _)| {
+			.filter(|((partition, _), _)| {
 				(arg.partition_start..arg.partition_end).contains(partition)
 			})
 			.take(arg.batch_size)
-			.map(|(partition, stored_at, id)| outbox::Entry {
+			.map(|((partition, put), id)| outbox::Entry {
 				id: id.clone(),
 				partition: *partition,
-				stored_at: *stored_at,
+				put: *put,
 			})
 			.collect();
 
@@ -34,8 +34,8 @@ impl Store {
 	pub fn put_object_archive_outbox_entries(&self, arg: outbox::put::Arg) {
 		let mut state = self.state();
 		for entry in arg.entries {
-			let key = (entry.partition, entry.stored_at, entry.id);
-			state.object_archive_outbox.insert(key);
+			let key = (entry.partition, entry.put);
+			state.object_archive_outbox.insert(key, entry.id);
 		}
 	}
 }
@@ -52,15 +52,15 @@ mod tests {
 		let first = outbox::Entry {
 			id: first,
 			partition: 0,
-			stored_at: 1,
+			put: [1; 16],
 		};
 		let second = outbox::Entry {
 			id: second,
 			partition: 1,
-			stored_at: 2,
+			put: [2; 16],
 		};
 		let first_newer = outbox::Entry {
-			stored_at: 3,
+			put: [3; 16],
 			..first.clone()
 		};
 		store.put_object_archive_outbox_entries(outbox::put::Arg {

@@ -2,12 +2,12 @@ use {bytes::Bytes, futures::TryStreamExt as _, tangram_client::prelude::*};
 
 impl super::super::Archive {
 	pub async fn delete_object(&self, arg: crate::object::delete::Arg) -> tg::Result<()> {
-		// Get the archived object timestamp and ETag.
+		// Get the archived object put and ETag.
 		let path = format!("/{}", arg.id);
 		let mut headers = http::HeaderMap::new();
 		headers.insert(
 			http::header::RANGE,
-			http::HeaderValue::from_static("bytes=0-8"),
+			http::HeaderValue::from_static("bytes=0-16"),
 		);
 		let response = self
 			.client
@@ -27,10 +27,10 @@ impl super::super::Archive {
 				"failed to get an S3 object header"
 			));
 		}
-		let stored_at = super::deserialize_stored_at(&response.bytes).map_err(
+		let put = super::deserialize_put(&response.bytes).map_err(
 			|error| tg::error!(!error, id = %arg.id, "failed to deserialize an S3 object header"),
 		)?;
-		if stored_at > arg.touched_at {
+		if put != arg.put {
 			return Ok(());
 		}
 		let etag = response

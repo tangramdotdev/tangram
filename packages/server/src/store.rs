@@ -133,6 +133,16 @@ impl Store {
 }
 
 impl store::Store for Store {
+	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store::Store::contains_object(store, arg).await,
+			Self::Memory(store) => store::Store::contains_object(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store::Store::contains_object(store, arg).await,
+		}
+	}
+
 	async fn delete_object_cache_entry(&self, arg: object::cache::delete::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -185,6 +195,19 @@ impl store::Store for Store {
 			Self::Memory(store) => store::Store::delete_object_batch(store, args).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.delete_object_batch(args).await,
+		}
+	}
+
+	async fn delete_object_index_outbox_batch(
+		&self,
+		arg: object::index::outbox::batch::delete::Arg,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.delete_object_index_outbox_batch(arg).await,
+			Self::Memory(store) => store::Store::delete_object_index_outbox_batch(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.delete_object_index_outbox_batch(arg).await,
 		}
 	}
 

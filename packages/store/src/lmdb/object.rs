@@ -7,9 +7,6 @@ use {std::borrow::Cow, tangram_client::prelude::*};
 pub(super) struct Value<'a> {
 	#[tangram_serialize(id = 0)]
 	pub object: crate::object::Object<'a>,
-
-	#[tangram_serialize(id = 1)]
-	pub timestamp: i64,
 }
 
 impl Value<'_> {
@@ -33,21 +30,20 @@ impl Value<'static> {
 		let value: Value<'_> = tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object value"))?;
 		let object = value.object.into_static();
-		let timestamp = value.timestamp;
 
-		Ok(Self { object, timestamp })
+		Ok(Self { object })
 	}
 }
 
 impl Value<'_> {
-	pub fn new(object: crate::object::Object<'_>, timestamp: i64) -> Value<'static> {
+	pub fn new(object: crate::object::Object<'_>) -> Value<'static> {
 		let object = crate::object::Object {
 			bytes: object.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			checkout_pointer: object.checkout_pointer,
 			length: object.length,
-			stored_at: object.stored_at,
+			put: object.put,
 		};
 
-		Value { object, timestamp }
+		Value { object }
 	}
 }

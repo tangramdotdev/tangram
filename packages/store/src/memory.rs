@@ -1,7 +1,7 @@
 use {
 	crate::object,
 	std::{
-		collections::{BTreeMap, BTreeSet, HashMap},
+		collections::{BTreeMap, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
 	},
 	tangram_client::prelude::*,
@@ -32,8 +32,8 @@ struct Log {
 #[derive(Default)]
 struct State {
 	logs: Logs,
-	object_archive_outbox: BTreeSet<(u64, i64, tg::object::Id)>,
-	object_cache: BTreeSet<(u64, i64, tg::object::Id)>,
+	object_archive_outbox: BTreeMap<(u64, [u8; 16]), tg::object::Id>,
+	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,
 	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 	objects: Objects,
 }
@@ -41,7 +41,6 @@ struct State {
 #[derive(Clone)]
 struct Object {
 	object: object::Object<'static>,
-	timestamp: i64,
 }
 
 type Logs = HashMap<tg::process::Id, Log, tg::id::BuildHasher>;
@@ -68,6 +67,16 @@ impl Default for Store {
 }
 
 impl crate::Store for Store {
+	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
+		let arg = object::get::Arg {
+			id: arg.id,
+			put: Some(arg.put),
+		};
+		let output = self.try_get_object_sync(&arg);
+
+		Ok(output.object.is_some())
+	}
+
 	async fn delete_object_cache_entry(&self, arg: object::cache::delete::Arg) -> tg::Result<()> {
 		self.delete_object_cache_entry(arg);
 		Ok(())
@@ -92,6 +101,14 @@ impl crate::Store for Store {
 
 	async fn delete_object_batch(&self, args: Vec<object::delete::Arg>) -> tg::Result<()> {
 		self.delete_object_batch(args)
+	}
+
+	async fn delete_object_index_outbox_batch(
+		&self,
+		arg: crate::object::index::outbox::batch::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_index_outbox_batch(arg);
+		Ok(())
 	}
 
 	async fn delete_object_index_outbox_fragments(
@@ -235,7 +252,7 @@ mod tests {
 				checkout_pointer: Some(checkout_pointer),
 				id: id.clone(),
 				length: Some(5),
-				stored_at: 1,
+				put: [1; 16],
 			})
 			.unwrap();
 
@@ -246,18 +263,61 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
-				stored_at: 2,
+				put: [2; 16],
 			}])
 			.unwrap();
 
 		let object = store
-			.try_get_object_sync(&object::get::Arg { id })
+			.try_get_object_sync(&object::get::Arg { id, put: None })
 			.object
 			.unwrap();
 		assert_eq!(object.bytes, Some(Cow::Owned(second_bytes.to_vec())));
 		assert!(object.checkout_pointer.is_none());
 		assert!(object.length.is_none());
-		assert_eq!(object.stored_at, 2);
+		assert_eq!(object.put, [2; 16]);
+	}
+
+	// An exact get returns only the requested put.
+	#[tokio::test]
+	async fn get_exact_put() {
+		let store = Store::default();
+		let bytes = Bytes::from_static(b"bytes");
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		store
+			.put_object(object::put::Arg {
+				bytes: Some(bytes),
+				checkout_pointer: None,
+				id: id.clone(),
+				length: None,
+				put: [2; 16],
+			})
+			.unwrap();
+
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: Some([1; 16]),
+		});
+		assert!(output.object.is_none());
+		let contains = crate::Store::contains_object(
+			&store,
+			object::contains::Arg {
+				id: id.clone(),
+				put: [1; 16],
+			},
+		)
+		.await
+		.unwrap();
+		assert!(!contains);
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: Some([2; 16]),
+		});
+		assert_eq!(output.object.unwrap().put, [2; 16]);
+		let contains =
+			crate::Store::contains_object(&store, object::contains::Arg { id, put: [2; 16] })
+				.await
+				.unwrap();
+		assert!(contains);
 	}
 
 	// Deleting an object removes the object.
@@ -277,7 +337,7 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: Some(content.len().to_u64().unwrap()),
-				stored_at: 10,
+				put: [10; 16],
 			})
 			.unwrap();
 		store
@@ -286,32 +346,38 @@ mod tests {
 				checkout_pointer: None,
 				id: id.clone(),
 				length: None,
-				stored_at: 9,
+				put: [9; 16],
 			})
 			.unwrap();
 
-		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: None,
+		});
 		let object = output.object.unwrap();
 		assert_eq!(object.bytes, Some(Cow::Owned(bytes.to_vec())));
-		assert_eq!(object.stored_at, 10);
+		assert_eq!(object.put, [10; 16]);
 
 		store
 			.delete_object(object::delete::Arg {
 				id: id.clone(),
-				touched_at: 9,
+				put: [9; 16],
 			})
 			.unwrap();
-		let output = store.try_get_object_sync(&object::get::Arg { id: id.clone() });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			id: id.clone(),
+			put: None,
+		});
 		assert!(output.object.is_some());
 
 		store
 			.delete_object(object::delete::Arg {
 				id: id.clone(),
-				touched_at: 11,
+				put: [10; 16],
 			})
 			.unwrap();
 
-		let output = store.try_get_object_sync(&object::get::Arg { id });
+		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
 		assert!(output.object.is_none());
 	}
 }

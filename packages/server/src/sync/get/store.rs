@@ -20,6 +20,7 @@ pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub length: Option<u64>,
 	pub metadata: Option<tg::object::Metadata>,
+	pub put: [u8; 16],
 	pub storage: Option<tangram_index::object::Storage>,
 	pub transferred_bytes: u64,
 }
@@ -116,8 +117,6 @@ impl Session {
 		state: &State,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
-		let touched_at = self.server.clock.unix_timestamp()?;
-
 		// Deserialize the objects and create the store args.
 		let mut datas = Vec::with_capacity(nodes.len());
 		let mut args = Vec::with_capacity(nodes.len());
@@ -137,7 +136,7 @@ impl Session {
 				checkout_pointer: node.checkout_pointer.clone(),
 				id: node.id.clone(),
 				length,
-				stored_at: touched_at,
+				put: node.put,
 			});
 			datas.push(data);
 		}
@@ -190,6 +189,7 @@ impl Session {
 				marked: Some(true),
 				metadata: Some(metadata),
 				permissions: None,
+				put: Some(node.put),
 				requested: None,
 				storage: node.storage.clone(),
 			};

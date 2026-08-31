@@ -72,7 +72,16 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		arg: &object::get::Arg,
 	) -> tg::Result<object::get::Output> {
-		let object = Self::try_get_object_inner_with_transaction(&self.db, transaction, &arg.id)?;
+		Self::try_get_object_with_arg_with_transaction(&self.db, transaction, arg)
+	}
+
+	pub(super) fn try_get_object_with_arg_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		arg: &object::get::Arg,
+	) -> tg::Result<object::get::Output> {
+		let object = Self::try_get_object_inner_with_transaction(db, transaction, &arg.id)?;
+		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
 		Ok(object::get::Output { object })
 	}
 

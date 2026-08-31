@@ -7,7 +7,6 @@ use {
 
 impl Store {
 	pub(super) async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
-		let timestamp = object::cache::stored_at_timestamp(arg.stored_at)?;
 		let id = &arg.id;
 		if arg.checkout_pointer.is_some() {
 			return Err(tg::error!(
@@ -17,8 +16,7 @@ impl Store {
 		}
 		let bytes = arg.bytes;
 		let id_bytes = id.to_bytes().to_vec();
-		let stored_at = arg.stored_at;
-		let params = (bytes, id_bytes, stored_at, timestamp);
+		let params = (bytes, id_bytes, arg.put.as_slice());
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await

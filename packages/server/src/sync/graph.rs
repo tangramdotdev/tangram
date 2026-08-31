@@ -93,6 +93,7 @@ pub struct ObjectNode {
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	pub put: Option<[u8; 16]>,
 	pub remote_availability: Option<tg::object::Availability>,
 	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
@@ -171,6 +172,7 @@ pub struct UpdateObjectLocalArg<'a> {
 	pub marked: Option<bool>,
 	pub metadata: Option<tg::object::Metadata>,
 	pub permissions: Option<tg::authorization::permission::Set>,
+	pub put: Option<[u8; 16]>,
 	pub requested: Option<Requested>,
 	pub storage: Option<tangram_index::object::Storage>,
 }
@@ -608,6 +610,7 @@ impl Graph {
 			marked,
 			metadata,
 			permissions,
+			put,
 			requested,
 			storage,
 		} = update;
@@ -687,6 +690,10 @@ impl Graph {
 
 		if let Some(permissions) = permissions {
 			Self::merge_local_permissions(&mut node.local_permissions, permissions);
+		}
+
+		if let Some(put) = put {
+			node.put = Some(node.put.map_or(put, |existing| existing.max(put)));
 		}
 
 		if let Some(mut metadata) = metadata {
@@ -1552,6 +1559,7 @@ impl Graph {
 			marked: None,
 			metadata: None,
 			permissions: Some(permissions),
+			put: None,
 			requested: None,
 			storage: None,
 		};

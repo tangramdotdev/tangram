@@ -5,6 +5,15 @@ use {
 };
 
 impl Store {
+	pub fn delete_object_index_outbox_batch(&self, arg: batch::delete::Arg) {
+		let mut state = self.state();
+		state
+			.object_index_outbox
+			.retain(|(partition, batch, _), _| {
+				*partition != arg.partition || *batch != arg.id.value()
+			});
+	}
+
 	pub fn delete_object_index_outbox_fragments(&self, arg: fragment::delete::Arg) {
 		let mut state = self.state();
 		for fragment in arg.fragments {
@@ -152,6 +161,20 @@ mod tests {
 				})
 				.unwrap(),
 			Some(second)
+		);
+		store.delete_object_index_outbox_batch(batch::delete::Arg {
+			id: second,
+			partition: 1,
+		});
+		assert!(
+			store
+				.try_get_object_index_outbox_batch_at_or_before(batch::get::Arg {
+					batch: None,
+					partition_end: 2,
+					partition_start: 0,
+				})
+				.unwrap()
+				.is_none()
 		);
 	}
 }

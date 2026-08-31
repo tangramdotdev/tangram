@@ -61,7 +61,7 @@ impl Store {
 			.map_err(
 				|error| tg::error!(!error, id = %entry.id, "failed to deserialize the object"),
 			)?;
-		if value.is_some_and(|value| value.timestamp <= entry.cached_at) {
+		if value.is_some_and(|value| value.object.put == entry.put) {
 			db.delete(transaction, &object_key).map_err(
 				|error| tg::error!(!error, id = %entry.id, "failed to delete the object"),
 			)?;
@@ -85,15 +85,25 @@ impl Store {
 		entries
 			.take(arg.batch_size)
 			.map(|entry| {
-				let (key, _) = entry
+				let (key, value) = entry
 					.map_err(|error| tg::error!(!error, "failed to get an object cache entry"))?;
-				let (_, partition, cached_at, id): (i32, u64, i64, Vec<u8>) = fdbt::unpack(key)
+				let (_, partition, cache): (i32, u64, Vec<u8>) = fdbt::unpack(key)
 					.map_err(|error| tg::error!(!error, "failed to unpack an object cache key"))?;
+				let (id, put): (Vec<u8>, Vec<u8>) = fdbt::unpack(value).map_err(|error| {
+					tg::error!(!error, "failed to unpack an object cache value")
+				})?;
+				let cache = cache
+					.try_into()
+					.map_err(|_| tg::error!("invalid object cache id"))?;
 				let id = tg::object::Id::from_slice(&id)?;
+				let put = put
+					.try_into()
+					.map_err(|_| tg::error!("invalid object cache put"))?;
 				let entry = object::cache::Entry {
-					cached_at,
+					cache,
 					id,
 					partition,
+					put,
 				};
 
 				Ok(entry)
@@ -106,14 +116,16 @@ impl Store {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: object::cache::put::Arg,
 	) -> tg::Result<()> {
-		let cached_at = object::cache::stored_at_timestamp(arg.stored_at)?;
 		let entry = object::cache::Entry {
-			cached_at,
+			cache: arg.cache,
 			id: arg.id,
 			partition: arg.partition,
+			put: arg.put,
 		};
+		let id = entry.id.to_bytes();
+		let value = fdbt::pack(&(id.as_ref(), entry.put.as_slice()));
 		let key = Key::ObjectCache(entry).pack_to_vec();
-		db.put(transaction, &key, &[])
+		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, "failed to put an object cache entry"))?;
 
 		Ok(())
@@ -124,15 +136,17 @@ impl Store {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: object::cache::put::object::Arg,
 	) -> tg::Result<()> {
-		let cached_at = object::cache::cached_at_timestamp(arg.cached_at)?;
 		let object = arg.object;
 		let entry = object::cache::Entry {
-			cached_at,
+			cache: arg.cache,
 			id: object.id.clone(),
 			partition: arg.partition,
+			put: object.put,
 		};
+		let id = entry.id.to_bytes();
+		let entry_value = fdbt::pack(&(id.as_ref(), entry.put.as_slice()));
 		let key = Key::ObjectCache(entry).pack_to_vec();
-		db.put(transaction, &key, &[])
+		db.put(transaction, &key, &entry_value)
 			.map_err(|error| tg::error!(!error, "failed to put an object cache entry"))?;
 
 		let key = Key::Object(lmdb_object::Key::Object(&object.id)).pack_to_vec();
@@ -146,20 +160,17 @@ impl Store {
 			)?;
 		if previous
 			.as_ref()
-			.is_some_and(|object| object.timestamp > cached_at)
+			.is_some_and(|previous| previous.object.put > object.put)
 		{
 			return Ok(());
 		}
-		let stored_at = previous.as_ref().map_or(object.stored_at, |previous| {
-			previous.object.stored_at.max(object.stored_at)
-		});
 		let value = object::Object {
 			bytes: object.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 			checkout_pointer: object.checkout_pointer,
 			length: object.length,
-			stored_at,
+			put: object.put,
 		};
-		let value = lmdb_object::Value::new(value, cached_at).serialize()?;
+		let value = lmdb_object::Value::new(value).serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, id = %object.id, "failed to put the object"))?;
 
@@ -171,13 +182,13 @@ impl Store {
 mod tests {
 	use {super::*, bytes::Bytes, std::path::Path};
 
-	fn object(id: tg::object::Id, stored_at: i64) -> object::put::Arg {
+	fn object(id: tg::object::Id, put: u8) -> object::put::Arg {
 		object::put::Arg {
 			bytes: Some(Bytes::from_static(b"object")),
 			checkout_pointer: None,
 			id,
 			length: None,
-			stored_at,
+			put: [put; 16],
 		}
 	}
 
@@ -203,17 +214,19 @@ mod tests {
 			let store = store(temp.path());
 			store
 				.put_object_cache_entry(object::cache::put::Arg {
+					cache: [20; 16],
 					id: second.clone(),
 					partition: 2,
-					stored_at: 20,
+					put: [2; 16],
 				})
 				.await
 				.unwrap();
 			store
 				.put_object_cache_entry(object::cache::put::Arg {
+					cache: [10; 16],
 					id: first.clone(),
 					partition: 2,
-					stored_at: 10,
+					put: [1; 16],
 				})
 				.await
 				.unwrap();
@@ -229,10 +242,7 @@ mod tests {
 			.unwrap();
 		assert_eq!(entries.len(), 1);
 		assert_eq!(entries[0].id, first);
-		assert_eq!(
-			entries[0].cached_at,
-			object::cache::stored_at_timestamp(10).unwrap()
-		);
+		assert_eq!(entries[0].cache, [10; 16]);
 	}
 
 	#[tokio::test]
@@ -244,7 +254,7 @@ mod tests {
 		store.put_object(object(id.clone(), 10)).await.unwrap();
 		store
 			.put_object_cache_entry_with_object(object::cache::put::object::Arg {
-				cached_at: 10,
+				cache: [10; 16],
 				object: object(id.clone(), 1),
 				partition: 2,
 			})
@@ -263,21 +273,27 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		let arg = object::get::Arg { id: id.clone() };
+		let arg = object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = store.try_get_object(arg).await.unwrap();
-		assert_eq!(output.object.unwrap().stored_at, 10);
+		assert_eq!(output.object.unwrap().put, [10; 16]);
 
 		store
 			.put_object_cache_entry_with_object(object::cache::put::object::Arg {
-				cached_at: 11,
-				object: object(id.clone(), 1),
+				cache: [11; 16],
+				object: object(id.clone(), 11),
 				partition: 3,
 			})
 			.await
 			.unwrap();
-		let arg = object::get::Arg { id: id.clone() };
+		let arg = object::get::Arg {
+			id: id.clone(),
+			put: None,
+		};
 		let output = store.try_get_object(arg).await.unwrap();
-		assert_eq!(output.object.unwrap().stored_at, 10);
+		assert_eq!(output.object.unwrap().put, [11; 16]);
 		let entries = store
 			.get_object_cache_entries(object::cache::get::Arg {
 				batch_size: usize::MAX,
@@ -291,7 +307,10 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		let output = store.try_get_object(object::get::Arg { id }).await.unwrap();
+		let output = store
+			.try_get_object(object::get::Arg { id, put: None })
+			.await
+			.unwrap();
 		assert!(output.object.is_none());
 	}
 }

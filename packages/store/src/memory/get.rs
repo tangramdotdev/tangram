@@ -5,6 +5,7 @@ impl Store {
 	pub fn try_get_object_sync(&self, arg: &object::get::Arg) -> object::get::Output {
 		let state = self.state();
 		let object = Self::try_get_object_inner(&state, &arg.id);
+		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
 		object::get::Output { object }
 	}
 

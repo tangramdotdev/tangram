@@ -280,17 +280,26 @@ impl Index {
 				},
 			};
 
-			let item = if reference_count > 0 {
+			let (item, put) = if reference_count > 0 {
 				crate::fdb::propagate!(
 					Self::set_reference_count(txn, subspace, &candidate.item, reference_count)
 						.await
 				);
-				None
+				(None, None)
 			} else {
+				let put = if let Item::Object(id) = &candidate.item {
+					let object = crate::fdb::propagate!(
+						Self::try_get_object_with_transaction(txn, subspace, id).await
+					)
+					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
+					Some(object.put)
+				} else {
+					None
+				};
 				crate::fdb::propagate!(
 					Self::delete_item(txn, subspace, &candidate.item, partition_total).await
 				);
-				Some(candidate.item.clone())
+				(Some(candidate.item.clone()), put)
 			};
 
 			Self::delete_clean_key(txn, subspace, candidate);
@@ -301,6 +310,7 @@ impl Index {
 					Item::Checkout(id) => output.checkouts.push(id),
 					Item::Object(id) => output.objects.push(crate::clean::Object {
 						id,
+						put: put.unwrap(),
 						touched_at: candidate.touched_at,
 					}),
 					Item::Process(id) => output.processes.push(id),

@@ -164,7 +164,7 @@ impl Server {
 			.cloned()
 			.map(|object| tangram_archive::object::delete::Arg {
 				id: object.id,
-				touched_at: object.touched_at,
+				put: object.put,
 			})
 			.collect();
 		let store_args = output
@@ -173,7 +173,7 @@ impl Server {
 			.cloned()
 			.map(|object| crate::store::object::delete::Arg {
 				id: object.id,
-				touched_at: object.touched_at,
+				put: object.put,
 			})
 			.collect();
 

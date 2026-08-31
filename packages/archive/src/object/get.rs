@@ -13,5 +13,5 @@ pub struct Output {
 #[derive(Clone, Debug)]
 pub struct Object {
 	pub bytes: Bytes,
-	pub stored_at: i64,
+	pub put: [u8; 16],
 }
