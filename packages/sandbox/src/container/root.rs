@@ -12,10 +12,6 @@ pub struct Arg {
 }
 
 pub fn create(arg: &Arg) -> tg::Result<()> {
-	if arg.path.exists() {
-		return Ok(());
-	}
-
 	std::fs::remove_dir_all(&arg.path).ok();
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
