@@ -90,19 +90,79 @@ impl Index {
 
 				Output::Id(id)
 			},
-			Request::MemberGroups { member } => {
-				let groups = crate::fdb::propagate!(
-					Self::get_member_groups_with_transaction(txn, subspace, member).await
+			Request::MemberGroups {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
 				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let groups = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Group(crate::fdb::group::Key::MemberGroup { group, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::MemberGroups(groups)
+						Ok(group)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberGroups { after, groups }
 			},
-			Request::MemberOrganizations { member } => {
-				let organizations = crate::fdb::propagate!(
-					Self::get_member_organizations_with_transaction(txn, subspace, member).await
+			Request::MemberOrganizations {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::MemberOrganization.to_i32().unwrap(), member.as_ref()),
 				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let organizations = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Organization(crate::fdb::organization::Key::MemberOrganization {
+							organization,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::MemberOrganizations(organizations)
+						Ok(organization)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberOrganizations {
+					after,
+					organizations,
+				}
 			},
 			Request::ObjectChildren {
 				after,
@@ -172,12 +232,43 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ObjectProcesses { object } => {
-				let processes = crate::fdb::propagate!(
-					Self::get_object_processes_with_transaction(txn, subspace, object).await
+			Request::ObjectProcesses {
+				after,
+				limit,
+				object,
+			} => {
+				let object = object.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ObjectProcess.to_i32().unwrap(), object.as_ref()),
 				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let processes = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Object(crate::fdb::object::Key::ObjectProcess {
+							kind,
+							process,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::ObjectProcesses(processes)
+						Ok((process, kind))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ObjectProcesses { after, processes }
 			},
 			Request::OwnerSandboxes {
 				after,
@@ -275,12 +366,43 @@ impl Index {
 
 				Output::Grants { after, grants }
 			},
-			Request::ProcessObjects { process } => {
-				let objects = crate::fdb::propagate!(
-					Self::get_process_objects_with_transaction(txn, subspace, process).await
+			Request::ProcessObjects {
+				after,
+				limit,
+				process,
+			} => {
+				let process = process.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ProcessObject.to_i32().unwrap(), process.as_ref()),
 				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let objects = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::fdb::process::Key::ProcessObject {
+							kind,
+							object,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::ProcessObjects(objects)
+						Ok((object, kind))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ProcessObjects { after, objects }
 			},
 			Request::ProcessParents {
 				after,
@@ -317,15 +439,55 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ResourceGrants { resource } => {
-				let grants = crate::fdb::propagate!(
-					Self::get_resource_grants_with_transaction(txn, subspace, resource).await
+			Request::ResourceGrants {
+				after,
+				limit,
+				resource,
+			} => {
+				let resource_bytes = resource.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						Kind::ResourceGrant.to_i32().unwrap(),
+						resource_bytes.as_ref(),
+					),
 				);
+				let (entries, after) = crate::fdb::propagate!(
+					Self::get_authorization_entry_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let grants = entries
+					.into_iter()
+					.map(|(key, value)| {
+						let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+							creator,
+							permission,
+							subject,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
+						let grant = crate::grant::Fact {
+							creator,
+							implicit: value.implicit.is_some(),
+							permission,
+							resource: resource.clone(),
+							subject,
+						};
 
-				Output::Grants {
-					after: None,
-					grants,
-				}
+						Ok(grant)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Grants { after, grants }
 			},
 			Request::SandboxOwner { sandbox } => {
 				let owner = crate::fdb::propagate!(
@@ -404,13 +566,38 @@ impl Index {
 
 				Output::Tag(tag)
 			},
-			Request::TargetTags { target } => {
+			Request::TargetTags {
+				after,
+				limit,
+				target,
+			} => {
 				let target = target.to_bytes();
-				let tags = crate::fdb::propagate!(
-					Self::get_target_tags_with_transaction(txn, subspace, target.as_ref()).await
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
 				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let tags = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Tag(crate::fdb::tag::Key::TargetTag { tag, .. }) = key else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::Tags(tags)
+						Ok(tag)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Tags { after, tags }
 			},
 		};
 

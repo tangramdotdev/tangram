@@ -1,5 +1,5 @@
 use {
-	super::{AncestorNodeFacts, Budget, Key, Outcome, Read, ReadOutput, State},
+	super::{AncestorNodeFacts, AncestorNodeRead, Budget, Key, Outcome, Read, ReadOutput, State},
 	std::collections::{BTreeMap, HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
@@ -8,6 +8,11 @@ enum AncestorTask {
 	Node {
 		depth: usize,
 		key: Key,
+	},
+	NodeRead {
+		depth: usize,
+		key: Key,
+		read: AncestorNodeRead,
 	},
 	ObjectParents {
 		after: Option<Vec<u8>>,
@@ -24,6 +29,11 @@ enum AncestorTask {
 	},
 }
 
+struct PendingAncestorNode {
+	facts: AncestorNodeFacts,
+	remaining: usize,
+}
+
 pub(super) struct Search {
 	authorization_revision: usize,
 	budget: Budget,
@@ -31,6 +41,7 @@ pub(super) struct Search {
 	pub(super) incomplete: HashSet<Key>,
 	// Reference counting prunes acyclic stale branches; cycles remain live conservatively.
 	live_references: HashMap<Key, usize>,
+	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
 	subjects: HashSet<tg::authorization::Subject>,
@@ -44,6 +55,7 @@ impl AncestorTask {
 	fn dependent(&self) -> &Key {
 		match self {
 			Self::Node { key, .. }
+			| Self::NodeRead { key, .. }
 			| Self::ObjectParents { dependent: key, .. }
 			| Self::ProcessParents { dependent: key, .. } => key,
 		}
@@ -53,6 +65,7 @@ impl AncestorTask {
 	fn depth(&self) -> usize {
 		match self {
 			Self::Node { depth, .. }
+			| Self::NodeRead { depth, .. }
 			| Self::ObjectParents { depth, .. }
 			| Self::ProcessParents { depth, .. } => *depth,
 		}
@@ -93,6 +106,7 @@ impl Search {
 			dormant: HashMap::new(),
 			incomplete,
 			live_references: HashMap::new(),
+			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
 			subjects: subjects.iter().cloned().collect(),
@@ -113,7 +127,6 @@ impl Search {
 		self.remove_authorized(state, authorized);
 		let mut deferred = Vec::new();
 		let mut reads = Vec::new();
-		let mut resources = HashSet::new();
 		while reads.len() < limit && !self.unresolved.is_empty() {
 			let Some((depth, mut queue)) = self.queues.pop_first() else {
 				break;
@@ -122,7 +135,12 @@ impl Search {
 			if !queue.is_empty() {
 				self.queues.insert(depth, queue);
 			}
-			if !self.is_live(task.dependent()) {
+			let node_read_is_pending = matches!(
+				&task,
+				AncestorTask::NodeRead { key, .. }
+					if self.pending_nodes.contains_key(&key.0)
+			);
+			if !node_read_is_pending && !self.is_live(task.dependent()) {
 				self.suspend(task);
 				continue;
 			}
@@ -144,13 +162,15 @@ impl Search {
 							}
 						} else if let Some(facts) = state.ancestor_facts(&key.0) {
 							self.expand_node(state, depth, &key, &facts)?;
-						} else if resources.insert(key.0.clone()) {
-							// One node read discovers every direct grant on the resource.
-							reads.push(Read::AncestorNode { depth, key });
-						} else {
+						} else if self.pending_nodes.contains_key(&key.0) {
 							deferred.push(AncestorTask::Node { depth, key });
+						} else {
+							self.queue_node_reads(depth, &key);
 						}
 					},
+				},
+				AncestorTask::NodeRead { depth, key, read } => {
+					reads.push(Read::AncestorNode { depth, key, read });
 				},
 				AncestorTask::ObjectParents {
 					after,
@@ -207,10 +227,8 @@ impl Search {
 		output: ReadOutput,
 	) -> tg::Result<()> {
 		match read {
-			Read::AncestorNode { depth, key } => {
-				let facts = output.into_ancestor_node()?;
-				let facts = state.set_ancestor_facts(key.0.clone(), facts);
-				self.expand_node(state, depth, &key, &facts)?;
+			Read::AncestorNode { depth, key, read } => {
+				self.apply_node_read(state, depth, &key, read, output)?;
 			},
 			Read::ObjectParents {
 				dependent,
@@ -295,6 +313,7 @@ impl Search {
 			| Read::Process { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessGrants { .. }
+			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
 			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }
@@ -307,6 +326,160 @@ impl Search {
 		}
 
 		Ok(())
+	}
+
+	fn apply_node_read(
+		&mut self,
+		state: &mut State,
+		depth: usize,
+		key: &Key,
+		read: AncestorNodeRead,
+		output: ReadOutput,
+	) -> tg::Result<()> {
+		let resource = key.0.clone();
+		let pending = self
+			.pending_nodes
+			.get_mut(&resource)
+			.ok_or_else(|| tg::error!("received a fact for an inactive ancestor node"))?;
+		let mut next = Vec::new();
+		match read {
+			AncestorNodeRead::Group { .. } => {
+				pending.facts.parent = output.into_group()?.and_then(|group| group.parent);
+			},
+			AncestorNodeRead::ObjectProcesses { object, .. } => {
+				let (after, processes) = output.into_object_processes()?;
+				pending.facts.object_processes.extend(processes);
+				if let Some(after) = after {
+					let limit = self.budget.config.page_size;
+					next.push(AncestorNodeRead::ObjectProcesses {
+						after: Some(after),
+						limit,
+						object,
+					});
+				}
+			},
+			AncestorNodeRead::Process { .. } => {
+				pending.facts.process_sandbox =
+					output.into_process()?.and_then(|process| process.sandbox);
+			},
+			AncestorNodeRead::ResourceGrants { resource, .. } => {
+				let (after, grants) = output.into_grants()?;
+				for grant in &grants {
+					if self.subjects.contains(&grant.subject) {
+						let key = (grant.resource.clone(), grant.permission);
+						state.authorize_ancestor_or_descendant(key);
+					}
+				}
+				pending.facts.grants.extend(grants);
+				if let Some(after) = after {
+					let limit = self.budget.config.page_size;
+					next.push(AncestorNodeRead::ResourceGrants {
+						after: Some(after),
+						limit,
+						resource,
+					});
+				}
+			},
+			AncestorNodeRead::SandboxOwner { .. } => {
+				pending.facts.sandbox_owner = output.into_sandbox_owner()?;
+			},
+			AncestorNodeRead::Tag { .. } => {
+				pending.facts.parent = output.into_tag()?.and_then(|tag| tag.parent);
+			},
+			AncestorNodeRead::TargetTag { tag } => {
+				if let Some(value) = output.into_tag()? {
+					pending.facts.tags.push((tag, value.permissions));
+				}
+			},
+			AncestorNodeRead::TargetTags { target, .. } => {
+				let (after, tags) = output.into_tags()?;
+				next.extend(
+					tags.into_iter()
+						.map(|tag| AncestorNodeRead::TargetTag { tag }),
+				);
+				if let Some(after) = after {
+					let limit = self.budget.config.page_size;
+					next.push(AncestorNodeRead::TargetTags {
+						after: Some(after),
+						limit,
+						target,
+					});
+				}
+			},
+		}
+		pending.remaining = pending
+			.remaining
+			.checked_sub(1)
+			.ok_or_else(|| tg::error!("received an extra fact for an ancestor node"))?
+			.saturating_add(next.len());
+		let complete = pending.remaining == 0;
+		for read in next {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_back(AncestorTask::NodeRead {
+					depth,
+					key: key.clone(),
+					read,
+				});
+		}
+		if complete {
+			let pending = self.pending_nodes.remove(&resource).unwrap();
+			let facts = state.set_ancestor_facts(resource, pending.facts);
+			self.expand_node(state, depth, key, &facts)?;
+		}
+
+		Ok(())
+	}
+
+	fn queue_node_reads(&mut self, depth: usize, key: &Key) {
+		let limit = self.budget.config.page_size;
+		let resource = key.0.clone();
+		let mut reads = vec![AncestorNodeRead::ResourceGrants {
+			after: None,
+			limit,
+			resource: resource.clone(),
+		}];
+		if let Ok(group) = tg::group::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::Group { group });
+		} else if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::ObjectProcesses {
+				after: None,
+				limit,
+				object,
+			});
+			reads.push(AncestorNodeRead::TargetTags {
+				after: None,
+				limit,
+				target: resource.clone(),
+			});
+		} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::Process { process });
+			reads.push(AncestorNodeRead::TargetTags {
+				after: None,
+				limit,
+				target: resource.clone(),
+			});
+		} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::SandboxOwner { sandbox });
+		} else if let Ok(tag) = tg::tag::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::Tag { tag });
+		}
+		let pending = PendingAncestorNode {
+			facts: AncestorNodeFacts::default(),
+			remaining: reads.len(),
+		};
+		self.pending_nodes.insert(resource, pending);
+		for read in reads.into_iter().rev() {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_front(AncestorTask::NodeRead {
+					depth,
+					key: key.clone(),
+					read,
+				});
+		}
 	}
 
 	pub(super) fn finish(&mut self, state: &mut State) {

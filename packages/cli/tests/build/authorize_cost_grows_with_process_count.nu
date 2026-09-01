@@ -18,7 +18,7 @@ let path = artifact {
 
 		export default async () => {
 			const directory = await tg.directory({ file: "contents" });
-			for (let i = 0; i < 32; i++) {
+			for (let i = 0; i < 80; i++) {
 				await tg.build(touch, directory, i);
 			}
 			return directory.id;

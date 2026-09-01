@@ -8,50 +8,6 @@ use {
 };
 
 impl Index {
-	pub(crate) async fn get_resource_grants_with_transaction(
-		txn: &crate::fdb::Transaction,
-		subspace: &Subspace,
-		resource: &tg::Id,
-	) -> tg::Result<ControlFlow<Vec<crate::grant::Fact>, fdb::FdbError>> {
-		let bytes = resource.to_bytes();
-		let key = (Kind::ResourceGrant.to_i32().unwrap(), bytes.as_ref());
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::fdb::retry!(result);
-
-		let grants = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					creator,
-					permission,
-					subject,
-					..
-				}) = key
-				else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
-				Ok(crate::grant::Fact {
-					creator,
-					implicit: value.implicit.is_some(),
-					permission,
-					resource: resource.clone(),
-					subject,
-				})
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		Ok(ControlFlow::Break(grants))
-	}
-
 	pub(crate) async fn get_resource_grant_entries_for_subject_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,

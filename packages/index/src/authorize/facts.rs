@@ -28,9 +28,13 @@ pub(crate) enum Request {
 		id: tg::Id,
 	},
 	MemberGroups {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		member: tg::Id,
 	},
 	MemberOrganizations {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		member: tg::Id,
 	},
 	ObjectChildren {
@@ -44,6 +48,8 @@ pub(crate) enum Request {
 		object: tg::object::Id,
 	},
 	ObjectProcesses {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		object: tg::object::Id,
 	},
 	OwnerSandboxes {
@@ -65,6 +71,8 @@ pub(crate) enum Request {
 		process: tg::process::Id,
 	},
 	ProcessObjects {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		process: tg::process::Id,
 	},
 	ProcessParents {
@@ -73,6 +81,8 @@ pub(crate) enum Request {
 		process: tg::process::Id,
 	},
 	ResourceGrants {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		resource: tg::Id,
 	},
 	SandboxOwner {
@@ -95,6 +105,8 @@ pub(crate) enum Request {
 		tag: tg::tag::Id,
 	},
 	TargetTags {
+		after: Option<Vec<u8>>,
+		limit: usize,
 		target: tg::Id,
 	},
 }
@@ -111,14 +123,29 @@ pub(crate) enum Output {
 		after: Option<Vec<u8>>,
 		ids: Vec<tg::Id>,
 	},
-	MemberGroups(Vec<tg::group::Id>),
-	MemberOrganizations(Vec<tg::organization::Id>),
-	ObjectProcesses(Vec<(tg::process::Id, crate::process::object::Kind)>),
+	MemberGroups {
+		after: Option<Vec<u8>>,
+		groups: Vec<tg::group::Id>,
+	},
+	MemberOrganizations {
+		after: Option<Vec<u8>>,
+		organizations: Vec<tg::organization::Id>,
+	},
+	ObjectProcesses {
+		after: Option<Vec<u8>>,
+		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+	},
 	Process(Option<crate::process::Process>),
-	ProcessObjects(Vec<(tg::object::Id, crate::process::object::Kind)>),
+	ProcessObjects {
+		after: Option<Vec<u8>>,
+		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+	},
 	SandboxOwner(Option<tg::Principal>),
 	Tag(Option<crate::tag::Tag>),
-	Tags(Vec<tg::tag::Id>),
+	Tags {
+		after: Option<Vec<u8>>,
+		tags: Vec<tg::tag::Id>,
+	},
 }
 
 pub(crate) struct Message<E> {
@@ -130,26 +157,50 @@ pub(crate) struct Message<E> {
 enum CacheKey {
 	Group(tg::group::Id),
 	Id(tg::Id),
-	MemberGroups(tg::Id),
-	MemberOrganizations(tg::Id),
+	MemberGroups {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		member: tg::Id,
+	},
+	MemberOrganizations {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		member: tg::Id,
+	},
 	ObjectParents {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		object: tg::object::Id,
 	},
-	ObjectProcesses(tg::object::Id),
+	ObjectProcesses {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		object: tg::object::Id,
+	},
 	Process(tg::process::Id),
-	ProcessObjects(tg::process::Id),
+	ProcessObjects {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		process: tg::process::Id,
+	},
 	ProcessParents {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
 	},
-	ResourceGrants(tg::Id),
+	ResourceGrants {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		resource: tg::Id,
+	},
 	SandboxOwner(tg::sandbox::Id),
 	Specifier(tg::Specifier),
 	Tag(tg::tag::Id),
-	TargetTags(tg::Id),
+	TargetTags {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		target: tg::Id,
+	},
 }
 
 pub(crate) struct Client<E> {
@@ -196,8 +247,24 @@ impl Request {
 		let key = match self {
 			Self::Group { group } => CacheKey::Group(group.clone()),
 			Self::Id { id } => CacheKey::Id(id.clone()),
-			Self::MemberGroups { member } => CacheKey::MemberGroups(member.clone()),
-			Self::MemberOrganizations { member } => CacheKey::MemberOrganizations(member.clone()),
+			Self::MemberGroups {
+				after,
+				limit,
+				member,
+			} => CacheKey::MemberGroups {
+				after: after.clone(),
+				limit: *limit,
+				member: member.clone(),
+			},
+			Self::MemberOrganizations {
+				after,
+				limit,
+				member,
+			} => CacheKey::MemberOrganizations {
+				after: after.clone(),
+				limit: *limit,
+				member: member.clone(),
+			},
 			Self::ObjectParents {
 				after,
 				limit,
@@ -207,9 +274,25 @@ impl Request {
 				limit: *limit,
 				object: object.clone(),
 			},
-			Self::ObjectProcesses { object } => CacheKey::ObjectProcesses(object.clone()),
+			Self::ObjectProcesses {
+				after,
+				limit,
+				object,
+			} => CacheKey::ObjectProcesses {
+				after: after.clone(),
+				limit: *limit,
+				object: object.clone(),
+			},
 			Self::Process { process } => CacheKey::Process(process.clone()),
-			Self::ProcessObjects { process } => CacheKey::ProcessObjects(process.clone()),
+			Self::ProcessObjects {
+				after,
+				limit,
+				process,
+			} => CacheKey::ProcessObjects {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			},
 			Self::ProcessParents {
 				after,
 				limit,
@@ -219,11 +302,27 @@ impl Request {
 				limit: *limit,
 				process: process.clone(),
 			},
-			Self::ResourceGrants { resource } => CacheKey::ResourceGrants(resource.clone()),
+			Self::ResourceGrants {
+				after,
+				limit,
+				resource,
+			} => CacheKey::ResourceGrants {
+				after: after.clone(),
+				limit: *limit,
+				resource: resource.clone(),
+			},
 			Self::SandboxOwner { sandbox } => CacheKey::SandboxOwner(sandbox.clone()),
 			Self::Specifier { specifier } => CacheKey::Specifier(specifier.clone()),
 			Self::Tag { tag } => CacheKey::Tag(tag.clone()),
-			Self::TargetTags { target } => CacheKey::TargetTags(target.clone()),
+			Self::TargetTags {
+				after,
+				limit,
+				target,
+			} => CacheKey::TargetTags {
+				after: after.clone(),
+				limit: *limit,
+				target: target.clone(),
+			},
 			Self::ObjectChildren { .. }
 			| Self::OwnerSandboxes { .. }
 			| Self::ProcessChildren { .. }
@@ -269,34 +368,43 @@ impl Output {
 		Ok((after, ids))
 	}
 
-	pub(crate) fn into_member_groups(self) -> tg::Result<Vec<tg::group::Id>> {
-		let Self::MemberGroups(groups) = self else {
+	pub(crate) fn into_member_groups(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::group::Id>)> {
+		let Self::MemberGroups { after, groups } = self else {
 			return Err(tg::error!("received a non-member-group authorization fact"));
 		};
 
-		Ok(groups)
+		Ok((after, groups))
 	}
 
-	pub(crate) fn into_member_organizations(self) -> tg::Result<Vec<tg::organization::Id>> {
-		let Self::MemberOrganizations(organizations) = self else {
+	pub(crate) fn into_member_organizations(
+		self,
+	) -> tg::Result<(Option<Vec<u8>>, Vec<tg::organization::Id>)> {
+		let Self::MemberOrganizations {
+			after,
+			organizations,
+		} = self
+		else {
 			return Err(tg::error!(
 				"received a non-member-organization authorization fact"
 			));
 		};
 
-		Ok(organizations)
+		Ok((after, organizations))
 	}
 
 	pub(crate) fn into_object_processes(
 		self,
-	) -> tg::Result<Vec<(tg::process::Id, crate::process::object::Kind)>> {
-		let Self::ObjectProcesses(processes) = self else {
+	) -> tg::Result<(
+		Option<Vec<u8>>,
+		Vec<(tg::process::Id, crate::process::object::Kind)>,
+	)> {
+		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(
 				"received a non-object-process authorization fact"
 			));
 		};
 
-		Ok(processes)
+		Ok((after, processes))
 	}
 
 	pub(crate) fn into_process(self) -> tg::Result<Option<crate::process::Process>> {
@@ -309,14 +417,17 @@ impl Output {
 
 	pub(crate) fn into_process_objects(
 		self,
-	) -> tg::Result<Vec<(tg::object::Id, crate::process::object::Kind)>> {
-		let Self::ProcessObjects(objects) = self else {
+	) -> tg::Result<(
+		Option<Vec<u8>>,
+		Vec<(tg::object::Id, crate::process::object::Kind)>,
+	)> {
+		let Self::ProcessObjects { after, objects } = self else {
 			return Err(tg::error!(
 				"received a non-process-object authorization fact"
 			));
 		};
 
-		Ok(objects)
+		Ok((after, objects))
 	}
 
 	pub(crate) fn into_sandbox_owner(self) -> tg::Result<Option<tg::Principal>> {
@@ -337,12 +448,12 @@ impl Output {
 		Ok(tag)
 	}
 
-	pub(crate) fn into_tags(self) -> tg::Result<Vec<tg::tag::Id>> {
-		let Self::Tags(tags) = self else {
+	pub(crate) fn into_tags(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::tag::Id>)> {
+		let Self::Tags { after, tags } = self else {
 			return Err(tg::error!("received a non-tag-list authorization fact"));
 		};
 
-		Ok(tags)
+		Ok((after, tags))
 	}
 }
 

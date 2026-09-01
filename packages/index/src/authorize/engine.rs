@@ -17,7 +17,7 @@ pub(crate) struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
 	member_visited: HashSet<tg::Id>,
-	members: VecDeque<tg::Id>,
+	members: VecDeque<(tg::Id, super::search::MemberRead)>,
 	outcomes: Option<Vec<super::Outcome>>,
 	phase: BatchPhase,
 	principal: tg::Principal,
@@ -98,9 +98,23 @@ struct ProcessSearch {
 	root: Key,
 }
 
+enum ProcessFactRead {
+	Objects { after: Option<Vec<u8>> },
+	Process,
+}
+
+enum ProcessValue {
+	Complete(Option<crate::process::Process>),
+	Pending,
+}
+
 enum ProcessPhase {
 	Complete(Outcome),
-	Facts,
+	Facts {
+		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+		pending: VecDeque<ProcessFactRead>,
+		value: ProcessValue,
+	},
 	ObjectFinal {
 		current: Option<Box<SubtreeEvaluation>>,
 		pending: VecDeque<(tg::object::Id, Key, Outcome)>,
@@ -213,15 +227,26 @@ impl Batch {
 		};
 		let subject = principal.to_subject();
 		let subjects = BTreeSet::from([tg::authorization::Subject::Public, subject]);
-		let members = principal_id(principal)
-			.filter(|id| matches!(id.kind(), tg::id::Kind::Group | tg::id::Kind::User))
-			.into_iter()
-			.collect();
+		let member = principal_id(principal)
+			.filter(|id| matches!(id.kind(), tg::id::Kind::Group | tg::id::Kind::User));
+		let mut member_visited = HashSet::new();
+		let mut members = VecDeque::new();
+		if let Some(member) = member {
+			member_visited.insert(member.clone());
+			members.push_back((
+				member.clone(),
+				super::search::MemberRead::Groups { after: None },
+			));
+			members.push_back((
+				member,
+				super::search::MemberRead::Organizations { after: None },
+			));
+		}
 
 		Ok(Self {
 			args: args.to_vec(),
 			config,
-			member_visited: HashSet::new(),
+			member_visited,
 			members,
 			outcomes,
 			phase,
@@ -248,12 +273,15 @@ impl Batch {
 				BatchPhase::Members => {
 					let mut reads = Vec::new();
 					while reads.len() < limit {
-						let Some(member) = self.members.pop_front() else {
+						let Some((member, read)) = self.members.pop_front() else {
 							break;
 						};
-						if self.member_visited.insert(member.clone()) {
-							reads.push(Read::Member { member });
-						}
+						let limit = self.config.descendant.page_size;
+						reads.push(Read::Member {
+							limit,
+							member,
+							read,
+						});
 					}
 					if !reads.is_empty() {
 						return Ok(reads);
@@ -295,16 +323,45 @@ impl Batch {
 
 	pub(crate) fn apply(&mut self, read: Read, output: ReadOutput) -> tg::Result<()> {
 		match read {
-			Read::Member { member: _ } => {
-				let facts = output.into_member()?;
-				for group in facts.groups {
+			Read::Member {
+				member,
+				read: super::search::MemberRead::Groups { .. },
+				..
+			} => {
+				let (after, groups) = output.into_member_groups()?;
+				for group in groups {
 					self.subjects
 						.insert(tg::authorization::Subject::Group(group.clone()));
-					self.members.push_back(group.into());
+					let group = tg::Id::from(group);
+					if self.member_visited.insert(group.clone()) {
+						self.members.push_back((
+							group.clone(),
+							super::search::MemberRead::Groups { after: None },
+						));
+						self.members.push_back((
+							group,
+							super::search::MemberRead::Organizations { after: None },
+						));
+					}
 				}
-				for organization in facts.organizations {
+				if let Some(after) = after {
+					let read = super::search::MemberRead::Groups { after: Some(after) };
+					self.members.push_back((member, read));
+				}
+			},
+			Read::Member {
+				member,
+				read: super::search::MemberRead::Organizations { .. },
+				..
+			} => {
+				let (after, organizations) = output.into_member_organizations()?;
+				for organization in organizations {
 					self.subjects
 						.insert(tg::authorization::Subject::Organization(organization));
+				}
+				if let Some(after) = after {
+					let read = super::search::MemberRead::Organizations { after: Some(after) };
+					self.members.push_back((member, read));
 				}
 			},
 			Read::Resolve { index, .. } => {
@@ -815,7 +872,14 @@ impl ProcessSearch {
 			initial,
 			kind,
 			objects: Vec::new(),
-			phase: ProcessPhase::Facts,
+			phase: ProcessPhase::Facts {
+				objects: Vec::new(),
+				pending: VecDeque::from([
+					ProcessFactRead::Objects { after: None },
+					ProcessFactRead::Process,
+				]),
+				value: ProcessValue::Pending,
+			},
 			root: root.clone(),
 		})
 	}
@@ -839,7 +903,11 @@ impl ProcessSearch {
 			}
 			match &mut self.phase {
 				ProcessPhase::Complete(_) => return Ok(Vec::new()),
-				ProcessPhase::Facts => {
+				ProcessPhase::Facts {
+					objects,
+					pending,
+					value,
+				} => {
 					if self.initial == Outcome::Authorized {
 						self.phase = ProcessPhase::Complete(Outcome::Authorized);
 						continue;
@@ -853,8 +921,42 @@ impl ProcessSearch {
 						self.prepare_facts(config, principal, subjects, token, state, &facts);
 						continue;
 					}
-
-					return Ok(vec![Read::Process { process }]);
+					let mut reads = Vec::new();
+					while reads.len() < limit {
+						let Some(read) = pending.pop_front() else {
+							break;
+						};
+						match read {
+							ProcessFactRead::Objects { after } => {
+								let limit = config.ancestor.page_size;
+								reads.push(Read::ProcessObjects {
+									after,
+									limit,
+									process: process.clone(),
+								});
+							},
+							ProcessFactRead::Process => {
+								reads.push(Read::Process {
+									process: process.clone(),
+								});
+							},
+						}
+					}
+					if !reads.is_empty() {
+						return Ok(reads);
+					}
+					let ProcessValue::Complete(process_value) =
+						std::mem::replace(value, ProcessValue::Pending)
+					else {
+						return Err(tg::error!("the process facts are incomplete"));
+					};
+					let objects = std::mem::take(objects);
+					let facts = ProcessFacts {
+						objects,
+						process: process_value,
+					};
+					let facts = state.set_process_facts(process, facts);
+					self.prepare_facts(config, principal, subjects, token, state, &facts);
 				},
 				ProcessPhase::ObjectFinal { current, pending } => {
 					if let Some(search) = current {
@@ -920,16 +1022,28 @@ impl ProcessSearch {
 	fn apply(&mut self, state: &mut State, read: Read, output: ReadOutput) -> tg::Result<()> {
 		match &mut self.phase {
 			ProcessPhase::Complete(_) => Err(tg::error!("received a fact after a process search")),
-			ProcessPhase::Facts => {
-				let Read::Process { process } = read else {
-					return Err(tg::error!(
-						"received a non-process fact for a process search"
-					));
-				};
-				let facts = output.into_process()?;
-				state.set_process_facts(process, facts);
+			ProcessPhase::Facts {
+				objects,
+				pending,
+				value,
+			} => match read {
+				Read::Process { .. } => {
+					*value = ProcessValue::Complete(output.into_process()?);
 
-				Ok(())
+					Ok(())
+				},
+				Read::ProcessObjects { .. } => {
+					let (after, page) = output.into_process_objects()?;
+					objects.extend(page);
+					if let Some(after) = after {
+						pending.push_back(ProcessFactRead::Objects { after: Some(after) });
+					}
+
+					Ok(())
+				},
+				_ => Err(tg::error!(
+					"received a non-process fact for a process search"
+				)),
 			},
 			ProcessPhase::ObjectFinal { current, .. } => current
 				.as_mut()
@@ -943,7 +1057,7 @@ impl ProcessSearch {
 	fn outcome(&self) -> Option<Outcome> {
 		match self.phase {
 			ProcessPhase::Complete(outcome) => Some(outcome),
-			ProcessPhase::Facts
+			ProcessPhase::Facts { .. }
 			| ProcessPhase::ObjectFinal { .. }
 			| ProcessPhase::ObjectInitial { .. } => None,
 		}
@@ -1068,35 +1182,109 @@ where
 	}
 
 	let output = match read {
-		Read::AncestorNode { key, .. } => {
-			let facts = match ancestor_node_facts(client, &key.0).await? {
-				ControlFlow::Break(facts) => facts,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			ReadOutput::AncestorNode(facts)
-		},
-		Read::Member { member } => {
-			let groups = client.read(facts::Request::MemberGroups {
-				member: member.clone(),
-			});
-			let organizations = client.read(facts::Request::MemberOrganizations {
-				member: member.clone(),
-			});
-			let (groups, organizations) = futures::try_join!(groups, organizations)?;
-			let groups = match groups {
-				ControlFlow::Break(groups) => groups.into_member_groups()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let organizations = match organizations {
-				ControlFlow::Break(organizations) => organizations.into_member_organizations()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let facts = super::search::MemberFacts {
-				groups,
-				organizations,
-			};
+		Read::AncestorNode { read, .. } => match read {
+			super::search::AncestorNodeRead::Group { group } => {
+				let output = read!(facts::Request::Group {
+					group: group.clone(),
+				});
+				let group = output.into_group()?;
 
-			ReadOutput::Member(facts)
+				ReadOutput::Group(group)
+			},
+			super::search::AncestorNodeRead::ObjectProcesses {
+				after,
+				limit,
+				object,
+			} => {
+				let output = read!(facts::Request::ObjectProcesses {
+					after: after.clone(),
+					limit: *limit,
+					object: object.clone(),
+				});
+				let (after, processes) = output.into_object_processes()?;
+
+				ReadOutput::ObjectProcesses { after, processes }
+			},
+			super::search::AncestorNodeRead::Process { process } => {
+				let output = read!(facts::Request::Process {
+					process: process.clone(),
+				});
+				let process = output.into_process()?;
+
+				ReadOutput::Process(process)
+			},
+			super::search::AncestorNodeRead::ResourceGrants {
+				after,
+				limit,
+				resource,
+			} => {
+				let output = read!(facts::Request::ResourceGrants {
+					after: after.clone(),
+					limit: *limit,
+					resource: resource.clone(),
+				});
+				let (after, grants) = output.into_grants()?;
+
+				ReadOutput::Grants { after, grants }
+			},
+			super::search::AncestorNodeRead::SandboxOwner { sandbox } => {
+				let output = read!(facts::Request::SandboxOwner {
+					sandbox: sandbox.clone(),
+				});
+				let owner = output.into_sandbox_owner()?;
+
+				ReadOutput::SandboxOwner(owner)
+			},
+			super::search::AncestorNodeRead::Tag { tag }
+			| super::search::AncestorNodeRead::TargetTag { tag } => {
+				let output = read!(facts::Request::Tag { tag: tag.clone() });
+				let tag = output.into_tag()?;
+
+				ReadOutput::Tag(tag)
+			},
+			super::search::AncestorNodeRead::TargetTags {
+				after,
+				limit,
+				target,
+			} => {
+				let output = read!(facts::Request::TargetTags {
+					after: after.clone(),
+					limit: *limit,
+					target: target.clone(),
+				});
+				let (after, tags) = output.into_tags()?;
+
+				ReadOutput::Tags { after, tags }
+			},
+		},
+		Read::Member {
+			limit,
+			member,
+			read,
+		} => match read {
+			super::search::MemberRead::Groups { after } => {
+				let output = read!(facts::Request::MemberGroups {
+					after: after.clone(),
+					limit: *limit,
+					member: member.clone(),
+				});
+				let (after, groups) = output.into_member_groups()?;
+
+				ReadOutput::MemberGroups { after, groups }
+			},
+			super::search::MemberRead::Organizations { after } => {
+				let output = read!(facts::Request::MemberOrganizations {
+					after: after.clone(),
+					limit: *limit,
+					member: member.clone(),
+				});
+				let (after, organizations) = output.into_member_organizations()?;
+
+				ReadOutput::MemberOrganizations {
+					after,
+					organizations,
+				}
+			},
 		},
 		Read::ObjectChildren {
 			after,
@@ -1150,24 +1338,12 @@ where
 			ReadOutput::Ids { after, ids }
 		},
 		Read::Process { process } => {
-			let objects = client.read(facts::Request::ProcessObjects {
+			let output = read!(facts::Request::Process {
 				process: process.clone(),
 			});
-			let value = client.read(facts::Request::Process {
-				process: process.clone(),
-			});
-			let (objects, value) = futures::try_join!(objects, value)?;
-			let objects = match objects {
-				ControlFlow::Break(objects) => objects.into_process_objects()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let process = match value {
-				ControlFlow::Break(process) => process.into_process()?,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			};
-			let facts = ProcessFacts { objects, process };
+			let process = output.into_process()?;
 
-			ReadOutput::Process(facts)
+			ReadOutput::Process(process)
 		},
 		Read::ProcessChildren {
 			after,
@@ -1204,6 +1380,20 @@ where
 			let (after, grants) = output.into_grants()?;
 
 			ReadOutput::Grants { after, grants }
+		},
+		Read::ProcessObjects {
+			after,
+			limit,
+			process,
+		} => {
+			let output = read!(facts::Request::ProcessObjects {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			});
+			let (after, objects) = output.into_process_objects()?;
+
+			ReadOutput::ProcessObjects { after, objects }
 		},
 		Read::ProcessParents {
 			after,
@@ -1260,104 +1450,6 @@ where
 	};
 
 	Ok(ControlFlow::Break(output))
-}
-
-async fn ancestor_node_facts<E>(
-	client: &facts::Client<E>,
-	resource: &tg::Id,
-) -> Result<ControlFlow<super::search::AncestorNodeFacts, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	macro_rules! output {
-		($output:expr) => {{
-			match $output {
-				ControlFlow::Break(output) => output,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-			}
-		}};
-	}
-
-	let grants = client.read(facts::Request::ResourceGrants {
-		resource: resource.clone(),
-	});
-	let mut facts = super::search::AncestorNodeFacts::default();
-	if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
-		let processes = client.read(facts::Request::ObjectProcesses { object });
-		let tags = authorization_tags(client, resource);
-		let (grants, processes, tags) = futures::try_join!(grants, processes, tags)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.object_processes = output!(processes).into_object_processes()?;
-		facts.tags = output!(tags);
-	} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-		let process = client.read(facts::Request::Process { process });
-		let tags = authorization_tags(client, resource);
-		let (grants, process, tags) = futures::try_join!(grants, process, tags)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.process_sandbox = output!(process)
-			.into_process()?
-			.and_then(|process| process.sandbox);
-		facts.tags = output!(tags);
-	} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
-		let owner = client.read(facts::Request::SandboxOwner { sandbox });
-		let (grants, owner) = futures::try_join!(grants, owner)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.sandbox_owner = output!(owner).into_sandbox_owner()?;
-	} else if let Ok(tag) = tg::tag::Id::try_from(resource.clone()) {
-		let tag = client.read(facts::Request::Tag { tag });
-		let (grants, tag) = futures::try_join!(grants, tag)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.parent = output!(tag).into_tag()?.and_then(|tag| tag.parent);
-	} else if let Ok(group) = tg::group::Id::try_from(resource.clone()) {
-		let group = client.read(facts::Request::Group { group });
-		let (grants, group) = futures::try_join!(grants, group)?;
-		facts.grants = output!(grants).into_grants()?.1;
-		facts.parent = output!(group).into_group()?.and_then(|group| group.parent);
-	} else {
-		facts.grants = output!(grants.await?).into_grants()?.1;
-	}
-
-	Ok(ControlFlow::Break(facts))
-}
-
-async fn authorization_tags<E>(
-	client: &facts::Client<E>,
-	target: &tg::Id,
-) -> Result<ControlFlow<Vec<(tg::tag::Id, Vec<tg::authorization::Permission>)>, E>, tg::Error>
-where
-	E: Clone + Send + Sync + 'static,
-{
-	let tags = match client
-		.read(facts::Request::TargetTags {
-			target: target.clone(),
-		})
-		.await?
-	{
-		ControlFlow::Break(tags) => tags.into_tags()?,
-		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-	};
-	let results = futures::future::try_join_all(tags.into_iter().map(|tag| {
-		let client = client.clone();
-		let request = facts::Request::Tag { tag: tag.clone() };
-		async move {
-			let output = client.read(request).await?;
-
-			Ok::<_, tg::Error>((tag, output))
-		}
-	}))
-	.await?;
-	let mut facts = Vec::with_capacity(results.len());
-	for (tag, output) in results {
-		let value = match output {
-			ControlFlow::Break(output) => output.into_tag()?,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		if let Some(value) = value {
-			facts.push((tag, value.permissions));
-		}
-	}
-
-	Ok(ControlFlow::Break(facts))
 }
 
 async fn resolve<E>(
@@ -1470,7 +1562,7 @@ fn principal_is_resource(principal: &tg::Principal, resource: &tg::Id) -> bool {
 mod tests {
 	use {
 		super::*,
-		crate::authorize::search::{AncestorNodeFacts, Grant, MemberFacts},
+		crate::authorize::search::{AncestorNodeRead, Grant, MemberRead},
 		std::{
 			sync::{
 				Arc,
@@ -1487,7 +1579,12 @@ mod tests {
 		let user = tg::user::Id::new();
 		let principal = tg::Principal::User(user.clone());
 		let outcome = run(&[arg(object.clone().into(), None)], &principal, |read| {
-			let Read::AncestorNode { key, .. } = read else {
+			let Read::AncestorNode {
+				key,
+				read: AncestorNodeRead::ResourceGrants { .. },
+				..
+			} = read
+			else {
 				return default_output(read);
 			};
 			let grant = Grant {
@@ -1497,10 +1594,10 @@ mod tests {
 				resource: key.0.clone(),
 				subject: tg::authorization::Subject::User(user.clone()),
 			};
-			ReadOutput::AncestorNode(AncestorNodeFacts {
+			ReadOutput::Grants {
+				after: None,
 				grants: vec![grant],
-				..Default::default()
-			})
+			}
 		});
 
 		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
@@ -1516,7 +1613,11 @@ mod tests {
 			&[arg(object.clone().into(), None)],
 			&principal,
 			|read| match read {
-				Read::AncestorNode { key, .. } => {
+				Read::AncestorNode {
+					key,
+					read: AncestorNodeRead::ResourceGrants { .. },
+					..
+				} => {
 					let grant = Grant {
 						creator: None,
 						implicit: false,
@@ -1524,15 +1625,18 @@ mod tests {
 						resource: key.0.clone(),
 						subject: tg::authorization::Subject::Group(group.clone()),
 					};
-					ReadOutput::AncestorNode(AncestorNodeFacts {
+					ReadOutput::Grants {
+						after: None,
 						grants: vec![grant],
-						..Default::default()
-					})
+					}
 				},
-				Read::Member { .. } => ReadOutput::Member(MemberFacts {
+				Read::Member {
+					read: MemberRead::Groups { .. },
+					..
+				} => ReadOutput::MemberGroups {
+					after: None,
 					groups: vec![group.clone()],
-					organizations: Vec::new(),
-				}),
+				},
 				_ => default_output(read),
 			},
 		);
@@ -1607,8 +1711,9 @@ mod tests {
 							after: None,
 							ids: Vec::new(),
 						},
-						facts::Request::ObjectProcesses { .. } => {
-							facts::Output::ObjectProcesses(Vec::new())
+						facts::Request::ObjectProcesses { .. } => facts::Output::ObjectProcesses {
+							after: None,
+							processes: Vec::new(),
 						},
 						facts::Request::ResourceGrants { .. } => {
 							let current = active.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1625,7 +1730,10 @@ mod tests {
 							after: None,
 							grants: Vec::new(),
 						},
-						facts::Request::TargetTags { .. } => facts::Output::Tags(Vec::new()),
+						facts::Request::TargetTags { .. } => facts::Output::Tags {
+							after: None,
+							tags: Vec::new(),
+						},
 						request => panic!("received an unexpected fact request: {request:?}"),
 					};
 
@@ -1707,7 +1815,12 @@ mod tests {
 			arg(mismatching.clone().into(), None),
 		];
 		let outcome = run(&args, &principal, |read| {
-			let Read::AncestorNode { key, .. } = read else {
+			let Read::AncestorNode {
+				key,
+				read: AncestorNodeRead::ResourceGrants { .. },
+				..
+			} = read
+			else {
 				return default_output(read);
 			};
 			let grants = if key.0 == tg::Id::from(matching.clone()) {
@@ -1725,10 +1838,10 @@ mod tests {
 			} else {
 				Vec::new()
 			};
-			ReadOutput::AncestorNode(AncestorNodeFacts {
+			ReadOutput::Grants {
+				after: None,
 				grants,
-				..Default::default()
-			})
+			}
 		});
 
 		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
@@ -1762,6 +1875,10 @@ mod tests {
 			arg(child.clone().into(), None),
 		];
 		let outcome = run(&args, &tg::Principal::Anonymous, |read| match read {
+			Read::ObjectChildren { object, .. } if object == &parent => ReadOutput::Ids {
+				after: None,
+				ids: vec![child.clone().into()],
+			},
 			Read::ObjectParents { object, .. } if object == &child => ReadOutput::Ids {
 				after: None,
 				ids: vec![parent.clone().into()],
@@ -1797,8 +1914,36 @@ mod tests {
 
 	fn default_output(read: &Read) -> ReadOutput {
 		match read {
-			Read::AncestorNode { .. } => ReadOutput::AncestorNode(AncestorNodeFacts::default()),
-			Read::Member { .. } => ReadOutput::Member(MemberFacts::default()),
+			Read::AncestorNode { read, .. } => match read {
+				AncestorNodeRead::Group { .. } => ReadOutput::Group(None),
+				AncestorNodeRead::ObjectProcesses { .. } => ReadOutput::ObjectProcesses {
+					after: None,
+					processes: Vec::new(),
+				},
+				AncestorNodeRead::Process { .. } => ReadOutput::Process(None),
+				AncestorNodeRead::ResourceGrants { .. } => ReadOutput::Grants {
+					after: None,
+					grants: Vec::new(),
+				},
+				AncestorNodeRead::SandboxOwner { .. } => ReadOutput::SandboxOwner(None),
+				AncestorNodeRead::Tag { .. } | AncestorNodeRead::TargetTag { .. } => {
+					ReadOutput::Tag(None)
+				},
+				AncestorNodeRead::TargetTags { .. } => ReadOutput::Tags {
+					after: None,
+					tags: Vec::new(),
+				},
+			},
+			Read::Member { read, .. } => match read {
+				MemberRead::Groups { .. } => ReadOutput::MemberGroups {
+					after: None,
+					groups: Vec::new(),
+				},
+				MemberRead::Organizations { .. } => ReadOutput::MemberOrganizations {
+					after: None,
+					organizations: Vec::new(),
+				},
+			},
 			Read::ObjectChildren { .. }
 			| Read::ObjectParents { .. }
 			| Read::OwnerSandboxes { .. }
@@ -1820,10 +1965,14 @@ mod tests {
 					ids: Vec::new(),
 				},
 			},
-			Read::Process { .. } => ReadOutput::Process(ProcessFacts::default()),
+			Read::Process { .. } => ReadOutput::Process(None),
 			Read::ProcessGrants { .. } | Read::SubjectGrants { .. } => ReadOutput::Grants {
 				after: None,
 				grants: Vec::new(),
+			},
+			Read::ProcessObjects { .. } => ReadOutput::ProcessObjects {
+				after: None,
+				objects: Vec::new(),
 			},
 		}
 	}

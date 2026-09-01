@@ -30,15 +30,49 @@ pub(crate) struct AncestorNodeFacts {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct MemberFacts {
-	pub groups: Vec<tg::group::Id>,
-	pub organizations: Vec<tg::organization::Id>,
-}
-
-#[derive(Clone, Debug, Default)]
 pub(crate) struct ProcessFacts {
 	pub objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
 	pub process: Option<crate::process::Process>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum AncestorNodeRead {
+	Group {
+		group: tg::group::Id,
+	},
+	ObjectProcesses {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		object: tg::object::Id,
+	},
+	Process {
+		process: tg::process::Id,
+	},
+	ResourceGrants {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		resource: tg::Id,
+	},
+	SandboxOwner {
+		sandbox: tg::sandbox::Id,
+	},
+	Tag {
+		tag: tg::tag::Id,
+	},
+	TargetTag {
+		tag: tg::tag::Id,
+	},
+	TargetTags {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		target: tg::Id,
+	},
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum MemberRead {
+	Groups { after: Option<Vec<u8>> },
+	Organizations { after: Option<Vec<u8>> },
 }
 
 #[derive(Clone, Debug)]
@@ -46,9 +80,12 @@ pub(crate) enum Read {
 	AncestorNode {
 		depth: usize,
 		key: Key,
+		read: AncestorNodeRead,
 	},
 	Member {
+		limit: usize,
 		member: tg::Id,
+		read: MemberRead,
 	},
 	ObjectChildren {
 		after: Option<Vec<u8>>,
@@ -82,6 +119,11 @@ pub(crate) enum Read {
 	ProcessGrants {
 		after: Option<Vec<u8>>,
 		depth: usize,
+		limit: usize,
+		process: tg::process::Id,
+	},
+	ProcessObjects {
+		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
 	},
@@ -124,18 +166,39 @@ pub(crate) enum Read {
 }
 
 pub(crate) enum ReadOutput {
-	AncestorNode(AncestorNodeFacts),
 	Grants {
 		after: Option<Vec<u8>>,
 		grants: Vec<Grant>,
 	},
+	Group(Option<crate::group::Group>),
 	Ids {
 		after: Option<Vec<u8>>,
 		ids: Vec<tg::Id>,
 	},
-	Member(MemberFacts),
-	Process(ProcessFacts),
+	MemberGroups {
+		after: Option<Vec<u8>>,
+		groups: Vec<tg::group::Id>,
+	},
+	MemberOrganizations {
+		after: Option<Vec<u8>>,
+		organizations: Vec<tg::organization::Id>,
+	},
+	ObjectProcesses {
+		after: Option<Vec<u8>>,
+		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+	},
+	Process(Option<crate::process::Process>),
+	ProcessObjects {
+		after: Option<Vec<u8>>,
+		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
+	},
 	Resolved(Option<(tg::Id, bool)>),
+	SandboxOwner(Option<tg::Principal>),
+	Tag(Option<crate::tag::Tag>),
+	Tags {
+		after: Option<Vec<u8>>,
+		tags: Vec<tg::tag::Id>,
+	},
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -234,20 +297,20 @@ pub(crate) fn process_node_permission(
 }
 
 impl ReadOutput {
-	fn into_ancestor_node(self) -> tg::Result<AncestorNodeFacts> {
-		let Self::AncestorNode(facts) = self else {
-			return Err(tg::error!("received a page for an ancestor node read"));
-		};
-
-		Ok(facts)
-	}
-
 	fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<Grant>)> {
 		let Self::Grants { after, grants } = self else {
 			return Err(tg::error!("received a non-grant result for a grant read"));
 		};
 
 		Ok((after, grants))
+	}
+
+	fn into_group(self) -> tg::Result<Option<crate::group::Group>> {
+		let Self::Group(group) = self else {
+			return Err(tg::error!("received a non-group result for a group read"));
+		};
+
+		Ok(group)
 	}
 
 	fn into_ids(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::Id>)> {
@@ -258,22 +321,70 @@ impl ReadOutput {
 		Ok((after, ids))
 	}
 
-	pub(crate) fn into_member(self) -> tg::Result<MemberFacts> {
-		let Self::Member(facts) = self else {
-			return Err(tg::error!("received a non-member result for a member read"));
+	pub(crate) fn into_member_groups(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::group::Id>)> {
+		let Self::MemberGroups { after, groups } = self else {
+			return Err(tg::error!(
+				"received a non-group result for a member group read"
+			));
 		};
 
-		Ok(facts)
+		Ok((after, groups))
 	}
 
-	pub(crate) fn into_process(self) -> tg::Result<ProcessFacts> {
-		let Self::Process(facts) = self else {
+	pub(crate) fn into_member_organizations(
+		self,
+	) -> tg::Result<(Option<Vec<u8>>, Vec<tg::organization::Id>)> {
+		let Self::MemberOrganizations {
+			after,
+			organizations,
+		} = self
+		else {
+			return Err(tg::error!(
+				"received a non-organization result for a member organization read"
+			));
+		};
+
+		Ok((after, organizations))
+	}
+
+	fn into_object_processes(
+		self,
+	) -> tg::Result<(
+		Option<Vec<u8>>,
+		Vec<(tg::process::Id, crate::process::object::Kind)>,
+	)> {
+		let Self::ObjectProcesses { after, processes } = self else {
+			return Err(tg::error!(
+				"received a non-process result for an object process read"
+			));
+		};
+
+		Ok((after, processes))
+	}
+
+	pub(crate) fn into_process(self) -> tg::Result<Option<crate::process::Process>> {
+		let Self::Process(process) = self else {
 			return Err(tg::error!(
 				"received a non-process result for a process read"
 			));
 		};
 
-		Ok(facts)
+		Ok(process)
+	}
+
+	pub(crate) fn into_process_objects(
+		self,
+	) -> tg::Result<(
+		Option<Vec<u8>>,
+		Vec<(tg::object::Id, crate::process::object::Kind)>,
+	)> {
+		let Self::ProcessObjects { after, objects } = self else {
+			return Err(tg::error!(
+				"received a non-object result for a process object read"
+			));
+		};
+
+		Ok((after, objects))
 	}
 
 	pub(crate) fn into_resolved(self) -> tg::Result<Option<(tg::Id, bool)>> {
@@ -284,6 +395,32 @@ impl ReadOutput {
 		};
 
 		Ok(resource)
+	}
+
+	fn into_sandbox_owner(self) -> tg::Result<Option<tg::Principal>> {
+		let Self::SandboxOwner(owner) = self else {
+			return Err(tg::error!(
+				"received a non-owner result for a sandbox owner read"
+			));
+		};
+
+		Ok(owner)
+	}
+
+	fn into_tag(self) -> tg::Result<Option<crate::tag::Tag>> {
+		let Self::Tag(tag) = self else {
+			return Err(tg::error!("received a non-tag result for a tag read"));
+		};
+
+		Ok(tag)
+	}
+
+	fn into_tags(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::tag::Id>)> {
+		let Self::Tags { after, tags } = self else {
+			return Err(tg::error!("received a non-tag result for a tag list read"));
+		};
+
+		Ok((after, tags))
 	}
 }
 
@@ -435,7 +572,6 @@ impl AncestorOrDescendantSearch {
 				return Ok(Vec::new());
 			}
 
-			// Give both directions part of the batch so their reads execute concurrently.
 			let mut reads = Vec::new();
 			let both = self.ancestor.is_some() && self.descendant.is_some();
 			let direction = self.next;
@@ -526,6 +662,7 @@ impl AncestorOrDescendantSearch {
 				.apply(state, read, output),
 			Read::Member { .. }
 			| Read::Process { .. }
+			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => Err(tg::error!(
@@ -1095,7 +1232,7 @@ mod tests {
 	}
 
 	#[test]
-	fn ancestor_and_descendant_searches_take_turns_with_one_read() {
+	fn ancestor_and_descendant_searches_alternate_with_one_read() {
 		let root = key();
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
@@ -1110,7 +1247,7 @@ mod tests {
 		let read = reads.pop().unwrap();
 		assert!(matches!(read, Read::SubjectGrants { .. }));
 		let output = ReadOutput::Grants {
-			after: None,
+			after: Some(vec![0]),
 			grants: Vec::new(),
 		};
 		search.apply(&mut state, read, output).unwrap();
@@ -1118,6 +1255,50 @@ mod tests {
 		let reads = search.take_reads(&mut state, 1).unwrap();
 
 		assert!(matches!(reads.as_slice(), [Read::AncestorNode { .. }]));
+	}
+
+	#[test]
+	fn an_ancestor_grant_page_authorizes_before_the_node_is_complete() {
+		let root = key();
+		let mut state = State::default();
+		let mut search = AncestorOrDescendantSearch::new(
+			crate::authorize::Config::default(),
+			&tg::Principal::Anonymous,
+			std::slice::from_ref(&root),
+			&[tg::authorization::Subject::Public],
+			None,
+			&mut state,
+		);
+		let mut reads = search.take_reads(&mut state, 1).unwrap();
+		let read = reads.pop().unwrap();
+		let output = ReadOutput::Grants {
+			after: Some(vec![0]),
+			grants: Vec::new(),
+		};
+		search.apply(&mut state, read, output).unwrap();
+		let mut reads = search.take_reads(&mut state, 1).unwrap();
+		let read = reads.pop().unwrap();
+		assert!(matches!(
+			&read,
+			Read::AncestorNode {
+				read: AncestorNodeRead::ResourceGrants { .. },
+				..
+			}
+		));
+		let grant = Grant {
+			creator: None,
+			implicit: false,
+			permission: root.1,
+			resource: root.0.clone(),
+			subject: tg::authorization::Subject::Public,
+		};
+		let output = ReadOutput::Grants {
+			after: None,
+			grants: vec![grant],
+		};
+		search.apply(&mut state, read, output).unwrap();
+
+		assert!(state.is_authorized(&root));
 	}
 
 	#[test]

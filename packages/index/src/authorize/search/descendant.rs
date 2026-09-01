@@ -402,6 +402,7 @@ impl Search {
 			| Read::Member { .. }
 			| Read::ObjectParents { .. }
 			| Read::Process { .. }
+			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
@@ -692,6 +693,7 @@ impl Search {
 			| Read::Member { .. }
 			| Read::ObjectParents { .. }
 			| Read::Process { .. }
+			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }

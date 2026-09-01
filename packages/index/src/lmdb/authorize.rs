@@ -75,21 +75,85 @@ impl Index {
 
 				Output::Id(id)
 			},
-			Request::MemberGroups { member } => {
-				let groups =
-					Self::get_member_groups_with_transaction(db, subspace, transaction, member)?;
-
-				Output::MemberGroups(groups)
-			},
-			Request::MemberOrganizations { member } => {
-				let organizations = Self::get_member_organizations_with_transaction(
+			Request::MemberGroups {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::MemberGroup.to_i32().unwrap(),
+						member.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_authorization_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
-					member,
+					&prefix,
+					after.as_deref(),
+					*limit,
 				)?;
+				let groups = keys
+					.into_iter()
+					.map(|key| {
+						let crate::lmdb::Key::Group(crate::lmdb::group::Key::MemberGroup {
+							group,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::MemberOrganizations(organizations)
+						Ok(group)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberGroups { after, groups }
+			},
+			Request::MemberOrganizations {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::MemberOrganization.to_i32().unwrap(),
+						member.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&prefix,
+					after.as_deref(),
+					*limit,
+				)?;
+				let organizations = keys
+					.into_iter()
+					.map(|key| {
+						let crate::lmdb::Key::Organization(
+							crate::lmdb::organization::Key::MemberOrganization {
+								organization, ..
+							},
+						) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(organization)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberOrganizations {
+					after,
+					organizations,
+				}
 			},
 			Request::ObjectChildren {
 				after,
@@ -167,11 +231,44 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ObjectProcesses { object } => {
-				let processes =
-					Self::get_object_processes_with_transaction(db, subspace, transaction, object)?;
+			Request::ObjectProcesses {
+				after,
+				limit,
+				object,
+			} => {
+				let object = object.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::ObjectProcess.to_i32().unwrap(),
+						object.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&prefix,
+					after.as_deref(),
+					*limit,
+				)?;
+				let processes = keys
+					.into_iter()
+					.map(|key| {
+						let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectProcess {
+							kind,
+							process,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::ObjectProcesses(processes)
+						Ok((process, kind))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ObjectProcesses { after, processes }
 			},
 			Request::OwnerSandboxes {
 				after,
@@ -269,11 +366,42 @@ impl Index {
 
 				Output::Grants { after, grants }
 			},
-			Request::ProcessObjects { process } => {
+			Request::ProcessObjects {
+				after,
+				limit,
+				process,
+			} => {
+				let process = process.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::ProcessObject.to_i32().unwrap(),
+						process.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&prefix,
+					after.as_deref(),
+					*limit,
+				)?;
 				let objects =
-					Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
+					keys.into_iter()
+						.map(|key| {
+							let crate::lmdb::Key::Process(
+								crate::lmdb::process::Key::ProcessObject { kind, object, .. },
+							) = key
+							else {
+								return Err(tg::error!("unexpected key type"));
+							};
 
-				Output::ProcessObjects(objects)
+							Ok((object, kind))
+						})
+						.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ProcessObjects { after, objects }
 			},
 			Request::ProcessParents {
 				after,
@@ -312,18 +440,53 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ResourceGrants { resource } => {
-				let grants = Self::get_resource_grants_with_transaction(
+			Request::ResourceGrants {
+				after,
+				limit,
+				resource,
+			} => {
+				let resource_bytes = resource.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::ResourceGrant.to_i32().unwrap(),
+						resource_bytes.as_ref(),
+					),
+				);
+				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
-					resource,
+					&prefix,
+					after.as_deref(),
+					*limit,
 				)?;
+				let grants = entries
+					.into_iter()
+					.map(|(key, value)| {
+						let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+							creator,
+							permission,
+							subject,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let value = crate::lmdb::grant::GrantValue::deserialize(&value)?;
+						let grant = crate::grant::Fact {
+							creator,
+							implicit: value.implicit.is_some(),
+							permission,
+							resource: resource.clone(),
+							subject,
+						};
 
-				Output::Grants {
-					after: None,
-					grants,
-				}
+						Ok(grant)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Grants { after, grants }
 			},
 			Request::SandboxOwner { sandbox } => {
 				let owner =
@@ -396,16 +559,41 @@ impl Index {
 
 				Output::Tag(tag)
 			},
-			Request::TargetTags { target } => {
+			Request::TargetTags {
+				after,
+				limit,
+				target,
+			} => {
 				let target = target.to_bytes();
-				let tags = Self::get_target_tags_with_transaction(
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::lmdb::Kind::TargetTag.to_i32().unwrap(),
+						target.as_ref(),
+					),
+				);
+				let (keys, after) = Self::get_authorization_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
-					target.as_ref(),
+					&prefix,
+					after.as_deref(),
+					*limit,
 				)?;
+				let tags = keys
+					.into_iter()
+					.map(|key| {
+						let crate::lmdb::Key::Tag(crate::lmdb::tag::Key::TargetTag { tag, .. }) =
+							key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
 
-				Output::Tags(tags)
+						Ok(tag)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Tags { after, tags }
 			},
 		};
 

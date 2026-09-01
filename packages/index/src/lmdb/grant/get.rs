@@ -6,48 +6,6 @@ use {
 };
 
 impl Index {
-	pub(crate) fn get_resource_grants_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		resource: &tg::Id,
-	) -> tg::Result<Vec<crate::grant::Fact>> {
-		let resource_bytes = resource.to_bytes();
-		let prefix = &(
-			Kind::ResourceGrant.to_i32().unwrap(),
-			resource_bytes.as_ref(),
-		);
-		let prefix = Self::pack(subspace, prefix);
-		let mut grants = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
-		for entry in iter {
-			let (key, value) = entry
-				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-				creator,
-				permission,
-				subject,
-				..
-			}) = key
-			else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
-			let fact = crate::grant::Fact {
-				creator,
-				implicit: value.implicit.is_some(),
-				permission,
-				resource: resource.clone(),
-				subject,
-			};
-			grants.push(fact);
-		}
-		Ok(grants)
-	}
-
 	pub(crate) fn get_resource_grant_entries_for_subject_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
