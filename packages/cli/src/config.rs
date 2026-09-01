@@ -989,6 +989,14 @@ pub struct ObjectArchiveOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub dequeue_window: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub full_scan_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
 
@@ -1007,8 +1015,16 @@ pub struct ObjectIndexOutbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub dequeue_window: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fragment_size: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub full_scan_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub partition_total: Option<u64>,
@@ -3172,6 +3188,12 @@ fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectA
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
+	if let Some(value) = source.dequeue_window {
+		target.dequeue_window = Some(value);
+	}
+	if let Some(value) = source.full_scan_interval {
+		target.full_scan_interval = value;
+	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
 	}
@@ -3189,8 +3211,14 @@ fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndex
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
+	if let Some(value) = source.dequeue_window {
+		target.dequeue_window = Some(value);
+	}
 	if let Some(value) = source.fragment_size {
 		target.fragment_size = value;
+	}
+	if let Some(value) = source.full_scan_interval {
+		target.full_scan_interval = value;
 	}
 	if let Some(value) = source.partition_total {
 		target.partition_total = value;
