@@ -13,7 +13,7 @@ pub struct Reader(Arc<Mutex<State>>);
 struct State {
 	fd: Option<Fd>,
 	input: Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>,
-	process: Option<Weak<tg::process::Inner>>,
+	process: Option<Weak<tg::process::handle::Inner>>,
 	stream: Stream,
 }
 
@@ -52,7 +52,7 @@ impl Reader {
 		Self::new(None, None, stream)
 	}
 
-	pub(crate) fn set_process(&self, process: Weak<tg::process::Inner>) {
+	pub(in crate::process) fn set_process(&self, process: Weak<tg::process::handle::Inner>) {
 		self.0.try_lock().unwrap().process = Some(process);
 	}
 

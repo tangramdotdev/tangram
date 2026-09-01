@@ -1,0 +1,246 @@
+use {
+	super::{Builder, Data},
+	crate::prelude::*,
+	futures::{TryStreamExt as _, stream::FuturesOrdered},
+	std::borrow::Cow,
+};
+
+#[derive(Clone, Debug, Default)]
+pub struct Template {
+	pub components: Vec<Component>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::From,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Component {
+	String(String),
+	Artifact(tg::Artifact),
+	Placeholder(tg::Placeholder),
+}
+
+impl Template {
+	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
+	}
+
+	#[must_use]
+	pub fn with_components(components: impl IntoIterator<Item = Component>) -> Self {
+		Self::builder().components(components).build()
+	}
+
+	#[must_use]
+	pub fn components(&self) -> &[Component] {
+		&self.components
+	}
+
+	pub fn artifacts(&self) -> impl Iterator<Item = &tg::Artifact> {
+		self.components
+			.iter()
+			.filter_map(|component| match component {
+				Component::String(_) | Component::Placeholder(_) => None,
+				Component::Artifact(artifact) => Some(artifact),
+			})
+	}
+
+	#[must_use]
+	pub fn objects(&self) -> Vec<tg::object::Handle> {
+		self.artifacts()
+			.map(|artifact| artifact.clone().into())
+			.collect()
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Data {
+		let components = self
+			.components
+			.iter()
+			.map(tg::template::Component::to_data)
+			.collect();
+		Data { components }
+	}
+
+	pub fn try_from_data(data: Data) -> tg::Result<Self> {
+		let components = data
+			.components
+			.into_iter()
+			.map(TryInto::try_into)
+			.collect::<tg::Result<_>>()?;
+		Ok(Self { components })
+	}
+
+	pub fn try_render_sync<'a, F>(&'a self, mut f: F) -> tg::Result<String>
+	where
+		F: (FnMut(&'a Component) -> tg::Result<Cow<'a, str>>) + 'a,
+	{
+		let mut string = String::new();
+		for component in &self.components {
+			string.push_str(&f(component)?);
+		}
+		Ok(string)
+	}
+
+	pub async fn try_render<'a, F, Fut>(&'a self, f: F) -> tg::Result<String>
+	where
+		F: (FnMut(&'a Component) -> Fut) + 'a,
+		Fut: Future<Output = tg::Result<String>> + 'a,
+	{
+		Ok(self
+			.components
+			.iter()
+			.map(f)
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?
+			.join(""))
+	}
+
+	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
+		let data = Data::unrender(prefix, string)?;
+		let components = data.components.into_iter().map(|data| match data {
+			tg::template::data::Component::Artifact(referent) => {
+				let artifact = tg::Artifact::with_referent(referent);
+				Component::Artifact(artifact)
+			},
+			tg::template::data::Component::String(string) => Component::String(string),
+			tg::template::data::Component::Placeholder(data) => {
+				Component::Placeholder(tg::Placeholder { name: data.name })
+			},
+		});
+		Ok(Self::with_components(components))
+	}
+}
+
+impl Component {
+	#[must_use]
+	pub fn to_data(&self) -> tg::template::data::Component {
+		match self {
+			Self::String(string) => tg::template::data::Component::String(string.clone()),
+			Self::Artifact(artifact) => {
+				let artifact = artifact.to_referent();
+				tg::template::data::Component::Artifact(artifact)
+			},
+			Self::Placeholder(placeholder) => {
+				tg::template::data::Component::Placeholder(placeholder.to_data())
+			},
+		}
+	}
+}
+
+impl From<Component> for Template {
+	fn from(value: Component) -> Self {
+		vec![value].into()
+	}
+}
+
+impl From<Vec<Component>> for Template {
+	fn from(value: Vec<Component>) -> Self {
+		Self::builder().components(value).build()
+	}
+}
+
+impl FromIterator<Component> for Template {
+	fn from_iter<I: IntoIterator<Item = Component>>(value: I) -> Self {
+		Self::builder().components(value).build()
+	}
+}
+
+impl From<String> for Template {
+	fn from(value: String) -> Self {
+		vec![Component::String(value)].into()
+	}
+}
+
+impl From<&str> for Template {
+	fn from(value: &str) -> Self {
+		value.to_owned().into()
+	}
+}
+
+impl TryFrom<tg::template::data::Component> for Component {
+	type Error = tg::Error;
+
+	fn try_from(data: tg::template::data::Component) -> tg::Result<Self, Self::Error> {
+		Ok(match data {
+			tg::template::data::Component::String(string) => Self::String(string),
+			tg::template::data::Component::Artifact(referent) => {
+				let artifact = tg::Artifact::with_referent(referent);
+				Self::Artifact(artifact)
+			},
+			tg::template::data::Component::Placeholder(data) => {
+				Self::Placeholder(tg::Placeholder::try_from_data(data)?)
+			},
+		})
+	}
+}
+
+impl std::fmt::Display for Template {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
+		printer.template(self)?;
+		Ok(())
+	}
+}
+
+impl From<tg::Directory> for Component {
+	fn from(value: tg::Directory) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::File> for Component {
+	fn from(value: tg::File) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+impl From<tg::Symlink> for Component {
+	fn from(value: tg::Symlink) -> Self {
+		Self::Artifact(value.into())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// Unrendering a store path back into a template splits it into the surrounding string and artifact components.
+	#[test]
+	fn unrender() {
+		let id = "dir_010000000000000000000000000000000000000000000000000000"
+			.parse()
+			.unwrap();
+		let string = format!("foo /path/to/.tangram/store/{id} bar");
+		let template = tg::Template::unrender("/path/to/.tangram/store", &string).unwrap();
+
+		let left = template.components().first().unwrap().unwrap_string_ref();
+		let right = "foo ";
+		assert_eq!(left, right);
+
+		let left = template
+			.components()
+			.get(1)
+			.unwrap()
+			.unwrap_artifact_ref()
+			.unwrap_directory_ref()
+			.state()
+			.try_get_id()
+			.unwrap()
+			.try_unwrap_directory()
+			.unwrap();
+		let right = id;
+		assert_eq!(left, right);
+
+		let left = template.components().get(2).unwrap().unwrap_string_ref();
+		let right = " bar";
+		assert_eq!(left, right);
+	}
+}

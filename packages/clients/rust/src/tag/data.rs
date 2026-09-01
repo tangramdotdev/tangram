@@ -39,3 +39,9 @@ impl From<tg::process::Id> for Target {
 		Self::Process(value)
 	}
 }
+
+impl std::fmt::Display for Data {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.specifier)
+	}
+}

@@ -542,7 +542,7 @@ impl<O: 'static> tg::Process<O> {
 		let handle = (output.lease.is_some() && wait.is_none())
 			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
 		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
-		let inner = Arc::new(super::Inner {
+		let inner = Arc::new(super::handle::Inner {
 			cached: Some(output.cached),
 			handle,
 			id: tg::Either::Right(id),
@@ -727,7 +727,7 @@ impl<O: 'static> tg::Process<O> {
 			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
 		});
 
-		let inner = Arc::new(super::Inner {
+		let inner = Arc::new(super::handle::Inner {
 			cached: Some(false),
 			handle: None,
 			id: tg::Either::Left(pid),

@@ -147,7 +147,7 @@ impl<'a> Visitor<'a> {
 						character: 0,
 					},
 				});
-				let location = Some(tg::module::location::Data {
+				let location = Some(tg::module::data::Location {
 					module: self.module.clone(),
 					range,
 				});
@@ -219,7 +219,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for Visitor<'a> {
 							character: 0,
 						},
 					});
-					Some(tg::module::location::Data {
+					Some(tg::module::data::Location {
 						module: self.module.clone(),
 						range,
 					})

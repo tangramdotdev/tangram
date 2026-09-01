@@ -1,6 +1,8 @@
-use {crate::prelude::*, std::path::PathBuf};
+use {self::handle::Error, crate::prelude::*, std::path::PathBuf};
 
-pub use self::{data::Error as Data, handle::Error, id::Id, object::Error as Object, trace::Trace};
+pub use self::{
+	data::Error as Data, handle::Error as Handle, id::Id, object::Error as Object, trace::Trace,
+};
 
 pub mod data;
 pub mod handle;

@@ -18,7 +18,7 @@ struct State {
 	fd: Option<Fd>,
 	input: Option<async_channel::Sender<Input>>,
 	position: u64,
-	process: Option<Weak<tg::process::Inner>>,
+	process: Option<Weak<tg::process::handle::Inner>>,
 	stream: Stream,
 	task: Option<Task<tg::Result<()>>>,
 }
@@ -56,7 +56,7 @@ impl Writer {
 		Self::new(None, stream)
 	}
 
-	pub(crate) fn set_process(&self, process: Weak<tg::process::Inner>) {
+	pub(in crate::process) fn set_process(&self, process: Weak<tg::process::handle::Inner>) {
 		self.0.try_lock().unwrap().process = Some(process);
 	}
 
@@ -228,7 +228,7 @@ impl std::fmt::Debug for Writer {
 }
 
 async fn ensure_process_with_handle<H>(
-	process: Option<Weak<tg::process::Inner>>,
+	process: Option<Weak<tg::process::handle::Inner>>,
 	handle: &H,
 ) -> tg::Result<(
 	Option<tg::location::Arg>,
@@ -241,7 +241,7 @@ where
 	let process = process
 		.and_then(|process| process.upgrade())
 		.ok_or_else(|| tg::error!("the process is not available"))?;
-	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
+	let handle_process = crate::process::handle::Process::<tg::Value>(process.clone(), PhantomData);
 	handle_process.ensure_location_with_handle(handle).await?;
 	let location = process.location.read().unwrap().clone();
 	let tokens = process.tokens.read().unwrap().clone();

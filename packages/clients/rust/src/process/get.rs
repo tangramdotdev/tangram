@@ -106,13 +106,14 @@ impl<O> tg::Process<O> {
 			return Ok(None);
 		};
 		if let Some(location) = &output.location {
-			self.location
+			self.0
+				.location
 				.write()
 				.unwrap()
 				.replace(location.clone().into());
 		}
 		if !output.tokens.is_empty() {
-			*self.tokens.write().unwrap() = output.tokens.clone();
+			*self.0.tokens.write().unwrap() = output.tokens.clone();
 		}
 
 		Ok(Some(output))

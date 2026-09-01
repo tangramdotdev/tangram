@@ -25,7 +25,7 @@ pub fn convert_diagnostic(
 					character: 0,
 				},
 			});
-	let location = Some(tg::module::location::Data {
+	let location = Some(tg::module::data::Location {
 		module: module.without_token(),
 		range,
 	});

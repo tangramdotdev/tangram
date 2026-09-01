@@ -73,8 +73,8 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if let Some(task) = &self.task {
-			if let Some(stdio_task) = self.stdio_task.as_ref() {
+		if let Some(task) = &self.0.task {
+			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
 				stdio_task
 					.wait()
 					.await
@@ -92,9 +92,9 @@ impl<O> tg::Process<O> {
 			self.detach();
 			return Ok(wait);
 		}
-		let wait = self.wait.lock().unwrap().take();
+		let wait = self.0.wait.lock().unwrap().take();
 		if let Some(wait) = wait {
-			if let Some(stdio_task) = self.stdio_task.as_ref() {
+			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
 				stdio_task
 					.wait()
 					.await
@@ -119,7 +119,7 @@ impl<O> tg::Process<O> {
 			tokens: self.tokens(),
 		};
 		let mut future = handle.wait_process_future(id, arg.clone()).await?;
-		if let Some(stdio_task) = self.stdio_task.as_ref() {
+		if let Some(stdio_task) = self.0.stdio_task.as_ref() {
 			stdio_task
 				.wait()
 				.await
