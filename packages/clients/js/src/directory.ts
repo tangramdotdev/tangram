@@ -343,13 +343,13 @@ export class Directory {
 				}
 			} else {
 				for (let child of node.children) {
-					let childDir = await Directory.resolveEdgeInGraph(
+					let childDirectory = await Directory.resolveEdgeInGraph(
 						child.directory,
 						graph,
 					);
-					childDir.state.inheritLocation(this.#state.location);
-					childDir.state.inheritTokens(this.#state.tokens);
-					for await (let entry of childDir) {
+					childDirectory.state.inheritLocation(this.#state.location);
+					childDirectory.state.inheritTokens(this.#state.tokens);
+					for await (let entry of childDirectory) {
 						yield entry;
 					}
 				}
@@ -374,10 +374,10 @@ export class Directory {
 			}
 		} else {
 			for (let child of object.children) {
-				let childDir = await Directory.resolveEdge(child.directory);
-				childDir.state.inheritLocation(this.#state.location);
-				childDir.state.inheritTokens(this.#state.tokens);
-				for await (let entry of childDir) {
+				let childDirectory = await Directory.resolveEdge(child.directory);
+				childDirectory.state.inheritLocation(this.#state.location);
+				childDirectory.state.inheritTokens(this.#state.tokens);
+				for await (let entry of childDirectory) {
 					yield entry;
 				}
 			}

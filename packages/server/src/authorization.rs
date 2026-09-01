@@ -163,6 +163,20 @@ impl Session {
 		if index_args.is_empty() {
 			return Ok(outputs);
 		}
+		for arg in &index_args {
+			let token_resource = arg
+				.token
+				.as_ref()
+				.map(|body| body.resource.to_string())
+				.unwrap_or_default();
+			crate::checkpoint!(
+				self.server,
+				"authorization.index",
+				resource = %arg.resource,
+				token_resource,
+			)
+			.await;
+		}
 
 		// Run at most one authorization search at a time while indexing catches up.
 		let authorization = &self.server.config.authorization;

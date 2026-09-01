@@ -316,12 +316,12 @@ impl Directory {
 			tg::graph::Directory::Branch(branch) => {
 				let mut entries = BTreeMap::new();
 				for child in &branch.children {
-					let child_dir =
+					let child_directory =
 						Self::resolve_directory_edge(handle, &child.directory, graph.clone())
 							.await?;
-					child_dir.state().inherit_location(location.as_ref());
-					child_dir.state().inherit_tokens(&tokens);
-					let child_entries = child_dir.entries_with_handle(handle).await?;
+					child_directory.state().inherit_location(location.as_ref());
+					child_directory.state().inherit_tokens(&tokens);
+					let child_entries = child_directory.entries_with_handle(handle).await?;
 					entries.extend(child_entries);
 				}
 				Ok(entries)
@@ -438,17 +438,28 @@ impl Directory {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?;
+				let location = graph.state().location();
+				let tokens = graph.state().tokens();
 				Box::pin(Self::get_entry_from_graph_directory(
 					handle,
 					directory,
 					name,
 					Some(graph.clone()),
+					location.as_ref(),
+					&tokens,
 				))
 				.await?
 			},
 			Object::Node(node) => {
+				let location = self.state.location();
+				let tokens = self.state.tokens();
 				Box::pin(Self::get_entry_from_graph_directory(
-					handle, node, name, None,
+					handle,
+					node,
+					name,
+					None,
+					location.as_ref(),
+					&tokens,
 				))
 				.await?
 			},
@@ -461,6 +472,8 @@ impl Directory {
 		directory: &tg::graph::Directory,
 		name: &str,
 		graph: Option<tg::Graph>,
+		location: Option<&tg::Location>,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>>
 	where
 		H: tg::Handle,
@@ -474,6 +487,8 @@ impl Directory {
 						.clone()
 						.or(graph)
 						.ok_or_else(|| tg::error!("missing graph"))?;
+					graph.state().inherit_location(location);
+					graph.state().inherit_tokens(tokens);
 					Ok(Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
 						graph: Some(graph),
 						index: pointer.index,
@@ -481,6 +496,8 @@ impl Directory {
 					})))
 				},
 				Some(tg::graph::Edge::Object(object)) => {
+					object.inherit_location(location);
+					object.inherit_tokens(tokens);
 					Ok(Some(tg::graph::Edge::Object(object.clone())))
 				},
 			},
@@ -493,9 +510,13 @@ impl Directory {
 					return Ok(None);
 				};
 				let child = &branch.children[index];
-				let child_dir =
+				let child_directory =
 					Self::resolve_directory_edge(handle, &child.directory, graph).await?;
-				child_dir.try_get_entry_edge_with_handle(handle, name).await
+				child_directory.state().inherit_location(location);
+				child_directory.state().inherit_tokens(tokens);
+				child_directory
+					.try_get_entry_edge_with_handle(handle, name)
+					.await
 			},
 		}
 	}
@@ -638,6 +659,8 @@ impl Directory {
 			parents.push(directory.clone());
 			edge = entry_edge.clone();
 			artifact = tg::Artifact::with_edge(entry_edge);
+			artifact.inherit_location(directory.state().location().as_ref());
+			artifact.inherit_tokens(&directory.state().tokens());
 
 			// Handle a symlink.
 			if let tg::Artifact::Symlink(symlink) = &artifact {

@@ -104,9 +104,9 @@ impl Session {
 					tg::module::Kind::Command => "Command",
 					_ => unreachable!(),
 				};
-				let inherit_token = options.tokens.local().map_or_else(String::new, |token| {
+				let inherit_tokens = options.tokens.local().map_or_else(String::new, |token| {
 					let token = serde_json::to_string(&token.to_string()).unwrap();
-					format!("tg.Object.inheritToken(object, {token});")
+					format!("tg.Object.inheritTokens(object, {{ local: {token} }});")
 				});
 				let text = match source {
 					tg::module::data::Source::Edge(edge) => match edge {
@@ -115,7 +115,7 @@ impl Session {
 								r#"
 										// @ts-nocheck
 										const object = tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}"));
-										{inherit_token}
+										{inherit_tokens}
 										export default object as tg.{class};
 									"#
 							)
@@ -125,7 +125,7 @@ impl Session {
 								r#"
 										// @ts-nocheck
 										const object = tg.{class}.withId("{object}");
-										{inherit_token}
+										{inherit_tokens}
 										export default object as tg.{class};
 									"#
 							)

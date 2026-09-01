@@ -57,7 +57,16 @@ impl Session {
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
 					tg::object::Kind::File => {
 						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
-						let artifact = tg::Artifact::with_edge(edge);
+						let artifact = match edge {
+							tg::graph::Edge::Object(artifact) => artifact,
+							tg::graph::Edge::Pointer(pointer) => {
+								let graph = pointer.graph.as_ref().ok_or_else(|| {
+									tg::error!("the module pointer is missing a graph")
+								})?;
+								graph.state().set_tokens(referent.options.tokens.clone());
+								tg::Artifact::with_pointer(pointer)
+							},
+						};
 						artifact.state().set_tokens(referent.options.tokens.clone());
 						let file = artifact
 							.clone()
@@ -134,33 +143,77 @@ impl Session {
 		referrer: &tg::Referent<&tg::graph::data::Edge<tg::object::Id>>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
+		// Create the referrer file and its authorization object.
 		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.node.clone())?;
-		let artifact = tg::Artifact::with_edge(edge);
+		let (artifact, authorization): (tg::Artifact, tg::Object) = match edge {
+			tg::graph::Edge::Object(artifact) => {
+				let authorization = artifact.clone().into();
+				(artifact, authorization)
+			},
+			tg::graph::Edge::Pointer(pointer) => {
+				let authorization = pointer
+					.graph
+					.clone()
+					.map(Into::into)
+					.ok_or_else(|| tg::error!("the module pointer is missing a graph"))?;
+				let artifact = tg::Artifact::with_pointer(pointer);
+				(artifact, authorization)
+			},
+		};
 		artifact.state().set_tokens(referrer.options.tokens.clone());
+		authorization
+			.state()
+			.set_tokens(referrer.options.tokens.clone());
 		let file =
 			artifact.clone().try_unwrap_file().ok().ok_or_else(
 				|| tg::error!(referrer = %referrer.node, "the referrer must be a file"),
 			)?;
-		let dependency = file
+
+		// Get the dependency edge and the refreshed authorization token.
+		let mut dependency = file
 			.get_dependency_edge_with_handle(self, &import.reference)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the dependency edge"))?;
+		let authorization = authorization.to_referent();
 
+		// Create and attach an exact token for the dependency edge.
 		let edge = dependency
 			.0
 			.node
-			.as_ref()
+			.clone()
 			.ok_or_else(|| tg::error!("dependency has no resolved node"))?;
-		let object = edge.try_unwrap_object_ref().map_or_else(
-			|_| {
-				let pointer = edge
-					.try_unwrap_pointer_ref()
-					.map_err(|_| tg::error!("dependency has no resolved node"))?;
-				Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer.clone()).into())
+		let resource = match &edge {
+			tg::graph::Edge::Object(object) => object.id().into(),
+			tg::graph::Edge::Pointer(pointer) => pointer
+				.graph
+				.as_ref()
+				.map(tg::Graph::id)
+				.map(Into::into)
+				.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?,
+		};
+		if let Some(token) = self.create_module_resolution_token(resource, &authorization)? {
+			dependency.0.options.tokens.set_local(token);
+		}
+		let object = match edge {
+			tg::graph::Edge::Object(object) => {
+				object.state().inherit_tokens(&dependency.0.options.tokens);
+				object
 			},
-			|object| Ok(object.clone()),
-		)?;
+			tg::graph::Edge::Pointer(pointer) => {
+				let graph = pointer
+					.graph
+					.as_ref()
+					.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?;
+				graph.state().inherit_tokens(&dependency.0.options.tokens);
+				let artifact = tg::Artifact::with_pointer(pointer);
+				artifact
+					.state()
+					.inherit_tokens(&dependency.0.options.tokens);
+				artifact.into()
+			},
+		};
 
+		// Resolve the dependency edge to a module referent.
 		let referent = match (import.kind, &object) {
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
@@ -284,10 +337,67 @@ impl Session {
 			},
 		};
 
+		// Create the output referent and attach its exact token.
 		let mut referent = referent.map(|edge| tg::module::data::Source::Edge(edge.to_data()));
 		referent.inherit(referrer);
+		self.add_token_to_resolved_module_referent(&mut referent, &authorization)?;
 
 		Ok(referent)
+	}
+
+	fn add_token_to_resolved_module_referent(
+		&self,
+		referent: &mut tg::Referent<tg::module::data::Source>,
+		authorization: &tg::Referent<tg::object::Id>,
+	) -> tg::Result<()> {
+		let tg::module::data::Source::Edge(edge) = &referent.node else {
+			return Ok(());
+		};
+		let resource = match edge {
+			tg::graph::data::Edge::Object(object) => object.clone().into(),
+			tg::graph::data::Edge::Pointer(pointer) => pointer
+				.graph
+				.clone()
+				.map(Into::into)
+				.ok_or_else(|| tg::error!("the resolved module pointer is missing a graph"))?,
+		};
+		let token = self.create_module_resolution_token(resource, authorization)?;
+		if let Some(token) = token {
+			referent.options.tokens.set_local(token);
+		}
+
+		Ok(())
+	}
+
+	fn create_module_resolution_token(
+		&self,
+		resource: tg::Id,
+		authorization: &tg::Referent<tg::object::Id>,
+	) -> tg::Result<Option<tg::authorization::Token>> {
+		let Some(authorization_token) = authorization.tokens().local() else {
+			return Ok(None);
+		};
+		let authorization_resource: tg::Id = authorization.node.clone().into();
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		if authorization_token.body.resource != authorization_resource
+			|| !self.verify_token(authorization_token)
+			|| !authorization_token.body.grants(permission)
+		{
+			return Ok(None);
+		}
+		let token = if authorization_token.body.resource == resource {
+			Some(authorization_token.clone())
+		} else {
+			self.create_token(
+				resource,
+				vec![permission],
+				authorization_token.body.expires_at,
+			)?
+		};
+
+		Ok(token)
 	}
 
 	async fn resolve_module_with_path_referrer(
