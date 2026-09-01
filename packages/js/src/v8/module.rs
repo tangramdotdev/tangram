@@ -68,6 +68,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 				return None;
 			},
 		};
+		let module = state
+			.modules
+			.borrow()
+			.iter()
+			.find(|entry| entry.data.has_same_identity(&module))
+			.map_or(module, |entry| entry.data.clone());
 		Some(module)
 	};
 
@@ -109,9 +115,19 @@ pub fn host_import_module_dynamically_callback<'s>(
 			let Serde(module) = Serde::<tg::module::Data>::deserialize(scope, value).unwrap();
 
 			// Check if the module already exists.
-			let index = state.modules.borrow().iter().position(|m| m.data == module);
+			let index = state
+				.modules
+				.borrow()
+				.iter()
+				.position(|entry| entry.data.has_same_identity(&module));
 
 			if let Some(index) = index {
+				state.modules.borrow_mut()[index]
+					.data
+					.referent
+					.options
+					.tokens
+					.clone_from(&module.referent.options.tokens);
 				let index = v8::Integer::new(scope, index.to_i32().unwrap());
 				return_value.set(index.into());
 			} else {
@@ -259,14 +275,24 @@ fn resolve_module_callback<'s>(
 	let module = resolve_module_sync(scope, &module, &import)?;
 
 	// Get the module if it already exists. Otherwise, load and compile it.
-	let option = state
+	let index = state
 		.modules
 		.borrow()
 		.iter()
-		.find(|m| m.data == module)
-		.cloned();
-	let module = if let Some(module) = option {
-		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
+		.position(|entry| entry.data.has_same_identity(&module));
+	let module = if let Some(index) = index {
+		let v8_module = {
+			let mut modules = state.modules.borrow_mut();
+			let entry = &mut modules[index];
+			entry
+				.data
+				.referent
+				.options
+				.tokens
+				.clone_from(&module.referent.options.tokens);
+			entry.v8.as_ref().unwrap().clone()
+		};
+		let module = v8::Local::new(scope, v8_module);
 		Some(module)
 	} else {
 		// Load the module.
@@ -398,7 +424,9 @@ fn compile_module<'s>(
 	};
 
 	// Define the module's origin.
-	let resource_name = v8::String::new(scope, &module.to_string()).unwrap().into();
+	let resource_name = v8::String::new(scope, &module.without_token().to_string())
+		.unwrap()
+		.into();
 	let resource_line_offset = 0;
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;

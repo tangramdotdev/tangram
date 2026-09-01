@@ -351,7 +351,9 @@ fn get_location(
 	// Get the module.
 	let module_data = file_name.parse().ok()?;
 	let modules = state.modules.borrow();
-	let module = modules.iter().find(|module| module.data == module_data)?;
+	let module = modules
+		.iter()
+		.find(|module| module.data.has_same_identity(&module_data))?;
 
 	// Get the source.
 	let source = tg::error::data::File::Module(module.data.without_token());

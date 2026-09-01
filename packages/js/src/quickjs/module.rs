@@ -23,10 +23,16 @@ impl qjs::loader::Resolver for Resolver {
 		let referrer = if base == "main" {
 			None
 		} else {
-			Some(
-				base.parse::<tg::module::Data>()
-					.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?,
-			)
+			let module = base
+				.parse::<tg::module::Data>()
+				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+			let module = state
+				.modules
+				.borrow()
+				.iter()
+				.find(|entry| entry.module.has_same_identity(&module))
+				.map_or(module, |entry| entry.module.clone());
+			Some(module)
 		};
 
 		// Parse the import attributes.
@@ -69,8 +75,27 @@ impl qjs::loader::Resolver for Resolver {
 			.recv()
 			.unwrap()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+		let name = module.without_token().to_string();
+		let index = state
+			.modules
+			.borrow()
+			.iter()
+			.position(|entry| entry.module.has_same_identity(&module));
+		if let Some(index) = index {
+			state.modules.borrow_mut()[index]
+				.module
+				.referent
+				.options
+				.tokens
+				.clone_from(&module.referent.options.tokens);
+		} else {
+			state.modules.borrow_mut().push(Module {
+				module,
+				source_map: None,
+			});
+		}
 
-		Ok(module.to_string())
+		Ok(name)
 	}
 }
 
@@ -85,9 +110,15 @@ impl qjs::loader::Loader for Loader {
 	) -> qjs::Result<qjs::Module<'js>> {
 		let state = ctx.userdata::<StateHandle>().unwrap().clone();
 
-		let module_data = name
+		let module = name
 			.parse::<tg::module::Data>()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+		let module_data = state
+			.modules
+			.borrow()
+			.iter()
+			.find(|entry| entry.module.has_same_identity(&module))
+			.map_or(module, |entry| entry.module.clone());
 
 		// Load the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
@@ -117,20 +148,25 @@ impl qjs::loader::Loader for Loader {
 		let source_map = SourceMap::from_slice(output.source_map.as_bytes()).ok();
 
 		// Register the module.
-		state.modules.borrow_mut().push(Module {
-			module: module_data,
-			source_map,
-		});
+		let index = state
+			.modules
+			.borrow()
+			.iter()
+			.position(|entry| entry.module.has_same_identity(&module_data));
+		if let Some(index) = index {
+			state.modules.borrow_mut()[index].source_map = source_map;
+		} else {
+			state.modules.borrow_mut().push(Module {
+				module: module_data.clone(),
+				source_map,
+			});
+		}
 
 		// Compile the module. Use the module name as the identifier.
 		let module = qjs::Module::declare(ctx.clone(), name, output.text)?;
 
 		// Set import.meta.module.
-		let Module {
-			module: module_data,
-			..
-		} = &state.modules.borrow()[state.modules.borrow().len() - 1];
-		let module_value = Serde(module_data)
+		let module_value = Serde(&module_data)
 			.into_js(ctx)
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 		let globals = ctx.globals();

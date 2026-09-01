@@ -113,17 +113,18 @@ pub fn magic<'js>(
 	let module = file_name
 		.as_deref()
 		.and_then(|file_name| {
-			file_name.parse::<tg::module::Data>().ok().or_else(|| {
-				let modules = state.modules.borrow();
-				modules.iter().find_map(|module_info| {
-					let name = module_info.module.to_string();
-					if file_name == name || file_name.contains(&name) {
-						Some(module_info.module.clone())
-					} else {
-						None
-					}
+			let modules = state.modules.borrow();
+			if let Ok(module) = file_name.parse::<tg::module::Data>() {
+				modules
+					.iter()
+					.find(|entry| entry.module.has_same_identity(&module))
+					.map_or(Some(module), |entry| Some(entry.module.clone()))
+			} else {
+				modules.iter().find_map(|entry| {
+					let name = entry.module.without_token().to_string();
+					(file_name == name || file_name.contains(&name)).then(|| entry.module.clone())
 				})
-			})
+			}
 		})
 		.ok_or_else(|| tg::error!("failed to find the module for the function"));
 	let module = match module {

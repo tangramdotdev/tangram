@@ -102,6 +102,11 @@ impl Module {
 
 impl Module {
 	#[must_use]
+	pub fn has_same_identity(&self, other: &Self) -> bool {
+		self.without_token() == other.without_token()
+	}
+
+	#[must_use]
 	pub fn to_uri(&self) -> Uri {
 		let path = self.referent.node.to_string();
 		let mut builder = Uri::builder().path(&path);
