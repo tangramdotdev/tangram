@@ -93,7 +93,7 @@ pub struct ObjectNode {
 impl Session {
 	pub(super) async fn sync_get_checkout(
 		&self,
-		graph: Arc<Mutex<super::super::graph::Graph>>,
+		sync_state: Arc<super::State>,
 		receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 		store_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
 	) -> tg::Result<()> {
@@ -103,7 +103,7 @@ impl Session {
 		let mut state = State {
 			blobs: HashMap::new(),
 			files: HashMap::new(),
-			graph,
+			graph: sync_state.graph.clone(),
 			loads: VecDeque::new(),
 			paths: HashSet::new(),
 			queued_loads: HashMap::new(),
@@ -117,6 +117,9 @@ impl Session {
 		while let Some(node) = state.receiver.recv().await {
 			self.sync_get_checkout_handle_node(&mut state, node).await?;
 			self.sync_get_checkout_process_pending(&mut state).await?;
+			if state.graph.lock().unwrap().end_local() {
+				sync_state.queue.close();
+			}
 		}
 
 		// Reconcile targets which were added to the graph after their shared blob arrived.

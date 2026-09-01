@@ -180,7 +180,7 @@ impl Session {
 		// Create the checkout future.
 		let checkout_future = self
 			.sync_get_checkout(
-				state.graph.clone(),
+				state.clone(),
 				checkout_receiver,
 				store_object_sender.clone(),
 			)
