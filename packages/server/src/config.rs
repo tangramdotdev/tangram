@@ -656,6 +656,10 @@ pub struct ObjectCache {
 pub struct ObjectArchiveOutbox {
 	pub batch_size: usize,
 
+	pub dequeue_window: Option<Duration>,
+
+	pub full_scan_interval: Duration,
+
 	pub partition_total: u64,
 
 	pub retry: Retry,
@@ -667,7 +671,11 @@ pub struct ObjectArchiveOutbox {
 pub struct ObjectIndexOutbox {
 	pub batch_size: usize,
 
+	pub dequeue_window: Option<Duration>,
+
 	pub fragment_size: usize,
+
+	pub full_scan_interval: Duration,
 
 	pub partition_total: u64,
 
@@ -1672,6 +1680,8 @@ impl Default for ObjectArchiveOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
+			dequeue_window: None,
+			full_scan_interval: Duration::from_mins(1),
 			partition_total: 1,
 			retry: object_outbox_retry_default(),
 			wakeup_interval: Duration::from_mins(1),
@@ -1683,7 +1693,9 @@ impl Default for ObjectIndexOutbox {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
+			dequeue_window: None,
 			fragment_size: 1024,
+			full_scan_interval: Duration::from_mins(1),
 			partition_total: 1,
 			retry: object_outbox_retry_default(),
 			wakeup_interval: Duration::from_mins(1),

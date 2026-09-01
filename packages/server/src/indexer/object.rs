@@ -8,6 +8,18 @@ mod index;
 
 pub(crate) use {archive::object_archive_outbox_subject, index::object_index_outbox_subject};
 
+// The lexicographic supremum of every UUIDv7 minted at or before now minus the window.
+fn dequeue_bound(window: std::time::Duration) -> [u8; 16] {
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.unwrap_or_default()
+		.as_millis();
+	let ms = u64::try_from(now.saturating_sub(window.as_millis())).unwrap_or(u64::MAX);
+	let mut bound = [0xFF; 16];
+	bound[..6].copy_from_slice(&ms.to_be_bytes()[2..8]);
+	bound
+}
+
 impl Indexer {
 	async fn wait_for_object_put(
 		&self,

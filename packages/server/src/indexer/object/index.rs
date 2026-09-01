@@ -74,8 +74,13 @@ impl Indexer {
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
 		let mut cursor = None;
+		let mut last_full_scan = std::time::Instant::now();
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
+			if last_full_scan.elapsed() >= outbox.full_scan_interval {
+				cursor = None;
+				last_full_scan = std::time::Instant::now();
+			}
 			let (count, next) = self
 				.object_index_outbox_batch(outbox, partition, cursor)
 				.await?;
@@ -92,9 +97,11 @@ impl Indexer {
 		partition: u64,
 		cursor: Option<([u8; 16], u64)>,
 	) -> tg::Result<(usize, Option<([u8; 16], u64)>)> {
-		// Dequeue a batch after the cursor.
+		// Dequeue a batch after the cursor, bounded above by the dequeue window.
+		let bound = outbox.dequeue_window.map(super::dequeue_bound);
 		let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
 			batch_size: outbox.batch_size,
+			bound,
 			cursor,
 			partition_end: partition + 1,
 			partition_start: partition,
@@ -115,6 +122,7 @@ impl Indexer {
 		if fragments.is_empty() && cursor.is_some() {
 			let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
 				batch_size: outbox.batch_size,
+				bound,
 				cursor: None,
 				partition_end: partition + 1,
 				partition_start: partition,
