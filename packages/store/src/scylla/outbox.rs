@@ -64,7 +64,16 @@ impl Store {
 			.batch_size
 			.to_i32()
 			.ok_or_else(|| tg::error!("the object index outbox batch size exceeded an i32"))?;
-		let params = (&partitions, limit);
+		let (batch_cursor, fragment_cursor) = match &arg.cursor {
+			Some((batch, fragment)) => (
+				batch.as_slice(),
+				fragment.to_i64().ok_or_else(|| {
+					tg::error!("the object index outbox fragment cursor exceeded an i64")
+				})?,
+			),
+			None => (&[][..], 0),
+		};
+		let params = (&partitions, batch_cursor, fragment_cursor, limit);
 		let result = self
 			.session
 			.execute_unpaged(

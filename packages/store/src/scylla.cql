@@ -18,7 +18,7 @@ create table if not exists object_archive_outbox (
 	partition bigint,
 	put blob,
 	primary key ((partition), put)
-) with clustering order by (put asc);
+) with clustering order by (put asc) and tombstone_gc = {'mode': 'immediate'} and compaction = {'class': 'IncrementalCompactionStrategy'};
 
 create table if not exists object_index_outbox (
 	"batch" blob,
@@ -26,7 +26,7 @@ create table if not exists object_index_outbox (
 	partition bigint,
 	payload blob,
 	primary key ((partition), "batch", fragment)
-) with clustering order by ("batch" asc, fragment asc);
+) with clustering order by ("batch" asc, fragment asc) and tombstone_gc = {'mode': 'immediate'} and compaction = {'class': 'IncrementalCompactionStrategy'};
 
 create table if not exists logs (
 	process blob,

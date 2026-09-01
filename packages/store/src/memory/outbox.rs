@@ -33,8 +33,9 @@ impl Store {
 		let fragments = state
 			.object_index_outbox
 			.iter()
-			.filter(|((partition, _, _), _)| {
+			.filter(|((partition, batch, index), _)| {
 				(arg.partition_start..arg.partition_end).contains(partition)
+					&& arg.cursor.is_none_or(|cursor| (*batch, *index) > cursor)
 			})
 			.take(arg.batch_size)
 			.map(|((partition, batch, index), payload)| fragment::Fragment {
@@ -107,6 +108,7 @@ mod tests {
 
 		let fragments = store
 			.dequeue_object_index_outbox_fragments(fragment::dequeue::Arg {
+				cursor: None,
 				batch_size: 1,
 				partition_end: 1,
 				partition_start: 0,
@@ -127,6 +129,7 @@ mod tests {
 		assert_eq!(target, second);
 		let fragments = store
 			.dequeue_object_index_outbox_fragments(fragment::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,

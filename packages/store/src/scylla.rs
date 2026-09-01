@@ -283,6 +283,7 @@ impl Store {
 				select object, partition, put
 				from object_archive_outbox
 				where partition in ?
+				and put > ?
 				limit ?;
 			"
 		);
@@ -336,6 +337,7 @@ impl Store {
 				select "batch", fragment, partition, payload
 				from object_index_outbox
 				where partition in ?
+				and ("batch", fragment) > (?, ?)
 				limit ?;
 			"#
 		);

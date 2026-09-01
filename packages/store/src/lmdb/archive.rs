@@ -81,9 +81,12 @@ impl Store {
 						tg::error!(!error, "failed to unpack an object archive outbox key")
 					})?;
 				let id = tg::object::Id::from_slice(value)?;
-				let put = put
+				let put: [u8; 16] = put
 					.try_into()
 					.map_err(|_| tg::error!("invalid object archive outbox put"))?;
+				if arg.cursor.is_some_and(|cursor| put <= cursor) {
+					continue;
+				}
 				entries.push(outbox::Entry { id, partition, put });
 			}
 		}
@@ -155,6 +158,7 @@ mod tests {
 		let store = store(temp.path());
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,
@@ -170,6 +174,7 @@ mod tests {
 			.unwrap();
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,
@@ -185,6 +190,7 @@ mod tests {
 			.unwrap();
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,

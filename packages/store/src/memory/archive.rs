@@ -17,8 +17,9 @@ impl Store {
 		let entries = state
 			.object_archive_outbox
 			.iter()
-			.filter(|((partition, _), _)| {
+			.filter(|((partition, put), _)| {
 				(arg.partition_start..arg.partition_end).contains(partition)
+					&& arg.cursor.is_none_or(|cursor| *put > cursor)
 			})
 			.take(arg.batch_size)
 			.map(|((partition, put), id)| outbox::Entry {
@@ -69,6 +70,7 @@ mod tests {
 
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 1,
 				partition_start: 0,
@@ -81,6 +83,7 @@ mod tests {
 		});
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,
@@ -93,6 +96,7 @@ mod tests {
 		});
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,

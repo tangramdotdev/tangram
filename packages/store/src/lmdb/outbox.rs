@@ -88,6 +88,9 @@ impl Store {
 					tg::error!(!error, "failed to get an object index outbox fragment")
 				})?;
 				let (partition, batch, index) = unpack_key(key)?;
+				if arg.cursor.is_some_and(|cursor| (batch, index) <= cursor) {
+					continue;
+				}
 				fragments.push(fragment::Fragment {
 					batch: batch::Id::new(batch),
 					index: fragment::Index::new(index),
@@ -278,6 +281,7 @@ mod tests {
 		);
 		let fragments = store
 			.dequeue_object_index_outbox_fragments(fragment::dequeue::Arg {
+				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
 				partition_start: 0,

@@ -40,7 +40,8 @@ impl Store {
 			.batch_size
 			.to_i32()
 			.ok_or_else(|| tg::error!("the object archive outbox batch size exceeded an i32"))?;
-		let params = (&partitions, limit);
+		let cursor = arg.cursor.as_ref().map_or(&[][..], |cursor| cursor.as_slice());
+		let params = (&partitions, cursor, limit);
 		let result = self
 			.session
 			.execute_unpaged(
