@@ -8,6 +8,9 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	/// List the grants on this resource.
@@ -39,7 +42,11 @@ impl Cli {
 					tg::error!("failed to find the resource")
 				}
 			})?;
-		self.print_serde(output, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 		Ok(())
 	}
 }

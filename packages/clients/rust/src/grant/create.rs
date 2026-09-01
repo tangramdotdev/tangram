@@ -13,8 +13,16 @@ pub struct Arg {
 	pub subject: tg::authorization::subject::Selector,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Output {
+	pub data: tg::grant::Data,
+}
+
 impl tg::Session {
-	pub async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
+	pub async fn create_grant(
+		&self,
+		arg: tg::grant::create::Arg,
+	) -> tg::Result<tg::grant::create::Output> {
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
 			.uri("/grants")

@@ -9,8 +9,10 @@ use {
 pub struct Arg {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
 	pub data: Vec<Item>,
 }
 

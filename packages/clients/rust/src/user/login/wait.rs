@@ -14,8 +14,11 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
 	pub token: String,
-	pub user: tg::User,
+	pub user: tg::user::Data,
 }
 
 impl tg::Session {

@@ -77,12 +77,16 @@ impl Session {
 				async move { Self::try_get_group_with_transaction(transaction, &id).await }.boxed()
 			})
 			.await?;
-		let Some(mut group) = group else {
+		let Some(data) = group else {
 			return Ok(None);
 		};
-		group.tokens = tokens;
+		let output = tg::group::get::Output {
+			data,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			tokens,
+		};
 
-		Ok(Some(group))
+		Ok(Some(output))
 	}
 
 	async fn try_get_group_remote(
@@ -121,22 +125,22 @@ impl Session {
 			.await?
 		{
 			let mut output = response.output;
-			let valid = output.as_ref().is_none_or(|group| {
-				crate::remote::cache::token_valid(group.tokens.local(), &self.server.clock)
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
-				if let Some(group) = &mut output {
-					if !crate::remote::cache::token_valid(group.tokens.local(), &self.server.clock)
+				if let Some(output) = &mut output {
+					if !crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
 					{
-						group.tokens.remove_local();
+						output.tokens.remove_local();
 					}
 					self.update_tokens_and_location(
-						&mut group.tokens,
-						Some(&mut group.location),
+						&mut output.tokens,
+						Some(&mut output.location),
 						&location,
 						trusted,
 					)?;
-					group.tokens.inherit(&tokens);
+					output.tokens.inherit(&tokens);
 				}
 
 				return Ok(output);
@@ -157,14 +161,14 @@ impl Session {
 			self.put_cached_remote_response(&remote.name, &request, &response)
 				.await?;
 		}
-		if let Some(group) = &mut output {
+		if let Some(output) = &mut output {
 			self.update_tokens_and_location(
-				&mut group.tokens,
-				Some(&mut group.location),
+				&mut output.tokens,
+				Some(&mut output.location),
 				&location,
 				trusted,
 			)?;
-			group.tokens.inherit(&tokens);
+			output.tokens.inherit(&tokens);
 		}
 
 		Ok(output)

@@ -184,22 +184,24 @@ impl Session {
 		};
 		let location = self.server.location(arg.location.as_ref())?;
 		let data = arg.data.map(|data| tg::sandbox::get::Output {
-			cpu: data.arg.cpu,
-			creator: data.creator,
-			hostname: data.arg.hostname,
-			id: id.clone(),
-			isolation: data.arg.isolation,
+			data: tg::sandbox::Data {
+				cpu: data.arg.cpu,
+				creator: data.creator,
+				hostname: data.arg.hostname,
+				id: id.clone(),
+				isolation: data.arg.isolation,
+				memory: data.arg.memory,
+				mounts: data.arg.mounts,
+				network: data.arg.network,
+				owner: data.arg.owner,
+				status: tg::sandbox::Status::Started,
+				ttl: data.arg.ttl,
+				usage: None,
+			},
 			location: Some(location),
-			memory: data.arg.memory,
-			mounts: data.arg.mounts,
-			network: data.arg.network,
-			owner: data.arg.owner,
-			status: tg::sandbox::Status::Started,
 			tokens: tg::authorization::Tokens::default(),
-			ttl: data.arg.ttl,
-			usage: None,
 		});
-		let account = match data.as_ref().and_then(|data| data.owner.as_ref()) {
+		let account = match data.as_ref().and_then(|data| data.data.owner.as_ref()) {
 			Some(owner) => self.usage_account(owner).await?,
 			None => None,
 		};

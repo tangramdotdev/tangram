@@ -86,7 +86,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		if let Some(data) = self.server.runner.state().try_get_sandbox(id)
-			&& !data.status.is_destroyed()
+			&& !data.data.status.is_destroyed()
 		{
 			return Ok(Some(data));
 		}
@@ -101,12 +101,12 @@ impl Session {
 				if indexed
 					.data
 					.as_ref()
-					.is_some_and(|data| data.status.is_destroyed())
+					.is_some_and(|data| data.data.status.is_destroyed())
 				{
 					indexed.data.unwrap()
 				} else {
 					let data = control_future.await?;
-					if data.status.is_destroyed() {
+					if data.data.status.is_destroyed() {
 						let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
 							return Ok(None);
 						};
@@ -120,7 +120,7 @@ impl Session {
 			},
 			future::Either::Right((data, _)) => {
 				let data = data?;
-				if data.status.is_destroyed() {
+				if data.data.status.is_destroyed() {
 					let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
 						return Ok(None);
 					};

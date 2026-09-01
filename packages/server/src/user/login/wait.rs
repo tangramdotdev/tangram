@@ -30,12 +30,13 @@ impl Session {
 					code: arg.code,
 					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 				};
-				let output = client.wait_login(arg).await?;
+				let mut output = client.wait_login(arg).await?;
 				self.set_remote_token(&remote.name, output.token.clone())
 					.await
 					.map_err(
 						|error| tg::error!(!error, remote = %remote.name, "failed to save the remote login"),
 					)?;
+				output.location = Some(tg::Location::Remote(remote));
 				Ok(output)
 			},
 		}
@@ -137,7 +138,12 @@ impl Session {
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				}
 				.ok_or_else(|| tg::error!("missing login user"))?;
-				WaitLogin::Output(tg::user::login::wait::Output { token, user })
+				let location = Some(tg::Location::Local(tg::location::Local::default()));
+				WaitLogin::Output(tg::user::login::wait::Output {
+					location,
+					token,
+					user,
+				})
 			},
 			_ => return Err(tg::error!("invalid login status")),
 		};

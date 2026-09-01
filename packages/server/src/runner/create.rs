@@ -47,18 +47,18 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let runner = tg::runner::Data {
+		let data = tg::runner::Data {
 			created_at,
 			id: runner,
 			owner,
 		};
-		let data = tg::runner::token::Data {
+		let token = tg::runner::token::Data {
 			created_at,
 			id: token_id,
+			token: Some(token),
 		};
-		let token = tg::runner::token::create::Output { data, token };
 
-		Ok(tg::runner::create::Output { runner, token })
+		Ok(tg::runner::create::Output { data, token })
 	}
 
 	async fn create_runner_primary_region(

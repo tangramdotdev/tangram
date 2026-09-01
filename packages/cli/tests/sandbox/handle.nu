@@ -27,5 +27,5 @@ assert (($lines | get 1) == "world")
 let sandbox = $lines | get 2
 assert ($sandbox | str starts-with "sbx_")
 tg wait $sandbox
-let state = tg sandbox get $sandbox | from json
+let state = tg sandbox get $sandbox | from json | get data
 assert equal $state.status "destroyed" "the sandbox should be destroyed when its handle is disposed"

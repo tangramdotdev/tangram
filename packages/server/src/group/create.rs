@@ -131,7 +131,11 @@ impl Session {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let output = tg::group::create::Output { group };
+		let output = tg::group::create::Output {
+			data: group.data,
+			location: group.location,
+			tokens: group.tokens,
+		};
 
 		Ok(ControlFlow::Break(ControlFlow::Break(output)))
 	}
@@ -168,8 +172,8 @@ impl Session {
 		self.invalidate_remote_cache(&remote.name).await;
 		let location = tg::Location::Remote(remote);
 		self.update_tokens_and_location(
-			&mut output.group.tokens,
-			Some(&mut output.group.location),
+			&mut output.tokens,
+			Some(&mut output.location),
 			&location,
 			trusted,
 		)?;
@@ -182,7 +186,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::group::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<tg::Group, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<tg::group::create::Output, crate::database::Error>> {
 		let id = match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
 			.await?
 		{
@@ -196,10 +200,16 @@ impl Session {
 					ControlFlow::Break(group) => group,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
-				let mut group = group.ok_or_else(|| tg::error!("failed to find the group"))?;
+				let data = group.ok_or_else(|| tg::error!("failed to find the group"))?;
+				let mut tokens = tg::authorization::Tokens::default();
 				if let Some(token) = self.create_read_token(&id.clone().into())? {
-					group.tokens.set_local(token);
+					tokens.set_local(token);
 				}
+				let group = tg::group::create::Output {
+					data,
+					location: Some(tg::Location::Local(tg::location::Local::default())),
+					tokens,
+				};
 
 				return Ok(ControlFlow::Break(group));
 			}
@@ -228,10 +238,15 @@ impl Session {
 			ControlFlow::Break(group) => group,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		let mut group = group;
+		let mut tokens = tg::authorization::Tokens::default();
 		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
-			group.tokens.set_local(token);
+			tokens.set_local(token);
 		}
+		let group = tg::group::create::Output {
+			data: group,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			tokens,
+		};
 
 		Ok(ControlFlow::Break(group))
 	}
@@ -280,7 +295,7 @@ impl Session {
 		specifier: &tg::Specifier,
 		parent: Option<&tg::Id>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<tg::Group, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<tg::group::Data, crate::database::Error>> {
 		let id = tg::group::Id::new();
 		match Self::insert_specifier_with_transaction(transaction, &id.clone().into(), specifier)
 			.await?
@@ -337,13 +352,11 @@ impl Session {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		}
-		let group = tg::Group {
+		let group = tg::group::Data {
 			id,
-			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name,
 			parent: parent.cloned(),
 			specifier: specifier.clone(),
-			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(ControlFlow::Break(group))

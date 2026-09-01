@@ -347,12 +347,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		await this.load();
 	}
 
-	async #getSandbox(): Promise<tg.Sandbox.Get.Output | null> {
+	async #getSandbox(): Promise<tg.Sandbox.Data | null> {
 		if (typeof this.#id === "number") {
 			return null;
 		}
 		await this.load();
-		return await tg.client.getSandbox(this.#state!.sandbox);
+		let output = await tg.client.getSandbox(this.#state!.sandbox);
+		return output.data;
 	}
 
 	/** Get this process's ID. */

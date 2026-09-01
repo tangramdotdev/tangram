@@ -25,13 +25,13 @@ impl Cli {
 			resource: args.resource.clone(),
 			subject: args.subject.clone(),
 		};
-		let grant = client
+		let output = client
 			.create_grant(arg)
 			.await
 			.map_err(
 				|error| tg::error!(!error, resource = %args.resource, subject = %args.subject, "failed to create the grant"),
 			)?;
-		self.print_serde(grant, args.print).await?;
+		self.print_serde(output.data, args.print).await?;
 		Ok(())
 	}
 }

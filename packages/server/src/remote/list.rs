@@ -68,14 +68,14 @@ impl Session {
 			.await?;
 		let data = rows
 			.into_iter()
-			.map(|row| tg::remote::get::Output {
+			.map(|row| tg::remote::Data {
 				name: row.name,
 				token: None,
 				trusted: row.trusted,
 				url: row.url,
 			})
 			.collect();
-		let output = tg::remote::list::Output { data };
+		let output = tg::remote::list::Output { cursor: None, data };
 		Ok(output)
 	}
 
@@ -110,7 +110,10 @@ impl Session {
 			.then(|| self.server.config.runner.remote.as_deref())
 			.flatten()
 		else {
-			return Ok(tg::remote::list::Output { data: Vec::new() });
+			return Ok(tg::remote::list::Output {
+				cursor: None,
+				data: Vec::new(),
+			});
 		};
 		let remote = remote.to_owned();
 		let rows = self
@@ -124,14 +127,14 @@ impl Session {
 			.await?;
 		let data = rows
 			.into_iter()
-			.map(|row| tg::remote::get::Output {
+			.map(|row| tg::remote::Data {
 				name: row.name,
 				token: None,
 				trusted: row.trusted,
 				url: row.url,
 			})
 			.collect();
-		let output = tg::remote::list::Output { data };
+		let output = tg::remote::list::Output { cursor: None, data };
 		Ok(output)
 	}
 

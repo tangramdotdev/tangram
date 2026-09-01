@@ -23,5 +23,13 @@ export async function createSandbox(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return await response.json<tg.Sandbox.Create.Output>();
+	let output = await response.json<
+		Omit<tg.Sandbox.Create.Output, "location"> & {
+			location?: string | tg.Location | null;
+		}
+	>();
+	if (typeof output.location === "string") {
+		output.location = tg.Location.fromDataString(output.location);
+	}
+	return output as tg.Sandbox.Create.Output;
 }

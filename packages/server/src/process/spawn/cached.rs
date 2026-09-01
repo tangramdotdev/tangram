@@ -306,6 +306,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, %sandbox, "failed to get the sandbox"))?
 					.data
 					.ok_or_else(|| tg::error!(%sandbox, "missing the sandbox data"))?
+					.data
 					.owner
 			};
 		let owner = owner.unwrap_or(tg::Principal::Root);

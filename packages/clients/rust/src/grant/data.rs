@@ -4,8 +4,12 @@ use crate::prelude::*;
 pub struct Data {
 	pub created_at: i64,
 
-	pub id: tg::token::Id,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
+	pub creator: Option<tg::Principal>,
+
+	pub permissions: tg::authorization::permission::Set,
+
+	pub resource: tg::Id,
+
+	pub subject: tg::authorization::Subject,
 }

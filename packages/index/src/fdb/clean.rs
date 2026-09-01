@@ -1261,7 +1261,7 @@ impl Index {
 			&& sandbox
 				.data
 				.as_ref()
-				.is_some_and(|data| data.status.is_destroyed())
+				.is_some_and(|data| data.data.status.is_destroyed())
 		{
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);

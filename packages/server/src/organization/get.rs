@@ -79,12 +79,16 @@ impl Session {
 					.boxed()
 			})
 			.await?;
-		let Some(mut organization) = organization else {
+		let Some(data) = organization else {
 			return Ok(None);
 		};
-		organization.tokens = tokens;
+		let output = tg::organization::get::Output {
+			data,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			tokens,
+		};
 
-		Ok(Some(organization))
+		Ok(Some(output))
 	}
 
 	async fn try_get_organization_remote(
@@ -124,24 +128,22 @@ impl Session {
 			.await?
 		{
 			let mut output = response.output;
-			let valid = output.as_ref().is_none_or(|organization| {
-				crate::remote::cache::token_valid(organization.tokens.local(), &self.server.clock)
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
-				if let Some(organization) = &mut output {
-					if !crate::remote::cache::token_valid(
-						organization.tokens.local(),
-						&self.server.clock,
-					) {
-						organization.tokens.remove_local();
+				if let Some(output) = &mut output {
+					if !crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
+					{
+						output.tokens.remove_local();
 					}
 					self.update_tokens_and_location(
-						&mut organization.tokens,
-						Some(&mut organization.location),
+						&mut output.tokens,
+						Some(&mut output.location),
 						&location,
 						trusted,
 					)?;
-					organization.tokens.inherit(&tokens);
+					output.tokens.inherit(&tokens);
 				}
 
 				return Ok(output);
@@ -166,14 +168,14 @@ impl Session {
 			self.put_cached_remote_response(&remote.name, &request, &response)
 				.await?;
 		}
-		if let Some(organization) = &mut output {
+		if let Some(output) = &mut output {
 			self.update_tokens_and_location(
-				&mut organization.tokens,
-				Some(&mut organization.location),
+				&mut output.tokens,
+				Some(&mut output.location),
 				&location,
 				trusted,
 			)?;
-			organization.tokens.inherit(&tokens);
+			output.tokens.inherit(&tokens);
 		}
 
 		Ok(output)

@@ -4,7 +4,7 @@ pub trait Grant: Clone + Unpin + Send + Sync + 'static {
 	fn create_grant(
 		&self,
 		arg: tg::grant::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::Grant>> + Send;
+	) -> impl Future<Output = tg::Result<tg::grant::create::Output>> + Send;
 
 	fn delete_grant(
 		&self,
@@ -18,7 +18,10 @@ pub trait Grant: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Grant for tg::Client {
-	async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
+	async fn create_grant(
+		&self,
+		arg: tg::grant::create::Arg,
+	) -> tg::Result<tg::grant::create::Output> {
 		self.session(&self.context).create_grant(arg).await
 	}
 

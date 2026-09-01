@@ -9,8 +9,6 @@ pub struct Arg {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub data: tg::user::token::Data,
-
-	pub token: String,
 }
 
 impl tg::Session {

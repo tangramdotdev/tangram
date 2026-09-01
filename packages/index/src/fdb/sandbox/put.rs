@@ -50,13 +50,13 @@ impl Index {
 			let started = existing
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
-				.is_some_and(|data| data.status.is_started());
+				.is_some_and(|data| data.data.status.is_started());
 			if started
 				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
-				&& data.status.is_destroyed()
+				&& data.data.status.is_destroyed()
 			{
-				let cpu = data.usage.as_ref().map(|usage| usage.cpu);
-				let memory = data.usage.as_ref().map(|usage| usage.memory);
+				let cpu = data.data.usage.as_ref().map(|usage| usage.cpu);
+				let memory = data.data.usage.as_ref().map(|usage| usage.memory);
 				let arg = crate::usage::compute::put::Arg {
 					account,
 					at: touched_at,
@@ -87,7 +87,7 @@ impl Index {
 			if sandbox
 				.data
 				.as_ref()
-				.is_some_and(|data| data.status.is_destroyed())
+				.is_some_and(|data| data.data.status.is_destroyed())
 			{
 				let key = Key::Clean(crate::fdb::clean::Key::Sandbox {
 					id: arg.id.clone(),
@@ -101,9 +101,9 @@ impl Index {
 			if let Some(data) = existing
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
-				.filter(|data| data.status.is_started())
+				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
 				let key = Key::Sandbox(crate::fdb::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -111,7 +111,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				txn.clear(&key);
 
-				let owner = data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
 				let key = Key::Sandbox(crate::fdb::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),
@@ -123,9 +123,9 @@ impl Index {
 			if let Some(data) = sandbox
 				.data
 				.as_ref()
-				.filter(|data| data.status.is_started())
+				.filter(|data| data.data.status.is_started())
 			{
-				let creator = data.creator.clone().unwrap_or(tg::Principal::Root);
+				let creator = data.data.creator.clone().unwrap_or(tg::Principal::Root);
 				let key = Key::Sandbox(crate::fdb::sandbox::Key::CreatorSandbox {
 					creator,
 					sandbox: arg.id.clone(),
@@ -133,7 +133,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				txn.set(&key, &[]);
 
-				let owner = data.owner.clone().unwrap_or(tg::Principal::Root);
+				let owner = data.data.owner.clone().unwrap_or(tg::Principal::Root);
 				let key = Key::Sandbox(crate::fdb::sandbox::Key::OwnerSandbox {
 					owner,
 					sandbox: arg.id.clone(),
@@ -164,7 +164,7 @@ impl Index {
 			if sandbox
 				.data
 				.as_ref()
-				.is_some_and(|data| data.status.is_started())
+				.is_some_and(|data| data.data.status.is_started())
 				&& let Some(runner) = &sandbox.runner
 			{
 				let key = Key::Runner(crate::fdb::runner::Key::RunnerSandbox {

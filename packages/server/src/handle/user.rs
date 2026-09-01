@@ -25,7 +25,10 @@ impl tg::handle::User for Server {
 		self.session(&self.context).list_user_tokens(arg).await
 	}
 
-	async fn get_current_user(&self, arg: tg::user::current::Arg) -> tg::Result<Option<tg::User>> {
+	async fn get_current_user(
+		&self,
+		arg: tg::user::current::Arg,
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		self.session(&self.context).get_current_user(arg).await
 	}
 

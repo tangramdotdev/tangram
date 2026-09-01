@@ -793,7 +793,10 @@ impl Session {
 						let Some(output) =
 							self.try_get_tag(&tg::tag::Selector::Id(id), arg).await?
 						else {
-							return Ok(tg::match_::Output { data: Vec::new() });
+							return Ok(tg::match_::Output {
+								cursor: None,
+								data: Vec::new(),
+							});
 						};
 						let tg::tag::get::Output {
 							data,
@@ -822,9 +825,17 @@ impl Session {
 							specifier: data.specifier,
 							target: Some(target),
 						};
-						return Ok(tg::match_::Output { data: vec![entry] });
+						return Ok(tg::match_::Output {
+							cursor: None,
+							data: vec![entry],
+						});
 					},
-					_ => return Ok(tg::match_::Output { data: Vec::new() }),
+					_ => {
+						return Ok(tg::match_::Output {
+							cursor: None,
+							data: Vec::new(),
+						});
+					},
 				}
 			}
 		}

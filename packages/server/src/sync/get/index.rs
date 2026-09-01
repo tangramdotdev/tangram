@@ -679,7 +679,7 @@ impl Session {
 		let mut put_grant_args = Vec::new();
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
-			let account = match message.data.owner.as_ref() {
+			let account = match message.data.data.owner.as_ref() {
 				Some(owner) => self.usage_account(owner).await?,
 				None => None,
 			};

@@ -39,20 +39,11 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, user = %args.user, "failed to get the user"))?
 			.ok_or_else(|| tg::error!(user = %args.user, "failed to find the user"))?;
 		let tg::user::get::Output {
-			emails,
-			id,
+			data,
 			location,
-			name,
-			specifier,
 			tokens,
 		} = user;
 		self.print_location_and_tokens(location.as_ref(), &tokens)?;
-		let data = tg::user::Data {
-			emails,
-			id,
-			name,
-			specifier,
-		};
 		self.print_serde(data, args.print).await?;
 		Ok(())
 	}

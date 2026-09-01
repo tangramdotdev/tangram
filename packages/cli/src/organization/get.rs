@@ -41,18 +41,11 @@ impl Cli {
 			)?
 			.ok_or_else(|| tg::error!("failed to find the organization"))?;
 		let tg::organization::get::Output {
-			id,
+			data,
 			location,
-			name,
-			specifier,
 			tokens,
 		} = organization;
 		self.print_location_and_tokens(location.as_ref(), &tokens)?;
-		let data = tg::organization::Data {
-			id,
-			name,
-			specifier,
-		};
 		self.print_serde(data, args.print).await?;
 		Ok(())
 	}

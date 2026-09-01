@@ -1,6 +1,5 @@
 use {
 	crate::prelude::*,
-	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{sync::Arc, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
@@ -19,7 +18,6 @@ pub struct Arg {
 	pub ttl: tg::remote::cache::Ttl,
 }
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -29,84 +27,20 @@ pub struct Arg {
 	tangram_serialize::Serialize,
 )]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub cpu: Option<u64>,
+	#[tangram_serialize(id = 0)]
+	pub data: tg::sandbox::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub creator: Option<tg::Principal>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub hostname: Option<String>,
-
-	#[tangram_serialize(id = 3)]
-	pub id: tg::sandbox::Id,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
-	pub memory: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 7, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::sandbox::Mount>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
-	pub network: Option<tg::sandbox::Network>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
-	pub owner: Option<tg::Principal>,
-
-	#[tangram_serialize(id = 10)]
-	pub status: tg::sandbox::Status,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	#[tangram_serialize(
 		default,
-		id = 11,
+		id = 2,
 		skip_serializing_if = "tg::authorization::Tokens::is_empty"
 	)]
 	pub tokens: tg::authorization::Tokens,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[tangram_serialize(
-		deserialize_with = "deserialize_duration",
-		id = 12,
-		serialize_with = "serialize_duration"
-	)]
-	pub ttl: Option<Duration>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 13, skip_serializing_if = "Option::is_none")]
-	pub usage: Option<Usage>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Usage {
-	#[tangram_serialize(id = 0)]
-	pub cpu: u64,
-
-	#[tangram_serialize(id = 1)]
-	pub memory: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -211,7 +145,7 @@ impl tg::Sandbox {
 	}
 }
 
-fn deserialize_duration(
+pub(super) fn deserialize_duration(
 	deserializer: &mut tangram_serialize::Deserializer<'_>,
 ) -> std::io::Result<Option<Duration>> {
 	let value = deserializer.deserialize::<Option<(u64, u32)>>()?;
@@ -226,7 +160,7 @@ fn deserialize_duration(
 }
 
 #[expect(clippy::ref_option)]
-fn serialize_duration(
+pub(super) fn serialize_duration(
 	value: &Option<Duration>,
 	serializer: &mut tangram_serialize::Serializer<'_>,
 ) -> std::io::Result<()> {

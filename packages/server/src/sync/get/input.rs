@@ -258,14 +258,14 @@ impl Session {
 
 				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Sandbox(message)) => {
 					let mut message = message;
-					if message.data.id != message.id {
+					if message.data.data.id != message.id {
 						return Err(tg::error!(
 							expected = %message.id,
-							actual = %message.data.id,
+							actual = %message.data.data.id,
 							"invalid sandbox id"
 						));
 					}
-					if !message.data.status.is_destroyed() {
+					if !message.data.data.status.is_destroyed() {
 						return Err(tg::error!(id = %message.id, "cannot sync a running sandbox"));
 					}
 					message.data.location =

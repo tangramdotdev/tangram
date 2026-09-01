@@ -15,7 +15,7 @@ impl Session {
 	pub(crate) async fn try_get_group_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::group::Id,
-	) -> tg::Result<ControlFlow<Option<tg::Group>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::group::Data>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -45,13 +45,11 @@ impl Session {
 			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await;
 		let row = crate::database::retry!(result, "failed to execute the statement");
-		let group = row.map(|row| tg::Group {
+		let group = row.map(|row| tg::group::Data {
 			id: id.clone(),
-			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: row.name,
 			parent: row.parent,
 			specifier,
-			tokens: tg::authorization::Tokens::default(),
 		});
 
 		Ok(ControlFlow::Break(group))

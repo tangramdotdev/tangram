@@ -75,11 +75,14 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			trusted: row.trusted,
-			url: row.url,
+		let output = row.map(|row| {
+			let data = tg::remote::Data {
+				name: row.name,
+				token: row.token,
+				trusted: row.trusted,
+				url: row.url,
+			};
+			tg::remote::get::Output { data }
 		});
 		Ok(output)
 	}
@@ -136,11 +139,14 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let output = row.map(|row| tg::remote::get::Output {
-			name: row.name,
-			token: row.token,
-			trusted: row.trusted,
-			url: row.url,
+		let output = row.map(|row| {
+			let data = tg::remote::Data {
+				name: row.name,
+				token: row.token,
+				trusted: row.trusted,
+				url: row.url,
+			};
+			tg::remote::get::Output { data }
 		});
 		Ok(output)
 	}

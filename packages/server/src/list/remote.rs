@@ -122,6 +122,7 @@ impl Session {
 		let response = match &request {
 			crate::remote::cache::Request::List(_) => {
 				let output = tg::list::Output {
+					cursor: None,
 					data: entries.clone(),
 				};
 				let response = crate::remote::cache::ListResponse { output };
@@ -129,6 +130,7 @@ impl Session {
 			},
 			crate::remote::cache::Request::Match(_) => {
 				let output = tg::match_::Output {
+					cursor: None,
 					data: entries.clone(),
 				};
 				let response = crate::remote::cache::MatchResponse { output };

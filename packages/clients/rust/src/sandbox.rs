@@ -7,6 +7,7 @@ use {
 };
 
 mod builder;
+mod data;
 mod id;
 mod isolation;
 mod mount;
@@ -14,6 +15,7 @@ mod network;
 
 pub use self::{
 	builder::Builder,
+	data::{Data, Usage},
 	id::Id,
 	isolation::Isolation,
 	mount::Mount,

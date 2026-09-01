@@ -40,9 +40,29 @@ pub struct Arg {
 	pub ttl: Option<Duration>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
-	pub id: tg::sandbox::Id,
+	#[tangram_serialize(id = 0)]
+	pub data: tg::sandbox::Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl tg::Sandbox {
@@ -71,15 +91,18 @@ impl tg::Sandbox {
 	{
 		arg.host
 			.get_or_insert_with(|| tg::host::current().to_owned());
-		let location = arg.location.clone();
 		let output = handle.create_sandbox(arg).await?;
 		let handle = tg::handle::dynamic::Handle::new(handle.clone());
 		let options = tg::sandbox::Options {
-			location,
-			state: None,
+			location: output.location.clone().map(Into::into),
+			state: Some(tg::sandbox::get::Output {
+				data: output.data.clone(),
+				location: output.location,
+				tokens: output.tokens,
+			}),
 			tokens: tg::authorization::Tokens::default(),
 		};
-		let sandbox = Self::new_inner(output.id, options, Some(handle));
+		let sandbox = Self::new_inner(output.data.id.clone(), options, Some(handle));
 
 		Ok(sandbox)
 	}

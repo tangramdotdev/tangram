@@ -93,7 +93,8 @@ impl Session {
 					tokens: sandbox.tokens,
 					..tg::referent::Options::default()
 				};
-				let referent = tg::Referent::new(tg::get::Node::Id(sandbox.id.into()), options);
+				let referent =
+					tg::Referent::new(tg::get::Node::Id(sandbox.data.id.into()), options);
 				tg::get::Output { referent }
 			});
 			let event = tg::progress::Event::Output(output);

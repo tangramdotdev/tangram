@@ -50,11 +50,11 @@ wait_until {
 	let output = tg sandbox get $sandbox | complete
 	$output.exit_code == 0
 } "the sandbox should connect after the checkpoint continues"
-let state = tg sandbox get $sandbox | from json
+let state = tg sandbox get $sandbox | from json | get data
 assert equal $state.status "started" "the sandbox should remain running without a wait lease"
 
 # Clean up the accepted race window explicitly.
 tg sandbox destroy $sandbox
 tg wait $sandbox
-let state = tg sandbox get $sandbox | from json
+let state = tg sandbox get $sandbox | from json | get data
 assert equal $state.status "destroyed" "the characterized sandbox should be cleaned up"

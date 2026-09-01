@@ -23,7 +23,7 @@ pub trait User: Send + Sync + 'static {
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::User>>>;
+	) -> BoxFuture<'_, tg::Result<Option<tg::user::get::Output>>>;
 
 	fn create_login(
 		&self,
@@ -84,7 +84,7 @@ where
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::User>>> {
+	) -> BoxFuture<'_, tg::Result<Option<tg::user::get::Output>>> {
 		self.get_current_user(arg).boxed()
 	}
 

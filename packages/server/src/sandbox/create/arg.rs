@@ -29,15 +29,15 @@ impl Session {
 				.ok_or_else(|| tg::error!(%parent, "failed to find the parent sandbox"))?
 		};
 
-		if !sandbox_network_contains(parent.network.as_ref(), arg.network.as_ref()) {
-			let parent = &parent.id;
+		if !sandbox_network_contains(parent.data.network.as_ref(), arg.network.as_ref()) {
+			let parent = &parent.data.id;
 			return Err(tg::error!(
 				%parent,
 				"the child sandbox network is more permissive than the parent sandbox network"
 			));
 		}
 
-		validate_sandbox_mounts(&parent.mounts, &arg.mounts).await?;
+		validate_sandbox_mounts(&parent.data.mounts, &arg.mounts).await?;
 
 		Ok(())
 	}

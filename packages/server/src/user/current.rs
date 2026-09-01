@@ -10,7 +10,7 @@ impl Session {
 	pub(crate) async fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		let location = self
 			.server
 			.location(arg.location.as_ref())

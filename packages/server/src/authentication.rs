@@ -447,7 +447,7 @@ impl Server {
 	pub(crate) async fn authenticate_user(
 		&self,
 		token: &str,
-	) -> tg::Result<Option<(bool, tg::user::User)>> {
+	) -> tg::Result<Option<(bool, tg::user::Data)>> {
 		let token = crate::token::hash(token);
 		let row = self
 			.database
@@ -463,13 +463,11 @@ impl Server {
 		let emails = rows.into_iter().map(|row| row.email).collect();
 		let billing =
 			user.stripe_customer_id.is_some() && user.stripe_default_payment_method_id.is_some();
-		let user = tg::User {
+		let user = tg::user::Data {
 			emails,
 			id: user.id,
-			location: None,
 			name: user.name,
 			specifier: user.specifier,
-			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(Some((billing, user)))

@@ -17,7 +17,7 @@ let runner = server spawn --name runner --config {
 	},
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [indexer runner],
-	runner: { id: $created.runner.id, remote: default, token: $created.token.token },
+	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
 let local = server spawn --name local --config {
 	remotes: { default: { token: $remote_root_token, url: $remote.url } },

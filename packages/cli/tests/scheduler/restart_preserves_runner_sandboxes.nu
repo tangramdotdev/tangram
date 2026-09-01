@@ -25,7 +25,7 @@ let runner = server spawn --name runner --config {
 	},
 	runner: {
 		cpus: 1,
-		id: $created.runner.id
+		id: $created.data.id
 		remote: "default",
 		scheduler_ttl: 3,
 		token: $created.token.token

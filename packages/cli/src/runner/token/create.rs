@@ -20,7 +20,7 @@ impl Cli {
 			.map_err(
 				|error| tg::error!(!error, runner = %args.runner, "failed to create a runner token"),
 			)?;
-		self.print_serde(output, args.print).await?;
+		self.print_serde(output.data, args.print).await?;
 
 		Ok(())
 	}

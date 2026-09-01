@@ -55,7 +55,7 @@ impl Session {
 		if local_only && !arg.recursive {
 			let data = self.list_local_entries_for_list(&arg).await?;
 
-			return Ok(tg::list::Output { data });
+			return Ok(tg::list::Output { cursor: None, data });
 		}
 		let mut source_arg = arg.clone();
 		source_arg.length = match (arg.position, arg.length) {
@@ -85,7 +85,7 @@ impl Session {
 			.await?;
 		let data = sort_and_truncate(entries, arg.reverse, arg.position, arg.length);
 
-		Ok(tg::list::Output { data })
+		Ok(tg::list::Output { cursor: None, data })
 	}
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {

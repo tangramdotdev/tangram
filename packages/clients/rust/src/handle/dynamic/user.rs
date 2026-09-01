@@ -28,7 +28,7 @@ impl tg::handle::User for Handle {
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.get_current_user(arg)) }
 	}
 

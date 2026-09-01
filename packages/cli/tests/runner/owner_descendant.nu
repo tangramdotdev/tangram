@@ -17,7 +17,7 @@ let created = tg --url $remote.url --token $alice.token runner create --owner ta
 let organization_runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 
 let alice_local = server spawn --name alice-local --config {
@@ -51,7 +51,7 @@ failure $output "the organization runner should not start an unrelated user's pr
 let created = tg --url $remote.url --token $bob.token runner create --owner $bob.user.id | from json
 let user_runner = server spawn --name bob_runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
-	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 let output = try { job recv --tag $build --timeout 10sec } catch { null }
 if $output == null {

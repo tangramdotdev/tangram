@@ -18,6 +18,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
+	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
 	/// The position of the first entry to return.
 	#[arg(long)]
 	pub position: Option<u64>,
@@ -219,7 +222,11 @@ impl Cli {
 		let output = client.list(arg).await.map_err(
 			|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"),
 		)?;
-		self.print_serde(output.data, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 		Ok(())
 	}
 }

@@ -49,14 +49,14 @@ impl Session {
 		let mut data = sandbox
 			.data
 			.ok_or_else(|| tg::error!(id = %node.id, "missing the sandbox data"))?;
-		if data.id != node.id {
+		if data.data.id != node.id {
 			return Err(tg::error!(
 				expected = %node.id,
-				actual = %data.id,
+				actual = %data.data.id,
 				"invalid sandbox id"
 			));
 		}
-		if !data.status.is_destroyed() {
+		if !data.data.status.is_destroyed() {
 			return Err(tg::error!(id = %node.id, "cannot sync a running sandbox"));
 		}
 		data.tokens.clear();

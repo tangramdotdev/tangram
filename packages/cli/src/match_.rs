@@ -14,6 +14,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
+	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
 	#[arg(index = 1)]
 	pub pattern: tg::specifier::Pattern,
 
@@ -46,7 +49,11 @@ impl Cli {
 		let output = client.match_(arg).await.map_err(
 			|error| tg::error!(!error, pattern = %args.pattern, "failed to match entries"),
 		)?;
-		self.print_serde(output.data, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 
 		Ok(())
 	}

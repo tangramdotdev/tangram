@@ -70,7 +70,7 @@ impl Session {
 			})
 			.collect::<tg::Result<_>>()?;
 
-		Ok(tg::runner::list::Output { data })
+		Ok(tg::runner::list::Output { cursor: None, data })
 	}
 
 	async fn list_runners_with_transaction(

@@ -145,20 +145,7 @@ impl Cli {
 							|error| tg::error!(!error, user = %user, "failed to get the user"),
 						)?
 						.ok_or_else(|| tg::error!(user = %user, "failed to find the user"))?;
-					let tg::user::get::Output {
-						emails,
-						id,
-						location: _,
-						name,
-						specifier,
-						tokens: _,
-					} = user;
-					let data = tg::user::Data {
-						emails,
-						id,
-						name,
-						specifier,
-					};
+					let data = user.data;
 					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Group => {
@@ -177,20 +164,7 @@ impl Cli {
 							|error| tg::error!(!error, group = %group, "failed to get the group"),
 						)?
 						.ok_or_else(|| tg::error!(group = %group, "failed to find the group"))?;
-					let tg::group::get::Output {
-						id,
-						location: _,
-						name,
-						parent,
-						specifier,
-						tokens: _,
-					} = group;
-					let data = tg::group::Data {
-						id,
-						name,
-						parent,
-						specifier,
-					};
+					let data = group.data;
 					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Organization => {
@@ -211,18 +185,7 @@ impl Cli {
 						.ok_or_else(
 							|| tg::error!(organization = %organization, "failed to find the organization"),
 						)?;
-					let tg::organization::get::Output {
-						id,
-						location: _,
-						name,
-						specifier,
-						tokens: _,
-					} = organization;
-					let data = tg::organization::Data {
-						id,
-						name,
-						specifier,
-					};
+					let data = organization.data;
 					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Tag => {

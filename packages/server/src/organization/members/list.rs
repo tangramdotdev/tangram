@@ -105,7 +105,7 @@ impl Session {
 			.collect::<tg::Result<_>>()?;
 
 		Ok(ControlFlow::Break(
-			tg::organization::members::list::Output { data },
+			tg::organization::members::list::Output { cursor: None, data },
 		))
 	}
 

@@ -6,15 +6,15 @@ let server = server spawn --config { authentication: { users: { providers: { ins
 
 let alice = tg login --verbose --name alice | from json
 
-let organization = tg --token $alice.token organization create acme | from json
-assert ($organization.id | str starts-with "org_") "create should return an organization id"
-assert ($organization.name == "acme") "the organization name should match the specifier"
-assert ($organization.specifier == "acme") "the organization specifier should match the input"
+let organization = tg --token $alice.token organization create --verbose acme | from json
+assert ($organization.data.id | str starts-with "org_") "create should return an organization id"
+assert ($organization.data.name == "acme") "the organization name should match the specifier"
+assert ($organization.data.specifier == "acme") "the organization specifier should match the input"
 assert (($organization | get --optional tokens.local) != null) "create should return a token"
 
 # The creator can get the organization.
 let got = tg --token $alice.token organization get acme | from json
-assert ($got.id == $organization.id) "the created organization should be retrievable"
+assert ($got.id == $organization.data.id) "the created organization should be retrievable"
 assert (($got | get --optional tokens) == null) "get should not print tokens to stdout"
 
 # The creator has admin, so it can list the organization's grants.

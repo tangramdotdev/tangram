@@ -258,23 +258,25 @@ fn sandbox_data(
 	id: tg::sandbox::Id,
 	owner: tg::Principal,
 	status: tg::sandbox::Status,
-	usage: Option<tg::sandbox::get::Usage>,
+	usage: Option<tg::sandbox::Usage>,
 ) -> tg::sandbox::get::Output {
 	tg::sandbox::get::Output {
-		cpu: Some(2),
-		creator: Some(owner.clone()),
-		hostname: None,
-		id,
-		isolation: None,
+		data: tg::sandbox::Data {
+			cpu: Some(2),
+			creator: Some(owner.clone()),
+			hostname: None,
+			id,
+			isolation: None,
+			memory: Some(1 << 30),
+			mounts: Vec::new(),
+			network: None,
+			owner: Some(owner),
+			status,
+			ttl: None,
+			usage,
+		},
 		location: None,
-		memory: Some(1 << 30),
-		mounts: Vec::new(),
-		network: None,
-		owner: Some(owner),
-		status,
 		tokens: tg::authorization::Tokens::default(),
-		ttl: None,
-		usage,
 	}
 }
 
@@ -581,7 +583,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			sandbox.clone(),
 			owner,
 			tg::sandbox::Status::Destroyed,
-			Some(tg::sandbox::get::Usage {
+			Some(tg::sandbox::Usage {
 				cpu: 123,
 				memory: 456,
 			}),
@@ -643,7 +645,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			sandbox.clone(),
 			owner,
 			tg::sandbox::Status::Destroyed,
-			Some(tg::sandbox::get::Usage {
+			Some(tg::sandbox::Usage {
 				cpu: 123,
 				memory: 456,
 			}),

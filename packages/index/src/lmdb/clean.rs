@@ -1142,7 +1142,7 @@ impl Index {
 			&& sandbox
 				.data
 				.as_ref()
-				.is_some_and(|data| data.status.is_destroyed())
+				.is_some_and(|data| data.data.status.is_destroyed())
 		{
 			let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Sandbox {
 				id: id.clone(),

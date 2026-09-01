@@ -11,7 +11,7 @@ let server = server spawn
 let sandbox = (tg sandbox create --port 80 --port 127.0.0.1::53/udp | str trim)
 assert ($sandbox | str starts-with "sbx_")
 
-let get = tg sandbox get $sandbox | from json
+let get = tg sandbox get $sandbox | from json | get data
 assert ($get.network.kind == "bridge")
 assert (($get.network.ports | where { |port| $port =~ '^[0-9]+:80$' } | length) == 1)
 assert (($get.network.ports | where { |port| $port =~ '^127\.0\.0\.1:[0-9]+:53/udp$' } | length) == 1)

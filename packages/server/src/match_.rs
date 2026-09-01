@@ -25,7 +25,7 @@ impl Session {
 		let data = filter_entries(entries, &arg);
 		let data = crate::list::sort_and_truncate(data, arg.reverse, None, arg.length);
 
-		Ok(tg::match_::Output { data })
+		Ok(tg::match_::Output { cursor: None, data })
 	}
 
 	pub(crate) async fn match_request(

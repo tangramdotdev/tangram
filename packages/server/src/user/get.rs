@@ -79,18 +79,22 @@ impl Session {
 				async move { Self::try_get_user_with_transaction(transaction, &id).await }.boxed()
 			})
 			.await?;
-		let Some(mut user) = user else {
+		let Some(data) = user else {
 			return Ok(None);
 		};
-		user.tokens = tokens;
+		let output = tg::user::get::Output {
+			data,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
+			tokens,
+		};
 
-		Ok(Some(user))
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn try_get_user_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::user::Id,
-	) -> tg::Result<ControlFlow<Option<tg::User>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::user::Data>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct EmailRow {
 			email: String,
@@ -138,13 +142,11 @@ impl Session {
 			.query_all_into::<EmailRow>(statement.into(), db::params![id.to_string()])
 			.await;
 		let rows = crate::database::retry!(result, "failed to execute the statement");
-		let user = tg::User {
+		let user = tg::user::Data {
 			emails: rows.into_iter().map(|row| row.email).collect(),
 			id: id.clone(),
-			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: user.name,
 			specifier,
-			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(ControlFlow::Break(Some(user)))
@@ -186,21 +188,22 @@ impl Session {
 			.await?
 		{
 			let mut output = response.output;
-			let valid = output.as_ref().is_none_or(|user| {
-				crate::remote::cache::token_valid(user.tokens.local(), &self.server.clock)
+			let valid = output.as_ref().is_none_or(|output| {
+				crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
-				if let Some(user) = &mut output {
-					if !crate::remote::cache::token_valid(user.tokens.local(), &self.server.clock) {
-						user.tokens.remove_local();
+				if let Some(output) = &mut output {
+					if !crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
+					{
+						output.tokens.remove_local();
 					}
 					self.update_tokens_and_location(
-						&mut user.tokens,
-						Some(&mut user.location),
+						&mut output.tokens,
+						Some(&mut output.location),
 						&location,
 						trusted,
 					)?;
-					user.tokens.inherit(&tokens);
+					output.tokens.inherit(&tokens);
 				}
 
 				return Ok(output);
@@ -222,14 +225,14 @@ impl Session {
 			self.put_cached_remote_response(&remote.name, &request, &response)
 				.await?;
 		}
-		if let Some(user) = &mut output {
+		if let Some(output) = &mut output {
 			self.update_tokens_and_location(
-				&mut user.tokens,
-				Some(&mut user.location),
+				&mut output.tokens,
+				Some(&mut output.location),
 				&location,
 				trusted,
 			)?;
-			user.tokens.inherit(&tokens);
+			output.tokens.inherit(&tokens);
 		}
 
 		Ok(output)

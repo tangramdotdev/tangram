@@ -37,10 +37,11 @@ impl Session {
 			.map(|row| tg::runner::token::Data {
 				created_at: row.created_at,
 				id: row.id,
+				token: None,
 			})
 			.collect();
 
-		Ok(tg::runner::token::list::Output { data })
+		Ok(tg::runner::token::list::Output { cursor: None, data })
 	}
 
 	async fn list_runner_tokens_with_transaction(

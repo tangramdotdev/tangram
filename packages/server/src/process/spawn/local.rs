@@ -265,6 +265,7 @@ impl Session {
 						.boxed()
 						.await?
 						.ok_or_else(|| tg::error!("failed to find the sandbox"))?
+						.data
 						.owner
 				}
 			},
@@ -282,7 +283,7 @@ impl Session {
 						|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"),
 					)?,
 			};
-			let parent_owner = parent.owner;
+			let parent_owner = parent.data.owner;
 			let owners_match = requested_owner
 				.as_ref()
 				.filter(|owner| !matches!(owner, tg::Principal::Root))

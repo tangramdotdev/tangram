@@ -17,7 +17,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 # Spawn a remote runner.
 let runner = server spawn --name runner --config {
 	runner: {
-		id: $created.runner.id
+		id: $created.data.id
 		remote: "default"
 		token: $created.token.token
 	}

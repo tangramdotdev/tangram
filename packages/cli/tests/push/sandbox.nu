@@ -21,8 +21,8 @@ tg index
 
 tg push $sandbox
 let remote_sandbox = tg --url $remote.url sandbox get $sandbox | from json
-assert equal $remote_sandbox.id $sandbox
-assert equal $remote_sandbox.status destroyed
+assert equal $remote_sandbox.data.id $sandbox
+assert equal $remote_sandbox.data.status destroyed
 assert (($remote_sandbox | get --optional tokens.local) != null) "sandbox get should return a token"
 failure (tg --url $remote.url process get $process | complete)
 

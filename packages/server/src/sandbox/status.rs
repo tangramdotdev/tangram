@@ -179,7 +179,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
 		let output = self.try_get_sandbox_local_inner(id).await?;
-		Ok(output.map(|output| output.status))
+		Ok(output.map(|output| output.data.status))
 	}
 
 	async fn try_get_sandbox_status_stream_regions(

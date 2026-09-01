@@ -15,7 +15,7 @@ impl Cli {
 			.create_user_token(tg::user::token::create::Arg::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the user token"))?;
-		self.print_serde(output, args.print).await?;
+		self.print_serde(output.data, args.print).await?;
 
 		Ok(())
 	}

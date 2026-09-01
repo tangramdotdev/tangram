@@ -289,7 +289,7 @@ impl Cli {
 					.try_get_group(&selector, tg::group::get::Arg::default())
 					.await?
 					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::Group(group.id))
+				Ok(tg::Principal::Group(group.data.id))
 			},
 			tg::id::Kind::Organization => {
 				let selector = tg::organization::Selector::Specifier(specifier);
@@ -297,7 +297,7 @@ impl Cli {
 					.try_get_organization(&selector, tg::organization::get::Arg::default())
 					.await?
 					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::Organization(organization.id))
+				Ok(tg::Principal::Organization(organization.data.id))
 			},
 			tg::id::Kind::User => {
 				let selector = tg::user::Selector::Specifier(specifier);
@@ -305,7 +305,7 @@ impl Cli {
 					.try_get_user(&selector, tg::user::get::Arg::default())
 					.await?
 					.ok_or_else(|| tg::error!("failed to resolve the sandbox owner"))?;
-				Ok(tg::Principal::User(user.id))
+				Ok(tg::Principal::User(user.data.id))
 			},
 			_ => Err(tg::error!("failed to resolve the sandbox owner")),
 		}
@@ -360,7 +360,7 @@ impl Cli {
 		let user = client
 			.try_get_user(&selector, tg::user::get::Arg::default())
 			.await?;
-		Ok(user.map(|user| tg::Principal::User(user.id)))
+		Ok(user.map(|user| tg::Principal::User(user.data.id)))
 	}
 
 	async fn resolve_group_owner_specifier(
@@ -378,7 +378,7 @@ impl Cli {
 		let group = client
 			.try_get_group(&selector, tg::group::get::Arg::default())
 			.await?;
-		Ok(group.map(|group| tg::Principal::Group(group.id)))
+		Ok(group.map(|group| tg::Principal::Group(group.data.id)))
 	}
 
 	async fn resolve_organization_owner_specifier(
@@ -396,7 +396,7 @@ impl Cli {
 		let organization = client
 			.try_get_organization(&selector, tg::organization::get::Arg::default())
 			.await?;
-		Ok(organization.map(|organization| tg::Principal::Organization(organization.id)))
+		Ok(organization.map(|organization| tg::Principal::Organization(organization.data.id)))
 	}
 
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {

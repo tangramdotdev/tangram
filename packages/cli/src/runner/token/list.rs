@@ -5,6 +5,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
@@ -20,7 +23,11 @@ impl Cli {
 			.map_err(
 				|error| tg::error!(!error, runner = %args.runner, "failed to list the runner tokens"),
 			)?;
-		self.print_serde(output.data, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 
 		Ok(())
 	}

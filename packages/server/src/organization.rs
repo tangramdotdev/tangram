@@ -17,7 +17,7 @@ impl Session {
 	pub(crate) async fn try_get_organization_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::organization::Id,
-	) -> tg::Result<ControlFlow<Option<tg::Organization>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Option<tg::organization::Data>, crate::database::Error>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -45,12 +45,10 @@ impl Session {
 			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
 			.await;
 		let row = crate::database::retry!(result, "failed to execute the statement");
-		let organization = row.map(|row| tg::Organization {
+		let organization = row.map(|row| tg::organization::Data {
 			id: id.clone(),
-			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name: row.name,
 			specifier,
-			tokens: tg::authorization::Tokens::default(),
 		});
 
 		Ok(ControlFlow::Break(organization))

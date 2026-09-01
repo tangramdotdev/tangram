@@ -11,6 +11,9 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -23,7 +26,11 @@ impl Cli {
 		let output = client.list_group_members(&args.group, arg).await.map_err(
 			|error| tg::error!(!error, group = %args.group, "failed to list the group members"),
 		)?;
-		self.print_serde(output, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 		Ok(())
 	}
 }

@@ -22,7 +22,7 @@ let config = {
 		}
 	},
 	runner: {
-		id: $created.runner.id
+		id: $created.data.id
 		remote: "default",
 		token: $created.token.token
 	}

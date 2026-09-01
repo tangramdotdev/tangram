@@ -7,7 +7,7 @@ let alice = tg --url $server.url login --verbose --name alice | from json
 let bob = tg --url $server.url login --verbose --name bob | from json
 let path = artifact 'contents'
 let artifact = tg --url $server.url --token $alice.token checkin $path
-let parent = tg --url $server.url --token $alice.token group create private | from json
+let parent = tg --url $server.url --token $alice.token group create --verbose private | from json
 tg --url $server.url --token $alice.token group create private/1.0.0 | ignore
 tg --url $server.url --token $alice.token tag private/1.0.0/latest $artifact
 tg --url $server.url index

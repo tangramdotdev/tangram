@@ -36,10 +36,11 @@ impl Session {
 			.map(|row| tg::user::token::Data {
 				created_at: row.created_at,
 				id: row.id,
+				token: None,
 			})
 			.collect();
 
-		Ok(tg::user::token::list::Output { data })
+		Ok(tg::user::token::list::Output { cursor: None, data })
 	}
 
 	async fn list_user_tokens_with_transaction(

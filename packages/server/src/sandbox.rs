@@ -35,7 +35,7 @@ pub struct State {
 	pub status: tg::sandbox::Status,
 	pub token: Option<String>,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
-	pub usage: Option<tg::sandbox::get::Usage>,
+	pub usage: Option<tg::sandbox::Usage>,
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;
@@ -123,21 +123,24 @@ impl State {
 	pub fn data(&self) -> Option<tg::sandbox::get::Output> {
 		let id = self.id.clone()?;
 		let arg = &self.data.arg;
-		let output = tg::sandbox::get::Output {
+		let data = tg::sandbox::Data {
 			cpu: arg.cpu,
 			creator: self.data.creator.clone(),
 			hostname: arg.hostname.clone(),
 			id,
 			isolation: arg.isolation,
-			location: Some(self.location.clone()),
 			memory: arg.memory,
 			mounts: arg.mounts.clone(),
 			network: arg.network.clone(),
 			owner: arg.owner.clone(),
 			status: self.status,
-			tokens: self.authorization_tokens.clone(),
 			ttl: arg.ttl,
 			usage: self.usage.clone(),
+		};
+		let output = tg::sandbox::get::Output {
+			data,
+			location: Some(self.location.clone()),
+			tokens: self.authorization_tokens.clone(),
 		};
 
 		Some(output)

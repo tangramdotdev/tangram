@@ -11,7 +11,7 @@ let created = tg --url $alpha.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $alpha.url } },
 	roles: [indexer runner],
-	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 let local = server spawn --name local --config {
 	remotes: {

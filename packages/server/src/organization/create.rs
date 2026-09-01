@@ -121,7 +121,11 @@ impl Session {
 			ControlFlow::Break(()) => (),
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
-		let output = tg::organization::create::Output { organization };
+		let output = tg::organization::create::Output {
+			data: organization.data,
+			location: organization.location,
+			tokens: organization.tokens,
+		};
 
 		Ok(ControlFlow::Break(ControlFlow::Break(output)))
 	}
@@ -161,8 +165,8 @@ impl Session {
 		self.invalidate_remote_cache(&remote.name).await;
 		let location = tg::Location::Remote(remote);
 		self.update_tokens_and_location(
-			&mut output.organization.tokens,
-			Some(&mut output.organization.location),
+			&mut output.tokens,
+			Some(&mut output.location),
 			&location,
 			trusted,
 		)?;
@@ -175,7 +179,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::organization::create::Arg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<tg::Organization, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<tg::organization::create::Output, crate::database::Error>> {
 		if arg.specifier.components().count() != 1 {
 			return Err(tg::error!("invalid organization specifier"));
 		}
@@ -245,11 +249,14 @@ impl Session {
 		}
 		let tokens =
 			tg::authorization::Tokens::with_local(self.create_read_token(&id.clone().into())?);
-		let organization = tg::Organization {
+		let data = tg::organization::Data {
 			id,
-			location: Some(tg::Location::Local(tg::location::Local::default())),
 			name,
 			specifier: arg.specifier,
+		};
+		let organization = tg::organization::create::Output {
+			data,
+			location: Some(tg::Location::Local(tg::location::Local::default())),
 			tokens,
 		};
 

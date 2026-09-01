@@ -11,6 +11,9 @@ pub struct Args {
 	pub owner: crate::sandbox::Owner,
 
 	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -25,7 +28,11 @@ impl Cli {
 		let output = tg::sandbox::list::list_with_handle(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to list the sandboxes"))?;
-		self.print_serde(output.data, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 		Ok(())
 	}
 }

@@ -18,7 +18,7 @@ impl Cli {
 			.get_current_user(tg::user::current::Arg::default())
 			.await?
 			.ok_or_else(|| tg::error!("not logged in"))?;
-		let selector = tg::user::Selector::Id(user.id);
+		let selector = tg::user::Selector::Id(user.data.id);
 		let usage = client
 			.try_get_user_usage(&selector, args.period.into())
 			.await?

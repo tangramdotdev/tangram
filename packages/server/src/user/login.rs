@@ -25,7 +25,7 @@ pub(super) struct LoginIdentity {
 }
 
 impl Session {
-	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::User> {
+	pub(super) async fn finish_login(&self, arg: FinishLoginArg) -> tg::Result<tg::user::Data> {
 		let session = self.clone();
 		let now = self.server.clock.unix_timestamp()?;
 		let options = tangram_futures::retry::Options::default();
@@ -52,7 +52,7 @@ impl Session {
 		&self,
 		arg: &FinishLoginArg,
 		now: i64,
-	) -> tg::Result<ControlFlow<tg::User>> {
+	) -> tg::Result<ControlFlow<tg::user::Data>> {
 		let specifier = self.login_user_specifier(arg).await?;
 		let ids_by_specifier = self
 			.try_get_ids_and_ancestors_for_specifiers(std::slice::from_ref(&specifier))
@@ -132,7 +132,7 @@ impl Session {
 		arg: &FinishLoginArg,
 		ids_by_specifier: &BTreeMap<tg::Specifier, Option<tg::Id>>,
 		now: i64,
-	) -> tg::Result<ControlFlow<ControlFlow<tg::User>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<ControlFlow<tg::user::Data>, crate::database::Error>> {
 		let batch_size = self.server.config.sync.get.database.batch_size;
 		match Self::verify_ids_for_specifiers_with_transaction(
 			transaction,
@@ -224,7 +224,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: &FinishLoginArg,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<tg::User, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<tg::user::Data, crate::database::Error>> {
 		// Get the user from the identity.
 		if let Some(identity) = &arg.identity {
 			#[derive(db::row::Deserialize)]

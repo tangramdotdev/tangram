@@ -23,7 +23,7 @@ impl Cli {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the user"))?
 			.ok_or_else(|| tg::error!("not logged in"))?;
-		self.print_serde(user, args.print).await?;
+		self.print_serde(user.data, args.print).await?;
 		Ok(())
 	}
 }

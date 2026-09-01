@@ -39,20 +39,11 @@ impl Cli {
 			.map_err(|error| tg::error!(!error, group = %args.group, "failed to get the group"))?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
 		let tg::group::get::Output {
-			id,
+			data,
 			location,
-			name,
-			parent,
-			specifier,
 			tokens,
 		} = group;
 		self.print_location_and_tokens(location.as_ref(), &tokens)?;
-		let data = tg::group::Data {
-			id,
-			name,
-			parent,
-			specifier,
-		};
 		self.print_serde(data, args.print).await?;
 		Ok(())
 	}

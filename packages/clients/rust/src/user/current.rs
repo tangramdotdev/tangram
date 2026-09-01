@@ -14,7 +14,7 @@ impl tg::Session {
 	pub async fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> tg::Result<Option<tg::User>> {
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/user")

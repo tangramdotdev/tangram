@@ -1,3 +1,5 @@
+pub use self::{data::Data, id::Id, member::Member, selector::Selector};
+
 pub mod billing;
 pub mod create;
 pub mod data;
@@ -8,7 +10,3 @@ pub mod member;
 pub mod members;
 pub mod selector;
 pub mod usage;
-
-pub use self::{
-	data::Data, get::Output as Organization, id::Id, member::Member, selector::Selector,
-};

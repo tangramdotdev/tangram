@@ -332,7 +332,7 @@ impl Index {
 					Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await
 				)
 				.and_then(|sandbox| sandbox.data)
-				.and_then(|data| data.owner);
+				.and_then(|data| data.data.owner);
 
 				Output::SandboxOwner(owner)
 			},

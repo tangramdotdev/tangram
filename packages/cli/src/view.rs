@@ -209,7 +209,7 @@ async fn get_node(
 					.try_get_group(&tg::group::Selector::Id(id), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the group"))?;
-				crate::viewer::Item::Group(group)
+				crate::viewer::Item::Group(group.data)
 			},
 			tg::id::Kind::Organization => {
 				let id = id.try_into()?;
@@ -221,7 +221,7 @@ async fn get_node(
 					.try_get_organization(&tg::organization::Selector::Id(id), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the organization"))?;
-				crate::viewer::Item::Organization(organization)
+				crate::viewer::Item::Organization(organization.data)
 			},
 			tg::id::Kind::Process => {
 				let id = id.try_into()?;
@@ -266,7 +266,7 @@ async fn get_node(
 					.try_get_user(&tg::user::Selector::Id(id), arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the user"))?;
-				crate::viewer::Item::User(user)
+				crate::viewer::Item::User(user.data)
 			},
 			tg::id::Kind::Blob
 			| tg::id::Kind::Command

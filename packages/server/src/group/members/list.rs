@@ -97,6 +97,7 @@ impl Session {
 			.collect::<tg::Result<_>>()?;
 
 		Ok(ControlFlow::Break(tg::group::members::list::Output {
+			cursor: None,
 			data,
 		}))
 	}

@@ -22,17 +22,10 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::group::Id,
+	pub data: tg::group::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
-
-	pub name: String,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::Id>,
-
-	pub specifier: tg::Specifier,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,

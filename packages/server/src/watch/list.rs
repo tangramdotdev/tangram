@@ -20,7 +20,7 @@ impl Session {
 				})
 			})
 			.collect();
-		let output = tg::watch::list::Output { data };
+		let output = tg::watch::list::Output { cursor: None, data };
 		Ok(output)
 	}
 

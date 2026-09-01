@@ -8,7 +8,7 @@ where
 	fn create_grant(
 		&self,
 		arg: tg::grant::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::Grant>> {
+	) -> impl Future<Output = tg::Result<tg::grant::create::Output>> {
 		match self {
 			tg::Either::Left(s) => s.create_grant(arg).left_future(),
 			tg::Either::Right(s) => s.create_grant(arg).right_future(),

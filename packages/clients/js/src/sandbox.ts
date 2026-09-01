@@ -159,31 +159,35 @@ export namespace Sandbox {
 		ttl?: number | null;
 	};
 
+	export type Data = {
+		cpu?: number | null;
+		creator?: string | null;
+		hostname?: string | null;
+		id: tg.Sandbox.Id;
+		isolation?: tg.Sandbox.Isolation.Data | null;
+		memory?: number | null;
+		mounts?: Array<tg.Sandbox.Mount.Data>;
+		network?: tg.Sandbox.Network.Data | null;
+		owner?: string | null;
+		status: tg.Sandbox.Status;
+		ttl?: number | null;
+		usage?: tg.Sandbox.Usage | null;
+	};
+
+	export type Usage = {
+		cpu: number;
+		memory: number;
+	};
+
 	export namespace Get {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
 		};
 
 		export type Output = {
-			cpu?: number | null;
-			creator?: string | null;
-			hostname?: string | null;
-			id: tg.Sandbox.Id;
-			isolation?: tg.Sandbox.Isolation.Data | null;
+			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			memory?: number | null;
-			mounts?: Array<tg.Sandbox.Mount.Data>;
-			network?: tg.Sandbox.Network.Data | null;
-			owner?: string | null;
-			status: tg.Sandbox.Status;
 			tokens?: tg.Authorization.Tokens | null;
-			ttl?: number | null;
-			usage?: Usage | null;
-		};
-
-		export type Usage = {
-			cpu: number;
-			memory: number;
 		};
 	}
 
@@ -372,10 +376,18 @@ export namespace Sandbox {
 				},
 			});
 			let output = await tg.client.createSandbox(tg.Sandbox.Arg.toData(arg));
+			let state: tg.Sandbox.Get.Output = {
+				data: output.data,
+				...(output.location !== undefined ? { location: output.location } : {}),
+				...(output.tokens !== undefined ? { tokens: output.tokens } : {}),
+			};
 			return new tg.Sandbox({
-				id: output.id,
-				...(arg.location !== undefined ? { location: arg.location } : {}),
+				id: output.data.id,
+				...(output.location !== undefined && output.location !== null
+					? { location: tg.Location.Arg.fromLocation(output.location) }
+					: {}),
 				owned: true,
+				state,
 			});
 		}
 	}
@@ -392,7 +404,9 @@ export namespace Sandbox {
 		export type Arg = tg.Sandbox.DataArg;
 
 		export type Output = {
-			id: tg.Sandbox.Id;
+			data: tg.Sandbox.Data;
+			location?: tg.Location | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 

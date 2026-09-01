@@ -13,7 +13,13 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub organization: tg::Organization,
+	pub data: tg::organization::Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl tg::Session {

@@ -1,7 +1,10 @@
 use {crate::Server, tangram_client::prelude::*};
 
 impl tg::handle::Grant for Server {
-	async fn create_grant(&self, arg: tg::grant::create::Arg) -> tg::Result<tg::Grant> {
+	async fn create_grant(
+		&self,
+		arg: tg::grant::create::Arg,
+	) -> tg::Result<tg::grant::create::Output> {
 		self.session(&self.context).create_grant(arg).await
 	}
 

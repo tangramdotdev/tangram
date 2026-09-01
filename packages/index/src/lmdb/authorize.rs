@@ -329,7 +329,7 @@ impl Index {
 				let owner =
 					Self::try_get_sandbox_with_transaction(db, subspace, transaction, sandbox)?
 						.and_then(|sandbox| sandbox.data)
-						.and_then(|data| data.owner);
+						.and_then(|data| data.data.owner);
 
 				Output::SandboxOwner(owner)
 			},

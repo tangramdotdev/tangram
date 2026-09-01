@@ -39,7 +39,7 @@ where
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> {
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.get_current_user(arg).left_future(),
 			tg::Either::Right(s) => s.get_current_user(arg).right_future(),

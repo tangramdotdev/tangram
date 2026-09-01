@@ -205,13 +205,13 @@ impl Session {
 				.state()
 				.try_get_process_sandbox(id)
 				.and_then(|sandbox| self.server.runner.state().try_get_sandbox(&sandbox))
-				.map(|sandbox| sandbox.owner),
+				.map(|sandbox| sandbox.data.owner),
 			tg::Principal::Sandbox(id) => self
 				.server
 				.runner
 				.state()
 				.try_get_sandbox(id)
-				.map(|sandbox| sandbox.owner),
+				.map(|sandbox| sandbox.data.owner),
 			_ => None,
 		};
 		if let Some(owner) = owner {
@@ -242,7 +242,7 @@ impl Session {
 							|error| tg::error!(!error, %sandbox, "failed to get the sandbox from the index"),
 						)?
 						.and_then(|sandbox| sandbox.data)
-						.map(|sandbox| sandbox.owner)
+						.map(|sandbox| sandbox.data.owner)
 				} else {
 					None
 				}
@@ -256,7 +256,7 @@ impl Session {
 					|error| tg::error!(!error, %id, "failed to get the sandbox from the index"),
 				)?
 				.and_then(|sandbox| sandbox.data)
-				.map(|sandbox| sandbox.owner),
+				.map(|sandbox| sandbox.data.owner),
 			_ => return Ok(Some(principal.clone())),
 		};
 		let owner = owner.map(|owner| owner.unwrap_or(tg::Principal::Root));
@@ -293,17 +293,23 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		let tg::remote::Data {
+			name: _,
+			token,
+			trusted,
+			url,
+		} = output.data;
 		let client = self
 			.server
-			.get_or_create_remote_client(output.url)
+			.get_or_create_remote_client(url)
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let mut context = client.context().clone();
 		context.set_token(
 			self.try_get_authenticated_principal_remote_token(remote)
 				.await?
-				.or(output.token),
+				.or(token),
 		);
-		context.set_trusted(output.trusted);
+		context.set_trusted(trusted);
 		let session = client.session(&context);
 		Ok(Some(session))
 	}

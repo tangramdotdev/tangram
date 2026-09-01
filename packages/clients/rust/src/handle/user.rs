@@ -20,7 +20,7 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 	fn get_current_user(
 		&self,
 		arg: tg::user::current::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<tg::user::get::Output>>> + Send;
 
 	fn create_login(
 		&self,
@@ -77,7 +77,10 @@ impl tg::handle::User for tg::Client {
 		self.session(&self.context).list_user_tokens(arg).await
 	}
 
-	async fn get_current_user(&self, arg: tg::user::current::Arg) -> tg::Result<Option<tg::User>> {
+	async fn get_current_user(
+		&self,
+		arg: tg::user::current::Arg,
+	) -> tg::Result<Option<tg::user::get::Output>> {
 		self.session(&self.context).get_current_user(arg).await
 	}
 

@@ -44,12 +44,12 @@ pub struct Viewer {
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
-	Group(tg::Group),
-	Organization(tg::Organization),
+	Group(tg::group::Data),
+	Organization(tg::organization::Data),
 	Process(tg::Process),
 	Sandbox(tg::Sandbox),
 	Tag(tg::Tag),
-	User(tg::User),
+	User(tg::user::Data),
 	Value(tg::Value),
 }
 

@@ -11,9 +11,11 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
 pub struct Output {
-	pub data: Vec<tg::remote::get::Output>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
+	pub data: Vec<tg::remote::Data>,
 }
 
 impl tg::Session {

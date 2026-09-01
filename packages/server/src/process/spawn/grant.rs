@@ -68,7 +68,7 @@ impl Session {
 	async fn list_spawn_process_grants_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::Grant>, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
 		Self::list_resource_grants_with_transaction(transaction, resource).await
 	}
 }

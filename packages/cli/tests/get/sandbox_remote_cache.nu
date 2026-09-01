@@ -10,7 +10,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [indexer runner],
-	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
@@ -19,7 +19,7 @@ let local = server spawn --name local --config {
 let sandbox = tg --url $remote.url sandbox create --no-network | str trim
 
 let output = tg --url $local.url get $sandbox | from json
-assert equal $output.id $sandbox
+assert equal $output.data.id $sandbox
 assert equal $output.location remote
 
 let requests = (
@@ -36,5 +36,5 @@ kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } "the remote should stop"
 
 let cached = tg --url $local.url get --cached $sandbox | from json
-assert equal $cached.id $sandbox
+assert equal $cached.data.id $sandbox
 assert equal $cached.location remote

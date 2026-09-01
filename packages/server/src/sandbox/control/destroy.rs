@@ -8,16 +8,16 @@ impl Session {
 		created_at: i64,
 		runner: Option<tg::runner::Id>,
 	) -> tg::Result<tg::sandbox::control::DestroyServerResponseOutput> {
-		if arg.data.id != *id {
+		if arg.data.data.id != *id {
 			return Err(
-				tg::error!(actual = %arg.data.id, expected = %id, "the sandbox id does not match"),
+				tg::error!(actual = %arg.data.data.id, expected = %id, "the sandbox id does not match"),
 			);
 		}
-		if !arg.data.status.is_destroyed() {
+		if !arg.data.data.status.is_destroyed() {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));
 		}
 
-		let account = match arg.data.owner.as_ref() {
+		let account = match arg.data.data.owner.as_ref() {
 			Some(owner) => self.usage_account(owner).await?,
 			None => None,
 		};

@@ -103,7 +103,16 @@ impl Session {
 			));
 		}
 
-		let output = tg::sandbox::create::Output { id };
+		// Capture the initial sandbox state after its control connection is available.
+		let get_output = self
+			.try_get_sandbox_local(&id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to get the created sandbox"))?;
+		let output = tg::sandbox::create::Output {
+			data: get_output.data,
+			location: get_output.location,
+			tokens: get_output.tokens,
+		};
 
 		Ok(output)
 	}
@@ -181,13 +190,25 @@ impl Session {
 		let client = self.get_remote_session(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to get the remote client"),
 		)?;
+		let trusted = client.trusted();
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.clone(),
+			region: region.clone(),
+		});
 		let arg = tg::sandbox::create::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let output = client.create_sandbox(arg).await.map_err(
+		let mut output = client.create_sandbox(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote, "failed to create the sandbox"),
 		)?;
+		self.update_tokens_and_location(
+			&mut output.tokens,
+			Some(&mut output.location),
+			&location,
+			trusted,
+		)?;
+
 		Ok(output)
 	}
 

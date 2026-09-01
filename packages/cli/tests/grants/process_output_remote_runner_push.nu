@@ -13,7 +13,7 @@ let remote = server spawn --cloud --preserve-keys --name remote --config {
 
 # Create the runner and its token.
 let created = tg --url $remote.url --token $root_token runner create | from json
-let runner_id = $created.runner.id
+let runner_id = $created.data.id
 let runner_token = $created.token.token
 
 # Spawn the runner.

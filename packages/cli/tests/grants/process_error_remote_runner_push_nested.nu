@@ -18,7 +18,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [indexer runner],
-	runner: { id: $created.runner.id, remote: 'default', token: $created.token.token },
+	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
 }
 
 # Create user credentials and spawn the local server.

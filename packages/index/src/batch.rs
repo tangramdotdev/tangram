@@ -113,25 +113,27 @@ mod tests {
 		let tag = tg::tag::Id::new();
 		let user = tg::user::Id::new();
 		let data = tg::sandbox::get::Output {
-			cpu: Some(2),
-			creator: Some(tg::Principal::User(user.clone())),
-			hostname: Some("host".into()),
-			id: sandbox.clone(),
-			isolation: Some(tg::sandbox::Isolation::Container),
+			data: tg::sandbox::Data {
+				cpu: Some(2),
+				creator: Some(tg::Principal::User(user.clone())),
+				hostname: Some("host".into()),
+				id: sandbox.clone(),
+				isolation: Some(tg::sandbox::Isolation::Container),
+				memory: Some(1024),
+				mounts: Vec::new(),
+				network: Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
+					ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
+				})),
+				owner: Some(tg::Principal::Root),
+				status: tg::sandbox::Status::Destroyed,
+				ttl: Some(std::time::Duration::new(60, 123)),
+				usage: Some(tg::sandbox::Usage {
+					cpu: 123,
+					memory: 456,
+				}),
+			},
 			location: None,
-			memory: Some(1024),
-			mounts: Vec::new(),
-			network: Some(tg::sandbox::Network::Bridge(tg::sandbox::Bridge {
-				ports: vec!["127.0.0.1:8080:80/udp".parse().unwrap()],
-			})),
-			owner: Some(tg::Principal::Root),
-			status: tg::sandbox::Status::Destroyed,
 			tokens: tg::authorization::Tokens::default(),
-			ttl: Some(std::time::Duration::new(60, 123)),
-			usage: Some(tg::sandbox::get::Usage {
-				cpu: 123,
-				memory: 456,
-			}),
 		};
 		let arg = Arg {
 			items: vec![
@@ -223,10 +225,10 @@ mod tests {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
-		assert_eq!(data.cpu, Some(2));
-		assert_eq!(data.ttl, Some(std::time::Duration::new(60, 123)));
-		assert_eq!(data.usage.as_ref().unwrap().cpu, 123);
-		assert_eq!(data.usage.as_ref().unwrap().memory, 456);
-		assert_eq!(data.network.as_ref().unwrap().ports().len(), 1);
+		assert_eq!(data.data.cpu, Some(2));
+		assert_eq!(data.data.ttl, Some(std::time::Duration::new(60, 123)));
+		assert_eq!(data.data.usage.as_ref().unwrap().cpu, 123);
+		assert_eq!(data.data.usage.as_ref().unwrap().memory, 456);
+		assert_eq!(data.data.network.as_ref().unwrap().ports().len(), 1);
 	}
 }

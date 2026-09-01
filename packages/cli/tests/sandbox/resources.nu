@@ -11,7 +11,7 @@ let server = server spawn
 
 let id = tg sandbox create --cpu 1 --memory 268435456 | str trim
 
-let sandbox = tg sandbox get $id | from json
+let sandbox = tg sandbox get $id | from json | get data
 assert equal $sandbox.cpu 1 "the cpu option should be reflected"
 assert equal $sandbox.memory 268435456 "the memory option should be reflected"
 assert equal $sandbox.status "started" "the sandbox should be started"

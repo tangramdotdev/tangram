@@ -1443,13 +1443,11 @@ impl Tree {
 				match node.node.kind() {
 					tg::id::Kind::Group => {
 						let id = node.node.try_into().ok()?;
-						let group = tg::Group {
+						let group = tg::group::Data {
 							id,
-							location,
 							name,
 							parent,
 							specifier,
-							tokens,
 						};
 						Some(tg::Referent::new(Item::Group(group), referent_options))
 					},
@@ -1860,7 +1858,7 @@ impl Tree {
 				Self::expand_parent(
 					client,
 					counter.clone(),
-					group.location.clone().map(Into::into),
+					referent.options.location.clone().map(Into::into),
 					&group.id.clone().into(),
 					update_sender.clone(),
 				)
@@ -1870,7 +1868,7 @@ impl Tree {
 				Self::expand_parent(
 					client,
 					counter.clone(),
-					organization.location.clone().map(Into::into),
+					referent.options.location.clone().map(Into::into),
 					&organization.id.clone().into(),
 					update_sender.clone(),
 				)
@@ -1904,7 +1902,7 @@ impl Tree {
 				Self::expand_parent(
 					client,
 					counter.clone(),
-					user.location.clone().map(Into::into),
+					referent.options.location.clone().map(Into::into),
 					&user.id.clone().into(),
 					update_sender.clone(),
 				)

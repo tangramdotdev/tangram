@@ -5,12 +5,12 @@ use ../../test.nu *
 let server = server spawn --config { indexer: { cleaning: {} }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create | str trim
-let sandbox = tg sandbox get $default | from json
+let sandbox = tg sandbox get $default | from json | get data
 assert equal $sandbox.ttl 300 "the default ttl should be five minutes"
 tg sandbox destroy $default
 
 let infinite = tg sandbox create --no-ttl | str trim
-let sandbox = tg sandbox get $infinite | from json
+let sandbox = tg sandbox get $infinite | from json | get data
 assert ($sandbox.ttl? | is-empty) "an explicitly infinite ttl should be preserved"
 tg sandbox destroy $infinite
 

@@ -14,7 +14,10 @@ impl Session {
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let creator = self.context.principal.clone();
 
-		let mut output = tg::sandbox::list::Output { data: Vec::new() };
+		let mut output = tg::sandbox::list::Output {
+			cursor: None,
+			data: Vec::new(),
+		};
 
 		let locations = self
 			.locations(arg.location.as_ref())
@@ -113,7 +116,7 @@ impl Session {
 			.into_iter()
 			.filter_map(|(id, sandbox)| {
 				let data = sandbox.data?;
-				if !data.status.is_started()
+				if !data.data.status.is_started()
 					|| data
 						.location
 						.as_ref()
@@ -122,16 +125,16 @@ impl Session {
 					return None;
 				}
 				Some(tg::sandbox::list::Item {
-					cpu: data.cpu,
-					hostname: data.hostname,
+					cpu: data.data.cpu,
+					hostname: data.data.hostname,
 					id,
-					memory: data.memory,
-					mounts: data.mounts,
-					network: data.network,
-					owner: Some(data.owner.unwrap_or(tg::Principal::Root)),
-					status: data.status,
+					memory: data.data.memory,
+					mounts: data.data.mounts,
+					network: data.data.network,
+					owner: Some(data.data.owner.unwrap_or(tg::Principal::Root)),
+					status: data.data.status,
 					tokens: tg::authorization::Tokens::default(),
-					ttl: data.ttl,
+					ttl: data.data.ttl,
 				})
 			})
 			.collect::<Vec<_>>();

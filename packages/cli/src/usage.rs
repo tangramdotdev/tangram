@@ -85,7 +85,7 @@ impl Cli {
 				.await?
 				.ok_or_else(|| tg::error!("not logged in"))?;
 			client
-				.try_get_user_usage(&tg::user::Selector::Id(user.id), arg)
+				.try_get_user_usage(&tg::user::Selector::Id(user.data.id), arg)
 				.await?
 		};
 		let usage = usage.ok_or_else(|| tg::error!("failed to find the usage account"))?;

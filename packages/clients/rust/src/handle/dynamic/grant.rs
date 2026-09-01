@@ -4,7 +4,7 @@ impl tg::handle::Grant for Handle {
 	fn create_grant(
 		&self,
 		arg: tg::grant::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::Grant>> {
+	) -> impl Future<Output = tg::Result<tg::grant::create::Output>> {
 		self.0.create_grant(arg)
 	}
 

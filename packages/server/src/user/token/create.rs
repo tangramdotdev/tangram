@@ -39,8 +39,12 @@ impl Session {
 				.boxed()
 			})
 			.await?;
-		let data = tg::user::token::Data { created_at, id };
-		let output = tg::user::token::create::Output { data, token };
+		let data = tg::user::token::Data {
+			created_at,
+			id,
+			token: Some(token),
+		};
+		let output = tg::user::token::create::Output { data };
 
 		Ok(output)
 	}

@@ -15,7 +15,7 @@ let acme = tg --token $bob.token organization get acme | from json
 
 # An organization resolves and is stored as the owner.
 let sandbox = tg --token $bob.token sandbox create --organization acme --no-network | str trim
-let data = tg --token $bob.token sandbox get $sandbox | from json
+let data = tg --token $bob.token sandbox get $sandbox | from json | get data
 assert equal $data.owner $acme.id "the --organization alias should resolve an organization owner"
 
 # A group is not an organization, so --organization must reject it.

@@ -11,9 +11,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub runner: tg::runner::Data,
+	pub data: tg::runner::Data,
 
-	pub token: tg::runner::token::create::Output,
+	pub token: tg::runner::token::Data,
 }
 
 impl tg::Session {

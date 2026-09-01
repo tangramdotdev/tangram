@@ -54,7 +54,6 @@ impl Cli {
 		// Write the token if necessary.
 		if !location.as_ref().is_some_and(tg::Location::is_remote)
 			&& !output
-				.user
 				.location
 				.as_ref()
 				.is_some_and(tg::Location::is_remote)

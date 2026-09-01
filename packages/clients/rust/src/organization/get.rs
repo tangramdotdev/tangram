@@ -22,13 +22,10 @@ pub struct Arg {
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub id: tg::organization::Id,
+	pub data: tg::organization::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
-
-	pub name: String,
-	pub specifier: tg::Specifier,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,

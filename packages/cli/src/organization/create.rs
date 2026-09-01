@@ -8,6 +8,9 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
+	pub output: crate::print::OutputOptions,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
@@ -24,7 +27,11 @@ impl Cli {
 		let output = client.create_organization(arg).await.map_err(
 			|error| tg::error!(!error, specifier = %args.specifier, "failed to create the organization"),
 		)?;
-		self.print_serde(output.organization, args.print).await?;
+		if args.output.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			self.print_serde(output.data, args.print).await?;
+		}
 		Ok(())
 	}
 }

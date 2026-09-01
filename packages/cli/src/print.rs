@@ -26,6 +26,13 @@ pub struct Options {
 	pub pretty: bool,
 }
 
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct OutputOptions {
+	/// Print the complete operation output.
+	#[arg(long)]
+	pub verbose: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Depth {
 	Finite(u64),

@@ -13,7 +13,7 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, trusted: true, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.runner.id, remote: "default", token: $created.token.token },
+	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
 
 let alice = tg --url $remote.url login --verbose --name alice | from json

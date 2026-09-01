@@ -48,7 +48,7 @@ assert not ($old_root.id in $organization_members) "the replaced group should be
 let runner = (
 	tg --url $destination.url runner list --all
 	| from json
-	| where id == $runner.runner.id
+	| where id == $runner.data.id
 	| first
 )
 assert (($runner | get --optional owner) == null) "the replaced group should be cleared as the runner owner"

@@ -829,7 +829,7 @@ impl Session {
 		// Create the timer.
 		let mut timer_future = None;
 		let reusable = process_task_output.is_none();
-		let ttl = state.ttl;
+		let ttl = state.data.ttl;
 
 		let connected_event = if let Some(process_task_output) = process_task_output {
 			let mut events = process_task_output.events;
@@ -1064,7 +1064,7 @@ impl Session {
 			.sandboxes
 			.get_mut_by_id(&id)
 			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-		state.usage = Some(tg::sandbox::get::Usage {
+		state.usage = Some(tg::sandbox::Usage {
 			cpu: usage.cpu,
 			memory: usage.memory,
 		});

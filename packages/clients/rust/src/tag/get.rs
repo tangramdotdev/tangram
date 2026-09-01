@@ -22,7 +22,6 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(flatten)]
 	pub data: tg::tag::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

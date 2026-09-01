@@ -306,7 +306,7 @@ impl Server {
 			.data
 			.as_mut()
 			.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?;
-		data.status = tg::sandbox::Status::Destroyed;
+		data.data.status = tg::sandbox::Status::Destroyed;
 		let account = if self.config.usage.enabled {
 			indexed.account
 		} else {
