@@ -21,6 +21,7 @@ foundationdb = []
 vsock = ["dep:tokio-vsock"]
 
 [dependencies]
+blake3 = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 derive_more = { workspace = true }

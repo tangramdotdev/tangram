@@ -1,31 +1,333 @@
 use {
 	crate::libraries,
-	std::path::{Path, PathBuf},
+	serde::{Deserialize, Serialize},
+	std::{
+		io::Write as _,
+		os::unix::ffi::OsStrExt as _,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 };
 
+const VERSION_FILE_NAME: &str = ".tangram-version";
+// Bump this when the generated structure changes independently of its hashed inputs.
+const VERSION_SCHEMA: u64 = 1;
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub path: PathBuf,
+	pub version: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Version {
+	fingerprint: String,
+	schema: u64,
+	tangram: String,
 }
 
 pub fn create(arg: &Arg) -> tg::Result<()> {
-	std::fs::remove_dir_all(&arg.path).ok();
-	std::fs::create_dir_all(&arg.path)
-		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
-	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
-	ROOTFS.extract(&arg.path).map_err(
-		|error| tg::error!(!error, path = %arg.path.display(), "failed to extract the sandbox rootfs"),
-	)?;
-	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
-	restore_rootfs_symlinks(&arg.path)?;
-	create_rootfs_mountpoints(&arg.path)?;
-
+	// Resolve the build inputs.
 	let libraries = libraries::resolve()?;
-	let lib_path = arg.path.join("opt/tangram/lib");
-	libraries::stage(&lib_path, &libraries)?;
+	let version = version(arg, &libraries)?;
+	if root_is_valid(&arg.path, &version, &libraries) {
+		if let Ok(temp_path) = temporary_path(&arg.path) {
+			remove_path(&temp_path).ok();
+		}
+		return Ok(());
+	}
+
+	// Prepare a temporary sibling so that installation stays on one filesystem.
+	let parent_path = arg.path.parent().ok_or_else(|| {
+		tg::error!(
+			path = %arg.path.display(),
+			"failed to get the sandbox directory parent"
+		)
+	})?;
+	std::fs::create_dir_all(parent_path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %parent_path.display(),
+			"failed to create the sandbox directory parent"
+		)
+	})?;
+	let temp_path = temporary_path(&arg.path)?;
+	remove_path(&temp_path)?;
+
+	// Build the root without modifying the installed root.
+	let result = build(&temp_path, &libraries, &version);
+	if let Err(error) = result {
+		remove_path(&temp_path).ok();
+		return Err(error);
+	}
+
+	// Install the complete root atomically.
+	let result = install(&temp_path, &arg.path, parent_path);
+	if result.is_err() {
+		remove_path(&temp_path).ok();
+	}
+	result
+}
+
+fn build(path: &Path, libraries: &[libraries::Library], version: &Version) -> tg::Result<()> {
+	std::fs::create_dir(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to create the sandbox directory"
+		)
+	})?;
+	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
+	ROOTFS.extract(path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to extract the sandbox rootfs"),
+	)?;
+	set_rootfs_permissions(path, &ROOTFS, &permissions)?;
+	restore_rootfs_symlinks(path)?;
+	create_rootfs_mountpoints(path)?;
+
+	let lib_path = path.join("opt/tangram/lib");
+	libraries::stage(&lib_path, libraries)?;
+	sync_directory(path)?;
+	write_version(path, version)?;
+	Ok(())
+}
+
+fn version(arg: &Arg, libraries: &[libraries::Library]) -> tg::Result<Version> {
+	let mut hasher = blake3::Hasher::new();
+	hash_rootfs(&mut hasher, &ROOTFS);
+	for library in libraries {
+		hash_bytes(&mut hasher, library.name.as_bytes());
+		hash_file(&mut hasher, &library.source)?;
+	}
+	let fingerprint = hasher.finalize().to_hex().to_string();
+	let schema = VERSION_SCHEMA;
+	let tangram = arg.version.clone();
+	let version = Version {
+		fingerprint,
+		schema,
+		tangram,
+	};
+	Ok(version)
+}
+
+fn hash_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) {
+	hasher.update(&(bytes.len() as u64).to_le_bytes());
+	hasher.update(bytes);
+}
+
+fn hash_file(hasher: &mut blake3::Hasher, path: &Path) -> tg::Result<()> {
+	let mut file = std::fs::File::open(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to open a sandbox input"
+		)
+	})?;
+	let mut file_hasher = blake3::Hasher::new();
+	std::io::copy(&mut file, &mut file_hasher).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to read a sandbox input"
+		)
+	})?;
+	hash_bytes(hasher, file_hasher.finalize().as_bytes());
+	Ok(())
+}
+
+fn hash_rootfs(hasher: &mut blake3::Hasher, directory: &include_dir::Dir<'_>) {
+	let mut entries = directory.entries().iter().collect::<Vec<_>>();
+	entries.sort_by_key(|entry| entry.path());
+	for entry in entries {
+		hash_bytes(hasher, entry.path().as_os_str().as_bytes());
+		match entry {
+			include_dir::DirEntry::Dir(directory) => {
+				hash_bytes(hasher, b"directory");
+				hash_rootfs(hasher, directory);
+			},
+			include_dir::DirEntry::File(file) => {
+				hash_bytes(hasher, b"file");
+				hash_bytes(hasher, file.contents());
+			},
+		}
+	}
+}
+
+fn install(temp_path: &Path, path: &Path, parent_path: &Path) -> tg::Result<()> {
+	let exists = match std::fs::symlink_metadata(path) {
+		Ok(_) => true,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+		Err(error) => {
+			return Err(tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to stat the sandbox directory"
+			));
+		},
+	};
+	if exists {
+		rustix::fs::renameat_with(
+			rustix::fs::CWD,
+			temp_path,
+			rustix::fs::CWD,
+			path,
+			rustix::fs::RenameFlags::EXCHANGE,
+		)
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				from = %temp_path.display(),
+				to = %path.display(),
+				"failed to install the sandbox directory"
+			)
+		})?;
+	} else {
+		tangram_util::fs::rename_noreplace_sync(temp_path, path).map_err(|error| {
+			tg::error!(
+				!error,
+				from = %temp_path.display(),
+				to = %path.display(),
+				"failed to install the sandbox directory"
+			)
+		})?;
+	}
+	sync_file(parent_path)?;
+	if let Err(error) = remove_path(temp_path) {
+		tracing::warn!(?error, path = %temp_path.display(), "failed to clean up the old sandbox directory");
+	} else {
+		sync_file(parent_path)?;
+	}
+	Ok(())
+}
+
+fn remove_path(path: &Path) -> tg::Result<()> {
+	match tangram_util::fs::remove_sync(path) {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to remove the sandbox directory"
+		)),
+	}
+}
+
+fn root_is_valid(path: &Path, version: &Version, libraries: &[libraries::Library]) -> bool {
+	let version_path = path.join(VERSION_FILE_NAME);
+	let Ok(file) = std::fs::File::open(version_path) else {
+		return false;
+	};
+	let Ok(found_version) = serde_json::from_reader::<_, Version>(file) else {
+		return false;
+	};
+	if found_version != *version {
+		return false;
+	}
+	let tangram_path = path.join("opt/tangram/bin/tangram");
+	if !tangram_path.is_file() {
+		return false;
+	}
+	for library in libraries {
+		if !path.join("opt/tangram/lib").join(&library.name).is_file() {
+			return false;
+		}
+	}
+	true
+}
+
+fn sync_directory(path: &Path) -> tg::Result<()> {
+	let entries = std::fs::read_dir(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to read the sandbox directory"
+		)
+	})?;
+	for entry in entries {
+		let path = entry
+			.map_err(|error| tg::error!(!error, "failed to read a sandbox directory entry"))?
+			.path();
+		let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to stat a sandbox directory entry"
+			)
+		})?;
+		if metadata.is_dir() {
+			sync_directory(&path)?;
+		} else if metadata.is_file() {
+			sync_file(&path)?;
+		}
+	}
+	sync_file(path)?;
+	Ok(())
+}
+
+fn sync_file(path: &Path) -> tg::Result<()> {
+	let file = std::fs::File::open(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to open a sandbox path"
+		)
+	})?;
+	file.sync_all().map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to sync a sandbox path"
+		)
+	})?;
+	Ok(())
+}
+
+fn temporary_path(path: &Path) -> tg::Result<PathBuf> {
+	let name = path.file_name().ok_or_else(|| {
+		tg::error!(
+			path = %path.display(),
+			"failed to get the sandbox directory name"
+		)
+	})?;
+	let mut temp_name = name.to_owned();
+	temp_name.push(".tmp");
+	let path = path.with_file_name(temp_name);
+	Ok(path)
+}
+
+fn write_version(path: &Path, version: &Version) -> tg::Result<()> {
+	let version_path = path.join(VERSION_FILE_NAME);
+	let mut file = std::fs::File::create(&version_path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %version_path.display(),
+			"failed to create the sandbox version file"
+		)
+	})?;
+	serde_json::to_writer(&mut file, version).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %version_path.display(),
+			"failed to write the sandbox version file"
+		)
+	})?;
+	writeln!(file).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %version_path.display(),
+			"failed to write the sandbox version file"
+		)
+	})?;
+	file.sync_all().map_err(|error| {
+		tg::error!(
+			!error,
+			path = %version_path.display(),
+			"failed to sync the sandbox version file"
+		)
+	})?;
+	sync_file(path)?;
 	Ok(())
 }
 

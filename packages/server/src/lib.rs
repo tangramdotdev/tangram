@@ -932,9 +932,14 @@ impl Server {
 			.vm
 			.as_ref()
 			.map(|_| path.join("vm/image.squashfs"));
+		let version = config
+			.version
+			.clone()
+			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 		#[cfg(target_os = "linux")]
 		tangram_sandbox::container::root::create(&tangram_sandbox::container::root::Arg {
 			path: sandbox_container_root.clone(),
+			version: version.clone(),
 		})?;
 		#[cfg(target_os = "macos")]
 		tangram_sandbox::seatbelt::root::create(&tangram_sandbox::seatbelt::root::Arg {
@@ -981,12 +986,6 @@ impl Server {
 
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(None);
-
-		// Get the version.
-		let version = config
-			.version
-			.clone()
-			.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
 
 		// Create the vfs.
 		let vfs = Mutex::new(None);
