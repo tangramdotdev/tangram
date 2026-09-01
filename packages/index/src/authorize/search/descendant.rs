@@ -1,10 +1,15 @@
 use {
-	super::{Budget, Key, Outcome, Read, ReadOutput, State},
+	super::{Budget, Key, MemberRead, Outcome, Read, ReadOutput, State},
 	std::collections::{BTreeMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
 };
 
 enum DescendantTask {
+	Member {
+		depth: usize,
+		member: tg::Id,
+		read: MemberRead,
+	},
 	Node {
 		depth: usize,
 		key: Key,
@@ -36,8 +41,13 @@ enum DescendantTask {
 		permission: tg::authorization::permission::sandbox::Permission,
 		sandbox: tg::sandbox::Id,
 	},
+	Subject {
+		depth: usize,
+		subject: tg::authorization::Subject,
+	},
 	SubjectGrants {
 		after: Option<Vec<u8>>,
+		depth: usize,
 		subject: tg::authorization::Subject,
 	},
 }
@@ -50,6 +60,7 @@ pub(super) struct Search {
 	queues: BTreeMap<usize, VecDeque<DescendantTask>>,
 	pub(super) unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
+	visited_subjects: HashSet<tg::authorization::Subject>,
 }
 
 impl Search {
@@ -58,13 +69,13 @@ impl Search {
 		config: crate::authorize::SearchConfig,
 		principal: &tg::Principal,
 		state: &State,
-		subjects: &[tg::authorization::Subject],
 		targets: Vec<Key>,
 		token: Option<(&tg::authorization::Body, &tg::Id)>,
 	) -> Self {
 		let authorization_revision = state.authorization_revision();
 		let budget = Budget::with_root_total(config, targets.len());
-		let complete = true;
+		// Public grants are checked only by the ancestor search, so a descendant search cannot deny.
+		let complete = false;
 		let unresolved = targets.into_iter().collect();
 		if config.max_nodes == 0 {
 			return Self {
@@ -75,19 +86,17 @@ impl Search {
 				queues: BTreeMap::new(),
 				unresolved,
 				visited: HashSet::new(),
+				visited_subjects: HashSet::new(),
 			};
 		}
 
 		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
 		let visited = HashSet::new();
-		for subject in subjects {
+		if let Ok(subject) = principal.try_to_subject() {
 			queues
 				.entry(0)
 				.or_default()
-				.push_back(DescendantTask::SubjectGrants {
-					after: None,
-					subject: subject.clone(),
-				});
+				.push_back(DescendantTask::Subject { depth: 0, subject });
 		}
 
 		let mut sources = inherent_sources(principal);
@@ -117,6 +126,7 @@ impl Search {
 			queues,
 			unresolved,
 			visited,
+			visited_subjects: HashSet::new(),
 		}
 	}
 
@@ -152,6 +162,19 @@ impl Search {
 				self.queues.insert(priority, queue);
 			}
 			match task {
+				DescendantTask::Member {
+					depth,
+					member,
+					read,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::Member {
+						depth,
+						limit,
+						member,
+						read,
+					});
+				},
 				DescendantTask::Node { depth, key } => self.expand_node(state, depth, key),
 				DescendantTask::ObjectChildren {
 					after,
@@ -222,10 +245,18 @@ impl Search {
 						sandbox,
 					});
 				},
-				DescendantTask::SubjectGrants { after, subject } => {
+				DescendantTask::Subject { depth, subject } => {
+					self.expand_subject(depth, subject);
+				},
+				DescendantTask::SubjectGrants {
+					after,
+					depth,
+					subject,
+				} => {
 					let limit = self.budget.config.page_size;
 					reads.push(Read::SubjectGrants {
 						after,
+						depth,
 						limit,
 						subject,
 					});
@@ -238,7 +269,7 @@ impl Search {
 
 	pub(super) fn apply(
 		&mut self,
-		_state: &mut State,
+		state: &mut State,
 		read: Read,
 		output: ReadOutput,
 	) -> tg::Result<()> {
@@ -249,6 +280,14 @@ impl Search {
 		}
 		let retry = read.clone();
 		let (depth, next_depth, continuation, neighbors) = match read {
+			Read::Member {
+				depth,
+				member,
+				read,
+				..
+			} => {
+				return self.apply_member(state, retry, depth, member, &read, output);
+			},
 			Read::ObjectChildren { depth, object, .. } => {
 				let (after, children) = output.into_ids()?;
 				let continuation = after.map(|after| DescendantTask::ObjectChildren {
@@ -385,10 +424,11 @@ impl Search {
 
 				(depth, depth + 1, continuation, neighbors)
 			},
-			Read::SubjectGrants { subject, .. } => {
+			Read::SubjectGrants { depth, subject, .. } => {
 				let (after, grants) = output.into_grants()?;
 				let continuation = after.map(|after| DescendantTask::SubjectGrants {
 					after: Some(after),
+					depth,
 					subject,
 				});
 				let neighbors = grants
@@ -396,11 +436,12 @@ impl Search {
 					.map(|grant| (grant.resource, grant.permission))
 					.collect();
 
-				(0, 0, continuation, neighbors)
+				(depth, depth, continuation, neighbors)
 			},
 			Read::AncestorNode { .. }
-			| Read::Member { .. }
+			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
+			| Read::OrganizationMembers { .. }
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
@@ -429,6 +470,84 @@ impl Search {
 				.push_back(DescendantTask::Node {
 					depth: next_depth,
 					key,
+				});
+		}
+		if let Some(continuation) = continuation {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_back(continuation);
+		}
+
+		Ok(())
+	}
+
+	fn apply_member(
+		&mut self,
+		state: &mut State,
+		retry: Read,
+		depth: usize,
+		member: tg::Id,
+		read: &MemberRead,
+		output: ReadOutput,
+	) -> tg::Result<()> {
+		let member_subject = subject_for_member(member.clone())?;
+		let (continuation, containers) = match read {
+			MemberRead::Groups { .. } => {
+				let (after, groups) = output.into_member_groups()?;
+				let continuation = after.map(|after| DescendantTask::Member {
+					depth,
+					member,
+					read: MemberRead::Groups { after: Some(after) },
+				});
+				let containers = groups
+					.into_iter()
+					.map(tg::authorization::Subject::Group)
+					.collect::<Vec<_>>();
+
+				(continuation, containers)
+			},
+			MemberRead::Organizations { .. } => {
+				let (after, organizations) = output.into_member_organizations()?;
+				let continuation = after.map(|after| DescendantTask::Member {
+					depth,
+					member,
+					read: MemberRead::Organizations { after: Some(after) },
+				});
+				let containers = organizations
+					.into_iter()
+					.map(tg::authorization::Subject::Organization)
+					.collect::<Vec<_>>();
+
+				(continuation, containers)
+			},
+		};
+		let next_depth = depth + 1;
+		for container in containers {
+			let edge_known = state.has_membership_dependency(&member_subject, &container);
+			if !edge_known && !self.budget.add_edge() {
+				self.exhausted = true;
+				self.requeue_read(retry)?;
+
+				return Ok(());
+			}
+			state.add_membership_dependency(&member_subject, container.clone());
+			if self.visited_subjects.contains(&container) {
+				continue;
+			}
+			if !self.budget.add_node(next_depth) {
+				self.exhausted = true;
+				self.requeue_read(retry)?;
+
+				return Ok(());
+			}
+			self.visited_subjects.insert(container.clone());
+			self.queues
+				.entry(next_depth)
+				.or_default()
+				.push_back(DescendantTask::Subject {
+					depth: next_depth,
+					subject: container,
 				});
 		}
 		if let Some(continuation) = continuation {
@@ -615,8 +734,70 @@ impl Search {
 		}
 	}
 
+	fn expand_subject(&mut self, depth: usize, subject: tg::authorization::Subject) {
+		if !self.visited_subjects.contains(&subject) {
+			if !self.budget.add_node(depth) {
+				self.exhausted = true;
+				self.queues
+					.entry(depth)
+					.or_default()
+					.push_front(DescendantTask::Subject { depth, subject });
+
+				return;
+			}
+			self.visited_subjects.insert(subject.clone());
+		}
+		self.queues
+			.entry(depth)
+			.or_default()
+			.push_back(DescendantTask::SubjectGrants {
+				after: None,
+				depth,
+				subject: subject.clone(),
+			});
+		let member = match subject {
+			tg::authorization::Subject::Group(group) => Some(tg::Id::from(group)),
+			tg::authorization::Subject::User(user) => Some(tg::Id::from(user)),
+			tg::authorization::Subject::Organization(_)
+			| tg::authorization::Subject::Process(_)
+			| tg::authorization::Subject::Public
+			| tg::authorization::Subject::Root
+			| tg::authorization::Subject::Runner(_)
+			| tg::authorization::Subject::Sandbox(_) => None,
+		};
+		let Some(member) = member else {
+			return;
+		};
+		for read in [
+			MemberRead::Groups { after: None },
+			MemberRead::Organizations { after: None },
+		] {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_back(DescendantTask::Member {
+					depth,
+					member: member.clone(),
+					read,
+				});
+		}
+	}
+
 	fn requeue_read(&mut self, read: Read) -> tg::Result<()> {
 		let (depth, task) = match read {
+			Read::Member {
+				depth,
+				member,
+				read,
+				..
+			} => (
+				depth,
+				DescendantTask::Member {
+					depth,
+					member,
+					read,
+				},
+			),
 			Read::ObjectChildren {
 				after,
 				depth,
@@ -686,12 +867,23 @@ impl Search {
 					sandbox,
 				},
 			),
-			Read::SubjectGrants { after, subject, .. } => {
-				(0, DescendantTask::SubjectGrants { after, subject })
-			},
+			Read::SubjectGrants {
+				after,
+				depth,
+				subject,
+				..
+			} => (
+				depth,
+				DescendantTask::SubjectGrants {
+					after,
+					depth,
+					subject,
+				},
+			),
 			Read::AncestorNode { .. }
-			| Read::Member { .. }
+			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
+			| Read::OrganizationMembers { .. }
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
@@ -708,6 +900,15 @@ impl Search {
 		Ok(())
 	}
 }
+
+fn subject_for_member(member: tg::Id) -> tg::Result<tg::authorization::Subject> {
+	match member.kind() {
+		tg::id::Kind::Group => Ok(tg::authorization::Subject::Group(member.try_into()?)),
+		tg::id::Kind::User => Ok(tg::authorization::Subject::User(member.try_into()?)),
+		_ => Err(tg::error!("invalid authorization membership subject")),
+	}
+}
+
 fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 	match principal {
 		tg::Principal::Process(process) => {

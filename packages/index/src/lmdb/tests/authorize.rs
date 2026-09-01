@@ -1494,13 +1494,18 @@ async fn authorize_overlapping_subtree_batch_scales_linearly() {
 }
 
 #[tokio::test]
-async fn authorize_descendant_search_can_deny() {
+async fn authorize_ancestor_search_can_deny_when_the_descendant_cannot() {
 	let ancestor = crate::authorize::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
+	let descendant = crate::authorize::SearchConfig {
+		max_nodes: 0,
+		..Default::default()
+	};
 	let config = crate::authorize::Config {
 		ancestor,
+		descendant,
 		..Default::default()
 	};
 	let (_dir, index) = new_index();
@@ -2527,15 +2532,51 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 }
 
 #[tokio::test]
-async fn authorize_uses_precomputed_membership_in_the_descendant_search() {
+async fn authorize_searches_traverse_memberships_in_both_directions() {
 	let (_dir, index) = new_index();
-	let user = tg::user::Id::new();
-	let inner = tg::group::Id::new();
+	let mut users = [tg::user::Id::new(), tg::user::Id::new()];
+	users.sort_by_key(|user| tg::Id::from(user.clone()).to_bytes());
+	let [decoy_user, user] = users;
+	let mut groups = [tg::group::Id::new(), tg::group::Id::new()];
+	groups.sort_by_key(|group| tg::Id::from(group.clone()).to_bytes());
+	let [decoy_group, inner] = groups;
 	let outer = tg::group::Id::new();
 	let organization = tg::organization::Id::new();
 	let object = object_id(0);
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
+	put(
+		&index,
+		&mut txn,
+		&Key::Group(GroupKey::GroupMember {
+			group: decoy_group.clone(),
+			member: user.clone().into(),
+		}),
+	);
+	put(
+		&index,
+		&mut txn,
+		&Key::Group(GroupKey::MemberGroup {
+			group: decoy_group,
+			member: user.clone().into(),
+		}),
+	);
+	put(
+		&index,
+		&mut txn,
+		&Key::Group(GroupKey::GroupMember {
+			group: inner.clone(),
+			member: decoy_user.clone().into(),
+		}),
+	);
+	put(
+		&index,
+		&mut txn,
+		&Key::Group(GroupKey::MemberGroup {
+			group: inner.clone(),
+			member: decoy_user.into(),
+		}),
+	);
 	put(
 		&index,
 		&mut txn,
@@ -2597,7 +2638,7 @@ async fn authorize_uses_precomputed_membership_in_the_descendant_search() {
 	let arg = crate::authorize::Arg {
 		requested: node,
 		required: node,
-		resource: tg::Selector::Id(object.into()),
+		resource: tg::Selector::Id(object.clone().into()),
 		token: None,
 	};
 	let ancestor = crate::authorize::SearchConfig {
@@ -2606,6 +2647,34 @@ async fn authorize_uses_precomputed_membership_in_the_descendant_search() {
 	};
 	let config = crate::authorize::Config {
 		ancestor,
+		descendant: crate::authorize::SearchConfig {
+			page_size: 1,
+			..Default::default()
+		},
+		..Default::default()
+	};
+	let output = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.await
+		.unwrap();
+	assert!(output[0].output().unwrap().permissions.contains(node));
+
+	let arg = crate::authorize::Arg {
+		requested: node,
+		required: node,
+		resource: tg::Selector::Id(object.into()),
+		token: None,
+	};
+	let descendant = crate::authorize::SearchConfig {
+		max_nodes: 0,
+		..Default::default()
+	};
+	let config = crate::authorize::Config {
+		ancestor: crate::authorize::SearchConfig {
+			page_size: 1,
+			..Default::default()
+		},
+		descendant,
 		..Default::default()
 	};
 	let output = index

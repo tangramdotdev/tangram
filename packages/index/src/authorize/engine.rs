@@ -7,7 +7,7 @@ use {
 		},
 	},
 	std::{
-		collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+		collections::{BTreeMap, VecDeque},
 		ops::ControlFlow,
 	},
 	tangram_client::prelude::*,
@@ -16,8 +16,6 @@ use {
 pub(crate) struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
-	member_visited: HashSet<tg::Id>,
-	members: VecDeque<(tg::Id, super::search::MemberRead)>,
 	outcomes: Option<Vec<super::Outcome>>,
 	phase: BatchPhase,
 	principal: tg::Principal,
@@ -26,12 +24,10 @@ pub(crate) struct Batch {
 	resources: Vec<Resolution>,
 	search_indices: BTreeMap<Option<tg::authorization::Body>, usize>,
 	searches: Vec<TokenSearch>,
-	subjects: BTreeSet<tg::authorization::Subject>,
 }
 
 enum BatchPhase {
 	Complete,
-	Members,
 	Resolve { next: usize },
 	Search { next: usize },
 }
@@ -51,7 +47,6 @@ struct TokenSearch {
 	principal: tg::Principal,
 	roots: Vec<Key>,
 	state: State,
-	subjects: Vec<tg::authorization::Subject>,
 	token: Option<(tg::authorization::Body, tg::Id)>,
 }
 
@@ -161,7 +156,7 @@ impl Batch {
 	{
 		let mut batch = Self::new(args, config, principal)?;
 
-		// Resolve the resources and expand the principal's memberships.
+		// Resolve the resources.
 		while !batch.complete() && !matches!(batch.phase, BatchPhase::Search { .. }) {
 			let reads = batch.take_reads(client.concurrency())?;
 			let results = match execute_reads(&client, reads).await? {
@@ -225,29 +220,9 @@ impl Batch {
 		} else {
 			BatchPhase::Resolve { next: 0 }
 		};
-		let subject = principal.to_subject();
-		let subjects = BTreeSet::from([tg::authorization::Subject::Public, subject]);
-		let member = principal_id(principal)
-			.filter(|id| matches!(id.kind(), tg::id::Kind::Group | tg::id::Kind::User));
-		let mut member_visited = HashSet::new();
-		let mut members = VecDeque::new();
-		if let Some(member) = member {
-			member_visited.insert(member.clone());
-			members.push_back((
-				member.clone(),
-				super::search::MemberRead::Groups { after: None },
-			));
-			members.push_back((
-				member,
-				super::search::MemberRead::Organizations { after: None },
-			));
-		}
-
 		Ok(Self {
 			args: args.to_vec(),
 			config,
-			member_visited,
-			members,
 			outcomes,
 			phase,
 			principal: principal.clone(),
@@ -256,7 +231,6 @@ impl Batch {
 			resources: vec![Resolution::Pending; args.len()],
 			search_indices: BTreeMap::new(),
 			searches: Vec::new(),
-			subjects,
 		})
 	}
 
@@ -270,26 +244,6 @@ impl Batch {
 		loop {
 			match &mut self.phase {
 				BatchPhase::Complete => return Ok(Vec::new()),
-				BatchPhase::Members => {
-					let mut reads = Vec::new();
-					while reads.len() < limit {
-						let Some((member, read)) = self.members.pop_front() else {
-							break;
-						};
-						let limit = self.config.descendant.page_size;
-						reads.push(Read::Member {
-							limit,
-							member,
-							read,
-						});
-					}
-					if !reads.is_empty() {
-						return Ok(reads);
-					}
-					self.prepare_searches()?;
-
-					return Ok(Vec::new());
-				},
 				BatchPhase::Resolve { next } => {
 					let end = next.saturating_add(limit).min(self.args.len());
 					let reads = (*next..end)
@@ -302,7 +256,9 @@ impl Batch {
 					if !reads.is_empty() {
 						return Ok(reads);
 					}
-					self.phase = BatchPhase::Members;
+					self.prepare_searches()?;
+
+					return Ok(Vec::new());
 				},
 				BatchPhase::Search { next } => {
 					let Some(search) = self.searches.get_mut(*next) else {
@@ -323,47 +279,6 @@ impl Batch {
 
 	pub(crate) fn apply(&mut self, read: Read, output: ReadOutput) -> tg::Result<()> {
 		match read {
-			Read::Member {
-				member,
-				read: super::search::MemberRead::Groups { .. },
-				..
-			} => {
-				let (after, groups) = output.into_member_groups()?;
-				for group in groups {
-					self.subjects
-						.insert(tg::authorization::Subject::Group(group.clone()));
-					let group = tg::Id::from(group);
-					if self.member_visited.insert(group.clone()) {
-						self.members.push_back((
-							group.clone(),
-							super::search::MemberRead::Groups { after: None },
-						));
-						self.members.push_back((
-							group,
-							super::search::MemberRead::Organizations { after: None },
-						));
-					}
-				}
-				if let Some(after) = after {
-					let read = super::search::MemberRead::Groups { after: Some(after) };
-					self.members.push_back((member, read));
-				}
-			},
-			Read::Member {
-				member,
-				read: super::search::MemberRead::Organizations { .. },
-				..
-			} => {
-				let (after, organizations) = output.into_member_organizations()?;
-				for organization in organizations {
-					self.subjects
-						.insert(tg::authorization::Subject::Organization(organization));
-				}
-				if let Some(after) = after {
-					let read = super::search::MemberRead::Organizations { after: Some(after) };
-					self.members.push_back((member, read));
-				}
-			},
 			Read::Resolve { index, .. } => {
 				let resource = output.into_resolved()?;
 				let slot = self
@@ -432,17 +347,11 @@ impl Batch {
 			);
 		}
 
-		let subjects = self.subjects.iter().cloned().collect::<Vec<_>>();
 		for (token, roots) in roots {
 			let index = self.searches.len();
 			self.search_indices.insert(token.clone(), index);
-			self.searches.push(TokenSearch::new(
-				self.config,
-				&self.principal,
-				roots,
-				&subjects,
-				token,
-			));
+			self.searches
+				.push(TokenSearch::new(self.config, &self.principal, roots, token));
 		}
 		self.phase = BatchPhase::Search { next: 0 };
 
@@ -519,7 +428,6 @@ impl TokenSearch {
 		config: super::Config,
 		principal: &tg::Principal,
 		roots: Vec<Key>,
-		subjects: &[tg::authorization::Subject],
 		token: Option<tg::authorization::Body>,
 	) -> Self {
 		let mut state = State::default();
@@ -527,14 +435,8 @@ impl TokenSearch {
 			let resource = body.resource.clone();
 			(body, resource)
 		});
-		let initial = AncestorOrDescendantSearch::new(
-			config,
-			principal,
-			&roots,
-			subjects,
-			token.as_ref(),
-			&mut state,
-		);
+		let initial =
+			AncestorOrDescendantSearch::new(config, principal, &roots, token.as_ref(), &mut state);
 		let final_search = FinalSearch::new(roots.iter().cloned());
 
 		Self {
@@ -546,7 +448,6 @@ impl TokenSearch {
 			principal: principal.clone(),
 			roots,
 			state,
-			subjects: subjects.to_vec(),
 			token,
 		}
 	}
@@ -565,7 +466,6 @@ impl TokenSearch {
 						let reads = search.take_reads(
 							self.config,
 							&self.principal,
-							&self.subjects,
 							self.token.as_ref(),
 							&mut self.state,
 							limit,
@@ -663,7 +563,6 @@ impl PermissionSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		subjects: &[tg::authorization::Subject],
 		token: Option<&(tg::authorization::Body, tg::Id)>,
 		state: &mut State,
 		limit: usize,
@@ -671,11 +570,11 @@ impl PermissionSearch {
 		let (reads, outcome) = match &mut self.phase {
 			PermissionPhase::Complete(_) => return Ok(Vec::new()),
 			PermissionPhase::Process(search) => {
-				let reads = search.take_reads(config, principal, subjects, token, state, limit)?;
+				let reads = search.take_reads(config, principal, token, state, limit)?;
 				(reads, search.outcome())
 			},
 			PermissionPhase::Subtree(search) => {
-				let reads = search.take_reads(config, principal, subjects, token, state, limit)?;
+				let reads = search.take_reads(config, principal, token, state, limit)?;
 				(reads, search.outcome())
 			},
 		};
@@ -749,7 +648,6 @@ impl SubtreeEvaluation {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		subjects: &[tg::authorization::Subject],
 		token: Option<&(tg::authorization::Body, tg::Id)>,
 		state: &mut State,
 		limit: usize,
@@ -773,8 +671,7 @@ impl SubtreeEvaluation {
 				SubtreePhase::Complete(_) => return Ok(Vec::new()),
 				SubtreePhase::ProcessNodes { current, pending } => {
 					if let Some(search) = current {
-						let reads =
-							search.take_reads(config, principal, subjects, token, state, limit)?;
+						let reads = search.take_reads(config, principal, token, state, limit)?;
 						if !reads.is_empty() {
 							return Ok(reads);
 						}
@@ -802,7 +699,7 @@ impl SubtreeEvaluation {
 					{
 						SubtreeAction::AuthorizeAncestorOrDescendant { roots } => {
 							let search = AncestorOrDescendantSearch::new(
-								config, principal, &roots, subjects, token, state,
+								config, principal, &roots, token, state,
 							);
 							self.phase = SubtreePhase::AncestorOrDescendant { roots, search };
 						},
@@ -888,7 +785,6 @@ impl ProcessSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		subjects: &[tg::authorization::Subject],
 		token: Option<&(tg::authorization::Body, tg::Id)>,
 		state: &mut State,
 		limit: usize,
@@ -918,7 +814,7 @@ impl ProcessSearch {
 					}
 					let process = tg::process::Id::try_from(self.root.0.clone())?;
 					if let Some(facts) = state.process_facts(&process) {
-						self.prepare_facts(config, principal, subjects, token, state, &facts);
+						self.prepare_facts(config, principal, token, state, &facts);
 						continue;
 					}
 					let mut reads = Vec::new();
@@ -956,12 +852,11 @@ impl ProcessSearch {
 						process: process_value,
 					};
 					let facts = state.set_process_facts(process, facts);
-					self.prepare_facts(config, principal, subjects, token, state, &facts);
+					self.prepare_facts(config, principal, token, state, &facts);
 				},
 				ProcessPhase::ObjectFinal { current, pending } => {
 					if let Some(search) = current {
-						let reads =
-							search.take_reads(config, principal, subjects, token, state, limit)?;
+						let reads = search.take_reads(config, principal, token, state, limit)?;
 						if !reads.is_empty() {
 							return Ok(reads);
 						}
@@ -1067,7 +962,6 @@ impl ProcessSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		subjects: &[tg::authorization::Subject],
 		token: Option<&(tg::authorization::Body, tg::Id)>,
 		state: &mut State,
 		facts: &ProcessFacts,
@@ -1110,8 +1004,7 @@ impl ProcessSearch {
 
 			return;
 		}
-		let search =
-			AncestorOrDescendantSearch::new(config, principal, &roots, subjects, token, state);
+		let search = AncestorOrDescendantSearch::new(config, principal, &roots, token, state);
 		self.phase = ProcessPhase::ObjectInitial { roots, search };
 	}
 }
@@ -1257,10 +1150,26 @@ where
 				ReadOutput::Tags { after, tags }
 			},
 		},
+		Read::GroupMembers {
+			after,
+			group,
+			limit,
+			..
+		} => {
+			let output = read!(facts::Request::GroupMembers {
+				after: after.clone(),
+				group: group.clone(),
+				limit: *limit,
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
 		Read::Member {
 			limit,
 			member,
 			read,
+			..
 		} => match read {
 			super::search::MemberRead::Groups { after } => {
 				let output = read!(facts::Request::MemberGroups {
@@ -1317,6 +1226,21 @@ where
 				after: after.clone(),
 				limit: *limit,
 				object: object.clone(),
+			});
+			let (after, ids) = output.into_ids()?;
+
+			ReadOutput::Ids { after, ids }
+		},
+		Read::OrganizationMembers {
+			after,
+			limit,
+			organization,
+			..
+		} => {
+			let output = read!(facts::Request::OrganizationMembers {
+				after: after.clone(),
+				limit: *limit,
+				organization: organization.clone(),
 			});
 			let (after, ids) = output.into_ids()?;
 
@@ -1437,6 +1361,7 @@ where
 			after,
 			limit,
 			subject,
+			..
 		} => {
 			let output = read!(facts::Request::SubjectGrants {
 				after: after.clone(),
@@ -1543,17 +1468,6 @@ fn normalize_permissions(
 	super::permissions_for_specifier_prefix(resource, permissions)
 }
 
-fn principal_id(principal: &tg::Principal) -> Option<tg::Id> {
-	match principal {
-		tg::Principal::Group(id) => Some(id.clone().into()),
-		tg::Principal::Organization(id) => Some(id.clone().into()),
-		tg::Principal::Process(id) => Some(id.clone().into()),
-		tg::Principal::Sandbox(id) => Some(id.clone().into()),
-		tg::Principal::User(id) => Some(id.clone().into()),
-		tg::Principal::Anonymous | tg::Principal::Root | tg::Principal::Runner(_) => None,
-	}
-}
-
 fn principal_is_resource(principal: &tg::Principal, resource: &tg::Id) -> bool {
 	matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 }
@@ -1636,6 +1550,147 @@ mod tests {
 				} => ReadOutput::MemberGroups {
 					after: None,
 					groups: vec![group.clone()],
+				},
+				_ => default_output(read),
+			},
+		);
+
+		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+	}
+
+	#[test]
+	fn ancestor_and_descendant_membership_searches_meet() {
+		let descendant_group = tg::group::Id::new();
+		let ancestor_group = tg::group::Id::new();
+		let object = object(0);
+		let user = tg::user::Id::new();
+		let principal = tg::Principal::User(user.clone());
+		let outcome = run(
+			&[arg(object.clone().into(), None)],
+			&principal,
+			|read| match read {
+				Read::AncestorNode {
+					key,
+					read: AncestorNodeRead::ResourceGrants { .. },
+					..
+				} if key.0 == tg::Id::from(object.clone()) => {
+					let grant = Grant {
+						creator: None,
+						implicit: false,
+						permission: key.1,
+						resource: key.0.clone(),
+						subject: tg::authorization::Subject::Group(ancestor_group.clone()),
+					};
+
+					ReadOutput::Grants {
+						after: None,
+						grants: vec![grant],
+					}
+				},
+				Read::GroupMembers { group, .. } if group == &ancestor_group => ReadOutput::Ids {
+					after: None,
+					ids: vec![descendant_group.clone().into()],
+				},
+				Read::Member {
+					member,
+					read: MemberRead::Groups { .. },
+					..
+				} if member == &tg::Id::from(user.clone()) => ReadOutput::MemberGroups {
+					after: None,
+					groups: vec![descendant_group.clone()],
+				},
+				_ => default_output(read),
+			},
+		);
+
+		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+	}
+
+	#[test]
+	fn ancestor_search_traverses_memberships_in_reverse() {
+		let group = tg::group::Id::new();
+		let object = object(0);
+		let user = tg::user::Id::new();
+		let principal = tg::Principal::User(user.clone());
+		let mut config = super::super::Config::default();
+		config.ancestor.max_depth = 1;
+		config.descendant.max_nodes = 0;
+		let outcome = run_with_config(
+			&[arg(object.clone().into(), None)],
+			config,
+			&principal,
+			|read| match read {
+				Read::AncestorNode {
+					key,
+					read: AncestorNodeRead::ResourceGrants { .. },
+					..
+				} => {
+					let grant = Grant {
+						creator: None,
+						implicit: false,
+						permission: key.1,
+						resource: key.0.clone(),
+						subject: tg::authorization::Subject::Group(group.clone()),
+					};
+
+					ReadOutput::Grants {
+						after: None,
+						grants: vec![grant],
+					}
+				},
+				Read::GroupMembers {
+					group: read_group, ..
+				} if read_group == &group => ReadOutput::Ids {
+					after: None,
+					ids: vec![user.clone().into()],
+				},
+				_ => default_output(read),
+			},
+		);
+
+		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+	}
+
+	#[test]
+	fn descendant_search_traverses_memberships_forward() {
+		let group = tg::group::Id::new();
+		let object = object(0);
+		let user = tg::user::Id::new();
+		let principal = tg::Principal::User(user.clone());
+		let mut config = super::super::Config::default();
+		config.ancestor.max_nodes = 0;
+		config.descendant.max_depth = 1;
+		let outcome = run_with_config(
+			&[arg(object.clone().into(), None)],
+			config,
+			&principal,
+			|read| match read {
+				Read::Member {
+					member,
+					read: MemberRead::Groups { .. },
+					..
+				} if member == &tg::Id::from(user.clone()) => ReadOutput::MemberGroups {
+					after: None,
+					groups: vec![group.clone()],
+				},
+				Read::SubjectGrants {
+					subject: tg::authorization::Subject::Group(read_group),
+					..
+				} if read_group == &group => {
+					let grant = Grant {
+						creator: None,
+						implicit: false,
+						permission: tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Node,
+						),
+						resource: object.clone().into(),
+						subject: tg::authorization::Subject::Group(group.clone()),
+					};
+
+					ReadOutput::Grants {
+						after: None,
+						grants: vec![grant],
+					}
 				},
 				_ => default_output(read),
 			},
@@ -1791,7 +1846,6 @@ mod tests {
 			.take_reads(
 				super::super::Config::default(),
 				&tg::Principal::Anonymous,
-				&[tg::authorization::Subject::Public],
 				None,
 				&mut state,
 				1,
@@ -1944,6 +1998,10 @@ mod tests {
 					organizations: Vec::new(),
 				},
 			},
+			Read::GroupMembers { .. } | Read::OrganizationMembers { .. } => ReadOutput::Ids {
+				after: None,
+				ids: Vec::new(),
+			},
 			Read::ObjectChildren { .. }
 			| Read::ObjectParents { .. }
 			| Read::OwnerSandboxes { .. }
@@ -1999,9 +2057,18 @@ mod tests {
 	fn run(
 		args: &[super::super::Arg],
 		principal: &tg::Principal,
+		output: impl FnMut(&Read) -> ReadOutput,
+	) -> Vec<super::super::Outcome> {
+		run_with_config(args, super::super::Config::default(), principal, output)
+	}
+
+	fn run_with_config(
+		args: &[super::super::Arg],
+		config: super::super::Config,
+		principal: &tg::Principal,
 		mut output: impl FnMut(&Read) -> ReadOutput,
 	) -> Vec<super::super::Outcome> {
-		let mut batch = Batch::new(args, super::super::Config::default(), principal).unwrap();
+		let mut batch = Batch::new(args, config, principal).unwrap();
 		while !batch.complete() {
 			for read in batch.take_reads(4).unwrap() {
 				let value = output(&read);

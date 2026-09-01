@@ -5,6 +5,12 @@ use {
 };
 
 enum AncestorTask {
+	GroupMembers {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		group: tg::group::Id,
+	},
 	Node {
 		depth: usize,
 		key: Key,
@@ -20,6 +26,12 @@ enum AncestorTask {
 		depth: usize,
 		object: tg::object::Id,
 	},
+	OrganizationMembers {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		organization: tg::organization::Id,
+	},
 	ProcessParents {
 		after: Option<Vec<u8>>,
 		dependent: Key,
@@ -27,11 +39,22 @@ enum AncestorTask {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
+	Subject {
+		dependent: Key,
+		depth: usize,
+		subject: tg::authorization::Subject,
+	},
 }
 
 struct PendingAncestorNode {
 	facts: AncestorNodeFacts,
 	remaining: usize,
+}
+
+struct MembershipPage {
+	container: tg::authorization::Subject,
+	continuation: Option<AncestorTask>,
+	members: Vec<tg::Id>,
 }
 
 pub(super) struct Search {
@@ -44,30 +67,36 @@ pub(super) struct Search {
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
-	subjects: HashSet<tg::authorization::Subject>,
 	token: Option<(tg::authorization::Body, tg::Id)>,
 	unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
+	visited_subjects: HashSet<(tg::authorization::Subject, Key)>,
 }
 
 impl AncestorTask {
 	#[must_use]
 	fn dependent(&self) -> &Key {
 		match self {
-			Self::Node { key, .. }
+			Self::GroupMembers { dependent: key, .. }
+			| Self::Node { key, .. }
 			| Self::NodeRead { key, .. }
 			| Self::ObjectParents { dependent: key, .. }
-			| Self::ProcessParents { dependent: key, .. } => key,
+			| Self::OrganizationMembers { dependent: key, .. }
+			| Self::ProcessParents { dependent: key, .. }
+			| Self::Subject { dependent: key, .. } => key,
 		}
 	}
 
 	#[must_use]
 	fn depth(&self) -> usize {
 		match self {
-			Self::Node { depth, .. }
+			Self::GroupMembers { depth, .. }
+			| Self::Node { depth, .. }
 			| Self::NodeRead { depth, .. }
 			| Self::ObjectParents { depth, .. }
-			| Self::ProcessParents { depth, .. } => *depth,
+			| Self::OrganizationMembers { depth, .. }
+			| Self::ProcessParents { depth, .. }
+			| Self::Subject { depth, .. } => *depth,
 		}
 	}
 }
@@ -78,7 +107,6 @@ impl Search {
 		config: crate::authorize::SearchConfig,
 		principal: &tg::Principal,
 		roots: &[Key],
-		subjects: &[tg::authorization::Subject],
 		token: Option<(tg::authorization::Body, tg::Id)>,
 		state: &State,
 	) -> Self {
@@ -109,10 +137,10 @@ impl Search {
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
-			subjects: subjects.iter().cloned().collect(),
 			token,
 			unresolved,
 			visited,
+			visited_subjects: HashSet::new(),
 		};
 		for root in roots {
 			search.add_live_reference(state, root.clone());
@@ -145,6 +173,21 @@ impl Search {
 				continue;
 			}
 			match task {
+				AncestorTask::GroupMembers {
+					after,
+					dependent,
+					depth,
+					group,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::GroupMembers {
+						after,
+						dependent,
+						depth,
+						group,
+						limit,
+					});
+				},
 				AncestorTask::Node { depth, key } => match state.ancestor_or_descendant(&key) {
 					Outcome::Authorized | Outcome::Denied => {},
 					Outcome::Exhausted => unreachable!(),
@@ -190,6 +233,21 @@ impl Search {
 						object,
 					});
 				},
+				AncestorTask::OrganizationMembers {
+					after,
+					dependent,
+					depth,
+					organization,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::OrganizationMembers {
+						after,
+						dependent,
+						depth,
+						limit,
+						organization,
+					});
+				},
 				AncestorTask::ProcessParents {
 					after,
 					dependent,
@@ -210,6 +268,13 @@ impl Search {
 						process,
 					});
 				},
+				AncestorTask::Subject {
+					dependent,
+					depth,
+					subject,
+				} => {
+					self.expand_subject(state, dependent, depth, subject);
+				},
 			}
 		}
 		for task in deferred.into_iter().rev() {
@@ -229,6 +294,27 @@ impl Search {
 		match read {
 			Read::AncestorNode { depth, key, read } => {
 				self.apply_node_read(state, depth, &key, read, output)?;
+			},
+			Read::GroupMembers {
+				dependent,
+				depth,
+				group,
+				..
+			} => {
+				let (after, members) = output.into_ids()?;
+				let continuation = after.map(|after| AncestorTask::GroupMembers {
+					after: Some(after),
+					dependent: dependent.clone(),
+					depth,
+					group: group.clone(),
+				});
+				let container = tg::authorization::Subject::Group(group);
+				let page = MembershipPage {
+					container,
+					continuation,
+					members,
+				};
+				self.apply_members(state, &dependent, depth, page)?;
 			},
 			Read::ObjectParents {
 				dependent,
@@ -267,6 +353,27 @@ impl Search {
 				} else {
 					state.complete_ancestor_parents(&dependent);
 				}
+			},
+			Read::OrganizationMembers {
+				dependent,
+				depth,
+				organization,
+				..
+			} => {
+				let (after, members) = output.into_ids()?;
+				let continuation = after.map(|after| AncestorTask::OrganizationMembers {
+					after: Some(after),
+					dependent: dependent.clone(),
+					depth,
+					organization: organization.clone(),
+				});
+				let container = tg::authorization::Subject::Organization(organization);
+				let page = MembershipPage {
+					container,
+					continuation,
+					members,
+				};
+				self.apply_members(state, &dependent, depth, page)?;
 			},
 			Read::ProcessParents {
 				dependent,
@@ -328,6 +435,41 @@ impl Search {
 		Ok(())
 	}
 
+	fn apply_members(
+		&mut self,
+		state: &mut State,
+		dependent: &Key,
+		depth: usize,
+		page: MembershipPage,
+	) -> tg::Result<()> {
+		if state.is_authorized(dependent) {
+			return Ok(());
+		}
+		let next_depth = depth + 1;
+		for member in page.members {
+			let member = subject_for_member(member)?;
+			let edge_known = state.has_membership_dependency(&member, &page.container);
+			if !edge_known && !self.budget.add_edge() {
+				self.incomplete.insert(dependent.clone());
+
+				return Ok(());
+			}
+			state.add_membership_dependency(&member, page.container.clone());
+			if state.is_authorized(dependent) {
+				return Ok(());
+			}
+			self.queue_subject(state, dependent, next_depth, member);
+		}
+		if let Some(continuation) = page.continuation {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_back(continuation);
+		}
+
+		Ok(())
+	}
+
 	fn apply_node_read(
 		&mut self,
 		state: &mut State,
@@ -341,6 +483,7 @@ impl Search {
 			.pending_nodes
 			.get_mut(&resource)
 			.ok_or_else(|| tg::error!("received a fact for an inactive ancestor node"))?;
+		let mut grants_for_search = Vec::new();
 		let mut next = Vec::new();
 		match read {
 			AncestorNodeRead::Group { .. } => {
@@ -364,12 +507,7 @@ impl Search {
 			},
 			AncestorNodeRead::ResourceGrants { resource, .. } => {
 				let (after, grants) = output.into_grants()?;
-				for grant in &grants {
-					if self.subjects.contains(&grant.subject) {
-						let key = (grant.resource.clone(), grant.permission);
-						state.authorize_ancestor_or_descendant(key);
-					}
-				}
+				grants_for_search.clone_from(&grants);
 				pending.facts.grants.extend(grants);
 				if let Some(after) = after {
 					let limit = self.budget.config.page_size;
@@ -422,6 +560,11 @@ impl Search {
 					key: key.clone(),
 					read,
 				});
+		}
+		for grant in &grants_for_search {
+			if !self.add_grant(state, key, grant, depth) {
+				break;
+			}
 		}
 		if complete {
 			let pending = self.pending_nodes.remove(&resource).unwrap();
@@ -521,9 +664,8 @@ impl Search {
 	) -> tg::Result<()> {
 		// Apply the direct proofs.
 		for grant in &facts.grants {
-			if self.subjects.contains(&grant.subject) {
-				let key = (grant.resource.clone(), grant.permission);
-				state.authorize_ancestor_or_descendant(key);
+			if !self.add_grant(state, key, grant, depth) {
+				return Ok(());
 			}
 		}
 		let (resource, permission) = key;
@@ -546,23 +688,19 @@ impl Search {
 		let token_grants = self.token.as_ref().is_some_and(|(body, token_resource)| {
 			token_resource == resource && body.grants(*permission)
 		});
-		let owner_grants = if matches!(
+		if matches!(
 			permission,
 			tg::authorization::Permission::Sandbox(
 				tg::authorization::permission::sandbox::Permission::Read
 					| tg::authorization::permission::sandbox::Permission::Write
 			)
-		) {
-			facts
-				.sandbox_owner
-				.as_ref()
-				.map(tg::Principal::try_to_subject)
-				.transpose()?
-				.is_some_and(|owner| self.subjects.contains(&owner))
-		} else {
-			false
-		};
-		if principal_is_resource || token_grants || owner_grants {
+		) && let Some(owner) = &facts.sandbox_owner
+			&& let Ok(subject) = owner.try_to_subject()
+			&& !self.add_subject_dependency(state, key, key.clone(), subject, depth)
+		{
+			return Ok(());
+		}
+		if principal_is_resource || token_grants {
 			state.authorize_ancestor_or_descendant(key.clone());
 		}
 		if state.is_authorized(key) {
@@ -653,6 +791,115 @@ impl Search {
 		self.queue_parents(state, depth, key)?;
 
 		Ok(())
+	}
+
+	fn add_grant(
+		&mut self,
+		state: &mut State,
+		dependent: &Key,
+		grant: &super::Grant,
+		depth: usize,
+	) -> bool {
+		if !grant.permission.implies(dependent.1) {
+			return true;
+		}
+		let source = (grant.resource.clone(), grant.permission);
+
+		self.add_subject_dependency(state, dependent, source, grant.subject.clone(), depth)
+	}
+
+	fn add_subject_dependency(
+		&mut self,
+		state: &mut State,
+		dependent: &Key,
+		source: Key,
+		subject: tg::authorization::Subject,
+		depth: usize,
+	) -> bool {
+		let direct =
+			subject == tg::authorization::Subject::Public || state.is_subject_authorized(&subject);
+		let edge_known = state.has_subject_dependency(&subject, &source);
+		if !direct && !edge_known && !self.budget.add_edge() {
+			self.incomplete.insert(dependent.clone());
+
+			return false;
+		}
+		if subject == tg::authorization::Subject::Public {
+			state.authorize_subject(subject.clone());
+		}
+		state.add_subject_dependency(&subject, source);
+		if !state.is_authorized(dependent) {
+			self.queue_subject(state, dependent, depth, subject);
+		}
+
+		true
+	}
+
+	fn queue_subject(
+		&mut self,
+		state: &State,
+		dependent: &Key,
+		depth: usize,
+		subject: tg::authorization::Subject,
+	) {
+		if state.is_subject_authorized(&subject)
+			|| !matches!(
+				subject,
+				tg::authorization::Subject::Group(_) | tg::authorization::Subject::Organization(_)
+			) || !self
+			.visited_subjects
+			.insert((subject.clone(), dependent.clone()))
+		{
+			return;
+		}
+		if !self.budget.add_node(depth) {
+			self.incomplete.insert(dependent.clone());
+
+			return;
+		}
+		self.queues
+			.entry(depth)
+			.or_default()
+			.push_back(AncestorTask::Subject {
+				dependent: dependent.clone(),
+				depth,
+				subject,
+			});
+	}
+
+	fn expand_subject(
+		&mut self,
+		state: &State,
+		dependent: Key,
+		depth: usize,
+		subject: tg::authorization::Subject,
+	) {
+		if state.is_authorized(&dependent) {
+			return;
+		}
+		let task = match subject {
+			tg::authorization::Subject::Group(group) => AncestorTask::GroupMembers {
+				after: None,
+				dependent,
+				depth,
+				group,
+			},
+			tg::authorization::Subject::Organization(organization) => {
+				AncestorTask::OrganizationMembers {
+					after: None,
+					dependent,
+					depth,
+					organization,
+				}
+			},
+			tg::authorization::Subject::Process(_)
+			| tg::authorization::Subject::Public
+			| tg::authorization::Subject::Root
+			| tg::authorization::Subject::Runner(_)
+			| tg::authorization::Subject::Sandbox(_)
+			| tg::authorization::Subject::User(_) => return,
+		};
+		self.queues.entry(depth).or_default().push_back(task);
 	}
 
 	fn tag_dependencies(
@@ -826,5 +1073,13 @@ impl Search {
 	fn suspend(&mut self, task: AncestorTask) {
 		let key = task.dependent().clone();
 		self.dormant.entry(key).or_default().push(task);
+	}
+}
+
+fn subject_for_member(member: tg::Id) -> tg::Result<tg::authorization::Subject> {
+	match member.kind() {
+		tg::id::Kind::Group => Ok(tg::authorization::Subject::Group(member.try_into()?)),
+		tg::id::Kind::User => Ok(tg::authorization::Subject::User(member.try_into()?)),
+		_ => Err(tg::error!("invalid authorization membership subject")),
 	}
 }

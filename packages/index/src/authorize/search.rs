@@ -82,7 +82,15 @@ pub(crate) enum Read {
 		key: Key,
 		read: AncestorNodeRead,
 	},
+	GroupMembers {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		group: tg::group::Id,
+		limit: usize,
+	},
 	Member {
+		depth: usize,
 		limit: usize,
 		member: tg::Id,
 		read: MemberRead,
@@ -99,6 +107,13 @@ pub(crate) enum Read {
 		depth: usize,
 		limit: usize,
 		object: tg::object::Id,
+	},
+	OrganizationMembers {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		limit: usize,
+		organization: tg::organization::Id,
 	},
 	OwnerSandboxes {
 		after: Option<Vec<u8>>,
@@ -148,6 +163,7 @@ pub(crate) enum Read {
 	},
 	SubjectGrants {
 		after: Option<Vec<u8>>,
+		depth: usize,
 		limit: usize,
 		subject: tg::authorization::Subject,
 	},
@@ -254,6 +270,7 @@ pub(crate) struct State {
 	authorization_dependencies: BTreeMap<Key, BTreeSet<Key>>,
 	authorization_dependents: BTreeMap<Key, BTreeSet<Key>>,
 	authorization_log: Vec<Key>,
+	authorized_subjects: BTreeSet<tg::authorization::Subject>,
 	derived_complete: BTreeSet<Key>,
 	derived_cursors: BTreeMap<Key, Vec<u8>>,
 	derived_dependencies: BTreeMap<Key, BTreeSet<Key>>,
@@ -263,6 +280,9 @@ pub(crate) struct State {
 	facts: HashMap<Key, Fact>,
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
+	subject_key_dependents: BTreeMap<tg::authorization::Subject, BTreeSet<Key>>,
+	subject_subject_dependents:
+		BTreeMap<tg::authorization::Subject, BTreeSet<tg::authorization::Subject>>,
 }
 
 pub(crate) struct FinalSearch {
@@ -483,10 +503,12 @@ impl AncestorOrDescendantSearch {
 		config: crate::authorize::Config,
 		principal: &tg::Principal,
 		roots: &[Key],
-		subjects: &[tg::authorization::Subject],
 		token: Option<&(tg::authorization::Body, tg::Id)>,
 		state: &mut State,
 	) -> Self {
+		if let Ok(subject) = principal.try_to_subject() {
+			state.authorize_subject(subject);
+		}
 		let mut seen = HashSet::new();
 		let roots = roots
 			.iter()
@@ -500,27 +522,14 @@ impl AncestorOrDescendantSearch {
 		let (ancestor, descendant) = if complete {
 			(None, None)
 		} else {
-			let ancestor = AncestorSearch::new(
-				config.ancestor,
-				principal,
-				&roots,
-				subjects,
-				token.cloned(),
-				state,
-			);
+			let ancestor =
+				AncestorSearch::new(config.ancestor, principal, &roots, token.cloned(), state);
 			let descendant = if let Some(mut descendant) = state.take_descendant() {
 				descendant.add_targets(config.descendant, roots.clone());
 				descendant
 			} else {
 				let token = token.map(|(body, resource)| (body, resource));
-				DescendantSearch::new(
-					config.descendant,
-					principal,
-					state,
-					subjects,
-					roots.clone(),
-					token,
-				)
+				DescendantSearch::new(config.descendant, principal, state, roots.clone(), token)
 			};
 
 			(Some(ancestor), Some(descendant))
@@ -644,13 +653,16 @@ impl AncestorOrDescendantSearch {
 	) -> tg::Result<()> {
 		match read {
 			read @ (Read::AncestorNode { .. }
+			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
+			| Read::OrganizationMembers { .. }
 			| Read::ProcessParents { .. }) => self
 				.ancestor
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the ancestor search completed"))?
 				.apply(state, read, output),
-			read @ (Read::ObjectChildren { .. }
+			read @ (Read::Member { .. }
+			| Read::ObjectChildren { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessGrants { .. }
@@ -660,8 +672,7 @@ impl AncestorOrDescendantSearch {
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the descendant search completed"))?
 				.apply(state, read, output),
-			Read::Member { .. }
-			| Read::Process { .. }
+			Read::Process { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
@@ -783,6 +794,90 @@ impl State {
 		if !self.ancestor_complete.contains(key) {
 			self.ancestor_cursors.insert(key.clone(), cursor.to_vec());
 		}
+	}
+
+	#[must_use]
+	pub(crate) fn has_membership_dependency(
+		&self,
+		member: &tg::authorization::Subject,
+		container: &tg::authorization::Subject,
+	) -> bool {
+		self.subject_subject_dependents
+			.get(member)
+			.is_some_and(|containers| containers.contains(container))
+	}
+
+	pub(crate) fn add_membership_dependency(
+		&mut self,
+		member: &tg::authorization::Subject,
+		container: tg::authorization::Subject,
+	) -> bool {
+		let inserted = self
+			.subject_subject_dependents
+			.entry(member.clone())
+			.or_default()
+			.insert(container.clone());
+		if self.is_subject_authorized(member) {
+			self.authorize_subject(container);
+		}
+
+		inserted
+	}
+
+	#[must_use]
+	pub(crate) fn has_subject_dependency(
+		&self,
+		subject: &tg::authorization::Subject,
+		dependent: &Key,
+	) -> bool {
+		self.subject_key_dependents
+			.get(subject)
+			.is_some_and(|dependents| dependents.contains(dependent))
+	}
+
+	pub(crate) fn add_subject_dependency(
+		&mut self,
+		subject: &tg::authorization::Subject,
+		dependent: Key,
+	) -> bool {
+		let inserted = self
+			.subject_key_dependents
+			.entry(subject.clone())
+			.or_default()
+			.insert(dependent.clone());
+		if self.is_subject_authorized(subject) {
+			self.authorize(dependent);
+		}
+
+		inserted
+	}
+
+	pub(crate) fn authorize_subject(&mut self, subject: tg::authorization::Subject) {
+		let mut stack = vec![subject];
+		while let Some(subject) = stack.pop() {
+			if !self.authorized_subjects.insert(subject.clone()) {
+				continue;
+			}
+			let dependents = self
+				.subject_key_dependents
+				.get(&subject)
+				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
+			for dependent in dependents {
+				self.authorize(dependent);
+			}
+			stack.extend(
+				self.subject_subject_dependents
+					.get(&subject)
+					.into_iter()
+					.flatten()
+					.cloned(),
+			);
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn is_subject_authorized(&self, subject: &tg::authorization::Subject) -> bool {
+		self.authorized_subjects.contains(subject)
 	}
 
 	#[must_use]
@@ -1207,12 +1302,12 @@ mod tests {
 	#[test]
 	fn ancestor_and_descendant_searches_share_a_read_batch() {
 		let root = key();
+		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
 			crate::authorize::Config::default(),
-			&tg::Principal::Anonymous,
+			&principal,
 			std::slice::from_ref(&root),
-			&[tg::authorization::Subject::Public],
 			None,
 			&mut state,
 		);
@@ -1227,28 +1322,48 @@ mod tests {
 		assert!(
 			reads
 				.iter()
-				.any(|read| matches!(read, Read::SubjectGrants { .. }))
+				.any(|read| !matches!(read, Read::AncestorNode { .. }))
 		);
 	}
 
 	#[test]
 	fn ancestor_and_descendant_searches_alternate_with_one_read() {
 		let root = key();
+		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
 			crate::authorize::Config::default(),
-			&tg::Principal::Anonymous,
+			&principal,
 			std::slice::from_ref(&root),
-			&[tg::authorization::Subject::Public],
 			None,
 			&mut state,
 		);
 		let mut reads = search.take_reads(&mut state, 1).unwrap();
 		let read = reads.pop().unwrap();
-		assert!(matches!(read, Read::SubjectGrants { .. }));
-		let output = ReadOutput::Grants {
-			after: Some(vec![0]),
-			grants: Vec::new(),
+		let output = match &read {
+			Read::Member {
+				read: MemberRead::Groups { .. },
+				..
+			} => ReadOutput::MemberGroups {
+				after: None,
+				groups: Vec::new(),
+			},
+			Read::Member {
+				read: MemberRead::Organizations { .. },
+				..
+			} => ReadOutput::MemberOrganizations {
+				after: None,
+				organizations: Vec::new(),
+			},
+			Read::OwnerSandboxes { .. } => ReadOutput::Ids {
+				after: None,
+				ids: Vec::new(),
+			},
+			Read::SubjectGrants { .. } => ReadOutput::Grants {
+				after: None,
+				grants: Vec::new(),
+			},
+			_ => panic!("expected a descendant read"),
 		};
 		search.apply(&mut state, read, output).unwrap();
 
@@ -1265,17 +1380,9 @@ mod tests {
 			crate::authorize::Config::default(),
 			&tg::Principal::Anonymous,
 			std::slice::from_ref(&root),
-			&[tg::authorization::Subject::Public],
 			None,
 			&mut state,
 		);
-		let mut reads = search.take_reads(&mut state, 1).unwrap();
-		let read = reads.pop().unwrap();
-		let output = ReadOutput::Grants {
-			after: Some(vec![0]),
-			grants: Vec::new(),
-		};
-		search.apply(&mut state, read, output).unwrap();
 		let mut reads = search.take_reads(&mut state, 1).unwrap();
 		let read = reads.pop().unwrap();
 		assert!(matches!(

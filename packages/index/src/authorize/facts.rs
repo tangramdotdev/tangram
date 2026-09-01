@@ -24,6 +24,11 @@ pub(crate) enum Request {
 	Group {
 		group: tg::group::Id,
 	},
+	GroupMembers {
+		after: Option<Vec<u8>>,
+		group: tg::group::Id,
+		limit: usize,
+	},
 	Id {
 		id: tg::Id,
 	},
@@ -51,6 +56,11 @@ pub(crate) enum Request {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		object: tg::object::Id,
+	},
+	OrganizationMembers {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		organization: tg::organization::Id,
 	},
 	OwnerSandboxes {
 		after: Option<Vec<u8>>,
@@ -323,8 +333,10 @@ impl Request {
 				limit: *limit,
 				target: target.clone(),
 			},
-			Self::ObjectChildren { .. }
+			Self::GroupMembers { .. }
+			| Self::ObjectChildren { .. }
 			| Self::OwnerSandboxes { .. }
+			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
 			| Self::ProcessGrants { .. }
 			| Self::SandboxProcesses { .. }

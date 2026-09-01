@@ -83,6 +83,40 @@ impl Index {
 
 				Output::Group(group)
 			},
+			Request::GroupMembers {
+				after,
+				group,
+				limit,
+			} => {
+				let group = tg::Id::from(group.clone()).to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
+				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Group(crate::fdb::group::Key::GroupMember { member, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(member))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
 			Request::Id { id } => {
 				let id = crate::fdb::propagate!(
 					Self::try_resolve_id_with_transaction(txn, subspace, id).await
@@ -269,6 +303,46 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::ObjectProcesses { after, processes }
+			},
+			Request::OrganizationMembers {
+				after,
+				limit,
+				organization,
+			} => {
+				let organization = tg::Id::from(organization.clone()).to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						Kind::OrganizationMember.to_i32().unwrap(),
+						organization.as_ref(),
+					),
+				);
+				let (keys, after) = crate::fdb::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Organization(crate::fdb::organization::Key::OrganizationMember {
+							member,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(member))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
 			},
 			Request::OwnerSandboxes {
 				after,
