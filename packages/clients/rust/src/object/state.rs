@@ -3,6 +3,9 @@ use {
 	std::sync::{Arc, RwLock},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug)]
 pub struct State(Arc<RwLock<Inner>>);
 
