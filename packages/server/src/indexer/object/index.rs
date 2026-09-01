@@ -73,9 +73,13 @@ impl Indexer {
 			.map(|_| ());
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
+		let mut cursor = None;
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let count = self.object_index_outbox_batch(outbox, partition).await?;
+			let (count, next) = self
+				.object_index_outbox_batch(outbox, partition, cursor)
+				.await?;
+			cursor = next;
 			if count == 0 && wakeups.next().await.is_none() {
 				return Err(tg::error!("the object index outbox wakeup stream ended"));
 			}
@@ -86,14 +90,16 @@ impl Indexer {
 		&self,
 		outbox: &crate::config::ObjectIndexOutbox,
 		partition: u64,
-	) -> tg::Result<usize> {
-		// Dequeue a batch.
+		cursor: Option<([u8; 16], u64)>,
+	) -> tg::Result<(usize, Option<([u8; 16], u64)>)> {
+		// Dequeue a batch after the cursor.
 		let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
 			batch_size: outbox.batch_size,
+			cursor,
 			partition_end: partition + 1,
 			partition_start: partition,
 		};
-		let fragments = self
+		let mut fragments = self
 			.server
 			.store
 			.dequeue_object_index_outbox_fragments(arg)
@@ -104,9 +110,33 @@ impl Indexer {
 					"failed to dequeue the object index outbox fragments"
 				)
 			})?;
-		if fragments.is_empty() {
-			return Ok(0);
+
+		// If the cursor found nothing, scan from the head so fragments below the cursor are not starved.
+		if fragments.is_empty() && cursor.is_some() {
+			let arg = crate::store::object::index::outbox::fragment::dequeue::Arg {
+				batch_size: outbox.batch_size,
+				cursor: None,
+				partition_end: partition + 1,
+				partition_start: partition,
+			};
+			fragments = self
+				.server
+				.store
+				.dequeue_object_index_outbox_fragments(arg)
+				.await
+				.map_err(|error| {
+					tg::error!(
+						!error,
+						"failed to dequeue the object index outbox fragments"
+					)
+				})?;
 		}
+		if fragments.is_empty() {
+			return Ok((0, cursor));
+		}
+		let cursor = fragments
+			.last()
+			.map(|fragment| (fragment.batch.value(), fragment.index.value()));
 
 		// Combine the fragments into batches.
 		let count = fragments.len();
@@ -141,7 +171,7 @@ impl Indexer {
 			));
 		}
 
-		Ok(count)
+		Ok((count, cursor))
 	}
 
 	async fn object_index_outbox_group(

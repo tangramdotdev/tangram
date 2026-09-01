@@ -13,6 +13,7 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 struct BatchOutput {
 	count: usize,
+	cursor: Option<[u8; 16]>,
 }
 
 struct GroupOutput {
@@ -84,9 +85,13 @@ impl Indexer {
 			.map(|_| ());
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
+		let mut cursor = None;
 		loop {
 			while wakeups.next().now_or_never().flatten().is_some() {}
-			let output = self.object_archive_outbox_batch(outbox, partition).await?;
+			let output = self
+				.object_archive_outbox_batch(outbox, partition, cursor)
+				.await?;
+			cursor = output.cursor;
 			if output.count == 0 && wakeups.next().await.is_none() {
 				return Err(tg::error!("the object archive outbox wakeup stream ended"));
 			}
@@ -97,14 +102,16 @@ impl Indexer {
 		&self,
 		outbox: &crate::config::ObjectArchiveOutbox,
 		partition: u64,
+		cursor: Option<[u8; 16]>,
 	) -> tg::Result<BatchOutput> {
-		// Dequeue a batch.
+		// Dequeue a batch after the cursor.
 		let arg = crate::store::object::archive::outbox::dequeue::Arg {
 			batch_size: outbox.batch_size,
+			cursor,
 			partition_end: partition + 1,
 			partition_start: partition,
 		};
-		let entries = self
+		let mut entries = self
 			.server
 			.store
 			.dequeue_object_archive_outbox_entries(arg)
@@ -112,11 +119,30 @@ impl Indexer {
 			.map_err(|error| {
 				tg::error!(!error, "failed to dequeue object archive outbox entries")
 			})?;
+
+		// If the cursor found nothing, scan from the head so entries below the cursor are not starved.
+		if entries.is_empty() && cursor.is_some() {
+			let arg = crate::store::object::archive::outbox::dequeue::Arg {
+				batch_size: outbox.batch_size,
+				cursor: None,
+				partition_end: partition + 1,
+				partition_start: partition,
+			};
+			entries = self
+				.server
+				.store
+				.dequeue_object_archive_outbox_entries(arg)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to dequeue object archive outbox entries")
+				})?;
+		}
 		if entries.is_empty() {
-			let output = BatchOutput { count: 0 };
+			let output = BatchOutput { count: 0, cursor };
 
 			return Ok(output);
 		}
+		let cursor = entries.last().map(|entry| entry.put);
 		let count = entries.len();
 
 		// Group entries for the same object.
@@ -159,7 +185,7 @@ impl Indexer {
 			return Err(error);
 		}
 
-		let output = BatchOutput { count };
+		let output = BatchOutput { count, cursor };
 
 		Ok(output)
 	}
