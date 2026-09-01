@@ -89,19 +89,25 @@ fn build(path: &Path, libraries: &[libraries::Library], version: &Version) -> tg
 
 	let lib_path = path.join("opt/tangram/lib");
 	libraries::stage(&lib_path, libraries)?;
-	sync_directory(path)?;
+	tangram_util::fs::sync_recursive_sync(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to sync the sandbox directory"
+		)
+	})?;
 	write_version(path, version)?;
 	Ok(())
 }
 
 fn version(arg: &Arg, libraries: &[libraries::Library]) -> tg::Result<Version> {
-	let mut hasher = blake3::Hasher::new();
-	hash_rootfs(&mut hasher, &ROOTFS);
+	let mut writer = tg::checksum::Writer::new(tg::checksum::Algorithm::Blake3);
+	hash_rootfs(&mut writer, &ROOTFS);
 	for library in libraries {
-		hash_bytes(&mut hasher, library.name.as_bytes());
-		hash_file(&mut hasher, &library.source)?;
+		hash_bytes(&mut writer, library.name.as_bytes());
+		hash_file(&mut writer, &library.source)?;
 	}
-	let fingerprint = hasher.finalize().to_hex().to_string();
+	let fingerprint = writer.finalize().to_string();
 	let schema = VERSION_SCHEMA;
 	let tangram = arg.version.clone();
 	let version = Version {
@@ -112,12 +118,12 @@ fn version(arg: &Arg, libraries: &[libraries::Library]) -> tg::Result<Version> {
 	Ok(version)
 }
 
-fn hash_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) {
-	hasher.update(&(bytes.len() as u64).to_le_bytes());
-	hasher.update(bytes);
+fn hash_bytes(writer: &mut tg::checksum::Writer, bytes: &[u8]) {
+	writer.update((bytes.len() as u64).to_le_bytes());
+	writer.update(bytes);
 }
 
-fn hash_file(hasher: &mut blake3::Hasher, path: &Path) -> tg::Result<()> {
+fn hash_file(writer: &mut tg::checksum::Writer, path: &Path) -> tg::Result<()> {
 	let mut file = std::fs::File::open(path).map_err(|error| {
 		tg::error!(
 			!error,
@@ -125,31 +131,32 @@ fn hash_file(hasher: &mut blake3::Hasher, path: &Path) -> tg::Result<()> {
 			"failed to open a sandbox input"
 		)
 	})?;
-	let mut file_hasher = blake3::Hasher::new();
-	std::io::copy(&mut file, &mut file_hasher).map_err(|error| {
+	let mut file_writer = tg::checksum::Writer::new(tg::checksum::Algorithm::Blake3);
+	std::io::copy(&mut file, &mut file_writer).map_err(|error| {
 		tg::error!(
 			!error,
 			path = %path.display(),
 			"failed to read a sandbox input"
 		)
 	})?;
-	hash_bytes(hasher, file_hasher.finalize().as_bytes());
+	let checksum = file_writer.finalize().to_string();
+	hash_bytes(writer, checksum.as_bytes());
 	Ok(())
 }
 
-fn hash_rootfs(hasher: &mut blake3::Hasher, directory: &include_dir::Dir<'_>) {
+fn hash_rootfs(writer: &mut tg::checksum::Writer, directory: &include_dir::Dir<'_>) {
 	let mut entries = directory.entries().iter().collect::<Vec<_>>();
 	entries.sort_by_key(|entry| entry.path());
 	for entry in entries {
-		hash_bytes(hasher, entry.path().as_os_str().as_bytes());
+		hash_bytes(writer, entry.path().as_os_str().as_bytes());
 		match entry {
 			include_dir::DirEntry::Dir(directory) => {
-				hash_bytes(hasher, b"directory");
-				hash_rootfs(hasher, directory);
+				hash_bytes(writer, b"directory");
+				hash_rootfs(writer, directory);
 			},
 			include_dir::DirEntry::File(file) => {
-				hash_bytes(hasher, b"file");
-				hash_bytes(hasher, file.contents());
+				hash_bytes(writer, b"file");
+				hash_bytes(writer, file.contents());
 			},
 		}
 	}
@@ -168,14 +175,7 @@ fn install(temp_path: &Path, path: &Path, parent_path: &Path) -> tg::Result<()> 
 		},
 	};
 	if exists {
-		rustix::fs::renameat_with(
-			rustix::fs::CWD,
-			temp_path,
-			rustix::fs::CWD,
-			path,
-			rustix::fs::RenameFlags::EXCHANGE,
-		)
-		.map_err(|error| {
+		tangram_util::fs::rename_exchange_sync(temp_path, path).map_err(|error| {
 			tg::error!(
 				!error,
 				from = %temp_path.display(),
@@ -235,35 +235,6 @@ fn root_is_valid(path: &Path, version: &Version, libraries: &[libraries::Library
 		}
 	}
 	true
-}
-
-fn sync_directory(path: &Path) -> tg::Result<()> {
-	let entries = std::fs::read_dir(path).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %path.display(),
-			"failed to read the sandbox directory"
-		)
-	})?;
-	for entry in entries {
-		let path = entry
-			.map_err(|error| tg::error!(!error, "failed to read a sandbox directory entry"))?
-			.path();
-		let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to stat a sandbox directory entry"
-			)
-		})?;
-		if metadata.is_dir() {
-			sync_directory(&path)?;
-		} else if metadata.is_file() {
-			sync_file(&path)?;
-		}
-	}
-	sync_file(path)?;
-	Ok(())
 }
 
 fn sync_file(path: &Path) -> tg::Result<()> {

@@ -160,6 +160,20 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	inner(path.as_ref())
 }
 
+/// Atomically exchange two existing files or directories.
+pub fn rename_exchange_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+	rustix::fs::renameat_with(
+		rustix::fs::CWD,
+		src.as_ref(),
+		rustix::fs::CWD,
+		dst.as_ref(),
+		rustix::fs::RenameFlags::EXCHANGE,
+	)
+	.map_err(std::io::Error::from)?;
+
+	Ok(())
+}
+
 /// Rename a file or directory atomically, failing if the destination already exists.
 pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
 	// On macOS, rustix maps NOREPLACE to renameatx_np's RENAME_EXCL, so both platforms report EEXIST when the destination exists.
@@ -182,4 +196,23 @@ pub async fn rename_noreplace(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> s
 	tokio::task::spawn_blocking(move || rename_noreplace_sync(&src, &dst))
 		.await
 		.map_err(std::io::Error::other)?
+}
+
+/// Synchronize a path and all regular files and directories beneath it.
+pub fn sync_recursive_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
+	fn inner(path: &Path) -> std::io::Result<()> {
+		let metadata = std::fs::symlink_metadata(path)?;
+		if metadata.is_dir() {
+			for entry in std::fs::read_dir(path)? {
+				inner(&entry?.path())?;
+			}
+		} else if !metadata.is_file() {
+			return Ok(());
+		}
+
+		std::fs::File::open(path)?.sync_all()?;
+		Ok(())
+	}
+
+	inner(path.as_ref())
 }
