@@ -3,8 +3,9 @@ use ../../test.nu *
 # A log write failure fails the process instead of leaving the child blocked on stdout.
 
 let server = server spawn --config {
+	indexer: { log_compaction: false }
 	store: {
-		map_size: 10_485_760,
+		map_size: 20_971_520,
 	}
 }
 
