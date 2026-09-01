@@ -1,10 +1,9 @@
 use {
-	futures::{FutureExt as _, SinkExt as _, StreamExt as _, channel::mpsc, channel::oneshot},
+	futures::{SinkExt as _, StreamExt as _, channel::mpsc, channel::oneshot},
 	std::{
 		collections::HashMap,
 		convert::Infallible,
 		future::Future,
-		hash::Hash,
 		ops::ControlFlow,
 		sync::{
 			Arc, Mutex,
@@ -17,7 +16,6 @@ use {
 pub(crate) type LmdbError = Infallible;
 pub(crate) type Receiver<E> = mpsc::Receiver<Message<E>>;
 type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
-type ResponseFuture<E> = futures::future::Shared<futures::future::BoxFuture<'static, Response<E>>>;
 
 #[derive(Clone, Debug)]
 pub(crate) enum Request {
@@ -213,19 +211,42 @@ enum CacheKey {
 	},
 }
 
+enum CacheEntry<E> {
+	Pending(Vec<oneshot::Sender<Option<Response<E>>>>),
+	Ready(Response<E>),
+}
+
+pub(crate) struct Cache<E> {
+	entries: Arc<Mutex<HashMap<CacheKey, CacheEntry<E>>>>,
+}
+
+struct CacheMissGuard<E> {
+	cache: Cache<E>,
+	key: Option<CacheKey>,
+}
+
 pub(crate) struct Client<E> {
-	cache: Arc<Mutex<HashMap<CacheKey, ResponseFuture<E>>>>,
+	cache: Cache<E>,
 	concurrency: usize,
 	reads: Arc<AtomicUsize>,
 	sender: mpsc::Sender<Message<E>>,
 }
 
+#[cfg(test)]
 #[must_use]
 pub(crate) fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
+	channel_with_cache(concurrency, Cache::new())
+}
+
+#[must_use]
+pub(crate) fn channel_with_cache<E>(
+	concurrency: usize,
+	cache: Cache<E>,
+) -> (Client<E>, Receiver<E>) {
 	let concurrency = concurrency.max(1);
 	let (sender, receiver) = mpsc::channel(concurrency);
 	let client = Client {
-		cache: Arc::new(Mutex::new(HashMap::new())),
+		cache,
 		concurrency,
 		reads: Arc::new(AtomicUsize::new(0)),
 		sender,
@@ -469,6 +490,63 @@ impl Output {
 	}
 }
 
+impl<E> Cache<E> {
+	#[must_use]
+	pub(crate) fn new() -> Self {
+		Self {
+			entries: Arc::new(Mutex::new(HashMap::new())),
+		}
+	}
+}
+
+impl<E> Clone for Cache<E> {
+	fn clone(&self) -> Self {
+		Self {
+			entries: self.entries.clone(),
+		}
+	}
+}
+
+impl<E> CacheMissGuard<E>
+where
+	E: Clone,
+{
+	fn publish(&mut self, response: &Response<E>) {
+		let key = self.key.take().unwrap();
+		let waiters = {
+			let mut entries = self.cache.entries.lock().unwrap();
+			let previous = entries.insert(key, CacheEntry::Ready(response.clone()));
+			let Some(CacheEntry::Pending(waiters)) = previous else {
+				unreachable!();
+			};
+
+			waiters
+		};
+		for waiter in waiters {
+			waiter.send(Some(response.clone())).ok();
+		}
+	}
+}
+
+impl<E> Drop for CacheMissGuard<E> {
+	fn drop(&mut self) {
+		let Some(key) = self.key.take() else {
+			return;
+		};
+		let waiters = {
+			let mut entries = self.cache.entries.lock().unwrap();
+			let Some(CacheEntry::Pending(waiters)) = entries.remove(&key) else {
+				unreachable!();
+			};
+
+			waiters
+		};
+		for waiter in waiters {
+			waiter.send(None).ok();
+		}
+	}
+}
+
 impl<E> Client<E>
 where
 	E: Clone + Send + Sync + 'static,
@@ -489,22 +567,40 @@ where
 
 			return Self::request(self.sender.clone(), request).await;
 		};
-		let response = {
-			let mut cache = self.cache.lock().unwrap();
-			match cache.entry(key) {
-				std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
-				std::collections::hash_map::Entry::Vacant(entry) => {
-					self.record_read(&request);
-					let sender = self.sender.clone();
-					let response = Self::request(sender, request).boxed().shared();
+		let mut miss = loop {
+			let receiver = {
+				let mut entries = self.cache.entries.lock().unwrap();
+				match entries.entry(key.clone()) {
+					std::collections::hash_map::Entry::Occupied(mut entry) => match entry.get_mut()
+					{
+						CacheEntry::Pending(waiters) => {
+							let (sender, receiver) = oneshot::channel();
+							waiters.push(sender);
 
-					entry.insert(response.clone());
-					response
-				},
+							receiver
+						},
+						CacheEntry::Ready(response) => return response.clone(),
+					},
+					std::collections::hash_map::Entry::Vacant(entry) => {
+						entry.insert(CacheEntry::Pending(Vec::new()));
+
+						break CacheMissGuard {
+							cache: self.cache.clone(),
+							key: Some(key.clone()),
+						};
+					},
+				}
+			};
+			match receiver.await {
+				Err(_) | Ok(None) => (),
+				Ok(Some(response)) => return response,
 			}
 		};
+		self.record_read(&request);
+		let response = Self::request(self.sender.clone(), request).await;
+		miss.publish(&response);
 
-		response.await
+		response
 	}
 
 	fn record_read(&self, request: &Request) {
@@ -565,7 +661,8 @@ mod tests {
 	#[tokio::test]
 	async fn cancellation_does_not_retain_the_channel() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<LmdbError>(1);
+		let cache = Cache::new();
+		let (client, receiver) = channel_with_cache::<LmdbError>(1, cache.clone());
 		let provide = serve(receiver, 1, {
 			let requests = requests.clone();
 			move |_| {
@@ -596,6 +693,7 @@ mod tests {
 		)
 		.await
 		.unwrap();
+		drop(cache);
 
 		assert!(result.0.is_err());
 		assert_eq!(requests.load(Ordering::SeqCst), 2);
@@ -670,6 +768,51 @@ mod tests {
 			futures::try_join!(first, second)
 		};
 		let (responses, ()) = futures::future::join(authorize, provide).await;
+
+		let (first, second) = responses.unwrap();
+		assert!(matches!(first, ControlFlow::Break(Output::Id(None))));
+		assert!(matches!(second, ControlFlow::Break(Output::Id(None))));
+		assert_eq!(requests.load(Ordering::SeqCst), 1);
+	}
+
+	#[tokio::test]
+	async fn fact_cache_is_shared_across_channels() {
+		let requests = Arc::new(AtomicUsize::new(0));
+		let cache = Cache::<LmdbError>::new();
+		let (first_client, first_receiver) = channel_with_cache(1, cache.clone());
+		let (second_client, second_receiver) = channel_with_cache(1, cache);
+		let first_provider = serve(first_receiver, 1, {
+			let requests = requests.clone();
+			move |_| {
+				let requests = requests.clone();
+				async move {
+					requests.fetch_add(1, Ordering::SeqCst);
+
+					Ok(ControlFlow::Break(Output::Id(None)))
+				}
+			}
+		});
+		let second_provider = serve(second_receiver, 1, {
+			let requests = requests.clone();
+			move |_| {
+				let requests = requests.clone();
+				async move {
+					requests.fetch_add(1, Ordering::SeqCst);
+
+					Ok(ControlFlow::Break(Output::Id(None)))
+				}
+			}
+		});
+		let authorize = async move {
+			let id = tg::Id::from(tg::user::Id::new());
+			let request = Request::Id { id };
+			let first = first_client.read(request.clone());
+			let second = second_client.read(request);
+
+			futures::try_join!(first, second)
+		};
+		let providers = futures::future::join(first_provider, second_provider);
+		let (responses, ((), ())) = futures::future::join(authorize, providers).await;
 
 		let (first, second) = responses.unwrap();
 		assert!(matches!(first, ControlFlow::Break(Output::Id(None))));

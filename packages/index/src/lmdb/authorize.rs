@@ -36,6 +36,7 @@ impl Index {
 	}
 
 	pub(crate) fn authorize_batch_with_transaction(
+		cache: facts::Cache<facts::LmdbError>,
 		config: crate::authorize::Config,
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -43,7 +44,7 @@ impl Index {
 		args: &[crate::authorize::Arg],
 		principal: &tg::Principal,
 	) -> tg::Result<Vec<crate::authorize::Outcome>> {
-		let (client, receiver) = facts::channel::<facts::LmdbError>(1);
+		let (client, receiver) = facts::channel_with_cache(1, cache);
 		let authorize = Batch::authorize(args, client, config, principal);
 		let provide = facts::serve(receiver, 1, |request| async move {
 			Self::execute_authorization_fact_with_transaction(db, subspace, transaction, &request)

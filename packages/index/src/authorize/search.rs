@@ -248,16 +248,16 @@ enum Direction {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Evaluation {
+enum ProofStatus {
 	Denied,
 	Pending,
 }
 
-struct Fact {
-	// A proof from either evaluation authorizes the fact for every search strategy.
-	ancestor_or_descendant: Evaluation,
+struct KeyEvaluation {
+	// A proof from either evaluation authorizes the key for every search strategy.
+	ancestor_or_descendant: ProofStatus,
 	authorized: bool,
-	derived: Option<Evaluation>,
+	derived: Option<ProofStatus>,
 }
 
 #[derive(Default)]
@@ -277,7 +277,7 @@ pub(crate) struct State {
 	derived_dependents: BTreeMap<Key, BTreeSet<Key>>,
 	derived_unresolved: BTreeMap<Key, usize>,
 	descendant: Option<DescendantSearch>,
-	facts: HashMap<Key, Fact>,
+	evaluations: HashMap<Key, KeyEvaluation>,
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	subject_key_dependents: BTreeMap<tg::authorization::Subject, BTreeSet<Key>>,
@@ -692,13 +692,13 @@ impl AncestorOrDescendantSearch {
 	}
 }
 
-impl Fact {
+impl KeyEvaluation {
 	#[must_use]
 	fn new(permission: tg::authorization::Permission) -> Self {
-		let derived = has_derived_proof(permission).then_some(Evaluation::Pending);
+		let derived = has_derived_proof(permission).then_some(ProofStatus::Pending);
 
 		Self {
-			ancestor_or_descendant: Evaluation::Pending,
+			ancestor_or_descendant: ProofStatus::Pending,
 			authorized: false,
 			derived,
 		}
@@ -713,7 +713,7 @@ impl Fact {
 		if evaluations
 			.into_iter()
 			.flatten()
-			.any(|evaluation| evaluation == Evaluation::Pending)
+			.any(|evaluation| evaluation == ProofStatus::Pending)
 		{
 			return Outcome::Pending;
 		}
@@ -727,8 +727,8 @@ impl Fact {
 		}
 
 		match self.ancestor_or_descendant {
-			Evaluation::Denied => Outcome::Denied,
-			Evaluation::Pending => Outcome::Pending,
+			ProofStatus::Denied => Outcome::Denied,
+			ProofStatus::Pending => Outcome::Pending,
 		}
 	}
 }
@@ -980,28 +980,30 @@ impl State {
 		if self.is_authorized(key) {
 			return;
 		}
-		if self.fact_mut(key).derived == Some(Evaluation::Denied) {
+		if self.evaluation_mut(key).derived == Some(ProofStatus::Denied) {
 			return;
 		}
-		self.fact_mut(key).derived = Some(Evaluation::Denied);
+		self.evaluation_mut(key).derived = Some(ProofStatus::Denied);
 		self.newly_evaluated.insert(key.clone());
 		self.propagate_derived_outcome(key);
 	}
 
 	pub(crate) fn deny_ancestor_or_descendant(&mut self, key: &Key) {
 		if self.is_authorized(key)
-			|| self.fact_mut(key).ancestor_or_descendant == Evaluation::Denied
+			|| self.evaluation_mut(key).ancestor_or_descendant == ProofStatus::Denied
 		{
 			return;
 		}
-		self.fact_mut(key).ancestor_or_descendant = Evaluation::Denied;
+		self.evaluation_mut(key).ancestor_or_descendant = ProofStatus::Denied;
 		self.newly_evaluated.insert(key.clone());
 		self.propagate_derived_outcome(key);
 	}
 
 	#[must_use]
 	pub(crate) fn is_authorized(&self, key: &Key) -> bool {
-		self.facts.get(key).is_some_and(|fact| fact.authorized)
+		self.evaluations
+			.get(key)
+			.is_some_and(|evaluation| evaluation.authorized)
 	}
 
 	#[must_use]
@@ -1022,14 +1024,16 @@ impl State {
 
 	#[must_use]
 	pub(crate) fn outcome(&self, key: &Key) -> Outcome {
-		self.facts.get(key).map_or(Outcome::Pending, Fact::outcome)
+		self.evaluations
+			.get(key)
+			.map_or(Outcome::Pending, KeyEvaluation::outcome)
 	}
 
 	#[must_use]
 	pub(crate) fn ancestor_or_descendant(&self, key: &Key) -> Outcome {
-		self.facts
+		self.evaluations
 			.get(key)
-			.map_or(Outcome::Pending, Fact::ancestor_or_descendant)
+			.map_or(Outcome::Pending, KeyEvaluation::ancestor_or_descendant)
 	}
 
 	pub(crate) fn take_changed(&mut self) -> BTreeSet<Key> {
@@ -1076,11 +1080,11 @@ impl State {
 			if !visited.insert(key.clone()) {
 				continue;
 			}
-			let fact = self.fact_mut(&key);
-			if fact.authorized {
+			let evaluation = self.evaluation_mut(&key);
+			if evaluation.authorized {
 				continue;
 			}
-			fact.authorized = true;
+			evaluation.authorized = true;
 			self.authorization_log.push(key.clone());
 			self.newly_evaluated.insert(key.clone());
 			stack.extend(
@@ -1109,17 +1113,21 @@ impl State {
 		}
 	}
 
-	fn fact_mut(&mut self, key: &Key) -> &mut Fact {
-		self.facts
+	fn evaluation_mut(&mut self, key: &Key) -> &mut KeyEvaluation {
+		self.evaluations
 			.entry(key.clone())
-			.or_insert_with(|| Fact::new(key.1))
+			.or_insert_with(|| KeyEvaluation::new(key.1))
 	}
 
 	#[must_use]
 	fn derived_is_authorized(&self, key: &Key) -> bool {
 		self.derived_complete.contains(key)
 			&& self.derived_unresolved.get(key).copied().unwrap_or(0) == 0
-			&& self.facts.get(key).and_then(|fact| fact.derived) != Some(Evaluation::Denied)
+			&& self
+				.evaluations
+				.get(key)
+				.and_then(|evaluation| evaluation.derived)
+				!= Some(ProofStatus::Denied)
 	}
 
 	fn propagate_derived_outcome(&mut self, key: &Key) {
@@ -1138,10 +1146,10 @@ impl State {
 				if self.is_authorized(&dependent) {
 					continue;
 				}
-				let fact = self.fact_mut(&dependent);
-				let changed = fact.derived != Some(Evaluation::Denied);
+				let evaluation = self.evaluation_mut(&dependent);
+				let changed = evaluation.derived != Some(ProofStatus::Denied);
 				if changed {
-					fact.derived = Some(Evaluation::Denied);
+					evaluation.derived = Some(ProofStatus::Denied);
 					self.newly_evaluated.insert(dependent.clone());
 				}
 				if changed {

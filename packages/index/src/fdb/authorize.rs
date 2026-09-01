@@ -39,6 +39,7 @@ impl Index {
 	}
 
 	pub(crate) async fn authorize_batch_with_transaction(
+		cache: facts::Cache<fdb::FdbError>,
 		concurrency: usize,
 		config: crate::authorize::Config,
 		txn: &crate::fdb::Transaction,
@@ -47,7 +48,7 @@ impl Index {
 		principal: &tg::Principal,
 	) -> tg::Result<ControlFlow<Vec<crate::authorize::Outcome>, fdb::FdbError>> {
 		let concurrency = concurrency.max(1);
-		let (client, receiver) = facts::channel(concurrency);
+		let (client, receiver) = facts::channel_with_cache(concurrency, cache);
 		let authorize = Batch::authorize(args, client, config, principal);
 		let context = FactContext {
 			subspace: subspace.clone(),

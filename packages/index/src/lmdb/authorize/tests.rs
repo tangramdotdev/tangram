@@ -135,6 +135,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 		token: None,
 	};
 	let outcomes = Index::authorize_batch_with_transaction(
+		crate::authorize::facts::Cache::new(),
 		authorize,
 		&index.db,
 		&index.subspace,

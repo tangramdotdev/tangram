@@ -40,6 +40,7 @@ impl Index {
 		}
 		let mut grants = BTreeMap::new();
 		let mut traversed = BTreeSet::new();
+		let authorization_fact_cache = crate::authorize::facts::Cache::new();
 
 		// Walk the authorized portion of the locally indexed object graph.
 		while !objects.is_empty() {
@@ -55,6 +56,7 @@ impl Index {
 				.collect::<Vec<_>>();
 			let authorizations = crate::fdb::propagate!(
 				Self::authorize_batch_with_transaction(
+					authorization_fact_cache.clone(),
 					authorize_concurrency,
 					arg.authorize,
 					txn,

@@ -65,9 +65,15 @@ impl Index {
 			}
 
 			// Execute the requests sequentially against the shared snapshot.
+			let authorization_fact_cache = crate::authorize::facts::Cache::new();
 			for (request, sender) in requests {
-				let response =
-					Self::execute_read_request(&arg.db, &arg.subspace, &transaction, request);
+				let response = Self::execute_read_request(
+					authorization_fact_cache.clone(),
+					&arg.db,
+					&arg.subspace,
+					&transaction,
+					request,
+				);
 				sender.send(response).ok();
 			}
 		}
@@ -110,6 +116,9 @@ impl Index {
 	}
 
 	fn execute_read_request(
+		authorization_fact_cache: crate::authorize::facts::Cache<
+			crate::authorize::facts::LmdbError,
+		>,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -122,6 +131,7 @@ impl Index {
 				principal,
 			} => {
 				let output = Self::authorize_batch_with_transaction(
+					authorization_fact_cache,
 					config,
 					db,
 					subspace,

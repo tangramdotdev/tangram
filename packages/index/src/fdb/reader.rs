@@ -102,23 +102,28 @@ impl Index {
 		};
 		let mut transaction = crate::fdb::Transaction::new(transaction);
 		loop {
+			let authorization_fact_cache = crate::authorize::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
 				let transaction = &transaction;
 				let request_count = requests.len();
 				let mut futures = requests
 					.into_iter()
-					.map(|(request, sender)| async move {
-						let result = Self::execute_read_request(
-							authorize_concurrency,
-							partition_total,
-							transaction,
-							subspace,
-							&request,
-						)
-						.await;
+					.map(|(request, sender)| {
+						let authorization_fact_cache = authorization_fact_cache.clone();
+						async move {
+							let result = Self::execute_read_request(
+								authorization_fact_cache,
+								authorize_concurrency,
+								partition_total,
+								transaction,
+								subspace,
+								&request,
+							)
+							.await;
 
-						(result, request, sender)
+							(result, request, sender)
+						}
 					})
 					.collect::<FuturesUnordered<_>>();
 
@@ -183,6 +188,7 @@ impl Index {
 	}
 
 	async fn execute_read_request(
+		authorization_fact_cache: crate::authorize::facts::Cache<fdb::FdbError>,
 		authorize_concurrency: usize,
 		partition_total: u64,
 		transaction: &crate::fdb::Transaction,
@@ -196,6 +202,7 @@ impl Index {
 				principal,
 			} => {
 				let result = Self::authorize_batch_with_transaction(
+					authorization_fact_cache,
 					authorize_concurrency,
 					*config,
 					transaction,
