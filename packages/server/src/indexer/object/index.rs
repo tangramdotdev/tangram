@@ -150,7 +150,7 @@ impl Indexer {
 		batch: crate::store::object::index::outbox::batch::Id,
 		mut fragments: Vec<Fragment>,
 	) -> tg::Result<()> {
-		// Wait for every exact object put referenced by these fragments.
+		// Wait for every object put referenced by these fragments or a newer put.
 		let puts = fragments
 			.iter()
 			.flat_map(|fragment| &fragment.arg.items)

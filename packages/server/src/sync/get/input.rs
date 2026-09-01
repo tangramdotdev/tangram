@@ -76,17 +76,30 @@ impl Session {
 					} else {
 						None
 					};
+					let (eager, requested) = {
+						let graph = state.graph.lock().unwrap();
+						let requested = graph.get_object_requested(&message.id);
+						let eager = requested.as_ref().is_none_or(|requested| requested.eager);
+
+						(eager, requested.is_some())
+					};
+					if present == Some(true) && !requested {
+						continue;
+					}
 
 					// Update the graph with data and metadata.
+					let checkout = self.sync_get_checkout_pointers_enabled()
+						&& matches!(data, tg::object::Data::Blob(_));
 					let metadata = message.metadata.clone();
 					let put = uuid::Uuid::now_v7().into_bytes();
+					let graph_put = (!checkout).then_some(put);
 					let arg = UpdateObjectLocalArg {
 						data: Some(&data),
 						id: &message.id,
 						marked: None,
 						metadata,
 						permissions: None,
-						put: Some(put),
+						put: graph_put,
 						requested: None,
 						storage: None,
 					};
@@ -100,13 +113,6 @@ impl Session {
 					if state.graph.lock().unwrap().end_local() {
 						state.queue.close();
 					}
-
-					let eager = state
-						.graph
-						.lock()
-						.unwrap()
-						.get_object_requested(&message.id)
-						.is_none_or(|requested| requested.eager);
 
 					if present != Some(true) && eager {
 						// Send to the index task.
@@ -128,9 +134,7 @@ impl Session {
 						);
 					}
 
-					if self.sync_get_checkout_pointers_enabled()
-						&& matches!(data, tg::object::Data::Blob(_))
-					{
+					if checkout {
 						// Send the blob to the checkout task.
 						let id = message.id.unwrap_blob_ref().clone();
 						let node = super::checkout::ObjectNode {

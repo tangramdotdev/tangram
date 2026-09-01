@@ -402,6 +402,7 @@ impl Session {
 				continue;
 			};
 			let metadata = index.as_ref().map(|object| object.metadata.clone());
+			let put = object.put;
 			let storage = index.map(|object| object.storage);
 			let (data, graph_data, length) = if let Some(bytes) = object.bytes {
 				let bytes = Bytes::from(bytes.into_owned());
@@ -451,7 +452,7 @@ impl Session {
 				length,
 				metadata: metadata.clone(),
 				published: false,
-				put: uuid::Uuid::now_v7().into_bytes(),
+				put,
 				received: false,
 				registered,
 				storage: storage.clone(),

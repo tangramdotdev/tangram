@@ -20,14 +20,14 @@ impl Indexer {
 		let attempts = tangram_futures::retry::stream(options);
 		futures::pin_mut!(attempts);
 		while attempts.next().await.is_some() {
-			let arg = crate::store::object::contains::Arg {
+			let arg = crate::store::object::get::Arg {
 				id: id.clone(),
-				put,
+				put: None,
 			};
-			let contains = self.server.store.contains_object(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to check for an object in the store"),
+			let output = self.server.store.try_get_object(arg).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get an object from the store"),
 			)?;
-			if contains {
+			if output.object.is_some_and(|object| object.put >= put) {
 				return Ok(true);
 			}
 		}
