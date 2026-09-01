@@ -91,6 +91,9 @@ impl Store {
 				if arg.cursor.is_some_and(|cursor| (batch, index) <= cursor) {
 					continue;
 				}
+				if arg.bound.is_some_and(|bound| batch > bound) {
+					break;
+				}
 				fragments.push(fragment::Fragment {
 					batch: batch::Id::new(batch),
 					index: fragment::Index::new(index),
@@ -281,6 +284,7 @@ mod tests {
 		);
 		let fragments = store
 			.dequeue_object_index_outbox_fragments(fragment::dequeue::Arg {
+				bound: None,
 				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,

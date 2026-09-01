@@ -284,6 +284,7 @@ impl Store {
 				from object_archive_outbox
 				where partition in ?
 				and put > ?
+				and put <= ?
 				limit ?;
 			"
 		);
@@ -338,6 +339,7 @@ impl Store {
 				from object_index_outbox
 				where partition in ?
 				and ("batch", fragment) > (?, ?)
+				and ("batch", fragment) <= (?, ?)
 				limit ?;
 			"#
 		);

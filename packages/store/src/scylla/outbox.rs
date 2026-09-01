@@ -73,7 +73,15 @@ impl Store {
 			),
 			None => (&[][..], 0),
 		};
-		let params = (&partitions, batch_cursor, fragment_cursor, limit);
+		let bound = arg.bound.unwrap_or([0xFF; 16]);
+		let params = (
+			&partitions,
+			batch_cursor,
+			fragment_cursor,
+			bound.as_slice(),
+			i64::MAX,
+			limit,
+		);
 		let result = self
 			.session
 			.execute_unpaged(

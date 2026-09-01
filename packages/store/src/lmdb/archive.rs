@@ -87,6 +87,9 @@ impl Store {
 				if arg.cursor.is_some_and(|cursor| put <= cursor) {
 					continue;
 				}
+				if arg.bound.is_some_and(|bound| put > bound) {
+					break;
+				}
 				entries.push(outbox::Entry { id, partition, put });
 			}
 		}
@@ -158,6 +161,7 @@ mod tests {
 		let store = store(temp.path());
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				bound: None,
 				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
@@ -174,6 +178,7 @@ mod tests {
 			.unwrap();
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				bound: None,
 				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
@@ -190,6 +195,7 @@ mod tests {
 			.unwrap();
 		let entries = store
 			.dequeue_object_archive_outbox_entries(outbox::dequeue::Arg {
+				bound: None,
 				cursor: None,
 				batch_size: usize::MAX,
 				partition_end: 2,
