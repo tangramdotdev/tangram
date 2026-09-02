@@ -123,7 +123,18 @@ impl Session {
 					outputs.push(Some(permissions));
 					continue;
 				}
-				self.verify_token(&token).then_some(token.body)
+				if self.verify_token(&token) {
+					if self
+						.authorize_object_child_token(&resource, permissions, &token.body)
+						.await?
+					{
+						outputs.push(Some(permissions));
+						continue;
+					}
+					Some(token.body)
+				} else {
+					None
+				}
 			} else {
 				None
 			};
@@ -272,6 +283,39 @@ impl Session {
 		}
 
 		Ok(outputs)
+	}
+
+	async fn authorize_object_child_token(
+		&self,
+		resource: &tg::Selector<tg::Id>,
+		permissions: tg::authorization::permission::Set,
+		token: &tg::authorization::Body,
+	) -> tg::Result<bool> {
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		if !permissions
+			.iter()
+			.all(|permission| subtree.implies(permission))
+			|| !token.grants(subtree)
+		{
+			return Ok(false);
+		}
+		let Ok(parent) = tg::object::Id::try_from(token.resource.clone()) else {
+			return Ok(false);
+		};
+		let tg::Selector::Id(resource) = resource else {
+			return Ok(false);
+		};
+		let Ok(child) = tg::object::Id::try_from(resource.clone()) else {
+			return Ok(false);
+		};
+		let Some(children) = self.server.index.try_get_object_children(&parent).await? else {
+			return Ok(false);
+		};
+		let authorized = children.contains(&child);
+
+		Ok(authorized)
 	}
 
 	pub(crate) async fn authorize_owner(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
