@@ -295,18 +295,33 @@ impl Session {
 			.try_get_process_from_index(id)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		if !process.set.children {
-			return Err(tg::error!(%id, "the process children are incomplete"));
+		if process.set.children {
+			return Ok(position);
 		}
 		if process
 			.data
 			.as_ref()
 			.is_some_and(|data| data.status.is_finished())
 		{
-			return Ok(position);
+			return Err(tg::error!(%id, "the process children are incomplete"));
 		}
 
-		Err(tg::error!(%id, "failed to read the process children"))
+		// The process is running on a runner, so ask it for the length.
+		let output = self
+			.get_process_children_from_control(id, 0, 0)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, %id, "failed to get the process children from the runner")
+			})?;
+		let position = output
+			.length
+			.to_i64()
+			.unwrap()
+			.checked_add(seek)
+			.and_then(|position| position.to_u64())
+			.ok_or_else(|| tg::error!("invalid position"))?;
+
+		Ok(std::io::SeekFrom::Start(position))
 	}
 
 	async fn get_process_children_local(
@@ -337,13 +352,36 @@ impl Session {
 			.try_get_process_from_index(id)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		if !process.set.children {
-			return Err(tg::error!(%id, "the process children are incomplete"));
-		}
 		let status = process
 			.data
 			.ok_or_else(|| tg::error!(%id, "missing the process data"))?
 			.status;
+		if !process.set.children {
+			if status.is_finished() {
+				return Err(tg::error!(%id, "the process children are incomplete"));
+			}
+
+			// The process is running on a runner, so ask it for the children.
+			let std::io::SeekFrom::Start(position) = position else {
+				return Err(tg::error!(%id, "invalid position"));
+			};
+			let output = self
+				.get_process_children_from_control(id, position, length)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, %id, "failed to get the process children from the runner")
+				})?;
+			let output = LocalChildren {
+				children: output
+					.children
+					.into_iter()
+					.map(tg::process::data::Child::without_location_and_tokens)
+					.collect(),
+				status: output.status,
+			};
+
+			return Ok(output);
+		}
 		let children = self
 			.server
 			.index
@@ -386,9 +424,44 @@ impl Session {
 		let Some(process) = self.try_get_process_from_index(id).await? else {
 			return Ok(false);
 		};
-		let readable = process.set.children;
+		if process.set.children {
+			return Ok(true);
+		}
 
-		Ok(readable)
+		// A running process's children are readable from its runner over the control stream.
+		let running = process
+			.data
+			.as_ref()
+			.is_some_and(|data| !data.status.is_finished());
+
+		Ok(running)
+	}
+
+	async fn get_process_children_from_control(
+		&self,
+		id: &tg::process::Id,
+		position: u64,
+		length: u64,
+	) -> tg::Result<tg::process::control::GetChildrenClientResponseOutput> {
+		let request = tg::process::control::ServerRequestArg::GetChildren(
+			tg::process::control::GetChildrenServerRequestArg { length, position },
+		);
+		let options = crate::control::Options {
+			retry: tangram_futures::retry::Options::default(),
+			timeout: Duration::from_secs(10),
+		};
+		let response = self
+			.send_process_control_request(id, request, options)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, %id, "failed to send the get children control request")
+			})?
+			.map_err(|error| tg::error!(!error, %id, "the get children control request failed"))?;
+		let output = response
+			.try_unwrap_get_children()
+			.map_err(|_| tg::error!("expected a get children response"))?;
+
+		Ok(output)
 	}
 
 	async fn try_get_process_children_regions(
