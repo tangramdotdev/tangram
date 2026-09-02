@@ -51,24 +51,25 @@ impl Graph {
 		self.nodes.get_mut(&child).unwrap().referrers.insert(parent);
 	}
 
-	pub fn create_object_node(
-		&mut self,
-		id: tg::object::Id,
-		permissions: tg::authorization::permission::object::Set,
-	) -> usize {
+	pub fn get_or_create_object_node(&mut self, id: &tg::object::Id, next: usize) -> usize {
+		if let Some(index) = self.try_get_object_node(id)
+			&& index >= next
+		{
+			return index;
+		}
 		let index = self.next;
 		self.next += 1;
 		let node = Node {
 			artifact: None,
 			edge: None,
-			id: Some(id.clone()),
+			id: None,
 			lock_index: None,
 			metadata: None,
 			object_children: im::HashSet::default(),
 			object_complete: false,
 			path: None,
 			path_metadata: None,
-			permissions,
+			permissions: tg::authorization::permission::object::Set::empty(),
 			referrers: im::HashSet::default(),
 			solvable: false,
 			solved: true,
@@ -76,20 +77,9 @@ impl Graph {
 			variant: Variant::Object,
 		};
 		self.nodes.insert(index, Box::new(node));
-		self.insert_id(index, id);
+		self.insert_id(index, id.clone());
 
 		index
-	}
-
-	pub fn get_or_create_object_node(&mut self, id: &tg::object::Id, next: usize) -> usize {
-		if let Some(index) = self.try_get_object_node(id)
-			&& index >= next
-		{
-			return index;
-		}
-		let permissions = self.object_permissions(id);
-
-		self.create_object_node(id.clone(), permissions)
 	}
 
 	pub fn insert_id(&mut self, index: usize, id: tg::object::Id) {

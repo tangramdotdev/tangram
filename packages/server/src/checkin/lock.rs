@@ -361,7 +361,6 @@ impl Session {
 					let mut dependencies = BTreeMap::new();
 					let mut children = Vec::new();
 					for (reference, option) in &file.dependencies {
-						dependencies.insert(reference.clone(), option.clone());
 						if let Some(dependency) = option
 							&& let Some(edge) = &dependency.0.node
 							&& let Ok(edge_pointer) = edge.try_unwrap_pointer_ref()
@@ -370,6 +369,11 @@ impl Session {
 						{
 							children.push(edge_pointer.index);
 						}
+						let reference = reference_without_location_and_tokens(reference.clone());
+						let dependency = option
+							.clone()
+							.map(tg::graph::data::Dependency::without_location_and_tokens);
+						dependencies.insert(reference, dependency);
 					}
 					let data = tg::graph::data::File {
 						contents: None,
@@ -445,7 +449,7 @@ impl Session {
 		}
 
 		// Create the lock.
-		let lock = lock_without_location_and_tokens(tg::graph::Data { nodes });
+		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
 		Self::strip_lock(lock, source_dependencies)
@@ -683,25 +687,6 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.boxed(),
 		}
 	}
-}
-
-fn lock_without_location_and_tokens(mut lock: tg::graph::Data) -> tg::graph::Data {
-	for node in &mut lock.nodes {
-		let tg::graph::data::Node::File(file) = node else {
-			continue;
-		};
-		file.dependencies = std::mem::take(&mut file.dependencies)
-			.into_iter()
-			.map(|(reference, dependency)| {
-				let reference = reference_without_location_and_tokens(reference);
-				let dependency =
-					dependency.map(tg::graph::data::Dependency::without_location_and_tokens);
-				(reference, dependency)
-			})
-			.collect();
-	}
-
-	lock
 }
 
 fn reference_without_location_and_tokens(mut reference: tg::Reference) -> tg::Reference {

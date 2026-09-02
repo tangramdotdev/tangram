@@ -848,11 +848,40 @@ impl Session {
 		prefetch: &Prefetch,
 		checkpoint: &mut Checkpoint,
 		directory: &tg::graph::data::Directory,
+		graph_id: Option<&tg::graph::Id>,
 		options: &ObjectOptions,
 	) -> tg::Result<CollectedDirectory> {
 		match directory {
 			tg::graph::data::Directory::Leaf(leaf) => {
-				let entries = leaf.entries.clone();
+				let entries: std::collections::BTreeMap<
+					String,
+					tg::graph::data::Edge<tg::artifact::Id>,
+				> = leaf
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let edge = match edge {
+							tg::graph::data::Edge::Object(id) => {
+								tg::graph::data::Edge::Object(id.clone())
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								let graph = pointer
+									.graph
+									.clone()
+									.or_else(|| graph_id.cloned())
+									.ok_or_else(|| {
+										tg::error!("expected a graph for a directory pointer")
+									})?;
+								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+									graph: Some(graph),
+									index: pointer.index,
+									kind: pointer.kind,
+								})
+							},
+						};
+						Ok((name.clone(), edge))
+					})
+					.collect::<tg::Result<_>>()?;
 				let options = entries
 					.keys()
 					.map(|name| (name.clone(), options.clone()))
@@ -864,7 +893,7 @@ impl Session {
 				let mut entry_options = std::collections::BTreeMap::new();
 				for child in &branch.children {
 					let mut child_options = options.clone();
-					let child_directory = match &child.directory {
+					let (child_directory, child_graph_id) = match &child.directory {
 						tg::graph::data::Edge::Object(id) => {
 							let object_id = tg::object::Id::from(id.clone());
 							let output = self
@@ -881,136 +910,39 @@ impl Session {
 									tg::error!(!error, "failed to deserialize directory data")
 								})?;
 							match data {
-								tg::directory::Data::Node(directory) => directory,
+								tg::directory::Data::Node(directory) => (directory, None),
 								tg::directory::Data::Pointer(pointer) => {
-									let graph_id = pointer.graph.as_ref().ok_or_else(|| {
-										tg::error!("expected graph in standalone directory pointer")
-									})?;
-									self.checkin_solve_get_directory_from_pointer(
-										prefetch,
-										checkpoint,
-										&pointer,
-										graph_id,
-										&mut child_options,
-									)
-									.await?
+									let (directory, child_graph_id) = self
+										.checkin_solve_get_directory_from_pointer(
+											prefetch,
+											checkpoint,
+											&pointer,
+											graph_id,
+											&mut child_options,
+										)
+										.await?;
+									(directory, Some(child_graph_id))
 								},
 							}
 						},
 						tg::graph::data::Edge::Pointer(pointer) => {
-							let graph_id = pointer.graph.as_ref().ok_or_else(|| {
-								tg::error!("expected graph in standalone directory pointer")
-							})?;
-							self.checkin_solve_get_directory_from_pointer(
-								prefetch,
-								checkpoint,
-								pointer,
-								graph_id,
-								&mut child_options,
-							)
-							.await?
+							let (directory, child_graph_id) = self
+								.checkin_solve_get_directory_from_pointer(
+									prefetch,
+									checkpoint,
+									pointer,
+									graph_id,
+									&mut child_options,
+								)
+								.await?;
+							(directory, Some(child_graph_id))
 						},
 					};
 					let child = Box::pin(self.checkin_solve_collect_directory_entries(
 						prefetch,
 						checkpoint,
 						&child_directory,
-						&child_options,
-					))
-					.await?;
-					entries.extend(child.entries);
-					entry_options.extend(child.options);
-				}
-				let options = entry_options;
-				Ok(CollectedDirectory { entries, options })
-			},
-		}
-	}
-
-	async fn checkin_solve_collect_graph_directory_entries(
-		&self,
-		prefetch: &Prefetch,
-		checkpoint: &mut Checkpoint,
-		directory: &tg::graph::data::Directory,
-		graph_id: &tg::graph::Id,
-		options: &ObjectOptions,
-	) -> tg::Result<CollectedDirectory> {
-		match directory {
-			tg::graph::data::Directory::Leaf(leaf) => {
-				let mut entries = std::collections::BTreeMap::new();
-				for (name, edge) in &leaf.entries {
-					let edge = match edge {
-						tg::graph::data::Edge::Pointer(pointer) => {
-							let graph = pointer.graph.clone().or_else(|| Some(graph_id.clone()));
-							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-								graph,
-								index: pointer.index,
-								kind: pointer.kind,
-							})
-						},
-						tg::graph::data::Edge::Object(id) => {
-							tg::graph::data::Edge::Object(id.clone())
-						},
-					};
-					entries.insert(name.clone(), edge);
-				}
-				let options = entries
-					.keys()
-					.map(|name| (name.clone(), options.clone()))
-					.collect();
-				Ok(CollectedDirectory { entries, options })
-			},
-			tg::graph::data::Directory::Branch(branch) => {
-				let mut entries = std::collections::BTreeMap::new();
-				let mut entry_options = std::collections::BTreeMap::new();
-				for child in &branch.children {
-					let mut child_options = options.clone();
-					let child_directory = match &child.directory {
-						tg::graph::data::Edge::Object(id) => {
-							let object_id = tg::object::Id::from(id.clone());
-							let output = self
-								.checkin_solve_get_object_with_options(
-									prefetch,
-									&mut checkpoint.graph,
-									checkpoint.next,
-									&object_id,
-									&mut child_options,
-								)
-								.await?;
-							let data = tg::directory::Data::deserialize(output.output.bytes)
-								.map_err(|error| {
-									tg::error!(!error, "failed to deserialize directory data")
-								})?;
-							match data {
-								tg::directory::Data::Node(directory) => directory,
-								tg::directory::Data::Pointer(pointer) => {
-									self.checkin_solve_get_directory_from_pointer(
-										prefetch,
-										checkpoint,
-										&pointer,
-										graph_id,
-										&mut child_options,
-									)
-									.await?
-								},
-							}
-						},
-						tg::graph::data::Edge::Pointer(pointer) => {
-							self.checkin_solve_get_directory_from_pointer(
-								prefetch,
-								checkpoint,
-								pointer,
-								graph_id,
-								&mut child_options,
-							)
-							.await?
-						},
-					};
-					let child = Box::pin(self.checkin_solve_collect_graph_directory_entries(
-						prefetch,
-						checkpoint,
-						&child_directory,
-						graph_id,
+						child_graph_id.as_ref(),
 						&child_options,
 					))
 					.await?;
@@ -1028,29 +960,32 @@ impl Session {
 		prefetch: &Prefetch,
 		checkpoint: &mut Checkpoint,
 		pointer: &tg::graph::data::Pointer,
-		graph_id: &tg::graph::Id,
+		graph_id: Option<&tg::graph::Id>,
 		options: &mut ObjectOptions,
-	) -> tg::Result<tg::graph::data::Directory> {
-		let child_graph_id = pointer.graph.clone().unwrap_or_else(|| graph_id.clone());
+	) -> tg::Result<(tg::graph::data::Directory, tg::graph::Id)> {
+		let graph_id = pointer
+			.graph
+			.clone()
+			.or_else(|| graph_id.cloned())
+			.ok_or_else(|| tg::error!("expected a graph for a directory pointer"))?;
 		let output = self
 			.checkin_solve_get_object_with_options(
 				prefetch,
 				&mut checkpoint.graph,
 				checkpoint.next,
-				&child_graph_id.clone().into(),
+				&graph_id.clone().into(),
 				options,
 			)
 			.await?;
-		let graph_data = if let Some((data, _)) = checkpoint.graphs.get(&child_graph_id) {
+		let graph_data = if let Some((data, _)) = checkpoint.graphs.get(&graph_id) {
 			data.clone()
 		} else {
 			let data = tg::graph::Data::deserialize(output.output.bytes)
 				.map(Arc::new)
 				.map_err(|error| tg::error!(!error, "failed to deserialize graph data"))?;
-			checkpoint.graphs.insert(
-				child_graph_id.clone(),
-				(data.clone(), output.output.metadata),
-			);
+			checkpoint
+				.graphs
+				.insert(graph_id.clone(), (data.clone(), output.output.metadata));
 			data
 		};
 		let directory = graph_data
@@ -1060,9 +995,9 @@ impl Session {
 			.try_unwrap_directory_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected directory node in branch child"))?;
-		let key = (child_graph_id.clone(), pointer.index);
+		let key = (graph_id.clone(), pointer.index);
 		if checkpoint.observed_graph_nodes.insert(key).is_none() {
-			let id = tg::object::Id::from(child_graph_id);
+			let id = tg::object::Id::from(graph_id.clone());
 			Self::checkin_record_object_children(
 				&mut checkpoint.graph,
 				checkpoint.next,
@@ -1072,7 +1007,7 @@ impl Session {
 				},
 			);
 		}
-		Ok(directory.clone())
+		Ok((directory.clone(), graph_id))
 	}
 
 	async fn checkin_solve_observe_artifact(
@@ -1169,6 +1104,7 @@ impl Session {
 						&state.prefetch,
 						checkpoint,
 						&directory,
+						None,
 						options,
 					)
 					.await?;
@@ -1320,11 +1256,11 @@ impl Session {
 		let variant = match graph_node {
 			tg::graph::data::Node::Directory(directory) => {
 				let collected = self
-					.checkin_solve_collect_graph_directory_entries(
+					.checkin_solve_collect_directory_entries(
 						&state.prefetch,
 						checkpoint,
 						directory,
-						&graph_id,
+						Some(&graph_id),
 						options,
 					)
 					.await?;
