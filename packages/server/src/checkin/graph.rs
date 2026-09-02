@@ -15,11 +15,6 @@ pub struct Graph {
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,
 	pub paths: PathTrie<usize>,
-	pub permissions: im::HashMap<
-		tg::object::Id,
-		tg::authorization::permission::object::Set,
-		tg::id::BuildHasher,
-	>,
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +24,8 @@ pub struct Node {
 	pub id: Option<tg::object::Id>,
 	pub lock_index: Option<usize>,
 	pub metadata: Option<tg::object::Metadata>,
+	pub object_children: im::HashSet<usize, fnv::FnvBuildHasher>,
+	pub object_complete: bool,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub permissions: tg::authorization::permission::object::Set,
@@ -40,6 +37,87 @@ pub struct Node {
 }
 
 impl Graph {
+	pub fn add_object_edge(&mut self, parent: usize, child: usize) {
+		if self
+			.nodes
+			.get_mut(&parent)
+			.unwrap()
+			.object_children
+			.insert(child)
+			.is_some()
+		{
+			return;
+		}
+		let referrers = &mut self.nodes.get_mut(&child).unwrap().referrers;
+		if !referrers.contains(&parent) {
+			referrers.push(parent);
+		}
+	}
+
+	pub fn create_object_node(
+		&mut self,
+		id: tg::object::Id,
+		permissions: tg::authorization::permission::object::Set,
+	) -> usize {
+		let index = self.next;
+		self.next += 1;
+		let node = Node {
+			artifact: None,
+			edge: None,
+			id: Some(id.clone()),
+			lock_index: None,
+			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
+			path: None,
+			path_metadata: None,
+			permissions,
+			referrers: SmallVec::new(),
+			solvable: false,
+			solved: true,
+			storage: tangram_index::object::Storage::default(),
+			variant: Variant::Object,
+		};
+		self.nodes.insert(index, Box::new(node));
+		self.insert_id(index, id);
+
+		index
+	}
+
+	pub fn get_or_create_object_node(&mut self, id: &tg::object::Id, next: usize) -> usize {
+		if let Some(index) = self.ids.get(id).and_then(|indices| indices.last()).copied()
+			&& index >= next
+			&& self.nodes.get(&index).unwrap().variant.is_object()
+		{
+			return index;
+		}
+		let permissions = self.object_permissions(id);
+
+		self.create_object_node(id.clone(), permissions)
+	}
+
+	pub fn insert_id(&mut self, index: usize, id: tg::object::Id) {
+		let permissions = self.object_permissions(&id);
+		let node = self.nodes.get_mut(&index).unwrap();
+		node.id = Some(id.clone());
+		node.permissions.insert(permissions);
+		self.ids.entry(id).or_default().push(index);
+	}
+
+	#[must_use]
+	pub fn object_permissions(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::authorization::permission::object::Set {
+		self.ids
+			.get(id)
+			.and_then(|indices| indices.last())
+			.and_then(|index| self.nodes.get(index))
+			.map_or_else(tg::authorization::permission::object::Set::empty, |node| {
+				node.permissions
+			})
+	}
+
 	pub fn clean(&mut self, root: &Path) -> HashSet<PathBuf, fnv::FnvBuildHasher> {
 		// Get nodes with no referrers.
 		let root = self.paths.get(root).copied();
@@ -70,7 +148,29 @@ impl Graph {
 				nodes.retain(|i| *i != index);
 				if nodes.is_empty() {
 					self.ids.remove(id);
-					self.permissions.remove(id);
+				} else {
+					let index = *nodes.last().unwrap();
+					self.nodes
+						.get_mut(&index)
+						.unwrap()
+						.permissions
+						.insert(node.permissions);
+				}
+			}
+			if let Some(id) = &node.id
+				&& let Some(nodes) = self.ids.get_mut(id)
+				&& nodes.contains(&index)
+			{
+				nodes.retain(|i| *i != index);
+				if nodes.is_empty() {
+					self.ids.remove(id);
+				} else {
+					let index = *nodes.last().unwrap();
+					self.nodes
+						.get_mut(&index)
+						.unwrap()
+						.permissions
+						.insert(node.permissions);
 				}
 			}
 			if let Some(path) = &node.path {
@@ -78,7 +178,11 @@ impl Graph {
 			}
 
 			// Remove the node from its children's referrers and enqueue its children with no more referrers.
-			for child_index in node.children() {
+			for child_index in node
+				.children()
+				.into_iter()
+				.chain(node.object_children.iter().copied())
+			{
 				if let Some(child) = self.nodes.get_mut(&child_index) {
 					child.referrers.retain(|index_| *index_ != index);
 					if child.referrers.is_empty() {
@@ -152,6 +256,7 @@ impl Node {
 					}
 				}
 			},
+			Variant::Object => {},
 			Variant::Symlink(symlink) => {
 				if let Some(edge) = &symlink.artifact
 					&& let Ok(pointer) = edge.try_unwrap_pointer_ref()
@@ -171,6 +276,7 @@ impl Node {
 pub enum Variant {
 	Directory(Directory),
 	File(File),
+	Object,
 	Symlink(Symlink),
 }
 
@@ -180,6 +286,7 @@ impl Variant {
 		match self {
 			Self::Directory(_) => tg::artifact::Kind::Directory,
 			Self::File(_) => tg::artifact::Kind::File,
+			Self::Object => unreachable!("object nodes do not have artifact kinds"),
 			Self::Symlink(_) => tg::artifact::Kind::Symlink,
 		}
 	}
@@ -232,6 +339,7 @@ impl<'a> petgraph::visit::IntoNodeIdentifiers for &'a Petgraph<'a> {
 		self.graph
 			.nodes
 			.range(self.next..)
+			.filter(|(_, node)| !node.variant.is_object())
 			.map(|(index, _)| index)
 			.copied()
 			.boxed()
@@ -272,6 +380,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 						.filter(|&index| index >= next)
 				})
 				.boxed(),
+			Variant::Object => std::iter::empty().boxed(),
 			Variant::Symlink(symlink) => symlink
 				.artifact
 				.iter()

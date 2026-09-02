@@ -1,9 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{
-		Session,
-		checkin::{Graph, Permissions},
-	},
+	crate::{Session, checkin::Graph},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -20,7 +17,7 @@ struct State<'a> {
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
-	permissions: &'a mut Permissions,
+	next: usize,
 	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
 	store_path: Option<&'a Path>,
@@ -49,7 +46,6 @@ pub(super) struct CheckinInputArg<'a> {
 	pub ignorer: Option<ignore::Ignorer>,
 	pub lock: Option<&'a tg::graph::Data>,
 	pub next: usize,
-	pub permissions: &'a mut Permissions,
 	pub progress: crate::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
 	pub store_path: Option<&'a Path>,
@@ -65,7 +61,6 @@ impl Session {
 			ignorer,
 			lock,
 			next,
-			permissions,
 			progress,
 			root,
 			store_path,
@@ -94,7 +89,7 @@ impl Session {
 			graph,
 			ignorer,
 			lock,
-			permissions,
+			next,
 			progress,
 			root,
 			store_path,
@@ -272,6 +267,8 @@ impl Session {
 			id: None,
 			lock_index,
 			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
 			path: Some(item.path),
 			path_metadata: Some(metadata.clone()),
 			permissions: tg::authorization::permission::object::Set::empty(),
@@ -295,6 +292,7 @@ impl Session {
 			Variant::File(_) => {
 				self.checkin_visit_file(state, stack, index)?;
 			},
+			Variant::Object => unreachable!(),
 			Variant::Symlink(_) => {
 				self.checkin_visit_symlink(state, stack, index)?;
 			},
@@ -435,7 +433,7 @@ impl Session {
 					if let Some(id) = object_edge_root(&edge)
 						&& let Some(token) = reference.options().tokens.local()
 					{
-						self.checkin_merge_object_token(state.permissions, &id, token);
+						self.checkin_merge_object_token(state.graph, state.next, &id, token);
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -540,7 +538,7 @@ impl Session {
 					if let Some(id) = object_edge_root(&edge)
 						&& let Some(token) = reference.options().tokens.local()
 					{
-						self.checkin_merge_object_token(state.permissions, &id, token);
+						self.checkin_merge_object_token(state.graph, state.next, &id, token);
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {

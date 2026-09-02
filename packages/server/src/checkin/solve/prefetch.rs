@@ -1,9 +1,6 @@
 use {
-	crate::{
-		Session,
-		checkin::{Graph, Permissions},
-	},
-	dashmap::DashMap,
+	crate::{Session, checkin::Graph},
+	dashmap::{DashMap, DashSet},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 };
@@ -12,12 +9,16 @@ const PREFETCH_CONCURRENCY: usize = 16;
 
 type Objects = Arc<DashMap<ObjectKey, Option<ObjectOutput>, fnv::FnvBuildHasher>>;
 
+type ObjectData = Arc<DashMap<tg::object::Id, Arc<tg::object::Data>, tg::id::BuildHasher>>;
+
 type ObjectTasks = tangram_futures::task::Map<
 	ObjectKey,
 	tg::Result<Option<ObjectOutput>>,
 	(),
 	fnv::FnvBuildHasher,
 >;
+
+type PrefetchedObjects = Arc<DashSet<tg::object::Id, tg::id::BuildHasher>>;
 
 type Tags = Arc<DashMap<tg::specifier::Pattern, tg::list::Output, fnv::FnvBuildHasher>>;
 
@@ -105,8 +106,10 @@ impl ObjectOptions {
 #[derive(Clone)]
 pub struct Prefetch {
 	arg: tg::checkin::Arg,
+	data: ObjectData,
 	object_tasks: ObjectTasks,
 	objects: Objects,
+	prefetched_objects: PrefetchedObjects,
 	semaphore: Arc<tokio::sync::Semaphore>,
 	tag_tasks: TagTasks,
 	tags: Tags,
@@ -114,15 +117,19 @@ pub struct Prefetch {
 
 impl Prefetch {
 	pub fn new(arg: tg::checkin::Arg) -> Self {
+		let data = Arc::new(DashMap::default());
 		let object_tasks = tangram_futures::task::Map::default();
 		let objects = Arc::new(DashMap::default());
+		let prefetched_objects = Arc::new(DashSet::default());
 		let semaphore = Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY));
 		let tag_tasks = tangram_futures::task::Map::default();
 		let tags = Arc::new(DashMap::default());
 		Self {
 			arg,
+			data,
 			object_tasks,
 			objects,
+			prefetched_objects,
 			semaphore,
 			tag_tasks,
 			tags,
@@ -170,11 +177,12 @@ impl Session {
 	pub(super) async fn checkin_solve_get_object_with_options(
 		&self,
 		prefetch: &Prefetch,
-		permissions: &mut Permissions,
+		graph: &mut Graph,
+		next: usize,
 		id: &tg::object::Id,
 		options: &mut ObjectOptions,
 	) -> tg::Result<ObjectOutput> {
-		self.checkin_solve_try_get_object_with_options(prefetch, permissions, id, options)
+		self.checkin_solve_try_get_object_with_options(prefetch, graph, next, id, options)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to get the object"))
 	}
@@ -182,7 +190,8 @@ impl Session {
 	pub(super) async fn checkin_solve_try_get_object_with_options(
 		&self,
 		prefetch: &Prefetch,
-		permissions: &mut Permissions,
+		graph: &mut Graph,
+		next: usize,
 		id: &tg::object::Id,
 		options: &mut ObjectOptions,
 	) -> tg::Result<Option<ObjectOutput>> {
@@ -194,7 +203,7 @@ impl Session {
 		// Return a cached result if one is available.
 		if let Some(output) = prefetch.objects.get(&key).map(|value| value.clone()) {
 			if let Some(output) = &output {
-				self.checkin_solve_record_object_permissions(permissions, id, &output.output);
+				self.checkin_solve_record_object_observation(graph, next, id, output);
 				options.update_from_output(&output.output);
 			}
 			return Ok(output);
@@ -203,22 +212,24 @@ impl Session {
 		// Fetch the object directly, bypassing the prefetch semaphore.
 		let output = self.checkin_solve_fetch_object(prefetch, &key).await?;
 		if let Some(output) = &output {
-			self.checkin_solve_record_object_permissions(permissions, id, &output.output);
+			self.checkin_solve_record_object_observation(graph, next, id, output);
 			options.update_from_output(&output.output);
 		}
 
 		Ok(output)
 	}
 
-	fn checkin_solve_record_object_permissions(
+	fn checkin_solve_record_object_observation(
 		&self,
-		permissions: &mut Permissions,
+		graph: &mut Graph,
+		next: usize,
 		id: &tg::object::Id,
-		output: &tg::object::get::Output,
+		output: &ObjectOutput,
 	) {
-		if let Some(token) = output.tokens.local() {
-			self.checkin_merge_object_token(permissions, id, token);
+		if let Some(token) = output.output.tokens.local() {
+			self.checkin_merge_object_token(graph, next, id, token);
 		}
+		Self::checkin_record_object_data(graph, next, id, &output.data);
 	}
 
 	fn checkin_solve_get_or_spawn_object_task(
@@ -274,14 +285,19 @@ impl Session {
 			prefetch.objects.insert(key.clone(), None);
 			return Ok(None);
 		};
-		let data = tg::object::Data::deserialize(key.id.kind(), output.bytes.clone())
-			.map(Arc::new)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+		let data = if let Some(data) = prefetch.data.get(&key.id).map(|data| data.clone()) {
+			data
+		} else {
+			let data = tg::object::Data::deserialize(key.id.kind(), output.bytes.clone())
+				.map(Arc::new)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+			prefetch.data.entry(key.id.clone()).or_insert(data).clone()
+		};
 
 		// If the object requires solving, then prefetch its descendant objects and tags.
 		let requires_solving =
 			Self::checkin_solve_metadata_requires_solving(output.metadata.as_ref());
-		if requires_solving {
+		if requires_solving && prefetch.prefetched_objects.insert(key.id.clone()) {
 			let mut options = key.options.clone();
 			options.update_from_output(&output);
 			match data.as_ref() {

@@ -248,7 +248,33 @@ impl Watch {
 								nodes.retain(|i| *i != index);
 								if nodes.is_empty() {
 									state.graph.ids.remove(id);
-									state.graph.permissions.remove(id);
+								} else {
+									let index = *nodes.last().unwrap();
+									state
+										.graph
+										.nodes
+										.get_mut(&index)
+										.unwrap()
+										.permissions
+										.insert(node.permissions);
+								}
+							}
+							if let Some(id) = &node.id
+								&& let Some(nodes) = state.graph.ids.get_mut(id)
+								&& nodes.contains(&index)
+							{
+								nodes.retain(|i| *i != index);
+								if nodes.is_empty() {
+									state.graph.ids.remove(id);
+								} else {
+									let index = *nodes.last().unwrap();
+									state
+										.graph
+										.nodes
+										.get_mut(&index)
+										.unwrap()
+										.permissions
+										.insert(node.permissions);
 								}
 							}
 							if let Some(path) = &node.path {
@@ -260,7 +286,11 @@ impl Watch {
 							state.solutions.remove_by_node(index);
 
 							// Remove the node from its children's referrers and enqueue its children with no more referrers and no path.
-							for child_index in node.children() {
+							for child_index in node
+								.children()
+								.into_iter()
+								.chain(node.object_children.iter().copied())
+							{
 								if let Some(child) = state.graph.nodes.get_mut(&child_index) {
 									child.referrers.retain(|index_| *index_ != index);
 									if child.referrers.is_empty() && child.path.is_none() {

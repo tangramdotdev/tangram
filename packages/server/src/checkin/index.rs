@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		checkin::{Graph, IndexCheckoutArgs, IndexObjectArgs, Permissions},
+		checkin::{Graph, IndexCheckoutArgs, IndexObjectArgs},
 	},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
@@ -15,7 +15,6 @@ pub(super) struct CheckinIndexArg<'a> {
 	pub graph: &'a Graph,
 	pub index_checkout_args: IndexCheckoutArgs,
 	pub index_object_args: IndexObjectArgs,
-	pub permissions: &'a Permissions,
 	pub root: &'a Path,
 	pub touched_at: i64,
 }
@@ -30,7 +29,6 @@ impl Session {
 			graph,
 			index_checkout_args,
 			index_object_args,
-			permissions,
 			root,
 			touched_at,
 		} = arg;
@@ -69,7 +67,7 @@ impl Session {
 
 		// Create put object args in reverse topological order.
 		let put_grant_args =
-			self.checkin_index_create_grants(graph, &index_object_args, permissions, touched_at)?;
+			self.checkin_index_create_grants(graph, &index_object_args, touched_at)?;
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
 		// Create the index batch.
@@ -97,7 +95,6 @@ impl Session {
 		&self,
 		graph: &Graph,
 		objects: &IndexObjectArgs,
-		permissions: &Permissions,
 		touched_at: i64,
 	) -> tg::Result<Vec<tangram_index::grant::put::Arg>> {
 		let subject = match &self.context.principal {
@@ -141,7 +138,7 @@ impl Session {
 			let (id, object) = objects.get_index(index).unwrap();
 			let mut subtree = false;
 			if !covered[index] {
-				let permissions = Self::checkin_object_permissions(graph, permissions, id);
+				let permissions = graph.object_permissions(id);
 				let permission =
 					if permissions.contains(tg::authorization::permission::object::Set::SUBTREE) {
 						subtree = true;
@@ -181,7 +178,7 @@ impl Session {
 
 		// Emit grants for uncovered external boundaries without descending into old graphs.
 		for (id, _) in external.iter().filter(|(_, covered)| !**covered) {
-			let permissions = Self::checkin_object_permissions(graph, permissions, id);
+			let permissions = graph.object_permissions(id);
 			let permission =
 				if permissions.contains(tg::authorization::permission::object::Set::SUBTREE) {
 					tg::authorization::permission::object::Permission::Subtree

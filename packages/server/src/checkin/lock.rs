@@ -102,6 +102,7 @@ impl Session {
 					tangram_util::fs::remove(&lockfile_path).await.ok();
 					xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
 				},
+				Variant::Object => unreachable!(),
 				Variant::Symlink(_) => (),
 			}
 			return Ok((None, lock_write_guard));
@@ -223,6 +224,7 @@ impl Session {
 					tg::checkin::Lock::Auto => unreachable!(),
 				}
 			},
+			Variant::Object => unreachable!(),
 
 			Variant::Symlink(_) => {},
 		}
@@ -377,6 +379,8 @@ impl Session {
 					};
 					(tg::graph::data::Node::File(data), children)
 				},
+
+				Variant::Object => unreachable!(),
 
 				Variant::Symlink(symlink) => {
 					let mut children = Vec::new();

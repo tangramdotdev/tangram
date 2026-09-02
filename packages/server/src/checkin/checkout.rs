@@ -444,6 +444,7 @@ impl Session {
 						}
 					}
 				},
+				Variant::Object => {},
 				Variant::Symlink(symlink) => {
 					if let Some(edge) = &symlink.artifact {
 						match edge {

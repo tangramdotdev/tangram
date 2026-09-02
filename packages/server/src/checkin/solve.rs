@@ -2,10 +2,7 @@ use {
 	self::prefetch::{ObjectOptions, Prefetch},
 	crate::{
 		Session,
-		checkin::{
-			Permissions,
-			graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
-		},
+		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
 	std::{
@@ -41,10 +38,10 @@ struct Checkpoint {
 	listed: bool,
 	lock: Option<Arc<tg::graph::Data>>,
 	next: usize,
-	permissions: Permissions,
+	observed_graph_nodes: ObservedGraphNodes,
 	queue: im::Vector<Item>,
 	solutions: Solutions,
-	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
+	visited: im::HashSet<ItemKey, fnv::FnvBuildHasher>,
 }
 
 type Graphs = im::HashMap<
@@ -56,11 +53,20 @@ type Graphs = im::HashMap<
 type GraphPointers =
 	im::HashMap<(tg::graph::Id, usize), tg::graph::data::Pointer, fnv::FnvBuildHasher>;
 
+type ObservedGraphNodes = im::HashSet<(tg::graph::Id, usize), fnv::FnvBuildHasher>;
+
 type DirectoryOptions = im::HashMap<(usize, String), ObjectOptions, fnv::FnvBuildHasher>;
 
 struct CollectedDirectory {
 	entries: std::collections::BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 	options: std::collections::BTreeMap<String, ObjectOptions>,
+}
+
+struct GraphObservation {
+	data: Arc<tg::graph::Data>,
+	id: tg::graph::Id,
+	metadata: Option<tg::object::Metadata>,
+	node_index: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -72,10 +78,16 @@ struct Candidate {
 	tokens: tg::authorization::Tokens,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug)]
 struct Item {
 	options: ObjectOptions,
 	referent: tg::Referent<usize>,
+	variant: ItemVariant,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ItemKey {
+	node: usize,
 	variant: ItemVariant,
 }
 
@@ -105,7 +117,7 @@ pub struct Solutions {
 
 #[derive(Clone)]
 pub struct Solution {
-	options: ObjectOptions,
+	candidate_options: ObjectOptions,
 	pub referent: Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 	pub referrers: Vec<Referrer>,
 }
@@ -135,7 +147,6 @@ pub(super) struct CheckinSolveArg<'a> {
 	pub graph: &'a mut Graph,
 	pub lock: Option<Arc<tg::graph::Data>>,
 	pub next: usize,
-	pub permissions: &'a mut Permissions,
 	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
 	pub solutions: &'a mut Solutions,
@@ -146,7 +157,6 @@ struct CheckinSolveInnerArg<'a> {
 	graph: &'a mut Graph,
 	lock: Option<Arc<tg::graph::Data>>,
 	next: usize,
-	permissions: &'a mut Permissions,
 	root: &'a Path,
 	solutions: &'a mut Solutions,
 }
@@ -159,7 +169,6 @@ impl Session {
 			graph,
 			lock,
 			next,
-			permissions,
 			progress,
 			root,
 			solutions,
@@ -172,7 +181,6 @@ impl Session {
 				graph,
 				lock,
 				next,
-				permissions,
 				root,
 				solutions,
 			};
@@ -184,7 +192,6 @@ impl Session {
 				graph,
 				lock: lock.clone(),
 				next,
-				permissions,
 				root,
 				solutions,
 			};
@@ -197,13 +204,11 @@ impl Session {
 			graph.unsolve();
 			graph.clean(root);
 			solutions.clear();
-			permissions.clear();
 			let inner_arg = CheckinSolveInnerArg {
 				arg,
 				graph,
 				lock,
 				next,
-				permissions,
 				root,
 				solutions,
 			};
@@ -219,7 +224,6 @@ impl Session {
 			graph,
 			lock,
 			next,
-			permissions,
 			root,
 			solutions,
 		} = arg;
@@ -253,7 +257,7 @@ impl Session {
 			listed: false,
 			lock: lock.clone(),
 			next,
-			permissions: permissions.clone(),
+			observed_graph_nodes: im::HashSet::default(),
 			queue: im::Vector::new(),
 			solutions: solutions.clone(),
 			visited: im::HashSet::default(),
@@ -276,7 +280,6 @@ impl Session {
 
 		// Set the checkpoint and solutions.
 		*graph = checkpoint.graph;
-		*permissions = checkpoint.permissions;
 		*solutions = checkpoint.solutions;
 
 		Ok(())
@@ -289,7 +292,11 @@ impl Session {
 		item: Item,
 	) -> tg::Result<()> {
 		// If the item has been visited, then return.
-		if checkpoint.visited.insert(item.clone()).is_some() {
+		let key = ItemKey {
+			node: item.referent.node,
+			variant: item.variant.clone(),
+		};
+		if checkpoint.visited.insert(key).is_some() {
 			return Ok(());
 		}
 
@@ -333,7 +340,8 @@ impl Session {
 				tg::graph::data::Edge::Object(id) => {
 					self.checkin_solve_get_object_with_options(
 						&state.prefetch,
-						&mut checkpoint.permissions,
+						&mut checkpoint.graph,
+						checkpoint.next,
 						&id,
 						&mut options,
 					)
@@ -614,16 +622,25 @@ impl Session {
 	) -> tg::Result<TagInnerOutput> {
 		// Check if a solution exists for the key.
 		if let Some(solution) = checkpoint.solutions.get(key) {
-			let Some(referent) = &solution.referent else {
+			let Some(referent) = solution.referent.clone() else {
 				return Ok(TagInnerOutput::Unsolved);
 			};
 			if !pattern.matches_specifier_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
-			return Ok(TagInnerOutput::Reused(
-				referent.clone(),
-				solution.options.clone(),
-			));
+			let candidate_options = solution.candidate_options.clone();
+			let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
+			options.inherit(&candidate_options);
+			let id = referent
+				.id()
+				.cloned()
+				.ok_or_else(|| tg::error!("expected the solution object id"))?
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			self.checkin_solve_observe_artifact(state, checkpoint, &id, &mut options)
+				.await?;
+
+			return Ok(TagInnerOutput::Reused(referent, options));
 		}
 
 		// Get the lock candidate if necessary.
@@ -648,7 +665,7 @@ impl Session {
 		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_front() else {
 			if state.arg.options.unsolved_dependencies {
 				let solution = Solution {
-					options: ObjectOptions::default(),
+					candidate_options: ObjectOptions::default(),
 					referent: None,
 					referrers: vec![],
 				};
@@ -663,15 +680,22 @@ impl Session {
 		};
 
 		// Create the traversal options.
-		let mut options = ObjectOptions::with_location_and_tokens(
+		let candidate_options = ObjectOptions::with_location_and_tokens(
 			candidate.location.clone(),
 			candidate.tokens.clone(),
 		);
-		let parent_options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
-		options.inherit(&parent_options);
+		let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
+		options.inherit(&candidate_options);
 
 		// Try to reuse a node if it exists. Otherwise, create a new edge.
 		let edge = if let Some(index) = candidate.index {
+			let id = candidate
+				.object
+				.clone()
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			self.checkin_solve_observe_artifact(state, checkpoint, &id, &mut options)
+				.await?;
 			tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 				graph: None,
 				index,
@@ -708,7 +732,7 @@ impl Session {
 		let referent = tg::Referent::new(edge, referent_options);
 
 		let solution = Solution {
-			options: options.clone(),
+			candidate_options,
 			referent: Some(referent.clone()),
 			referrers: vec![],
 		};
@@ -847,16 +871,12 @@ impl Session {
 							let output = self
 								.checkin_solve_get_object_with_options(
 									prefetch,
-									&mut checkpoint.permissions,
+									&mut checkpoint.graph,
+									checkpoint.next,
 									&object_id,
 									&mut child_options,
 								)
 								.await?;
-							Self::checkin_solve_propagate_child_permissions(
-								&mut checkpoint.permissions,
-								&object_id,
-								|children| output.data.children(children),
-							);
 							let data = tg::directory::Data::deserialize(output.output.bytes)
 								.map_err(|error| {
 									tg::error!(!error, "failed to deserialize directory data")
@@ -952,16 +972,12 @@ impl Session {
 							let output = self
 								.checkin_solve_get_object_with_options(
 									prefetch,
-									&mut checkpoint.permissions,
+									&mut checkpoint.graph,
+									checkpoint.next,
 									&object_id,
 									&mut child_options,
 								)
 								.await?;
-							Self::checkin_solve_propagate_child_permissions(
-								&mut checkpoint.permissions,
-								&object_id,
-								|children| output.data.children(children),
-							);
 							let data = tg::directory::Data::deserialize(output.output.bytes)
 								.map_err(|error| {
 									tg::error!(!error, "failed to deserialize directory data")
@@ -1020,7 +1036,8 @@ impl Session {
 		let output = self
 			.checkin_solve_get_object_with_options(
 				prefetch,
-				&mut checkpoint.permissions,
+				&mut checkpoint.graph,
+				checkpoint.next,
 				&child_graph_id.clone().into(),
 				options,
 			)
@@ -1044,13 +1061,53 @@ impl Session {
 			.try_unwrap_directory_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected directory node in branch child"))?;
-		let id = tg::object::Id::from(child_graph_id);
-		Self::checkin_solve_propagate_child_permissions(
-			&mut checkpoint.permissions,
-			&id,
-			|children| directory.children(children),
-		);
+		let key = (child_graph_id.clone(), pointer.index);
+		if checkpoint.observed_graph_nodes.insert(key).is_none() {
+			let id = tg::object::Id::from(child_graph_id);
+			Self::checkin_record_object_children(
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&id,
+				|children| {
+					directory.children(children);
+				},
+			);
+		}
 		Ok(directory.clone())
+	}
+
+	async fn checkin_solve_observe_artifact(
+		&self,
+		state: &State<'_>,
+		checkpoint: &mut Checkpoint,
+		id: &tg::artifact::Id,
+		options: &mut ObjectOptions,
+	) -> tg::Result<()> {
+		// Get the artifact.
+		let object_id = tg::object::Id::from(id.clone());
+		let output = self
+			.checkin_solve_get_object_with_options(
+				&state.prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&object_id,
+				options,
+			)
+			.await?;
+
+		// Observe the graph node when the artifact is a pointer.
+		let pointer = match output.data.as_ref() {
+			tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+			| tg::object::Data::File(tg::file::Data::Pointer(pointer))
+			| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => Some(pointer),
+			_ => None,
+		};
+		if let Some(pointer) = pointer {
+			self.checkin_solve_observe_graph_pointer(state, checkpoint, pointer, options)
+				.await?;
+		}
+
+		Ok(())
 	}
 
 	async fn checkin_solve_create_edge_for_artifact(
@@ -1066,7 +1123,8 @@ impl Session {
 		let output = self
 			.checkin_solve_get_object_with_options(
 				&state.prefetch,
-				&mut checkpoint.permissions,
+				&mut checkpoint.graph,
+				checkpoint.next,
 				&id.clone().into(),
 				options,
 			)
@@ -1076,12 +1134,6 @@ impl Session {
 		{
 			return Ok(tg::graph::data::Edge::Object(id.clone().into()));
 		}
-		let object_id = tg::object::Id::from(id.clone());
-		Self::checkin_solve_propagate_child_permissions(
-			&mut checkpoint.permissions,
-			&object_id,
-			|children| output.data.children(children),
-		);
 		let data = tg::artifact::Data::deserialize(id.kind(), output.output.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let kind = data.kind();
@@ -1180,6 +1232,8 @@ impl Session {
 			id: None,
 			lock_index,
 			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
 			path: None,
 			path_metadata: None,
 			permissions: tg::authorization::permission::object::Set::empty(),
@@ -1224,55 +1278,19 @@ impl Session {
 		options: &mut ObjectOptions,
 		permission_only: bool,
 	) -> tg::Result<tg::graph::data::Pointer> {
-		let graph_id = pointer
-			.graph
-			.as_ref()
-			.ok_or_else(|| tg::error!("expected a graph pointer"))?;
-		let node_index = pointer.index;
-
-		// Get the graph with the reference's options to observe its permissions.
-		let output = self
-			.checkin_solve_get_object_with_options(
-				&state.prefetch,
-				&mut checkpoint.permissions,
-				&graph_id.clone().into(),
-				options,
-			)
+		let observation = self
+			.checkin_solve_observe_graph_pointer(state, checkpoint, pointer, options)
 			.await?;
-
-		// Check if this graph node has already been added.
-		let key = (graph_id.clone(), node_index);
-		if let Some(pointer) = checkpoint.graph_pointers.get(&key).cloned() {
-			return Ok(pointer);
-		}
-
-		// Load the graph data and merge its metadata into the cache.
-		let cached = checkpoint.graphs.get(graph_id).cloned();
-		let (graph_data, mut graph_metadata) = if let Some((data, metadata)) = cached {
-			(data, metadata)
-		} else {
-			let data = tg::graph::Data::deserialize(output.output.bytes.clone())
-				.map(Arc::new)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
-			(data, None)
-		};
-		if let Some(output_metadata) = output.output.metadata {
-			match &mut graph_metadata {
-				Some(metadata) => metadata.merge(&output_metadata),
-				None => graph_metadata = Some(output_metadata),
-			}
-		}
-		checkpoint.graphs.insert(
-			graph_id.clone(),
-			(graph_data.clone(), graph_metadata.clone()),
-		);
-
-		// Get the node.
+		let GraphObservation {
+			data: graph_data,
+			id: graph_id,
+			metadata: graph_metadata,
+			node_index,
+		} = observation;
 		let graph_node = graph_data
 			.nodes
 			.get(node_index)
-			.ok_or_else(|| tg::error!("graph node index out of bounds"))?
-			.clone();
+			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
 
 		// Retain an opaque pointer when the graph does not require solving.
 		let create = if permission_only {
@@ -1284,35 +1302,30 @@ impl Session {
 		};
 		if !create {
 			let pointer = tg::graph::data::Pointer {
-				graph: Some(graph_id.clone()),
+				graph: Some(graph_id),
 				index: node_index,
 				kind: graph_node.kind(),
 			};
-			checkpoint.graph_pointers.insert(key, pointer.clone());
 			return Ok(pointer);
 		}
-		let id = tg::object::Id::from(graph_id.clone());
-		Self::checkin_solve_propagate_child_permissions(
-			&mut checkpoint.permissions,
-			&id,
-			|children| match &graph_node {
-				tg::graph::data::Node::Directory(directory) => directory.children(children),
-				tg::graph::data::Node::File(file) => file.children(children),
-				tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
-			},
-		);
-		self.checkin_solve_prefetch_from_graph_node(&state.prefetch, &graph_node, options);
+
+		// Check if this graph node has already been added.
+		let key = (graph_id.clone(), node_index);
+		if let Some(pointer) = checkpoint.graph_pointers.get(&key).cloned() {
+			return Ok(pointer);
+		}
+		self.checkin_solve_prefetch_from_graph_node(&state.prefetch, graph_node, options);
 
 		// Create the checkin graph node.
 		let mut directory_options = std::collections::BTreeMap::new();
-		let variant = match &graph_node {
+		let variant = match graph_node {
 			tg::graph::data::Node::Directory(directory) => {
 				let collected = self
 					.checkin_solve_collect_graph_directory_entries(
 						&state.prefetch,
 						checkpoint,
 						directory,
-						graph_id,
+						&graph_id,
 						options,
 					)
 					.await?;
@@ -1410,6 +1423,8 @@ impl Session {
 			id: None,
 			lock_index,
 			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
 			path: None,
 			path_metadata: None,
 			permissions: tg::authorization::permission::object::Set::empty(),
@@ -1443,29 +1458,87 @@ impl Session {
 		Ok(pointer)
 	}
 
+	async fn checkin_solve_observe_graph_pointer(
+		&self,
+		state: &State<'_>,
+		checkpoint: &mut Checkpoint,
+		pointer: &tg::graph::data::Pointer,
+		options: &mut ObjectOptions,
+	) -> tg::Result<GraphObservation> {
+		// Get the graph.
+		let graph_id = pointer
+			.graph
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected a graph pointer"))?;
+		let output = self
+			.checkin_solve_get_object_with_options(
+				&state.prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&graph_id.clone().into(),
+				options,
+			)
+			.await?;
+
+		// Load the graph data and merge its metadata.
+		let cached = checkpoint.graphs.get(graph_id).cloned();
+		let (data, mut metadata) = if let Some((data, metadata)) = cached {
+			(data, metadata)
+		} else {
+			let data = tg::graph::Data::deserialize(output.output.bytes.clone())
+				.map(Arc::new)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
+			(data, None)
+		};
+		if let Some(output_metadata) = output.output.metadata {
+			if output_metadata.node == tg::object::metadata::Node::default() {
+				match &mut metadata {
+					Some(metadata) => metadata.merge(&output_metadata),
+					None => metadata = Some(output_metadata),
+				}
+			} else {
+				metadata = Some(output_metadata);
+			}
+		}
+		checkpoint
+			.graphs
+			.insert(graph_id.clone(), (data.clone(), metadata.clone()));
+
+		// Record the graph node's children once.
+		let node = data
+			.nodes
+			.get(pointer.index)
+			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+		let key = (graph_id.clone(), pointer.index);
+		if checkpoint.observed_graph_nodes.insert(key).is_none() {
+			let id = tg::object::Id::from(graph_id.clone());
+			Self::checkin_record_object_children(
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&id,
+				|children| match node {
+					tg::graph::data::Node::Directory(directory) => directory.children(children),
+					tg::graph::data::Node::File(file) => file.children(children),
+					tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
+				},
+			);
+		}
+
+		// Create the observation.
+		let observation = GraphObservation {
+			data,
+			id: graph_id.clone(),
+			metadata,
+			node_index: pointer.index,
+		};
+
+		Ok(observation)
+	}
+
 	fn checkin_solve_metadata_requires_solving(metadata: Option<&tg::object::Metadata>) -> bool {
 		metadata.is_none_or(|metadata| {
 			metadata.subtree.solvable != Some(false) && metadata.subtree.solved != Some(true)
 		})
-	}
-
-	fn checkin_solve_propagate_child_permissions(
-		permissions: &mut Permissions,
-		id: &tg::object::Id,
-		children: impl FnOnce(&mut std::collections::BTreeSet<tg::object::Id>),
-	) {
-		let subtree = permissions.get(id).is_some_and(|permissions| {
-			permissions.contains(tg::authorization::permission::object::Set::SUBTREE)
-		});
-		if !subtree {
-			return;
-		}
-		let mut ids = std::collections::BTreeSet::new();
-		children(&mut ids);
-		let child_permissions = tg::authorization::permission::object::Set::SUBTREE;
-		for id in ids {
-			Self::checkin_merge_object_permissions(permissions, id, child_permissions);
-		}
 	}
 
 	fn checkin_solve_get_lock_index(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
@@ -1563,6 +1636,7 @@ impl Session {
 					});
 				checkpoint.queue.extend(items);
 			},
+			Variant::Object => {},
 			Variant::Symlink(symlink) => {
 				let items = symlink.artifact.iter().map(|_| Item {
 					options: options.clone(),
@@ -1702,6 +1776,7 @@ impl Session {
 						id.replace(id_.clone());
 					}
 				},
+				Variant::Object => unreachable!(),
 				Variant::Symlink(symlink) => {
 					let Some(path) = &symlink.path else {
 						break;

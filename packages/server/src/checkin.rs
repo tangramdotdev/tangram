@@ -54,25 +54,6 @@ pub struct TaskOutput {
 type IndexObjectArgs =
 	IndexMap<tg::object::Id, tangram_index::object::put::Arg, tg::id::BuildHasher>;
 
-#[derive(Clone, Default)]
-pub(super) struct Permissions {
-	objects: im::HashMap<
-		tg::object::Id,
-		tg::authorization::permission::object::Set,
-		tg::id::BuildHasher,
-	>,
-}
-
-impl Permissions {
-	fn clear(&mut self) {
-		self.objects.clear();
-	}
-
-	fn get(&self, id: &tg::object::Id) -> Option<&tg::authorization::permission::object::Set> {
-		self.objects.get(id)
-	}
-}
-
 type IndexCheckoutArgs = Vec<tangram_index::checkout::put::Arg>;
 
 type StoreArgs = IndexMap<tg::object::Id, crate::store::object::put::Arg, tg::id::BuildHasher>;
@@ -247,9 +228,8 @@ impl Session {
 				let object_permissions = node
 					.id
 					.as_ref()
-					.and_then(|id| output.graph.permissions.get(id))
-					.copied()
-					.unwrap_or(node.permissions);
+					.filter(|id| output.graph.ids.contains_key(*id))
+					.map_or(node.permissions, |id| output.graph.object_permissions(id));
 
 				// Determine the id.
 				let id = if path != output.path
@@ -398,7 +378,8 @@ impl Session {
 
 	pub(super) fn checkin_merge_object_token(
 		&self,
-		permissions: &mut Permissions,
+		graph: &mut Graph,
+		next: usize,
 		id: &tg::object::Id,
 		token: &tg::authorization::Token,
 	) {
@@ -415,32 +396,54 @@ impl Session {
 				*permission,
 			));
 		}
-		Self::checkin_merge_object_permissions(permissions, id.clone(), object_permissions);
+		Self::checkin_merge_object_permissions(graph, next, id, object_permissions);
 	}
 
 	fn checkin_merge_object_permissions(
-		permissions: &mut Permissions,
-		id: tg::object::Id,
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
 		new_permissions: tg::authorization::permission::object::Set,
-	) {
-		let permissions = permissions.objects.entry(id).or_default();
+	) -> usize {
+		let index = graph.get_or_create_object_node(id, next);
+		let permissions = &mut graph.nodes.get_mut(&index).unwrap().permissions;
 		permissions.insert(new_permissions);
 		if permissions.contains(tg::authorization::permission::object::Set::SUBTREE) {
 			permissions.insert(tg::authorization::permission::object::Set::NODE);
 		}
+
+		index
 	}
 
-	fn checkin_object_permissions(
-		graph: &Graph,
-		permissions: &Permissions,
+	fn checkin_record_object_children(
+		graph: &mut Graph,
+		next: usize,
 		id: &tg::object::Id,
-	) -> tg::authorization::permission::object::Set {
-		let mut output = graph.permissions.get(id).copied().unwrap_or_default();
-		if let Some(permissions) = permissions.get(id) {
-			output.insert(*permissions);
+		children: impl FnOnce(&mut std::collections::BTreeSet<tg::object::Id>),
+	) {
+		let mut new_children = std::collections::BTreeSet::new();
+		children(&mut new_children);
+		let parent = graph.get_or_create_object_node(id, next);
+		for id in new_children {
+			let child = graph.get_or_create_object_node(&id, next);
+			graph.add_object_edge(parent, child);
 		}
+	}
 
-		output
+	fn checkin_record_object_data(
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+	) {
+		let index = graph.get_or_create_object_node(id, next);
+		if data.is_graph() || graph.nodes.get(&index).unwrap().object_complete {
+			return;
+		}
+		Self::checkin_record_object_children(graph, next, id, |children| {
+			data.children(children);
+		});
+		graph.nodes.get_mut(&index).unwrap().object_complete = true;
 	}
 
 	// Check in the artifact.
@@ -577,8 +580,7 @@ impl Session {
 		};
 
 		// Collect input.
-		let mut permissions = Permissions::default();
-		let (mut graph, mut permissions) = tokio::task::spawn_blocking({
+		let mut graph = tokio::task::spawn_blocking({
 			let session = self.clone();
 			let arg = arg.clone();
 			let store_path = store_path.clone();
@@ -593,13 +595,12 @@ impl Session {
 					ignorer,
 					lock: lock.as_deref(),
 					next,
-					permissions: &mut permissions,
 					progress,
 					root: &root,
 					store_path: store_path.as_deref(),
 				};
 				session.checkin_input(arg)?;
-				Ok::<_, tg::Error>((graph, permissions))
+				Ok::<_, tg::Error>(graph)
 			}
 		})
 		.await
@@ -633,7 +634,6 @@ impl Session {
 				graph: &mut graph,
 				lock: lock.clone(),
 				next,
-				permissions: &mut permissions,
 				progress,
 				root,
 				solutions: &mut solutions,
@@ -690,7 +690,7 @@ impl Session {
 		Self::checkin_create_artifacts(create_artifacts_arg)?;
 
 		// Compute the permissions for the new objects.
-		Self::checkin_compute_permissions(&mut graph, &index_object_args, next, &mut permissions)?;
+		Self::checkin_compute_permissions(&mut graph, &index_object_args, next)?;
 
 		// Check out.
 		if arg.options.checkout_pointers {
@@ -749,7 +749,6 @@ impl Session {
 			graph: &graph,
 			index_checkout_args,
 			index_object_args,
-			permissions: &permissions,
 			root,
 			touched_at,
 		};
