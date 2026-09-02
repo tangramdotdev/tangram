@@ -1,47 +1,92 @@
 use {
-	std::path::{Path, PathBuf},
+	std::{
+		path::{Path, PathBuf},
+		time::SystemTime,
+	},
 	tangram_client::prelude::*,
 };
+
+const BUILD_ATTEMPTS: usize = 3;
 
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub image_path: PathBuf,
 	pub path: PathBuf,
-	pub tangram_path: PathBuf,
 }
 
 pub fn ensure(arg: &Arg) -> tg::Result<bool> {
-	if !image_needs_create(&arg.image_path, &arg.tangram_path)? {
+	let mut root_modified = path_modified(&arg.path)?;
+	if !image_needs_create(&arg.image_path, root_modified)? {
 		return Ok(false);
 	}
-	build_image(&arg.path, &arg.tangram_path, &arg.image_path)?;
-	Ok(true)
+	let temp_image_path = arg.image_path.with_extension("squashfs.tmp");
+	for _ in 0..BUILD_ATTEMPTS {
+		let result = build_image(&arg.path, &temp_image_path);
+		if let Err(error) = result {
+			std::fs::remove_file(&temp_image_path).ok();
+			return Err(error);
+		}
+
+		let next_root_modified = match path_modified(&arg.path) {
+			Ok(modified) => modified,
+			Err(error) => {
+				std::fs::remove_file(&temp_image_path).ok();
+				return Err(error);
+			},
+		};
+		if root_modified != next_root_modified {
+			root_modified = next_root_modified;
+			continue;
+		}
+
+		if let Err(error) = install_image(&temp_image_path, &arg.image_path) {
+			std::fs::remove_file(&temp_image_path).ok();
+			return Err(error);
+		}
+		return Ok(true);
+	}
+	std::fs::remove_file(&temp_image_path).ok();
+	let error = tg::error!(
+		attempts = BUILD_ATTEMPTS,
+		"the sandbox root did not stabilize while building the VM image"
+	);
+	Err(error)
 }
 
-fn build_image(rootfs_path: &Path, tangram_path: &Path, image_path: &Path) -> tg::Result<()> {
-	restore_runtime_library_links(rootfs_path)?;
-
-	let libexec_path = rootfs_path.join("opt/tangram/libexec/tangram");
-	std::fs::copy(tangram_path, &libexec_path).map_err(|error| {
+fn image_needs_create(image_path: &Path, input_modified: SystemTime) -> tg::Result<bool> {
+	let image_metadata = match std::fs::metadata(image_path) {
+		Ok(metadata) => metadata,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+		Err(error) => {
+			return Err(tg::error!(
+				!error,
+				path = %image_path.display(),
+				"failed to stat the VM image"
+			));
+		},
+	};
+	let image_modified = image_metadata.modified().map_err(|error| {
 		tg::error!(
 			!error,
-			src = %tangram_path.display(),
-			dst = %libexec_path.display(),
-			"failed to stage the tangram binary into the rootfs",
+			path = %image_path.display(),
+			"failed to get the VM image modification time"
 		)
 	})?;
+	let needs_create = image_modified <= input_modified;
+	Ok(needs_create)
+}
 
-	if let Some(parent) = image_path.parent() {
+fn build_image(rootfs_path: &Path, temp_image_path: &Path) -> tg::Result<()> {
+	if let Some(parent) = temp_image_path.parent() {
 		std::fs::create_dir_all(parent).map_err(|error| {
 			tg::error!(!error, path = %parent.display(), "failed to create the image parent directory")
 		})?;
 	}
-	let temp_image_path = image_path.with_extension("squashfs.tmp");
-	std::fs::remove_file(&temp_image_path).ok();
+	std::fs::remove_file(temp_image_path).ok();
 
 	let status = std::process::Command::new("mksquashfs")
 		.arg(rootfs_path)
-		.arg(&temp_image_path)
+		.arg(temp_image_path)
 		.arg("-comp")
 		.arg("zstd")
 		.arg("-all-root")
@@ -53,7 +98,19 @@ fn build_image(rootfs_path: &Path, tangram_path: &Path, image_path: &Path) -> tg
 	if !status.success() {
 		return Err(tg::error!(%status, "mksquashfs failed"));
 	}
-	std::fs::rename(&temp_image_path, image_path).map_err(|error| {
+	let modified = SystemTime::now();
+	tangram_util::fs::set_modified_sync(temp_image_path, modified).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %temp_image_path.display(),
+			"failed to set the VM image modification time"
+		)
+	})?;
+	Ok(())
+}
+
+fn install_image(temp_image_path: &Path, image_path: &Path) -> tg::Result<()> {
+	std::fs::rename(temp_image_path, image_path).map_err(|error| {
 		tg::error!(
 			!error,
 			src = %temp_image_path.display(),
@@ -61,56 +118,32 @@ fn build_image(rootfs_path: &Path, tangram_path: &Path, image_path: &Path) -> tg
 			"failed to move the image into place",
 		)
 	})?;
+	if let Some(parent) = image_path.parent() {
+		sync_file(parent)?;
+	}
 	Ok(())
 }
 
-fn image_needs_create(image_path: &Path, tangram_path: &Path) -> tg::Result<bool> {
-	let image_metadata = match std::fs::metadata(image_path) {
-		Ok(metadata) => metadata,
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
-		Err(error) => {
-			return Err(tg::error!(
-				!error,
-				path = %image_path.display(),
-				"failed to stat the vm image"
-			));
-		},
-	};
-	let image_modified = image_metadata.modified().map_err(|error| {
+fn path_modified(path: &Path) -> tg::Result<SystemTime> {
+	let metadata = std::fs::metadata(path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to stat a VM image input"),
+	)?;
+	let modified = metadata.modified().map_err(|error| {
 		tg::error!(
 			!error,
-			path = %image_path.display(),
-			"failed to get the vm image modification time"
+			path = %path.display(),
+			"failed to get a VM image input modification time"
 		)
 	})?;
-	let tangram_modified = std::fs::metadata(tangram_path)
-		.and_then(|metadata| metadata.modified())
-		.map_err(|error| {
-			tg::error!(
-				!error,
-				path = %tangram_path.display(),
-				"failed to get the tangram executable modification time"
-			)
-		})?;
-	Ok(tangram_modified > image_modified)
+	Ok(modified)
 }
 
-fn restore_runtime_library_links(rootfs_path: &Path) -> tg::Result<()> {
-	let lib64_path = rootfs_path.join("lib64");
-	std::fs::remove_file(&lib64_path).ok();
-	std::fs::remove_dir_all(&lib64_path).ok();
-	std::os::unix::fs::symlink("/opt/tangram/lib", &lib64_path)
-		.map_err(|error| tg::error!(!error, "failed to restore the lib64 symlink"))?;
-
-	let usr_path = rootfs_path.join("usr");
-	std::fs::create_dir_all(&usr_path).map_err(
-		|error| tg::error!(!error, path = %usr_path.display(), "failed to create the usr directory"),
+fn sync_file(path: &Path) -> tg::Result<()> {
+	let file = std::fs::File::open(path).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to open a VM image path"),
 	)?;
-	let usr_lib_path = usr_path.join("lib");
-	std::fs::remove_file(&usr_lib_path).ok();
-	std::fs::remove_dir_all(&usr_lib_path).ok();
-	std::os::unix::fs::symlink("/opt/tangram/lib", &usr_lib_path)
-		.map_err(|error| tg::error!(!error, "failed to restore the usr lib symlink"))?;
-
+	file.sync_all().map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to sync a VM image path"),
+	)?;
 	Ok(())
 }

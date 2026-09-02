@@ -22,7 +22,6 @@ impl Session {
 			let arg = tangram_sandbox::vm::image::Arg {
 				image_path: vm.image_path.clone(),
 				path: self.server.sandbox_container_root.clone(),
-				tangram_path: self.server.tangram_path.clone(),
 			};
 			let created =
 				tokio::task::spawn_blocking(move || tangram_sandbox::vm::image::ensure(&arg))

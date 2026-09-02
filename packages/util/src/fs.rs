@@ -198,6 +198,18 @@ pub async fn rename_noreplace(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> s
 		.map_err(std::io::Error::other)?
 }
 
+/// Set a path's modification time and synchronize the change.
+pub fn set_modified_sync(
+	path: impl AsRef<Path>,
+	modified: std::time::SystemTime,
+) -> std::io::Result<()> {
+	let file = std::fs::File::open(path)?;
+	let times = std::fs::FileTimes::new().set_modified(modified);
+	file.set_times(times)?;
+	file.sync_all()?;
+	Ok(())
+}
+
 /// Synchronize a path and all regular files and directories beneath it.
 pub fn sync_recursive_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	fn inner(path: &Path) -> std::io::Result<()> {
