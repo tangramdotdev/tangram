@@ -150,6 +150,7 @@ impl Session {
 					let result =
 						AssertUnwindSafe(session.checkin_task(arg, &root, ignorer, &progress))
 							.catch_unwind()
+							.boxed()
 							.await;
 					match result {
 						Ok(Ok(output)) => {
@@ -224,6 +225,11 @@ impl Session {
 
 				// Get the node.
 				let node = output.graph.nodes.get(&index).unwrap();
+				let object_permissions = node
+					.id
+					.as_ref()
+					.filter(|id| output.graph.ids.contains_key(*id))
+					.map_or(node.permissions, |id| output.graph.object_permissions(id));
 
 				// Determine the id.
 				let id = if path != output.path
@@ -231,7 +237,7 @@ impl Session {
 				{
 					// If the path differs from the output path and the edge is a pointer, then store and index a pointer artifact for the path.
 					let result = session
-						.checkin_store_and_index_pointer_artifact(node, pointer)
+						.checkin_store_and_index_pointer_artifact(node, pointer, object_permissions)
 						.await;
 					match result {
 						Ok(id) => id,
@@ -246,6 +252,13 @@ impl Session {
 
 				// Create and send the output.
 				let mut options = tg::referent::Options::with_path(path);
+				let permission = if object_permissions
+					.contains(tg::authorization::permission::object::Set::SUBTREE)
+				{
+					tg::authorization::permission::object::Permission::Subtree
+				} else {
+					tg::authorization::permission::object::Permission::Node
+				};
 				let expires_at = now
 					+ session
 						.server
@@ -257,9 +270,7 @@ impl Session {
 						.unwrap();
 				let token = match session.create_token(
 					id.clone().into(),
-					vec![tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					)],
+					vec![tg::authorization::Permission::Object(permission)],
 					expires_at,
 				) {
 					Ok(token) => token,
@@ -363,6 +374,76 @@ impl Session {
 			)],
 			expires_at,
 		)
+	}
+
+	pub(super) fn checkin_merge_object_token(
+		&self,
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
+		token: &tg::authorization::Token,
+	) {
+		if token.body.resource != tg::Id::from(id.clone()) || !self.verify_token(token) {
+			return;
+		}
+
+		let mut object_permissions = tg::authorization::permission::object::Set::empty();
+		for permission in &token.body.permissions {
+			let tg::authorization::Permission::Object(permission) = permission else {
+				continue;
+			};
+			object_permissions.insert(tg::authorization::permission::object::Set::from_permission(
+				*permission,
+			));
+		}
+		Self::checkin_merge_object_permissions(graph, next, id, object_permissions);
+	}
+
+	fn checkin_merge_object_permissions(
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
+		new_permissions: tg::authorization::permission::object::Set,
+	) -> usize {
+		let index = graph.get_or_create_object_node(id, next);
+		let permissions = &mut graph.nodes.get_mut(&index).unwrap().permissions;
+		permissions.insert(new_permissions);
+		if permissions.contains(tg::authorization::permission::object::Set::SUBTREE) {
+			permissions.insert(tg::authorization::permission::object::Set::NODE);
+		}
+
+		index
+	}
+
+	fn checkin_record_object_children(
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
+		children: impl FnOnce(&mut std::collections::BTreeSet<tg::object::Id>),
+	) {
+		let mut new_children = std::collections::BTreeSet::new();
+		children(&mut new_children);
+		let parent = graph.get_or_create_object_node(id, next);
+		for id in new_children {
+			let child = graph.get_or_create_object_node(&id, next);
+			graph.add_object_edge(parent, child);
+		}
+	}
+
+	fn checkin_record_object_data(
+		graph: &mut Graph,
+		next: usize,
+		id: &tg::object::Id,
+		data: &tg::object::Data,
+	) {
+		let index = graph.get_or_create_object_node(id, next);
+		if data.is_graph() || graph.nodes.get(&index).unwrap().object_complete {
+			return;
+		}
+		Self::checkin_record_object_children(graph, next, id, |children| {
+			data.children(children);
+		});
+		graph.nodes.get_mut(&index).unwrap().object_complete = true;
 	}
 
 	// Check in the artifact.
@@ -525,22 +606,43 @@ impl Session {
 		.await
 		.map_err(|error| tg::error!(!error, "the checkin input task panicked"))??;
 
+		// Return immediately when a compatible watched checkin has no changes.
+		if let WatchObservation::Compatible { id, version } = watch_observation
+			&& graph.next == next
+		{
+			let current = self
+				.server
+				.watches
+				.get(&watch_key)
+				.filter(|watch| watch.id() == id && watch.options() == &arg.options)
+				.is_some_and(|watch| watch.can_reuse(&graph, version));
+			if !current {
+				return Err(tg::error!("files were modified during checkin"));
+			}
+			let output = TaskOutput {
+				graph,
+				path: arg.path,
+			};
+
+			return Ok(output);
+		}
+
 		// Solve.
 		if arg.options.solve {
 			let solve_arg = solve::CheckinSolveArg {
 				arg: &arg,
 				graph: &mut graph,
-				next,
 				lock: lock.clone(),
-				solutions: &mut solutions,
-				root,
+				next,
 				progress,
+				root,
+				solutions: &mut solutions,
 			};
 			self.checkin_solve(solve_arg)
+				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to solve dependencies"))?;
 		}
-
 		// Get reference path edges.
 		let paths = self
 			.checkin_path_get_edges(&graph, next)
@@ -586,6 +688,9 @@ impl Session {
 			touched_at,
 		};
 		Self::checkin_create_artifacts(create_artifacts_arg)?;
+
+		// Compute the permissions for the new objects.
+		Self::checkin_compute_permissions(&mut graph, &index_object_args, next)?;
 
 		// Check out.
 		if arg.options.checkout_pointers {
@@ -639,14 +744,15 @@ impl Session {
 
 		// Create the index batch.
 		let account = self.usage_account(&self.context.principal).await?;
-		let mut index_arg = self.checkin_index(
-			&arg,
-			&graph,
-			index_object_args,
+		let index_arg = index::CheckinIndexArg {
+			arg: &arg,
+			graph: &graph,
 			index_checkout_args,
+			index_object_args,
 			root,
 			touched_at,
-		)?;
+		};
+		let mut index_arg = self.checkin_index(index_arg)?;
 		if let Some(account) = account {
 			let index = graph.paths.get(root).unwrap();
 			let object = graph.nodes.get(index).unwrap().id.as_ref().unwrap().clone();
@@ -762,19 +868,6 @@ impl Session {
 				},
 				_ => return Err(tg::error!("the watch changed during checkin")),
 			}
-
-			// Spawn a task to clean nodes with no referrers.
-			tokio::task::spawn_blocking({
-				let session = self.clone();
-				let root = root.to_owned();
-				let watch_key = watch_key.clone();
-				let next = graph.next;
-				move || {
-					if let Some(watch) = session.server.watches.get(&watch_key) {
-						watch.clean(&root, next);
-					}
-				}
-			});
 		} else {
 			self.server
 				.index_batch(index_arg)

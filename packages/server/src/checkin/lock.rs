@@ -102,6 +102,7 @@ impl Session {
 					tangram_util::fs::remove(&lockfile_path).await.ok();
 					xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
 				},
+				Variant::Object => unreachable!(),
 				Variant::Symlink(_) => (),
 			}
 			return Ok((None, lock_write_guard));
@@ -223,6 +224,7 @@ impl Session {
 					tg::checkin::Lock::Auto => unreachable!(),
 				}
 			},
+			Variant::Object => unreachable!(),
 
 			Variant::Symlink(_) => {},
 		}
@@ -251,7 +253,19 @@ impl Session {
 						}
 					},
 					(tg::graph::data::Node::File(lock), Variant::File(node)) => {
-						if node.dependencies.iter().any(|(reference, option)| {
+						let dependencies = node
+							.dependencies
+							.iter()
+							.map(|(reference, dependency)| {
+								let reference =
+									reference_without_location_and_tokens(reference.clone());
+								let dependency = dependency
+									.clone()
+									.map(tg::graph::data::Dependency::without_location_and_tokens);
+								(reference, dependency)
+							})
+							.collect::<BTreeMap<_, _>>();
+						if dependencies.iter().any(|(reference, option)| {
 							if !reference.is_solvable() {
 								return false;
 							}
@@ -273,7 +287,7 @@ impl Session {
 
 						// If a file removed a dependency that was present in the lock, then the lock changed.
 						for reference in lock.dependencies.keys() {
-							if !node.dependencies.contains_key(reference) {
+							if !dependencies.contains_key(reference) {
 								return true;
 							}
 						}
@@ -347,7 +361,6 @@ impl Session {
 					let mut dependencies = BTreeMap::new();
 					let mut children = Vec::new();
 					for (reference, option) in &file.dependencies {
-						dependencies.insert(reference.clone(), option.clone());
 						if let Some(dependency) = option
 							&& let Some(edge) = &dependency.0.node
 							&& let Ok(edge_pointer) = edge.try_unwrap_pointer_ref()
@@ -356,6 +369,11 @@ impl Session {
 						{
 							children.push(edge_pointer.index);
 						}
+						let reference = reference_without_location_and_tokens(reference.clone());
+						let dependency = option
+							.clone()
+							.map(tg::graph::data::Dependency::without_location_and_tokens);
+						dependencies.insert(reference, dependency);
 					}
 					let data = tg::graph::data::File {
 						contents: None,
@@ -365,6 +383,8 @@ impl Session {
 					};
 					(tg::graph::data::Node::File(data), children)
 				},
+
+				Variant::Object => unreachable!(),
 
 				Variant::Symlink(symlink) => {
 					let mut children = Vec::new();
@@ -667,4 +687,13 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.boxed(),
 		}
 	}
+}
+
+fn reference_without_location_and_tokens(mut reference: tg::Reference) -> tg::Reference {
+	let mut options = reference.options().clone();
+	options.location.take();
+	options.tokens.clear();
+	reference.set_options(options);
+
+	reference
 }

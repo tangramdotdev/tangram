@@ -1,10 +1,9 @@
 use {
-	self::prefetch::Prefetch,
+	self::prefetch::{ObjectOptions, Prefetch},
 	crate::{
 		Session,
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
-	smallvec::SmallVec,
 	std::{
 		fmt::Write as _,
 		path::{Path, PathBuf},
@@ -31,37 +30,63 @@ struct SavedCheckpoint {
 #[derive(Clone)]
 struct Checkpoint {
 	candidates: Option<im::Vector<Candidate>>,
+	directory_options: DirectoryOptions,
 	graph: Graph,
 	graphs: Graphs,
 	graph_pointers: GraphPointers,
 	listed: bool,
-	queue: im::Vector<Item>,
 	lock: Option<Arc<tg::graph::Data>>,
+	next: usize,
+	observed_graph_nodes: ObservedGraphNodes,
+	queue: im::Vector<Item>,
 	solutions: Solutions,
-	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
+	visited: im::HashSet<ItemKey, fnv::FnvBuildHasher>,
 }
 
 type Graphs = im::HashMap<
 	tg::graph::Id,
-	(tg::graph::Data, Option<tg::object::Metadata>),
+	(Arc<tg::graph::Data>, Option<tg::object::Metadata>),
 	tg::id::BuildHasher,
 >;
 
 type GraphPointers =
 	im::HashMap<(tg::graph::Id, usize), tg::graph::data::Pointer, fnv::FnvBuildHasher>;
 
+type ObservedGraphNodes = im::HashSet<(tg::graph::Id, usize), fnv::FnvBuildHasher>;
+
+type DirectoryOptions = im::HashMap<(usize, String), ObjectOptions, fnv::FnvBuildHasher>;
+
+struct CollectedDirectory {
+	entries: std::collections::BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
+	options: std::collections::BTreeMap<String, ObjectOptions>,
+}
+
+struct GraphObservation {
+	data: Arc<tg::graph::Data>,
+	id: tg::graph::Id,
+	metadata: Option<tg::object::Metadata>,
+	node_index: usize,
+}
+
 #[derive(Clone, Debug)]
 struct Candidate {
 	index: Option<usize>,
-	#[expect(dead_code)]
 	location: Option<tg::Location>,
 	object: tg::object::Id,
 	tag: tg::Specifier,
+	tokens: tg::authorization::Tokens,
+}
+
+#[derive(Clone, Debug)]
+struct Item {
+	options: ObjectOptions,
+	referent: tg::Referent<usize>,
+	variant: ItemVariant,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct Item {
-	referent: tg::Referent<usize>,
+struct ItemKey {
+	node: usize,
 	variant: ItemVariant,
 }
 
@@ -91,6 +116,7 @@ pub struct Solutions {
 
 #[derive(Clone)]
 pub struct Solution {
+	candidate_options: ObjectOptions,
 	pub referent: Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 	pub referrers: Vec<Referrer>,
 }
@@ -98,8 +124,14 @@ pub struct Solution {
 #[derive(derive_more::IsVariant)]
 enum TagInnerOutput {
 	Conflicted,
-	Reused(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
-	Selected(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
+	Reused(
+		tg::Referent<tg::graph::data::Edge<tg::object::Id>>,
+		ObjectOptions,
+	),
+	Selected(
+		tg::Referent<tg::graph::data::Edge<tg::object::Id>>,
+		ObjectOptions,
+	),
 	Unsolved,
 }
 
@@ -112,11 +144,20 @@ pub struct Referrer {
 pub(super) struct CheckinSolveArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a mut Graph,
-	pub next: usize,
 	pub lock: Option<Arc<tg::graph::Data>>,
-	pub solutions: &'a mut Solutions,
-	pub root: &'a Path,
+	pub next: usize,
 	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
+	pub root: &'a Path,
+	pub solutions: &'a mut Solutions,
+}
+
+struct CheckinSolveInnerArg<'a> {
+	arg: &'a tg::checkin::Arg,
+	graph: &'a mut Graph,
+	lock: Option<Arc<tg::graph::Data>>,
+	next: usize,
+	root: &'a Path,
+	solutions: &'a mut Solutions,
 }
 
 impl Session {
@@ -125,46 +166,66 @@ impl Session {
 		let CheckinSolveArg {
 			arg,
 			graph,
-			next,
 			lock,
-			solutions,
-			root,
+			next,
 			progress,
+			root,
+			solutions,
 		} = arg;
 		progress.spinner("solving", "solving");
 		if solutions.is_empty() {
 			// If solutions is empty, then just solve.
-			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await?;
+			let inner_arg = CheckinSolveInnerArg {
+				arg,
+				graph,
+				lock,
+				next,
+				root,
+				solutions,
+			};
+			self.checkin_solve_inner(inner_arg).await?;
 		} else {
 			// Otherwise, attempt to solve.
-			let result = self
-				.checkin_solve_inner(arg, graph, next, lock.clone(), solutions, root)
-				.await;
+			let inner_arg = CheckinSolveInnerArg {
+				arg,
+				graph,
+				lock: lock.clone(),
+				next,
+				root,
+				solutions,
+			};
+			let result = self.checkin_solve_inner(inner_arg).await;
 			if result.is_ok() {
 				return Ok(());
 			}
 
 			// Unsolve and clean the graph, clear the solutions, and solve from the beginning.
 			graph.unsolve();
-			graph.clean(root);
+			graph.clean(root, next);
 			solutions.clear();
-			self.checkin_solve_inner(arg, graph, next, lock, solutions, root)
-				.await?;
+			let inner_arg = CheckinSolveInnerArg {
+				arg,
+				graph,
+				lock,
+				next,
+				root,
+				solutions,
+			};
+			self.checkin_solve_inner(inner_arg).await?;
 		}
 		progress.finish("solving");
 		Ok(())
 	}
 
-	async fn checkin_solve_inner(
-		&self,
-		arg: &tg::checkin::Arg,
-		graph: &mut Graph,
-		next: usize,
-		lock: Option<Arc<tg::graph::Data>>,
-		solutions: &mut Solutions,
-		root: &Path,
-	) -> tg::Result<()> {
+	async fn checkin_solve_inner(&self, arg: CheckinSolveInnerArg<'_>) -> tg::Result<()> {
+		let CheckinSolveInnerArg {
+			arg,
+			graph,
+			lock,
+			next,
+			root,
+			solutions,
+		} = arg;
 		// Create the prefetcher.
 		let prefetch = Prefetch::new(arg.clone());
 		let _prefetch_abort_guard = scopeguard::guard(prefetch.clone(), |prefetch| {
@@ -181,24 +242,28 @@ impl Session {
 
 		// Prefetch from the lock.
 		if let Some(lock) = &lock {
-			self.checkin_solve_prefetch_from_lock(&state.prefetch, lock);
+			self.checkin_solve_prefetch_from_lock(&state.prefetch, graph, lock, next);
 		}
 
 		// Create the first checkpoint.
 		let index = graph.paths.get(root).unwrap();
 		let mut checkpoint = Checkpoint {
 			candidates: None,
+			directory_options: im::HashMap::default(),
 			graph: graph.clone(),
 			graphs: im::HashMap::default(),
 			graph_pointers: im::HashMap::default(),
 			listed: false,
 			lock: lock.clone(),
+			next,
+			observed_graph_nodes: im::HashSet::default(),
 			queue: im::Vector::new(),
 			solutions: solutions.clone(),
 			visited: im::HashSet::default(),
 		};
 		let referent = tg::Referent::with_node(*index);
-		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, &referent);
+		let options = ObjectOptions::default();
+		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, &referent, &options);
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
@@ -226,12 +291,19 @@ impl Session {
 		item: Item,
 	) -> tg::Result<()> {
 		// If the item has been visited, then return.
-		if checkpoint.visited.insert(item.clone()).is_some() {
+		let key = ItemKey {
+			node: item.referent.node,
+			variant: item.variant.clone(),
+		};
+		if checkpoint.visited.insert(key).is_some() {
 			return Ok(());
 		}
 
 		// Check if the edge is already solved.
 		if let Some(edge) = Self::checkin_solve_get_solved_edge_for_item(checkpoint, &item) {
+			let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, &item);
+			let permission_only = Self::checkin_solve_item_is_permission_only(checkpoint, &item);
+
 			// Try to remap the edge if necessary.
 			let edge = match edge {
 				// If this is a pointer to within a graph, create a new graph node pointer.
@@ -241,8 +313,9 @@ impl Session {
 							state,
 							checkpoint,
 							&item,
-							pointer.graph.as_ref().unwrap(),
-							pointer.index,
+							&pointer,
+							&mut options,
+							permission_only,
 						)
 						.await?;
 					tg::graph::data::Edge::Pointer(pointer)
@@ -251,12 +324,32 @@ impl Session {
 				// If this is an artifact edge, try to create a new edge pointing to it.
 				tg::graph::data::Edge::Object(id) if id.is_artifact() => {
 					let id = id.try_into().unwrap();
-					self.checkin_solve_create_edge_for_artifact(state, checkpoint, &item, &id)
-						.await?
+					self.checkin_solve_create_edge_for_artifact(
+						state,
+						checkpoint,
+						&item,
+						&id,
+						&mut options,
+						permission_only,
+					)
+					.await?
+				},
+
+				// If this is another object edge, record the permissions returned by the get.
+				tg::graph::data::Edge::Object(id) => {
+					self.checkin_solve_get_object_with_options(
+						&state.prefetch,
+						&mut checkpoint.graph,
+						checkpoint.next,
+						&id,
+						&mut options,
+					)
+					.await?;
+					tg::graph::data::Edge::Object(id)
 				},
 
 				// Otherwise, reuse the existing edge.
-				edge => edge,
+				edge @ tg::graph::data::Edge::Pointer(_) => edge,
 			};
 
 			// Add the edge to the item.
@@ -267,7 +360,7 @@ impl Session {
 				&& pointer.graph.is_none()
 			{
 				let referent = tg::Referent::with_node(pointer.index);
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent, &options);
 			}
 
 			return Ok(());
@@ -294,6 +387,49 @@ impl Session {
 			.await
 	}
 
+	fn checkin_solve_get_object_options_for_item(
+		checkpoint: &Checkpoint,
+		item: &Item,
+	) -> ObjectOptions {
+		let mut options = match &item.variant {
+			ItemVariant::FileDependency(reference) => checkpoint
+				.graph
+				.nodes
+				.get(&item.referent.node)
+				.unwrap()
+				.variant
+				.unwrap_file_ref()
+				.dependencies
+				.get(reference)
+				.and_then(Option::as_ref)
+				.map_or_else(
+					|| ObjectOptions::from_reference(reference),
+					|dependency| ObjectOptions::from_dependency(reference, dependency),
+				),
+			ItemVariant::DirectoryEntry(_) | ItemVariant::SymlinkArtifact => {
+				ObjectOptions::default()
+			},
+		};
+		options.inherit(&item.options);
+
+		options
+	}
+
+	fn checkin_solve_item_is_permission_only(checkpoint: &Checkpoint, item: &Item) -> bool {
+		let ItemVariant::FileDependency(reference) = &item.variant else {
+			return false;
+		};
+		!reference.is_solvable()
+			&& item.referent.node >= checkpoint.next
+			&& checkpoint
+				.graph
+				.nodes
+				.get(&item.referent.node)
+				.unwrap()
+				.path
+				.is_some()
+	}
+
 	fn checkin_add_edge_for_item(
 		checkpoint: &mut Checkpoint,
 		item: &Item,
@@ -308,7 +444,7 @@ impl Session {
 				.get_mut(&pointer.index)
 				.unwrap()
 				.referrers
-				.push(item.referent.node);
+				.insert(item.referent.node);
 		}
 		let node = checkpoint.graph.nodes.get_mut(&item.referent.node).unwrap();
 		match &item.variant {
@@ -385,7 +521,8 @@ impl Session {
 
 		// Handle the output.
 		match output {
-			TagInnerOutput::Reused(referent) | TagInnerOutput::Selected(referent) => {
+			TagInnerOutput::Reused(referent, options)
+			| TagInnerOutput::Selected(referent, options) => {
 				// Checkpoint.
 				if selected {
 					let saved_checkpoint = SavedCheckpoint {
@@ -422,9 +559,9 @@ impl Session {
 						.get_mut(&pointer.index)
 						.unwrap()
 						.referrers
-						.push(item.referent.node);
+						.insert(item.referent.node);
 					let referent = referent.clone().map(|_| pointer.index);
-					Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
+					Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent, &options);
 				}
 			},
 
@@ -484,13 +621,25 @@ impl Session {
 	) -> tg::Result<TagInnerOutput> {
 		// Check if a solution exists for the key.
 		if let Some(solution) = checkpoint.solutions.get(key) {
-			let Some(referent) = &solution.referent else {
+			let Some(referent) = solution.referent.clone() else {
 				return Ok(TagInnerOutput::Unsolved);
 			};
 			if !pattern.matches_specifier_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
-			return Ok(TagInnerOutput::Reused(referent.clone()));
+			let candidate_options = solution.candidate_options.clone();
+			let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
+			options.inherit(&candidate_options);
+			let id = referent
+				.id()
+				.cloned()
+				.ok_or_else(|| tg::error!("expected the solution object id"))?
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			self.checkin_solve_observe_artifact(state, checkpoint, &id, &mut options)
+				.await?;
+
+			return Ok(TagInnerOutput::Reused(referent, options));
 		}
 
 		// Get the lock candidate if necessary.
@@ -515,6 +664,7 @@ impl Session {
 		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_front() else {
 			if state.arg.options.unsolved_dependencies {
 				let solution = Solution {
+					candidate_options: ObjectOptions::default(),
 					referent: None,
 					referrers: vec![],
 				};
@@ -528,8 +678,23 @@ impl Session {
 			));
 		};
 
+		// Create the traversal options.
+		let candidate_options = ObjectOptions::with_location_and_tokens(
+			candidate.location.clone(),
+			candidate.tokens.clone(),
+		);
+		let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
+		options.inherit(&candidate_options);
+
 		// Try to reuse a node if it exists. Otherwise, create a new edge.
 		let edge = if let Some(index) = candidate.index {
+			let id = candidate
+				.object
+				.clone()
+				.try_into()
+				.map_err(|_| tg::error!("expected an artifact"))?;
+			self.checkin_solve_observe_artifact(state, checkpoint, &id, &mut options)
+				.await?;
 			tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 				graph: None,
 				index,
@@ -541,8 +706,15 @@ impl Session {
 				.clone()
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact"))?;
-			self.checkin_solve_create_edge_for_artifact(state, checkpoint, item, &id)
-				.await?
+			self.checkin_solve_create_edge_for_artifact(
+				state,
+				checkpoint,
+				item,
+				&id,
+				&mut options,
+				false,
+			)
+			.await?
 		};
 
 		let get = item
@@ -550,15 +722,16 @@ impl Session {
 			.try_unwrap_file_dependency_ref()
 			.ok()
 			.and_then(|reference| reference.options().get.clone());
-		let options = tg::referent::Options {
+		let referent_options = tg::referent::Options {
 			id: Some(candidate.object),
 			path: get,
 			tag: Some(candidate.tag.clone()),
 			..Default::default()
 		};
-		let referent = tg::Referent::new(edge, options);
+		let referent = tg::Referent::new(edge, referent_options);
 
 		let solution = Solution {
+			candidate_options,
 			referent: Some(referent.clone()),
 			referrers: vec![],
 		};
@@ -566,7 +739,7 @@ impl Session {
 		// Add the solution.
 		checkpoint.solutions.insert(key.clone(), solution);
 
-		Ok(TagInnerOutput::Selected(referent))
+		Ok(TagInnerOutput::Selected(referent, options))
 	}
 
 	fn checkin_solve_get_lock_candidate(
@@ -622,12 +795,14 @@ impl Session {
 		};
 		let object = referent.id().cloned()?;
 		let tag = referent.tag().cloned()?;
-		let location = None;
+		let location = referent.options.location.clone();
+		let tokens = referent.options.tokens.clone();
 		let candidate = Candidate {
 			index,
 			location,
 			object: object.clone(),
 			tag,
+			tokens,
 		};
 		Some(candidate)
 	}
@@ -648,16 +823,18 @@ impl Session {
 				if output.kind() != tg::id::Kind::Tag {
 					return None;
 				}
-				let location = output.node.options.location;
 				let tag = output.specifier;
 				let target = output.target?;
+				let location = target.options.location;
 				let object = target.node.left()?;
+				let tokens = target.options.tokens;
 				let index = None;
 				let candidate = Candidate {
 					index,
 					location,
 					object,
 					tag,
+					tokens,
 				};
 				Some(candidate)
 			})
@@ -671,123 +848,109 @@ impl Session {
 		prefetch: &Prefetch,
 		checkpoint: &mut Checkpoint,
 		directory: &tg::graph::data::Directory,
-	) -> tg::Result<std::collections::BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
+		graph_id: Option<&tg::graph::Id>,
+		options: &ObjectOptions,
+	) -> tg::Result<CollectedDirectory> {
 		match directory {
-			tg::graph::data::Directory::Leaf(leaf) => Ok(leaf.entries.clone()),
+			tg::graph::data::Directory::Leaf(leaf) => {
+				let entries: std::collections::BTreeMap<
+					String,
+					tg::graph::data::Edge<tg::artifact::Id>,
+				> = leaf
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let edge = match edge {
+							tg::graph::data::Edge::Object(id) => {
+								tg::graph::data::Edge::Object(id.clone())
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								let graph = pointer
+									.graph
+									.clone()
+									.or_else(|| graph_id.cloned())
+									.ok_or_else(|| {
+										tg::error!("expected a graph for a directory pointer")
+									})?;
+								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+									graph: Some(graph),
+									index: pointer.index,
+									kind: pointer.kind,
+								})
+							},
+						};
+						Ok((name.clone(), edge))
+					})
+					.collect::<tg::Result<_>>()?;
+				let options = entries
+					.keys()
+					.map(|name| (name.clone(), options.clone()))
+					.collect();
+				Ok(CollectedDirectory { entries, options })
+			},
 			tg::graph::data::Directory::Branch(branch) => {
 				let mut entries = std::collections::BTreeMap::new();
+				let mut entry_options = std::collections::BTreeMap::new();
 				for child in &branch.children {
-					let child_directory = match &child.directory {
+					let mut child_options = options.clone();
+					let (child_directory, child_graph_id) = match &child.directory {
 						tg::graph::data::Edge::Object(id) => {
+							let object_id = tg::object::Id::from(id.clone());
 							let output = self
-								.checkin_solve_get_object(prefetch, &id.clone().into())
+								.checkin_solve_get_object_with_options(
+									prefetch,
+									&mut checkpoint.graph,
+									checkpoint.next,
+									&object_id,
+									&mut child_options,
+								)
 								.await?;
-							let data = tg::directory::Data::deserialize(output.bytes).map_err(
-								|error| tg::error!(!error, "failed to deserialize directory data"),
-							)?;
+							let data = tg::directory::Data::deserialize(output.output.bytes)
+								.map_err(|error| {
+									tg::error!(!error, "failed to deserialize directory data")
+								})?;
 							match data {
-								tg::directory::Data::Node(directory) => directory,
+								tg::directory::Data::Node(directory) => (directory, None),
 								tg::directory::Data::Pointer(pointer) => {
-									let graph_id = pointer.graph.as_ref().ok_or_else(|| {
-										tg::error!("expected graph in standalone directory pointer")
-									})?;
-									self.checkin_solve_get_directory_from_pointer(
-										prefetch, checkpoint, &pointer, graph_id,
-									)
-									.await?
+									let (directory, child_graph_id) = self
+										.checkin_solve_get_directory_from_pointer(
+											prefetch,
+											checkpoint,
+											&pointer,
+											graph_id,
+											&mut child_options,
+										)
+										.await?;
+									(directory, Some(child_graph_id))
 								},
 							}
 						},
 						tg::graph::data::Edge::Pointer(pointer) => {
-							let graph_id = pointer.graph.as_ref().ok_or_else(|| {
-								tg::error!("expected graph in standalone directory pointer")
-							})?;
-							self.checkin_solve_get_directory_from_pointer(
-								prefetch, checkpoint, pointer, graph_id,
-							)
-							.await?
+							let (directory, child_graph_id) = self
+								.checkin_solve_get_directory_from_pointer(
+									prefetch,
+									checkpoint,
+									pointer,
+									graph_id,
+									&mut child_options,
+								)
+								.await?;
+							(directory, Some(child_graph_id))
 						},
 					};
-					let child_entries = Box::pin(self.checkin_solve_collect_directory_entries(
+					let child = Box::pin(self.checkin_solve_collect_directory_entries(
 						prefetch,
 						checkpoint,
 						&child_directory,
+						child_graph_id.as_ref(),
+						&child_options,
 					))
 					.await?;
-					entries.extend(child_entries);
+					entries.extend(child.entries);
+					entry_options.extend(child.options);
 				}
-				Ok(entries)
-			},
-		}
-	}
-
-	async fn checkin_solve_collect_graph_directory_entries(
-		&self,
-		prefetch: &Prefetch,
-		checkpoint: &mut Checkpoint,
-		directory: &tg::graph::data::Directory,
-		graph_id: &tg::graph::Id,
-	) -> tg::Result<std::collections::BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
-		match directory {
-			tg::graph::data::Directory::Leaf(leaf) => {
-				let mut entries = std::collections::BTreeMap::new();
-				for (name, edge) in &leaf.entries {
-					let edge = match edge {
-						tg::graph::data::Edge::Pointer(pointer) => {
-							let graph = pointer.graph.clone().or_else(|| Some(graph_id.clone()));
-							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-								graph,
-								index: pointer.index,
-								kind: pointer.kind,
-							})
-						},
-						tg::graph::data::Edge::Object(id) => {
-							tg::graph::data::Edge::Object(id.clone())
-						},
-					};
-					entries.insert(name.clone(), edge);
-				}
-				Ok(entries)
-			},
-			tg::graph::data::Directory::Branch(branch) => {
-				let mut entries = std::collections::BTreeMap::new();
-				for child in &branch.children {
-					let child_directory = match &child.directory {
-						tg::graph::data::Edge::Object(id) => {
-							let output = self
-								.checkin_solve_get_object(prefetch, &id.clone().into())
-								.await?;
-							let data = tg::directory::Data::deserialize(output.bytes).map_err(
-								|error| tg::error!(!error, "failed to deserialize directory data"),
-							)?;
-							match data {
-								tg::directory::Data::Node(directory) => directory,
-								tg::directory::Data::Pointer(pointer) => {
-									self.checkin_solve_get_directory_from_pointer(
-										prefetch, checkpoint, &pointer, graph_id,
-									)
-									.await?
-								},
-							}
-						},
-						tg::graph::data::Edge::Pointer(pointer) => {
-							self.checkin_solve_get_directory_from_pointer(
-								prefetch, checkpoint, pointer, graph_id,
-							)
-							.await?
-						},
-					};
-					let child_entries =
-						Box::pin(self.checkin_solve_collect_graph_directory_entries(
-							prefetch,
-							checkpoint,
-							&child_directory,
-							graph_id,
-						))
-						.await?;
-					entries.extend(child_entries);
-				}
-				Ok(entries)
+				let options = entry_options;
+				Ok(CollectedDirectory { entries, options })
 			},
 		}
 	}
@@ -797,20 +960,32 @@ impl Session {
 		prefetch: &Prefetch,
 		checkpoint: &mut Checkpoint,
 		pointer: &tg::graph::data::Pointer,
-		graph_id: &tg::graph::Id,
-	) -> tg::Result<tg::graph::data::Directory> {
-		let child_graph_id = pointer.graph.clone().unwrap_or_else(|| graph_id.clone());
-		let graph_data = if let Some((data, _)) = checkpoint.graphs.get(&child_graph_id) {
+		graph_id: Option<&tg::graph::Id>,
+		options: &mut ObjectOptions,
+	) -> tg::Result<(tg::graph::data::Directory, tg::graph::Id)> {
+		let graph_id = pointer
+			.graph
+			.clone()
+			.or_else(|| graph_id.cloned())
+			.ok_or_else(|| tg::error!("expected a graph for a directory pointer"))?;
+		let output = self
+			.checkin_solve_get_object_with_options(
+				prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&graph_id.clone().into(),
+				options,
+			)
+			.await?;
+		let graph_data = if let Some((data, _)) = checkpoint.graphs.get(&graph_id) {
 			data.clone()
 		} else {
-			let output = self
-				.checkin_solve_get_object(prefetch, &child_graph_id.clone().into())
-				.await?;
-			let data = tg::graph::Data::deserialize(output.bytes)
+			let data = tg::graph::Data::deserialize(output.output.bytes)
+				.map(Arc::new)
 				.map_err(|error| tg::error!(!error, "failed to deserialize graph data"))?;
 			checkpoint
 				.graphs
-				.insert(child_graph_id.clone(), (data.clone(), output.metadata));
+				.insert(graph_id.clone(), (data.clone(), output.output.metadata));
 			data
 		};
 		let directory = graph_data
@@ -820,7 +995,53 @@ impl Session {
 			.try_unwrap_directory_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected directory node in branch child"))?;
-		Ok(directory.clone())
+		let key = (graph_id.clone(), pointer.index);
+		if checkpoint.observed_graph_nodes.insert(key).is_none() {
+			let id = tg::object::Id::from(graph_id.clone());
+			Self::checkin_record_object_children(
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&id,
+				|children| {
+					directory.children(children);
+				},
+			);
+		}
+		Ok((directory.clone(), graph_id))
+	}
+
+	async fn checkin_solve_observe_artifact(
+		&self,
+		state: &State<'_>,
+		checkpoint: &mut Checkpoint,
+		id: &tg::artifact::Id,
+		options: &mut ObjectOptions,
+	) -> tg::Result<()> {
+		// Get the artifact.
+		let object_id = tg::object::Id::from(id.clone());
+		let output = self
+			.checkin_solve_get_object_with_options(
+				&state.prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&object_id,
+				options,
+			)
+			.await?;
+
+		// Observe the graph node when the artifact is a pointer.
+		let pointer = match output.data.as_ref() {
+			tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+			| tg::object::Data::File(tg::file::Data::Pointer(pointer))
+			| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => Some(pointer),
+			_ => None,
+		};
+		if let Some(pointer) = pointer {
+			self.checkin_solve_observe_graph_pointer(state, checkpoint, pointer, options)
+				.await?;
+		}
+
+		Ok(())
 	}
 
 	async fn checkin_solve_create_edge_for_artifact(
@@ -829,24 +1050,38 @@ impl Session {
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		id: &tg::artifact::Id,
+		options: &mut ObjectOptions,
+		permission_only: bool,
 	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
 		// Get the object.
 		let output = self
-			.checkin_solve_get_object(&state.prefetch, &id.clone().into())
+			.checkin_solve_get_object_with_options(
+				&state.prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&id.clone().into(),
+				options,
+			)
 			.await?;
-		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes.clone())
+		if permission_only
+			&& !Self::checkin_solve_metadata_requires_solving(output.output.metadata.as_ref())
+		{
+			return Ok(tg::graph::data::Edge::Object(id.clone().into()));
+		}
+		let data = tg::artifact::Data::deserialize(id.kind(), output.output.bytes.clone())
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 		let kind = data.kind();
 
 		// Try to create a checkin graph node.
+		let mut directory_options = std::collections::BTreeMap::new();
 		let variant = match data {
 			tg::artifact::Data::Directory(tg::directory::Data::Pointer(pointer))
 			| tg::artifact::Data::File(tg::file::Data::Pointer(pointer))
 			| tg::artifact::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 				// Cannot add nodes that are missing their graph.
-				let Some(graph) = &pointer.graph else {
+				if pointer.graph.is_none() {
 					return Err(tg::error!("invalid artifact"));
-				};
+				}
 
 				// Get a pointer to the graph node.
 				let pointer = self
@@ -854,8 +1089,9 @@ impl Session {
 						state,
 						checkpoint,
 						item,
-						graph,
-						pointer.index,
+						&pointer,
+						options,
+						permission_only,
 					)
 					.await?;
 
@@ -863,13 +1099,17 @@ impl Session {
 				return Ok(tg::graph::data::Edge::Pointer(pointer));
 			},
 			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
-				let entries = self
+				let collected = self
 					.checkin_solve_collect_directory_entries(
 						&state.prefetch,
 						checkpoint,
 						&directory,
+						None,
+						options,
 					)
 					.await?;
+				let entries = collected.entries;
+				directory_options = collected.options;
 				Variant::Directory(Directory { entries })
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
@@ -927,10 +1167,14 @@ impl Session {
 			id: None,
 			lock_index,
 			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
 			path: None,
 			path_metadata: None,
-			referrers: SmallVec::new(),
+			permissions: tg::authorization::permission::object::Set::empty(),
+			referrers: im::HashSet::default(),
 			solvable: output
+				.output
 				.metadata
 				.as_ref()
 				.and_then(|metadata| metadata.subtree.solvable)
@@ -944,6 +1188,11 @@ impl Session {
 		let index = checkpoint.graph.next;
 		checkpoint.graph.next += 1;
 		checkpoint.graph.nodes.insert(index, Box::new(node));
+		checkpoint.directory_options.extend(
+			directory_options
+				.into_iter()
+				.map(|(name, options)| ((index, name), options)),
+		);
 
 		let pointer = tg::graph::data::Pointer {
 			graph: None,
@@ -960,66 +1209,63 @@ impl Session {
 		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
-		graph_id: &tg::graph::Id,
-		node_index: usize,
+		pointer: &tg::graph::data::Pointer,
+		options: &mut ObjectOptions,
+		permission_only: bool,
 	) -> tg::Result<tg::graph::data::Pointer> {
+		let observation = self
+			.checkin_solve_observe_graph_pointer(state, checkpoint, pointer, options)
+			.await?;
+		let GraphObservation {
+			data: graph_data,
+			id: graph_id,
+			metadata: graph_metadata,
+			node_index,
+		} = observation;
+		let graph_node = graph_data
+			.nodes
+			.get(node_index)
+			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+
+		// Retain an opaque pointer when the graph does not require solving.
+		let create = if permission_only {
+			Self::checkin_solve_metadata_requires_solving(graph_metadata.as_ref())
+		} else {
+			graph_metadata
+				.as_ref()
+				.is_none_or(|metadata| metadata.node.solvable)
+		};
+		if !create {
+			let pointer = tg::graph::data::Pointer {
+				graph: Some(graph_id),
+				index: node_index,
+				kind: graph_node.kind(),
+			};
+			return Ok(pointer);
+		}
+
 		// Check if this graph node has already been added.
 		let key = (graph_id.clone(), node_index);
 		if let Some(pointer) = checkpoint.graph_pointers.get(&key).cloned() {
 			return Ok(pointer);
 		}
-
-		// Load the graph data from the cache or fetch it.
-		let (graph_data, graph_metadata) =
-			if let Some((data, metadata)) = checkpoint.graphs.get(graph_id).cloned() {
-				(data, metadata)
-			} else {
-				let output = self
-					.checkin_solve_get_object(&state.prefetch, &graph_id.clone().into())
-					.await?;
-				let data = tg::graph::Data::deserialize(output.bytes)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
-				let metadata = output.metadata;
-				checkpoint
-					.graphs
-					.insert(graph_id.clone(), (data.clone(), metadata.clone()));
-				(data, metadata)
-			};
-
-		// Get the node.
-		let graph_node = graph_data
-			.nodes
-			.get(node_index)
-			.ok_or_else(|| tg::error!("graph node index out of bounds"))?
-			.clone();
-
-		// If the graph is not solvable then do not create a node.
-		if graph_metadata
-			.as_ref()
-			.is_some_and(|graph| !graph.node.solvable)
-		{
-			let pointer = tg::graph::data::Pointer {
-				graph: Some(graph_id.clone()),
-				index: node_index,
-				kind: graph_node.kind(),
-			};
-			checkpoint
-				.graph_pointers
-				.insert((graph_id.clone(), node_index), pointer.clone());
-			return Ok(pointer);
-		}
+		self.checkin_solve_prefetch_from_graph_node(&state.prefetch, graph_node, options);
 
 		// Create the checkin graph node.
-		let variant = match &graph_node {
+		let mut directory_options = std::collections::BTreeMap::new();
+		let variant = match graph_node {
 			tg::graph::data::Node::Directory(directory) => {
-				let entries = self
-					.checkin_solve_collect_graph_directory_entries(
+				let collected = self
+					.checkin_solve_collect_directory_entries(
 						&state.prefetch,
 						checkpoint,
 						directory,
-						graph_id,
+						Some(&graph_id),
+						options,
 					)
 					.await?;
+				let entries = collected.entries;
+				directory_options = collected.options;
 				Variant::Directory(Directory { entries })
 			},
 
@@ -1112,9 +1358,12 @@ impl Session {
 			id: None,
 			lock_index,
 			metadata: None,
+			object_children: im::HashSet::default(),
+			object_complete: false,
 			path: None,
 			path_metadata: None,
-			referrers: SmallVec::new(),
+			permissions: tg::authorization::permission::object::Set::empty(),
+			referrers: im::HashSet::default(),
 			solvable: true,
 			solved: false,
 			storage: tangram_index::object::Storage::default(),
@@ -1125,6 +1374,11 @@ impl Session {
 		let index = checkpoint.graph.next;
 		checkpoint.graph.next += 1;
 		checkpoint.graph.nodes.insert(index, Box::new(node));
+		checkpoint.directory_options.extend(
+			directory_options
+				.into_iter()
+				.map(|(name, options)| ((index, name), options)),
+		);
 
 		// Create the pointer.
 		let pointer = tg::graph::data::Pointer {
@@ -1137,6 +1391,89 @@ impl Session {
 		checkpoint.graph_pointers.insert(key, pointer.clone());
 
 		Ok(pointer)
+	}
+
+	async fn checkin_solve_observe_graph_pointer(
+		&self,
+		state: &State<'_>,
+		checkpoint: &mut Checkpoint,
+		pointer: &tg::graph::data::Pointer,
+		options: &mut ObjectOptions,
+	) -> tg::Result<GraphObservation> {
+		// Get the graph.
+		let graph_id = pointer
+			.graph
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected a graph pointer"))?;
+		let output = self
+			.checkin_solve_get_object_with_options(
+				&state.prefetch,
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&graph_id.clone().into(),
+				options,
+			)
+			.await?;
+
+		// Load the graph data and merge its metadata.
+		let cached = checkpoint.graphs.get(graph_id).cloned();
+		let (data, mut metadata) = if let Some((data, metadata)) = cached {
+			(data, metadata)
+		} else {
+			let data = tg::graph::Data::deserialize(output.output.bytes.clone())
+				.map(Arc::new)
+				.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
+			(data, None)
+		};
+		if let Some(output_metadata) = output.output.metadata {
+			if output_metadata.node == tg::object::metadata::Node::default() {
+				match &mut metadata {
+					Some(metadata) => metadata.merge(&output_metadata),
+					None => metadata = Some(output_metadata),
+				}
+			} else {
+				metadata = Some(output_metadata);
+			}
+		}
+		checkpoint
+			.graphs
+			.insert(graph_id.clone(), (data.clone(), metadata.clone()));
+
+		// Record the graph node's children once.
+		let node = data
+			.nodes
+			.get(pointer.index)
+			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+		let key = (graph_id.clone(), pointer.index);
+		if checkpoint.observed_graph_nodes.insert(key).is_none() {
+			let id = tg::object::Id::from(graph_id.clone());
+			Self::checkin_record_object_children(
+				&mut checkpoint.graph,
+				checkpoint.next,
+				&id,
+				|children| match node {
+					tg::graph::data::Node::Directory(directory) => directory.children(children),
+					tg::graph::data::Node::File(file) => file.children(children),
+					tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
+				},
+			);
+		}
+
+		// Create the observation.
+		let observation = GraphObservation {
+			data,
+			id: graph_id.clone(),
+			metadata,
+			node_index: pointer.index,
+		};
+
+		Ok(observation)
+	}
+
+	fn checkin_solve_metadata_requires_solving(metadata: Option<&tg::object::Metadata>) -> bool {
+		metadata.is_none_or(|metadata| {
+			metadata.subtree.solvable != Some(false) && metadata.subtree.solved != Some(true)
+		})
 	}
 
 	fn checkin_solve_get_lock_index(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
@@ -1192,33 +1529,52 @@ impl Session {
 	fn checkin_solve_enqueue_items_for_node(
 		checkpoint: &mut Checkpoint,
 		referent: &tg::Referent<usize>,
+		options: &ObjectOptions,
 	) {
 		// Get the node.
 		let node = checkpoint.graph.nodes.get(&referent.node).unwrap();
 
-		// If the node is not solvable or is solved, then do not enqueue any of its items.
-		if !node.solvable || node.solved {
+		// Traverse unsolved nodes and new input nodes with explicit dependencies.
+		let solve = node.solvable && !node.solved;
+		let observe = referent.node >= checkpoint.next && node.path.is_some();
+		if !solve && !observe {
 			return;
 		}
 
 		// Enqueue the node's items.
 		match &node.variant {
 			Variant::Directory(directory) => {
-				let items = directory.entries.keys().map(|name| Item {
-					referent: referent.clone(),
-					variant: ItemVariant::DirectoryEntry(name.clone()),
+				let items = directory.entries.keys().map(|name| {
+					let mut item_options = checkpoint
+						.directory_options
+						.get(&(referent.node, name.clone()))
+						.cloned()
+						.unwrap_or_default();
+					item_options.inherit(options);
+					Item {
+						options: item_options,
+						referent: referent.clone(),
+						variant: ItemVariant::DirectoryEntry(name.clone()),
+					}
 				});
 				checkpoint.queue.extend(items);
 			},
 			Variant::File(file) => {
-				let items = file.dependencies.keys().map(|reference| Item {
-					referent: referent.clone(),
-					variant: ItemVariant::FileDependency(reference.clone()),
-				});
+				let items = file
+					.dependencies
+					.iter()
+					.filter(|(_, dependency)| solve || dependency.is_some())
+					.map(|(reference, _)| Item {
+						options: options.clone(),
+						referent: referent.clone(),
+						variant: ItemVariant::FileDependency(reference.clone()),
+					});
 				checkpoint.queue.extend(items);
 			},
+			Variant::Object => {},
 			Variant::Symlink(symlink) => {
 				let items = symlink.artifact.iter().map(|_| Item {
+					options: options.clone(),
 					referent: referent.clone(),
 					variant: ItemVariant::SymlinkArtifact,
 				});
@@ -1311,7 +1667,7 @@ impl Session {
 			let Some(parent) = graph
 				.nodes
 				.get(&current)
-				.and_then(|node| node.referrers.first().copied())
+				.and_then(|node| node.referrers.iter().next().copied())
 			else {
 				break;
 			};
@@ -1355,6 +1711,7 @@ impl Session {
 						id.replace(id_.clone());
 					}
 				},
+				Variant::Object => unreachable!(),
 				Variant::Symlink(symlink) => {
 					let Some(path) = &symlink.path else {
 						break;

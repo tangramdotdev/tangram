@@ -10,7 +10,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet, HashSet},
+		collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
 		hash::{Hash, Hasher},
 		path::Path,
 	},
@@ -49,6 +49,7 @@ struct CheckinCreateGraphArg<'a> {
 	store_args: &'a mut StoreArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	graph_data: &'a mut GraphData,
+	next: usize,
 	scc: &'a [usize],
 	time_to_touch: std::time::Duration,
 	touched_at: i64,
@@ -129,6 +130,7 @@ impl Session {
 					store_args,
 					index_object_args,
 					graph_data,
+					next,
 					scc,
 					time_to_touch,
 					touched_at,
@@ -165,6 +167,165 @@ impl Session {
 				touched_at,
 			};
 			Self::checkin_create_pointer_artifact(arg)?;
+		}
+
+		Ok(())
+	}
+
+	pub(super) fn checkin_compute_permissions(
+		graph: &mut Graph,
+		index_object_args: &IndexObjectArgs,
+		next: usize,
+	) -> tg::Result<()> {
+		// Record the newly created objects.
+		for (id, object) in index_object_args {
+			let index = graph.get_or_create_object_node(id, next);
+			let node = graph.nodes.get_mut(&index).unwrap();
+			node.metadata = Some(object.metadata.clone());
+			node.object_complete = true;
+			node.permissions
+				.insert(tg::authorization::permission::object::Set::NODE);
+			node.storage = object.storage.clone();
+		}
+
+		// Record the newly created objects' children.
+		for (id, object) in index_object_args {
+			let parent = *graph.ids.get(id).unwrap().last().unwrap();
+			for id in &object.children {
+				let child = graph.get_or_create_object_node(id, next);
+				graph.add_object_edge(parent, child);
+			}
+		}
+
+		// Propagate observed subtree permissions through the new object edges.
+		let mut propagated = vec![false; graph.next - next];
+		let mut queue = graph
+			.nodes
+			.range(next..)
+			.filter(|(index, node)| {
+				node.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					== Some(**index)
+					&& node
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
+			})
+			.map(|(index, _)| *index)
+			.collect::<VecDeque<_>>();
+		while let Some(index) = queue.pop_front() {
+			let propagated = &mut propagated[index - next];
+			if *propagated {
+				continue;
+			}
+			*propagated = true;
+			let children = graph
+				.nodes
+				.get(&index)
+				.unwrap()
+				.object_children
+				.iter()
+				.copied()
+				.collect::<Vec<_>>();
+			for child in children {
+				let child_node = graph.nodes.get(&child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
+				if child_node
+					.permissions
+					.contains(tg::authorization::permission::object::Set::SUBTREE)
+				{
+					continue;
+				}
+				let permissions = &mut graph.nodes.get_mut(&child).unwrap().permissions;
+				permissions.insert(tg::authorization::permission::object::Set::NODE);
+				permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+				queue.push_back(child);
+			}
+		}
+
+		// Build the dependency counts and reverse edges for complete objects.
+		let mut complete_count = 0;
+		let mut parents = vec![Vec::new(); graph.next - next];
+		let mut pending = vec![0; graph.next - next];
+		for (index, node) in graph.nodes.range(next..) {
+			if !node.object_complete
+				|| node
+					.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					!= Some(*index)
+			{
+				continue;
+			}
+			complete_count += 1;
+			for child in &node.object_children {
+				let child_node = graph.nodes.get(child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
+				if child_node.object_complete {
+					parents[child - next].push(*index);
+					pending[*index - next] += 1;
+				}
+			}
+		}
+
+		// Propagate permissions from children to parents.
+		let mut queue = graph
+			.nodes
+			.range(next..)
+			.filter_map(|(index, node)| {
+				(node.object_complete
+					&& node
+						.id
+						.as_ref()
+						.and_then(|id| graph.try_get_object_node(id))
+						== Some(*index)
+					&& pending[*index - next] == 0)
+					.then_some(*index)
+			})
+			.collect::<VecDeque<_>>();
+		let mut processed_count = 0;
+		while let Some(index) = queue.pop_front() {
+			let node = graph.nodes.get(&index).unwrap();
+			let subtree = node
+				.permissions
+				.contains(tg::authorization::permission::object::Set::NODE)
+				&& node.object_children.iter().all(|child| {
+					let child = graph.nodes.get(child).unwrap();
+					let child = graph
+						.try_get_object_node(child.id.as_ref().unwrap())
+						.unwrap();
+					graph
+						.nodes
+						.get(&child)
+						.unwrap()
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
+				});
+			if subtree {
+				graph
+					.nodes
+					.get_mut(&index)
+					.unwrap()
+					.permissions
+					.insert(tg::authorization::permission::object::Set::SUBTREE);
+			}
+			processed_count += 1;
+
+			for &parent in &parents[index - next] {
+				pending[parent - next] -= 1;
+				if pending[parent - next] == 0 {
+					queue.push_back(parent);
+				}
+			}
+		}
+		if processed_count != complete_count {
+			return Err(tg::error!("the object graph contains a cycle"));
 		}
 
 		Ok(())
@@ -276,6 +437,7 @@ impl Session {
 				};
 				tg::file::Data::Node(data).into()
 			},
+			Variant::Object => unreachable!(),
 
 			Variant::Symlink(symlink) => {
 				let artifact = match &symlink.artifact {
@@ -329,8 +491,7 @@ impl Session {
 		node.storage = tangram_index::object::Storage { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
-		node.id.replace(id.clone());
-		graph.ids.entry(id).or_default().push(index);
+		graph.insert_id(index, id);
 
 		Ok(())
 	}
@@ -342,6 +503,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			graph_data,
+			next,
 			scc,
 			time_to_touch,
 			touched_at,
@@ -395,6 +557,8 @@ impl Session {
 
 		// Set edges and ids for all original nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
+		let graph_object_id = tg::object::Id::from(graph_id.clone());
+		let graph_index = graph.get_or_create_object_node(&graph_object_id, next);
 		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
 			for &global in global_indices {
 				let node = graph.nodes.get_mut(&global).unwrap();
@@ -416,6 +580,7 @@ impl Session {
 						};
 						tg::object::Data::File(tg::file::Data::Pointer(pointer))
 					},
+					Variant::Object => unreachable!(),
 					Variant::Symlink(_) => {
 						let pointer = tg::graph::data::Pointer {
 							graph: Some(graph_id.clone()),
@@ -437,7 +602,12 @@ impl Session {
 						index: local,
 						kind: artifact_kind,
 					}));
-				node.id.replace(id);
+				graph.insert_id(global, id);
+				let node = graph.nodes.get_mut(&global).unwrap();
+				node.object_complete = true;
+				node.permissions
+					.insert(tg::authorization::permission::object::Set::NODE);
+				graph.add_object_edge(global, graph_index);
 			}
 		}
 
@@ -558,6 +728,7 @@ impl Session {
 				};
 				tg::graph::data::Node::File(data)
 			},
+			Variant::Object => unreachable!(),
 			Variant::Symlink(symlink) => {
 				let artifact = if let Some(edge) = &symlink.artifact {
 					let edge = match edge {
@@ -636,6 +807,7 @@ impl Session {
 				};
 				tg::file::Data::Pointer(pointer).into()
 			},
+			Variant::Object => unreachable!(),
 			Variant::Symlink(_) => {
 				let pointer = tg::graph::data::Pointer {
 					graph: Some(graph_id.clone()),
@@ -899,11 +1071,13 @@ impl Session {
 		&self,
 		node: &Node,
 		pointer: &tg::graph::data::Pointer,
+		object_permissions: tg::authorization::permission::object::Set,
 	) -> tg::Result<tg::artifact::Id> {
 		// Create the pointer artifact data.
 		let data: tg::object::Data = match &node.variant {
 			Variant::Directory(_) => tg::directory::Data::Pointer(pointer.clone()).into(),
 			Variant::File(_) => tg::file::Data::Pointer(pointer.clone()).into(),
+			Variant::Object => unreachable!(),
 			Variant::Symlink(_) => tg::symlink::Data::Pointer(pointer.clone()).into(),
 		};
 
@@ -937,8 +1111,43 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_subject()?),
+		};
+		let put_grant_arg = grant_subject.map(|subject| {
+			let expires_at = touched_at
+				+ self
+					.server
+					.config
+					.object
+					.grant_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let permission = if object_permissions
+				.contains(tg::authorization::permission::object::Set::SUBTREE)
+			{
+				tg::authorization::permission::object::Permission::Subtree
+			} else {
+				tg::authorization::permission::object::Permission::Node
+			};
+			let permissions = tg::authorization::Permission::Object(permission).into();
+			tangram_index::grant::put::Arg {
+				created_at: touched_at,
+				creator: Some(self.context.principal.clone()),
+				implicit: Some(Some(expires_at)),
+				permissions,
+				resource: id.clone().into(),
+				subject,
+				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+			}
+		});
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(put_object_arg)],
+			items: std::iter::once(tangram_index::batch::Item::PutObject(put_object_arg))
+				.chain(put_grant_arg.map(tangram_index::batch::Item::PutGrant))
+				.collect(),
 		};
 		// Store and index the object.
 		self.server
@@ -1036,6 +1245,7 @@ impl Session {
 					tg::graph::data::DirectoryLeaf { entries },
 				))
 			},
+			Variant::Object => unreachable!(),
 			Variant::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|edge| {
 					let edge: tg::graph::data::Edge<tg::artifact::Id> = match edge {
@@ -1122,6 +1332,7 @@ impl Session {
 						}
 					}
 				},
+				Variant::Object => unreachable!(),
 				Variant::Symlink(symlink) => {
 					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
 						&& pointer.graph.is_none()
@@ -1431,6 +1642,7 @@ impl Session {
 						}
 					}
 				},
+				Variant::Object => {},
 				Variant::Symlink(symlink) => {
 					if let Some(edge) = &symlink.artifact {
 						match edge {
