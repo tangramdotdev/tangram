@@ -2924,3 +2924,198 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 			.all(|outcome| matches!(outcome, crate::authorize::Outcome::Authorized(_)))
 	);
 }
+
+fn put_wide_two_hop_frontiers(index: &Index, width: usize) -> (tg::object::Id, tg::user::Id) {
+	assert!(width > 0);
+	let target = object_id(2 * width - 1);
+	let holder = object_id(2 * width);
+	let user = tg::user::Id::new();
+	let mut objects = (0..2 * width - 1).map(object_id).collect::<Vec<_>>();
+	let proof = objects.remove(0);
+	let (parents, siblings) = objects.split_at(width - 1);
+
+	// Build one proof path beyond a wide irrelevant frontier in each direction.
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in parents
+		.iter()
+		.chain(siblings)
+		.chain([&holder, &proof, &target])
+	{
+		put_object(index, &mut transaction, object);
+	}
+	put_child(index, &mut transaction, &proof, &target);
+	for parent in parents {
+		put_child(index, &mut transaction, parent, &target);
+	}
+	put_child(index, &mut transaction, &holder, &proof);
+	for sibling in siblings {
+		put_child(index, &mut transaction, &holder, sibling);
+	}
+	put_grant(
+		index,
+		&mut transaction,
+		&holder,
+		&user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	transaction.commit().unwrap();
+
+	(target, user)
+}
+
+fn put_order_sensitive_frontiers(
+	index: &Index,
+	width: usize,
+) -> (tg::object::Id, Vec<tg::object::Id>) {
+	assert!(width > 1);
+	let mut parents = (0..width).map(object_id).collect::<Vec<_>>();
+	let mut children = (width..2 * width).map(object_id).collect::<Vec<_>>();
+
+	// Put the target last in the child enumeration for every parent.
+	children.sort_by_cached_key(|child| {
+		Index::pack(
+			&index.subspace,
+			&Key::Object(ObjectKey::ObjectChild {
+				child: child.clone(),
+				object: parents[0].clone(),
+			}),
+		)
+	});
+	let target = children.pop().unwrap();
+
+	// Identify the first and last parents in the index's enumeration order.
+	parents.sort_by_cached_key(|parent| {
+		Index::pack(
+			&index.subspace,
+			&Key::Object(ObjectKey::ChildObject {
+				child: target.clone(),
+				object: parent.clone(),
+			}),
+		)
+	});
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in parents.iter().chain(&children).chain([&target]) {
+		put_object(index, &mut transaction, object);
+	}
+	for parent in &parents {
+		put_child(index, &mut transaction, parent, &target);
+	}
+	for parent in [&parents[0], &parents[width - 1]] {
+		for child in &children {
+			put_child(index, &mut transaction, parent, child);
+		}
+	}
+	transaction.commit().unwrap();
+
+	(target, parents)
+}
+
+fn wide_frontier_config(edge_budget: usize) -> crate::authorize::Config {
+	// Leave enough node budget to isolate the edge-budget boundary.
+	let search = crate::authorize::SearchConfig {
+		max_edges: edge_budget,
+		max_nodes: edge_budget + 2,
+		..Default::default()
+	};
+
+	crate::authorize::Config {
+		ancestor: search,
+		descendant: search,
+		..Default::default()
+	}
+}
+
+async fn authorize_object_with_config(
+	index: &Index,
+	config: crate::authorize::Config,
+	object: tg::object::Id,
+	user: tg::user::Id,
+) -> crate::authorize::Outcome {
+	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let arg = crate::authorize::Arg {
+		requested: permissions,
+		required: permissions,
+		resource: tg::Selector::Id(object.into()),
+		token: None,
+	};
+	let outcomes = index
+		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+
+	outcomes.into_iter().next().unwrap()
+}
+
+async fn authorize_two_hop_wide_frontier(
+	edge_budget: usize,
+	width: usize,
+) -> crate::authorize::Outcome {
+	let (_directory, index) = new_index();
+	let (target, user) = put_wide_two_hop_frontiers(&index, width);
+	let config = wide_frontier_config(edge_budget);
+
+	authorize_object_with_config(&index, config, target, user).await
+}
+
+#[tokio::test]
+async fn authorize_shallow_proof_exhaustion_tracks_irrelevant_frontier_width() {
+	// Keep the proof two hops away while moving the frontier across each edge budget.
+	let mut cases = Vec::new();
+	for edge_budget in [64, 256, 1024] {
+		let below = authorize_two_hop_wide_frontier(edge_budget, edge_budget - 1).await;
+		let at = authorize_two_hop_wide_frontier(edge_budget, edge_budget).await;
+		cases.push((edge_budget, below, at));
+	}
+	assert!(
+		cases
+			.iter()
+			.all(|(_, below, _)| matches!(below, crate::authorize::Outcome::Authorized(_))),
+		"the control cases below the edge budget must be authorized: {cases:#?}"
+	);
+	assert!(
+		cases
+			.iter()
+			.all(|(_, _, at)| matches!(at, crate::authorize::Outcome::Exhausted)),
+		"the cases at the edge budget must exhaust: {cases:#?}"
+	);
+}
+
+#[tokio::test]
+async fn authorize_shallow_proof_exhaustion_depends_on_parent_order() {
+	const EDGE_BUDGET: usize = 64;
+	const WIDTH: usize = EDGE_BUDGET + 1;
+
+	let (_directory, index) = new_index();
+	let (target, parents) = put_order_sensitive_frontiers(&index, WIDTH);
+
+	// Put equivalent one-hop proofs at opposite ends of the same ordered frontier.
+	let first_user = tg::user::Id::new();
+	let last_user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	put_grant(
+		&index,
+		&mut transaction,
+		&parents[0],
+		&first_user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	put_grant(
+		&index,
+		&mut transaction,
+		&parents[WIDTH - 1],
+		&last_user,
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	transaction.commit().unwrap();
+	let config = wide_frontier_config(EDGE_BUDGET);
+	let first = authorize_object_with_config(&index, config, target.clone(), first_user).await;
+	let last = authorize_object_with_config(&index, config, target, last_user).await;
+	assert!(
+		matches!(first, crate::authorize::Outcome::Authorized(_)),
+		"the first grant in the parent enumeration must be authorized: {first:#?}"
+	);
+	assert!(
+		matches!(last, crate::authorize::Outcome::Exhausted),
+		"the same one-hop proof must exhaust when its parent is enumerated last: {last:#?}"
+	);
+}
