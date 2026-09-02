@@ -1301,6 +1301,10 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_state_ttl: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub progress_log_delay: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 
@@ -3490,6 +3494,9 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	}
 	if let Some(value) = source.process_state_ttl {
 		target.process_state_ttl = value;
+	}
+	if let Some(value) = source.progress_log_delay {
+		target.progress_log_delay = value;
 	}
 	if let Some(value) = source.sandbox_pool_size {
 		target.sandbox_pool_size = value;

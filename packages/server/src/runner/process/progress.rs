@@ -63,19 +63,54 @@ impl Session {
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
+		const INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+		// Log nothing until the delay has elapsed so that short operations stay quiet.
+		let start = std::time::Instant::now() + self.server.config.runner.progress_log_delay;
 		let mut stream = pin!(stream);
+		let mut latest: IndexMap<String, String> = IndexMap::new();
+		let mut written: IndexMap<String, (String, std::time::Instant)> = IndexMap::new();
 		while let Some(event) = stream.try_next().await? {
 			match event {
 				tg::progress::Event::Indicators(indicators) => {
+					latest.clear();
 					for indicator in indicators {
-						let indicator = indicator.to_string();
-						if indicator.is_empty() {
+						let current = indicator.current.unwrap_or(0);
+						let total = indicator.total.unwrap_or(0);
+						if current == 0 && total == 0 {
 							continue;
 						}
-						progress.send(format!("{indicator}\n").into()).ok();
+						let line = format!("{} {indicator}", indicator.title);
+						latest.insert(indicator.name.clone(), line);
+					}
+					// Write each indicator at most once per interval, and only when its line changed.
+					let now = std::time::Instant::now();
+					if now < start {
+						continue;
+					}
+					for (name, line) in &latest {
+						let skip = written
+							.get(name)
+							.is_some_and(|(previous, at)| previous == line || now < *at + INTERVAL);
+						if skip {
+							continue;
+						}
+						progress.send(format!("{line}\n").into()).ok();
+						written.insert(name.clone(), (line.clone(), now));
 					}
 				},
-				tg::progress::Event::Output(output) => return Ok(output),
+				tg::progress::Event::Output(output) => {
+					// Flush the final state of any indicator whose last written line is stale.
+					if std::time::Instant::now() < start {
+						return Ok(output);
+					}
+					for (name, line) in &latest {
+						if written.get(name).is_some_and(|(previous, _)| previous == line) {
+							continue;
+						}
+						progress.send(format!("{line}\n").into()).ok();
+					}
+					return Ok(output);
+				},
 				_ => (),
 			}
 		}
