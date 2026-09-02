@@ -95,17 +95,24 @@ export namespace Object {
 
 	export class State {
 		#id: tg.Object.Id | null;
+		#loadPromise: Promise<tg.Object.Object> | null;
 		#location: tg.Location | null;
 		#object: tg.Object.Object | null;
 		#stored: boolean;
+		#storePromise: Promise<void> | null;
 		#tokens: tg.Authorization.Tokens;
 
 		constructor(arg: tg.Object.State.ConstructorArg) {
 			this.#id = arg.id ?? null;
-			this.#location = arg.location ?? null;
+			this.#loadPromise = null;
+			this.#location =
+				arg.location === undefined || arg.location === null
+					? null
+					: { ...arg.location };
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
-			this.#tokens = arg.tokens ?? {};
+			this.#storePromise = null;
+			this.#tokens = { ...arg.tokens };
 		}
 
 		get id(): tg.Object.Id {
@@ -128,12 +135,12 @@ export namespace Object {
 		}
 
 		set location(location: tg.Location | null) {
-			this.#location = location;
+			this.#location = location === null ? null : { ...location };
 		}
 
 		inheritLocation(location: tg.Location | null): void {
 			if (this.#location === null) {
-				this.#location = location;
+				this.#location = location === null ? null : { ...location };
 			}
 		}
 
@@ -153,12 +160,38 @@ export namespace Object {
 			this.#stored = stored;
 		}
 
+		get storePromise(): Promise<void> | null {
+			return this.#storePromise;
+		}
+
+		startStorePromise(promise: Promise<void>): void {
+			if (this.#stored || this.#storePromise !== null) {
+				throw new Error("the object state cannot start a store promise");
+			}
+			this.#storePromise = promise;
+		}
+
+		finishStore(object: tg.Referent<tg.Object.Id>): void {
+			if (this.id !== object.node) {
+				throw new Error("invalid object batch output");
+			}
+			this.location = object.options?.location ?? null;
+			this.#stored = true;
+			this.tokens = object.options?.tokens ?? {};
+		}
+
+		clearStorePromise(promise: Promise<void>): void {
+			if (this.#storePromise === promise) {
+				this.#storePromise = null;
+			}
+		}
+
 		get tokens(): tg.Authorization.Tokens {
 			return { ...this.#tokens };
 		}
 
 		set tokens(tokens: tg.Authorization.Tokens) {
-			this.#tokens = tokens;
+			this.#tokens = { ...tokens };
 		}
 
 		inheritTokens(tokens: tg.Authorization.Tokens): void {
@@ -173,25 +206,46 @@ export namespace Object {
 		}
 
 		async load(): Promise<tg.Object.Object> {
-			if (this.#object === null) {
-				let arg: tg.Object.Get.Arg = {
-					location:
-						this.#location === null
-							? null
-							: tg.Location.Arg.fromLocation(this.#location),
-					tokens: this.#tokens,
-				};
-				let output = await tg.client.getObject(this.#id!, arg);
-				if (
-					output.tokens !== undefined &&
-					output.tokens !== null &&
-					!tg.Authorization.Tokens.isEmpty(output.tokens)
-				) {
-					this.#tokens = { ...output.tokens };
-				}
-				this.#object = tg.Object.Object.fromData(output.data);
+			if (this.#object !== null) {
+				return this.#object;
 			}
+			if (this.#loadPromise === null) {
+				let promise = Promise.resolve().then(() => this.#load());
+				this.#loadPromise = promise;
+				promise.then(
+					() => this.#clearLoadPromise(promise),
+					() => this.#clearLoadPromise(promise),
+				);
+			}
+
+			return await this.#loadPromise;
+		}
+
+		async #load(): Promise<tg.Object.Object> {
+			let arg: tg.Object.Get.Arg = {
+				location:
+					this.#location === null
+						? null
+						: tg.Location.Arg.fromLocation(this.#location),
+				tokens: { ...this.#tokens },
+			};
+			let output = await tg.client.getObject(this.#id!, arg);
+			if (
+				output.tokens !== undefined &&
+				output.tokens !== null &&
+				!tg.Authorization.Tokens.isEmpty(output.tokens)
+			) {
+				this.#tokens = { ...output.tokens };
+			}
+			this.#object = tg.Object.Object.fromData(output.data);
+
 			return this.#object;
+		}
+
+		#clearLoadPromise(promise: Promise<tg.Object.Object>): void {
+			if (this.#loadPromise === promise) {
+				this.#loadPromise = null;
+			}
 		}
 
 		unload(): void {

@@ -207,68 +207,127 @@ export namespace Value {
 	};
 
 	export let store = async (value: tg.Value): Promise<void> => {
-		// Collect all unstored objects in reverse topological order.
-		let unstored = [];
-		let stack = tg.Value.objects(value).filter((object) => {
-			return !object.state.stored;
-		});
-		while (stack.length > 0) {
-			let object = stack.pop()!;
-			unstored.push(object);
-			if (object.state.object === null) {
+		while (true) {
+			// Collect all unstored states with children before parents.
+			let pending = new Set<Promise<void>>();
+			let states: Array<tg.Object.State> = [];
+			let stack = tg.Value.objects(value).map((object) => ({
+				expanded: false,
+				object,
+			}));
+			let visited = new Set<tg.Object.State>();
+			while (stack.length > 0) {
+				let { expanded, object } = stack.pop()!;
+				let state = object.state;
+				if (expanded) {
+					states.push(state);
+					continue;
+				}
+				if (visited.has(state)) {
+					continue;
+				}
+				visited.add(state);
+				if (state.stored) {
+					continue;
+				}
+				if (state.storePromise !== null) {
+					pending.add(state.storePromise);
+					continue;
+				}
+				stack.push({ expanded: true, object });
+				if (state.object !== null) {
+					stack.push(
+						...tg.Object.Object.children(state.object).map((object) => ({
+							expanded: false,
+							object,
+						})),
+					);
+				}
+			}
+
+			// Wait for overlapping store promises and plan the batch again.
+			if (pending.size > 0) {
+				await Promise.all(pending);
 				continue;
 			}
-			let children = tg.Object.Object.children(object.state.object);
-			stack.push(...children.filter((object) => !object.state.stored));
-		}
-		unstored.reverse();
-		if (unstored.length === 0) {
+			if (states.length === 0) {
+				return;
+			}
+
+			// Claim the states and start the store promise.
+			let promise = Promise.resolve().then(() => storeStates(states));
+			for (let state of states) {
+				state.startStorePromise(promise);
+			}
+			promise.then(
+				() => states.forEach((state) => state.clearStorePromise(promise)),
+				() => states.forEach((state) => state.clearStorePromise(promise)),
+			);
+
+			await promise;
 			return;
-		}
-
-		// Store the objects.
-		let objects = [];
-		let states = [];
-		for (let object of unstored) {
-			if (object.state.object === null) {
-				continue;
-			}
-			let data = tg.Object.Data.withoutLocationAndTokens(
-				tg.Object.Object.toData(object.state.object),
-			);
-			let id = tg.client.objectId(data);
-			let children = tg.Object.Object.children(object.state.object).map(
-				tg.Object.toReferent,
-			);
-			object.state.id = id;
-			states.push(object.state);
-			objects.push({ children, id, data });
-		}
-		if (objects.length !== 0) {
-			let output = await tg.client.postObjectBatch({ objects });
-			applyObjectBatchOutput(states, output);
-		}
-
-		// Mark all objects stored.
-		for (let object of unstored) {
-			object.state.stored = true;
 		}
 	};
 
+	let storeStates = async (states: Array<tg.Object.State>): Promise<void> => {
+		// Create the batch.
+		let objects: Array<tg.Object.Batch.Object> = [];
+		let stateGroupIndices = new Map<tg.Object.Id, number>();
+		let stateGroups: Array<Array<tg.Object.State>> = [];
+		for (let state of states) {
+			if (state.object === null) {
+				throw new Error("expected the object to be loaded");
+			}
+			let data = tg.Object.Data.withoutLocationAndTokens(
+				tg.Object.Object.toData(state.object),
+			);
+			let id = tg.client.objectId(data);
+			state.id = id;
+			let children = tg.Object.Object.children(state.object).map(
+				tg.Object.toReferent,
+			);
+			let object = { children, data, id };
+			let stateGroupIndex = stateGroupIndices.get(id);
+			if (stateGroupIndex === undefined) {
+				stateGroupIndex = stateGroups.length;
+				objects.push(object);
+				stateGroupIndices.set(id, stateGroupIndex);
+				stateGroups.push([]);
+			} else {
+				objects[stateGroupIndex] = object;
+			}
+			stateGroups[stateGroupIndex]!.push(state);
+		}
+
+		// Store the batch.
+		let output = await tg.client.postObjectBatch({ objects });
+
+		// Update the states.
+		applyObjectBatchOutput(stateGroups, output);
+	};
+
 	let applyObjectBatchOutput = (
-		states: Array<tg.Object.State>,
+		stateGroups: Array<Array<tg.Object.State>>,
 		output: tg.Object.Batch.Output,
 	) => {
-		if (states.length !== output.objects.length) {
+		if (stateGroups.length !== output.objects.length) {
 			throw new Error("invalid object batch output");
 		}
 		for (let [index, node] of output.objects.entries()) {
-			let state = states[index]!;
-			if (state.id !== node.node) {
+			let states = stateGroups[index]!;
+			if (states.length === 0) {
 				throw new Error("invalid object batch output");
 			}
-			state.location = node.options?.location ?? null;
-			state.tokens = node.options?.tokens ?? {};
+			for (let state of states) {
+				if (state.id !== node.node) {
+					throw new Error("invalid object batch output");
+				}
+			}
+		}
+		for (let [index, node] of output.objects.entries()) {
+			for (let state of stateGroups[index]!) {
+				state.finishStore(node);
+			}
 		}
 	};
 

@@ -5,7 +5,8 @@ use {
 	},
 	crate::prelude::*,
 	bytes::Bytes,
-	std::collections::BTreeMap,
+	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	std::collections::{BTreeMap, BTreeSet},
 };
 
 /// A value.
@@ -114,68 +115,131 @@ impl Value {
 	where
 		H: tg::Handle,
 	{
-		// Get the objects.
-		let objects = self.objects();
+		loop {
+			// Collect all unstored states with children before parents.
+			let mut pending = Vec::new();
+			let mut states = Vec::new();
+			let mut stack = self
+				.objects()
+				.into_iter()
+				.map(|object| (object, false))
+				.collect::<Vec<_>>();
+			let mut visited = BTreeSet::new();
+			while let Some((object, expanded)) = stack.pop() {
+				let state = object.state();
+				if expanded {
+					states.push(state);
+					continue;
+				}
+				if !visited.insert(state.identity()) || state.stored() {
+					continue;
+				}
+				if let Some(task) = state.store_task() {
+					if !pending
+						.iter()
+						.any(|pending: &tg::object::state::StoreTask| pending.id() == task.id())
+					{
+						pending.push(task);
+					}
+					continue;
+				}
+				stack.push((object, true));
+				if let Some(object) = state.object() {
+					stack.extend(object.children().into_iter().map(|object| (object, false)));
+				}
+			}
 
-		// Collect all unstored objects in reverse topological order.
-		let mut unstored = Vec::new();
-		let mut stack = objects
-			.into_iter()
-			.filter(|object| !object.state().stored())
-			.collect::<Vec<_>>();
-		while let Some(object) = stack.pop() {
-			unstored.push(object.clone());
-			if let Some(object) = object.state().object() {
-				let children = object
-					.children()
+			// Wait for overlapping store tasks and plan the batch again.
+			if !pending.is_empty() {
+				pending
 					.into_iter()
-					.filter(|object| !object.state().stored());
-				stack.extend(children);
+					.map(|task| async move { task.wait().await })
+					.collect::<FuturesUnordered<_>>()
+					.try_collect::<()>()
+					.await?;
+				continue;
+			}
+			if states.is_empty() {
+				return Ok(());
+			}
+
+			// Claim the states and start the store task.
+			let handle = handle.clone();
+			let location = location.clone();
+			let status = tg::object::State::start_store_task(states, move |states| {
+				tg::object::state::StoreTask::spawn(states, move |states| async move {
+					Self::store_task(handle, location, states).await
+				})
+			});
+			match status {
+				tg::object::state::StoreTaskStatus::Complete => return Ok(()),
+				tg::object::state::StoreTaskStatus::Pending(tasks) => {
+					tasks
+						.into_iter()
+						.map(|task| async move { task.wait().await })
+						.collect::<FuturesUnordered<_>>()
+						.try_collect::<()>()
+						.await?;
+				},
+				tg::object::state::StoreTaskStatus::Started(task) => return task.wait().await,
 			}
 		}
-		unstored.reverse();
+	}
 
-		if unstored.is_empty() {
-			return Ok(());
-		}
-
-		// Store the objects.
-		let mut objects = Vec::with_capacity(unstored.len());
-		let mut states = Vec::with_capacity(unstored.len());
-		for object in &unstored {
-			if let Some(object_) = object.state().object() {
-				let data = object_.to_data().without_location_and_tokens();
-				let bytes = data
-					.serialize()
-					.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
-				let id = tg::object::Id::new(data.kind(), &bytes);
-				object.state().set_id(id.clone());
-				states.push(object.state());
-				let children = object_
-					.children()
-					.iter()
-					.map(Self::object_referent)
-					.collect();
-				objects.push(tg::object::batch::Object {
-					id,
-					bytes,
-					children,
-				});
-			}
-		}
-		if !objects.is_empty() {
-			let arg = tg::object::batch::Arg {
-				location: location.map(Into::into),
-				objects,
+	async fn store_task<H>(
+		handle: H,
+		location: Option<tg::Location>,
+		states: Vec<tg::object::State>,
+	) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		// Create the batch.
+		let mut objects = Vec::with_capacity(states.len());
+		let mut state_group_indices = BTreeMap::<tg::object::Id, usize>::new();
+		let mut state_groups = Vec::<Vec<tg::object::State>>::new();
+		for state in &states {
+			let object = state
+				.object()
+				.ok_or_else(|| tg::error!("expected the object to be loaded"))?;
+			let data = object.to_data().without_location_and_tokens();
+			let bytes = data
+				.serialize()
+				.map_err(|error| tg::error!(!error, "failed to serialize the data"))?;
+			let id = tg::object::Id::new(data.kind(), &bytes);
+			state.set_id(id.clone());
+			let children = object
+				.children()
+				.iter()
+				.map(Self::object_referent)
+				.collect();
+			let batch_object = tg::object::batch::Object {
+				bytes,
+				children,
+				id: id.clone(),
 			};
-			let output = handle.post_object_batch(arg).await?;
-			Self::apply_object_batch_output(&states, output)?;
+			let state_group_index = if let Some(&state_group_index) = state_group_indices.get(&id) {
+				objects[state_group_index] = batch_object;
+				state_group_index
+			} else {
+				let state_group_index = state_groups.len();
+				objects.push(batch_object);
+				state_group_indices.insert(id, state_group_index);
+				state_groups.push(Vec::new());
+				state_group_index
+			};
+			state_groups[state_group_index].push(state.clone());
 		}
 
-		// Mark all objects stored.
-		for object in &unstored {
-			object.state().set_stored(true);
-		}
+		// Store the batch.
+		let arg = tg::object::batch::Arg {
+			location: location.map(Into::into),
+			objects,
+		};
+		let output = handle.post_object_batch(arg).await?;
+
+		// Update the states.
+		Self::apply_object_batch_output(&state_groups, output)?;
 
 		Ok(())
 	}
@@ -213,18 +277,26 @@ impl Value {
 	}
 
 	fn apply_object_batch_output(
-		states: &[tg::object::State],
+		state_groups: &[Vec<tg::object::State>],
 		output: tg::object::batch::Output,
 	) -> tg::Result<()> {
-		if states.len() != output.objects.len() {
+		if state_groups.len() != output.objects.len() {
 			return Err(tg::error!("invalid object batch output"));
 		}
-		for (state, object) in states.iter().zip(output.objects) {
-			if state.id() != object.node {
+		for (states, object) in state_groups.iter().zip(&output.objects) {
+			if states.is_empty() {
 				return Err(tg::error!("invalid object batch output"));
 			}
-			state.set_location(object.options.location);
-			state.set_tokens(object.options.tokens);
+			for state in states {
+				if state.try_get_id().as_ref() != Some(&object.node) {
+					return Err(tg::error!("invalid object batch output"));
+				}
+			}
+		}
+		for (states, object) in state_groups.iter().zip(output.objects) {
+			for state in states {
+				state.finish_store(object.clone())?;
+			}
 		}
 		Ok(())
 	}
