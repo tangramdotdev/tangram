@@ -22,7 +22,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	}
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|error| tg::error!(!error, "failed to create the sandbox directory"))?;
-	let libraries = libraries::resolve(&arg.tangram_path)?;
+	let libraries = libraries::resolve()?;
 	let libraries_path = arg.path.join("lib");
 	libraries::stage(&libraries_path, &libraries)?;
 	prepare_tangram_wrapper(arg, &libraries_path)?;
