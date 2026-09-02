@@ -251,7 +251,19 @@ impl Session {
 						}
 					},
 					(tg::graph::data::Node::File(lock), Variant::File(node)) => {
-						if node.dependencies.iter().any(|(reference, option)| {
+						let dependencies = node
+							.dependencies
+							.iter()
+							.map(|(reference, dependency)| {
+								let reference =
+									reference_without_location_and_tokens(reference.clone());
+								let dependency = dependency
+									.clone()
+									.map(tg::graph::data::Dependency::without_location_and_tokens);
+								(reference, dependency)
+							})
+							.collect::<BTreeMap<_, _>>();
+						if dependencies.iter().any(|(reference, option)| {
 							if !reference.is_solvable() {
 								return false;
 							}
@@ -273,7 +285,7 @@ impl Session {
 
 						// If a file removed a dependency that was present in the lock, then the lock changed.
 						for reference in lock.dependencies.keys() {
-							if !node.dependencies.contains_key(reference) {
+							if !dependencies.contains_key(reference) {
 								return true;
 							}
 						}
@@ -429,7 +441,7 @@ impl Session {
 		}
 
 		// Create the lock.
-		let lock = tg::graph::Data { nodes };
+		let lock = lock_without_location_and_tokens(tg::graph::Data { nodes });
 
 		// Strip the lock.
 		Self::strip_lock(lock, source_dependencies)
@@ -667,4 +679,32 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.boxed(),
 		}
 	}
+}
+
+fn lock_without_location_and_tokens(mut lock: tg::graph::Data) -> tg::graph::Data {
+	for node in &mut lock.nodes {
+		let tg::graph::data::Node::File(file) = node else {
+			continue;
+		};
+		file.dependencies = std::mem::take(&mut file.dependencies)
+			.into_iter()
+			.map(|(reference, dependency)| {
+				let reference = reference_without_location_and_tokens(reference);
+				let dependency =
+					dependency.map(tg::graph::data::Dependency::without_location_and_tokens);
+				(reference, dependency)
+			})
+			.collect();
+	}
+
+	lock
+}
+
+fn reference_without_location_and_tokens(mut reference: tg::Reference) -> tg::Reference {
+	let mut options = reference.options().clone();
+	options.location.take();
+	options.tokens.clear();
+	reference.set_options(options);
+
+	reference
 }

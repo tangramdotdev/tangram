@@ -1,6 +1,9 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{Session, checkin::Graph},
+	crate::{
+		Session,
+		checkin::{Graph, Permissions},
+	},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -17,6 +20,7 @@ struct State<'a> {
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
+	permissions: &'a mut Permissions,
 	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
 	store_path: Option<&'a Path>,
@@ -45,6 +49,7 @@ pub(super) struct CheckinInputArg<'a> {
 	pub ignorer: Option<ignore::Ignorer>,
 	pub lock: Option<&'a tg::graph::Data>,
 	pub next: usize,
+	pub permissions: &'a mut Permissions,
 	pub progress: crate::progress::Handle<super::TaskOutput>,
 	pub root: &'a Path,
 	pub store_path: Option<&'a Path>,
@@ -60,6 +65,7 @@ impl Session {
 			ignorer,
 			lock,
 			next,
+			permissions,
 			progress,
 			root,
 			store_path,
@@ -88,6 +94,7 @@ impl Session {
 			graph,
 			ignorer,
 			lock,
+			permissions,
 			progress,
 			root,
 			store_path,
@@ -267,6 +274,7 @@ impl Session {
 			metadata: None,
 			path: Some(item.path),
 			path_metadata: Some(metadata.clone()),
+			permissions: tg::authorization::permission::object::Set::empty(),
 			referrers: SmallVec::new(),
 			solvable: false,
 			solved: true,
@@ -424,6 +432,11 @@ impl Session {
 					{
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
+					if let Some(id) = object_edge_root(&edge)
+						&& let Some(token) = reference.options().tokens.local()
+					{
+						self.checkin_merge_object_token(state.permissions, &id, token);
+					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
 						let id = match &edge {
@@ -523,6 +536,11 @@ impl Session {
 						&& p.graph.is_none()
 					{
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
+					}
+					if let Some(id) = object_edge_root(&edge)
+						&& let Some(token) = reference.options().tokens.local()
+					{
+						self.checkin_merge_object_token(state.permissions, &id, token);
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -963,5 +981,12 @@ fn reference_node_to_object_edge(
 			Some(tg::graph::data::Edge::Pointer(pointer.clone()))
 		},
 		tg::reference::Node::Path(_) | tg::reference::Node::Specifier(_) => None,
+	}
+}
+
+fn object_edge_root(edge: &tg::graph::data::Edge<tg::object::Id>) -> Option<tg::object::Id> {
+	match edge {
+		tg::graph::data::Edge::Object(id) => Some(id.clone()),
+		tg::graph::data::Edge::Pointer(pointer) => pointer.graph.clone().map(Into::into),
 	}
 }

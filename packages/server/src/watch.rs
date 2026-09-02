@@ -248,6 +248,7 @@ impl Watch {
 								nodes.retain(|i| *i != index);
 								if nodes.is_empty() {
 									state.graph.ids.remove(id);
+									state.graph.permissions.remove(id);
 								}
 							}
 							if let Some(path) = &node.path {
@@ -314,6 +315,12 @@ impl Watch {
 
 	pub fn options(&self) -> &tg::checkin::Options {
 		&self.options
+	}
+
+	#[must_use]
+	pub fn can_reuse(&self, graph: &crate::checkin::Graph, version: u64) -> bool {
+		let state = self.state.lock().unwrap();
+		state.pending_lock_write_version.is_none() && state.can_publish(graph, version)
 	}
 
 	pub fn replace_if_version<F>(

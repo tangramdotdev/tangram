@@ -15,6 +15,11 @@ pub struct Graph {
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,
 	pub paths: PathTrie<usize>,
+	pub permissions: im::HashMap<
+		tg::object::Id,
+		tg::authorization::permission::object::Set,
+		tg::id::BuildHasher,
+	>,
 }
 
 #[derive(Clone, Debug)]
@@ -26,6 +31,7 @@ pub struct Node {
 	pub metadata: Option<tg::object::Metadata>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
+	pub permissions: tg::authorization::permission::object::Set,
 	pub referrers: SmallVec<[usize; 1]>,
 	pub solvable: bool,
 	pub solved: bool,
@@ -64,6 +70,7 @@ impl Graph {
 				nodes.retain(|i| *i != index);
 				if nodes.is_empty() {
 					self.ids.remove(id);
+					self.permissions.remove(id);
 				}
 			}
 			if let Some(path) = &node.path {

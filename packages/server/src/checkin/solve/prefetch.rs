@@ -1,14 +1,22 @@
-use {crate::Session, dashmap::DashMap, std::sync::Arc, tangram_client::prelude::*};
+use {
+	crate::{
+		Session,
+		checkin::{Graph, Permissions},
+	},
+	dashmap::DashMap,
+	std::sync::Arc,
+	tangram_client::prelude::*,
+};
 
 const PREFETCH_CONCURRENCY: usize = 16;
 
-type Objects = Arc<DashMap<tg::object::Id, tg::object::get::Output, tg::id::BuildHasher>>;
+type Objects = Arc<DashMap<ObjectKey, Option<ObjectOutput>, fnv::FnvBuildHasher>>;
 
 type ObjectTasks = tangram_futures::task::Map<
-	tg::object::Id,
-	tg::Result<tg::object::get::Output>,
+	ObjectKey,
+	tg::Result<Option<ObjectOutput>>,
 	(),
-	tg::id::BuildHasher,
+	fnv::FnvBuildHasher,
 >;
 
 type Tags = Arc<DashMap<tg::specifier::Pattern, tg::list::Output, fnv::FnvBuildHasher>>;
@@ -19,6 +27,80 @@ type TagTasks = tangram_futures::task::Map<
 	(),
 	fnv::FnvBuildHasher,
 >;
+
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct ObjectOptions {
+	location: Option<tg::location::Arg>,
+	tokens: tg::authorization::Tokens,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ObjectKey {
+	id: tg::object::Id,
+	options: ObjectOptions,
+}
+
+#[derive(Clone)]
+pub(super) struct ObjectOutput {
+	pub data: Arc<tg::object::Data>,
+	pub output: tg::object::get::Output,
+}
+
+impl ObjectOptions {
+	#[must_use]
+	pub fn from_dependency(
+		reference: &tg::Reference,
+		dependency: &tg::graph::data::Dependency,
+	) -> Self {
+		let location = dependency
+			.options
+			.location
+			.clone()
+			.map(Into::into)
+			.or_else(|| reference.options().location.clone());
+		let mut tokens = dependency.options.tokens.clone();
+		tokens.inherit(&reference.options().tokens);
+		Self { location, tokens }
+	}
+
+	#[must_use]
+	pub fn from_reference(reference: &tg::Reference) -> Self {
+		Self {
+			location: reference.options().location.clone(),
+			tokens: reference.options().tokens.clone(),
+		}
+	}
+
+	#[must_use]
+	pub fn with_location_and_tokens(
+		location: Option<tg::Location>,
+		tokens: tg::authorization::Tokens,
+	) -> Self {
+		let location = location.map(Into::into);
+		Self { location, tokens }
+	}
+
+	#[must_use]
+	pub fn from_referent_options(options: &tg::referent::Options) -> Self {
+		Self {
+			location: options.location.clone().map(Into::into),
+			tokens: options.tokens.clone(),
+		}
+	}
+
+	pub fn inherit(&mut self, parent: &Self) {
+		self.tokens.inherit(&parent.tokens);
+		if self.location.is_none() {
+			self.location.clone_from(&parent.location);
+		}
+	}
+
+	pub fn update_from_output(&mut self, output: &tg::object::get::Output) {
+		if !output.tokens.is_empty() {
+			self.tokens.clone_from(&output.tokens);
+		}
+	}
+}
 
 #[derive(Clone)]
 pub struct Prefetch {
@@ -57,48 +139,104 @@ impl Session {
 	pub(super) fn checkin_solve_prefetch_from_lock(
 		&self,
 		prefetch: &Prefetch,
+		graph: &Graph,
 		lock: &tg::graph::Data,
+		next: usize,
 	) {
-		for node in &lock.nodes {
-			self.checkin_solve_prefetch_from_graph_node(prefetch, node);
+		let options = ObjectOptions::default();
+		for node in graph
+			.nodes
+			.range(next..)
+			.filter_map(|(_, node)| node.lock_index.and_then(|index| lock.nodes.get(index)))
+		{
+			self.checkin_solve_prefetch_from_graph_node(prefetch, node, &options);
 			if let tg::graph::data::Node::File(file) = node {
-				for dependency in file.dependencies.values().flatten() {
+				for (reference, dependency) in &file.dependencies {
+					let Some(dependency) = dependency else {
+						continue;
+					};
+					if !reference.is_solvable() {
+						continue;
+					}
 					if let Some(id) = dependency.id() {
-						self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+						let options = ObjectOptions::from_dependency(reference, dependency);
+						self.checkin_solve_get_or_spawn_object_task(prefetch, id, options);
 					}
 				}
 			}
 		}
 	}
 
-	pub(super) async fn checkin_solve_get_object(
+	pub(super) async fn checkin_solve_get_object_with_options(
 		&self,
 		prefetch: &Prefetch,
+		permissions: &mut Permissions,
 		id: &tg::object::Id,
-	) -> tg::Result<tg::object::get::Output> {
+		options: &mut ObjectOptions,
+	) -> tg::Result<ObjectOutput> {
+		self.checkin_solve_try_get_object_with_options(prefetch, permissions, id, options)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to get the object"))
+	}
+
+	pub(super) async fn checkin_solve_try_get_object_with_options(
+		&self,
+		prefetch: &Prefetch,
+		permissions: &mut Permissions,
+		id: &tg::object::Id,
+		options: &mut ObjectOptions,
+	) -> tg::Result<Option<ObjectOutput>> {
+		let key = ObjectKey {
+			id: id.clone(),
+			options: options.clone(),
+		};
+
 		// Return a cached result if one is available.
-		if let Some(output) = prefetch.objects.get(id).map(|value| value.clone()) {
+		if let Some(output) = prefetch.objects.get(&key).map(|value| value.clone()) {
+			if let Some(output) = &output {
+				self.checkin_solve_record_object_permissions(permissions, id, &output.output);
+				options.update_from_output(&output.output);
+			}
 			return Ok(output);
 		}
 
 		// Fetch the object directly, bypassing the prefetch semaphore.
-		let output = self.checkin_solve_fetch_object(prefetch, id).await?;
+		let output = self.checkin_solve_fetch_object(prefetch, &key).await?;
+		if let Some(output) = &output {
+			self.checkin_solve_record_object_permissions(permissions, id, &output.output);
+			options.update_from_output(&output.output);
+		}
 
 		Ok(output)
+	}
+
+	fn checkin_solve_record_object_permissions(
+		&self,
+		permissions: &mut Permissions,
+		id: &tg::object::Id,
+		output: &tg::object::get::Output,
+	) {
+		if let Some(token) = output.tokens.local() {
+			self.checkin_merge_object_token(permissions, id, token);
+		}
 	}
 
 	fn checkin_solve_get_or_spawn_object_task(
 		&self,
 		prefetch: &Prefetch,
 		id: &tg::object::Id,
-	) -> tangram_futures::task::Shared<tg::Result<tg::object::get::Output>, ()> {
-		prefetch.object_tasks.get_or_spawn(id.clone(), {
+		options: ObjectOptions,
+	) -> tangram_futures::task::Shared<tg::Result<Option<ObjectOutput>>, ()> {
+		let key = ObjectKey {
+			id: id.clone(),
+			options,
+		};
+		prefetch.object_tasks.get_or_spawn(key.clone(), {
 			let session = self.clone();
-			let id = id.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
 				// Return an existing result if one is available.
-				if let Some(output) = prefetch.objects.get(&id).map(|value| value.clone()) {
+				if let Some(output) = prefetch.objects.get(&key).map(|value| value.clone()) {
 					return Ok(output);
 				}
 
@@ -106,7 +244,7 @@ impl Session {
 				let permit = prefetch.semaphore.acquire().await;
 
 				// Get the object.
-				let output = session.checkin_solve_fetch_object(&prefetch, &id).await;
+				let output = session.checkin_solve_fetch_object(&prefetch, &key).await;
 
 				// Drop the permit.
 				drop(permit);
@@ -119,28 +257,34 @@ impl Session {
 	async fn checkin_solve_fetch_object(
 		&self,
 		prefetch: &Prefetch,
-		id: &tg::object::Id,
-	) -> tg::Result<tg::object::get::Output> {
+		key: &ObjectKey,
+	) -> tg::Result<Option<ObjectOutput>> {
 		// Get the object.
 		let arg = tg::object::get::Arg {
+			location: key.options.location.clone(),
 			metadata: true,
+			tokens: key.options.tokens.clone(),
 			..Default::default()
 		};
 		let output = self
-			.get_object(id, arg)
+			.try_get_object(&key.id, arg)
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-		let data = tg::object::Data::deserialize(id.kind(), output.bytes.clone())
+			.map_err(|error| tg::error!(!error, id = %key.id, "failed to get the object"))?;
+		let Some(output) = output else {
+			prefetch.objects.insert(key.clone(), None);
+			return Ok(None);
+		};
+		let data = tg::object::Data::deserialize(key.id.kind(), output.bytes.clone())
+			.map(Arc::new)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
-		// If the object is solvable, then spawn tasks to prefetch its descendant objects and tags.
-		let solvable = output
-			.metadata
-			.as_ref()
-			.and_then(|metadata| metadata.subtree.solvable)
-			.unwrap_or(true);
-		if solvable {
-			match &data {
+		// If the object requires solving, then prefetch its descendant objects and tags.
+		let requires_solving =
+			Self::checkin_solve_metadata_requires_solving(output.metadata.as_ref());
+		if requires_solving {
+			let mut options = key.options.clone();
+			options.update_from_output(&output);
+			match data.as_ref() {
 				tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
 				| tg::object::Data::File(tg::file::Data::Pointer(pointer))
 				| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
@@ -148,27 +292,22 @@ impl Session {
 						self.checkin_solve_get_or_spawn_object_task(
 							prefetch,
 							&graph_id.clone().into(),
+							options.clone(),
 						);
 					}
 				},
 
 				tg::object::Data::Directory(tg::directory::Data::Node(directory)) => {
 					let node = tg::graph::data::Node::Directory(directory.clone());
-					self.checkin_solve_prefetch_from_graph_node(prefetch, &node);
+					self.checkin_solve_prefetch_from_graph_node(prefetch, &node, &options);
 				},
 				tg::object::Data::File(tg::file::Data::Node(file)) => {
 					let node = tg::graph::data::Node::File(file.clone());
-					self.checkin_solve_prefetch_from_graph_node(prefetch, &node);
+					self.checkin_solve_prefetch_from_graph_node(prefetch, &node, &options);
 				},
 				tg::object::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
 					let node = tg::graph::data::Node::Symlink(symlink.clone());
-					self.checkin_solve_prefetch_from_graph_node(prefetch, &node);
-				},
-
-				tg::object::Data::Graph(graph) => {
-					for node in &graph.nodes {
-						self.checkin_solve_prefetch_from_graph_node(prefetch, node);
-					}
+					self.checkin_solve_prefetch_from_graph_node(prefetch, &node, &options);
 				},
 
 				_ => {},
@@ -176,19 +315,21 @@ impl Session {
 		}
 
 		// Cache the result so prefetch tasks find a cache hit.
-		prefetch.objects.insert(id.clone(), output.clone());
+		let output = ObjectOutput { data, output };
+		prefetch.objects.insert(key.clone(), Some(output.clone()));
 
-		Ok(output)
+		Ok(Some(output))
 	}
 
-	fn checkin_solve_prefetch_from_graph_node(
+	pub(super) fn checkin_solve_prefetch_from_graph_node(
 		&self,
 		prefetch: &Prefetch,
 		node: &tg::graph::data::Node,
+		parent_options: &ObjectOptions,
 	) {
 		match node {
 			tg::graph::data::Node::Directory(directory) => {
-				self.checkin_solve_prefetch_from_directory(prefetch, directory);
+				self.checkin_solve_prefetch_from_directory(prefetch, directory, parent_options);
 			},
 			tg::graph::data::Node::File(file) => {
 				for reference in file.dependencies.keys() {
@@ -201,13 +342,19 @@ impl Session {
 						&& let Some(edge) = &dependency.node()
 						&& !reference.is_solvable()
 					{
-						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
+						let mut options = ObjectOptions::from_dependency(reference, dependency);
+						options.inherit(parent_options);
+						self.checkin_solve_prefetch_from_object_edge(prefetch, edge, options);
 					}
 				}
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
 				if let Some(edge) = &symlink.artifact {
-					self.checkin_solve_prefetch_from_artifact_edge(prefetch, edge);
+					self.checkin_solve_prefetch_from_artifact_edge(
+						prefetch,
+						edge,
+						parent_options.clone(),
+					);
 				}
 			},
 		}
@@ -217,14 +364,19 @@ impl Session {
 		&self,
 		prefetch: &Prefetch,
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+		options: ObjectOptions,
 	) {
 		match edge {
 			tg::graph::data::Edge::Object(id) => {
-				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into());
+				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into(), options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
 				if let Some(graph_id) = &pointer.graph {
-					self.checkin_solve_get_or_spawn_object_task(prefetch, &graph_id.clone().into());
+					self.checkin_solve_get_or_spawn_object_task(
+						prefetch,
+						&graph_id.clone().into(),
+						options,
+					);
 				}
 			},
 		}
@@ -234,14 +386,19 @@ impl Session {
 		&self,
 		prefetch: &Prefetch,
 		edge: &tg::graph::data::Edge<tg::object::Id>,
+		options: ObjectOptions,
 	) {
 		match edge {
 			tg::graph::data::Edge::Object(id) => {
-				self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+				self.checkin_solve_get_or_spawn_object_task(prefetch, id, options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
 				if let Some(graph_id) = &pointer.graph {
-					self.checkin_solve_get_or_spawn_object_task(prefetch, &graph_id.clone().into());
+					self.checkin_solve_get_or_spawn_object_task(
+						prefetch,
+						&graph_id.clone().into(),
+						options,
+					);
 				}
 			},
 		}
@@ -251,16 +408,21 @@ impl Session {
 		&self,
 		prefetch: &Prefetch,
 		directory: &tg::graph::data::Directory,
+		options: &ObjectOptions,
 	) {
 		match directory {
 			tg::graph::data::Directory::Leaf(leaf) => {
 				for edge in leaf.entries.values() {
-					self.checkin_solve_prefetch_from_artifact_edge(prefetch, edge);
+					self.checkin_solve_prefetch_from_artifact_edge(prefetch, edge, options.clone());
 				}
 			},
 			tg::graph::data::Directory::Branch(branch) => {
 				for child in &branch.children {
-					self.checkin_solve_prefetch_from_directory_edge(prefetch, &child.directory);
+					self.checkin_solve_prefetch_from_directory_edge(
+						prefetch,
+						&child.directory,
+						options.clone(),
+					);
 				}
 			},
 		}
@@ -270,14 +432,19 @@ impl Session {
 		&self,
 		prefetch: &Prefetch,
 		edge: &tg::graph::data::Edge<tg::directory::Id>,
+		options: ObjectOptions,
 	) {
 		match edge {
 			tg::graph::data::Edge::Object(id) => {
-				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into());
+				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into(), options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
 				if let Some(graph_id) = &pointer.graph {
-					self.checkin_solve_get_or_spawn_object_task(prefetch, &graph_id.clone().into());
+					self.checkin_solve_get_or_spawn_object_task(
+						prefetch,
+						&graph_id.clone().into(),
+						options,
+					);
 				}
 			},
 		}
@@ -349,7 +516,8 @@ impl Session {
 		if let Some(target) = output.data.first().and_then(tg::list::Entry::target)
 			&& let Some(id) = target.node.as_ref().left()
 		{
-			self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+			let options = ObjectOptions::from_referent_options(&target.options);
+			self.checkin_solve_get_or_spawn_object_task(prefetch, id, options);
 		}
 
 		// Cache the result so prefetch tasks find a cache hit.

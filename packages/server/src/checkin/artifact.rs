@@ -2,7 +2,7 @@ use {
 	crate::{
 		Session,
 		checkin::{
-			Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs, StoreArgs,
+			Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs, Permissions, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
@@ -10,7 +10,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet, HashSet},
+		collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
 		hash::{Hash, Hasher},
 		path::Path,
 	},
@@ -165,6 +165,125 @@ impl Session {
 				touched_at,
 			};
 			Self::checkin_create_pointer_artifact(arg)?;
+		}
+
+		Ok(())
+	}
+
+	pub(super) fn checkin_compute_permissions(
+		graph: &mut Graph,
+		index_object_args: &IndexObjectArgs,
+		next: usize,
+		permissions: &mut Permissions,
+	) -> tg::Result<()> {
+		// Restore cached permission summaries at affected old-child boundaries.
+		for (_, node) in graph.nodes.range(next..) {
+			for child in node.children().into_iter().filter(|child| *child < next) {
+				let child = graph.nodes.get(&child).unwrap();
+				let Some(edge) = &child.edge else {
+					continue;
+				};
+				match edge {
+					tg::graph::data::Edge::Object(id) => {
+						Self::checkin_merge_object_permissions(
+							permissions,
+							id.clone(),
+							child.permissions,
+						);
+					},
+					tg::graph::data::Edge::Pointer(pointer)
+						if child
+							.permissions
+							.contains(tg::authorization::permission::object::Set::SUBTREE) =>
+					{
+						let id = pointer.graph.as_ref().unwrap().clone().into();
+						let object_permissions =
+							tg::authorization::permission::object::Set::SUBTREE;
+						Self::checkin_merge_object_permissions(permissions, id, object_permissions);
+					},
+					tg::graph::data::Edge::Pointer(_) => {},
+				}
+			}
+		}
+
+		// Build the dependency counts and reverse edges for the new objects.
+		let mut parents = vec![Vec::new(); index_object_args.len()];
+		let mut pending = vec![0; index_object_args.len()];
+		for (parent, (_, object)) in index_object_args.iter().enumerate() {
+			for child in &object.children {
+				let Some(child) = index_object_args.get_index_of(child) else {
+					continue;
+				};
+				parents[child].push(parent);
+				pending[parent] += 1;
+			}
+		}
+
+		// Compute the permissions from children to parents.
+		let mut queue = pending
+			.iter()
+			.enumerate()
+			.filter_map(|(index, &pending)| (pending == 0).then_some(index))
+			.collect::<VecDeque<_>>();
+		let mut processed = 0;
+		while let Some(index) = queue.pop_front() {
+			let (id, object) = index_object_args.get_index(index).unwrap();
+			let mut object_permissions = Self::checkin_object_permissions(graph, permissions, id);
+			object_permissions.insert(tg::authorization::permission::object::Set::NODE);
+			let subtree = object.children.iter().all(|child| {
+				Self::checkin_object_permissions(graph, permissions, child)
+					.contains(tg::authorization::permission::object::Set::SUBTREE)
+			});
+			if subtree {
+				object_permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+			}
+			Self::checkin_merge_object_permissions(permissions, id.clone(), object_permissions);
+			processed += 1;
+
+			for &parent in &parents[index] {
+				pending[parent] -= 1;
+				if pending[parent] == 0 {
+					queue.push_back(parent);
+				}
+			}
+		}
+		if processed != index_object_args.len() {
+			return Err(tg::error!("the object graph contains a cycle"));
+		}
+		for (id, object_permissions) in &permissions.objects {
+			if graph.ids.contains_key(id) {
+				graph
+					.permissions
+					.entry(id.clone())
+					.or_default()
+					.insert(*object_permissions);
+			}
+		}
+
+		// Cache the permissions on the affected checkin nodes.
+		let indices = graph
+			.nodes
+			.range(next..)
+			.map(|(index, _)| *index)
+			.collect::<Vec<_>>();
+		for index in indices {
+			let node = graph.nodes.get(&index).unwrap();
+			let Some(id) = node.id.as_ref() else {
+				continue;
+			};
+			let mut object_permissions = Self::checkin_object_permissions(graph, permissions, id);
+			if let Some(tg::graph::data::Edge::Pointer(pointer)) = &node.edge
+				&& let Some(graph_id) = &pointer.graph
+			{
+				object_permissions.insert(tg::authorization::permission::object::Set::NODE);
+				let graph_id = graph_id.clone().into();
+				if Self::checkin_object_permissions(graph, permissions, &graph_id)
+					.contains(tg::authorization::permission::object::Set::SUBTREE)
+				{
+					object_permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+				}
+			}
+			graph.nodes.get_mut(&index).unwrap().permissions = object_permissions;
 		}
 
 		Ok(())
@@ -899,6 +1018,7 @@ impl Session {
 		&self,
 		node: &Node,
 		pointer: &tg::graph::data::Pointer,
+		object_permissions: tg::authorization::permission::object::Set,
 	) -> tg::Result<tg::artifact::Id> {
 		// Create the pointer artifact data.
 		let data: tg::object::Data = match &node.variant {
@@ -937,8 +1057,43 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
+		let grant_subject = match &self.context.principal {
+			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
+			tg::Principal::Root => None,
+			principal => Some(principal.try_to_subject()?),
+		};
+		let put_grant_arg = grant_subject.map(|subject| {
+			let expires_at = touched_at
+				+ self
+					.server
+					.config
+					.object
+					.grant_time_to_live
+					.as_secs()
+					.to_i64()
+					.unwrap();
+			let permission = if object_permissions
+				.contains(tg::authorization::permission::object::Set::SUBTREE)
+			{
+				tg::authorization::permission::object::Permission::Subtree
+			} else {
+				tg::authorization::permission::object::Permission::Node
+			};
+			let permissions = tg::authorization::Permission::Object(permission).into();
+			tangram_index::grant::put::Arg {
+				created_at: touched_at,
+				creator: Some(self.context.principal.clone()),
+				implicit: Some(Some(expires_at)),
+				permissions,
+				resource: id.clone().into(),
+				subject,
+				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+			}
+		});
 		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutObject(put_object_arg)],
+			items: std::iter::once(tangram_index::batch::Item::PutObject(put_object_arg))
+				.chain(put_grant_arg.map(tangram_index::batch::Item::PutGrant))
+				.collect(),
 		};
 		// Store and index the object.
 		self.server
