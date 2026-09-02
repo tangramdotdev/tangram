@@ -29,7 +29,7 @@ pub struct Node {
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
 	pub permissions: tg::authorization::permission::object::Set,
-	pub referrers: SmallVec<[usize; 1]>,
+	pub referrers: im::HashSet<usize, fnv::FnvBuildHasher>,
 	pub solvable: bool,
 	pub solved: bool,
 	pub storage: tangram_index::object::Storage,
@@ -48,10 +48,7 @@ impl Graph {
 		{
 			return;
 		}
-		let referrers = &mut self.nodes.get_mut(&child).unwrap().referrers;
-		if !referrers.contains(&parent) {
-			referrers.push(parent);
-		}
+		self.nodes.get_mut(&child).unwrap().referrers.insert(parent);
 	}
 
 	pub fn create_object_node(
@@ -72,7 +69,7 @@ impl Graph {
 			path: None,
 			path_metadata: None,
 			permissions,
-			referrers: SmallVec::new(),
+			referrers: im::HashSet::default(),
 			solvable: false,
 			solved: true,
 			storage: tangram_index::object::Storage::default(),
@@ -85,9 +82,8 @@ impl Graph {
 	}
 
 	pub fn get_or_create_object_node(&mut self, id: &tg::object::Id, next: usize) -> usize {
-		if let Some(index) = self.ids.get(id).and_then(|indices| indices.last()).copied()
+		if let Some(index) = self.try_get_object_node(id)
 			&& index >= next
-			&& self.nodes.get(&index).unwrap().variant.is_object()
 		{
 			return index;
 		}
@@ -109,21 +105,46 @@ impl Graph {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::authorization::permission::object::Set {
-		self.ids
-			.get(id)
-			.and_then(|indices| indices.last())
-			.and_then(|index| self.nodes.get(index))
+		self.try_get_object_node(id)
+			.and_then(|index| self.nodes.get(&index))
 			.map_or_else(tg::authorization::permission::object::Set::empty, |node| {
 				node.permissions
 			})
 	}
 
-	pub fn clean(&mut self, root: &Path) -> HashSet<PathBuf, fnv::FnvBuildHasher> {
+	#[must_use]
+	pub fn try_get_object_node(&self, id: &tg::object::Id) -> Option<usize> {
+		self.ids.get(id).and_then(|indices| indices.last()).copied()
+	}
+
+	pub fn remove_id(
+		&mut self,
+		index: usize,
+		id: &tg::object::Id,
+		permissions: tg::authorization::permission::object::Set,
+	) {
+		let Some(nodes) = self.ids.get_mut(id) else {
+			return;
+		};
+		nodes.retain(|node| *node != index);
+		if nodes.is_empty() {
+			self.ids.remove(id);
+		} else {
+			let index = *nodes.last().unwrap();
+			self.nodes
+				.get_mut(&index)
+				.unwrap()
+				.permissions
+				.insert(permissions);
+		}
+	}
+
+	pub fn clean(&mut self, root: &Path, next: usize) -> HashSet<PathBuf, fnv::FnvBuildHasher> {
 		// Get nodes with no referrers.
 		let root = self.paths.get(root).copied();
 		let mut queue = self
 			.nodes
-			.iter()
+			.range(next..)
 			.filter(|(index, node)| Some(**index) != root && node.referrers.is_empty())
 			.map(|(index, _)| *index)
 			.collect::<Vec<_>>();
@@ -141,37 +162,8 @@ impl Graph {
 			if let Some(artifact) = &node.artifact {
 				self.artifacts.remove(artifact).unwrap();
 			}
-			if let Some(edge) = &node.edge
-				&& let Some(id) = edge.try_unwrap_object_ref().ok()
-				&& let Some(nodes) = self.ids.get_mut(id)
-			{
-				nodes.retain(|i| *i != index);
-				if nodes.is_empty() {
-					self.ids.remove(id);
-				} else {
-					let index = *nodes.last().unwrap();
-					self.nodes
-						.get_mut(&index)
-						.unwrap()
-						.permissions
-						.insert(node.permissions);
-				}
-			}
-			if let Some(id) = &node.id
-				&& let Some(nodes) = self.ids.get_mut(id)
-				&& nodes.contains(&index)
-			{
-				nodes.retain(|i| *i != index);
-				if nodes.is_empty() {
-					self.ids.remove(id);
-				} else {
-					let index = *nodes.last().unwrap();
-					self.nodes
-						.get_mut(&index)
-						.unwrap()
-						.permissions
-						.insert(node.permissions);
-				}
+			if let Some(id) = &node.id {
+				self.remove_id(index, id, node.permissions);
 			}
 			if let Some(path) = &node.path {
 				self.paths.remove(path);
@@ -184,7 +176,7 @@ impl Graph {
 				.chain(node.object_children.iter().copied())
 			{
 				if let Some(child) = self.nodes.get_mut(&child_index) {
-					child.referrers.retain(|index_| *index_ != index);
+					child.referrers.remove(&index);
 					if child.referrers.is_empty() {
 						queue.push(child_index);
 					}

@@ -868,19 +868,6 @@ impl Session {
 				},
 				_ => return Err(tg::error!("the watch changed during checkin")),
 			}
-
-			// Spawn a task to clean nodes with no referrers.
-			tokio::task::spawn_blocking({
-				let session = self.clone();
-				let root = root.to_owned();
-				let watch_key = watch_key.clone();
-				let next = graph.next;
-				move || {
-					if let Some(watch) = session.server.watches.get(&watch_key) {
-						watch.clean(&root, next);
-					}
-				}
-			});
 		} else {
 			self.server
 				.index_batch(index_arg)

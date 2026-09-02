@@ -1,7 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
 	crate::{Session, checkin::Graph},
-	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
 		os::unix::fs::PermissionsExt as _,
@@ -272,7 +271,7 @@ impl Session {
 			path: Some(item.path),
 			path_metadata: Some(metadata.clone()),
 			permissions: tg::authorization::permission::object::Set::empty(),
-			referrers: SmallVec::new(),
+			referrers: im::HashSet::default(),
 			solvable: false,
 			solved: true,
 			storage: tangram_index::object::Storage::default(),
@@ -810,7 +809,7 @@ impl Session {
 		child_index: usize,
 	) -> tg::Result<()> {
 		let child_node = state.graph.nodes.get_mut(&child_index).unwrap();
-		child_node.referrers.push(parent.index);
+		child_node.referrers.insert(parent.index);
 		let kind = child_node.variant.kind();
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => {

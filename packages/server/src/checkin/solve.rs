@@ -4,7 +4,6 @@ use {
 		Session,
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
-	smallvec::SmallVec,
 	std::{
 		fmt::Write as _,
 		path::{Path, PathBuf},
@@ -202,7 +201,7 @@ impl Session {
 
 			// Unsolve and clean the graph, clear the solutions, and solve from the beginning.
 			graph.unsolve();
-			graph.clean(root);
+			graph.clean(root, next);
 			solutions.clear();
 			let inner_arg = CheckinSolveInnerArg {
 				arg,
@@ -445,7 +444,7 @@ impl Session {
 				.get_mut(&pointer.index)
 				.unwrap()
 				.referrers
-				.push(item.referent.node);
+				.insert(item.referent.node);
 		}
 		let node = checkpoint.graph.nodes.get_mut(&item.referent.node).unwrap();
 		match &item.variant {
@@ -560,7 +559,7 @@ impl Session {
 						.get_mut(&pointer.index)
 						.unwrap()
 						.referrers
-						.push(item.referent.node);
+						.insert(item.referent.node);
 					let referent = referent.clone().map(|_| pointer.index);
 					Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent, &options);
 				}
@@ -1237,7 +1236,7 @@ impl Session {
 			path: None,
 			path_metadata: None,
 			permissions: tg::authorization::permission::object::Set::empty(),
-			referrers: SmallVec::new(),
+			referrers: im::HashSet::default(),
 			solvable: output
 				.output
 				.metadata
@@ -1428,7 +1427,7 @@ impl Session {
 			path: None,
 			path_metadata: None,
 			permissions: tg::authorization::permission::object::Set::empty(),
-			referrers: SmallVec::new(),
+			referrers: im::HashSet::default(),
 			solvable: true,
 			solved: false,
 			storage: tangram_index::object::Storage::default(),
@@ -1732,7 +1731,7 @@ impl Session {
 			let Some(parent) = graph
 				.nodes
 				.get(&current)
-				.and_then(|node| node.referrers.first().copied())
+				.and_then(|node| node.referrers.iter().next().copied())
 			else {
 				break;
 			};

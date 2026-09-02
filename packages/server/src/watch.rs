@@ -105,9 +105,8 @@ impl Watch {
 	where
 		F: FnOnce() -> Shared<tg::Result<()>>,
 	{
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
 		let NewArg {
-			graph,
+			mut graph,
 			lock,
 			next,
 			options,
@@ -115,6 +114,9 @@ impl Watch {
 			spawn_index_task,
 		} = arg;
 		let id = Id::new(server);
+
+		// Clean the graph.
+		graph.clean(&key.path, next);
 
 		// Create the watcher.
 		let config = notify::Config::default();
@@ -158,9 +160,11 @@ impl Watch {
 		};
 		let state = Arc::new(Mutex::new(state));
 
-		// On Linux, add the paths.
+		// Update the watched paths.
 		#[cfg(target_os = "linux")]
 		state.lock().unwrap().add_paths_linux(next);
+		#[cfg(target_os = "macos")]
+		state.lock().unwrap().update_paths_darwin();
 
 		// Spawn the task.
 		let lockfile_path = key.path.join(tg::module::LOCKFILE_FILE_NAME);
@@ -241,41 +245,8 @@ impl Watch {
 							if let Some(artifact) = &node.artifact {
 								state.graph.artifacts.remove(artifact).unwrap();
 							}
-							if let Some(edge) = &node.edge
-								&& let Some(id) = edge.try_unwrap_object_ref().ok()
-								&& let Some(nodes) = state.graph.ids.get_mut(id)
-							{
-								nodes.retain(|i| *i != index);
-								if nodes.is_empty() {
-									state.graph.ids.remove(id);
-								} else {
-									let index = *nodes.last().unwrap();
-									state
-										.graph
-										.nodes
-										.get_mut(&index)
-										.unwrap()
-										.permissions
-										.insert(node.permissions);
-								}
-							}
-							if let Some(id) = &node.id
-								&& let Some(nodes) = state.graph.ids.get_mut(id)
-								&& nodes.contains(&index)
-							{
-								nodes.retain(|i| *i != index);
-								if nodes.is_empty() {
-									state.graph.ids.remove(id);
-								} else {
-									let index = *nodes.last().unwrap();
-									state
-										.graph
-										.nodes
-										.get_mut(&index)
-										.unwrap()
-										.permissions
-										.insert(node.permissions);
-								}
+							if let Some(id) = &node.id {
+								state.graph.remove_id(index, id, node.permissions);
 							}
 							if let Some(path) = &node.path {
 								state.graph.paths.remove(path).unwrap();
@@ -292,7 +263,7 @@ impl Watch {
 								.chain(node.object_children.iter().copied())
 							{
 								if let Some(child) = state.graph.nodes.get_mut(&child_index) {
-									child.referrers.retain(|index_| *index_ != index);
+									child.referrers.remove(&index);
 									if child.referrers.is_empty() && child.path.is_none() {
 										queue.push(child_index);
 									}
@@ -457,7 +428,7 @@ impl Watch {
 		F: FnOnce() -> Shared<tg::Result<()>>,
 	{
 		let UpdateArg {
-			graph,
+			mut graph,
 			key,
 			lock,
 			lock_write_guard,
@@ -477,6 +448,8 @@ impl Watch {
 			drop(state);
 			return false;
 		}
+		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
+		let removed_paths = graph.clean(&key.path, next);
 
 		// Update the state.
 		let index_task = spawn_index_task();
@@ -495,37 +468,19 @@ impl Watch {
 			.timeout_task
 			.replace(Self::spawn_timeout_task(server, key, self.id));
 
-		// On Linux, add the new paths.
+		// Update the watched paths.
 		#[cfg(target_os = "linux")]
-		state.add_paths_linux(next);
-		#[cfg(not(target_os = "linux"))]
-		let _ = next;
+		{
+			state.remove_paths_linux(&removed_paths);
+			state.add_paths_linux(next);
+		}
+		#[cfg(target_os = "macos")]
+		state.update_paths_darwin();
 		if let Some(lock_write_guard) = lock_write_guard {
 			lock_write_guard.commit();
 		}
 
 		true
-	}
-
-	pub fn clean(&self, root: &Path, next: usize) {
-		let mut state = self.state.lock().unwrap();
-
-		// Only clean if the graph has not been modified.
-		if state.graph.next != next {
-			return;
-		}
-
-		// Clean the graph.
-		#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
-		let removed_paths = state.graph.clean(root);
-
-		// Unwatch removed paths on Linux.
-		#[cfg(target_os = "linux")]
-		state.remove_paths_linux(&removed_paths);
-
-		// Update paths on macOS.
-		#[cfg(target_os = "macos")]
-		state.update_paths_darwin();
 	}
 
 	fn changes(event: &notify::Event) -> HashSet<&Path, fnv::FnvBuildHasher> {

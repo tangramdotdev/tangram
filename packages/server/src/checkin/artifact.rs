@@ -49,6 +49,7 @@ struct CheckinCreateGraphArg<'a> {
 	store_args: &'a mut StoreArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	graph_data: &'a mut GraphData,
+	next: usize,
 	scc: &'a [usize],
 	time_to_touch: std::time::Duration,
 	touched_at: i64,
@@ -129,6 +130,7 @@ impl Session {
 					store_args,
 					index_object_args,
 					graph_data,
+					next,
 					scc,
 					time_to_touch,
 					touched_at,
@@ -175,19 +177,18 @@ impl Session {
 		index_object_args: &IndexObjectArgs,
 		next: usize,
 	) -> tg::Result<()> {
-		// Add graph nodes for all newly created objects.
-		let artifact_next = graph.next;
+		// Record the newly created objects.
 		for (id, object) in index_object_args {
-			let mut permissions = graph.object_permissions(id);
-			permissions.insert(tg::authorization::permission::object::Set::NODE);
-			let index = graph.create_object_node(id.clone(), permissions);
+			let index = graph.get_or_create_object_node(id, next);
 			let node = graph.nodes.get_mut(&index).unwrap();
 			node.metadata = Some(object.metadata.clone());
 			node.object_complete = true;
+			node.permissions
+				.insert(tg::authorization::permission::object::Set::NODE);
 			node.storage = object.storage.clone();
 		}
 
-		// Record the new objects' children.
+		// Record the newly created objects' children.
 		for (id, object) in index_object_args {
 			let parent = *graph.ids.get(id).unwrap().last().unwrap();
 			for id in &object.children {
@@ -196,77 +197,19 @@ impl Session {
 			}
 		}
 
-		// Retain each created object with the checkin node that produced it.
-		let objects = graph
-			.nodes
-			.range(next..artifact_next)
-			.filter_map(|(index, node)| {
-				if node.variant.is_object() {
-					return None;
-				}
-				let id = node
-					.id
-					.as_ref()
-					.filter(|id| index_object_args.contains_key(*id))
-					.cloned()
-					.or_else(|| match &node.edge {
-						Some(tg::graph::data::Edge::Object(id)) => Some(id.clone()),
-						Some(tg::graph::data::Edge::Pointer(pointer)) => {
-							pointer.graph.clone().map(Into::into)
-						},
-						None => None,
-					})?;
-				Some((*index, id))
-			})
-			.collect::<Vec<_>>();
-		for (parent, id) in objects {
-			let child = *graph.ids.get(&id).unwrap().last().unwrap();
-			graph.add_object_edge(parent, child);
-		}
-
-		// Merge permissions between new nodes representing the same object.
-		let mut merged = HashSet::<tg::object::Id, tg::id::BuildHasher>::default();
-		let ids = graph
-			.nodes
-			.range(next..)
-			.filter_map(|(_, node)| node.id.clone())
-			.collect::<Vec<_>>();
-		for id in ids {
-			if !merged.insert(id.clone()) {
-				continue;
-			}
-			let indices = graph
-				.ids
-				.get(&id)
-				.unwrap()
-				.iter()
-				.rev()
-				.take_while(|index| **index >= next)
-				.copied()
-				.collect::<Vec<_>>();
-			let permissions = indices
-				.iter()
-				.map(|index| graph.nodes.get(index).unwrap().permissions)
-				.fold(
-					tg::authorization::permission::object::Set::empty(),
-					|mut permissions, new_permissions| {
-						permissions.insert(new_permissions);
-						permissions
-					},
-				);
-			for index in indices {
-				graph.nodes.get_mut(&index).unwrap().permissions = permissions;
-			}
-		}
-
 		// Propagate observed subtree permissions through the new object edges.
 		let mut propagated = vec![false; graph.next - next];
 		let mut queue = graph
 			.nodes
 			.range(next..)
-			.filter(|(_, node)| {
-				node.permissions
-					.contains(tg::authorization::permission::object::Set::SUBTREE)
+			.filter(|(index, node)| {
+				node.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					== Some(**index)
+					&& node
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
 			})
 			.map(|(index, _)| *index)
 			.collect::<VecDeque<_>>();
@@ -286,123 +229,105 @@ impl Session {
 				.collect::<Vec<_>>();
 			for child in children {
 				let child_node = graph.nodes.get(&child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
 				if child_node
 					.permissions
 					.contains(tg::authorization::permission::object::Set::SUBTREE)
 				{
 					continue;
 				}
-				let id = child_node.id.as_ref().unwrap().clone();
-				let indices = graph
-					.ids
-					.get(&id)
-					.unwrap()
-					.iter()
-					.rev()
-					.take_while(|index| **index >= next)
-					.copied()
-					.collect::<Vec<_>>();
-				for index in indices {
-					let permissions = &mut graph.nodes.get_mut(&index).unwrap().permissions;
-					permissions.insert(tg::authorization::permission::object::Set::NODE);
-					permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
-					queue.push_back(index);
+				let permissions = &mut graph.nodes.get_mut(&child).unwrap().permissions;
+				permissions.insert(tg::authorization::permission::object::Set::NODE);
+				permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+				queue.push_back(child);
+			}
+		}
+
+		// Build the dependency counts and reverse edges for complete objects.
+		let mut complete_count = 0;
+		let mut parents = vec![Vec::new(); graph.next - next];
+		let mut pending = vec![0; graph.next - next];
+		for (index, node) in graph.nodes.range(next..) {
+			if !node.object_complete
+				|| node
+					.id
+					.as_ref()
+					.and_then(|id| graph.try_get_object_node(id))
+					!= Some(*index)
+			{
+				continue;
+			}
+			complete_count += 1;
+			for child in &node.object_children {
+				let child_node = graph.nodes.get(child).unwrap();
+				let child = graph
+					.try_get_object_node(child_node.id.as_ref().unwrap())
+					.unwrap();
+				let child_node = graph.nodes.get(&child).unwrap();
+				if child_node.object_complete {
+					parents[child - next].push(*index);
+					pending[*index - next] += 1;
 				}
 			}
 		}
 
-		// Build the dependency counts and reverse edges for the new objects.
-		let mut parents = vec![Vec::new(); index_object_args.len()];
-		let mut pending = vec![0; index_object_args.len()];
-		for (parent, (_, object)) in index_object_args.iter().enumerate() {
-			for child in &object.children {
-				let Some(child) = index_object_args.get_index_of(child) else {
-					continue;
-				};
-				parents[child].push(parent);
-				pending[parent] += 1;
-			}
-		}
-
-		// Compute the permissions from children to parents.
-		let mut queue = pending
-			.iter()
-			.enumerate()
-			.filter_map(|(index, &pending)| (pending == 0).then_some(index))
+		// Propagate permissions from children to parents.
+		let mut queue = graph
+			.nodes
+			.range(next..)
+			.filter_map(|(index, node)| {
+				(node.object_complete
+					&& node
+						.id
+						.as_ref()
+						.and_then(|id| graph.try_get_object_node(id))
+						== Some(*index)
+					&& pending[*index - next] == 0)
+					.then_some(*index)
+			})
 			.collect::<VecDeque<_>>();
-		let mut processed = 0;
+		let mut processed_count = 0;
 		while let Some(index) = queue.pop_front() {
-			let (id, object) = index_object_args.get_index(index).unwrap();
-			let mut object_permissions = graph.object_permissions(id);
-			object_permissions.insert(tg::authorization::permission::object::Set::NODE);
-			let subtree = object.children.iter().all(|child| {
-				graph
-					.object_permissions(child)
-					.contains(tg::authorization::permission::object::Set::SUBTREE)
-			});
+			let node = graph.nodes.get(&index).unwrap();
+			let subtree = node
+				.permissions
+				.contains(tg::authorization::permission::object::Set::NODE)
+				&& node.object_children.iter().all(|child| {
+					let child = graph.nodes.get(child).unwrap();
+					let child = graph
+						.try_get_object_node(child.id.as_ref().unwrap())
+						.unwrap();
+					graph
+						.nodes
+						.get(&child)
+						.unwrap()
+						.permissions
+						.contains(tg::authorization::permission::object::Set::SUBTREE)
+				});
 			if subtree {
-				object_permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
-			}
-			let indices = graph
-				.ids
-				.get(id)
-				.unwrap()
-				.iter()
-				.rev()
-				.take_while(|index| **index >= next)
-				.copied()
-				.collect::<Vec<_>>();
-			for index in indices {
 				graph
 					.nodes
 					.get_mut(&index)
 					.unwrap()
 					.permissions
-					.insert(object_permissions);
+					.insert(tg::authorization::permission::object::Set::SUBTREE);
 			}
-			processed += 1;
+			processed_count += 1;
 
-			for &parent in &parents[index] {
-				pending[parent] -= 1;
-				if pending[parent] == 0 {
+			for &parent in &parents[index - next] {
+				pending[parent - next] -= 1;
+				if pending[parent - next] == 0 {
 					queue.push_back(parent);
 				}
 			}
 		}
-		if processed != index_object_args.len() {
+		if processed_count != complete_count {
 			return Err(tg::error!("the object graph contains a cycle"));
 		}
 
-		// Compute permissions for pointer artifacts that are materialized on demand.
-		let indices = graph
-			.nodes
-			.range(next..artifact_next)
-			.filter_map(|(index, node)| {
-				(node.id.is_some() && !node.variant.is_object()).then_some(*index)
-			})
-			.collect::<Vec<_>>();
-		for index in indices {
-			let node = graph.nodes.get(&index).unwrap();
-			let id = node.id.as_ref().unwrap();
-			if index_object_args.contains_key(id) {
-				continue;
-			}
-			let subtree = node.object_children.iter().all(|child| {
-				graph
-					.nodes
-					.get(child)
-					.unwrap()
-					.permissions
-					.contains(tg::authorization::permission::object::Set::SUBTREE)
-			});
-			let node = graph.nodes.get_mut(&index).unwrap();
-			node.permissions
-				.insert(tg::authorization::permission::object::Set::NODE);
-			if subtree {
-				node.permissions
-					.insert(tg::authorization::permission::object::Set::SUBTREE);
-			}
-		}
 		Ok(())
 	}
 
@@ -578,6 +503,7 @@ impl Session {
 			store_args,
 			index_object_args,
 			graph_data,
+			next,
 			scc,
 			time_to_touch,
 			touched_at,
@@ -631,6 +557,8 @@ impl Session {
 
 		// Set edges and ids for all original nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
+		let graph_object_id = tg::object::Id::from(graph_id.clone());
+		let graph_index = graph.get_or_create_object_node(&graph_object_id, next);
 		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
 			for &global in global_indices {
 				let node = graph.nodes.get_mut(&global).unwrap();
@@ -675,6 +603,11 @@ impl Session {
 						kind: artifact_kind,
 					}));
 				graph.insert_id(global, id);
+				let node = graph.nodes.get_mut(&global).unwrap();
+				node.object_complete = true;
+				node.permissions
+					.insert(tg::authorization::permission::object::Set::NODE);
+				graph.add_object_edge(global, graph_index);
 			}
 		}
 
