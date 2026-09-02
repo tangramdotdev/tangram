@@ -47,7 +47,7 @@ pub fn ensure(arg: &Arg) -> tg::Result<bool> {
 	}
 	std::fs::remove_file(&temp_image_path).ok();
 	let error = tg::error!(
-		attempts = BUILD_ATTEMPTS,
+		attempts = %BUILD_ATTEMPTS,
 		"the sandbox root did not stabilize while building the VM image"
 	);
 	Err(error)

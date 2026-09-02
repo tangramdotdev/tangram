@@ -26,8 +26,8 @@ struct InputTimes {
 pub fn create(arg: &Arg) -> tg::Result<()> {
 	// Resolve the build inputs.
 	let libraries = libraries::resolve()?;
-	let mut input_times = input_times(&arg.tangram_path, &libraries)?;
-	if root_is_current(&arg.path, input_times.latest(), arg.vm)? {
+	let mut current_input_times = input_times(&arg.tangram_path, &libraries)?;
+	if root_is_current(&arg.path, current_input_times.latest(), arg.vm)? {
 		if let Ok(temp_path) = temporary_path(&arg.path) {
 			remove_path(&temp_path).ok();
 		}
@@ -67,8 +67,8 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 				return Err(error);
 			},
 		};
-		if input_times != next_input_times {
-			input_times = next_input_times;
+		if current_input_times != next_input_times {
+			current_input_times = next_input_times;
 			continue;
 		}
 
@@ -81,7 +81,7 @@ pub fn create(arg: &Arg) -> tg::Result<()> {
 	}
 	remove_path(&temp_path).ok();
 	let error = tg::error!(
-		attempts = BUILD_ATTEMPTS,
+		attempts = %BUILD_ATTEMPTS,
 		"the sandbox inputs did not stabilize while building the root"
 	);
 	Err(error)
