@@ -131,12 +131,6 @@ pub(crate) enum Read {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
-	ProcessGrants {
-		after: Option<Vec<u8>>,
-		depth: usize,
-		limit: usize,
-		process: tg::process::Id,
-	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -280,6 +274,7 @@ pub(crate) struct State {
 	evaluations: HashMap<Key, KeyEvaluation>,
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
+	process_parent_delegation: bool,
 	subject_key_dependents: BTreeMap<tg::authorization::Subject, BTreeSet<Key>>,
 	subject_subject_dependents:
 		BTreeMap<tg::authorization::Subject, BTreeSet<tg::authorization::Subject>>,
@@ -665,7 +660,6 @@ impl AncestorOrDescendantSearch {
 			| Read::ObjectChildren { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
-			| Read::ProcessGrants { .. }
 			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }) => self
 				.descendant
@@ -734,6 +728,15 @@ impl KeyEvaluation {
 }
 
 impl State {
+	#[must_use]
+	pub(crate) fn process_parent_delegation(&self) -> bool {
+		self.process_parent_delegation
+	}
+
+	pub(crate) fn set_process_parent_delegation(&mut self, value: bool) {
+		self.process_parent_delegation = value;
+	}
+
 	#[must_use]
 	pub(crate) fn process_facts(&self, process: &tg::process::Id) -> Option<Arc<ProcessFacts>> {
 		self.process_facts.get(process).cloned()
@@ -1231,43 +1234,6 @@ impl FinalSearch {
 				.copied()
 				.unwrap_or(Outcome::Exhausted),
 		}
-	}
-
-	#[must_use]
-	pub(crate) fn permissions(
-		&self,
-		state: &State,
-		resource: &tg::Id,
-		permissions: tg::authorization::permission::Set,
-	) -> (
-		tg::authorization::permission::Set,
-		tg::authorization::permission::Set,
-	) {
-		let mut authorized = permissions.empty_like();
-		let mut exhausted = permissions.empty_like();
-		for permission in crate::authorize::permissions_in_search_order(permissions) {
-			let key = (resource.clone(), permission);
-			match self.outcome(state, &key) {
-				Outcome::Authorized => {
-					crate::authorize::insert_implied_permissions(
-						&mut authorized,
-						permissions,
-						permission,
-					);
-					if authorized.contains(permissions) {
-						break;
-					}
-				},
-				Outcome::Denied => {},
-				Outcome::Exhausted | Outcome::Pending => {
-					exhausted.insert(tg::authorization::permission::Set::from_permission(
-						permission,
-					));
-				},
-			}
-		}
-
-		(authorized, exhausted)
 	}
 
 	fn enqueue_changed(&mut self, state: &mut State, current: Option<&Key>) {

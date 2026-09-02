@@ -422,25 +422,6 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ProcessGrants {
-				after,
-				limit,
-				process,
-			} => {
-				let subject = tg::authorization::Subject::Process(process.clone());
-				let (after, grants) = crate::fdb::propagate!(
-					Self::get_authorization_subject_grants_with_transaction(
-						txn,
-						subspace,
-						&subject,
-						after.as_deref(),
-						*limit,
-					)
-					.await
-				);
-
-				Output::Grants { after, grants }
-			},
 			Request::ProcessObjects {
 				after,
 				limit,

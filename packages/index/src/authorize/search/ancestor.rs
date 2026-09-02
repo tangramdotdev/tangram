@@ -419,7 +419,6 @@ impl Search {
 			| Read::OwnerSandboxes { .. }
 			| Read::Process { .. }
 			| Read::ProcessChildren { .. }
-			| Read::ProcessGrants { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
 			| Read::SandboxProcesses { .. }
@@ -717,13 +716,7 @@ impl Search {
 			let tg::authorization::Subject::Process(process) = &grant.subject else {
 				continue;
 			};
-			if !implicit_processes.insert(process.clone()) {
-				continue;
-			}
-			let permission = tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Parent,
-			);
-			dependencies.push((tg::Id::from(process.clone()), permission));
+			implicit_processes.insert(process.clone());
 		}
 		match permission {
 			tg::authorization::Permission::Object(object_permission) => {
@@ -804,8 +797,25 @@ impl Search {
 			return true;
 		}
 		let source = (grant.resource.clone(), grant.permission);
+		let subject = grant.subject.clone();
+		if !self.add_subject_dependency(state, dependent, source, subject.clone(), depth) {
+			return false;
+		}
+		if state.process_parent_delegation()
+			&& let tg::authorization::Subject::Process(process) = subject
+		{
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Parent,
+			);
+			let dependency = (tg::Id::from(process), permission);
+			if dependency != *dependent
+				&& !self.add_dependency(state, dependent, dependency, depth + 1)
+			{
+				return false;
+			}
+		}
 
-		self.add_subject_dependency(state, dependent, source, grant.subject.clone(), depth)
+		true
 	}
 
 	fn add_subject_dependency(

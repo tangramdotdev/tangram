@@ -73,11 +73,6 @@ pub(crate) enum Request {
 		limit: usize,
 		process: tg::process::Id,
 	},
-	ProcessGrants {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		process: tg::process::Id,
-	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -359,7 +354,6 @@ impl Request {
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
-			| Self::ProcessGrants { .. }
 			| Self::SandboxProcesses { .. }
 			| Self::SubjectGrants { .. } => return None,
 		};

@@ -30,11 +30,6 @@ enum DescendantTask {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
-	ProcessGrants {
-		after: Option<Vec<u8>>,
-		depth: usize,
-		process: tg::process::Id,
-	},
 	SandboxProcesses {
 		after: Option<Vec<u8>>,
 		depth: usize,
@@ -217,19 +212,6 @@ impl Search {
 						process,
 					});
 				},
-				DescendantTask::ProcessGrants {
-					after,
-					depth,
-					process,
-				} => {
-					let limit = self.budget.config.page_size;
-					reads.push(Read::ProcessGrants {
-						after,
-						depth,
-						limit,
-						process,
-					});
-				},
 				DescendantTask::SandboxProcesses {
 					after,
 					depth,
@@ -355,26 +337,6 @@ impl Search {
 								tg::authorization::Permission::Process(*permission),
 							)
 						})
-					})
-					.collect();
-
-				(depth, depth + 1, continuation, neighbors)
-			},
-			Read::ProcessGrants { depth, process, .. } => {
-				let (after, grants) = output.into_grants()?;
-				let subject = tg::authorization::Subject::Process(process.clone());
-				let continuation = after.map(|after| DescendantTask::ProcessGrants {
-					after: Some(after),
-					depth,
-					process,
-				});
-				let neighbors = grants
-					.into_iter()
-					.filter(|grant| grant.is_process_implicit() && grant.subject == subject)
-					.flat_map(|grant| {
-						crate::authorize::permissions_implied_by(grant.permission)
-							.into_iter()
-							.map(move |permission| (grant.resource.clone(), permission))
 					})
 					.collect();
 
@@ -702,15 +664,6 @@ impl Search {
 						},
 					);
 				}
-				if permission == tg::authorization::permission::process::Permission::Parent {
-					self.queues.entry(depth).or_default().push_back(
-						DescendantTask::ProcessGrants {
-							after: None,
-							depth,
-							process,
-						},
-					);
-				}
 			},
 			tg::authorization::Permission::Sandbox(permission) => {
 				let Ok(sandbox) = tg::sandbox::Id::try_from(resource) else {
@@ -836,19 +789,6 @@ impl Search {
 					after,
 					depth,
 					permission,
-					process,
-				},
-			),
-			Read::ProcessGrants {
-				after,
-				depth,
-				process,
-				..
-			} => (
-				depth,
-				DescendantTask::ProcessGrants {
-					after,
-					depth,
 					process,
 				},
 			),

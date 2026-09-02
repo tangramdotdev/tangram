@@ -22,7 +22,7 @@ pub(crate) struct Batch {
 	requested: Vec<Option<tg::authorization::permission::Set>>,
 	required: Vec<Option<tg::authorization::permission::Set>>,
 	resources: Vec<Resolution>,
-	search_indices: BTreeMap<Option<tg::authorization::Body>, usize>,
+	search_indices: BTreeMap<(Option<tg::authorization::Body>, bool), usize>,
 	searches: Vec<TokenSearch>,
 }
 
@@ -328,7 +328,7 @@ impl Batch {
 			.map(|(arg, resource)| normalize_permissions(resource.as_ref(), arg.required))
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let mut roots = BTreeMap::<Option<tg::authorization::Body>, Vec<Key>>::new();
+		let mut roots = BTreeMap::<(Option<tg::authorization::Body>, bool), Vec<Key>>::new();
 		for (index, (arg, resource)) in std::iter::zip(&self.args, &resources).enumerate() {
 			let Some((id, _)) = resource else {
 				continue;
@@ -340,18 +340,26 @@ impl Batch {
 			{
 				continue;
 			}
-			roots.entry(arg.token.clone()).or_default().extend(
-				super::permissions_in_search_order(requested)
-					.into_iter()
-					.map(|permission| (id.clone(), permission)),
-			);
+			for permission in super::permissions_in_search_order(requested) {
+				let process_parent_delegation = permission.is_read_like();
+				roots
+					.entry((arg.token.clone(), process_parent_delegation))
+					.or_default()
+					.push((id.clone(), permission));
+			}
 		}
 
-		for (token, roots) in roots {
+		for ((token, process_parent_delegation), roots) in roots {
 			let index = self.searches.len();
-			self.search_indices.insert(token.clone(), index);
-			self.searches
-				.push(TokenSearch::new(self.config, &self.principal, roots, token));
+			self.search_indices
+				.insert((token.clone(), process_parent_delegation), index);
+			self.searches.push(TokenSearch::new(
+				self.config,
+				&self.principal,
+				process_parent_delegation,
+				roots,
+				token,
+			));
 		}
 		self.phase = BatchPhase::Search { next: 0 };
 
@@ -392,12 +400,27 @@ impl Batch {
 				outcomes.push(super::Outcome::Authorized(output));
 				continue;
 			}
-			let search_index = self.search_indices[&arg.token];
-			let search = &self.searches[search_index];
-			let (authorized, exhausted) =
-				search
-					.final_search
-					.permissions(&search.state, &id, requested);
+			let mut authorized = requested.empty_like();
+			let mut exhausted = requested.empty_like();
+			for permission in super::permissions_in_search_order(requested) {
+				let process_parent_delegation = permission.is_read_like();
+				let search_index =
+					self.search_indices[&(arg.token.clone(), process_parent_delegation)];
+				let search = &self.searches[search_index];
+				let key = (id.clone(), permission);
+				match search.final_search.outcome(&search.state, &key) {
+					Outcome::Authorized => {
+						super::insert_implied_permissions(&mut authorized, requested, permission);
+						if authorized.contains(requested) {
+							break;
+						}
+					},
+					Outcome::Denied => {},
+					Outcome::Exhausted | Outcome::Pending => exhausted.insert(
+						tg::authorization::permission::Set::from_permission(permission),
+					),
+				}
+			}
 			let required_exhausted = required.iter().any(|permission| {
 				let permission = tg::authorization::permission::Set::from_permission(permission);
 				!authorized.contains(permission) && exhausted.contains(permission)
@@ -427,10 +450,12 @@ impl TokenSearch {
 	fn new(
 		config: super::Config,
 		principal: &tg::Principal,
+		process_parent_delegation: bool,
 		roots: Vec<Key>,
 		token: Option<tg::authorization::Body>,
 	) -> Self {
 		let mut state = State::default();
+		state.set_process_parent_delegation(process_parent_delegation);
 		let token = token.map(|body| {
 			let resource = body.resource.clone();
 			(body, resource)
@@ -1290,21 +1315,6 @@ where
 
 			ReadOutput::Ids { after, ids }
 		},
-		Read::ProcessGrants {
-			after,
-			limit,
-			process,
-			..
-		} => {
-			let output = read!(facts::Request::ProcessGrants {
-				after: after.clone(),
-				limit: *limit,
-				process: process.clone(),
-			});
-			let (after, grants) = output.into_grants()?;
-
-			ReadOutput::Grants { after, grants }
-		},
 		Read::ProcessObjects {
 			after,
 			limit,
@@ -1857,7 +1867,7 @@ mod tests {
 	}
 
 	#[test]
-	fn process_implicit_classification_is_evaluated_by_the_shared_policy() {
+	fn process_parent_delegation_ignores_the_grant_source() {
 		let matching = object(0);
 		let mismatching = object(1);
 		let process = tg::process::Id::new();
@@ -1899,7 +1909,7 @@ mod tests {
 		});
 
 		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
-		assert!(matches!(outcome[1], super::super::Outcome::Denied(_)));
+		assert!(matches!(outcome[1], super::super::Outcome::Authorized(_)));
 	}
 
 	#[test]
@@ -2024,7 +2034,7 @@ mod tests {
 				},
 			},
 			Read::Process { .. } => ReadOutput::Process(None),
-			Read::ProcessGrants { .. } | Read::SubjectGrants { .. } => ReadOutput::Grants {
+			Read::SubjectGrants { .. } => ReadOutput::Grants {
 				after: None,
 				grants: Vec::new(),
 			},

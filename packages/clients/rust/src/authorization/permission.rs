@@ -147,7 +147,7 @@ impl Permission {
 	}
 
 	#[must_use]
-	pub fn is_read(self) -> bool {
+	pub fn is_read_like(self) -> bool {
 		match self {
 			Self::Group(group::Permission::Read)
 			| Self::Object(_)
@@ -743,6 +743,45 @@ mod tests {
 			!Permission::Group(group::Permission::Admin)
 				.implies(Permission::Process(process::Permission::Node))
 		);
+	}
+
+	#[test]
+	fn read_like() {
+		for permission in [
+			Permission::Group(group::Permission::Read),
+			Permission::Object(object::Permission::Node),
+			Permission::Object(object::Permission::Subtree),
+			Permission::Organization(organization::Permission::Read),
+			Permission::Process(process::Permission::Node),
+			Permission::Process(process::Permission::NodeCommand),
+			Permission::Process(process::Permission::NodeError),
+			Permission::Process(process::Permission::NodeLog),
+			Permission::Process(process::Permission::NodeOutput),
+			Permission::Process(process::Permission::Subtree),
+			Permission::Process(process::Permission::SubtreeCommand),
+			Permission::Process(process::Permission::SubtreeError),
+			Permission::Process(process::Permission::SubtreeLog),
+			Permission::Process(process::Permission::SubtreeOutput),
+			Permission::Sandbox(sandbox::Permission::Read),
+			Permission::Tag(tag::Permission::Read),
+			Permission::User(user::Permission::Read),
+		] {
+			assert!(permission.is_read_like());
+		}
+		for permission in [
+			Permission::Group(group::Permission::Admin),
+			Permission::Group(group::Permission::Write),
+			Permission::Organization(organization::Permission::Admin),
+			Permission::Organization(organization::Permission::Write),
+			Permission::Process(process::Permission::Parent),
+			Permission::Sandbox(sandbox::Permission::Write),
+			Permission::Tag(tag::Permission::Admin),
+			Permission::Tag(tag::Permission::Write),
+			Permission::User(user::Permission::Admin),
+			Permission::User(user::Permission::Write),
+		] {
+			assert!(!permission.is_read_like());
+		}
 	}
 
 	#[test]

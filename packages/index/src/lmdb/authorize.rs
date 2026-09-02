@@ -425,23 +425,6 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ProcessGrants {
-				after,
-				limit,
-				process,
-			} => {
-				let subject = tg::authorization::Subject::Process(process.clone());
-				let (after, grants) = Self::get_authorization_subject_grants_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&subject,
-					after.as_deref(),
-					*limit,
-				)?;
-
-				Output::Grants { after, grants }
-			},
 			Request::ProcessObjects {
 				after,
 				limit,

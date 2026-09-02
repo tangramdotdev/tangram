@@ -756,7 +756,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 }
 
 #[tokio::test]
-async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
+async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let (_dir, index) = new_index();
 	let expiring_object = object_id(1);
 	let node_reader = tg::user::Id::new();
@@ -840,13 +840,17 @@ async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 
 	for (principal, expected_read, expected_write) in [
 		(tg::Principal::Process(process), true, true),
-		(tg::Principal::Sandbox(sandbox), true, true),
+		(tg::Principal::Sandbox(sandbox), true, false),
 		(tg::Principal::User(sandbox_reader), false, false),
-		(tg::Principal::User(sandbox_writer), true, true),
+		(tg::Principal::User(sandbox_writer), true, false),
 		(tg::Principal::User(node_reader), false, false),
 		(tg::Principal::User(subtree_reader), false, false),
 		(tg::Principal::User(process_node_holder), false, false),
-		(tg::Principal::User(process_parent_holder), true, true),
+		(
+			tg::Principal::User(process_parent_holder.clone()),
+			true,
+			false,
+		),
 		(tg::Principal::User(outsider), false, false),
 	] {
 		assert_eq!(
@@ -861,11 +865,37 @@ async fn authorize_inherits_a_process_implicit_grant_through_its_sandbox() {
 			is_authorized(&index, target.clone().into(), sandbox_write, &principal,).await,
 			expected_write,
 		);
+		assert_eq!(
+			is_authorized(&index, target.clone().into(), sandbox_read, &principal,).await,
+			expected_read,
+		);
 	}
+
+	let read = tg::authorization::permission::Set::from(sandbox_read);
+	let write = tg::authorization::permission::Set::from(sandbox_write);
+	let mut requested = read;
+	requested.insert(write);
+	let arg = crate::authorize::Arg {
+		requested,
+		required: read,
+		resource: tg::Selector::Id(target.into()),
+		token: None,
+	};
+	let outputs = index
+		.authorize_batch(
+			&[arg],
+			crate::authorize::Config::default(),
+			&tg::Principal::User(process_parent_holder),
+		)
+		.await
+		.unwrap();
+	let permissions = outputs[0].output().unwrap().permissions;
+	assert!(permissions.contains(read));
+	assert!(!permissions.contains(write));
 }
 
 #[tokio::test]
-async fn authorize_process_objects_only_through_process_implicit_grants() {
+async fn authorize_process_object_permissions_require_process_implicit_grants() {
 	let (_dir, index) = new_index();
 	let command_holder = tg::user::Id::new();
 	let object = object_id(0);
@@ -964,7 +994,7 @@ async fn authorize_process_objects_only_through_process_implicit_grants() {
 		.await
 	);
 	assert!(
-		!is_authorized(
+		is_authorized(
 			&index,
 			object.clone().into(),
 			subtree,
