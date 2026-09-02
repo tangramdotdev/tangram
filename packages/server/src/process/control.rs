@@ -259,6 +259,7 @@ impl Session {
 							let result = match request.arg {
 								tg::process::control::ClientRequestArg::Finish(arg) => session
 									.finish_process_control_request(&id, arg)
+									.boxed()
 									.await
 									.map(tg::process::control::ServerResponseOutput::Finish),
 							};
