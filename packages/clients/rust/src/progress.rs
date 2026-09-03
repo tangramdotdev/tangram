@@ -113,14 +113,17 @@ impl std::fmt::Display for Indicator {
 			write!(f, "]")?;
 		}
 		if let Some(current) = self.current {
+			if self.total.is_some() {
+				write!(f, " ")?;
+			}
 			match self.format {
 				tg::progress::IndicatorFormat::Normal => {
-					write!(f, " {current}")?;
+					write!(f, "{current}")?;
 				},
 				tg::progress::IndicatorFormat::Bytes => {
 					let current = byte_unit::Byte::from_u64(current)
 						.get_appropriate_unit(byte_unit::UnitType::Decimal);
-					write!(f, " {current:#.1}")?;
+					write!(f, "{current:#.1}")?;
 				},
 			}
 			if let Some(total) = self.total

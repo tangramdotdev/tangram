@@ -12,9 +12,12 @@ use {
 	unicode_width::UnicodeWidthChar as _,
 };
 
+const LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
 struct State {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
+	rendered: Option<(Bytes, u16)>,
 	sender: tokio::sync::mpsc::Sender<Bytes>,
 }
 
@@ -63,20 +66,57 @@ impl Session {
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
+		// Log nothing until the delay has elapsed so that short operations stay quiet.
+		let start = tokio::time::Instant::now() + self.server.config.runner.progress_log_delay;
+		let mut interval = tokio::time::interval_at(start, LOG_INTERVAL);
+		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			match event {
-				tg::progress::Event::Indicators(indicators) => {
-					for indicator in indicators {
-						let indicator = indicator.to_string();
-						if indicator.is_empty() {
-							continue;
-						}
-						progress.send(format!("{indicator}\n").into()).ok();
+		let mut latest: IndexMap<String, String> = IndexMap::new();
+		let mut written: IndexMap<String, String> = IndexMap::new();
+		loop {
+			tokio::select! {
+				result = stream.try_next() => {
+					let Some(event) = result? else {
+						break;
+					};
+					match event {
+						tg::progress::Event::Diagnostic(diagnostic) => {
+							let message = format!("{diagnostic}\n");
+							progress.send(message.into()).ok();
+							reset_log_interval(&mut interval, start);
+						},
+						tg::progress::Event::Indicators(indicators) => {
+							latest.clear();
+							for indicator in indicators {
+								let value = indicator.to_string();
+								let line = if value.is_empty() {
+									format!("↻ {}", indicator.title)
+								} else {
+									format!("↻ {} {value}", indicator.title)
+								};
+								latest.insert(indicator.name.clone(), line);
+							}
+						},
+						tg::progress::Event::Log(log) => {
+							let message = match log.level {
+								Some(level) => format!("{level} {}\n", log.message),
+								None => format!("{}\n", log.message),
+							};
+							progress.send(message.into()).ok();
+							reset_log_interval(&mut interval, start);
+						},
+						tg::progress::Event::Output(output) => {
+							let now = tokio::time::Instant::now();
+							if now >= start {
+								write_progress_log(&progress, &latest, &mut written);
+							}
+							return Ok(output);
+						},
 					}
 				},
-				tg::progress::Event::Output(output) => return Ok(output),
-				_ => (),
+				_ = interval.tick() => {
+					write_progress_log(&progress, &latest, &mut written);
+				},
 			}
 		}
 		Err(tg::error!("expected an output"))
@@ -91,6 +131,7 @@ impl Session {
 		let mut state = State {
 			indicators: IndexMap::new(),
 			lines: None,
+			rendered: None,
 			sender,
 		};
 		let progress_task = Task::spawn(|_| async move {
@@ -98,36 +139,48 @@ impl Session {
 			let mut stream = pin!(stream);
 			let mut output = None;
 			loop {
-				let next = stream.next();
-				let tick = interval.tick().boxed();
-				let either = future::select(next, tick).await;
-				match either {
-					future::Either::Left((Some(Ok(event)), _)) => {
-						let is_indicators = event.is_indicators();
-						match event {
-							tg::progress::Event::Output(value) => {
-								output.replace(value);
-							},
-							event => {
-								state.update(event).await;
-							},
-						}
-						if is_indicators {
-							continue;
-						}
-					},
-					future::Either::Left((Some(Err(error)), _)) => {
-						state.clear().await;
-						return Err(error);
-					},
-					future::Either::Left((None, _)) => {
-						state.clear().await;
-						break;
-					},
-					future::Either::Right(_) => (),
+				let reset_interval = {
+					let next = stream.next();
+					let tick = interval.tick().boxed();
+					let either = future::select(next, tick).await;
+					match either {
+						future::Either::Left((Some(Ok(event)), _)) => {
+							let is_message = event.is_diagnostic() || event.is_log();
+							if is_message {
+								state.clear().await;
+							}
+							match event {
+								tg::progress::Event::Output(value) => {
+									state.clear().await;
+									output.replace(value);
+								},
+								event => {
+									state.update(event).await;
+								},
+							}
+							if is_message {
+								state.restore().await;
+							}
+							is_message
+						},
+						future::Either::Left((Some(Err(error)), _)) => {
+							state.clear().await;
+							return Err(error);
+						},
+						future::Either::Left((None, _)) => {
+							state.clear().await;
+							break;
+						},
+						future::Either::Right(_) => {
+							state.clear().await;
+							state.print().await?;
+							false
+						},
+					}
+				};
+				if reset_interval {
+					interval.reset();
 				}
-				state.clear().await;
-				state.print().await?;
 			}
 			output.ok_or_else(|| tg::error!("expected an output"))
 		});
@@ -147,28 +200,8 @@ impl Session {
 impl State {
 	async fn update<T>(&mut self, event: tg::progress::Event<T>) {
 		match event {
-			tg::progress::Event::Log(log) => {
-				if let Some(level) = log.level {
-					let output = match level {
-						tg::progress::Level::Success => {
-							format!("{} ", "success".green().bold())
-						},
-						tg::progress::Level::Info => {
-							format!("{} ", "info".blue().bold())
-						},
-						tg::progress::Level::Warning => {
-							format!("{} ", "warning".yellow().bold())
-						},
-						tg::progress::Level::Error => {
-							format!("{} ", "error".red().bold())
-						},
-					};
-					self.sender.send(output.into()).await.ok();
-				}
-			},
-
 			tg::progress::Event::Diagnostic(diagnostic) => {
-				let output = diagnostic.to_string();
+				let output = format!("{diagnostic}\n");
 				self.sender.send(output.into()).await.ok();
 			},
 
@@ -177,6 +210,22 @@ impl State {
 					.into_iter()
 					.map(|i| (i.name.clone(), i))
 					.collect();
+			},
+
+			tg::progress::Event::Log(log) => {
+				let output = match log.level {
+					Some(level) => {
+						let level = match level {
+							tg::progress::Level::Error => "error".red().bold(),
+							tg::progress::Level::Info => "info".blue().bold(),
+							tg::progress::Level::Success => "success".green().bold(),
+							tg::progress::Level::Warning => "warning".yellow().bold(),
+						};
+						format!("{level} {}\n", log.message)
+					},
+					None => format!("{}\n", log.message),
+				};
+				self.sender.send(output.into()).await.ok();
 			},
 
 			tg::progress::Event::Output(_) => (),
@@ -233,12 +282,23 @@ impl State {
 		}
 
 		// Send the event.
-		self.sender.send(buffer.into()).await.ok();
+		let buffer = Bytes::from(buffer);
+		self.sender.send(buffer.clone()).await.ok();
 
 		// Update the number of lines.
-		self.lines.replace(self.indicators.len().to_u16().unwrap());
+		let lines = self.indicators.len().to_u16().unwrap();
+		self.lines.replace(lines);
+		self.rendered.replace((buffer, lines));
 
 		Ok(())
+	}
+
+	async fn restore(&mut self) {
+		let Some((buffer, lines)) = self.rendered.clone() else {
+			return;
+		};
+		self.sender.send(buffer).await.ok();
+		self.lines.replace(lines);
 	}
 }
 
@@ -253,4 +313,23 @@ fn clip(string: &str, mut width: usize) -> &str {
 		width = width.saturating_sub(char.width().unwrap_or(0));
 	}
 	&string[0..len]
+}
+
+fn reset_log_interval(interval: &mut tokio::time::Interval, start: tokio::time::Instant) {
+	let deadline = (tokio::time::Instant::now() + LOG_INTERVAL).max(start);
+	interval.reset_at(deadline);
+}
+
+fn write_progress_log(
+	progress: &tokio::sync::mpsc::UnboundedSender<Bytes>,
+	latest: &IndexMap<String, String>,
+	written: &mut IndexMap<String, String>,
+) {
+	for (name, line) in latest {
+		if written.get(name).is_some_and(|previous| previous == line) {
+			continue;
+		}
+		progress.send(format!("{line}\n").into()).ok();
+		written.insert(name.clone(), line.clone());
+	}
 }
