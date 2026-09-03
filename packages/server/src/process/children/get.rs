@@ -310,9 +310,9 @@ impl Session {
 		let output = self
 			.get_process_children_from_control(id, 0, 0)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, %id, "failed to get the process children from the runner")
-			})?;
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to get the process children from the runner"),
+			)?;
 		let position = output
 			.length
 			.to_i64()
@@ -368,9 +368,9 @@ impl Session {
 			let output = self
 				.get_process_children_from_control(id, position, length)
 				.await
-				.map_err(|error| {
-					tg::error!(!error, %id, "failed to get the process children from the runner")
-				})?;
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to get the process children from the runner"),
+				)?;
 			let output = LocalChildren {
 				children: output
 					.children
@@ -453,9 +453,9 @@ impl Session {
 		let response = self
 			.send_process_control_request(id, request, options)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, %id, "failed to send the get children control request")
-			})?
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the get children control request"),
+			)?
 			.map_err(|error| tg::error!(!error, %id, "the get children control request failed"))?;
 		let output = response
 			.try_unwrap_get_children()
