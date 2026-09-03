@@ -13,15 +13,39 @@ let module = artifact {
 	tangram.ts: '
 		export default () => {
 			const dependency = tg.file("dependency");
-			return tg.file({
+			const file = tg.file({
 				contents: "input",
 				dependencies: { dependency },
 			});
+			return { dependency: dependency.id, file: file.id };
 		}
 	'
 }
-let id = tg build $module | str trim
+let artifacts = tg build $module | from json
 
-let path = vfs root $server_path $id
-let dependencies = xattr_read 'user.tangram.dependencies' $path | normalize
-assert equal $dependencies '["dependency?tokens[local]=<token>"]'
+let path = vfs root $server_path $artifacts.file
+let dependencies = xattr_read 'user.tangram.dependencies' $path
+assert equal ($dependencies | normalize) '["dependency?tokens[local]=<token>"]'
+
+# The in-server VFS provider issues an exact token for the dependency.
+if $nu.os-info.name == 'linux' {
+	let reference = $dependencies | from json | first
+	let token = (
+		$"http://localhost/($reference)"
+		| url parse
+		| get params
+		| where key == 'tokens[local]'
+		| first
+		| get value
+	)
+	let resource = (
+		$token
+		| split row '.'
+		| get 1
+		| decode base64
+		| decode utf-8
+		| from json
+		| get resource
+	)
+	assert equal $resource $artifacts.dependency
+}

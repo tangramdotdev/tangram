@@ -1176,14 +1176,10 @@ impl Inner {
 			return Ok(None);
 		};
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
-			let dependencies = file
-				.dependencies_with_handle(&self.client)
-				.await
-				.map_err(eio)?;
-			if dependencies.is_empty() {
+			let references = self.file_dependency_references(&file).await?;
+			if references.is_empty() {
 				return Ok(None);
 			}
-			let references = dependencies.into_keys().collect::<Vec<_>>();
 			let data = serde_json::to_vec(&references).map_err(eio)?;
 			return Ok(Some(data.into()));
 		}
@@ -1194,6 +1190,31 @@ impl Inner {
 			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
 		}
 		Ok(None)
+	}
+
+	async fn file_dependency_references(
+		&self,
+		file: &tg::File,
+	) -> std::io::Result<Vec<tg::Reference>> {
+		let dependencies = file
+			.dependencies_with_handle(&self.client)
+			.await
+			.map_err(eio)?;
+		let tokens = file.state().tokens();
+		let mut references = Vec::with_capacity(dependencies.len());
+		for (mut reference, dependency) in dependencies {
+			let resolved = dependency
+				.and_then(|dependency| dependency.0.node)
+				.is_some_and(|object| tg::Artifact::try_from(object).is_ok());
+			if resolved {
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&tokens);
+				reference.set_options(options);
+			}
+			references.push(reference);
+		}
+
+		Ok(references)
 	}
 
 	fn close(&self, handle: u64) {
@@ -1356,16 +1377,12 @@ impl Fast {
 		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
+		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+			// Use the token-aware client path for dependency references.
+			return Err(fallback());
+		}
 		let transaction = self.transaction()?;
 		let (file, _) = self.file_node_with_transaction(&transaction, artifact)?;
-		if name == tg::file::DEPENDENCIES_XATTR_NAME {
-			if file.dependencies.is_empty() {
-				return Ok(None);
-			}
-			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
-			let data = serde_json::to_vec(&references).map_err(eio)?;
-			return Ok(Some(data.into()));
-		}
 		if name == tg::file::MODULE_XATTR_NAME {
 			let Some(module) = file.module else {
 				return Ok(None);
