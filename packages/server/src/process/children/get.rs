@@ -306,7 +306,6 @@ impl Session {
 			return Err(tg::error!(%id, "the process children are incomplete"));
 		}
 
-		// The process is running on a runner, so ask it for the length.
 		let output = self
 			.get_process_children_from_control(id, 0, 0)
 			.await
@@ -361,7 +360,6 @@ impl Session {
 				return Err(tg::error!(%id, "the process children are incomplete"));
 			}
 
-			// The process is running on a runner, so ask it for the children.
 			let std::io::SeekFrom::Start(position) = position else {
 				return Err(tg::error!(%id, "invalid position"));
 			};
@@ -428,7 +426,6 @@ impl Session {
 			return Ok(true);
 		}
 
-		// A running process's children are readable from its runner over the control stream.
 		let running = process
 			.data
 			.as_ref()
