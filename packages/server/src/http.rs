@@ -42,6 +42,19 @@ pub(crate) enum Stream {
 type Service =
 	tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, Infallible>;
 
+fn request_timeout_response() -> http::Response<BoxBody> {
+	let error = tg::error!("the request timed out");
+	let bytes = match error.to_data_or_id() {
+		tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
+		tg::Either::Right(id) => id.to_string(),
+	};
+	http::Response::builder()
+		.status(http::StatusCode::REQUEST_TIMEOUT)
+		.bytes(bytes)
+		.unwrap()
+		.boxed_body()
+}
+
 impl Server {
 	pub(crate) async fn connect(url: &Uri) -> tg::Result<Stream> {
 		let stream =
@@ -290,6 +303,13 @@ impl Server {
 		let builder = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::metrics::MetricsLayer::new())
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
+			.map_response(|response: http::Response<BoxBody>| {
+				if response.status() == http::StatusCode::REQUEST_TIMEOUT {
+					request_timeout_response()
+				} else {
+					response
+				}
+			})
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
 				Duration::from_mins(1),
