@@ -6,6 +6,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
+		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
 		self.put_finished_process_local(id, arg.data).await?;
 		self.spawn_process_finish_tasks(id);
 
