@@ -2134,15 +2134,7 @@ impl Tree {
 			Item::Sandbox(_) => "sandbox",
 			Item::Tag(_) => "tag",
 			Item::User(_) => "user",
-			Item::Value(tg::Value::Object(object)) => match object {
-				tg::Object::Blob(_) => "blob",
-				tg::Object::Command(_) => "command",
-				tg::Object::Directory(_) => "directory",
-				tg::Object::Error(_) => "error",
-				tg::Object::File(_) => "file",
-				tg::Object::Graph(_) => "graph",
-				tg::Object::Symlink(_) => "symlink",
-			},
+			Item::Value(tg::Value::Object(_)) => "object",
 			Item::Value(_) => "value",
 		}
 	}
