@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# An HTTP response body rejects when its stream closes before emitting end.
+# An HTTP response rejects when its stream closes before completion, both before and after receiving headers.
 
 let server = server spawn
 
@@ -29,26 +29,35 @@ let path = artifact {
 			}
 		}
 
-		export default async function () {
-			let stream = new Stream();
-			let responsePromise = tg.Response.fromStream(stream as any);
-			stream.emit("response", { ":status": "200" });
-			let response = await responsePromise;
-			let bodyPromise = response.collect().then(
-				() => "resolved",
-				() => "rejected",
-			);
-			stream.emit("close");
+		async function outcome(promise: Promise<unknown>) {
 			return await Promise.race([
-				bodyPromise,
+				promise.then(
+					() => "resolved",
+					() => "rejected",
+				),
 				(async () => {
 					await tg.sleep(0.05);
 					return "pending";
 				})(),
 			]);
 		}
+
+		export default async function () {
+			let beforeHeaders = new Stream();
+			let responseOutcome = outcome(tg.Response.fromStream(beforeHeaders as any));
+			beforeHeaders.emit("close");
+
+			let afterHeaders = new Stream();
+			let responsePromise = tg.Response.fromStream(afterHeaders as any);
+			afterHeaders.emit("response", { ":status": "200" });
+			let response = await responsePromise;
+			let bodyOutcome = outcome(response.collect());
+			afterHeaders.emit("close");
+
+			return await Promise.all([responseOutcome, bodyOutcome]);
+		}
 	'
 }
 
 let output = tg build $path
-snapshot $output '"rejected"'
+snapshot $output '["rejected","rejected"]'

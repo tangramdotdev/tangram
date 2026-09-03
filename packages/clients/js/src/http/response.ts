@@ -63,6 +63,11 @@ export class Response {
 			};
 
 			stream.once("error", fail);
+			stream.once("close", () => {
+				if (!done) {
+					fail(new Error("the HTTP/2 stream closed before the response ended"));
+				}
+			});
 			stream.once("response", (headers: unknown) => {
 				try {
 					let headers_ = new Headers(headers as tg.Host.Http2.Headers);
