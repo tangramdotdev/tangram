@@ -1177,9 +1177,12 @@ impl Session {
 		let Item { graph, id, .. } = item;
 
 		let mut dependencies = Vec::new();
+		let mut references = Vec::with_capacity(node.dependencies.len());
 		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
-		for dependency in node.dependencies.values() {
+		for (reference, dependency) in &node.dependencies {
+			let mut reference = reference.clone();
 			let Some(dependency) = dependency else {
+				references.push(reference);
 				continue;
 			};
 
@@ -1188,11 +1191,17 @@ impl Session {
 				Some(tg::graph::data::Edge::Pointer(graph)) => {
 					tg::graph::data::Edge::Pointer(graph)
 				},
-				Some(tg::graph::data::Edge::Object(id)) => match id.try_into() {
-					Ok(id) => tg::graph::data::Edge::Object(id),
-					Err(_) => continue,
+				Some(tg::graph::data::Edge::Object(id)) => {
+					let Ok(id) = id.try_into() else {
+						references.push(reference);
+						continue;
+					};
+					tg::graph::data::Edge::Object(id)
 				},
-				None => continue,
+				None => {
+					references.push(reference);
+					continue;
+				},
 			};
 
 			// Update the graph if necessary.
@@ -1206,6 +1215,8 @@ impl Session {
 			let item = self
 				.checkout_internal_get_item(edge)
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
+			self.add_token_to_object_reference(&mut reference, &item.id)?;
+			references.push(reference);
 
 			// Collect the dependency if it is not the root artifact.
 			if item.id != state.artifact && visited.insert(item.id.clone()) {
@@ -1260,12 +1271,11 @@ impl Session {
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
-			// Set the dependencies attr.
-			let dependencies_ = node.dependencies.keys().cloned().collect::<Vec<_>>();
-			if !dependencies_.is_empty() {
-				let dependencies = serde_json::to_vec(&dependencies_)
+			// Set the dependencies attr with authorization for each resolved dependency.
+			if !references.is_empty() {
+				let references = serde_json::to_vec(&references)
 					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
+				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &references)
 					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
 			}
 

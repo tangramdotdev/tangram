@@ -61,6 +61,36 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) fn add_token_to_object_reference(
+		&self,
+		reference: &mut tg::Reference,
+		resource: &tg::artifact::Id,
+	) -> tg::Result<()> {
+		let expires_at = self.server.clock.unix_timestamp()?
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let token = self.create_token(
+			resource.clone().into(),
+			vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			expires_at,
+		)?;
+		if let Some(token) = token {
+			let mut options = reference.options().clone();
+			options.tokens.set_local(token);
+			reference.set_options(options);
+		}
+
+		Ok(())
+	}
+
 	pub(crate) fn update_tokens_and_location(
 		&self,
 		tokens: &mut tg::authorization::Tokens,

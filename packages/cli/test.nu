@@ -1832,7 +1832,10 @@ def snapshot_path [path: string] {
 		let contents = open $path
 		let executable = ls -l $path | first | get mode | str contains 'x'
 		let names = xattr_list $path | where { |name| $name starts-with 'user.tangram' }
-		let xattrs = $names | reduce -f {} { |name, acc| $acc | insert $name (xattr_read $name $path) }
+		let xattrs = $names | reduce -f {} { |name, acc|
+			let value = xattr_read $name $path | normalize
+			$acc | insert $name $value
+		}
 		mut output = { kind: 'file', contents: $contents }
 		if $executable {
 			$output.executable = true

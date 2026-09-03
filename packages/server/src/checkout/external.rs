@@ -586,19 +586,28 @@ impl Session {
 		let Item { graph, id, .. } = item;
 
 		// Check out the dependencies.
-		for dependency in node.dependencies.values() {
+		let mut references = Vec::with_capacity(node.dependencies.len());
+		for (reference, dependency) in &node.dependencies {
+			let mut reference = reference.clone();
 			let Some(dependency) = dependency else {
+				references.push(reference);
 				continue;
 			};
 			let mut edge = match dependency.node.clone() {
 				Some(tg::graph::data::Edge::Pointer(graph)) => {
 					tg::graph::data::Edge::Pointer(graph)
 				},
-				Some(tg::graph::data::Edge::Object(id)) => match id.try_into() {
-					Ok(id) => tg::graph::data::Edge::Object(id),
-					Err(_) => continue,
+				Some(tg::graph::data::Edge::Object(id)) => {
+					let Ok(id) = id.try_into() else {
+						references.push(reference);
+						continue;
+					};
+					tg::graph::data::Edge::Object(id)
 				},
-				None => continue,
+				None => {
+					references.push(reference);
+					continue;
+				},
 			};
 			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
 				&& pointer.graph.is_none()
@@ -608,6 +617,8 @@ impl Session {
 			let item = self
 				.checkout_get_item(edge)
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
+			self.add_token_to_object_reference(&mut reference, &item.id)?;
+			references.push(reference);
 			if item.id != state.artifact {
 				self.checkout_dependency(state, &item)
 					.map_err(|error| tg::error!(!error, "failed to check out the dependency"))?;
@@ -637,17 +648,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 
 			if cfg!(target_os = "linux") {
-				// Set the dependencies attr.
-				let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
-				if !dependencies.is_empty() {
-					let dependencies = serde_json::to_vec(&dependencies).map_err(|error| {
-						tg::error!(!error, "failed to serialize the dependencies")
-					})?;
-					xattr::set(dst, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies).map_err(
-						|error| tg::error!(!error, "failed to write the dependencies attr"),
-					)?;
-				}
-
 				// Set the module xattr.
 				if let Some(module) = &node.module {
 					let module = module.to_string();
@@ -682,15 +682,6 @@ impl Session {
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
-			// Set the dependencies attr.
-			let dependencies = node.dependencies.keys().cloned().collect::<Vec<_>>();
-			if !dependencies.is_empty() {
-				let dependencies = serde_json::to_vec(&dependencies)
-					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &dependencies)
-					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
-			}
-
 			// Set the module xattr.
 			if let Some(module) = &node.module {
 				let module = module.to_string();
@@ -704,6 +695,14 @@ impl Session {
 				std::fs::set_permissions(path, permissions)
 					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 			}
+		}
+
+		// Set the dependencies attr with authorization for each resolved dependency.
+		if !references.is_empty() {
+			let references = serde_json::to_vec(&references)
+				.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
+			xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &references)
+				.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
 		}
 
 		// Increment the progress.

@@ -28,14 +28,14 @@
       "kind": "file",
       "contents": "bar",
       "xattrs": {
-        "user.tangram.dependencies": "[\"dir_01adw2800e84an26zs18h1h7q1swfv7hvdvsb3g0zxz59c91rkh51g\"]"
+        "user.tangram.dependencies": "[\"dir_01adw2800e84an26zs18h1h7q1swfv7hvdvsb3g0zxz59c91rkh51g?tokens[local]=<token>\"]"
       }
     },
     "foo.txt": {
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"dir_01adw2800e84an26zs18h1h7q1swfv7hvdvsb3g0zxz59c91rkh51g\"]"
+        "user.tangram.dependencies": "[\"dir_01adw2800e84an26zs18h1h7q1swfv7hvdvsb3g0zxz59c91rkh51g?tokens[local]=<token>\"]"
       }
     }
   }
