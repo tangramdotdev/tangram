@@ -551,7 +551,7 @@ impl Provider {
 			};
 			let dependency = Self::artifact_from_edge_inner(edge, graph)?;
 			session
-				.add_token_to_object_reference(&mut reference, &dependency.id)
+				.add_permanent_token_to_object_reference(&mut reference, &dependency.id)
 				.map_err(|error| {
 					tracing::error!(
 						error = %error.trace(),

@@ -617,7 +617,7 @@ impl Session {
 			let item = self
 				.checkout_get_item(edge)
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-			self.add_token_to_object_reference(&mut reference, &item.id)?;
+			self.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
 			references.push(reference);
 			if item.id != state.artifact {
 				self.checkout_dependency(state, &item)

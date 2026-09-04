@@ -1215,7 +1215,7 @@ impl Session {
 			let item = self
 				.checkout_internal_get_item(edge)
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
-			self.add_token_to_object_reference(&mut reference, &item.id)?;
+			self.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
 			references.push(reference);
 
 			// Collect the dependency if it is not the root artifact.

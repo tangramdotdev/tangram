@@ -29,6 +29,27 @@ let id = tg build $artifact
 
 let path = $tmp | path join "checkout"
 tg checkout --dependencies=false $id --path $path
+
+let reference = xattr_read 'user.tangram.dependencies' $path | from json | first
+let token = (
+	$"http://localhost/($reference)"
+	| url parse
+	| get params
+	| where key == 'tokens[local]'
+	| first
+	| get value
+)
+let expires_at = (
+	$token
+	| split row '.'
+	| get 1
+	| decode base64
+	| decode utf-8
+	| from json
+	| get expires_at
+)
+assert equal $expires_at 9223372036854775807
+
 snapshot --path $path '
 	{
 	  "kind": "file",

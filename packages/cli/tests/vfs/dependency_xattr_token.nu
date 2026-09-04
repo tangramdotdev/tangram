@@ -27,7 +27,7 @@ let path = vfs root $server_path $artifacts.file
 let dependencies = xattr_read 'user.tangram.dependencies' $path
 assert equal ($dependencies | normalize) '["dependency?tokens[local]=<token>"]'
 
-# The in-server VFS provider issues an exact token for the dependency.
+# The in-server VFS provider issues a permanent, exact token for the dependency.
 if $nu.os-info.name == 'linux' {
 	let reference = $dependencies | from json | first
 	let token = (
@@ -38,14 +38,14 @@ if $nu.os-info.name == 'linux' {
 		| first
 		| get value
 	)
-	let resource = (
+	let body = (
 		$token
 		| split row '.'
 		| get 1
 		| decode base64
 		| decode utf-8
 		| from json
-		| get resource
 	)
-	assert equal $resource $artifacts.dependency
+	assert equal $body.expires_at 9223372036854775807
+	assert equal $body.resource $artifacts.dependency
 }

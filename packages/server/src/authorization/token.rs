@@ -61,20 +61,12 @@ impl Session {
 		Ok(())
 	}
 
-	pub(crate) fn add_token_to_object_reference(
+	pub(crate) fn add_permanent_token_to_object_reference(
 		&self,
 		reference: &mut tg::Reference,
 		resource: &tg::artifact::Id,
 	) -> tg::Result<()> {
-		let expires_at = self.server.clock.unix_timestamp()?
-			+ self
-				.server
-				.config
-				.object
-				.grant_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
+		let expires_at = i64::MAX;
 		let token = self.create_token(
 			resource.clone().into(),
 			vec![tg::authorization::Permission::Object(
