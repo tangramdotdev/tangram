@@ -11,11 +11,17 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[derive(Debug, Eq, PartialEq)]
 struct User {
 	gid: libc::gid_t,
 	home: PathBuf,
 	name: String,
 	uid: libc::uid_t,
+}
+
+enum UserQuery {
+	Name(CString),
+	Uid(libc::uid_t),
 }
 
 pub(crate) async fn spawn(
@@ -366,30 +372,74 @@ fn render_passwd(user: &User) -> String {
 }
 
 fn resolve_user(name: Option<&str>) -> tg::Result<User> {
+	let query = if let Some(name) = name {
+		let name = CString::new(OsStr::new(name).as_bytes())
+			.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
+		UserQuery::Name(name)
+	} else {
+		// SAFETY: This function has no preconditions.
+		let uid = unsafe { libc::getuid() };
+		UserQuery::Uid(uid)
+	};
+
+	resolve_user_with_checkpoint(&query, || {})
+}
+
+fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) -> tg::Result<User> {
+	// SAFETY: The name pointer is valid and both lookup functions have no other preconditions.
 	let ptr = unsafe {
-		if let Some(name) = name {
-			let name = CString::new(OsStr::new(name).as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
-			libc::getpwnam(name.as_ptr())
-		} else {
-			libc::getpwuid(libc::getuid())
+		match query {
+			UserQuery::Name(name) => libc::getpwnam(name.as_ptr()),
+			UserQuery::Uid(uid) => libc::getpwuid(*uid),
 		}
 	};
 	if ptr.is_null() {
 		return Err(tg::error!("failed to resolve the user"));
 	}
+	// SAFETY: The lookup returned a non-null passwd record.
 	let passwd = unsafe { &*ptr };
+	// SAFETY: The lookup returned a NUL-terminated string.
 	let name = unsafe { CStr::from_ptr(passwd.pw_name) }
 		.to_string_lossy()
 		.into_owned();
-	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
-		.to_string_lossy()
-		.into_owned();
+	// SAFETY: The lookup returned a NUL-terminated string.
+	let home = unsafe { CStr::from_ptr(passwd.pw_dir) };
+	checkpoint();
+	let home = home.to_string_lossy().into_owned();
 	let user = User {
 		gid: passwd.pw_gid,
 		home: PathBuf::from(home),
 		name,
 		uid: passwd.pw_uid,
 	};
+
 	Ok(user)
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, std::sync::Arc};
+
+	#[test]
+	fn concurrent_user_resolution_owns_the_passwd_record() {
+		let root = UserQuery::Uid(0);
+		let expected = resolve_user_with_checkpoint(&root, || {}).unwrap();
+		let checkpoint = Arc::new(std::sync::Barrier::new(2));
+		let task = {
+			let checkpoint = checkpoint.clone();
+			std::thread::spawn(move || {
+				resolve_user_with_checkpoint(&root, || {
+					checkpoint.wait();
+					checkpoint.wait();
+				})
+				.unwrap()
+			})
+		};
+		checkpoint.wait();
+		resolve_user_with_checkpoint(&UserQuery::Uid(2), || {}).unwrap();
+		checkpoint.wait();
+		let user = task.join().unwrap();
+
+		assert_eq!(user, expected);
+	}
 }
