@@ -7,14 +7,14 @@ use {
 	tangram_client::prelude::*,
 };
 
-mod archive;
 mod cache;
 mod delete;
 mod flush;
 mod get;
+mod indexer;
 mod log;
-mod outbox;
 mod put;
+mod queue;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {}
@@ -31,10 +31,11 @@ struct Log {
 
 #[derive(Default)]
 struct State {
+	indexers: BTreeMap<tg::indexer::Id, crate::indexer::Indexer>,
 	logs: Logs,
-	object_archive_outbox: BTreeMap<(u64, [u8; 16]), tg::object::Id>,
+	object_archive_queue: BTreeMap<(tg::indexer::Id, u64), crate::object::archive::queue::Entry>,
 	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,
-	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
+	object_index_queue: BTreeMap<(tg::indexer::Id, u64), crate::object::index::queue::Fragment>,
 	objects: Objects,
 }
 
@@ -82,11 +83,24 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_object_archive_outbox_entries(
+	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
+		self.delete_indexer(&arg);
+		Ok(())
+	}
+
+	async fn delete_object_archive_queue_entry(
 		&self,
-		arg: object::archive::outbox::delete::Arg,
+		arg: object::archive::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_object_archive_outbox_entries(arg);
+		self.delete_object_archive_queue_entry(arg);
+		Ok(())
+	}
+
+	async fn delete_object_index_queue_fragment(
+		&self,
+		arg: object::index::queue::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -103,36 +117,6 @@ impl crate::Store for Store {
 		self.delete_object_batch(args)
 	}
 
-	async fn delete_object_index_outbox_batch(
-		&self,
-		arg: crate::object::index::outbox::batch::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_index_outbox_batch(arg);
-		Ok(())
-	}
-
-	async fn delete_object_index_outbox_fragments(
-		&self,
-		arg: crate::object::index::outbox::fragment::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_index_outbox_fragments(arg);
-		Ok(())
-	}
-
-	async fn dequeue_object_index_outbox_fragments(
-		&self,
-		arg: crate::object::index::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<crate::object::index::outbox::fragment::Fragment>> {
-		self.dequeue_object_index_outbox_fragments(arg)
-	}
-
-	async fn dequeue_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::dequeue::Arg,
-	) -> tg::Result<Vec<object::archive::outbox::Entry>> {
-		self.dequeue_object_archive_outbox_entries(arg)
-	}
-
 	async fn get_object_cache_entries(
 		&self,
 		arg: object::cache::get::Arg,
@@ -140,8 +124,33 @@ impl crate::Store for Store {
 		Ok(self.get_object_cache_entries(arg))
 	}
 
+	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
+		Ok(self.get_indexers())
+	}
+
 	async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
 		self.put_object_cache_entry(arg)?;
+		Ok(())
+	}
+
+	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
+		self.put_indexer(arg);
+		Ok(())
+	}
+
+	async fn put_object_archive_queue_entry(
+		&self,
+		arg: object::archive::queue::put::Arg,
+	) -> tg::Result<()> {
+		self.put_object_archive_queue_entry(arg);
+		Ok(())
+	}
+
+	async fn put_object_index_queue_fragment(
+		&self,
+		arg: object::index::queue::put::Arg,
+	) -> tg::Result<()> {
+		self.put_object_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -151,21 +160,6 @@ impl crate::Store for Store {
 	) -> tg::Result<()> {
 		self.put_object_cache_entry_with_object(arg)?;
 		Ok(())
-	}
-
-	async fn put_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_archive_outbox_entries(arg);
-		Ok(())
-	}
-
-	async fn enqueue_object_index_outbox_batch(
-		&self,
-		arg: crate::object::index::outbox::batch::enqueue::Arg,
-	) -> tg::Result<()> {
-		self.enqueue_object_index_outbox_batch(arg)
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -195,6 +189,27 @@ impl crate::Store for Store {
 		Ok(self.try_get_log_length(&arg))
 	}
 
+	async fn try_get_indexer(
+		&self,
+		arg: crate::indexer::get::Arg,
+	) -> tg::Result<Option<crate::indexer::Indexer>> {
+		Ok(self.try_get_indexer(&arg))
+	}
+
+	async fn try_get_object_archive_queue_entry(
+		&self,
+		arg: object::archive::queue::get::Arg,
+	) -> tg::Result<Option<object::archive::queue::Entry>> {
+		Ok(self.try_get_object_archive_queue_entry(arg))
+	}
+
+	async fn try_get_object_index_queue_fragment(
+		&self,
+		arg: object::index::queue::get::Arg,
+	) -> tg::Result<Option<object::index::queue::Fragment>> {
+		Ok(self.try_get_object_index_queue_fragment(arg))
+	}
+
 	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
 		Ok(self.try_get_object_sync(&arg))
 	}
@@ -206,13 +221,6 @@ impl crate::Store for Store {
 		Ok(self.try_get_object_batch_sync(&arg))
 	}
 
-	async fn try_get_object_index_outbox_batch_at_or_before(
-		&self,
-		arg: crate::object::index::outbox::batch::get::Arg,
-	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
-		self.try_get_object_index_outbox_batch_at_or_before(arg)
-	}
-
 	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
 		Ok(None)
 	}
@@ -222,6 +230,11 @@ impl crate::Store for Store {
 		arg: crate::log::read::Arg,
 	) -> tg::Result<Vec<crate::log::read::Entry<'static>>> {
 		Ok(self.try_read_log(arg))
+	}
+
+	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
+		self.update_indexer(&arg)?;
+		Ok(())
 	}
 }
 

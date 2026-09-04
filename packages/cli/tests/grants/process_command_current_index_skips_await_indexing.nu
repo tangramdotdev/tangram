@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Spawning and finishing with a command authorized by the current index do not require a barrier.
+# Spawning and finishing with a command authorized by the current index do not need to await indexing.
 
 let directory = mktemp -d
 let root_token = random chars
@@ -37,7 +37,7 @@ let config = (
 	| upsert roles [api runner scheduler]
 )
 
-# Restart without an indexer so an attempted barrier fails.
+# Restart without an indexer so attempting to await indexing fails.
 let pid = open ($server.directory | path join 'lock') | into int
 kill --signal 2 $pid
 if $nu.os-info.name == "linux" {
@@ -52,7 +52,7 @@ let output = (
 	tg --url $server.url --token $alice.token run --cached=false --detach --local --stderr null --stdout null --verbose $command
 	| complete
 )
-success $output "a current subtree authorization should avoid an index barrier."
+success $output "a current subtree authorization should avoid awaiting indexing."
 let process = $output.stdout | from json | get process
 let output = tg --url $server.url --token $alice.token wait $process | complete
-success $output "finishing with a current subtree authorization should avoid an index barrier."
+success $output "finishing with a current subtree authorization should avoid awaiting indexing."

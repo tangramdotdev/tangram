@@ -505,7 +505,13 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug, Default)]
 pub struct Indexer {
+	pub batch: IndexerBatch,
+
+	pub cache: IndexerCache,
+
 	pub cleaning: IndexerCleaning,
+
+	pub id: Option<tg::indexer::Id>,
 
 	pub log_compaction: IndexerLogCompaction,
 
@@ -516,6 +522,18 @@ pub struct Indexer {
 	pub updates: IndexerUpdates,
 
 	pub usage: IndexerUsage,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerBatch {
+	pub retry: Retry,
+
+	pub timeout: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCache {
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -622,7 +640,7 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub archive_outbox: ObjectArchiveOutbox,
+	pub archive_queue: ObjectArchiveQueue,
 
 	pub cache: Option<ObjectCache>,
 
@@ -630,9 +648,11 @@ pub struct Object {
 
 	pub grant_time_to_touch: Duration,
 
-	pub index_outbox: ObjectIndexOutbox,
+	pub index_queue: ObjectIndexQueue,
 
 	pub put_timeout: Duration,
+
+	pub queue_checkpoint_interval: Duration,
 
 	pub time_to_index: Duration,
 
@@ -653,27 +673,21 @@ pub struct ObjectCache {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectArchiveOutbox {
-	pub batch_size: usize,
-
-	pub partition_total: u64,
-
+pub struct ObjectArchiveQueue {
 	pub retry: Retry,
 
-	pub wakeup_interval: Duration,
+	pub sequence_reservation_size: u64,
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectIndexOutbox {
-	pub batch_size: usize,
+pub struct ObjectIndexQueue {
+	pub batch_timeout: Duration,
 
 	pub fragment_size: usize,
 
-	pub partition_total: u64,
-
 	pub retry: Retry,
 
-	pub wakeup_interval: Duration,
+	pub sequence_reservation_size: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1546,6 +1560,23 @@ impl Default for LmdbIndex {
 	}
 }
 
+impl Default for IndexerBatch {
+	fn default() -> Self {
+		Self {
+			retry: message_retry_default(),
+			timeout: Duration::from_secs(10),
+		}
+	}
+}
+
+impl Default for IndexerCache {
+	fn default() -> Self {
+		Self {
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
 impl Default for IndexerCleaning {
 	fn default() -> Self {
 		Self {
@@ -1569,7 +1600,7 @@ impl Default for IndexerRequest {
 		Self {
 			poll_interval: Duration::from_millis(10),
 			retry: message_retry_default(),
-			timeout: Duration::from_secs(10),
+			timeout: Duration::from_secs(1),
 		}
 	}
 }
@@ -1641,12 +1672,13 @@ impl Default for NatsMessenger {
 impl Default for Object {
 	fn default() -> Self {
 		Self {
-			archive_outbox: ObjectArchiveOutbox::default(),
+			archive_queue: ObjectArchiveQueue::default(),
 			cache: None,
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			index_outbox: ObjectIndexOutbox::default(),
+			index_queue: ObjectIndexQueue::default(),
 			put_timeout: default_object_put_timeout(),
+			queue_checkpoint_interval: Duration::from_secs(1),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1670,25 +1702,22 @@ impl Default for ObjectCache {
 	}
 }
 
-impl Default for ObjectArchiveOutbox {
+impl Default for ObjectArchiveQueue {
 	fn default() -> Self {
 		Self {
-			batch_size: 1024,
-			partition_total: 1,
-			retry: object_outbox_retry_default(),
-			wakeup_interval: Duration::from_mins(1),
+			retry: object_queue_retry_default(),
+			sequence_reservation_size: 1024,
 		}
 	}
 }
 
-impl Default for ObjectIndexOutbox {
+impl Default for ObjectIndexQueue {
 	fn default() -> Self {
 		Self {
-			batch_size: 1024,
+			batch_timeout: Duration::from_mins(1),
 			fragment_size: 1024,
-			partition_total: 1,
-			retry: object_outbox_retry_default(),
-			wakeup_interval: Duration::from_mins(1),
+			retry: object_queue_retry_default(),
+			sequence_reservation_size: 1024,
 		}
 	}
 }
@@ -2195,7 +2224,7 @@ fn message_retry_default() -> Retry {
 	}
 }
 
-fn object_outbox_retry_default() -> Retry {
+fn object_queue_retry_default() -> Retry {
 	// Keep the default retry duration longer than the default object put timeout.
 	Retry {
 		backoff: Duration::from_millis(25),

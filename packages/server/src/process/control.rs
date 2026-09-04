@@ -627,37 +627,40 @@ impl Session {
 				id: request_id.clone(),
 			},
 		));
-		self.send_control_request(crate::control::SendControlRequestArg {
-			ack: |id| {
-				ServerMessage(tg::process::control::ServerMessage::Ack(
-					tg::process::control::ServerAck { id },
-				))
-			},
-			client_subject: format!("processes.{id}.control.client.{request_id}"),
-			is_ack: |message: &ClientMessage| {
-				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
-			},
-			marker: std::marker::PhantomData,
-			options,
-			request: payload,
-			response: |message: ClientMessage| {
-				let ClientMessage(tg::process::control::ClientMessage::Response(message)) = message
-				else {
-					return Ok(None);
-				};
-				if let Some(error) = message.error {
-					let error = tg::Error::try_from(error)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					return Ok(Some((message.id, Err(error))));
-				}
-				let Some(output) = message.output else {
-					return Err(tg::error!("missing process control response output"));
-				};
-				Ok(Some((message.id, Ok(output))))
-			},
-			server_subject: format!("processes.{id}.control.server"),
-		})
-		.await
+		self.server
+			.send_control_request(crate::control::SendControlRequestArg {
+				ack: |id| {
+					ServerMessage(tg::process::control::ServerMessage::Ack(
+						tg::process::control::ServerAck { id },
+					))
+				},
+				client_subject: format!("processes.{id}.control.client.{request_id}"),
+				is_ack: |message: &ClientMessage| {
+					matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
+				},
+				marker: std::marker::PhantomData,
+				options,
+				request: payload,
+				response: |message: ClientMessage| {
+					let ClientMessage(tg::process::control::ClientMessage::Response(message)) =
+						message
+					else {
+						return Ok(None);
+					};
+					if let Some(error) = message.error {
+						let error = tg::Error::try_from(error).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the error")
+						})?;
+						return Ok(Some((message.id, Err(error))));
+					}
+					let Some(output) = message.output else {
+						return Err(tg::error!("missing process control response output"));
+					};
+					Ok(Some((message.id, Ok(output))))
+				},
+				server_subject: format!("processes.{id}.control.server"),
+			})
+			.await
 	}
 }
 

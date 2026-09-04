@@ -1,7 +1,7 @@
 use {
-	super::{Indexer, partition},
+	super::{Indexer, RETRY_OPTIONS, partition},
 	futures::future,
-	std::{pin::pin, time::Duration},
+	std::{ops::ControlFlow, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 };
@@ -21,34 +21,41 @@ impl Indexer {
 		};
 		loop {
 			crate::checkpoint!(self.server, checkpoint).await;
-			let futures = partition::ranges(partition_start, partition_end, config.concurrency)
-				.map(|range| {
-					self.server
-						.index
-						.update_batch(kind, config.batch_size, range.start, range.end)
+			let output = tangram_futures::retry(&RETRY_OPTIONS, || async {
+				let futures = partition::ranges(partition_start, partition_end, config.concurrency)
+					.map(|range| {
+						self.server.index.update_batch(
+							kind,
+							config.batch_size,
+							range.start,
+							range.end,
+						)
+					});
+				let result = future::try_join_all(futures).await.map(|outputs| {
+					outputs.into_iter().fold(
+						tangram_index::update::Output::default(),
+						|mut output, next| {
+							output.merge(next);
+							output
+						},
+					)
 				});
-			let result = future::try_join_all(futures).await.map(|outputs| {
-				outputs.into_iter().fold(
-					tangram_index::update::Output::default(),
-					|mut output, next| {
-						output.merge(next);
-						output
+				match result {
+					Ok(output) => Ok(ControlFlow::Break(output)),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to index");
+
+						Ok(ControlFlow::Continue(error))
 					},
-				)
-			});
-			match result {
-				Ok(output) if output.count == 0 => {
-					tokio::time::sleep(Duration::from_millis(100)).await;
-				},
-				Ok(output) => {
-					for process in output.processes_with_depth_exceeded {
-						self.spawn_finish_process_for_max_depth_task(process);
-					}
-				},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to index");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				},
+				}
+			})
+			.await?;
+			if output.count == 0 {
+				tokio::time::sleep(Duration::from_millis(100)).await;
+			} else {
+				for process in output.processes_with_depth_exceeded {
+					self.spawn_finish_process_for_max_depth_task(process);
+				}
 			}
 		}
 	}

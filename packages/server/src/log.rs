@@ -282,11 +282,17 @@ impl Session {
 				return Err(tg::error!("SeekFrom::Current is not supported"));
 			},
 			SeekFrom::End(offset) => {
-				let length = inner
+				let mut length = inner
 					.try_get_length(&streams)
 					.await
-					.map_err(|error| tg::error!(!error, "failed to get the log length"))?
-					.unwrap_or_default();
+					.map_err(|error| tg::error!(!error, "failed to get the log length"))?;
+				if length.is_none() && inner.try_switch_to_blob().await? {
+					length = inner
+						.try_get_length(&streams)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to get the log length"))?;
+				}
+				let length = length.unwrap_or_default();
 				if offset >= 0 {
 					length.saturating_add(offset.to_u64().unwrap())
 				} else {
@@ -356,25 +362,7 @@ impl Session {
 					.await?
 					.into();
 
-				if state.entries.is_empty()
-					&& state
-						.log_length
-						.is_some_and(|length| length > state.position)
-					&& let Inner::Store(inner) = &state.inner
-					&& let Some(output) = inner
-						.session
-						.try_get_process_local(&inner.process, false, false, None)
-						.await? && let Some(blob_id) = output.data.log.map(|log| log.node)
-				{
-					let blob = tg::Blob::with_id(blob_id);
-					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;
-					let index = inner.session.read_log_index_from_blob(&mut reader).await?;
-					state.inner = Inner::Blob(BlobInner {
-						entry: 0,
-						reader,
-						index,
-					});
-
+				if state.entries.is_empty() && state.inner.try_switch_to_blob().await? {
 					state.entries = state
 						.inner
 						.try_read(position, length, &state.streams)
@@ -442,6 +430,32 @@ impl Inner {
 			Inner::Blob(inner) => inner.try_get_length(streams).await,
 			Inner::Store(inner) => inner.try_get_length(streams).await,
 		}
+	}
+
+	async fn try_switch_to_blob(&mut self) -> tg::Result<bool> {
+		let Inner::Store(inner) = self else {
+			return Ok(false);
+		};
+		let Some(output) = inner
+			.session
+			.try_get_process_local(&inner.process, false, false, None)
+			.await?
+		else {
+			return Ok(false);
+		};
+		let Some(blob_id) = output.data.log.map(|log| log.node) else {
+			return Ok(false);
+		};
+		let blob = tg::Blob::with_id(blob_id);
+		let mut reader = crate::read::Reader::new(&inner.session, blob).await?;
+		let index = inner.session.read_log_index_from_blob(&mut reader).await?;
+		*self = Inner::Blob(BlobInner {
+			entry: 0,
+			reader,
+			index,
+		});
+
+		Ok(true)
 	}
 }
 

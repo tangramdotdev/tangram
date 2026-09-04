@@ -1,8 +1,9 @@
 use {
-	super::super::Indexer,
+	super::super::{Indexer, RETRY_OPTIONS},
 	futures::{FutureExt as _, StreamExt as _, stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
+		ops::ControlFlow,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -23,15 +24,22 @@ impl Indexer {
 		region: &str,
 	) -> tg::Result<()> {
 		let wakeup_interval = outbox.wakeup_interval;
-		loop {
-			let result = self
+		tangram_futures::retry(&RETRY_OPTIONS, || async {
+			match self
 				.database_index_outbox_task_inner(outbox, region, wakeup_interval)
-				.await;
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to service the database index outbox");
-				tokio::time::sleep(Duration::from_secs(1)).await;
+				.await
+			{
+				Ok(()) => Ok(ControlFlow::Break(())),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to service the database index outbox");
+
+					Ok(ControlFlow::Continue(error))
+				},
 			}
-		}
+		})
+		.await?;
+
+		Ok(())
 	}
 
 	async fn database_index_outbox_task_inner(

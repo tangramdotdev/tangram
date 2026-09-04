@@ -10,27 +10,29 @@ pub(crate) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Respons
 pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
 pub(crate) enum Request {
-	DequeueObjectArchiveOutboxEntries(object::archive::outbox::dequeue::Arg),
-	DequeueObjectIndexOutboxFragments(object::index::outbox::fragment::dequeue::Arg),
+	GetIndexers,
 	GetObjectCacheEntries(object::cache::get::Arg),
 	#[cfg(test)]
 	GetTransactionId,
 	TryGetLogLength(log::length::Arg),
+	TryGetIndexer(crate::indexer::get::Arg),
 	TryGetObject(object::get::Arg),
+	TryGetObjectArchiveQueueEntry(object::archive::queue::get::Arg),
 	TryGetObjectBatch(object::get::batch::Arg),
-	TryGetObjectIndexOutboxBatchAtOrBefore(object::index::outbox::batch::get::Arg),
+	TryGetObjectIndexQueueFragment(object::index::queue::get::Arg),
 	TryReadLog(log::read::Arg),
 }
 
 pub(crate) enum Response {
-	DequeueObjectArchiveOutboxEntries(Vec<object::archive::outbox::Entry>),
-	DequeueObjectIndexOutboxFragments(Vec<object::index::outbox::fragment::Fragment>),
+	GetIndexers(Vec<crate::indexer::Indexer>),
 	GetObjectCacheEntries(Vec<object::cache::Entry>),
 	#[cfg(test)]
 	GetTransactionId(u64),
 	TryGetLogLength(Option<u64>),
+	TryGetIndexer(Option<crate::indexer::Indexer>),
 	TryGetObject(object::get::Output),
+	TryGetObjectArchiveQueueEntry(Option<object::archive::queue::Entry>),
 	TryGetObjectBatch(Vec<object::get::Output>),
-	TryGetObjectIndexOutboxBatchAtOrBefore(Option<object::index::outbox::batch::Id>),
+	TryGetObjectIndexQueueFragment(Option<object::index::queue::Fragment>),
 	TryReadLog(Vec<log::read::Entry<'static>>),
 }
