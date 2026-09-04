@@ -19,6 +19,51 @@ pub(crate) use {
 
 pub(crate) type Key = (tg::Id, tg::authorization::Permission);
 
+#[derive(Clone, Debug)]
+pub(crate) struct AncestorCandidate {
+	checks: Vec<super::Check>,
+	dependency: Key,
+	edges: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AncestorChecks {
+	candidates: Vec<AncestorCandidate>,
+	dependent: Key,
+	depth: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DescendantCandidate {
+	edges: usize,
+	neighbor: Key,
+	proofs: Vec<Vec<super::Check>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DescendantChecks {
+	candidates: Vec<DescendantCandidate>,
+	depth: usize,
+	fallback: DescendantFallback,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum DescendantFallback {
+	None,
+	ObjectChildren {
+		object: tg::object::Id,
+	},
+	ProcessChildren {
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
+	ProcessObjects {
+		after: Option<Vec<u8>>,
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
 	pub grants: Vec<Grant>,
@@ -77,11 +122,13 @@ pub(crate) enum MemberRead {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Read {
+	AncestorChecks(AncestorChecks),
 	AncestorNode {
 		depth: usize,
 		key: Key,
 		read: AncestorNodeRead,
 	},
+	DescendantChecks(DescendantChecks),
 	GroupMembers {
 		after: Option<Vec<u8>>,
 		dependent: Key,
@@ -125,6 +172,13 @@ pub(crate) enum Read {
 		process: tg::process::Id,
 	},
 	ProcessChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		limit: usize,
+		permission: tg::authorization::permission::process::Permission,
+		process: tg::process::Id,
+	},
+	ProcessObjectChildren {
 		after: Option<Vec<u8>>,
 		depth: usize,
 		limit: usize,
@@ -176,6 +230,7 @@ pub(crate) enum Read {
 }
 
 pub(crate) enum ReadOutput {
+	Bools(Vec<bool>),
 	Grants {
 		after: Option<Vec<u8>>,
 		grants: Vec<Grant>,
@@ -311,7 +366,43 @@ pub(crate) fn process_node_permission(
 	}
 }
 
+impl AncestorChecks {
+	#[must_use]
+	pub(crate) fn candidates(&self) -> &[AncestorCandidate] {
+		&self.candidates
+	}
+}
+
+impl AncestorCandidate {
+	#[must_use]
+	pub(crate) fn checks(&self) -> &[super::Check] {
+		&self.checks
+	}
+}
+
+impl DescendantChecks {
+	#[must_use]
+	pub(crate) fn candidates(&self) -> &[DescendantCandidate] {
+		&self.candidates
+	}
+}
+
+impl DescendantCandidate {
+	#[must_use]
+	pub(crate) fn proofs(&self) -> &[Vec<super::Check>] {
+		&self.proofs
+	}
+}
+
 impl ReadOutput {
+	fn into_bools(self) -> tg::Result<Vec<bool>> {
+		let Self::Bools(values) = self else {
+			return Err(tg::error!("received a non-boolean result for checks"));
+		};
+
+		Ok(values)
+	}
+
 	fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<Grant>)> {
 		let Self::Grants { after, grants } = self else {
 			return Err(tg::error!("received a non-grant result for a grant read"));
@@ -647,7 +738,8 @@ impl AncestorOrDescendantSearch {
 		output: ReadOutput,
 	) -> tg::Result<()> {
 		match read {
-			read @ (Read::AncestorNode { .. }
+			read @ (Read::AncestorChecks(_)
+			| Read::AncestorNode { .. }
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
 			| Read::OrganizationMembers { .. }
@@ -656,10 +748,12 @@ impl AncestorOrDescendantSearch {
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the ancestor search completed"))?
 				.apply(state, read, output),
-			read @ (Read::Member { .. }
+			read @ (Read::DescendantChecks(_)
+			| Read::Member { .. }
 			| Read::ObjectChildren { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
+			| Read::ProcessObjectChildren { .. }
 			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }) => self
 				.descendant

@@ -7,6 +7,7 @@ pub mod grant;
 	Copy,
 	Debug,
 	Eq,
+	Hash,
 	PartialEq,
 	derive_more::Display,
 	derive_more::FromStr,

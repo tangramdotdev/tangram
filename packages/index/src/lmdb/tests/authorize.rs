@@ -2924,3 +2924,94 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 			.all(|outcome| matches!(outcome, crate::authorize::Outcome::Authorized(_)))
 	);
 }
+
+#[tokio::test]
+async fn authorize_checks_the_requested_object_before_enumerating() {
+	const WIDTH: usize = 16;
+	let (_directory, index) = new_index();
+	let placeholder = object_id(2 * WIDTH);
+	let mut children = (0..WIDTH).map(object_id).collect::<Vec<_>>();
+	children.sort_by_cached_key(|child| {
+		Index::pack(
+			&index.subspace,
+			&Key::Object(ObjectKey::ObjectChild {
+				child: child.clone(),
+				object: placeholder.clone(),
+			}),
+		)
+	});
+	let child = children.pop().unwrap();
+	let mut parents = (WIDTH..2 * WIDTH).map(object_id).collect::<Vec<_>>();
+	parents.sort_by_cached_key(|parent| {
+		Index::pack(
+			&index.subspace,
+			&Key::Object(ObjectKey::ChildObject {
+				child: child.clone(),
+				object: parent.clone(),
+			}),
+		)
+	});
+	let parent = parents.pop().unwrap();
+	let mut transaction = index.env.write_txn().unwrap();
+	for object in children.iter().chain(&parents).chain([&child, &parent]) {
+		put_object(&index, &mut transaction, object);
+	}
+	for sibling in &children {
+		put_child(&index, &mut transaction, &parent, sibling);
+	}
+	put_child(&index, &mut transaction, &parent, &child);
+	for ancestor in &parents {
+		put_child(&index, &mut transaction, ancestor, &child);
+	}
+	transaction.commit().unwrap();
+	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let permissions = tg::authorization::permission::Set::from(permission);
+	let token = tg::authorization::Body {
+		expires_at: i64::MAX,
+		permissions: vec![permission],
+		resource: parent.into(),
+	};
+	let arg = crate::authorize::Arg {
+		requested: permissions,
+		required: permissions,
+		resource: tg::Selector::Id(child.into()),
+		token: Some(token),
+	};
+	for config in [
+		crate::authorize::Config {
+			ancestor: crate::authorize::SearchConfig {
+				max_edges: 1,
+				..Default::default()
+			},
+			descendant: crate::authorize::SearchConfig {
+				max_nodes: 0,
+				..Default::default()
+			},
+			..Default::default()
+		},
+		crate::authorize::Config {
+			ancestor: crate::authorize::SearchConfig {
+				max_nodes: 0,
+				..Default::default()
+			},
+			descendant: crate::authorize::SearchConfig {
+				max_edges: 1,
+				..Default::default()
+			},
+			..Default::default()
+		},
+	] {
+		let outcomes = index
+			.authorize_batch(
+				std::slice::from_ref(&arg),
+				config,
+				&tg::Principal::Anonymous,
+			)
+			.await
+			.unwrap();
+		assert!(matches!(
+			outcomes[0],
+			crate::authorize::Outcome::Authorized(_)
+		));
+	}
+}

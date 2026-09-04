@@ -1100,6 +1100,23 @@ where
 	}
 
 	let output = match read {
+		Read::AncestorChecks(checks) => {
+			let mut values = Vec::with_capacity(checks.candidates().len());
+			for candidate in checks.candidates() {
+				let mut value = true;
+				for check in candidate.checks() {
+					let output = read!(check.request());
+					if !check_matches_output(check, output)? {
+						value = false;
+
+						break;
+					}
+				}
+				values.push(value);
+			}
+
+			ReadOutput::Bools(values)
+		},
 		Read::AncestorNode { read, .. } => match read {
 			super::search::AncestorNodeRead::Group { group } => {
 				let output = read!(facts::Request::Group {
@@ -1174,6 +1191,29 @@ where
 
 				ReadOutput::Tags { after, tags }
 			},
+		},
+		Read::DescendantChecks(checks) => {
+			let mut values = Vec::with_capacity(checks.candidates().len());
+			for candidate in checks.candidates() {
+				let mut value = false;
+				for proof in candidate.proofs() {
+					value = true;
+					for check in proof {
+						let output = read!(check.request());
+						if !check_matches_output(check, output)? {
+							value = false;
+
+							break;
+						}
+					}
+					if value {
+						break;
+					}
+				}
+				values.push(value);
+			}
+
+			ReadOutput::Bools(values)
 		},
 		Read::GroupMembers {
 			after,
@@ -1315,7 +1355,13 @@ where
 
 			ReadOutput::Ids { after, ids }
 		},
-		Read::ProcessObjects {
+		Read::ProcessObjectChildren {
+			after,
+			limit,
+			process,
+			..
+		}
+		| Read::ProcessObjects {
 			after,
 			limit,
 			process,
@@ -1385,6 +1431,12 @@ where
 	};
 
 	Ok(ControlFlow::Break(output))
+}
+
+fn check_matches_output(check: &super::Check, output: facts::Output) -> tg::Result<bool> {
+	let value = check.matches(output)?;
+
+	Ok(value)
 }
 
 async fn resolve<E>(
@@ -1978,6 +2030,12 @@ mod tests {
 
 	fn default_output(read: &Read) -> ReadOutput {
 		match read {
+			Read::AncestorChecks(checks) => {
+				ReadOutput::Bools(vec![false; checks.candidates().len()])
+			},
+			Read::DescendantChecks(checks) => {
+				ReadOutput::Bools(vec![false; checks.candidates().len()])
+			},
 			Read::AncestorNode { read, .. } => match read {
 				AncestorNodeRead::Group { .. } => ReadOutput::Group(None),
 				AncestorNodeRead::ObjectProcesses { .. } => ReadOutput::ObjectProcesses {
@@ -2034,13 +2092,15 @@ mod tests {
 				},
 			},
 			Read::Process { .. } => ReadOutput::Process(None),
+			Read::ProcessObjectChildren { .. } | Read::ProcessObjects { .. } => {
+				ReadOutput::ProcessObjects {
+					after: None,
+					objects: Vec::new(),
+				}
+			},
 			Read::SubjectGrants { .. } => ReadOutput::Grants {
 				after: None,
 				grants: Vec::new(),
-			},
-			Read::ProcessObjects { .. } => ReadOutput::ProcessObjects {
-				after: None,
-				objects: Vec::new(),
 			},
 		}
 	}

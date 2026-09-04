@@ -5,6 +5,28 @@ pub(crate) use engine::Batch;
 pub(crate) mod facts;
 pub(crate) mod search;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum Check {
+	ObjectChild {
+		child: tg::object::Id,
+		parent: tg::object::Id,
+	},
+	ProcessChild {
+		child: tg::process::Id,
+		parent: tg::process::Id,
+	},
+	ProcessObject {
+		kind: crate::process::object::Kind,
+		object: tg::object::Id,
+		process: tg::process::Id,
+	},
+	ProcessObjectGrant {
+		object: tg::object::Id,
+		permission: tg::authorization::permission::object::Permission,
+		process: tg::process::Id,
+	},
+}
+
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub requested: tg::authorization::permission::Set,
@@ -70,6 +92,49 @@ enum NamedPermission {
 	Admin,
 	Read,
 	Write,
+}
+
+impl Check {
+	fn matches(&self, output: facts::Output) -> tg::Result<bool> {
+		let value = match self {
+			Self::ProcessObject { kind, .. } => output.into_process_object_kinds()?.contains(kind),
+			Self::ProcessObjectGrant { .. } => output
+				.into_grant()?
+				.is_some_and(|grant| grant.is_process_implicit()),
+			Self::ObjectChild { .. } | Self::ProcessChild { .. } => output.into_bool()?,
+		};
+
+		Ok(value)
+	}
+
+	fn request(&self) -> facts::Request {
+		match self {
+			Self::ObjectChild { child, parent } => facts::Request::ObjectChild {
+				child: child.clone(),
+				parent: parent.clone(),
+			},
+			Self::ProcessChild { child, parent } => facts::Request::ProcessChild {
+				child: child.clone(),
+				parent: parent.clone(),
+			},
+			Self::ProcessObject {
+				object, process, ..
+			} => facts::Request::ProcessObject {
+				object: object.clone(),
+				process: process.clone(),
+			},
+			Self::ProcessObjectGrant {
+				object,
+				permission,
+				process,
+			} => facts::Request::ResourceGrant {
+				creator: Some(tg::Principal::Process(process.clone())),
+				permission: tg::authorization::Permission::Object(*permission),
+				resource: tg::Id::from(object.clone()),
+				subject: tg::authorization::Subject::Process(process.clone()),
+			},
+		}
+	}
 }
 
 impl Arg {

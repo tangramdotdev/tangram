@@ -199,6 +199,17 @@ impl Index {
 					organizations,
 				}
 			},
+			Request::ObjectChild { child, parent } => {
+				let key = Key::Object(crate::fdb::object::Key::ObjectChild {
+					child: child.clone(),
+					object: parent.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let result = txn.get(&key, false).await;
+				let value = crate::fdb::retry!(result);
+
+				Output::Bool(value.is_some())
+			},
 			Request::ObjectChildren {
 				after,
 				limit,
@@ -387,6 +398,17 @@ impl Index {
 
 				Output::Process(process)
 			},
+			Request::ProcessChild { child, parent } => {
+				let key = Key::Process(crate::fdb::process::Key::ChildProcess {
+					child: child.clone(),
+					parent: parent.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let result = txn.get(&key, false).await;
+				let value = crate::fdb::retry!(result);
+
+				Output::Bool(value.is_some())
+			},
 			Request::ProcessChildren {
 				after,
 				limit,
@@ -421,6 +443,29 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::Ids { after, ids }
+			},
+			Request::ProcessObject { object, process } => {
+				let mut kinds = Vec::new();
+				for kind in [
+					crate::process::object::Kind::Command,
+					crate::process::object::Kind::Error,
+					crate::process::object::Kind::Log,
+					crate::process::object::Kind::Output,
+				] {
+					let key = Key::Process(crate::fdb::process::Key::ProcessObject {
+						kind,
+						object: object.clone(),
+						process: process.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let result = txn.get(&key, false).await;
+					let value = crate::fdb::retry!(result);
+					if value.is_some() {
+						kinds.push(kind);
+					}
+				}
+
+				Output::ProcessObjectKinds(kinds)
 			},
 			Request::ProcessObjects {
 				after,
@@ -494,6 +539,39 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::Ids { after, ids }
+			},
+			Request::ResourceGrant {
+				creator,
+				permission,
+				resource,
+				subject,
+			} => {
+				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+					creator: creator.clone(),
+					permission: *permission,
+					resource: resource.clone(),
+					subject: subject.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let result = txn.get(&key, false).await;
+				let value = crate::fdb::retry!(result);
+				let grant = match value {
+					Some(value) => {
+						let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
+						let grant = crate::grant::Fact {
+							creator: creator.clone(),
+							implicit: value.implicit.is_some(),
+							permission: *permission,
+							resource: resource.clone(),
+							subject: subject.clone(),
+						};
+
+						Some(grant)
+					},
+					None => None,
+				};
+
+				Output::Grant(grant)
 			},
 			Request::ResourceGrants {
 				after,

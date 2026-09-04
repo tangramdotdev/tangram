@@ -40,6 +40,10 @@ pub(crate) enum Request {
 		limit: usize,
 		member: tg::Id,
 	},
+	ObjectChild {
+		child: tg::object::Id,
+		parent: tg::object::Id,
+	},
 	ObjectChildren {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -68,9 +72,17 @@ pub(crate) enum Request {
 	Process {
 		process: tg::process::Id,
 	},
+	ProcessChild {
+		child: tg::process::Id,
+		parent: tg::process::Id,
+	},
 	ProcessChildren {
 		after: Option<Vec<u8>>,
 		limit: usize,
+		process: tg::process::Id,
+	},
+	ProcessObject {
+		object: tg::object::Id,
 		process: tg::process::Id,
 	},
 	ProcessObjects {
@@ -82,6 +94,12 @@ pub(crate) enum Request {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
+	},
+	ResourceGrant {
+		creator: Option<tg::Principal>,
+		permission: tg::authorization::Permission,
+		resource: tg::Id,
+		subject: tg::authorization::Subject,
 	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
@@ -116,6 +134,8 @@ pub(crate) enum Request {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Output {
+	Bool(bool),
+	Grant(Option<crate::grant::Fact>),
 	Grants {
 		after: Option<Vec<u8>>,
 		grants: Vec<crate::grant::Fact>,
@@ -139,6 +159,7 @@ pub(crate) enum Output {
 		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	},
 	Process(Option<crate::process::Process>),
+	ProcessObjectKinds(Vec<crate::process::object::Kind>),
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
@@ -170,6 +191,10 @@ enum CacheKey {
 		limit: usize,
 		member: tg::Id,
 	},
+	ObjectChild {
+		child: tg::object::Id,
+		parent: tg::object::Id,
+	},
 	ObjectParents {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -181,6 +206,14 @@ enum CacheKey {
 		object: tg::object::Id,
 	},
 	Process(tg::process::Id),
+	ProcessChild {
+		child: tg::process::Id,
+		parent: tg::process::Id,
+	},
+	ProcessObject {
+		object: tg::object::Id,
+		process: tg::process::Id,
+	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -190,6 +223,12 @@ enum CacheKey {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
+	},
+	ResourceGrant {
+		creator: Option<tg::Principal>,
+		permission: tg::authorization::Permission,
+		resource: tg::Id,
+		subject: tg::authorization::Subject,
 	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
@@ -291,6 +330,10 @@ impl Request {
 				limit: *limit,
 				member: member.clone(),
 			},
+			Self::ObjectChild { child, parent } => CacheKey::ObjectChild {
+				child: child.clone(),
+				parent: parent.clone(),
+			},
 			Self::ObjectParents {
 				after,
 				limit,
@@ -310,6 +353,14 @@ impl Request {
 				object: object.clone(),
 			},
 			Self::Process { process } => CacheKey::Process(process.clone()),
+			Self::ProcessChild { child, parent } => CacheKey::ProcessChild {
+				child: child.clone(),
+				parent: parent.clone(),
+			},
+			Self::ProcessObject { object, process } => CacheKey::ProcessObject {
+				object: object.clone(),
+				process: process.clone(),
+			},
 			Self::ProcessObjects {
 				after,
 				limit,
@@ -327,6 +378,17 @@ impl Request {
 				after: after.clone(),
 				limit: *limit,
 				process: process.clone(),
+			},
+			Self::ResourceGrant {
+				creator,
+				permission,
+				resource,
+				subject,
+			} => CacheKey::ResourceGrant {
+				creator: creator.clone(),
+				permission: *permission,
+				resource: resource.clone(),
+				subject: subject.clone(),
 			},
 			Self::ResourceGrants {
 				after,
@@ -363,6 +425,22 @@ impl Request {
 }
 
 impl Output {
+	pub(crate) fn into_bool(self) -> tg::Result<bool> {
+		let Self::Bool(value) = self else {
+			return Err(tg::error!("received a non-boolean authorization fact"));
+		};
+
+		Ok(value)
+	}
+
+	pub(crate) fn into_grant(self) -> tg::Result<Option<crate::grant::Fact>> {
+		let Self::Grant(grant) = self else {
+			return Err(tg::error!("received a non-grant authorization fact"));
+		};
+
+		Ok(grant)
+	}
+
 	pub(crate) fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<crate::grant::Fact>)> {
 		let Self::Grants { after, grants } = self else {
 			return Err(tg::error!("received a non-grant authorization fact"));
@@ -440,6 +518,16 @@ impl Output {
 		};
 
 		Ok(process)
+	}
+
+	pub(crate) fn into_process_object_kinds(self) -> tg::Result<Vec<crate::process::object::Kind>> {
+		let Self::ProcessObjectKinds(kinds) = self else {
+			return Err(tg::error!(
+				"received a non-process-object-kind authorization fact"
+			));
+		};
+
+		Ok(kinds)
 	}
 
 	pub(crate) fn into_process_objects(
@@ -599,8 +687,14 @@ where
 
 	fn record_read(&self, request: &Request) {
 		self.reads.fetch_add(1, Ordering::Relaxed);
-		if let Request::ObjectParents { object, .. } = request {
-			tracing::debug!(%object, "read object parents for authorization");
+		match request {
+			Request::ObjectChild { child: object, .. } => {
+				tracing::debug!(%object, "check object parent for authorization");
+			},
+			Request::ObjectParents { object, .. } => {
+				tracing::debug!(%object, "read object parents for authorization");
+			},
+			_ => {},
 		}
 	}
 

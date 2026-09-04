@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Each lookup inherits the token returned for its parent, so it reads only the current directory's parents.
+# Each lookup inherits the token returned for its parent, so it checks the direct parent first.
 
 let server = server spawn --config {
 	tracing: {
@@ -38,7 +38,7 @@ let reads = open $server.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { |line| $line | from json }
-	| where $it.fields.message? == 'read object parents for authorization'
+	| where $it.fields.message? == 'check object parent for authorization'
 	| where { |event| $event.fields.object? in $directories }
 	| group-by { |event| $event.fields.object }
 	| values
