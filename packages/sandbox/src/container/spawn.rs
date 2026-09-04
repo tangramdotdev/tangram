@@ -4,6 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
+		mem::MaybeUninit,
 		net::Ipv4Addr,
 		os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
 		path::{Path, PathBuf},
@@ -11,11 +12,19 @@ use {
 	tangram_client::prelude::*,
 };
 
+const DEFAULT_USER_BUFFER_SIZE: usize = 16 * 1024;
+
+#[derive(Debug, Eq, PartialEq)]
 struct User {
 	gid: libc::gid_t,
 	home: PathBuf,
 	name: String,
 	uid: libc::uid_t,
+}
+
+enum UserQuery {
+	Name(CString),
+	Uid(libc::uid_t),
 }
 
 pub(crate) async fn spawn(
@@ -366,30 +375,112 @@ fn render_passwd(user: &User) -> String {
 }
 
 fn resolve_user(name: Option<&str>) -> tg::Result<User> {
-	let ptr = unsafe {
-		if let Some(name) = name {
-			let name = CString::new(OsStr::new(name).as_bytes())
-				.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
-			libc::getpwnam(name.as_ptr())
-		} else {
-			libc::getpwuid(libc::getuid())
+	let query = if let Some(name) = name {
+		let name = CString::new(OsStr::new(name).as_bytes())
+			.map_err(|error| tg::error!(!error, "failed to encode the user name"))?;
+		UserQuery::Name(name)
+	} else {
+		// SAFETY: This function has no preconditions.
+		let uid = unsafe { libc::getuid() };
+		UserQuery::Uid(uid)
+	};
+
+	resolve_user_with_checkpoint(&query, || {})
+}
+
+fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) -> tg::Result<User> {
+	// Determine the initial buffer size.
+	// SAFETY: This function has no preconditions.
+	let configured_buffer_size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+	let mut buffer_size = usize::try_from(configured_buffer_size)
+		.ok()
+		.filter(|size| *size > 0)
+		.unwrap_or(DEFAULT_USER_BUFFER_SIZE);
+	loop {
+		let mut buffer = vec![0u8; buffer_size];
+		let mut passwd = MaybeUninit::<libc::passwd>::uninit();
+		let mut result = std::ptr::null_mut();
+
+		// Resolve the record.
+		// SAFETY: The name pointer, output pointers, and buffer are valid for the call.
+		let status = unsafe {
+			match query {
+				UserQuery::Name(name) => libc::getpwnam_r(
+					name.as_ptr(),
+					passwd.as_mut_ptr(),
+					buffer.as_mut_ptr().cast(),
+					buffer.len(),
+					&raw mut result,
+				),
+				UserQuery::Uid(uid) => libc::getpwuid_r(
+					*uid,
+					passwd.as_mut_ptr(),
+					buffer.as_mut_ptr().cast(),
+					buffer.len(),
+					&raw mut result,
+				),
+			}
+		};
+		if status == libc::ERANGE {
+			buffer_size = buffer_size
+				.checked_mul(2)
+				.ok_or_else(|| tg::error!("the user record is too large"))?;
+			continue;
 		}
-	};
-	if ptr.is_null() {
-		return Err(tg::error!("failed to resolve the user"));
+		if status != 0 {
+			let error = std::io::Error::from_raw_os_error(status);
+			return Err(tg::error!(!error, "failed to resolve the user"));
+		}
+		if result.is_null() {
+			return Err(tg::error!("failed to resolve the user"));
+		}
+
+		// Copy the record while its buffer is live.
+		// SAFETY: A successful lookup with a non-null result initialized the passwd record.
+		let passwd = unsafe { passwd.assume_init() };
+		// SAFETY: A successful lookup returned a NUL-terminated string backed by the live buffer.
+		let name = unsafe { CStr::from_ptr(passwd.pw_name) }
+			.to_string_lossy()
+			.into_owned();
+		// SAFETY: A successful lookup returned a NUL-terminated string backed by the live buffer.
+		let home = unsafe { CStr::from_ptr(passwd.pw_dir) };
+		checkpoint();
+		let home = home.to_string_lossy().into_owned();
+		let user = User {
+			gid: passwd.pw_gid,
+			home: PathBuf::from(home),
+			name,
+			uid: passwd.pw_uid,
+		};
+
+		return Ok(user);
 	}
-	let passwd = unsafe { &*ptr };
-	let name = unsafe { CStr::from_ptr(passwd.pw_name) }
-		.to_string_lossy()
-		.into_owned();
-	let home = unsafe { CStr::from_ptr(passwd.pw_dir) }
-		.to_string_lossy()
-		.into_owned();
-	let user = User {
-		gid: passwd.pw_gid,
-		home: PathBuf::from(home),
-		name,
-		uid: passwd.pw_uid,
-	};
-	Ok(user)
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, std::sync::Arc};
+
+	#[test]
+	fn concurrent_user_resolution_owns_the_passwd_record() {
+		let root = UserQuery::Uid(0);
+		let expected = resolve_user_with_checkpoint(&root, || {}).unwrap();
+		let checkpoint = Arc::new(std::sync::Barrier::new(2));
+		let task = {
+			let checkpoint = checkpoint.clone();
+			std::thread::spawn(move || {
+				resolve_user_with_checkpoint(&root, || {
+					checkpoint.wait();
+					checkpoint.wait();
+				})
+				.unwrap()
+			})
+		};
+		checkpoint.wait();
+		resolve_user_with_checkpoint(&UserQuery::Uid(2), || {}).unwrap();
+		checkpoint.wait();
+		let user = task.join().unwrap();
+
+		assert_eq!(user, expected);
+	}
 }
