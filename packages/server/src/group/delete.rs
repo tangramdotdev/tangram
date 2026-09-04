@@ -48,7 +48,7 @@ impl Session {
 		.await?;
 		self.server
 			.spawn_publish_database_index_outbox_notification_task();
-		self.checkout_index_barrier().await?;
+		self.checkout_await_indexing().await?;
 		Ok(output)
 	}
 

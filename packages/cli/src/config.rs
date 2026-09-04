@@ -757,11 +757,20 @@ pub struct LmdbIndex {
 }
 
 #[serde_as]
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indexer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch: Option<IndexerBatch>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<IndexerCache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cleaning: Option<BoolOr<IndexerCleaning>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::indexer::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
@@ -777,6 +786,27 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<IndexerUsage>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerBatch {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerCache {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -931,7 +961,7 @@ pub struct NatsMessenger {
 #[serde(deny_unknown_fields)]
 pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub archive_outbox: Option<ObjectArchiveOutbox>,
+	pub archive_queue: Option<ObjectArchiveQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<ObjectCache>,
@@ -945,11 +975,15 @@ pub struct Object {
 	pub grant_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_outbox: Option<ObjectIndexOutbox>,
+	pub index_queue: Option<ObjectIndexQueue>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub put_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queue_checkpoint_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(alias = "tti", default, skip_serializing_if = "Option::is_none")]
@@ -985,40 +1019,30 @@ pub struct ObjectCache {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectArchiveOutbox {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_total: Option<u64>,
-
+pub struct ObjectArchiveQueue {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub wakeup_interval: Option<Duration>,
+	pub sequence_reservation_size: Option<u64>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectIndexOutbox {
+pub struct ObjectIndexQueue {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub batch_size: Option<usize>,
+	pub batch_timeout: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fragment_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_total: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub wakeup_interval: Option<Duration>,
+	pub sequence_reservation_size: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -2883,11 +2907,20 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 }
 fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	let mut target = server::Indexer::default();
+	if let Some(source) = source.batch {
+		target.batch = resolve_indexer_batch(source);
+	}
+	if let Some(source) = source.cache {
+		target.cache = resolve_indexer_cache(source);
+	}
 	if let Some(source) = source.cleaning {
 		target.cleaning = resolve_indexer_cleaning(source);
 	}
 	if let Some(source) = source.log_compaction {
 		target.log_compaction = resolve_indexer_log_compaction(source);
+	}
+	if let Some(id) = &source.id {
+		target.id = Some(id.clone());
 	}
 	if let Some(source) = source.partitions {
 		target.partitions = resolve_indexer_partitions(source);
@@ -2900,6 +2933,27 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	}
 	if let Some(source) = source.usage {
 		target.usage = resolve_indexer_usage(source);
+	}
+
+	target
+}
+
+fn resolve_indexer_batch(source: IndexerBatch) -> server::IndexerBatch {
+	let mut target = server::IndexerBatch::default();
+	if let Some(source) = source.retry {
+		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.timeout {
+		target.timeout = value;
+	}
+
+	target
+}
+
+fn resolve_indexer_cache(source: IndexerCache) -> server::IndexerCache {
+	let mut target = server::IndexerCache::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
 	}
 
 	target
@@ -3122,8 +3176,8 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 
 fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
-	if let Some(source) = source.archive_outbox {
-		target.archive_outbox = resolve_object_archive_outbox(source);
+	if let Some(source) = source.archive_queue {
+		target.archive_queue = resolve_object_archive_queue(source);
 	}
 	if let Some(source) = source.cache {
 		target.cache = Some(resolve_object_cache(source));
@@ -3134,11 +3188,14 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(value) = source.grant_time_to_touch {
 		target.grant_time_to_touch = value;
 	}
-	if let Some(source) = source.index_outbox {
-		target.index_outbox = resolve_object_index_outbox(source);
+	if let Some(source) = source.index_queue {
+		target.index_queue = resolve_object_index_queue(source);
 	}
 	if let Some(value) = source.put_timeout {
 		target.put_timeout = value;
+	}
+	if let Some(value) = source.queue_checkpoint_interval {
+		target.queue_checkpoint_interval = value;
 	}
 	if let Some(value) = source.time_to_index {
 		target.time_to_index = value;
@@ -3171,39 +3228,30 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 	target
 }
 
-fn resolve_object_archive_outbox(source: ObjectArchiveOutbox) -> server::ObjectArchiveOutbox {
-	let mut target = server::ObjectArchiveOutbox::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
-	}
-	if let Some(value) = source.partition_total {
-		target.partition_total = value;
-	}
+fn resolve_object_archive_queue(source: ObjectArchiveQueue) -> server::ObjectArchiveQueue {
+	let mut target = server::ObjectArchiveQueue::default();
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
-	if let Some(value) = source.wakeup_interval {
-		target.wakeup_interval = value;
+	if let Some(value) = source.sequence_reservation_size {
+		target.sequence_reservation_size = value;
 	}
 	target
 }
 
-fn resolve_object_index_outbox(source: ObjectIndexOutbox) -> server::ObjectIndexOutbox {
-	let mut target = server::ObjectIndexOutbox::default();
-	if let Some(value) = source.batch_size {
-		target.batch_size = value;
+fn resolve_object_index_queue(source: ObjectIndexQueue) -> server::ObjectIndexQueue {
+	let mut target = server::ObjectIndexQueue::default();
+	if let Some(value) = source.batch_timeout {
+		target.batch_timeout = value;
 	}
 	if let Some(value) = source.fragment_size {
 		target.fragment_size = value;
 	}
-	if let Some(value) = source.partition_total {
-		target.partition_total = value;
-	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
-	if let Some(value) = source.wakeup_interval {
-		target.wakeup_interval = value;
+	if let Some(value) = source.sequence_reservation_size {
+		target.sequence_reservation_size = value;
 	}
 	target
 }
@@ -4452,29 +4500,32 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_outbox_configuration() {
+	fn parses_and_resolves_queue_configuration() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"database": {
 				"kind": "sqlite",
 				"index_outbox": { "wakeup_interval": 0.1 },
 			},
 			"object": {
-				"archive_outbox": {
+				"archive_queue": {
 					"retry": {
 						"max_retries": 4,
 					},
-					"wakeup_interval": 0.2,
+					"sequence_reservation_size": 200,
 				},
-				"index_outbox": {
+				"index_queue": {
+					"batch_timeout": 0.3,
+					"fragment_size": 333,
 					"retry": {
 						"backoff": 0.04,
 						"jitter": 0.05,
 						"max_delay": 0.06,
 						"max_retries": 7,
 					},
-					"wakeup_interval": 0.3,
+					"sequence_reservation_size": 300,
 				},
 				"put_timeout": 0.15,
+				"queue_checkpoint_interval": 0.2,
 			},
 			"process": {
 				"children_wakeup_interval": 0.4,
@@ -4493,41 +4544,44 @@ mod tests {
 			target.database.index_outbox().wakeup_interval,
 			Duration::from_millis(100)
 		);
+		assert_eq!(target.object.archive_queue.sequence_reservation_size, 200);
 		assert_eq!(
-			target.object.archive_outbox.wakeup_interval,
-			Duration::from_millis(200)
-		);
-		assert_eq!(
-			target.object.archive_outbox.retry.backoff,
+			target.object.archive_queue.retry.backoff,
 			Duration::from_millis(25)
 		);
 		assert_eq!(
-			target.object.archive_outbox.retry.jitter,
+			target.object.archive_queue.retry.jitter,
 			Duration::from_millis(25)
 		);
 		assert_eq!(
-			target.object.archive_outbox.retry.max_delay,
+			target.object.archive_queue.retry.max_delay,
 			Duration::from_secs(1)
 		);
-		assert_eq!(target.object.archive_outbox.retry.max_retries, 4);
+		assert_eq!(target.object.archive_queue.retry.max_retries, 4);
 		assert_eq!(
-			target.object.index_outbox.wakeup_interval,
+			target.object.index_queue.batch_timeout,
 			Duration::from_millis(300)
 		);
+		assert_eq!(target.object.index_queue.fragment_size, 333);
+		assert_eq!(target.object.index_queue.sequence_reservation_size, 300);
 		assert_eq!(
-			target.object.index_outbox.retry.backoff,
+			target.object.index_queue.retry.backoff,
 			Duration::from_millis(40)
 		);
 		assert_eq!(
-			target.object.index_outbox.retry.jitter,
+			target.object.index_queue.retry.jitter,
 			Duration::from_millis(50)
 		);
 		assert_eq!(
-			target.object.index_outbox.retry.max_delay,
+			target.object.index_queue.retry.max_delay,
 			Duration::from_millis(60)
 		);
-		assert_eq!(target.object.index_outbox.retry.max_retries, 7);
+		assert_eq!(target.object.index_queue.retry.max_retries, 7);
 		assert_eq!(target.object.put_timeout, Duration::from_millis(150));
+		assert_eq!(
+			target.object.queue_checkpoint_interval,
+			Duration::from_millis(200)
+		);
 		assert_eq!(
 			target.process.children_wakeup_interval,
 			Duration::from_millis(400)
@@ -4554,12 +4608,29 @@ mod tests {
 	fn parses_and_resolves_indexer_groups() {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"indexer": {
+				"batch": {
+					"retry": {
+						"backoff": 0.01,
+						"jitter": 0.02,
+						"max_delay": 0.03,
+						"max_retries": 4,
+					},
+					"timeout": 3,
+				},
+				"cache": { "poll_interval": 0.125 },
+				"id": "idx_0000000000000000000000000000",
 				"partitions": {
 					"end": 9,
 					"start": 3,
 				},
 				"request": {
 					"poll_interval": 0.25,
+					"retry": {
+						"backoff": 0.11,
+						"jitter": 0.12,
+						"max_delay": 0.13,
+						"max_retries": 5,
+					},
 					"timeout": 2,
 				},
 				"updates": { "max_process_depth": 64 },
@@ -4568,12 +4639,44 @@ mod tests {
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
 
+		assert_eq!(
+			target.indexer.batch.retry.backoff,
+			Duration::from_millis(10)
+		);
+		assert_eq!(target.indexer.batch.retry.jitter, Duration::from_millis(20));
+		assert_eq!(
+			target.indexer.batch.retry.max_delay,
+			Duration::from_millis(30)
+		);
+		assert_eq!(target.indexer.batch.retry.max_retries, 4);
+		assert_eq!(target.indexer.batch.timeout, Duration::from_secs(3));
+		assert_eq!(
+			target.indexer.cache.poll_interval,
+			Duration::from_millis(125)
+		);
+		assert_eq!(
+			target.indexer.id.unwrap().to_string(),
+			"idx_0000000000000000000000000000"
+		);
 		assert_eq!(target.indexer.partitions.end, 9);
 		assert_eq!(target.indexer.partitions.start, 3);
 		assert_eq!(
 			target.indexer.request.poll_interval,
 			Duration::from_millis(250)
 		);
+		assert_eq!(
+			target.indexer.request.retry.backoff,
+			Duration::from_millis(110)
+		);
+		assert_eq!(
+			target.indexer.request.retry.jitter,
+			Duration::from_millis(120)
+		);
+		assert_eq!(
+			target.indexer.request.retry.max_delay,
+			Duration::from_millis(130)
+		);
+		assert_eq!(target.indexer.request.retry.max_retries, 5);
 		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
 		assert_eq!(target.indexer.updates.max_process_depth, 64);
 	}

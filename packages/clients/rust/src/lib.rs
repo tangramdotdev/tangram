@@ -84,6 +84,7 @@ pub mod health;
 pub mod host;
 pub mod id;
 pub mod index;
+pub mod indexer;
 pub mod list;
 pub mod location;
 pub mod match_;

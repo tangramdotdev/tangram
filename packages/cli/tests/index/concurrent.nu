@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Concurrent index requests share the indexer and all complete.
+# Concurrent requests to await indexing share the indexer and all complete.
 
 let server = server spawn --config {
 	advanced: {
@@ -25,15 +25,15 @@ def index_background [url: string] {
 	}
 }
 
-let barrier_watch = (
-	tg --url $server.url checkpoint watch indexer.request.barrier
+let wait_watch = (
+	tg --url $server.url checkpoint watch indexer.request.wait
 	| from json
 	| get watch
 )
 
-# Hold the first request at its task barrier.
+# Hold the first request while it waits for tasks.
 let first = index_background $server.url
-tg --url $server.url checkpoint wait indexer.request.barrier $barrier_watch 0 | ignore
+tg --url $server.url checkpoint wait indexer.request.wait $wait_watch 0 | ignore
 
 # Start a second request and hold it after the indexer records it. At this point
 # both requests are live in the indexer.
@@ -47,8 +47,8 @@ tg --url $server.url checkpoint wait indexer.request.receive $receive_watch 0 | 
 
 tg --url $server.url checkpoint continue indexer.request.receive $receive_watch 0
 tg --url $server.url checkpoint unwatch indexer.request.receive $receive_watch
-tg --url $server.url checkpoint continue indexer.request.barrier $barrier_watch 0
-tg --url $server.url checkpoint unwatch indexer.request.barrier $barrier_watch
+tg --url $server.url checkpoint continue indexer.request.wait $wait_watch 0
+tg --url $server.url checkpoint unwatch indexer.request.wait $wait_watch
 
 for index in [$first $second] {
 	let output = job recv --tag $index --timeout 10sec

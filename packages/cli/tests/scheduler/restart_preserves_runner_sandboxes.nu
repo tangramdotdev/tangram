@@ -8,6 +8,7 @@ let config = {
 		single_process: false,
 	},
 	authentication: { root: { token: $root_token } },
+	indexer: { id: 'idx_0000000000000000000000000000' },
 	roles: [api indexer scheduler],
 }
 let remote = server spawn --name remote --preserve-keys --config $config

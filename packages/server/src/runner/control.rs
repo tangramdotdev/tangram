@@ -530,41 +530,45 @@ impl Session {
 			scheduler: scheduler.clone(),
 		};
 		let scheduler = scheduler.clone();
-		self.send_control_request(crate::control::SendControlRequestArg {
-			ack: move |id| {
-				let message =
-					tg::runner::control::ServerMessage::Ack(tg::runner::control::ServerAck { id });
-				ServerMessage {
-					connection_index,
-					message,
-					scheduler: scheduler.clone(),
-				}
-			},
-			client_subject: format!("runners.{runner}.control.client.{id}"),
-			is_ack: |message: &ClientMessage| {
-				matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
-			},
-			marker: std::marker::PhantomData,
-			options,
-			request,
-			response: |message: ClientMessage| {
-				let tg::runner::control::ClientMessage::Response(message) = message.0 else {
-					return Ok(None);
-				};
-				if let Some(error) = message.error {
-					let error = tg::Error::try_from(error)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					return Ok(Some((message.id, Err(error))));
-				}
-				let Some(output) = message.output else {
-					return Err(tg::error!("missing runner control response output"));
-				};
-				Ok(Some((message.id, Ok(output))))
-			},
-			server_subject: format!("runners.{runner}.control.server"),
-		})
-		.boxed()
-		.await
+		self.server
+			.send_control_request(crate::control::SendControlRequestArg {
+				ack: move |id| {
+					let message =
+						tg::runner::control::ServerMessage::Ack(tg::runner::control::ServerAck {
+							id,
+						});
+					ServerMessage {
+						connection_index,
+						message,
+						scheduler: scheduler.clone(),
+					}
+				},
+				client_subject: format!("runners.{runner}.control.client.{id}"),
+				is_ack: |message: &ClientMessage| {
+					matches!(&message.0, tg::runner::control::ClientMessage::Ack(_))
+				},
+				marker: std::marker::PhantomData,
+				options,
+				request,
+				response: |message: ClientMessage| {
+					let tg::runner::control::ClientMessage::Response(message) = message.0 else {
+						return Ok(None);
+					};
+					if let Some(error) = message.error {
+						let error = tg::Error::try_from(error).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the error")
+						})?;
+						return Ok(Some((message.id, Err(error))));
+					}
+					let Some(output) = message.output else {
+						return Err(tg::error!("missing runner control response output"));
+					};
+					Ok(Some((message.id, Ok(output))))
+				},
+				server_subject: format!("runners.{runner}.control.server"),
+			})
+			.boxed()
+			.await
 	}
 }
 

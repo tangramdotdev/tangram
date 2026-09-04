@@ -1,7 +1,7 @@
 use {
-	super::{Indexer, partition},
+	super::{Indexer, RETRY_OPTIONS, partition},
 	futures::future,
-	std::time::Duration,
+	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 };
@@ -35,15 +35,19 @@ impl Indexer {
 				partition_end,
 				partition_start,
 			};
-			match self.server.index.aggregate_usage(arg).await {
-				Ok(output) if output.count == 0 => {
-					tokio::time::sleep(config.poll_interval).await;
-				},
-				Ok(_) => {},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to aggregate usage");
-					tokio::time::sleep(Duration::from_secs(1)).await;
-				},
+			let output = tangram_futures::retry(&RETRY_OPTIONS, || async {
+				match self.server.index.aggregate_usage(arg.clone()).await {
+					Ok(output) => Ok(ControlFlow::Break(output)),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to aggregate usage");
+
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			})
+			.await?;
+			if output.count == 0 {
+				tokio::time::sleep(config.poll_interval).await;
 			}
 		}
 	}
@@ -61,6 +65,12 @@ impl Indexer {
 		if partition_end <= partition_start {
 			return future::pending().await;
 		}
+		let retry = tangram_futures::retry::Options {
+			backoff: config.poll_interval,
+			jitter: std::time::Duration::ZERO,
+			max_delay: config.poll_interval,
+			max_retries: u64::MAX,
+		};
 		loop {
 			let now = self.server.clock.now()?;
 			let arg = tangram_index::usage::expire::Arg {
@@ -74,15 +84,19 @@ impl Indexer {
 				partition_start,
 				week_time_to_live: usage.week_time_to_live,
 			};
-			match self.server.index.expire_usage(arg).await {
-				Ok(output) if output.done => {
-					tokio::time::sleep(config.poll_interval).await;
-				},
-				Ok(_) => {},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to expire usage");
-					tokio::time::sleep(config.poll_interval).await;
-				},
+			let output = tangram_futures::retry(&retry, || async {
+				match self.server.index.expire_usage(arg.clone()).await {
+					Ok(output) => Ok(ControlFlow::Break(output)),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to expire usage");
+
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			})
+			.await?;
+			if output.done {
+				tokio::time::sleep(config.poll_interval).await;
 			}
 		}
 	}
