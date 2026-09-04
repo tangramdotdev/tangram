@@ -81,7 +81,7 @@ impl Session {
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let locations = self
-			.locations(arg.location.as_ref())
+			.process_locations(id, arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		if let Some(local) = &locations.local {
@@ -91,6 +91,9 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
+				let location = tg::Location::Local(tg::location::Local::default());
+				let future =
+					self.update_wait_process_referents_for_location(future, location, false);
 				let future =
 					self.attach_wait_process_guard(id, &arg, None, stopper.clone(), future);
 				return Ok(Some(future));

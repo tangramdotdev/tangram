@@ -48,7 +48,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn write_progress_stream_to_null<T>(
+	pub(super) async fn write_progress_stream_to_null<T>(
 		&self,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {

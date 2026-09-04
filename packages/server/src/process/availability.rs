@@ -14,7 +14,7 @@ impl Session {
 		arg: tg::process::availability::Arg,
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let locations = self
-			.locations(arg.location.as_ref())
+			.process_locations(id, arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
