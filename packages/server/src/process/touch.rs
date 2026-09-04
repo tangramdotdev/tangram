@@ -15,7 +15,7 @@ impl Session {
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
 		let locations = self
-			.locations(arg.location.as_ref())
+			.process_locations(id, arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 

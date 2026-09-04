@@ -60,6 +60,29 @@ impl Server {
 }
 
 impl Session {
+	pub(crate) async fn process_locations(
+		&self,
+		id: &tg::process::Id,
+		arg: Option<&tg::location::Arg>,
+	) -> tg::Result<Output> {
+		let mut output = self.locations(arg).await?;
+
+		// A process hosted by this runner is always local.
+		if self.server.runner.state().try_get_process(id).is_some() {
+			match &mut output.local {
+				Some(local) => local.current = true,
+				None => {
+					output.local = Some(Local {
+						current: true,
+						regions: Vec::new(),
+					});
+				},
+			}
+		}
+
+		Ok(output)
+	}
+
 	pub(crate) async fn locations(&self, arg: Option<&tg::location::Arg>) -> tg::Result<Output> {
 		let current_region = self.server.config().region.as_deref();
 		let configured_regions = self.server.config().regions.as_deref();

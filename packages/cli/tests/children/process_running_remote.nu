@@ -14,6 +14,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 
 # Spawn the runner as a separate server so that the remote's runner state is empty.
 let runner = server spawn --name runner --config {
+	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
@@ -39,17 +40,18 @@ let path = artifact {
 	',
 }
 
-# Hold every process finish on the remote.
+# Hold every process finish on the runner. The parent waits for its children on the runner, so holding a child's finish there keeps the parent running.
 let finish_watch = (
-	tg --url $remote.url --token $root_token checkpoint watch process.control.finish
+	tg --url $runner.url checkpoint watch runner.process.finish.started
 	| from json
 	| get watch
 )
+
 let process = tg --url $local.url build --detach --remote $path | str trim
 
 # Hold the first child's finish so that the parent keeps running while its indexed children list is incomplete.
-let first_hit = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $finish_watch 0 | from json
-let first = $first_hit.params.id
+let first_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish.started $finish_watch 0 | from json
+let first = $first_hit.params.process
 assert ($first != $process) "the first finish should belong to a child"
 
 # Start a paginated stream that must receive the later children from the runner.
@@ -72,13 +74,13 @@ tg --url $remote.url --token $root_token checkpoint continue process.control.res
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $response_watch
 
 # Let the parent spawn the remaining children, holding each finish in turn.
-tg --url $remote.url --token $root_token checkpoint continue process.control.finish $finish_watch 0
-let second_hit = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $finish_watch 1 | from json
-let second = $second_hit.params.id
+tg --url $runner.url checkpoint continue runner.process.finish.started $finish_watch 0
+let second_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish.started $finish_watch 1 | from json
+let second = $second_hit.params.process
 assert ($second != $process) "the second finish should belong to a child"
-tg --url $remote.url --token $root_token checkpoint continue process.control.finish $finish_watch 1
-let third_hit = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $finish_watch 2 | from json
-let third = $third_hit.params.id
+tg --url $runner.url checkpoint continue runner.process.finish.started $finish_watch 1
+let third_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish.started $finish_watch 2 | from json
+let third = $third_hit.params.process
 assert ($third != $process) "the third finish should belong to a child"
 
 # The stream must wake for each child and preserve their spawn order across pages.
@@ -97,10 +99,10 @@ let tail = $tail | each { get process | split row '?' | first }
 assert equal $tail [$second $third] "the tail should be readable relative to the end"
 
 # Release the remaining finishes and confirm the build completes.
-tg --url $remote.url --token $root_token checkpoint continue process.control.finish $finish_watch 2
-let parent_hit = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $finish_watch 3 | from json
-assert equal $parent_hit.params.id $process "the fourth finish should belong to the parent"
-tg --url $remote.url --token $root_token checkpoint continue process.control.finish $finish_watch 3
-tg --url $remote.url --token $root_token checkpoint unwatch process.control.finish $finish_watch
+tg --url $runner.url checkpoint continue runner.process.finish.started $finish_watch 2
+let parent_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish.started $finish_watch 3 | from json
+assert equal $parent_hit.params.process $process "the fourth finish should belong to the parent"
+tg --url $runner.url checkpoint continue runner.process.finish.started $finish_watch 3
+tg --url $runner.url checkpoint unwatch runner.process.finish.started $finish_watch
 let output = tg --url $local.url wait $process | complete
 success $output "the parent should finish after its finish checkpoint continues"

@@ -49,6 +49,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
+		// Pipe reads are served over the process control stream, so a runner does not prefer the local path for the processes it hosts.
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

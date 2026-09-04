@@ -1082,6 +1082,7 @@ impl Session {
 			progress_sender,
 		} = arg;
 		let session = self;
+		crate::checkpoint!(session.server, "runner.process.finish.started", process = %id).await;
 		let remote = process
 			.location()
 			.and_then(|location| location.to_location())
@@ -1129,7 +1130,7 @@ impl Session {
 		};
 
 		// Store the output.
-		let mut value = if let Some(value) = &output.value {
+		let value = if let Some(value) = &output.value {
 			value
 				.store_with_handle(session)
 				.await
@@ -1153,71 +1154,6 @@ impl Session {
 			(None, None)
 		};
 		let mut exit = output.exit;
-
-		// Push the output and error.
-		let push_result = async {
-			let Some(tg::Location::Remote(remote)) = process
-				.location()
-				.and_then(|location| location.to_location())
-			else {
-				return Ok::<_, tg::Error>(());
-			};
-
-			let mut objects = Vec::new();
-			if let Some(value) = &value {
-				value.children_with_tokens(&mut objects);
-			}
-			if let Some(tg::Either::Right(id)) = &error {
-				let id = id.node.clone();
-				let object = tg::Referent::with_node(tg::object::Id::Error(id));
-				objects.push(object);
-			}
-			if objects.is_empty() {
-				return Ok(());
-			}
-			let arg = tg::push::Arg {
-				destination: Some(tg::Location::Remote(tg::location::Remote {
-					name: remote.name.clone(),
-					region: remote.region.clone(),
-				})),
-				nodes: objects
-					.into_iter()
-					.map(|object| object.map(Into::into))
-					.collect(),
-				..Default::default()
-			};
-			let stream = session
-				.push_for_process(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
-			let state = process
-				.load_with_handle(session)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-			session
-				.write_progress_stream(progress_sender.clone(), &state.stderr, stream)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
-
-			Ok(())
-		}
-		.await;
-		if let Err(push_error) = push_result {
-			let push_error = tg::error!(
-				!push_error,
-				code = tg::error::Code::Internal,
-				process = %process.id(),
-				"failed to push the process output"
-			);
-			error = Some(
-				push_error
-					.to_data_or_id()
-					.map_right(tg::Referent::with_node),
-			);
-			error_code = Some(tg::error::Code::Internal);
-			exit = 1;
-			value = None;
-		}
 
 		// Finish draining and writing the logs.
 		drop(progress_sender);
@@ -1298,6 +1234,24 @@ impl Session {
 		process_state.data.exit = Some(exit);
 		process_state.data.finished_at = Some(self.server.clock.unix_timestamp()?);
 		process_state.data.output = value;
+		let mut data = process_state.data();
+		data.status = tg::process::Status::Finished;
+		drop(process_state);
+
+		// Store the finished remote process in the runner's local index before it is finished in memory.
+		if remote {
+			session
+				.put_finished_process_local(id, data.clone())
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to index the finished remote process"),
+				)?;
+		}
+
+		// Finish the process in memory.
+		let mut process_state = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 		process_state.data.status = tg::process::Status::Finished;
 		let child_leases = process_state
 			.children
@@ -1308,17 +1262,9 @@ impl Session {
 				Some((id.clone(), lease, location))
 			})
 			.collect::<Vec<_>>();
-		let data = process_state.data();
 		drop(process_state);
-
-		// Store the finished remote process in the runner's local index.
 		if remote {
-			session
-				.put_finished_process_local(id, data.clone())
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to index the finished remote process"),
-				)?;
+			session.server.spawn_publish_process_status_task(&id);
 		}
 
 		child_leases
@@ -1347,8 +1293,84 @@ impl Session {
 			.collect::<Vec<_>>()
 			.await;
 
+		// Push the output and error.
+		let push_result = async {
+			let Some(tg::Location::Remote(remote)) = process
+				.location()
+				.and_then(|location| location.to_location())
+			else {
+				return Ok::<_, tg::Error>(());
+			};
+
+			let mut objects = Vec::new();
+			if let Some(value) = &data.output {
+				value.children_with_tokens(&mut objects);
+			}
+			if let Some(tg::Either::Right(id)) = &data.error {
+				let id = id.node.clone();
+				let object = tg::Referent::with_node(tg::object::Id::Error(id));
+				objects.push(object);
+			}
+			if objects.is_empty() {
+				return Ok(());
+			}
+			crate::checkpoint!(
+				session.server,
+				"runner.process.output.push.started",
+				process = %process.id(),
+			)
+			.await;
+			let arg = tg::push::Arg {
+				destination: Some(tg::Location::Remote(tg::location::Remote {
+					name: remote.name.clone(),
+					region: remote.region.clone(),
+				})),
+				nodes: objects
+					.into_iter()
+					.map(|object| object.map(Into::into))
+					.collect(),
+				..Default::default()
+			};
+			let stream = session
+				.push_for_process(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
+			session
+				.write_progress_stream_to_null(stream)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
+			crate::checkpoint!(
+				session.server,
+				"runner.process.output.push.finished",
+				process = %process.id(),
+			)
+			.await;
+
+			Ok(())
+		}
+		.await;
+
+		// Finish the remote process.
+		let mut remote_data = data;
+		if let Err(push_error) = push_result {
+			let push_error = tg::error!(
+				!push_error,
+				code = tg::error::Code::Internal,
+				process = %process.id(),
+				"failed to push the process output"
+			);
+			remote_data.cacheable = false;
+			remote_data.error = Some(
+				push_error
+					.to_data_or_id()
+					.map_right(tg::Referent::with_node),
+			);
+			remote_data.exit = Some(1);
+			remote_data.output = None;
+		}
+
 		finish_sender
-			.send(data)
+			.send(remote_data)
 			.map_err(|_| tg::error!(%id, "failed to send the finished process data"))?;
 		buffered_task
 			.wait()
