@@ -31,16 +31,16 @@ enum Phase {
 	AuthorizeSubtrees { nodes: Vec<tg::Id> },
 	Children,
 	Complete { outcome: Outcome },
-	Frontier,
+	Nodes,
 }
 
 pub(crate) struct Search {
 	ancestor_or_descendant: HashMap<Key, Outcome>,
 	budget: Budget,
 	depth: usize,
-	frontier: Vec<tg::Id>,
 	kind: Kind,
 	next: Vec<tg::Id>,
+	nodes: Vec<tg::Id>,
 	pending: VecDeque<(tg::Id, Option<Vec<u8>>)>,
 	phase: Phase,
 	root: Key,
@@ -108,7 +108,7 @@ impl Search {
 		root: tg::Id,
 		permission: tg::authorization::Permission,
 	) -> Self {
-		let frontier = vec![root.clone()];
+		let nodes = vec![root.clone()];
 		let root_key = (root.clone(), permission);
 		let visited = HashSet::from([root]);
 
@@ -116,11 +116,11 @@ impl Search {
 			ancestor_or_descendant: HashMap::new(),
 			budget,
 			depth: 0,
-			frontier,
 			kind,
 			next: Vec::new(),
+			nodes,
 			pending: VecDeque::new(),
-			phase: Phase::Frontier,
+			phase: Phase::Nodes,
 			root: root_key,
 			visited,
 		}
@@ -135,7 +135,7 @@ impl Search {
 		assert!(max_reads > 0);
 		assert!(page_size > 0);
 		loop {
-			let phase = std::mem::replace(&mut self.phase, Phase::Frontier);
+			let phase = std::mem::replace(&mut self.phase, Phase::Nodes);
 			match phase {
 				Phase::AuthorizeNodes { nodes } => match self.kind {
 					Kind::Object => {
@@ -229,9 +229,9 @@ impl Search {
 				},
 				Phase::Children => {
 					if self.pending.is_empty() {
-						self.frontier = std::mem::take(&mut self.next);
+						self.nodes = std::mem::take(&mut self.next);
 						self.depth += 1;
-						self.phase = Phase::Frontier;
+						self.phase = Phase::Nodes;
 						continue;
 					}
 					let reads = self.take_child_reads(max_reads, page_size)?;
@@ -244,12 +244,12 @@ impl Search {
 
 					return Ok(Action::Complete { outcome });
 				},
-				Phase::Frontier => {
-					if self.frontier.is_empty() {
+				Phase::Nodes => {
+					if self.nodes.is_empty() {
 						return Ok(self.complete(state, Outcome::Authorized));
 					}
 					let mut nodes = Vec::new();
-					for node in &self.frontier {
+					for node in &self.nodes {
 						let key = self.subtree_key(node);
 						match state.outcome(&key) {
 							Outcome::Authorized => {},
@@ -503,7 +503,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn a_definitive_denial_wins_over_an_incomplete_frontier_node() {
+	fn a_definitive_denial_wins_over_an_incomplete_node() {
 		let root = object(0);
 		let incomplete = object(1);
 		let denied = object(2);
@@ -512,8 +512,8 @@ mod tests {
 			&root.clone().into(),
 		)
 		.unwrap();
-		search.frontier = vec![incomplete.into(), denied.clone().into()];
-		search.phase = Phase::Frontier;
+		search.nodes = vec![incomplete.into(), denied.clone().into()];
+		search.phase = Phase::Nodes;
 
 		let root = search.subtree_key(&root.into());
 		let denied = search.subtree_key(&denied.into());

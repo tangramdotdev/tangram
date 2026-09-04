@@ -78,7 +78,7 @@ fn put_grant(
 	put(index, txn, &key, &value);
 }
 
-// The ancestor search abandons a frontier that already holds the proof.
+// The ancestor search must not stop when the proof is already queued.
 //
 //     p1 ... p1088        the decoy's parents, more numerous than the edge budget
 //        \   |   /
@@ -90,8 +90,8 @@ fn put_grant(
 // parents the search reaches. Reading the target's parents enqueues both at depth one and costs two
 // edges. The decoy pops first, and paging through its parents charges one edge each until the
 // budget runs out, at which point the walk returns Exhausted as a whole. The proof has been queued
-// one hop from the target since the second edge and is never examined; the abandoned stack holds
-// it, the decoy's unfinished pagination, and 61 of the decoy's parents at depth two.
+// one hop from the target since the second edge and is never examined; the queues still contain it,
+// the decoy's unfinished pagination, and 61 of the decoy's parents at depth two.
 #[tokio::test]
 async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	// Use the default budgets, and size the decoy's fan-in against the edge budget rather than

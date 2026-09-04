@@ -154,10 +154,10 @@ impl Index {
 		ancestor: &tg::process::Id,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut seen = BTreeSet::from([process.clone()]);
-		let mut frontier = vec![process.clone()];
-		while !frontier.is_empty() {
+		let mut processes = vec![process.clone()];
+		while !processes.is_empty() {
 			let parents = {
-				let result = futures::future::try_join_all(frontier.iter().map(|process| {
+				let result = futures::future::try_join_all(processes.iter().map(|process| {
 					Self::get_process_parents_with_transaction(txn, subspace, process)
 				}))
 				.await;
@@ -172,13 +172,13 @@ impl Index {
 				}
 				values
 			};
-			frontier = Vec::new();
+			processes = Vec::new();
 			for parent in parents.into_iter().flatten() {
 				if &parent == ancestor {
 					return Ok(ControlFlow::Break(true));
 				}
 				if seen.insert(parent.clone()) {
-					frontier.push(parent);
+					processes.push(parent);
 				}
 			}
 		}

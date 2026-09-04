@@ -121,7 +121,7 @@ impl Session {
 			.filter_map(|(index, &parents)| (parents == 0).then_some(index))
 			.collect::<VecDeque<_>>();
 
-		// Emit the minimum grant frontier from parents to children.
+		// Emit a minimal set of grants in parent-to-child order.
 		let expires_at = touched_at
 			+ self
 				.server

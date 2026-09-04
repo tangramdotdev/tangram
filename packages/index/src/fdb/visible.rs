@@ -108,12 +108,12 @@ impl Index {
 			| tg::Principal::Sandbox(_) => None,
 		};
 		if let Some(id) = id {
-			let mut frontier = vec![id.clone()];
+			let mut nodes = vec![id.clone()];
 			let mut visited = HashSet::from([id]);
-			while !frontier.is_empty() {
+			while !nodes.is_empty() {
 				let relations = {
 					let results =
-						futures::future::try_join_all(frontier.into_iter().map(|id| async move {
+						futures::future::try_join_all(nodes.into_iter().map(|id| async move {
 							Self::get_member_groups_and_organizations_with_transaction(
 								txn, subspace, &id,
 							)
@@ -151,7 +151,7 @@ impl Index {
 						}
 					}
 				}
-				frontier = next;
+				nodes = next;
 			}
 		}
 

@@ -2715,7 +2715,7 @@ async fn authorize_searches_traverse_memberships_in_both_directions() {
 }
 
 #[tokio::test]
-async fn authorize_ancestor_search_finishes_the_shallow_frontier_first() {
+async fn authorize_ancestor_search_processes_the_shallowest_depth_first() {
 	let ancestor = crate::authorize::SearchConfig {
 		max_depth: 16,
 		max_edges: 5,
