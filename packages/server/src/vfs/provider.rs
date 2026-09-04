@@ -475,12 +475,12 @@ impl Provider {
 		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
-		let (file, _) = self.file_node_inner(&artifact).await?;
+		let (file, graph) = self.file_node_inner(&artifact).await?;
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
 			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
-			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
+			let references = self.file_dependency_references(&file, graph.as_ref())?;
 			let data = serde_json::to_vec(&references).unwrap();
 			return Ok(Some(data.into()));
 		}
@@ -511,12 +511,12 @@ impl Provider {
 		if !matches!(artifact.id.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
-		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
+		let (file, graph) = self.file_node_sync_inner(&artifact, transaction)?;
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
 			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
-			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
+			let references = self.file_dependency_references(&file, graph.as_ref())?;
 			let data = serde_json::to_vec(&references).unwrap();
 			return Ok(Some(data.into()));
 		}
@@ -527,6 +527,42 @@ impl Provider {
 			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
 		}
 		Ok(None)
+	}
+
+	fn file_dependency_references(
+		&self,
+		file: &tg::graph::data::File,
+		graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<Vec<tg::Reference>> {
+		let session = self.session();
+		let mut references = Vec::with_capacity(file.dependencies.len());
+		for (reference, dependency) in &file.dependencies {
+			let mut reference = reference.clone();
+			let Some(edge) = dependency
+				.as_ref()
+				.and_then(|dependency| dependency.0.node.as_ref())
+			else {
+				references.push(reference);
+				continue;
+			};
+			let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
+				references.push(reference);
+				continue;
+			};
+			let dependency = Self::artifact_from_edge_inner(edge, graph)?;
+			session
+				.add_permanent_token_to_object_reference(&mut reference, &dependency.id)
+				.map_err(|error| {
+					tracing::error!(
+						error = %error.trace(),
+						"failed to add an authorization token to a dependency reference"
+					);
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+			references.push(reference);
+		}
+
+		Ok(references)
 	}
 
 	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {

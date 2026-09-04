@@ -8,7 +8,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\".\"]"
+            "user.tangram.dependencies": "[\".?tokens[local]=<token>\"]"
           }
         }
       }

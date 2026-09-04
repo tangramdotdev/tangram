@@ -484,7 +484,19 @@ impl Session {
 		}
 
 		progress.spinner("dependencies", "checking out dependencies");
-		let artifacts = artifacts.into_iter().map(tg::Referent::with_node).collect();
+		let artifacts = artifacts
+			.into_iter()
+			.map(|artifact| {
+				let id = tg::object::Id::from(artifact.clone());
+				let permissions = graph.object_permissions(&id);
+				let mut artifact = tg::Referent::with_node(artifact);
+				if permissions.contains(tg::authorization::permission::object::Set::SUBTREE) {
+					self.add_token_to_object_referent(&mut artifact)?;
+				}
+
+				Ok::<_, tg::Error>(artifact)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 		let stream = self
 			.checkout_internal(artifacts)
 			.await

@@ -15,7 +15,7 @@
               "kind": "file",
               "contents": "bar",
               "xattrs": {
-                "user.tangram.dependencies": "[\"baz\"]"
+                "user.tangram.dependencies": "[\"baz?tokens[local]=<token>\"]"
               }
             }
           }
@@ -26,7 +26,7 @@
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"fil_01ggn2me3j21vbjc2fetv113qcksrj4ybh3np5wtqe63f97tyqprf0\"]"
+        "user.tangram.dependencies": "[\"fil_01ggn2me3j21vbjc2fetv113qcksrj4ybh3np5wtqe63f97tyqprf0?tokens[local]=<token>\"]"
       }
     }
   }

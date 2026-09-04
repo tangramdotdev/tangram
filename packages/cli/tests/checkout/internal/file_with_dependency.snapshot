@@ -9,7 +9,7 @@
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"bar\"]"
+        "user.tangram.dependencies": "[\"bar?tokens[local]=<token>\"]"
       }
     }
   }

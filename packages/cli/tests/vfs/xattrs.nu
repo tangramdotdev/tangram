@@ -27,5 +27,6 @@ let id = tg build (artifact {
 let path = vfs root $server_path $id | path join 'file.txt'
 let names = xattr_list $path | sort
 assert ($names == ['user.tangram.dependencies', 'user.tangram.module']) 'unexpected xattr names'
-assert ((xattr_read 'user.tangram.dependencies' $path | from json) == ['dependency']) 'unexpected dependency xattr'
+let dependency = xattr_read 'user.tangram.dependencies' $path | from json | first
+assert equal ($dependency | split row '?' | first) 'dependency' 'unexpected dependency xattr'
 assert ((xattr_read 'user.tangram.module' $path) == 'ts') 'unexpected module xattr'

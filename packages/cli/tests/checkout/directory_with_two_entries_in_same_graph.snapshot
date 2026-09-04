@@ -14,7 +14,7 @@
                   "kind": "file",
                   "contents": "",
                   "xattrs": {
-                    "user.tangram.dependencies": "[\"../bar\",\"baz\"]"
+                    "user.tangram.dependencies": "[\"../bar?tokens[local]=<token>\",\"baz?tokens[local]=<token>\"]"
                   }
                 }
               }
@@ -26,7 +26,7 @@
                   "kind": "file",
                   "contents": "",
                   "xattrs": {
-                    "user.tangram.dependencies": "[\"../foo\"]"
+                    "user.tangram.dependencies": "[\"../foo?tokens[local]=<token>\"]"
                   }
                 }
               }
@@ -46,7 +46,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\"../foo\"]"
+            "user.tangram.dependencies": "[\"../foo?tokens[local]=<token>\"]"
           }
         }
       }
@@ -58,7 +58,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\"../bar\",\"baz\"]"
+            "user.tangram.dependencies": "[\"../bar?tokens[local]=<token>\",\"baz?tokens[local]=<token>\"]"
           }
         }
       }
