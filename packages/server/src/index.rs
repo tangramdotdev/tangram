@@ -1,12 +1,13 @@
 use {
 	crate::{Server, Session},
-	futures::{FutureExt as _, Stream, StreamExt as _},
-	std::{panic::AssertUnwindSafe, time::Duration},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	std::{
+		collections::BTreeSet, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, Index as _},
-	tangram_messenger::Messenger as _,
 	tangram_store::Store as _,
 };
 
@@ -753,7 +754,7 @@ impl Server {
 			return Ok(());
 		}
 		if !self.config.advanced.single_process {
-			let config = &self.config.object.index_outbox;
+			let config = &self.config.object.index_queue;
 			let fragments = arg
 				.items
 				.chunks(config.fragment_size)
@@ -764,28 +765,10 @@ impl Server {
 					arg.serialize().map(Into::into)
 				})
 				.collect::<tg::Result<Vec<_>>>()?;
-			let batch_id = crate::store::object::index::outbox::batch::Id::new(
+			let batch = crate::store::object::index::queue::batch::Id::new(
 				uuid::Uuid::now_v7().into_bytes(),
 			);
-			let partition = rand::random_range(0..config.partition_total);
-			let arg = crate::store::object::index::outbox::batch::enqueue::Arg {
-				fragments,
-				id: batch_id,
-				partition,
-			};
-			self.store
-				.enqueue_object_index_outbox_batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
-			let subject = crate::indexer::object_index_outbox_subject(partition);
-			tokio::spawn({
-				let server = self.clone();
-				async move {
-					if let Err(error) = server.messenger.publish(subject, ()).await {
-						tracing::error!(%error, %partition, "failed to publish an object index outbox notification");
-					}
-				}
-			});
+			self.enqueue_index_batch(batch, fragments).await?;
 
 			return Ok(());
 		}
@@ -818,6 +801,84 @@ impl Server {
 				}
 			})
 			.detach();
+
+		Ok(())
+	}
+
+	async fn enqueue_index_batch(
+		&self,
+		batch: crate::store::object::index::queue::batch::Id,
+		fragments: Vec<bytes::Bytes>,
+	) -> tg::Result<()> {
+		let fragment_count = u64::try_from(fragments.len())
+			.map_err(|_| tg::error!("the index batch has too many fragments"))?;
+		let excluded = Arc::new(tokio::sync::Mutex::new(BTreeSet::new()));
+		let fragments: Arc<[bytes::Bytes]> = fragments.into();
+		let retry = tangram_futures::retry::Options::from(self.config.indexer.batch.retry.clone());
+		tangram_futures::retry(&retry, || {
+			let excluded = excluded.clone();
+			let fragments = fragments.clone();
+			async move {
+				let excluded_indexers = excluded.lock().await.clone();
+				let indexer = match self.select_indexer(&excluded_indexers).await {
+					Ok(indexer) => indexer,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let result = self
+					.enqueue_index_batch_with_indexer(&indexer, batch, fragment_count, &fragments)
+					.await;
+				match result {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => {
+						excluded.lock().await.insert(indexer);
+
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			}
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn enqueue_index_batch_with_indexer(
+		&self,
+		indexer: &tg::indexer::Id,
+		batch: crate::store::object::index::queue::batch::Id,
+		fragment_count: u64,
+		fragments: &[bytes::Bytes],
+	) -> tg::Result<()> {
+		let requests = fragments
+			.iter()
+			.cloned()
+			.enumerate()
+			.map(|(fragment, payload)| {
+				let arg = crate::indexer::RequestArg::Index(crate::indexer::IndexRequestArg {
+					batch,
+					fragment: u64::try_from(fragment).unwrap(),
+					fragments: fragment_count,
+					payload,
+				});
+				async {
+					let output = self
+						.send_indexer_request(indexer, arg)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to send an index request"))?
+						.map_err(|source| {
+							tg::error!(!source, "the indexer failed to enqueue an index fragment")
+						})?;
+					output
+						.try_unwrap_index()
+						.map_err(|_| tg::error!("expected an index response"))?;
+
+					Ok::<_, tg::Error>(())
+				}
+			});
+		let request = future::try_join_all(requests);
+		tokio::time::timeout(self.config.indexer.batch.timeout, request)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out enqueueing an index batch"))??;
 
 		Ok(())
 	}
@@ -870,15 +931,43 @@ impl Session {
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		progress.spinner("index", "waiting for indexing");
-		let output = self
-			.send_indexer_request(crate::indexer::RequestArg::Index)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the indexer request"))??;
-		output
-			.try_unwrap_index()
-			.map_err(|_| tg::error!("expected an index response"))?;
+		let indexers = self
+			.server
+			.get_indexers()
+			.await?
+			.into_iter()
+			.map(|indexer| indexer.id)
+			.collect::<Vec<_>>();
+		future::try_join_all(
+			indexers
+				.iter()
+				.map(|indexer| self.wait_for_indexer(indexer)),
+		)
+		.await?;
 		progress.finish("index");
 		Ok(())
+	}
+
+	async fn wait_for_indexer(&self, indexer: &tg::indexer::Id) -> tg::Result<()> {
+		loop {
+			let request = self.send_indexer_request(indexer, crate::indexer::RequestArg::Wait);
+			let result =
+				tokio::time::timeout(self.server.config.indexer.request.timeout, request).await;
+			if let Ok(Ok(Ok(output))) = result {
+				output
+					.try_unwrap_wait()
+					.map_err(|_| tg::error!("expected a wait response"))?;
+
+				return Ok(());
+			}
+			let arg = crate::store::indexer::get::Arg {
+				id: indexer.clone(),
+			};
+			if self.server.store.try_get_indexer(arg).await?.is_none() {
+				return Ok(());
+			}
+			tokio::time::sleep(self.server.config.indexer.cache.poll_interval).await;
+		}
 	}
 }
 

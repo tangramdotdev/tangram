@@ -534,36 +534,38 @@ impl Session {
 				id: id.clone(),
 			});
 		let request = ServerMessage(request);
-		self.send_control_request(crate::control::SendControlRequestArg {
-			ack: |id| {
-				ServerMessage(tg::sandbox::control::ServerMessage::Ack(
-					tg::sandbox::control::ServerAck { id },
-				))
-			},
-			client_subject: format!("sandboxes.{sandbox}.control.client.{id}"),
-			is_ack: |message: &ClientMessage| {
-				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
-			},
-			marker: std::marker::PhantomData,
-			options,
-			request,
-			response: |message: ClientMessage| {
-				let tg::sandbox::control::ClientMessage::Response(message) = message.0 else {
-					return Ok(None);
-				};
-				if let Some(error) = message.error {
-					let error = tg::Error::try_from(error)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
-					return Ok(Some((message.id, Err(error))));
-				}
-				let Some(output) = message.output else {
-					return Err(tg::error!("missing sandbox control response output"));
-				};
-				Ok(Some((message.id, Ok(output))))
-			},
-			server_subject: format!("sandboxes.{sandbox}.control.server"),
-		})
-		.await
+		self.server
+			.send_control_request(crate::control::SendControlRequestArg {
+				ack: |id| {
+					ServerMessage(tg::sandbox::control::ServerMessage::Ack(
+						tg::sandbox::control::ServerAck { id },
+					))
+				},
+				client_subject: format!("sandboxes.{sandbox}.control.client.{id}"),
+				is_ack: |message: &ClientMessage| {
+					matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
+				},
+				marker: std::marker::PhantomData,
+				options,
+				request,
+				response: |message: ClientMessage| {
+					let tg::sandbox::control::ClientMessage::Response(message) = message.0 else {
+						return Ok(None);
+					};
+					if let Some(error) = message.error {
+						let error = tg::Error::try_from(error).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the error")
+						})?;
+						return Ok(Some((message.id, Err(error))));
+					}
+					let Some(output) = message.output else {
+						return Err(tg::error!("missing sandbox control response output"));
+					};
+					Ok(Some((message.id, Ok(output))))
+				},
+				server_subject: format!("sandboxes.{sandbox}.control.server"),
+			})
+			.await
 	}
 }
 

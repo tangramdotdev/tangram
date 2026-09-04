@@ -1,9 +1,7 @@
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+	Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
 pub struct Id([u8; 16]);
-
-pub mod delete;
-pub mod enqueue;
-pub mod get;
 
 impl Id {
 	#[must_use]

@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::Server,
 	dashmap::DashMap,
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::{marker::PhantomData, sync::Arc, time::Duration},
@@ -32,10 +32,12 @@ pub(crate) struct Stream<I, O> {
 }
 
 pub(crate) struct Sender<I, O> {
+	inbox: Arc<DashMap<String, ()>>,
 	inner: tokio::sync::mpsc::Sender<O>,
 	_marker: PhantomData<fn() -> I>,
 	notify: Arc<tokio::sync::Notify>,
 	outbox: Arc<DashMap<String, O>>,
+	outbox_ttl: Option<Duration>,
 }
 
 pub(crate) struct Options {
@@ -45,6 +47,7 @@ pub(crate) struct Options {
 
 pub(crate) struct StreamOptions {
 	pub inbox_ttl: Duration,
+	pub outbox_ttl: Option<Duration>,
 	pub retry: tangram_futures::retry::Options,
 }
 
@@ -78,13 +81,19 @@ where
 		sender: tokio::sync::mpsc::Sender<O>,
 		options: StreamOptions,
 	) -> Self {
-		let StreamOptions { inbox_ttl, retry } = options;
+		let StreamOptions {
+			inbox_ttl,
+			outbox_ttl,
+			retry,
+		} = options;
 		let inbox = Arc::new(DashMap::new());
 		let sender = Sender {
+			inbox: inbox.clone(),
 			inner: sender,
 			_marker: PhantomData,
 			notify: Arc::new(tokio::sync::Notify::new()),
 			outbox: Arc::new(DashMap::new()),
+			outbox_ttl,
 		};
 		let send_task = tokio::spawn({
 			let sender = sender.clone();
@@ -183,10 +192,12 @@ impl<I, O> Drop for Stream<I, O> {
 impl<I, O> Clone for Sender<I, O> {
 	fn clone(&self) -> Self {
 		Self {
+			inbox: self.inbox.clone(),
 			inner: self.inner.clone(),
 			_marker: PhantomData,
 			notify: self.notify.clone(),
 			outbox: self.outbox.clone(),
+			outbox_ttl: self.outbox_ttl,
 		}
 	}
 }
@@ -197,7 +208,24 @@ where
 {
 	pub(crate) async fn send(&self, message: O) -> tg::Result<()> {
 		if let Some(id) = message.id() {
-			self.outbox.insert(id.to_owned(), message.clone());
+			let id = id.to_owned();
+			let previous = self.outbox.insert(id.clone(), message.clone());
+			if previous.is_none()
+				&& let Some(ttl) = self.outbox_ttl
+			{
+				let inbox = self.inbox.clone();
+				let notify = self.notify.clone();
+				let outbox = self.outbox.clone();
+				tokio::spawn(async move {
+					tokio::time::sleep(ttl).await;
+					if outbox.remove(&id).is_some() {
+						inbox.remove(&id);
+						if outbox.is_empty() {
+							notify.notify_waiters();
+						}
+					}
+				});
+			}
 		}
 		self.inner
 			.send(message)
@@ -233,6 +261,7 @@ where
 pub(crate) fn stream_options() -> StreamOptions {
 	StreamOptions {
 		inbox_ttl: Duration::from_mins(1),
+		outbox_ttl: None,
 		retry: tangram_futures::retry::Options {
 			backoff: Duration::from_secs(1),
 			jitter: Duration::ZERO,
@@ -242,7 +271,7 @@ pub(crate) fn stream_options() -> StreamOptions {
 	}
 }
 
-impl Session {
+impl Server {
 	pub(crate) async fn send_control_request<I, O, Response>(
 		&self,
 		arg: SendControlRequestArg<
@@ -268,7 +297,7 @@ impl Session {
 			response,
 			server_subject,
 		} = arg;
-		let server = self.server.clone();
+		let server = self.clone();
 		let Options { retry, timeout } = options;
 
 		let responses = server
