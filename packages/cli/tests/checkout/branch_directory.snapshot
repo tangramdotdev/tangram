@@ -3,27 +3,45 @@
   "entries": {
     "a.txt": {
       "kind": "file",
-      "contents": "File A"
+      "contents": "File A",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "b.txt": {
       "kind": "file",
-      "contents": "File B"
+      "contents": "File B",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "c.txt": {
       "kind": "file",
-      "contents": "File C"
+      "contents": "File C",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "d.txt": {
       "kind": "file",
-      "contents": "File D"
+      "contents": "File D",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "e.txt": {
       "kind": "file",
-      "contents": "File E"
+      "contents": "File E",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "f.txt": {
       "kind": "file",
-      "contents": "File F"
+      "contents": "File F",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     }
   }
 }

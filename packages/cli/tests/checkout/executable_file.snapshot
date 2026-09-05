@@ -1,5 +1,8 @@
 {
   "kind": "file",
   "contents": "Hello, World!",
-  "executable": true
+  "executable": true,
+  "xattrs": {
+    "user.tangram.token": "<token>"
+  }
 }

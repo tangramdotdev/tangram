@@ -761,6 +761,25 @@ impl Session {
 		} = file;
 		let temp_path = temp.path().to_owned();
 		state.read_handles.shift_remove(&source_path);
+		let artifact = tg::artifact::Id::from(id.clone());
+		tokio::task::spawn_blocking({
+			let session = self.clone();
+			let artifact = artifact.clone();
+			let temp_path = temp_path.clone();
+			move || {
+				let capabilities = crate::checkout::xattrs::internal_capabilities(&session.server)?;
+				let token = session.create_permanent_object_token(&artifact)?;
+				let xattrs = crate::checkout::xattrs::Xattrs {
+					dependencies: &[],
+					required: &[],
+					token: token.as_ref(),
+				};
+				crate::checkout::xattrs::write_file_xattrs(&temp_path, xattrs, capabilities)?;
+				Ok::<_, tg::Error>(())
+			}
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the checkout xattrs task panicked"))??;
 		#[cfg(unix)]
 		if executable {
 			use std::os::unix::fs::PermissionsExt as _;
@@ -795,7 +814,6 @@ impl Session {
 				source.path = path.clone();
 			}
 		}
-		let artifact = tg::artifact::Id::from(id.clone());
 		state
 			.graph
 			.lock()

@@ -1,8 +1,16 @@
 use {
 	crate::Session,
-	std::collections::{HashMap, HashSet},
+	std::{
+		collections::{HashMap, HashSet},
+		path::PathBuf,
+	},
 	tangram_client::prelude::*,
 };
+
+pub(super) enum Output {
+	Attr(Vec<u8>),
+	File { contents: Vec<u8>, path: PathBuf },
+}
 
 struct State {
 	dependencies: bool,
@@ -13,10 +21,10 @@ struct State {
 }
 
 impl Session {
-	pub(super) fn checkout_write_lock(&self, state: &mut super::State) -> tg::Result<()> {
+	pub(super) fn checkout_prepare_lock(&self, state: &super::State) -> tg::Result<Option<Output>> {
 		// Do not write a lock if the lock arg is not set.
 		if state.arg.lock.is_none() {
-			return Ok(());
+			return Ok(None);
 		}
 
 		// Create the lock.
@@ -26,17 +34,15 @@ impl Session {
 
 		// Do not write the lock if it is empty.
 		if lock.nodes.is_empty() {
-			return Ok(());
+			return Ok(None);
 		}
 
-		// Write the lock.
-		if state.artifact.is_directory() {
+		// Prepare the lock output before writing the file's xattrs.
+		let output = if state.artifact.is_directory() {
 			let contents = serde_json::to_vec_pretty(&lock)
 				.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
-			let lockfile_path = state.path.join(tg::module::LOCKFILE_FILE_NAME);
-			std::fs::write(&lockfile_path, &contents).map_err(
-				|error| tg::error!(!error, path = %lockfile_path.display(), "failed to write the lockfile"),
-			)?;
+			let path = state.path.join(tg::module::LOCKFILE_FILE_NAME);
+			Output::File { contents, path }
 		} else if state.artifact.is_file() {
 			let lock_kind = state.arg.lock.unwrap();
 			let lock_kind = if matches!(lock_kind, tg::checkout::Lock::Auto) {
@@ -51,26 +57,40 @@ impl Session {
 			};
 			match lock_kind {
 				tg::checkout::Lock::Attr => {
-					let lockfile_path = state.path.with_extension("lock");
-					std::fs::remove_file(&lockfile_path).ok();
-					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec(&lock)
 						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
-					xattr::set(&state.path, tg::file::LOCK_XATTR_NAME, &contents)
-						.map_err(|error| tg::error!(!error, "failed to write the lockattr"))?;
+					Output::Attr(contents)
 				},
 				tg::checkout::Lock::File => {
-					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec_pretty(&lock)
 						.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
-					let lockfile_path = state.path.with_extension("lock");
-					std::fs::remove_file(&lockfile_path).ok();
-					std::fs::write(&lockfile_path, &contents).map_err(
-						|error| tg::error!(!error, path = %lockfile_path.display(), "failed to write the lockfile"),
-					)?;
+					let path = state.path.with_extension("lock");
+					Output::File { contents, path }
 				},
 				tg::checkout::Lock::Auto => unreachable!(),
 			}
+		} else {
+			return Ok(None);
+		};
+
+		Ok(Some(output))
+	}
+
+	pub(super) fn checkout_write_lock(state: &super::State) -> tg::Result<()> {
+		match &state.lock {
+			Some(Output::Attr(_)) => {
+				// The shared xattr writer has already written the lock xattr.
+				std::fs::remove_file(state.path.with_extension("lock")).ok();
+			},
+			Some(Output::File { contents, path }) => {
+				if state.artifact.is_file() {
+					std::fs::remove_file(path).ok();
+				}
+				std::fs::write(path, contents).map_err(
+					|error| tg::error!(!error, path = %path.display(), "failed to write the lockfile"),
+				)?;
+			},
+			None => {},
 		}
 
 		Ok(())

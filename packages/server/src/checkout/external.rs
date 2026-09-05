@@ -21,6 +21,7 @@ mod lock;
 struct State {
 	arg: tg::checkout::Arg,
 	artifact: tg::artifact::Id,
+	lock: Option<lock::Output>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	store_path: Option<PathBuf>,
@@ -28,6 +29,7 @@ struct State {
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+	xattr_capabilities: super::xattrs::Capabilities,
 }
 
 #[derive(Clone)]
@@ -313,10 +315,17 @@ impl Session {
 			let path = path.clone();
 			let progress = progress.clone();
 			move |_| {
+				// Probe the destination filesystem's xattr value size.
+				let directory = path
+					.parent()
+					.ok_or_else(|| tg::error!("expected the checkout path to have a parent"))?;
+				let xattr_capabilities = super::xattrs::probe(directory)?;
+
 				// Create the state.
 				let mut state = State {
 					arg,
 					artifact,
+					lock: None,
 					path,
 					progress,
 					store_path,
@@ -324,7 +333,11 @@ impl Session {
 					visited: HashSet::default(),
 					visited_graphs: HashSet::default(),
 					visiting: HashSet::default(),
+					xattr_capabilities,
 				};
+
+				// Prepare the lock so all file xattrs share the space budget.
+				state.lock = session.checkout_prepare_lock(&state)?;
 
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
@@ -339,8 +352,7 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to check out the artifact"))?;
 
 				// Write the lock if necessary.
-				session
-					.checkout_write_lock(&mut state)
+				Self::checkout_write_lock(&state)
 					.map_err(|error| tg::error!(!error, "failed to write the lock"))?;
 
 				Ok::<_, tg::Error>(())
@@ -648,13 +660,6 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 
 			if cfg!(target_os = "linux") {
-				// Set the module xattr.
-				if let Some(module) = &node.module {
-					let module = module.to_string();
-					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-						.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
-				}
-
 				// Set the permissions.
 				if node.executable {
 					let permissions = std::fs::Permissions::from_mode(0o755);
@@ -682,13 +687,6 @@ impl Session {
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
-			// Set the module xattr.
-			if let Some(module) = &node.module {
-				let module = module.to_string();
-				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
-			}
-
 			// Set the permissions.
 			if node.executable {
 				let permissions = std::fs::Permissions::from_mode(0o755);
@@ -697,13 +695,30 @@ impl Session {
 			}
 		}
 
-		// Set the dependencies attr with authorization for each resolved dependency.
-		if !references.is_empty() {
-			let references = serde_json::to_vec(&references)
-				.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
-			xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &references)
-				.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
-		}
+		// Write all file xattrs with the required xattrs taking priority over tokens.
+		let lock = if path == state.path {
+			match &state.lock {
+				Some(lock::Output::Attr(contents)) => Some(contents.as_slice()),
+				Some(lock::Output::File { .. }) | None => None,
+			}
+		} else {
+			None
+		};
+		let module = node.module.as_ref().map(ToString::to_string);
+		let required = [
+			(tg::file::LOCK_XATTR_NAME, lock),
+			(
+				tg::file::MODULE_XATTR_NAME,
+				module.as_ref().map(String::as_bytes),
+			),
+		];
+		let token = self.create_permanent_object_token(id)?;
+		let xattrs = super::xattrs::Xattrs {
+			dependencies: &references,
+			required: &required,
+			token: token.as_ref(),
+		};
+		super::xattrs::write_file_xattrs(path, xattrs, state.xattr_capabilities)?;
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);

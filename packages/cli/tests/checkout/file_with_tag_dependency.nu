@@ -56,7 +56,8 @@ snapshot --path $path '
 	  "contents": "foo",
 	  "xattrs": {
 	    "user.tangram.dependencies": "[\"bar?tokens[local]=<token>\"]",
-	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"node\":null,\"options\":{\"id\":\"fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g\",\"tag\":\"bar\"}}}}]}"
+	    "user.tangram.lock": "{\"nodes\":[{\"kind\":\"file\",\"dependencies\":{\"bar\":{\"node\":null,\"options\":{\"id\":\"fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g\",\"tag\":\"bar\"}}}}]}",
+	    "user.tangram.token": "<token>"
 	  }
 	}
 '

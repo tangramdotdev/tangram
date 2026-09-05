@@ -26,6 +26,8 @@ let artifacts = tg build $module | from json
 let path = vfs root $server_path $artifacts.file
 let dependencies = xattr_read 'user.tangram.dependencies' $path
 assert equal ($dependencies | normalize) '["dependency?tokens[local]=<token>"]'
+let file_token = xattr_read 'user.tangram.token' $path
+assert (not ($file_token | is-empty)) 'missing file token xattr'
 
 # The in-server VFS provider issues a permanent, exact token for the dependency.
 if $nu.os-info.name == 'linux' {
@@ -48,4 +50,14 @@ if $nu.os-info.name == 'linux' {
 	)
 	assert equal $body.expires_at 9223372036854775807
 	assert equal $body.resource $artifacts.dependency
+	let file_body = (
+		$file_token
+		| split row '.'
+		| get 1
+		| decode base64
+		| decode utf-8
+		| from json
+	)
+	assert equal $file_body.expires_at 9223372036854775807
+	assert equal $file_body.resource $artifacts.file
 }

@@ -2,6 +2,7 @@ use {
 	crate::{
 		Session,
 		checkin::{Graph, GraphData, IndexCheckoutArgs, graph::Variant},
+		checkout::xattrs,
 		temp::Temp,
 	},
 	futures::stream::{self, StreamExt as _, TryStreamExt as _},
@@ -59,19 +60,18 @@ impl Session {
 				.filter_map(|(_, node)| {
 					let path = node.path.as_ref()?.clone();
 					let metadata = node.path_metadata.as_ref()?.clone();
-					if !metadata.is_file() {
-						return None;
-					}
+					let file = node.variant.try_unwrap_file_ref().ok()?;
 					let id = node.id.as_ref()?.clone();
+					let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
 					let size = metadata.len();
-					Some((path, metadata, id, size))
+					Some((path, metadata, id, references, size))
 				})
 				.collect::<Vec<_>>();
 
 			// Start the progress indicator.
 			progress.spinner("copying", "copying");
 			let files_total = files.len().to_u64().unwrap();
-			let bytes_total = files.iter().map(|(_, _, _, size)| size).sum();
+			let bytes_total = files.iter().map(|(_, _, _, _, size)| size).sum();
 			progress.start(
 				"files".to_owned(),
 				"files".to_owned(),
@@ -252,10 +252,17 @@ impl Session {
 
 	fn checkin_checkout_inner(
 		&self,
-		batch: Vec<(PathBuf, std::fs::Metadata, tg::object::Id, u64)>,
+		batch: Vec<(
+			PathBuf,
+			std::fs::Metadata,
+			tg::object::Id,
+			Vec<tg::Reference>,
+			u64,
+		)>,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
-		for (path, metadata, id, size) in batch {
+		let xattr_capabilities = xattrs::internal_capabilities(&self.server)?;
+		for (path, metadata, id, references, size) in batch {
 			// If the file is already checked out, then continue.
 			let checkout_path = self.server.checkout_path().join(id.to_string());
 			if checkout_path.exists() {
@@ -268,6 +275,26 @@ impl Session {
 			let dst = temp.path();
 			std::fs::copy(src, dst)
 				.map_err(|error| tg::error!(!error, "failed to copy the file"))?;
+
+			// Make the copied file writable so its xattrs can be updated.
+			let mode = metadata.permissions().mode();
+			if mode & 0o200 == 0 {
+				let permissions = std::fs::Permissions::from_mode(mode | 0o200);
+				std::fs::set_permissions(dst, permissions).map_err(
+					|error| tg::error!(!error, path = %dst.display(), "failed to set permissions"),
+				)?;
+			}
+
+			// Set the dependency and file token xattrs.
+			let artifact = tg::artifact::Id::try_from(id.clone())
+				.map_err(|_| tg::error!(%id, "expected an artifact id"))?;
+			let token = self.create_permanent_object_token(&artifact)?;
+			let xattrs = xattrs::Xattrs {
+				dependencies: &references,
+				required: &[],
+				token: token.as_ref(),
+			};
+			xattrs::write_file_xattrs(dst, xattrs, xattr_capabilities)?;
 
 			// Set its permissions.
 			if !metadata.is_symlink() {

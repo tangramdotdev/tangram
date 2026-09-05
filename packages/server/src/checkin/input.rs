@@ -393,13 +393,13 @@ impl Session {
 
 		// Get the dependencies.
 		let mut dependencies = BTreeMap::new();
-		if let Ok(Some(contents)) = xattr::get(&path, tg::file::DEPENDENCIES_XATTR_NAME) {
-			// Read the dependencies xattr.
-			let references = serde_json::from_slice::<Vec<tg::Reference>>(&contents)
-				.map_err(|error| tg::error!(!error, "failed to deserialize dependencies"))?;
-
+		let file_tokens = Self::checkin_read_file_tokens(&path)?;
+		if let Some(references) = Self::checkin_read_dependencies_xattr(&path)? {
 			// Create the dependencies and push items for path dependencies.
-			for reference in references {
+			for mut reference in references {
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&file_tokens);
+				reference.set_options(options);
 				let reference_path = if state.arg.options.source_dependencies {
 					reference
 						.options()
@@ -489,7 +489,10 @@ impl Session {
 
 			// Create the dependencies and push items for path dependencies.
 			for import in analysis.imports {
-				let reference = import.reference;
+				let mut reference = import.reference;
+				let mut options = reference.options().clone();
+				options.tokens.inherit(&file_tokens);
+				reference.set_options(options);
 				let reference_path = if state.arg.options.source_dependencies {
 					reference
 						.options()
@@ -589,6 +592,81 @@ impl Session {
 			.dependencies = dependencies;
 
 		Ok(())
+	}
+
+	fn checkin_read_dependencies_xattr(path: &Path) -> tg::Result<Option<Vec<tg::Reference>>> {
+		let Ok(names) = xattr::list(path) else {
+			return Ok(None);
+		};
+		let mut base = false;
+		let mut shards = BTreeMap::new();
+		for name in names {
+			let Some(name) = name.to_str() else {
+				continue;
+			};
+			if name == tg::file::DEPENDENCIES_XATTR_NAME {
+				base = true;
+				continue;
+			}
+			let Some(suffix) = name
+				.strip_prefix(tg::file::DEPENDENCIES_XATTR_NAME)
+				.and_then(|suffix| suffix.strip_prefix('.'))
+			else {
+				continue;
+			};
+			let index = suffix
+				.parse::<usize>()
+				.map_err(|error| tg::error!(!error, %name, "invalid dependencies xattr name"))?;
+			if suffix != index.to_string() {
+				return Err(tg::error!(%name, "invalid dependencies xattr name"));
+			}
+			shards.insert(index, name.to_owned());
+		}
+		if base && !shards.is_empty() {
+			return Err(tg::error!(
+				"found both unsharded and sharded dependencies xattrs"
+			));
+		}
+		if base {
+			let value = xattr::get(path, tg::file::DEPENDENCIES_XATTR_NAME)
+				.map_err(|error| tg::error!(!error, "failed to read the dependencies xattr"))?
+				.ok_or_else(|| tg::error!("the dependencies xattr disappeared"))?;
+			let references = tg::file::deserialize_dependencies_xattr(&value)?;
+
+			return Ok(Some(references));
+		}
+		if shards.is_empty() {
+			return Ok(None);
+		}
+		let mut value = Vec::new();
+		for (expected, (index, name)) in shards.into_iter().enumerate() {
+			if index != expected {
+				return Err(tg::error!("found a gap in the dependencies xattr shards"));
+			}
+			let shard = xattr::get(path, &name)
+				.map_err(
+					|error| tg::error!(!error, %name, "failed to read a dependencies xattr shard"),
+				)?
+				.ok_or_else(|| tg::error!(%name, "a dependencies xattr shard disappeared"))?;
+			value.extend_from_slice(&shard);
+		}
+		let references = tg::file::deserialize_dependencies_xattr(&value)?;
+
+		Ok(Some(references))
+	}
+
+	fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
+		let Ok(Some(value)) = xattr::get(path, tg::file::TOKEN_XATTR_NAME) else {
+			return Ok(tg::authorization::Tokens::default());
+		};
+		let value = std::str::from_utf8(&value)
+			.map_err(|error| tg::error!(!error, "the file token xattr is not valid utf-8"))?;
+		let token = value
+			.parse()
+			.map_err(|error| tg::error!(!error, "failed to parse the file token xattr"))?;
+		let tokens = tg::authorization::Tokens::with_local(Some(token));
+
+		Ok(tokens)
 	}
 
 	fn checkin_visit_symlink(

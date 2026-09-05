@@ -3,7 +3,10 @@
   "entries": {
     "fil_01x8t0t2a0rqqc16r9zkz46swk2fcajybwxkdng853ngdppvm8ktag": {
       "kind": "file",
-      "contents": "Hello, World!"
+      "contents": "Hello, World!",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     }
   }
 }

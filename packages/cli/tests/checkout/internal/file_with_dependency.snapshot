@@ -3,13 +3,17 @@
   "entries": {
     "fil_01drxezv07bnpqt9w6jw4hqrc73b1n66y19krh1krscbc307124z2g": {
       "kind": "file",
-      "contents": "bar"
+      "contents": "bar",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01y9hzys1sk7wvz699bh0ntymbexydsg5r00j72ebe9ezravxg14z0": {
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"bar?tokens[local]=<token>\"]"
+        "user.tangram.dependencies": "[\"bar?tokens[local]=<token>\"]",
+        "user.tangram.token": "<token>"
       }
     }
   }

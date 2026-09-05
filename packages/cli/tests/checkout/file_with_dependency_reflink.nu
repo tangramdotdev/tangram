@@ -36,12 +36,14 @@ let id = tg checkin --no-checkout-pointers ($artifact | path join 'mod.tg.ts')
 let cold_path = $tmp | path join 'cold'
 tg checkout --dependencies=false $id --path $cold_path
 assert ('user.tangram.dependencies' in (xattr_list $cold_path))
+assert ('user.tangram.token' in (xattr_list $cold_path))
 
 # Check out the file, then check it out again. This time the server reflinks it.
 tg checkout $id
 let warm_path = $tmp | path join 'warm'
 tg checkout --dependencies=false $id --path $warm_path
 assert ('user.tangram.dependencies' in (xattr_list $warm_path))
+assert ('user.tangram.token' in (xattr_list $warm_path))
 
 # Stop the server and unmount its sandbox before removing its custom directory.
 cleanup_background_jobs $env.TMPDIR

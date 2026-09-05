@@ -66,6 +66,20 @@ impl Session {
 		reference: &mut tg::Reference,
 		resource: &tg::artifact::Id,
 	) -> tg::Result<()> {
+		let token = self.create_permanent_object_token(resource)?;
+		if let Some(token) = token {
+			let mut options = reference.options().clone();
+			options.tokens.set_local(token);
+			reference.set_options(options);
+		}
+
+		Ok(())
+	}
+
+	pub(crate) fn create_permanent_object_token(
+		&self,
+		resource: &tg::artifact::Id,
+	) -> tg::Result<Option<tg::authorization::Token>> {
 		let expires_at = i64::MAX;
 		let token = self.create_token(
 			resource.clone().into(),
@@ -74,13 +88,8 @@ impl Session {
 			)],
 			expires_at,
 		)?;
-		if let Some(token) = token {
-			let mut options = reference.options().clone();
-			options.tokens.set_local(token);
-			reference.set_options(options);
-		}
 
-		Ok(())
+		Ok(token)
 	}
 
 	pub(crate) fn update_tokens_and_location(

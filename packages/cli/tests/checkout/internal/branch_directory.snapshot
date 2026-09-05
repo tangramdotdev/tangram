@@ -6,53 +6,89 @@
       "entries": {
         "a.txt": {
           "kind": "file",
-          "contents": "File A"
+          "contents": "File A",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         },
         "b.txt": {
           "kind": "file",
-          "contents": "File B"
+          "contents": "File B",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         },
         "c.txt": {
           "kind": "file",
-          "contents": "File C"
+          "contents": "File C",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         },
         "d.txt": {
           "kind": "file",
-          "contents": "File D"
+          "contents": "File D",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         },
         "e.txt": {
           "kind": "file",
-          "contents": "File E"
+          "contents": "File E",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         },
         "f.txt": {
           "kind": "file",
-          "contents": "File F"
+          "contents": "File F",
+          "xattrs": {
+            "user.tangram.token": "<token>"
+          }
         }
       }
     },
     "fil_0125khwv62jgp0as42y5q3kh4wyvw9mc2dved91v91zmjmd4yrrwn0": {
       "kind": "file",
-      "contents": "File A"
+      "contents": "File A",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01cp1kf072tv91w4wexkdj79jeb429pn76n14va506xcjwpjndbhz0": {
       "kind": "file",
-      "contents": "File D"
+      "contents": "File D",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01p0bkqcbsqxtvw6gkz1w4je4ms0yn0hrgz6cc1wew4d8d9yrwgdjg": {
       "kind": "file",
-      "contents": "File B"
+      "contents": "File B",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01v8thtw53pp7pb6xpqjex23x95zkwj35ym8ems75hrwsck4g6m6n0": {
       "kind": "file",
-      "contents": "File C"
+      "contents": "File C",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01vjcwrq1331m1k6hnw8jge05s9sjzqp2ybhqb5zqn67envzntw4fg": {
       "kind": "file",
-      "contents": "File F"
+      "contents": "File F",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "fil_01xtjr6daxfw559nwgj87cd7bc1fwy06jmpdx46x5e240w3cay8h60": {
       "kind": "file",
-      "contents": "File E"
+      "contents": "File E",
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     }
   }
 }

@@ -5,14 +5,16 @@
       "kind": "file",
       "contents": "",
       "xattrs": {
-        "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local]=<token>\"]"
+        "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local]=<token>\"]",
+        "user.tangram.token": "<token>"
       }
     },
     "fil_01t01smnant87zs0e8pq1z305js3gjh1yw600977k1at3ztdspb720": {
       "kind": "file",
       "contents": "",
       "xattrs": {
-        "user.tangram.dependencies": "[\"./foo.tg.ts?tokens[local]=<token>\"]"
+        "user.tangram.dependencies": "[\"./foo.tg.ts?tokens[local]=<token>\"]",
+        "user.tangram.token": "<token>"
       }
     }
   }

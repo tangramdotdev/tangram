@@ -1137,8 +1137,8 @@ impl Inner {
 		let Some(artifact) = artifact else {
 			return Ok(Vec::new());
 		};
-		if let Some(fast) = &self.fast {
-			match fast.listxattrs(&artifact) {
+		if self.fast.is_some() {
+			match Fast::listxattrs(&artifact) {
 				Err(error) if is_fallback(&error) => (),
 				result => return result,
 			}
@@ -1151,12 +1151,19 @@ impl Inner {
 			.await
 			.map_err(eio)?;
 		let module = file.module_with_handle(&self.client).await.map_err(eio)?;
-		let mut names = Vec::with_capacity(2);
+		let mut names = Vec::new();
 		if !dependencies.is_empty() {
-			names.push(tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
+			let references = dependencies.into_keys().collect::<Vec<_>>();
+			let xattrs =
+				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
+					.map_err(eio)?;
+			names.extend(xattrs.into_iter().map(|xattr| xattr.name));
 		}
 		if module.is_some() {
 			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+		}
+		if file.state().tokens().local().is_some() {
+			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
 		}
 		Ok(names)
 	}
@@ -1175,13 +1182,24 @@ impl Inner {
 		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
 			return Ok(None);
 		};
-		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+		if tg::file::is_dependencies_xattr_name(name) || name == tg::file::TOKEN_XATTR_NAME {
 			let references = self.file_dependency_references(&file).await?;
-			if references.is_empty() {
-				return Ok(None);
+			if name == tg::file::TOKEN_XATTR_NAME {
+				let value = file
+					.state()
+					.tokens()
+					.local()
+					.map(ToString::to_string)
+					.map(Bytes::from);
+				return Ok(value);
 			}
-			let data = serde_json::to_vec(&references).map_err(eio)?;
-			return Ok(Some(data.into()));
+			let xattrs =
+				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
+					.map_err(eio)?;
+			let value = xattrs
+				.into_iter()
+				.find_map(|xattr| (xattr.name == name).then_some(xattr.value));
+			return Ok(value);
 		}
 		if name == tg::file::MODULE_XATTR_NAME {
 			let Some(module) = file.module_with_handle(&self.client).await.map_err(eio)? else {
@@ -1200,17 +1218,8 @@ impl Inner {
 			.dependencies_with_handle(&self.client)
 			.await
 			.map_err(eio)?;
-		let tokens = file.state().tokens();
 		let mut references = Vec::with_capacity(dependencies.len());
-		for (mut reference, dependency) in dependencies {
-			let resolved = dependency
-				.and_then(|dependency| dependency.0.node)
-				.is_some_and(|object| tg::Artifact::try_from(object).is_ok());
-			if resolved {
-				let mut options = reference.options().clone();
-				options.tokens.inherit(&tokens);
-				reference.set_options(options);
-			}
+		for (reference, _) in dependencies {
 			references.push(reference);
 		}
 
@@ -1357,27 +1366,18 @@ impl Fast {
 		render_symlink(depth, artifact, symlink.path)
 	}
 
-	fn listxattrs(&self, artifact: &tg::artifact::Id) -> std::io::Result<Vec<String>> {
+	fn listxattrs(artifact: &tg::artifact::Id) -> std::io::Result<Vec<String>> {
 		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
 			return Ok(Vec::new());
 		}
-		let transaction = self.transaction()?;
-		let (file, _) = self.file_node_with_transaction(&transaction, artifact)?;
-		let mut names = Vec::with_capacity(2);
-		if !file.dependencies.is_empty() {
-			names.push(tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
-		}
-		if file.module.is_some() {
-			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
-		}
-		Ok(names)
+		Err(fallback())
 	}
 
 	fn getxattr(&self, artifact: &tg::artifact::Id, name: &str) -> std::io::Result<Option<Bytes>> {
 		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
-		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+		if tg::file::is_dependencies_xattr_name(name) || name == tg::file::TOKEN_XATTR_NAME {
 			// Use the token-aware client path for dependency references.
 			return Err(fallback());
 		}

@@ -4,7 +4,10 @@
     "fil_018gyv78y738ns83fmn1rrsvfs8fey4dqv8ygbx02khbka4kh67wc0": {
       "kind": "file",
       "contents": "Hello, World!",
-      "executable": true
+      "executable": true,
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     }
   }
 }

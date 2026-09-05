@@ -40,6 +40,7 @@ struct State {
 	path: PathBuf,
 	progress: crate::progress::Handle<()>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+	xattr_capabilities: super::xattrs::Capabilities,
 }
 
 struct NamedCheckoutEntry {
@@ -1049,12 +1050,16 @@ impl Session {
 		item: &Item,
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<Vec<Item>> {
+		// Get the checkout filesystem's xattr capabilities.
+		let xattr_capabilities = super::xattrs::internal_capabilities(&self.server)?;
+
 		// Create the state.
 		let mut state = State {
 			artifact: item.id.clone(),
 			path: path.to_owned(),
 			progress: progress.clone(),
 			visiting: HashSet::default(),
+			xattr_capabilities,
 		};
 
 		// Check out the artifact and collect dependencies.
@@ -1271,20 +1276,19 @@ impl Session {
 			std::io::copy(&mut reader, &mut file)
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
-			// Set the dependencies attr with authorization for each resolved dependency.
-			if !references.is_empty() {
-				let references = serde_json::to_vec(&references)
-					.map_err(|error| tg::error!(!error, "failed to serialize the dependencies"))?;
-				xattr::set(path, tg::file::DEPENDENCIES_XATTR_NAME, &references)
-					.map_err(|error| tg::error!(!error, "failed to write the dependencies attr"))?;
-			}
-
-			// Set the module xattr.
-			if let Some(module) = &node.module {
-				let module = module.to_string();
-				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the module xattr"))?;
-			}
+			// Write all file xattrs before making the file read-only.
+			let module = node.module.as_ref().map(ToString::to_string);
+			let required = [(
+				tg::file::MODULE_XATTR_NAME,
+				module.as_ref().map(String::as_bytes),
+			)];
+			let token = self.create_permanent_object_token(id)?;
+			let xattrs = super::xattrs::Xattrs {
+				dependencies: &references,
+				required: &required,
+				token: token.as_ref(),
+			};
+			super::xattrs::write_file_xattrs(path, xattrs, state.xattr_capabilities)?;
 
 			// Set the permissions.
 			let mode = if node.executable { 0o555 } else { 0o444 };

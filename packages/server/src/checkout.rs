@@ -13,6 +13,7 @@ use {
 
 mod external;
 pub(super) mod internal;
+pub(crate) mod xattrs;
 
 pub(super) enum Lock {
 	File {

@@ -25,7 +25,10 @@ snapshot --path $path '
 	  "entries": {
 	    "hello.txt": {
 	      "kind": "file",
-	      "contents": "Hello, World!"
+	      "contents": "Hello, World!",
+	      "xattrs": {
+	        "user.tangram.token": "<token>"
+	      }
 	    }
 	  }
 	}
