@@ -24,6 +24,8 @@ struct User {
 
 enum UserQuery {
 	Name(CString),
+	#[cfg(test)]
+	Record(User),
 	Uid(libc::uid_t),
 }
 
@@ -412,6 +414,8 @@ fn resolve_user_with_checkpoint(query: &UserQuery, checkpoint: impl FnOnce()) ->
 					buffer.len(),
 					&raw mut result,
 				),
+				#[cfg(test)]
+				UserQuery::Record(user) => tests::resolve_record(user, &mut passwd, &mut buffer, &mut result),
 				UserQuery::Uid(uid) => libc::getpwuid_r(
 					*uid,
 					passwd.as_mut_ptr(),
@@ -463,8 +467,24 @@ mod tests {
 
 	#[test]
 	fn concurrent_user_resolution_owns_the_passwd_record() {
-		let root = UserQuery::Uid(0);
-		let expected = resolve_user_with_checkpoint(&root, || {}).unwrap();
+		let expected = User {
+			gid: 0,
+			home: PathBuf::from("/root"),
+			name: "root".to_owned(),
+			uid: 0,
+		};
+		let root = UserQuery::Record(User {
+			gid: expected.gid,
+			home: expected.home.clone(),
+			name: expected.name.clone(),
+			uid: expected.uid,
+		});
+		let bin = UserQuery::Record(User {
+			gid: 2,
+			home: PathBuf::from("/bin"),
+			name: "bin".to_owned(),
+			uid: 2,
+		});
 		let checkpoint = Arc::new(std::sync::Barrier::new(2));
 		let task = {
 			let checkpoint = checkpoint.clone();
@@ -477,10 +497,40 @@ mod tests {
 			})
 		};
 		checkpoint.wait();
-		resolve_user_with_checkpoint(&UserQuery::Uid(2), || {}).unwrap();
+		resolve_user_with_checkpoint(&bin, || {}).unwrap();
 		checkpoint.wait();
 		let user = task.join().unwrap();
 
 		assert_eq!(user, expected);
+	}
+
+	pub(super) fn resolve_record(
+		user: &User,
+		passwd: &mut MaybeUninit<libc::passwd>,
+		buffer: &mut [u8],
+		result: &mut *mut libc::passwd,
+	) -> libc::c_int {
+		let name = CString::new(user.name.as_bytes()).unwrap();
+		let home = CString::new(user.home.as_os_str().as_bytes()).unwrap();
+		let name = name.as_bytes_with_nul();
+		let home = home.as_bytes_with_nul();
+		if buffer.len() < name.len() + home.len() {
+			*result = std::ptr::null_mut();
+			return libc::ERANGE;
+		}
+		let (name_buffer, home_buffer) = buffer.split_at_mut(name.len());
+		name_buffer.copy_from_slice(name);
+		home_buffer[..home.len()].copy_from_slice(home);
+		let record = libc::passwd {
+			pw_dir: home_buffer.as_mut_ptr().cast(),
+			pw_gecos: std::ptr::null_mut(),
+			pw_gid: user.gid,
+			pw_name: name_buffer.as_mut_ptr().cast(),
+			pw_passwd: std::ptr::null_mut(),
+			pw_shell: std::ptr::null_mut(),
+			pw_uid: user.uid,
+		};
+		*result = passwd.write(record);
+		0
 	}
 }
