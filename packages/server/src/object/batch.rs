@@ -232,21 +232,26 @@ impl Session {
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
 	) -> tg::Result<bool> {
-		let mut children_map = std::collections::BTreeMap::new();
+		// Preserve each child's distinct local tokens for authorization.
+		let mut children_map = BTreeMap::<_, BTreeMap<_, _>>::new();
 		for child in children {
-			let id = child.node.clone();
-			if !actual_children.contains(&id) {
+			if !actual_children.contains(&child.node) {
 				continue;
 			}
-			if children_map.insert(id, child.clone()).is_some() {
-				return Ok(false);
-			}
+			let Some(token) = child.options.tokens.local() else {
+				continue;
+			};
+			children_map
+				.entry(&child.node)
+				.or_default()
+				.insert(token, child);
 		}
 
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let mut authorization_args = Vec::new();
+		let mut authorization_ranges = Vec::new();
 		for child in actual_children {
 			if batch_objects.contains(child) {
 				if !batch_subtrees.contains(child) {
@@ -254,22 +259,32 @@ impl Session {
 				}
 				continue;
 			}
-			let Some(child) = children_map.get(child) else {
+			let Some(children) = children_map.get(child) else {
 				return Ok(false);
 			};
-			let Some(token) = child.options.tokens.local() else {
-				return Ok(false);
-			};
-			let resource = tg::Selector::Id(child.node.clone().into());
-			if !self.authorize_token(&resource, permission.into(), token) {
-				authorization_args.push((child.clone(), permission.into()));
+			let resource = tg::Selector::Id(child.clone().into());
+			if children
+				.keys()
+				.any(|token| self.authorize_token(&resource, permission.into(), token))
+			{
+				continue;
 			}
+			let start = authorization_args.len();
+			authorization_args.extend(
+				children
+					.values()
+					.map(|child| ((*child).clone(), permission.into())),
+			);
+			authorization_ranges.push(start..authorization_args.len());
 		}
 
+		// Require a proof for every child, accepting any of its token candidates.
 		let outputs = self.authorize_batch(authorization_args).await?;
-		let authorized = outputs
-			.into_iter()
-			.all(|output| output.is_some_and(|permissions| permissions.contains(permission)));
+		let authorized = authorization_ranges.into_iter().all(|range| {
+			outputs[range]
+				.iter()
+				.any(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+		});
 
 		Ok(authorized)
 	}
