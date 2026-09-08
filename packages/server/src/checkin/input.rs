@@ -598,61 +598,7 @@ impl Session {
 		let Ok(names) = xattr::list(path) else {
 			return Ok(None);
 		};
-		let mut base = false;
-		let mut shards = BTreeMap::new();
-		for name in names {
-			let Some(name) = name.to_str() else {
-				continue;
-			};
-			if name == tg::file::DEPENDENCIES_XATTR_NAME {
-				base = true;
-				continue;
-			}
-			let Some(suffix) = name
-				.strip_prefix(tg::file::DEPENDENCIES_XATTR_NAME)
-				.and_then(|suffix| suffix.strip_prefix('.'))
-			else {
-				continue;
-			};
-			let index = suffix
-				.parse::<usize>()
-				.map_err(|error| tg::error!(!error, %name, "invalid dependencies xattr name"))?;
-			if suffix != index.to_string() {
-				return Err(tg::error!(%name, "invalid dependencies xattr name"));
-			}
-			shards.insert(index, name.to_owned());
-		}
-		if base && !shards.is_empty() {
-			return Err(tg::error!(
-				"found both unsharded and sharded dependencies xattrs"
-			));
-		}
-		if base {
-			let value = xattr::get(path, tg::file::DEPENDENCIES_XATTR_NAME)
-				.map_err(|error| tg::error!(!error, "failed to read the dependencies xattr"))?
-				.ok_or_else(|| tg::error!("the dependencies xattr disappeared"))?;
-			let references = tg::file::deserialize_dependencies_xattr(&value)?;
-
-			return Ok(Some(references));
-		}
-		if shards.is_empty() {
-			return Ok(None);
-		}
-		let mut value = Vec::new();
-		for (expected, (index, name)) in shards.into_iter().enumerate() {
-			if index != expected {
-				return Err(tg::error!("found a gap in the dependencies xattr shards"));
-			}
-			let shard = xattr::get(path, &name)
-				.map_err(
-					|error| tg::error!(!error, %name, "failed to read a dependencies xattr shard"),
-				)?
-				.ok_or_else(|| tg::error!(%name, "a dependencies xattr shard disappeared"))?;
-			value.extend_from_slice(&shard);
-		}
-		let references = tg::file::deserialize_dependencies_xattr(&value)?;
-
-		Ok(Some(references))
+		tg::file::try_read_dependencies_xattrs(names, |name| xattr::get(path, name))
 	}
 
 	fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {

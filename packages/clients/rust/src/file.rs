@@ -5,7 +5,7 @@ pub use self::{
 	data::File as Data,
 	dependencies::{
 		DependenciesXattr, dependencies_xattrs, deserialize_dependencies_xattr,
-		is_dependencies_xattr_name,
+		is_dependencies_xattr_name, try_read_dependencies_xattrs,
 	},
 	handle::File as Handle,
 	id::Id,
