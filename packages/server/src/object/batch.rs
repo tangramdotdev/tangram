@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	num::ToPrimitive as _,
-	std::collections::{BTreeMap, BTreeSet, btree_map::Entry},
+	std::collections::{BTreeMap, BTreeSet},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -232,32 +232,26 @@ impl Session {
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
 	) -> tg::Result<bool> {
+		// Preserve each child's distinct local tokens for authorization.
+		let mut children_map = BTreeMap::<_, BTreeMap<_, _>>::new();
+		for child in children {
+			if !actual_children.contains(&child.node) {
+				continue;
+			}
+			let Some(token) = child.options.tokens.local() else {
+				continue;
+			};
+			children_map
+				.entry(&child.node)
+				.or_default()
+				.insert(token, child);
+		}
+
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-
-		// Merge the children. An object's children may name the same child more than once, while its serialized children are deduplicated, so prefer a referent whose token authorizes the child's subtree.
-		let mut children_map = BTreeMap::new();
-		for child in children {
-			let id = child.node.clone();
-			if !actual_children.contains(&id) {
-				continue;
-			}
-			match children_map.entry(id) {
-				Entry::Occupied(mut entry) => {
-					if self.post_object_batch_authorize_token(child, permission)
-						&& !self.post_object_batch_authorize_token(entry.get(), permission)
-					{
-						entry.insert(child.clone());
-					}
-				},
-				Entry::Vacant(entry) => {
-					entry.insert(child.clone());
-				},
-			}
-		}
-
 		let mut authorization_args = Vec::new();
+		let mut authorization_ranges = Vec::new();
 		for child in actual_children {
 			if batch_objects.contains(child) {
 				if !batch_subtrees.contains(child) {
@@ -265,35 +259,34 @@ impl Session {
 				}
 				continue;
 			}
-			let Some(child) = children_map.get(child) else {
+			let Some(children) = children_map.get(child) else {
 				return Ok(false);
 			};
-			if child.options.tokens.local().is_none() {
-				return Ok(false);
+			let resource = tg::Selector::Id(child.clone().into());
+			if children
+				.keys()
+				.any(|token| self.authorize_token(&resource, permission.into(), token))
+			{
+				continue;
 			}
-			if !self.post_object_batch_authorize_token(child, permission) {
-				authorization_args.push((child.clone(), permission.into()));
-			}
+			let start = authorization_args.len();
+			authorization_args.extend(
+				children
+					.values()
+					.map(|child| ((*child).clone(), permission.into())),
+			);
+			authorization_ranges.push(start..authorization_args.len());
 		}
 
+		// Require a proof for every child, accepting any of its token candidates.
 		let outputs = self.authorize_batch(authorization_args).await?;
-		let authorized = outputs
-			.into_iter()
-			.all(|output| output.is_some_and(|permissions| permissions.contains(permission)));
+		let authorized = authorization_ranges.into_iter().all(|range| {
+			outputs[range]
+				.iter()
+				.any(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+		});
 
 		Ok(authorized)
-	}
-
-	fn post_object_batch_authorize_token(
-		&self,
-		child: &tg::Referent<tg::object::Id>,
-		permission: tg::authorization::Permission,
-	) -> bool {
-		let Some(token) = child.options.tokens.local() else {
-			return false;
-		};
-		let resource = tg::Selector::Id(child.node.clone().into());
-		self.authorize_token(&resource, permission.into(), token)
 	}
 
 	async fn post_object_batch_region(
