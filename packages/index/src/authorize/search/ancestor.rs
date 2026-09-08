@@ -69,6 +69,8 @@ pub(super) struct Search {
 	// Reference counting prunes acyclic stale branches; cycles remain live conservatively.
 	live_references: HashMap<Key, usize>,
 	node_checks_started: HashSet<Key>,
+	// Additional pages of a node's parents are deferred so that one object with a high in-degree cannot consume the budget before any of its parents are expanded.
+	parent_pages: VecDeque<AncestorTask>,
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
@@ -142,6 +144,7 @@ impl Search {
 			incomplete,
 			live_references: HashMap::new(),
 			node_checks_started: HashSet::new(),
+			parent_pages: VecDeque::new(),
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
@@ -164,13 +167,17 @@ impl Search {
 		let mut deferred = Vec::new();
 		let mut reads = Vec::new();
 		while reads.len() < limit && !self.unresolved.is_empty() {
-			let Some((depth, mut queue)) = self.queues.pop_first() else {
+			let task = if let Some((depth, mut queue)) = self.queues.pop_first() {
+				let task = queue.pop_front().unwrap();
+				if !queue.is_empty() {
+					self.queues.insert(depth, queue);
+				}
+				task
+			} else if let Some(task) = self.parent_pages.pop_front() {
+				task
+			} else {
 				break;
 			};
-			let task = queue.pop_front().unwrap();
-			if !queue.is_empty() {
-				self.queues.insert(depth, queue);
-			}
 			let node_read_is_pending = matches!(
 				&task,
 				AncestorTask::NodeRead { key, .. }
@@ -365,15 +372,12 @@ impl Search {
 				}
 				if let Some(after) = after.clone() {
 					state.set_ancestor_cursor(&dependent, &after);
-					self.queues
-						.entry(depth)
-						.or_default()
-						.push_back(AncestorTask::ObjectParents {
-							after: Some(after),
-							dependent,
-							depth,
-							object,
-						});
+					self.parent_pages.push_back(AncestorTask::ObjectParents {
+						after: Some(after),
+						dependent,
+						depth,
+						object,
+					});
 				} else {
 					state.complete_ancestor_parents(&dependent);
 				}
@@ -424,16 +428,13 @@ impl Search {
 				}
 				if let Some(after) = after.clone() {
 					state.set_ancestor_cursor(&dependent, &after);
-					self.queues
-						.entry(depth)
-						.or_default()
-						.push_back(AncestorTask::ProcessParents {
-							after: Some(after),
-							dependent,
-							depth,
-							permission,
-							process,
-						});
+					self.parent_pages.push_back(AncestorTask::ProcessParents {
+						after: Some(after),
+						dependent,
+						depth,
+						permission,
+						process,
+					});
 				} else {
 					state.complete_ancestor_parents(&dependent);
 				}
@@ -802,6 +803,7 @@ impl Search {
 	pub(super) fn finish(&mut self, state: &mut State) {
 		if self.unresolved.is_empty() {
 			self.incomplete.clear();
+			self.parent_pages.clear();
 			self.queues.clear();
 			return;
 		}
