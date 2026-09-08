@@ -1,4 +1,8 @@
-use {crate::prelude::*, bytes::Bytes};
+use {
+	crate::prelude::*,
+	bytes::Bytes,
+	std::{collections::BTreeMap, ffi::OsString},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DependenciesXattr {
@@ -54,6 +58,62 @@ pub fn is_dependencies_xattr_name(name: &str) -> bool {
 	!suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
 }
 
+/// Read dependency references from the listed attributes.
+pub fn try_read_dependencies_xattrs(
+	names: impl IntoIterator<Item = OsString>,
+	mut read: impl FnMut(&str) -> std::io::Result<Option<Vec<u8>>>,
+) -> tg::Result<Option<Vec<tg::Reference>>> {
+	// Order the attributes.
+	let mut base = false;
+	let mut shards = BTreeMap::new();
+	for name in names {
+		let Some(name) = name.to_str() else { continue };
+		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+			base = true;
+			continue;
+		}
+		let Some(suffix) = name
+			.strip_prefix(tg::file::DEPENDENCIES_XATTR_NAME)
+			.and_then(|suffix| suffix.strip_prefix('.'))
+		else {
+			continue;
+		};
+		let index = suffix
+			.parse::<usize>()
+			.map_err(|error| tg::error!(!error, %name, "invalid dependencies xattr name"))?;
+		if suffix != index.to_string() {
+			return Err(tg::error!(%name, "invalid dependencies xattr name"));
+		}
+		shards.insert(index, name.to_owned());
+	}
+	if base {
+		if !shards.is_empty() {
+			return Err(tg::error!(
+				"found both unsharded and sharded dependencies xattrs"
+			));
+		}
+		shards.insert(0, tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
+	}
+	if shards.is_empty() {
+		return Ok(None);
+	}
+
+	// Read the references.
+	let mut value = Vec::new();
+	for (expected, (index, name)) in shards.into_iter().enumerate() {
+		if index != expected {
+			return Err(tg::error!("found a gap in the dependencies xattr shards"));
+		}
+		let shard = read(&name)
+			.map_err(|error| tg::error!(!error, %name, "failed to read a dependencies xattr"))?
+			.ok_or_else(|| tg::error!(%name, "a dependencies xattr disappeared"))?;
+		value.extend(shard);
+	}
+	let references = deserialize_dependencies_xattr(&value)?;
+
+	Ok(Some(references))
+}
+
 #[cfg(test)]
 mod tests {
 	use {super::*, std::path::PathBuf};
@@ -81,5 +141,34 @@ mod tests {
 			deserialize_dependencies_xattr(&xattrs[0].value).unwrap(),
 			references
 		);
+	}
+
+	#[test]
+	fn invalid_shards() {
+		for suffixes in [
+			vec!["", ".0"],
+			vec![".1"],
+			vec![".0", ".2"],
+			vec![".00"],
+			vec![".+0"],
+			vec![".invalid"],
+			vec!["."],
+			vec![".18446744073709551616"],
+		] {
+			let names = suffixes.into_iter().map(|suffix| {
+				OsString::from(format!("{}{suffix}", tg::file::DEPENDENCIES_XATTR_NAME))
+			});
+			assert!(try_read_dependencies_xattrs(names, |_| Ok(Some(b"[]".to_vec()))).is_err());
+		}
+	}
+
+	#[test]
+	fn unreadable_shards() {
+		let names = [OsString::from(tg::file::DEPENDENCIES_XATTR_NAME)];
+		assert!(try_read_dependencies_xattrs(names.clone(), |_| Ok(None)).is_err());
+		let result = try_read_dependencies_xattrs(names, |_| {
+			Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+		});
+		assert!(result.is_err());
 	}
 }
