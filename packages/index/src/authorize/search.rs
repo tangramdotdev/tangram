@@ -1444,8 +1444,15 @@ mod tests {
 	fn an_ancestor_grant_page_authorizes_before_the_node_is_complete() {
 		let root = key();
 		let mut state = State::default();
+		let config = crate::authorize::Config {
+			descendant: crate::authorize::SearchConfig {
+				max_nodes: 0,
+				..Default::default()
+			},
+			..Default::default()
+		};
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::authorize::Config::default(),
+			config,
 			&tg::Principal::Anonymous,
 			std::slice::from_ref(&root),
 			None,

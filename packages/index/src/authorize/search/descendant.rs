@@ -7,6 +7,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(test)]
+mod tests;
+
 enum DescendantTask {
 	Checks(DescendantChecks),
 	Member {
