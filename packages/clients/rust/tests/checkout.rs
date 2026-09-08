@@ -69,19 +69,19 @@ async fn load(
 	path: &str,
 ) -> tg::Result<tg::File> {
 	// Attach the recovered tokens to the unrendered artifacts.
-	let template = tg::Template::unrender(prefix, path)?;
 	let file_tokens = tg::authorization::Tokens::with_local(metadata.token);
-	for artifact in template.artifacts() {
-		let mut tokens = metadata
+	let template = tg::Template::unrender_with(prefix, path, |id| {
+		let mut options = metadata
 			.dependencies
 			.iter()
 			.flatten()
-			.find(|reference| reference.node() == &tg::reference::Node::Id(artifact.id().into()))
-			.map(|reference| reference.options().tokens.clone())
+			.find(|reference| reference.node() == &tg::reference::Node::Id(id.clone().into()))
+			.map(|reference| reference.options().clone())
 			.unwrap_or_default();
-		tokens.inherit(&file_tokens);
-		artifact.state().set_tokens(tokens);
-	}
+		options.tokens.inherit(&file_tokens);
+		let referent = tg::Referent::new(id, options.into());
+		Ok(Some(tg::Artifact::with_referent(referent)))
+	})?;
 
 	// Resolve the path and load the file in a fresh client.
 	let client = tg::Client::with_env(tg::Arg::default())?;
