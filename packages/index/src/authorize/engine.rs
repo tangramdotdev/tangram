@@ -430,7 +430,7 @@ impl Batch {
 				continue;
 			}
 
-			// A requested permission that is not required is reported as absent when its search exhausts, so record the permissions that the narrowed set leaves indeterminate.
+			// Record optional permissions that remain indeterminate.
 			let mut indeterminate = exhausted;
 			indeterminate.remove(authorized);
 			if !indeterminate.is_empty() {
