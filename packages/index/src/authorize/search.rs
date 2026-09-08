@@ -693,7 +693,7 @@ impl AncestorOrDescendantSearch {
 					let mut search = self.descendant.take().unwrap();
 					if search.finish(state) == Outcome::Exhausted {
 						self.descendant_exhausted
-							.extend(search.unresolved.iter().cloned());
+							.extend(search.unresolved().iter().cloned());
 					}
 					search.reset_visited_if_complete();
 					state.set_descendant(search);

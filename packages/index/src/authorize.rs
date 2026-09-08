@@ -54,6 +54,8 @@ pub struct Config {
 	#[tangram_serialize(id = 0)]
 	pub ancestor: SearchConfig,
 
+	/// The limits for each of the principal and public descendant traversals.
+	/// Each traversal receives the full node and edge allowance per target.
 	#[tangram_serialize(id = 1)]
 	pub descendant: SearchConfig,
 

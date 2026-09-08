@@ -10,6 +10,28 @@ use {
 #[cfg(test)]
 mod tests;
 
+pub(super) struct Search {
+	phase: Phase,
+	principal: Traversal,
+	public: Traversal,
+}
+
+enum Phase {
+	Principal,
+	Public,
+}
+
+struct Traversal {
+	authorization_revision: usize,
+	budget: Budget,
+	complete: bool,
+	exhausted: bool,
+	queues: BTreeMap<usize, VecDeque<DescendantTask>>,
+	unresolved: HashSet<Key>,
+	visited: HashSet<Key>,
+	visited_subjects: HashSet<tg::authorization::Subject>,
+}
+
 enum DescendantTask {
 	Checks(DescendantChecks),
 	Member {
@@ -64,17 +86,6 @@ enum DescendantTask {
 	},
 }
 
-pub(super) struct Search {
-	authorization_revision: usize,
-	budget: Budget,
-	complete: bool,
-	pub(super) exhausted: bool,
-	queues: BTreeMap<usize, VecDeque<DescendantTask>>,
-	pub(super) unresolved: HashSet<Key>,
-	visited: HashSet<Key>,
-	visited_subjects: HashSet<tg::authorization::Subject>,
-}
-
 impl Search {
 	#[must_use]
 	pub(super) fn new(
@@ -84,9 +95,99 @@ impl Search {
 		targets: Vec<Key>,
 		token: Option<(&tg::authorization::Body, &tg::Id)>,
 	) -> Self {
+		// Collect the principal and token sources.
+		let mut sources = inherent_sources(principal);
+		if let Some((body, resource)) = token {
+			sources.extend(
+				body.permissions
+					.iter()
+					.map(|permission| (resource.clone(), *permission)),
+			);
+		}
+
+		// Give public grants a separate budget so they cannot consume the principal or token traversal's capacity.
+		let subject = principal.try_to_subject().ok();
+		let principal = Traversal::new(config, state, targets.clone(), subject, sources);
+		let subject = Some(tg::authorization::Subject::Public);
+		let public = Traversal::new(config, state, targets, subject, Vec::new());
+
+		Self {
+			phase: Phase::Principal,
+			principal,
+			public,
+		}
+	}
+
+	pub(super) fn add_targets(
+		&mut self,
+		config: crate::authorize::SearchConfig,
+		targets: Vec<Key>,
+	) {
+		self.principal.add_targets(config, targets.clone());
+		self.public.add_targets(config, targets);
+		self.phase = Phase::Principal;
+	}
+
+	pub(super) fn take_reads(&mut self, state: &mut State, limit: usize) -> Vec<Read> {
+		if matches!(self.phase, Phase::Principal) {
+			let reads = self.principal.take_reads(state, limit);
+			if !reads.is_empty() || self.principal.unresolved.is_empty() {
+				return reads;
+			}
+			// Switch only after the principal traversal's reads have been applied.
+			self.phase = Phase::Public;
+		}
+		self.public.take_reads(state, limit)
+	}
+
+	pub(super) fn apply(
+		&mut self,
+		state: &mut State,
+		read: Read,
+		output: ReadOutput,
+	) -> tg::Result<()> {
+		self.traversal_mut().apply(state, read, output)?;
+		Ok(())
+	}
+
+	#[must_use]
+	pub(super) fn finish(&mut self, state: &mut State) -> Outcome {
+		self.traversal_mut().finish(state)
+	}
+
+	#[must_use]
+	pub(super) fn unresolved(&self) -> &HashSet<Key> {
+		match self.phase {
+			Phase::Principal => &self.principal.unresolved,
+			Phase::Public => &self.public.unresolved,
+		}
+	}
+
+	pub(super) fn reset_visited_if_complete(&mut self) {
+		self.principal.reset_visited_if_complete();
+		self.public.reset_visited_if_complete();
+	}
+
+	fn traversal_mut(&mut self) -> &mut Traversal {
+		match self.phase {
+			Phase::Principal => &mut self.principal,
+			Phase::Public => &mut self.public,
+		}
+	}
+}
+
+impl Traversal {
+	#[must_use]
+	fn new(
+		config: crate::authorize::SearchConfig,
+		state: &State,
+		targets: Vec<Key>,
+		subject: Option<tg::authorization::Subject>,
+		sources: Vec<Key>,
+	) -> Self {
 		let authorization_revision = state.authorization_revision();
 		let budget = Budget::with_root_total(config, targets.len());
-		// Public grants are checked only by the ancestor search, so a descendant search cannot deny.
+		// The traversal does not expand every authorization relationship, so it cannot deny.
 		let complete = false;
 		let unresolved = targets.into_iter().collect();
 		if config.max_nodes == 0 {
@@ -104,21 +205,13 @@ impl Search {
 
 		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
 		let visited = HashSet::new();
-		if let Ok(subject) = principal.try_to_subject() {
+		if let Some(subject) = subject {
 			queues
 				.entry(0)
 				.or_default()
 				.push_back(DescendantTask::Subject { depth: 0, subject });
 		}
 
-		let mut sources = inherent_sources(principal);
-		if let Some((body, resource)) = token {
-			sources.extend(
-				body.permissions
-					.iter()
-					.map(|permission| (resource.clone(), *permission)),
-			);
-		}
 		let mut sources_seen = HashSet::new();
 		for key in sources {
 			if !sources_seen.insert(key.clone()) {
@@ -142,11 +235,7 @@ impl Search {
 		}
 	}
 
-	pub(super) fn add_targets(
-		&mut self,
-		config: crate::authorize::SearchConfig,
-		targets: Vec<Key>,
-	) {
+	fn add_targets(&mut self, config: crate::authorize::SearchConfig, targets: Vec<Key>) {
 		let added = targets
 			.into_iter()
 			.filter(|target| self.unresolved.insert(target.clone()))
@@ -157,7 +246,7 @@ impl Search {
 		}
 	}
 
-	pub(super) fn take_reads(&mut self, state: &mut State, limit: usize) -> Vec<Read> {
+	fn take_reads(&mut self, state: &mut State, limit: usize) -> Vec<Read> {
 		assert!(limit > 0);
 		for key in state.authorization_changes_since(&mut self.authorization_revision) {
 			self.unresolved.remove(&key);
@@ -286,12 +375,7 @@ impl Search {
 		reads
 	}
 
-	pub(super) fn apply(
-		&mut self,
-		state: &mut State,
-		read: Read,
-		output: ReadOutput,
-	) -> tg::Result<()> {
+	fn apply(&mut self, state: &mut State, read: Read, output: ReadOutput) -> tg::Result<()> {
 		if self.exhausted {
 			self.requeue_read(read)?;
 
@@ -689,7 +773,7 @@ impl Search {
 	}
 
 	#[must_use]
-	pub(super) fn finish(&mut self, state: &mut State) -> Outcome {
+	fn finish(&mut self, state: &mut State) -> Outcome {
 		if self.unresolved.is_empty() {
 			return Outcome::Authorized;
 		}
@@ -703,7 +787,7 @@ impl Search {
 		Outcome::Denied
 	}
 
-	pub(super) fn reset_visited_if_complete(&mut self) {
+	fn reset_visited_if_complete(&mut self) {
 		if self.queues.is_empty() && !self.exhausted {
 			self.visited.clear();
 		}
