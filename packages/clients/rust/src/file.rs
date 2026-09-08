@@ -13,6 +13,7 @@ pub use self::{
 };
 
 pub mod builder;
+pub mod checkout;
 pub mod data;
 pub mod handle;
 pub mod id;
