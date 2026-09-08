@@ -429,6 +429,20 @@ impl Batch {
 				outcomes.push(super::Outcome::Exhausted);
 				continue;
 			}
+
+			// A requested permission that is not required is reported as absent when its search exhausts, so record the permissions that the narrowed set leaves indeterminate.
+			let mut indeterminate = exhausted;
+			indeterminate.remove(authorized);
+			if !indeterminate.is_empty() {
+				tracing::debug!(
+					%authorized,
+					%indeterminate,
+					%requested,
+					resource = %id,
+					"authorize permission indeterminate"
+				);
+			}
+
 			let permissions = if requested == arg.requested {
 				authorized
 			} else if authorized.contains(requested) {
