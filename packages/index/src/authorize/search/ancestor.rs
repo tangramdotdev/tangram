@@ -7,6 +7,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(test)]
+mod tests;
+
 enum AncestorTask {
 	Checks(AncestorChecks),
 	GroupMembers {
@@ -69,15 +72,17 @@ pub(super) struct Search {
 	// Reference counting prunes acyclic stale branches; cycles remain live conservatively.
 	live_references: HashMap<Key, usize>,
 	node_checks_started: HashSet<Key>,
-	// Additional pages of a node's parents are deferred so that one object with a high in-degree cannot consume the budget before any of its parents are expanded.
+	// Expand the queued ancestors before reading additional pages of their parents.
 	parent_pages: VecDeque<AncestorTask>,
+	parents_started: HashSet<Key>,
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
 	token: Option<(tg::authorization::Body, tg::Id)>,
 	unresolved: HashSet<Key>,
-	visited: HashSet<Key>,
-	visited_subjects: HashSet<(tg::authorization::Subject, Key)>,
+	// Retain the shortest depths, including pruned visits, so later pages can reopen a path.
+	visited: HashMap<Key, usize>,
+	visited_subjects: HashMap<(tg::authorization::Subject, Key), usize>,
 }
 
 impl AncestorTask {
@@ -124,13 +129,13 @@ impl Search {
 		let mut incomplete = HashSet::new();
 		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
 		let unresolved = roots.iter().cloned().collect();
-		let mut visited = HashSet::new();
+		let mut visited = HashMap::new();
 		for root in roots {
 			if !budget.add_node(0) {
 				incomplete.insert(root.clone());
 				continue;
 			}
-			visited.insert(root.clone());
+			visited.insert(root.clone(), 0);
 			queues.entry(0).or_default().push_back(AncestorTask::Node {
 				depth: 0,
 				key: root.clone(),
@@ -145,13 +150,14 @@ impl Search {
 			live_references: HashMap::new(),
 			node_checks_started: HashSet::new(),
 			parent_pages: VecDeque::new(),
+			parents_started: HashSet::new(),
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
 			token,
 			unresolved,
 			visited,
-			visited_subjects: HashSet::new(),
+			visited_subjects: HashMap::new(),
 		};
 		for root in roots {
 			search.add_live_reference(state, root.clone());
@@ -173,7 +179,9 @@ impl Search {
 					self.queues.insert(depth, queue);
 				}
 				task
-			} else if let Some(task) = self.parent_pages.pop_front() {
+			} else if reads.is_empty()
+				&& let Some(task) = self.parent_pages.pop_front()
+			{
 				task
 			} else {
 				break;
@@ -204,7 +212,8 @@ impl Search {
 						limit,
 					});
 				},
-				AncestorTask::Node { depth, key } => {
+				AncestorTask::Node { key, .. } => {
+					let depth = self.visited[&key];
 					match state.ancestor_or_descendant(&key) {
 						Outcome::Authorized | Outcome::Denied => continue,
 						Outcome::Exhausted => unreachable!(),
@@ -218,18 +227,7 @@ impl Search {
 						Outcome::Authorized | Outcome::Denied => {},
 						Outcome::Exhausted => unreachable!(),
 						Outcome::Pending => {
-							if state.ancestor_node_is_complete(&key) {
-								for dependency in state.authorization_dependencies(&key) {
-									let dependency_depth = depth + 1;
-									self.add_dependency(state, &key, dependency, dependency_depth);
-									if state.is_authorized(&key) {
-										break;
-									}
-								}
-								if !state.is_authorized(&key) {
-									self.queue_parents(state, depth, &key)?;
-								}
-							} else if let Some(facts) = state.ancestor_facts(&key.0) {
+							if let Some(facts) = state.ancestor_facts(&key.0) {
 								self.expand_node(state, depth, &key, &facts)?;
 							} else if self.pending_nodes.contains_key(&key.0) {
 								deferred.push(AncestorTask::Node { depth, key });
@@ -324,6 +322,7 @@ impl Search {
 				self.apply_checks(state, checks, values);
 			},
 			Read::AncestorNode { depth, key, read } => {
+				let depth = depth.min(self.visited[&key]);
 				self.apply_node_read(state, depth, &key, read, output)?;
 			},
 			Read::GroupMembers {
@@ -353,6 +352,7 @@ impl Search {
 				object,
 				..
 			} => {
+				let depth = depth.min(self.visited[&dependent]);
 				let (after, parents) = output.into_ids()?;
 				if state.is_authorized(&dependent) {
 					return Ok(());
@@ -372,7 +372,7 @@ impl Search {
 				}
 				if let Some(after) = after.clone() {
 					state.set_ancestor_cursor(&dependent, &after);
-					self.parent_pages.push_back(AncestorTask::ObjectParents {
+					self.queue_task(AncestorTask::ObjectParents {
 						after: Some(after),
 						dependent,
 						depth,
@@ -410,6 +410,7 @@ impl Search {
 				process,
 				..
 			} => {
+				let depth = depth.min(self.visited[&dependent]);
 				let (after, parents) = output.into_ids()?;
 				if state.is_authorized(&dependent) {
 					return Ok(());
@@ -428,7 +429,7 @@ impl Search {
 				}
 				if let Some(after) = after.clone() {
 					state.set_ancestor_cursor(&dependent, &after);
-					self.parent_pages.push_back(AncestorTask::ProcessParents {
+					self.queue_task(AncestorTask::ProcessParents {
 						after: Some(after),
 						dependent,
 						depth,
@@ -461,7 +462,8 @@ impl Search {
 		Ok(())
 	}
 
-	fn apply_checks(&mut self, state: &mut State, checks: AncestorChecks, values: Vec<bool>) {
+	fn apply_checks(&mut self, state: &mut State, mut checks: AncestorChecks, values: Vec<bool>) {
+		checks.depth = self.visited[&checks.dependent];
 		debug_assert_eq!(checks.candidates.len(), values.len());
 		for (candidate, value) in std::iter::zip(checks.candidates, values) {
 			if !value {
@@ -617,7 +619,12 @@ impl Search {
 		depth: usize,
 		page: MembershipPage,
 	) -> tg::Result<()> {
-		if state.is_authorized(dependent) {
+		if state.is_authorized(dependent)
+			|| self
+				.visited_subjects
+				.get(&(page.container.clone(), dependent.clone()))
+				!= Some(&depth)
+		{
 			return Ok(());
 		}
 		let next_depth = depth + 1;
@@ -813,6 +820,18 @@ impl Search {
 		let mut stack = std::mem::take(&mut self.incomplete)
 			.into_iter()
 			.collect::<Vec<_>>();
+		stack.extend(
+			self.visited
+				.iter()
+				.filter(|(_, depth)| **depth > self.budget.config.max_depth)
+				.map(|(key, _)| key.clone()),
+		);
+		stack.extend(
+			self.visited_subjects
+				.iter()
+				.filter(|(_, depth)| **depth > self.budget.config.max_depth)
+				.map(|((_, dependent), _)| dependent.clone()),
+		);
 		while let Some(key) = stack.pop() {
 			if state.is_authorized(&key) || !incomplete.insert(key.clone()) {
 				continue;
@@ -822,7 +841,7 @@ impl Search {
 		self.incomplete = incomplete;
 
 		// Preserve complete negative proofs for later roots in the request.
-		for key in &self.visited {
+		for key in self.visited.keys() {
 			if !self.incomplete.contains(key) && !self.is_deferred(key) {
 				state.deny_ancestor_or_descendant(key);
 			}
@@ -880,6 +899,19 @@ impl Search {
 			state.authorize_ancestor_or_descendant(key.clone());
 		}
 		if state.is_authorized(key) {
+			return Ok(());
+		}
+
+		// Revisit the cached dependencies at the current depth.
+		if state.ancestor_node_is_complete(key) {
+			for dependency in state.authorization_dependencies(key) {
+				self.add_dependency(state, key, dependency, depth + 1);
+				if state.is_authorized(key) {
+					return Ok(());
+				}
+			}
+			self.queue_parents(state, depth, key)?;
+
 			return Ok(());
 		}
 
@@ -1033,17 +1065,26 @@ impl Search {
 			|| !matches!(
 				subject,
 				tg::authorization::Subject::Group(_) | tg::authorization::Subject::Organization(_)
-			) || !self
-			.visited_subjects
-			.insert((subject.clone(), dependent.clone()))
-		{
+			) {
 			return;
 		}
-		if !self.budget.add_node(depth) {
+		let key = (subject.clone(), dependent.clone());
+		let previous = self.visited_subjects.get(&key).copied();
+		if previous.is_some_and(|previous| previous <= depth) {
+			return;
+		}
+		if depth > self.budget.config.max_depth {
+			self.visited_subjects.insert(key, depth);
+			return;
+		}
+		if previous.is_none_or(|previous| previous > self.budget.config.max_depth)
+			&& !self.budget.add_node(depth)
+		{
 			self.incomplete.insert(dependent.clone());
 
 			return;
 		}
+		self.visited_subjects.insert(key, depth);
 		self.queues
 			.entry(depth)
 			.or_default()
@@ -1061,7 +1102,12 @@ impl Search {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	) {
-		if state.is_authorized(&dependent) {
+		if state.is_authorized(&dependent)
+			|| self
+				.visited_subjects
+				.get(&(subject.clone(), dependent.clone()))
+				!= Some(&depth)
+		{
 			return;
 		}
 		let task = match subject {
@@ -1112,7 +1158,7 @@ impl Search {
 	}
 
 	fn queue_parents(&mut self, state: &mut State, depth: usize, key: &Key) -> tg::Result<()> {
-		if state.ancestor_parents_are_complete(key) {
+		if state.ancestor_parents_are_complete(key) || !self.parents_started.insert(key.clone()) {
 			return Ok(());
 		}
 		let after = state.ancestor_cursor(key);
@@ -1149,7 +1195,7 @@ impl Search {
 
 			return Ok(());
 		};
-		self.queues.entry(depth).or_default().push_back(task);
+		self.queue_task(task);
 
 		Ok(())
 	}
@@ -1207,18 +1253,21 @@ impl Search {
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => {},
 		}
-		if self.visited.contains(&dependency) {
+		let previous = self.visited.get(&dependency).copied();
+		if previous.is_some_and(|previous| previous <= depth) {
 			return true;
 		}
 		if depth > self.budget.config.max_depth {
-			self.incomplete.insert(dependent.clone());
+			self.visited.insert(dependency, depth);
 			return true;
 		}
-		if !self.budget.add_node(depth) {
+		if previous.is_none_or(|previous| previous > self.budget.config.max_depth)
+			&& !self.budget.add_node(depth)
+		{
 			self.incomplete.insert(dependency);
 			return true;
 		}
-		self.visited.insert(dependency.clone());
+		self.visited.insert(dependency.clone(), depth);
 		self.queues
 			.entry(depth)
 			.or_default()
@@ -1246,11 +1295,23 @@ impl Search {
 			}
 			if let Some(tasks) = self.dormant.remove(&key) {
 				for task in tasks {
-					let depth = task.depth();
-					self.queues.entry(depth).or_default().push_back(task);
+					self.queue_task(task);
 				}
 			}
 			stack.extend(state.authorization_dependencies(&key));
+		}
+	}
+
+	fn queue_task(&mut self, task: AncestorTask) {
+		if matches!(
+			task,
+			AncestorTask::ObjectParents { after: Some(_), .. }
+				| AncestorTask::ProcessParents { after: Some(_), .. }
+		) {
+			self.parent_pages.push_back(task);
+		} else {
+			let depth = task.depth();
+			self.queues.entry(depth).or_default().push_back(task);
 		}
 	}
 
