@@ -39,8 +39,17 @@ impl Session {
 		arg: tg::write::Arg,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
-		// Get the touch time.
+		// Get the timestamps.
 		let touched_at = self.server.clock.unix_timestamp()?;
+		let grant_expires_at = touched_at
+			+ self
+				.server
+				.config
+				.object
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
 
 		// Create the destination.
 		let destination =
@@ -97,7 +106,7 @@ impl Session {
 		// Store and index the blob.
 		let store_args = Self::write_store_args(&blob, checkout_pointer.as_ref());
 		let index_arg = self
-			.write_index_arg(&blob, checkout_pointer, touched_at)
+			.write_index_arg(&blob, checkout_pointer, touched_at, grant_expires_at)
 			.await?;
 		self.server
 			.put_object_batch_and_index(store_args, index_arg)
@@ -105,9 +114,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to store and index the blob"))?;
 
 		// Create the output.
-		let output = tg::write::Output {
-			blob: blob.id.clone(),
-		};
+		let token = self.create_token(
+			blob.id.clone().into(),
+			vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			grant_expires_at,
+		)?;
+		let blob = tg::Referent::with_node_and_token(blob.id.clone(), token);
+		let output = tg::write::Output { blob };
 
 		Ok(output)
 	}
@@ -474,16 +489,8 @@ impl Session {
 		blob: &Output,
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
+		grant_expires_at: i64,
 	) -> tg::Result<tangram_index::batch::Arg> {
-		let grant_expires_at = touched_at
-			+ self
-				.server
-				.config
-				.object
-				.grant_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
 		let (put_checkout_args, put_object_args, put_grant_args) = Self::write_index_args(
 			blob,
 			checkout_pointer,
