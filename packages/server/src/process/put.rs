@@ -121,6 +121,49 @@ impl Session {
 		Ok(())
 	}
 
+	pub(crate) async fn put_process_log_finished_local(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+	) -> tg::Result<()> {
+		Self::validate_process_data(&data)?;
+		let enqueue_log_compaction = Self::process_log_finished(&data);
+		let data = data.without_location_and_tokens();
+		let now = self.server.clock.unix_timestamp()?;
+		let put_process_arg = tangram_index::process::put::Arg {
+			cached: false,
+			children: None,
+			command: data.command.node.clone().into(),
+			data: Some(data.clone()),
+			error: None,
+			id: id.clone(),
+			log: None,
+			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
+			output: None,
+			parent: None,
+			sandbox: None,
+			storage: tangram_index::process::Storage::default(),
+			time_to_touch: self.server.config.process.time_to_touch,
+			touched_at: now,
+		};
+		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
+		if enqueue_log_compaction {
+			items.push(tangram_index::batch::Item::EnqueueLogCompaction(id.clone()));
+		}
+		let arg = tangram_index::batch::Arg { items };
+		self.server
+			.index
+			.batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to finish the process log"))?;
+		if enqueue_log_compaction {
+			self.server.spawn_publish_log_compaction_notification_task();
+		}
+
+		Ok(())
+	}
+
 	pub(super) async fn authorize_process_data(
 		&self,
 		data: &tg::process::Data,

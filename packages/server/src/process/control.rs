@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	dashmap::DashSet,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -14,6 +14,12 @@ use {
 };
 
 pub(crate) mod finish;
+pub(crate) mod write;
+
+pub(super) type ProcessControlSender = crate::control::Sender<
+	tg::process::control::ClientMessage,
+	tg::process::control::ServerMessage,
+>;
 
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::process::control::ClientMessage);
@@ -121,6 +127,9 @@ impl Session {
 				tg::Principal::Process(process) => {
 					return Err(tg::error!(process = %process, %id, "invalid process"));
 				},
+				tg::Principal::Runner(runner) => {
+					self.verify_process_control_runner(&id, runner).await?;
+				},
 				_ => return Err(tg::error!("unauthorized")),
 			}
 			(id, self.context.token.clone())
@@ -157,10 +166,22 @@ impl Session {
 			));
 		}
 		let forwarded_requests = Arc::new(DashSet::new());
-		let (sender, receiver) = tokio::sync::mpsc::channel(512);
-		let mut control =
-			crate::control::Stream::new(stream, sender, crate::control::stream_options());
+		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(512);
+		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(512);
+		let mut control = crate::control::Stream::new_with_priorities(
+			stream,
+			sender_high,
+			sender_low,
+			crate::control::stream_options(),
+		);
 		let control_sender = control.sender();
+		let (write_sender, write_receiver) = tokio::sync::mpsc::channel(512);
+		let write_task =
+			session.spawn_process_control_write_task(self::write::RunProcessControlWriteTaskArg {
+				id: id.clone(),
+				receiver: write_receiver,
+				sender: control_sender.clone(),
+			});
 
 		let subject = format!("processes.{id}.control.server");
 		let mut requests = self
@@ -186,7 +207,21 @@ impl Session {
 					if let tg::process::control::ServerMessage::Request(request) = &message {
 						forwarded_requests.insert(request.id.clone());
 					}
-					request_sender.send(message).await?;
+					let low = matches!(
+						&message,
+						tg::process::control::ServerMessage::Request(
+							tg::process::control::ServerRequest {
+								arg: tg::process::control::ServerRequestArg::Read(_)
+									| tg::process::control::ServerRequestArg::Write(_),
+								..
+							}
+						)
+					);
+					if low {
+						request_sender.send_low(message).await?;
+					} else {
+						request_sender.send(message).await?;
+					}
 					if let Some(id) = acknowledged_request {
 						forwarded_requests.remove(&id);
 					}
@@ -199,6 +234,7 @@ impl Session {
 			let session = session.clone();
 			let id = id.clone();
 			let forwarded_requests = forwarded_requests.clone();
+			let write_sender = write_sender.clone();
 			move |_| async move {
 				while let Some(message) = control.recv_without_ack().await? {
 					match message {
@@ -255,17 +291,38 @@ impl Session {
 						},
 						tg::process::control::ClientMessage::Request(request) => {
 							let request_id = request.id;
-							control.acknowledge(request_id.clone()).await?;
-							let result = match request.arg {
-								tg::process::control::ClientRequestArg::Finish(arg) => session
-									.finish_process_control_request(&id, arg)
-									.boxed()
-									.await
-									.map(tg::process::control::ServerResponseOutput::Finish),
+							let priority = match &request.arg {
+								tg::process::control::ClientRequestArg::Finish(_) => {
+									crate::control::Priority::High
+								},
+								tg::process::control::ClientRequestArg::Write(_) => {
+									crate::control::Priority::Low
+								},
 							};
-							let response =
-								Self::process_control_server_response(request_id, result);
-							control_sender.send(response).await?;
+							control
+								.acknowledge_with_priority(request_id.clone(), priority)
+								.await?;
+							match request.arg {
+								tg::process::control::ClientRequestArg::Finish(arg) => {
+									let result = session
+										.finish_process_control_request(&id, arg)
+										.boxed()
+										.await
+										.map(tg::process::control::ServerResponseOutput::Finish);
+									let response =
+										Self::process_control_server_response(request_id, result);
+									control_sender.send(response).await?;
+								},
+								tg::process::control::ClientRequestArg::Write(arg) => {
+									let request = self::write::Request {
+										arg,
+										id: request_id,
+									};
+									write_sender.send(request).await.map_err(|_| {
+										tg::error!("failed to queue the process log write request")
+									})?;
+								},
+							}
 						},
 						tg::process::control::ClientMessage::Response(response) => {
 							session
@@ -278,9 +335,11 @@ impl Session {
 			}
 		});
 
-		let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
+		drop(write_sender);
+		let stream = crate::control::priority_stream(receiver_high, receiver_low)
 			.attach(request_task)
 			.attach(response_task)
+			.attach(write_task)
 			.map(Ok)
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
@@ -372,6 +431,26 @@ impl Session {
 		let output = tg::process::control::Output { grant, id, token };
 
 		Ok(Some((output, stream)))
+	}
+
+	async fn verify_process_control_runner(
+		&self,
+		id: &tg::process::Id,
+		runner: &tg::runner::Id,
+	) -> tg::Result<()> {
+		let process = self.try_get_process_from_index(id).await?;
+		let sandbox = process
+			.and_then(|process| process.data)
+			.map(|data| data.sandbox);
+		let sandbox = match sandbox {
+			Some(sandbox) => self.try_get_sandbox_from_index(&sandbox).await?,
+			None => None,
+		};
+		if sandbox.and_then(|sandbox| sandbox.runner).as_ref() != Some(runner) {
+			return Err(tg::error!("unauthorized"));
+		}
+
+		Ok(())
 	}
 
 	async fn publish_process_control_ack(
@@ -514,8 +593,30 @@ impl Session {
 		let session = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
+		let session = if arg.data.is_none() {
+			let context = session.context().clone();
+			let url = session.client().url().clone();
+			let client = self.server.recreate_remote_client(url).map_err(
+				|error| tg::error!(!error, remote = %remote, ?id, "failed to recreate the remote client"),
+			)?;
+			client.session(&context)
+		} else {
+			session
+		};
 		let context = session.context().clone();
-		context.set_token(self.context.token.clone());
+		let reconnect_as_runner = arg.data.is_none()
+			&& self.server.config.runner.remote.as_deref() == Some(remote.as_str());
+		let token = if reconnect_as_runner {
+			self.server
+				.config
+				.runner
+				.token
+				.clone()
+				.or_else(|| self.context.token.clone())
+		} else {
+			self.context.token.clone()
+		};
+		context.set_token(token);
 		let session = session.client().session(&context);
 		let destination = tg::Location::Remote(tg::location::Remote {
 			name: remote.clone(),
@@ -552,15 +653,19 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		}
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+		let tangram_content_type = tg::process::control::TANGRAM_CONTENT_TYPE;
+		let output_encoding =
+			super::stdio::Encoding::from_accept(accept.as_ref(), tangram_content_type)?;
+		let input_encoding = super::stdio::Encoding::from_content_type(
+			content_type
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the content type"))?,
+			tangram_content_type,
+		)?;
 
 		// Parse the arg.
 		let arg = request
@@ -569,21 +674,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 		// Create the response stream.
-		let stream = request
-			.sse()
-			.map_err(|error| tg::error!(!error, "failed to read a message"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			})
-			.boxed();
+		let max_frame_size = self.server.config.sync.max_frame_size;
+		let stream = super::stdio::decode(request, input_encoding, max_frame_size);
 
 		// Get the request stream.
 		let Some((output, stream)) = self
@@ -599,12 +691,8 @@ impl Session {
 		};
 
 		// Create the body.
-		let content_type = mime::TEXT_EVENT_STREAM;
-		let stream = stream.map(|result| match result {
-			Ok(event) => event.try_into(),
-			Err(error) => error.try_into(),
-		});
-		let body = BoxBody::with_sse_stream(stream);
+		let content_type = output_encoding.content_type(tangram_content_type);
+		let body = super::stdio::encode(stream, output_encoding, max_frame_size);
 		let body = tangram_http::body::output::set(body, &output)
 			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 
@@ -743,6 +831,27 @@ impl crate::control::Input<tg::process::control::ServerMessage>
 	fn create_ack_message(id: String) -> tg::process::control::ServerMessage {
 		tg::process::control::ServerMessage::Ack(tg::process::control::ServerAck { id })
 	}
+
+	fn priority(&self) -> crate::control::Priority {
+		let low = matches!(
+			self,
+			Self::Request(tg::process::control::ClientRequest {
+				arg: tg::process::control::ClientRequestArg::Write(_),
+				..
+			}) | Self::Response(tg::process::control::ClientResponse {
+				output: Some(
+					tg::process::control::ClientResponseOutput::Read(_)
+						| tg::process::control::ClientResponseOutput::Write(_),
+				),
+				..
+			})
+		);
+		if low {
+			crate::control::Priority::Low
+		} else {
+			crate::control::Priority::High
+		}
+	}
 }
 
 impl crate::control::Output for tg::process::control::ServerMessage {
@@ -773,5 +882,24 @@ impl crate::control::Input<tg::process::control::ClientMessage>
 
 	fn create_ack_message(id: String) -> tg::process::control::ClientMessage {
 		tg::process::control::ClientMessage::Ack(tg::process::control::ClientAck { id })
+	}
+
+	fn priority(&self) -> crate::control::Priority {
+		let low = matches!(
+			self,
+			Self::Request(tg::process::control::ServerRequest {
+				arg: tg::process::control::ServerRequestArg::Read(_)
+					| tg::process::control::ServerRequestArg::Write(_),
+				..
+			}) | Self::Response(tg::process::control::ServerResponse {
+				output: Some(tg::process::control::ServerResponseOutput::Write(_)),
+				..
+			})
+		);
+		if low {
+			crate::control::Priority::Low
+		} else {
+			crate::control::Priority::High
+		}
 	}
 }

@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _,
+		StreamExt as _, TryStreamExt as _,
 		stream::{self, BoxStream},
 	},
 	num::ToPrimitive as _,
@@ -12,6 +12,7 @@ use {
 	tangram_client::{self as tg},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_index::prelude::*,
+	tangram_messenger::Messenger as _,
 	tangram_store::{Store as _, log},
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
@@ -102,12 +103,49 @@ impl Session {
 
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let indexed = self.get_process_from_index(process).await?;
-		let mut data = indexed
+		let data = indexed
 			.data
+			.as_ref()
 			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-		if !Self::process_log_needs_compaction(&data) {
+		if !Self::process_log_needs_compaction(data) {
 			return Ok(());
 		}
+		let mut indexed = if Self::process_log_finished(data) {
+			indexed
+		} else {
+			// Subscribe before checking again to avoid missing the final notification.
+			let subject = format!("processes.{process}.log");
+			let mut notifications = self
+				.server
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to subscribe to the process log"))?;
+			loop {
+				let indexed = self.get_process_from_index(process).await?;
+				let data = indexed
+					.data
+					.as_ref()
+					.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+				if !Self::process_log_needs_compaction(data) {
+					return Ok(());
+				}
+				if Self::process_log_finished(data) {
+					break indexed;
+				}
+				notifications
+					.try_next()
+					.await
+					.map_err(|error| {
+						tg::error!(!error, "failed to receive a process log notification")
+					})?
+					.ok_or_else(|| tg::error!("the process log notification stream ended"))?;
+			}
+		};
+		let mut data = indexed
+			.data
+			.take()
+			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 
 		let entries = self
 			.server
@@ -228,6 +266,11 @@ impl Session {
 
 	pub(crate) fn process_log_needs_compaction(data: &tg::process::Data) -> bool {
 		data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log())
+	}
+
+	pub(crate) fn process_log_finished(data: &tg::process::Data) -> bool {
+		(!data.stderr.is_log() || data.stderr_finished)
+			&& (!data.stdout.is_log() || data.stdout_finished)
 	}
 
 	pub(crate) async fn process_log_stream(

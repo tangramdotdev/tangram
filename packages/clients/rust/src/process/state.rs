@@ -14,14 +14,17 @@ pub struct State {
 	pub finished_at: Option<i64>,
 	pub host: String,
 	pub log: Option<tg::Blob>,
+	pub log_failed: bool,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
 	pub sandbox: tg::sandbox::Id,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
 	pub stderr: tg::process::Stdio,
+	pub stderr_finished: bool,
 	pub stdin: tg::process::Stdio,
 	pub stdout: tg::process::Stdio,
+	pub stdout_finished: bool,
 	pub tty: Option<tg::process::Tty>,
 }
 
@@ -90,14 +93,17 @@ impl State {
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
 		let log = self.log.as_ref().map(tg::Blob::to_referent);
+		let log_failed = self.log_failed;
 		let output = self.output.as_ref().map(tg::Value::to_data);
 		let retry = self.retry;
 		let sandbox = self.sandbox.clone();
 		let started_at = self.started_at;
 		let status = self.status;
 		let stderr = self.stderr.clone();
+		let stderr_finished = self.stderr_finished;
 		let stdin = self.stdin.clone();
 		let stdout = self.stdout.clone();
+		let stdout_finished = self.stdout_finished;
 		let tty = self.tty;
 		tg::process::Data {
 			actual_checksum,
@@ -112,14 +118,17 @@ impl State {
 			finished_at,
 			host,
 			log,
+			log_failed,
 			output,
 			retry,
 			sandbox,
 			started_at,
 			status,
 			stderr,
+			stderr_finished,
 			stdin,
 			stdout,
+			stdout_finished,
 			tty,
 		}
 	}
@@ -154,14 +163,17 @@ impl State {
 		let finished_at = value.finished_at;
 		let host = value.host;
 		let log = value.log.map(tg::Blob::with_referent);
+		let log_failed = value.log_failed;
 		let output = value.output.map(tg::Value::try_from_data).transpose()?;
 		let retry = value.retry;
 		let sandbox = value.sandbox;
 		let started_at = value.started_at;
 		let status = value.status;
 		let stderr = value.stderr;
+		let stderr_finished = value.stderr_finished;
 		let stdin = value.stdin;
 		let stdout = value.stdout;
+		let stdout_finished = value.stdout_finished;
 		let tty = value.tty;
 		Ok(Self {
 			actual_checksum,
@@ -176,14 +188,17 @@ impl State {
 			finished_at,
 			host,
 			log,
+			log_failed,
 			output,
 			retry,
 			sandbox,
 			started_at,
 			status,
 			stderr,
+			stderr_finished,
 			stdin,
 			stdout,
+			stdout_finished,
 			tty,
 		})
 	}

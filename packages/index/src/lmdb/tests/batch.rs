@@ -112,14 +112,17 @@ async fn process_children_are_stored_separately_from_data() {
 		finished_at: Some(0),
 		host: String::new(),
 		log: None,
+		log_failed: false,
 		output: None,
 		retry: false,
 		sandbox: tg::sandbox::Id::new(),
 		started_at: Some(0),
 		status: tg::process::Status::Finished,
 		stderr: tg::process::Stdio::default(),
+		stderr_finished: false,
 		stdin: tg::process::Stdio::default(),
 		stdout: tg::process::Stdio::default(),
+		stdout_finished: false,
 		tty: None,
 	};
 	let arg = crate::batch::Arg {
@@ -316,6 +319,81 @@ async fn process_children_must_be_unique() {
 			.to_string()
 			.contains("process children must be unique")
 	);
+}
+
+#[tokio::test]
+async fn stale_process_data_preserves_log_completion() {
+	let (_dir, index) = new_index();
+	let blob = tg::blob::Id::new(b"log");
+	let command = tg::command::Id::new(b"command");
+	let process = tg::process::Id::new();
+	let data = tg::process::Data {
+		actual_checksum: None,
+		cacheable: false,
+		children: None,
+		command: tg::Referent::with_node(command.clone()),
+		created_at: 0,
+		debug: None,
+		error: None,
+		exit: Some(0),
+		expected_checksum: None,
+		finished_at: Some(0),
+		host: String::new(),
+		log: Some(tg::Referent::with_node(blob.clone())),
+		log_failed: true,
+		output: None,
+		retry: false,
+		sandbox: tg::sandbox::Id::new(),
+		started_at: Some(0),
+		status: tg::process::Status::Finished,
+		stderr: tg::process::Stdio::Log,
+		stderr_finished: true,
+		stdin: tg::process::Stdio::default(),
+		stdout: tg::process::Stdio::Log,
+		stdout_finished: true,
+		tty: None,
+	};
+	let mut stale_data = data.clone();
+	stale_data.log = None;
+	stale_data.log_failed = false;
+	stale_data.stderr_finished = false;
+	stale_data.stdout_finished = false;
+	let create_arg = |data, log| crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(crate::process::put::Arg {
+			cached: false,
+			children: None,
+			command: command.clone().into(),
+			data: Some(data),
+			error: None,
+			id: process.clone(),
+			log,
+			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
+			output: None,
+			parent: None,
+			sandbox: None,
+			storage: crate::process::Storage::default(),
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at: 0,
+		})],
+	};
+	let log = Some(Some(blob.clone().into()));
+	index.batch(create_arg(data, log)).await.unwrap();
+	index.batch(create_arg(stale_data, None)).await.unwrap();
+
+	let data = index
+		.try_get_processes(std::slice::from_ref(&process))
+		.await
+		.unwrap()
+		.pop()
+		.unwrap()
+		.unwrap()
+		.data
+		.unwrap();
+	assert_eq!(data.log.unwrap().node, blob);
+	assert!(data.log_failed);
+	assert!(data.stderr_finished);
+	assert!(data.stdout_finished);
 }
 
 #[tokio::test]

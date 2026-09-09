@@ -120,7 +120,7 @@ impl Session {
 			};
 			let response = result.map(tg::process::control::ClientResponseOutput::Write);
 			let response = Self::process_control_response(id, response);
-			sender.send(response).await?;
+			sender.send_low(response).await?;
 		}
 
 		Ok(())

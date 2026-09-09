@@ -559,14 +559,17 @@ impl Session {
 			finished_at: Some(now),
 			host: host.to_owned(),
 			log: None,
+			log_failed: false,
 			output: source.output,
 			retry: arg.retry,
 			sandbox: source.sandbox,
 			started_at: None,
 			status: tg::process::Status::Finished,
 			stderr: arg.stderr.clone(),
+			stderr_finished: true,
 			stdin: arg.stdin.clone(),
 			stdout: arg.stdout.clone(),
+			stdout_finished: true,
 			tty,
 		};
 		let entry = tg::process::put::Arg {

@@ -316,15 +316,6 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn get_process_status_local(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<tg::process::Status> {
-		self.try_get_process_status_local(id)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find the process"))
-	}
-
 	pub(crate) async fn try_get_process_status_local(
 		&self,
 		id: &tg::process::Id,

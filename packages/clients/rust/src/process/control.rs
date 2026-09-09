@@ -1,10 +1,12 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	futures::stream::BoxStream,
+	tangram_http::response::Ext as _,
 	tangram_uri::Uri,
-	tangram_util::serde::is_default,
+	tangram_util::serde::{is_default, is_false},
 };
+
+pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -147,6 +149,9 @@ pub struct BorrowableCapacityClientNotification {
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	Finish(FinishClientRequestArg),
+
+	#[tangram_serialize(id = 1)]
+	Write(WriteClientRequestArg),
 }
 
 #[derive(
@@ -333,6 +338,9 @@ pub struct ServerResponse {
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	Finish(FinishServerResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	Write(WriteServerResponseOutput),
 }
 
 #[derive(
@@ -536,6 +544,36 @@ pub struct WriteServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+pub struct WriteClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub chunk: tg::process::stdio::Chunk,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
+	pub failed: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct WriteServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub position: u64,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct SignalServerRequestArg {
 	#[tangram_serialize(id = 1, display, from_str)]
 	pub signal: tg::process::signal::Signal,
@@ -626,22 +664,14 @@ impl tg::Session {
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.build()
 			.unwrap();
-		let stream =
-			stream.map(
-				|result: tg::Result<tg::process::control::ClientMessage>| match result {
-					Ok(message) => message.try_into(),
-					Err(error) => error.try_into(),
-				},
-			);
+		let max_frame_size = self.client().sync.max_frame_size;
+		let body = super::stdio::encode(stream, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::TEXT_EVENT_STREAM.to_string(),
-			)
-			.sse(stream)
+			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+			.body(body)
 			.unwrap();
 		let response = self
 			.send(request)
@@ -667,32 +697,11 @@ impl tg::Session {
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
-		if !matches!(
-			content_type
-				.as_ref()
-				.map(|content_type| (content_type.type_(), content_type.subtype())),
-			Some((mime::TEXT, mime::EVENT_STREAM)),
-		) {
+		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let mut reader = response.reader();
-		let output =
-			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
-		let stream = tangram_http::sse::decode(reader)
-			.map_err(|error| tg::error!(!error, "failed to read a message"))
-			.and_then(|event| {
-				future::ready(
-					if event.event.as_deref().is_some_and(|event| event == "error") {
-						match event.try_into() {
-							Ok(error) | Err(error) => Err(error),
-						}
-					} else {
-						event.try_into()
-					},
-				)
-			});
+		let (output, stream) =
+			super::stdio::decode_with_output(response.into_body(), max_frame_size).await?;
 		Ok(Some((output, stream)))
 	}
 }

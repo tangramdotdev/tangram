@@ -189,7 +189,7 @@ impl Session {
 						&& reader.chunks.is_empty();
 					let response = response.map(tg::process::control::ClientResponseOutput::Read);
 					let response = Self::process_control_response(id, response);
-					sender.send(response).await?;
+					sender.send_low(response).await?;
 					if eof {
 						break;
 					}

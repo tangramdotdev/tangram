@@ -798,7 +798,7 @@ impl Session {
 
 		let arg = result?;
 
-		self.retain_sandbox_task(arg).await
+		self.retain_sandbox_task(arg).boxed().await
 	}
 
 	async fn run_sandbox_task(

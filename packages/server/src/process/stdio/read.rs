@@ -322,10 +322,18 @@ impl Session {
 			Some(wakeups)
 		};
 		'outer: loop {
-			let status = self
-				.get_process_status_local(id)
+			let indexed = self
+				.get_process_from_index(id)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to get the process status"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the process"))?;
+			let data = indexed
+				.data
+				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			let output_finished = streams.iter().all(|stream| match stream {
+				tg::process::stdio::Stream::Stderr => data.stderr_finished,
+				tg::process::stdio::Stream::Stdin => false,
+				tg::process::stdio::Stream::Stdout => data.stdout_finished,
+			});
 			let mut stream = self
 				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
@@ -358,7 +366,13 @@ impl Session {
 			}
 			let reached_start = arg.length.is_some_and(|length| length < 0)
 				&& matches!(arg.position, Some(SeekFrom::Start(0)));
-			if status.is_finished() || arg.length == Some(0) || reached_start {
+			if data.status.is_finished() && output_finished {
+				if data.log_failed {
+					return Err(tg::error!("failed to write the complete process log"));
+				}
+				break;
+			}
+			if arg.length == Some(0) || reached_start {
 				break;
 			}
 			let Some(wakeups) = &mut wakeups else {
@@ -637,11 +651,14 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
-		let output_encoding = super::Encoding::from_accept(accept.as_ref())?;
-		let input_encoding = content_type
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing the content type"))?
-			.try_into()?;
+		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
+		let output_encoding = super::Encoding::from_accept(accept.as_ref(), tangram_content_type)?;
+		let input_encoding = super::Encoding::from_content_type(
+			content_type
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the content type"))?,
+			tangram_content_type,
+		)?;
 		let id = id
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
@@ -659,9 +676,10 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
+		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, output_encoding.content_type())
+			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)
 			.unwrap();
 

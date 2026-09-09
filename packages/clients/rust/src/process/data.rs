@@ -63,6 +63,10 @@ pub struct Data {
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::Referent<tg::blob::Id>>,
 
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 23, skip_serializing_if = "is_false")]
+	pub log_failed: bool,
+
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
@@ -94,6 +98,10 @@ pub struct Data {
 	#[tangram_serialize(default, id = 16, skip_serializing_if = "is_default")]
 	pub stderr: tg::process::Stdio,
 
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 21, skip_serializing_if = "is_false")]
+	pub stderr_finished: bool,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 17, skip_serializing_if = "is_default")]
 	pub stdin: tg::process::Stdio,
@@ -101,6 +109,10 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 18, skip_serializing_if = "is_default")]
 	pub stdout: tg::process::Stdio,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 22, skip_serializing_if = "is_false")]
+	pub stdout_finished: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 19, skip_serializing_if = "Option::is_none")]

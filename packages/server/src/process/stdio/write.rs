@@ -7,7 +7,7 @@ use {
 		stream::BoxStream,
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, pin::pin, time::Duration},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -18,17 +18,11 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_store::{Store as _, log},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-const LOG_BATCH_DELAY: Duration = Duration::from_millis(5);
-const LOG_BATCH_MAX_CHUNKS: usize = 64;
-const LOG_BATCH_SIZE: usize = 32 * 1024;
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Destination {
-	Log,
 	Null,
 	Pipe,
 }
@@ -90,12 +84,11 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		if location.as_ref().is_some_and(tg::Location::is_remote) {
-			for &stream in streams {
-				if get_destination(&data, stream)? == Destination::Pipe {
-					return Ok(None);
-				}
-			}
+		if location.as_ref().is_some_and(tg::Location::is_remote)
+			&& streams.contains(&tg::process::stdio::Stream::Stdin)
+			&& get_stdin_destination(&data)? == Destination::Pipe
+		{
+			return Ok(None);
 		}
 		self.authorize_process_stdio_write(id, streams, token)
 			.await?;
@@ -115,7 +108,7 @@ impl Session {
 			let streams = streams.to_owned();
 			move |_| async move {
 				let mut future = Box::pin(
-					session.write_process_stdio_local_task(&id, data, &streams, input, &sender),
+					session.write_process_stdio_local_task(&id, &data, &streams, input, &sender),
 				);
 				let result = match stopper {
 					Some(stopper) => {
@@ -156,7 +149,7 @@ impl Session {
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(_, false) => {
+			(true, false) => {
 				let permission = tg::authorization::Permission::Process(
 					tg::authorization::permission::process::Permission::Parent,
 				);
@@ -168,172 +161,25 @@ impl Session {
 
 				Ok(())
 			},
-			(false, true) => {
-				let authorized = matches!(
-					&self.context.principal,
-					tg::Principal::Process(process) if process == id
-				);
-				if !authorized {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				Ok(())
-			},
-			(true, true) => Err(tg::error!(
-				"cannot write stdin and stdout or stderr in a single request"
-			)),
+			(false, false) => Err(tg::error!("expected at least one stdio stream")),
+			(_, true) => Err(tg::error!("cannot write process stdout or stderr")),
 		}
 	}
 
 	async fn write_process_stdio_local_task(
 		&self,
 		id: &tg::process::Id,
-		data: tg::process::Data,
+		data: &tg::process::Data,
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
 	) -> tg::Result<()> {
-		let destinations = streams
-			.iter()
-			.map(|&stream| get_destination(&data, stream))
-			.collect::<tg::Result<Vec<_>>>()?;
-		let logs = destinations
-			.iter()
-			.all(|destination| *destination == Destination::Log);
-		let streams = streams.iter().copied().collect::<BTreeSet<_>>();
-		if logs {
-			self.write_process_stdio_log_local_task(id, &data, &streams, input, sender)
-				.await?;
-		} else {
-			self.write_process_stdio_other_local_task(id, &data, &streams, input, sender)
-				.await?;
-		}
-
-		Ok(())
-	}
-
-	async fn write_process_stdio_log_local_task(
-		&self,
-		id: &tg::process::Id,
-		data: &tg::process::Data,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
-	) -> tg::Result<()> {
-		if data.status != tg::process::Status::Started {
-			return Err(tg::error!("not found"));
-		}
-		let combined = streams.len() > 1;
-		let input =
-			tokio_stream::StreamExt::chunks_timeout(input, LOG_BATCH_MAX_CHUNKS, LOG_BATCH_DELAY);
-		let mut input = pin!(input);
-		while let Some(messages) = input.next().await {
-			let mut args = Vec::with_capacity(messages.len());
-			let mut batch_length = 0_usize;
-			let mut end = false;
-			let mut position = None;
-			for result in messages {
-				let message =
-					result.map_err(|error| tg::error!(!error, "failed to read a stdio message"))?;
-				match message {
-					tg::process::stdio::write::ClientMessage::Notification(
-						tg::process::stdio::write::ClientNotification::Chunk(chunk),
-					) => {
-						if !streams.contains(&chunk.stream) {
-							return Err(tg::error!(
-								stream = %chunk.stream,
-								"received an unexpected stdio stream"
-							));
-						}
-						let timestamp = chunk
-							.timestamp
-							.ok_or_else(|| tg::error!("missing the log timestamp"))?;
-						let length = chunk.bytes.len();
-						if !args.is_empty() && batch_length.saturating_add(length) > LOG_BATCH_SIZE
-						{
-							self.put_process_log_batch_local(id, std::mem::take(&mut args))
-								.await?;
-							if let Some(position) = position {
-								send_write_notification(sender, position).await;
-							}
-							batch_length = 0;
-						}
-						let chunk_position = if combined {
-							chunk.combined_position
-						} else {
-							chunk.stream_position
-						};
-						position = Some(
-							chunk_position
-								.checked_add(length.to_u64().unwrap())
-								.ok_or_else(|| tg::error!("the stdio position is too large"))?,
-						);
-						let arg = log::put::Arg {
-							bytes: chunk.bytes,
-							position: chunk.combined_position,
-							process: id.clone(),
-							stream: chunk.stream,
-							stream_position: chunk.stream_position,
-							timestamp,
-						};
-						args.push(arg);
-						batch_length = batch_length.saturating_add(length);
-					},
-					tg::process::stdio::write::ClientMessage::Request(
-						tg::process::stdio::write::ClientRequest::End,
-					) => end = true,
-				}
-			}
-			self.put_process_log_batch_local(id, args).await?;
-			if let Some(position) = position {
-				send_write_notification(sender, position).await;
-			}
-			if end {
-				send_end_response(sender).await;
-
-				return Ok(());
-			}
-		}
-
-		Err(tg::error!(
-			"the stdio write stream ended before the end request"
-		))
-	}
-
-	async fn put_process_log_batch_local(
-		&self,
-		id: &tg::process::Id,
-		args: Vec<log::put::Arg>,
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		self.server
-			.store
-			.put_log_batch(args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to store the log"))?;
-		self.server.log_notifications.notify(id);
-
-		Ok(())
-	}
-
-	async fn write_process_stdio_other_local_task(
-		&self,
-		id: &tg::process::Id,
-		data: &tg::process::Data,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
-	) -> tg::Result<()> {
-		let stdin_pipe = streams.contains(&tg::process::stdio::Stream::Stdin)
-			&& get_destination(data, tg::process::stdio::Stream::Stdin)? == Destination::Pipe;
-		let mut wait = if stdin_pipe {
+		let destination = get_stdin_destination(data)?;
+		let mut wait = if destination == Destination::Pipe {
 			Some(self.create_wait_process_finished_future_local(id).await?)
 		} else {
 			None
 		};
-		let combined = streams.len() > 1;
 		let mut input = pin!(input);
 		let mut position = 0;
 		while let Some(message) = input.try_next().await? {
@@ -347,47 +193,21 @@ impl Session {
 							"received an unexpected stdio stream"
 						));
 					}
-					let start = if combined {
-						chunk.combined_position
-					} else {
-						chunk.stream_position
-					};
+					let start = chunk.stream_position;
 					let end = start
 						.checked_add(chunk.bytes.len().to_u64().unwrap())
 						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
-					let output = match get_destination(data, chunk.stream)? {
-						Destination::Log => {
-							let timestamp = chunk
-								.timestamp
-								.ok_or_else(|| tg::error!("missing the log timestamp"))?;
-							let arg = log::put::Arg {
-								bytes: chunk.bytes,
-								position: chunk.combined_position,
-								process: id.clone(),
-								stream: chunk.stream,
-								stream_position: chunk.stream_position,
-								timestamp,
-							};
-							self.put_process_log_batch_local(id, vec![arg]).await?;
-							tg::process::control::WriteClientResponseOutput {
-								closed: false,
-								position: end,
-							}
-						},
+					let output = match destination {
 						Destination::Null => tg::process::control::WriteClientResponseOutput {
 							closed: false,
 							position: end,
 						},
 						Destination::Pipe => {
-							if chunk.stream == tg::process::stdio::Stream::Stdin {
-								let wait = wait
-									.as_mut()
-									.ok_or_else(|| tg::error!("missing the process wait future"))?;
-								self.write_process_stdin_chunk_local(id, chunk, wait)
-									.await?
-							} else {
-								self.write_process_stdio_chunk_local(id, chunk).await?
-							}
+							let wait = wait
+								.as_mut()
+								.ok_or_else(|| tg::error!("missing the process wait future"))?;
+							self.write_process_stdin_chunk_local(id, chunk, wait)
+								.await?
 						},
 					};
 					position = output.position;
@@ -401,11 +221,7 @@ impl Session {
 				tg::process::stdio::write::ClientMessage::Request(
 					tg::process::stdio::write::ClientRequest::End,
 				) => {
-					if streams.contains(&tg::process::stdio::Stream::Stdin)
-						&& matches!(
-							get_destination(data, tg::process::stdio::Stream::Stdin),
-							Ok(Destination::Pipe)
-						) {
+					if destination == Destination::Pipe {
 						let chunk = tg::process::stdio::Chunk {
 							bytes: Bytes::new(),
 							combined_position: position,
@@ -567,11 +383,14 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
-		let output_encoding = super::Encoding::from_accept(accept.as_ref())?;
-		let input_encoding = content_type
-			.as_ref()
-			.ok_or_else(|| tg::error!("missing the content type"))?
-			.try_into()?;
+		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
+		let output_encoding = super::Encoding::from_accept(accept.as_ref(), tangram_content_type)?;
+		let input_encoding = super::Encoding::from_content_type(
+			content_type
+				.as_ref()
+				.ok_or_else(|| tg::error!("missing the content type"))?,
+			tangram_content_type,
+		)?;
 		let id = id
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
@@ -589,9 +408,10 @@ impl Session {
 				.unwrap()
 				.boxed_body());
 		};
+		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::encode(output, output_encoding, max_frame_size);
 		let response = http::Response::builder()
-			.header(http::header::CONTENT_TYPE, output_encoding.content_type())
+			.header(http::header::CONTENT_TYPE, content_type.to_string())
 			.body(body)
 			.unwrap();
 
@@ -618,38 +438,12 @@ async fn send_write_notification(
 	sender.send(Ok(message)).await.ok();
 }
 
-fn get_destination(
-	data: &tg::process::Data,
-	stream: tg::process::stdio::Stream,
-) -> tg::Result<Destination> {
-	let stdio = match stream {
-		tg::process::stdio::Stream::Stderr => &data.stderr,
-		tg::process::stdio::Stream::Stdin => &data.stdin,
-		tg::process::stdio::Stream::Stdout => &data.stdout,
-	};
-	match stream {
-		tg::process::stdio::Stream::Stderr => match stdio {
-			tg::process::Stdio::Log => Ok(Destination::Log),
-			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
-			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
-				Err(tg::error!("invalid stdio"))
-			},
-		},
-		tg::process::stdio::Stream::Stdin => match stdio {
-			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
-			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit | tg::process::Stdio::Log => {
-				Err(tg::error!("invalid stdio"))
-			},
-		},
-		tg::process::stdio::Stream::Stdout => match stdio {
-			tg::process::Stdio::Log => Ok(Destination::Log),
-			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
-			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
-				Err(tg::error!("invalid stdio"))
-			},
+fn get_stdin_destination(data: &tg::process::Data) -> tg::Result<Destination> {
+	match &data.stdin {
+		tg::process::Stdio::Null => Ok(Destination::Null),
+		tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
+		tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit | tg::process::Stdio::Log => {
+			Err(tg::error!("invalid stdio"))
 		},
 	}
 }
