@@ -177,7 +177,7 @@ export namespace Object {
 			}
 			this.location = object.options?.location ?? null;
 			this.#stored = true;
-			this.tokens = object.options?.tokens ?? {};
+			this.#tokens = { ...this.#tokens, ...object.options?.tokens };
 		}
 
 		clearStorePromise(promise: Promise<void>): void {
@@ -235,7 +235,7 @@ export namespace Object {
 				output.tokens !== null &&
 				!tg.Authorization.Tokens.isEmpty(output.tokens)
 			) {
-				this.#tokens = { ...output.tokens };
+				this.#tokens = { ...this.#tokens, ...output.tokens };
 			}
 			this.#object = tg.Object.Object.fromData(output.data);
 

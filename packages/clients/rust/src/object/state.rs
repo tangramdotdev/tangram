@@ -8,6 +8,9 @@ use {
 	tangram_futures::task::Shared,
 };
 
+#[cfg(test)]
+mod authorization;
+
 #[derive(Clone, Debug)]
 pub struct State(Arc<RwLock<Inner>>);
 
@@ -199,13 +202,14 @@ impl State {
 		});
 	}
 
-	pub(crate) fn finish_store(&self, object: tg::Referent<tg::object::Id>) -> tg::Result<()> {
+	pub(crate) fn finish_store(&self, mut object: tg::Referent<tg::object::Id>) -> tg::Result<()> {
 		let mut inner = self.0.write().unwrap();
 		if inner.id.as_ref() != Some(&object.node) {
 			return Err(tg::error!("invalid object batch output"));
 		}
 		inner.location = object.options.location;
 		inner.stored = true;
+		object.options.tokens.inherit(&inner.tokens);
 		inner.tokens = object.options.tokens;
 
 		Ok(())
@@ -377,7 +381,7 @@ impl State {
 		H: tg::Handle,
 	{
 		// Load the object.
-		let Some(output) = handle.try_get_object(&id, arg).await? else {
+		let Some(mut output) = handle.try_get_object(&id, arg).await? else {
 			return Ok(None);
 		};
 
@@ -389,6 +393,7 @@ impl State {
 		// Update the state.
 		let mut inner = self.0.write().unwrap();
 		if !output.tokens.is_empty() {
+			output.tokens.inherit(&inner.tokens);
 			inner.tokens = output.tokens;
 		}
 		inner.object.replace(object.clone());
