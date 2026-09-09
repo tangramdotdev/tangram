@@ -379,13 +379,6 @@ impl Server {
 		Ok(client)
 	}
 
-	pub(crate) fn recreate_remote_client(&self, url: Uri) -> tg::Result<tg::Client> {
-		let client = self.create_remote_client(url.clone())?;
-		self.remote_clients.insert(url, client.clone());
-
-		Ok(client)
-	}
-
 	pub(crate) fn create_remote_client(&self, url: Uri) -> tg::Result<tg::Client> {
 		tg::Client::new(tg::Arg {
 			http: tg::Http::default(),

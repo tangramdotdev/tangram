@@ -127,9 +127,6 @@ impl Session {
 				tg::Principal::Process(process) => {
 					return Err(tg::error!(process = %process, %id, "invalid process"));
 				},
-				tg::Principal::Runner(runner) => {
-					self.verify_process_control_runner(&id, runner).await?;
-				},
 				_ => return Err(tg::error!("unauthorized")),
 			}
 			(id, self.context.token.clone())
@@ -433,26 +430,6 @@ impl Session {
 		Ok(Some((output, stream)))
 	}
 
-	async fn verify_process_control_runner(
-		&self,
-		id: &tg::process::Id,
-		runner: &tg::runner::Id,
-	) -> tg::Result<()> {
-		let process = self.try_get_process_from_index(id).await?;
-		let sandbox = process
-			.and_then(|process| process.data)
-			.map(|data| data.sandbox);
-		let sandbox = match sandbox {
-			Some(sandbox) => self.try_get_sandbox_from_index(&sandbox).await?,
-			None => None,
-		};
-		if sandbox.and_then(|sandbox| sandbox.runner).as_ref() != Some(runner) {
-			return Err(tg::error!("unauthorized"));
-		}
-
-		Ok(())
-	}
-
 	async fn publish_process_control_ack(
 		&self,
 		id: &tg::process::Id,
@@ -593,30 +570,8 @@ impl Session {
 		let session = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
-		let session = if arg.data.is_none() {
-			let context = session.context().clone();
-			let url = session.client().url().clone();
-			let client = self.server.recreate_remote_client(url).map_err(
-				|error| tg::error!(!error, remote = %remote, ?id, "failed to recreate the remote client"),
-			)?;
-			client.session(&context)
-		} else {
-			session
-		};
 		let context = session.context().clone();
-		let reconnect_as_runner = arg.data.is_none()
-			&& self.server.config.runner.remote.as_deref() == Some(remote.as_str());
-		let token = if reconnect_as_runner {
-			self.server
-				.config
-				.runner
-				.token
-				.clone()
-				.or_else(|| self.context.token.clone())
-		} else {
-			self.context.token.clone()
-		};
-		context.set_token(token);
+		context.set_token(self.context.token.clone());
 		let session = session.client().session(&context);
 		let destination = tg::Location::Remote(tg::location::Remote {
 			name: remote.clone(),
