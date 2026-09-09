@@ -38,6 +38,9 @@ pub(super) struct NodeUpdate {
 pub(super) struct StorageUpdate {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub cursor: Option<StorageCursor>,
+
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub version: Option<[u8; 12]>,
 }
 
 #[derive(
@@ -148,7 +151,10 @@ impl NodeUpdate {
 
 impl StorageUpdate {
 	pub fn new() -> Self {
-		Self { cursor: None }
+		Self {
+			cursor: None,
+			version: None,
+		}
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -398,7 +404,8 @@ impl Index {
 		}
 
 		let mut output = crate::update::Output::default();
-		for (partition, version, id, kind) in entries {
+		for (partition, queued_version, id, kind) in entries {
+			let mut version = queued_version.clone();
 			let key = Self::pack(
 				subspace,
 				&crate::fdb::Key::Update(crate::fdb::update::Key::Update {
@@ -412,28 +419,68 @@ impl Index {
 			// A consumed payload does not imply that every queued version has propagated.
 			let value = if let Some(value) = value {
 				value.to_vec()
-			} else if !matches!(kind, Kind::Storage(_)) {
-				let propagated_version = crate::fdb::propagate!(
-					Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
-				);
+			} else {
+				let key = match &kind {
+					Kind::Grant(_) | Kind::Node => Some(Key::PropagatedVersion {
+						id: id.clone(),
+						kind: kind.clone(),
+					}),
+					Kind::Storage(StorageKind::Add { account, .. }) => Some(Key::StorageAddition {
+						account: account.clone(),
+						id: id.clone(),
+					}),
+					Kind::Storage(StorageKind::Propagate { account, .. }) => {
+						Some(Key::StoragePropagation {
+							account: account.clone(),
+							id: id.clone(),
+						})
+					},
+					Kind::Storage(StorageKind::Clean(_) | StorageKind::CleanAll) => None,
+				};
+				let propagated_version = if let Some(key) = key {
+					crate::fdb::propagate!(
+						Self::try_get_propagation_version(txn, subspace, &key).await
+					)
+				} else {
+					None
+				};
 				if propagated_version.is_none_or(|propagated_version| version >= propagated_version)
 				{
-					Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
+					Self::clear_update_version(
+						txn,
+						subspace,
+						&id,
+						&kind,
+						partition,
+						&queued_version,
+					);
 					output.count += 1;
 					continue;
 				}
 				serialize_update(&kind, Source::Propagate)?
-			} else {
-				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
-				output.count += 1;
-				continue;
 			};
 
 			let (cursor, source) = match &kind {
 				Kind::Grant(_) | Kind::Node => {
 					(None, Some(deserialize_source_update(&kind, &value)?))
 				},
-				Kind::Storage(_) => (StorageUpdate::deserialize(&value)?.cursor, None),
+				Kind::Storage(_) => {
+					let update = StorageUpdate::deserialize(&value)?;
+					let previous = update.version.map(fdbt::Versionstamp::from);
+					// Revisit earlier pages when an older obligation joins the traversal.
+					let cursor = if previous
+						.as_ref()
+						.is_some_and(|previous| version < *previous)
+					{
+						None
+					} else {
+						if let Some(previous) = previous {
+							version = version.min(previous);
+						}
+						update.cursor
+					};
+					(cursor, None)
+				},
 			};
 			let mut next_cursor = None;
 
@@ -616,6 +663,7 @@ impl Index {
 			let continued = if let Some(cursor) = next_cursor {
 				let update = StorageUpdate {
 					cursor: Some(cursor),
+					version: Some(*version.as_bytes()),
 				};
 				let key = Self::pack(
 					subspace,
@@ -641,7 +689,7 @@ impl Index {
 				false
 			};
 			if !continued {
-				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
+				Self::clear_update_version(txn, subspace, &id, &kind, partition, &queued_version);
 			}
 
 			output.count += 1;
@@ -656,11 +704,19 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		kind: &Kind,
 	) -> tg::Result<ControlFlow<Option<fdbt::Versionstamp>, fdb::FdbError>> {
-		let key = crate::fdb::Key::Update(Key::PropagatedVersion {
+		let key = Key::PropagatedVersion {
 			id: id.clone(),
 			kind: kind.clone(),
-		});
-		let key = Self::pack(subspace, &key);
+		};
+		Self::try_get_propagation_version(txn, subspace, &key).await
+	}
+
+	pub(super) async fn try_get_propagation_version(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		key: &Key,
+	) -> tg::Result<ControlFlow<Option<fdbt::Versionstamp>, fdb::FdbError>> {
+		let key = Self::pack(subspace, &crate::fdb::Key::Update(key.clone()));
 		let result = txn.get(&key, false).await;
 		let value = crate::fdb::retry!(result);
 		let version = value
@@ -686,10 +742,55 @@ impl Index {
 		for kind in [
 			KeyKind::GrantUpdatePropagatedVersion,
 			KeyKind::NodeUpdatePropagatedVersion,
+			KeyKind::StorageAddition,
+			KeyKind::StoragePropagation,
 		] {
 			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
 			let (_, end) = Subspace::from_bytes(prefix.clone()).range();
 			txn.clear_range(&prefix, &end);
+		}
+	}
+
+	pub(super) async fn lower_storage_addition_version(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		account: &crate::usage::Account,
+		version: &fdbt::Versionstamp,
+	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let key = Key::StorageAddition {
+			account: account.clone(),
+			id: id.clone(),
+		};
+		let previous =
+			crate::fdb::propagate!(Self::try_get_propagation_version(txn, subspace, &key).await);
+		if previous.is_some_and(|previous| *version >= previous) {
+			return Ok(ControlFlow::Break(false));
+		}
+		txn.set(
+			&Self::pack(subspace, &crate::fdb::Key::Update(key)),
+			version.as_bytes(),
+		);
+		Ok(ControlFlow::Break(true))
+	}
+
+	pub(super) fn clear_storage_propagations(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		account: &crate::usage::Account,
+	) {
+		for key in [
+			Key::StorageAddition {
+				account: account.clone(),
+				id: id.clone(),
+			},
+			Key::StoragePropagation {
+				account: account.clone(),
+				id: id.clone(),
+			},
+		] {
+			txn.clear(&Self::pack(subspace, &crate::fdb::Key::Update(key)));
 		}
 	}
 
@@ -704,6 +805,29 @@ impl Index {
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+		let key = match id {
+			tg::Either::Left(object) => crate::fdb::usage::Key::AccountObject {
+				account: account.clone(),
+				object: object.clone(),
+			},
+			tg::Either::Right(process) => crate::fdb::usage::Key::AccountProcess {
+				account: account.clone(),
+				process: process.clone(),
+			},
+		};
+		let result = txn
+			.get(&Self::pack(subspace, &crate::fdb::Key::Usage(key)), false)
+			.await;
+		if crate::fdb::retry!(result).is_none() {
+			return Ok(ControlFlow::Break(None));
+		}
+
+		// Resolve the addition version once a versionstamped insertion starts propagating.
+		if cursor.is_none() {
+			crate::fdb::propagate!(
+				Self::lower_storage_addition_version(txn, subspace, id, account, version).await
+			);
+		}
 		let (relationships, cursor) = crate::fdb::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
 		);
@@ -724,6 +848,17 @@ impl Index {
 				Source::Put,
 				partition_total,
 				Some(version),
+			);
+		}
+
+		if cursor.is_none() {
+			let key = Key::StoragePropagation {
+				account: account.clone(),
+				id: id.clone(),
+			};
+			txn.set(
+				&Self::pack(subspace, &crate::fdb::Key::Update(key)),
+				version.as_bytes(),
 			);
 		}
 

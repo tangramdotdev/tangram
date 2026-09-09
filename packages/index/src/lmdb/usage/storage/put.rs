@@ -330,6 +330,9 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to touch the account object"))?;
 				Self::put_account_object_clean_key(db, subspace, transaction, arg)?;
 			}
+			if let Some(version) = version {
+				Self::propagate_account_object(db, subspace, transaction, arg, version)?;
+			}
 			return Ok(false);
 		}
 
@@ -374,22 +377,8 @@ impl Index {
 		};
 		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
-		let children =
-			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?;
-		for child in children {
-			Self::enqueue_update_with_kind(
-				db,
-				subspace,
-				transaction,
-				tg::Either::Left(child),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
-					account: arg.account.clone(),
-					touched_at: arg.touched_at,
-				}),
-				crate::lmdb::update::Source::Put,
-				version,
-			)?;
-		}
+		let version = version.unwrap_or_else(|| transaction.id() as u64);
+		Self::propagate_account_object(db, subspace, transaction, arg, version)?;
 
 		Ok(true)
 	}
@@ -419,6 +408,9 @@ impl Index {
 				db.put(transaction, &entry_key, &value)
 					.map_err(|error| tg::error!(!error, "failed to touch the account process"))?;
 				Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
+			}
+			if let Some(version) = version {
+				Self::propagate_account_process(db, subspace, transaction, arg, version)?;
 			}
 			return Ok(false);
 		}
@@ -455,6 +447,68 @@ impl Index {
 		};
 		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
+		let version = version.unwrap_or_else(|| transaction.id() as u64);
+		Self::propagate_account_process(db, subspace, transaction, arg, version)?;
+
+		Ok(true)
+	}
+
+	fn propagate_account_object(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &crate::usage::storage::put::ObjectArg,
+		version: u64,
+	) -> tg::Result<()> {
+		let id = tg::Either::Left(arg.object.clone());
+		if !Self::lower_storage_addition_version(
+			db,
+			subspace,
+			transaction,
+			&id,
+			&arg.account,
+			version,
+		)? {
+			return Ok(());
+		}
+		let children =
+			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?;
+		for child in children {
+			Self::enqueue_update_with_kind(
+				db,
+				subspace,
+				transaction,
+				tg::Either::Left(child),
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+					account: arg.account.clone(),
+					touched_at: arg.touched_at,
+				}),
+				crate::lmdb::update::Source::Put,
+				Some(version),
+			)?;
+		}
+
+		Ok(())
+	}
+
+	fn propagate_account_process(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &crate::usage::storage::put::ProcessArg,
+		version: u64,
+	) -> tg::Result<()> {
+		let id = tg::Either::Right(arg.process.clone());
+		if !Self::lower_storage_addition_version(
+			db,
+			subspace,
+			transaction,
+			&id,
+			&arg.account,
+			version,
+		)? {
+			return Ok(());
+		}
 		let children =
 			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?;
 		for child in children {
@@ -468,7 +522,7 @@ impl Index {
 					touched_at: arg.touched_at,
 				}),
 				crate::lmdb::update::Source::Put,
-				version,
+				Some(version),
 			)?;
 		}
 		let objects =
@@ -484,11 +538,11 @@ impl Index {
 					touched_at: arg.touched_at,
 				}),
 				crate::lmdb::update::Source::Put,
-				version,
+				Some(version),
 			)?;
 		}
 
-		Ok(true)
+		Ok(())
 	}
 
 	#[allow(clippy::too_many_arguments)]

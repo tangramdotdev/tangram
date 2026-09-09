@@ -83,6 +83,7 @@ pub enum Kind {
 	UsageUnavailable = 65,
 	GrantUpdatePropagatedVersion = 66,
 	NodeUpdatePropagatedVersion = 67,
+	StorageAddition = 68,
 	GrantUpdateClean = 71,
 	NodeUpdateClean = 72,
 }
@@ -558,6 +559,19 @@ impl fdbt::TuplePack for Key {
 				let mut offset = id.as_ref().pack(w, tuple_depth)?;
 				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
+			},
+
+			Key::Update(crate::lmdb::update::Key::StorageAddition { account, id }) => {
+				let id = match id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				(
+					Kind::StorageAddition.to_i32().unwrap(),
+					id.as_ref(),
+					account.id().to_bytes().as_ref(),
+				)
+					.pack(w, tuple_depth)
 			},
 
 			Key::Update(crate::lmdb::update::Key::Update { id, kind }) => {
@@ -1455,6 +1469,26 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let key = Key::LogCompaction(crate::lmdb::log::Key::Version { process, version });
 				Ok((input, key))
+			},
+
+			Kind::StorageAddition => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let key = crate::lmdb::update::Key::StorageAddition { account, id };
+				Ok((input, Key::Update(key)))
 			},
 
 			Kind::GrantUpdatePropagatedVersion | Kind::NodeUpdatePropagatedVersion => {

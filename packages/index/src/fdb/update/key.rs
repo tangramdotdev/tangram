@@ -16,6 +16,16 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
+	// The oldest addition for an account association is independent of its touch timestamp.
+	StorageAddition {
+		account: crate::usage::Account,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
+	// A completed traversal can be replayed if an older queue marker arrives later.
+	StoragePropagation {
+		account: crate::usage::Account,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,

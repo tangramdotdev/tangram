@@ -393,6 +393,13 @@ impl Index {
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the object account"))?;
+		Self::clear_storage_propagations(
+			db,
+			subspace,
+			transaction,
+			&tg::Either::Left(object.clone()),
+			account,
+		)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
 		let entry = crate::usage::DeltaArg {
 			account,
@@ -468,6 +475,13 @@ impl Index {
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the process account"))?;
+		Self::clear_storage_propagations(
+			db,
+			subspace,
+			transaction,
+			&tg::Either::Right(process.clone()),
+			account,
+		)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
 		let entry = crate::usage::DeltaArg {
 			account,
