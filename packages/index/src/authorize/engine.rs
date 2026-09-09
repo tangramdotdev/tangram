@@ -429,6 +429,20 @@ impl Batch {
 				outcomes.push(super::Outcome::Exhausted);
 				continue;
 			}
+
+			// Record optional permissions that remain indeterminate.
+			let mut indeterminate = exhausted;
+			indeterminate.remove(authorized);
+			if !indeterminate.is_empty() {
+				tracing::debug!(
+					%authorized,
+					%indeterminate,
+					%requested,
+					resource = %id,
+					"authorize permission indeterminate"
+				);
+			}
+
 			let permissions = if requested == arg.requested {
 				authorized
 			} else if authorized.contains(requested) {
