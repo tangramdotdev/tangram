@@ -10,6 +10,7 @@ mod reader;
 mod storage;
 mod update;
 mod usage;
+mod versions;
 
 use super::{Config, Index};
 

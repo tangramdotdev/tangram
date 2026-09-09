@@ -1,4 +1,6 @@
 mod key;
+#[cfg(test)]
+mod tests;
 
 pub(super) use key::{Key, Kind, StorageKind};
 
@@ -406,7 +408,21 @@ impl Index {
 			let result = txn.get(&key, false).await;
 			let value = crate::fdb::retry!(result);
 
-			let Some(value) = value else {
+			// A consumed payload does not imply that every queued version has propagated.
+			let value = if let Some(value) = value {
+				value.to_vec()
+			} else if !matches!(kind, Kind::Storage(_)) {
+				let propagated_version = crate::fdb::propagate!(
+					Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
+				);
+				if propagated_version.is_none_or(|propagated_version| version >= propagated_version)
+				{
+					Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
+					output.count += 1;
+					continue;
+				}
+				serialize_update(&kind, Source::Propagate)?
+			} else {
 				Self::clear_update_version(txn, subspace, &id, &kind, partition, &version);
 				output.count += 1;
 				continue;
@@ -550,15 +566,40 @@ impl Index {
 				},
 			};
 
-			if !matches!(kind, Kind::Storage(_))
-				&& match source.unwrap() {
-					Source::Put => true,
-					Source::Propagate => changed,
-				} {
-				crate::fdb::propagate!(
-					Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total,)
-						.await
-				);
+			if let Some(source) = source {
+				let propagate = if source == Source::Put || changed {
+					true
+				} else {
+					let propagated_version = crate::fdb::propagate!(
+						Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
+					);
+					propagated_version
+						.is_some_and(|propagated_version| version < propagated_version)
+				};
+				if propagate {
+					crate::fdb::propagate!(
+						Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total)
+							.await
+					);
+					// Remember the version used to enqueue the parents, including an older version for an unchanged item.
+					let key = crate::fdb::Key::Update(Key::PropagatedVersion {
+						id: id.clone(),
+						kind: kind.clone(),
+					});
+					txn.set(&Self::pack(subspace, &key), version.as_bytes());
+					let id_bytes = match &id {
+						tg::Either::Left(id) => id.to_bytes(),
+						tg::Either::Right(id) => id.to_bytes(),
+					};
+					let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+					let key = crate::fdb::Key::Update(Key::Clean {
+						id: id.clone(),
+						kind: kind.clone(),
+						partition,
+						version: version.clone(),
+					});
+					txn.set(&Self::pack(subspace, &key), &[]);
+				}
 			}
 
 			let continued = if let Some(cursor) = next_cursor {
@@ -596,6 +637,49 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn try_get_update_propagated_version(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		kind: &Kind,
+	) -> tg::Result<ControlFlow<Option<fdbt::Versionstamp>, fdb::FdbError>> {
+		let key = crate::fdb::Key::Update(Key::PropagatedVersion {
+			id: id.clone(),
+			kind: kind.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::fdb::retry!(result);
+		let version = value
+			.map(|value| {
+				let bytes: [u8; 12] = value.as_ref().try_into().map_err(|error| {
+					tg::error!(
+						!error,
+						"failed to deserialize the propagated update version"
+					)
+				})?;
+				Ok::<_, tg::Error>(fdbt::Versionstamp::from(bytes))
+			})
+			.transpose()?;
+
+		Ok(ControlFlow::Break(version))
+	}
+
+	pub(super) fn clear_update_propagated_versions(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &[u8],
+	) {
+		for kind in [
+			KeyKind::GrantUpdatePropagatedVersion,
+			KeyKind::NodeUpdatePropagatedVersion,
+		] {
+			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
+			let (_, end) = Subspace::from_bytes(prefix.clone()).range();
+			txn.clear_range(&prefix, &end);
+		}
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -1093,6 +1177,7 @@ impl Index {
 				let Some(object) = crate::fdb::propagate!(
 					Self::try_get_object_with_transaction(txn, subspace, id).await
 				) else {
+					Self::clear_update_propagated_versions(txn, subspace, id.to_bytes().as_ref());
 					return Ok(ControlFlow::Break(()));
 				};
 				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);
@@ -1106,6 +1191,7 @@ impl Index {
 				let Some(process) = crate::fdb::propagate!(
 					Self::try_get_process_with_transaction(txn, subspace, id).await
 				) else {
+					Self::clear_update_propagated_versions(txn, subspace, id.to_bytes().as_ref());
 					return Ok(ControlFlow::Break(()));
 				};
 				let partition = Self::partition_for_id(id.to_bytes().as_ref(), partition_total);

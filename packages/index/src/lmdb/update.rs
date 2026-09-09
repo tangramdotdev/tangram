@@ -16,6 +16,8 @@ use {
 pub(super) struct GrantUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
+	#[tangram_serialize(id = 1)]
+	pub version: u64,
 }
 
 #[derive(
@@ -24,6 +26,8 @@ pub(super) struct GrantUpdate {
 pub(super) struct NodeUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
+	#[tangram_serialize(id = 1)]
+	pub version: u64,
 }
 
 #[derive(
@@ -70,8 +74,8 @@ struct GrantCover {
 }
 
 impl GrantUpdate {
-	pub fn new(source: Source) -> Self {
-		Self { source }
+	pub fn new(source: Source, version: u64) -> Self {
+		Self { source, version }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -86,8 +90,8 @@ impl GrantUpdate {
 }
 
 impl NodeUpdate {
-	pub fn new(source: Source) -> Self {
-		Self { source }
+	pub fn new(source: Source, version: u64) -> Self {
+		Self { source, version }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -215,11 +219,15 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to get update key"))?
 				.ok_or_else(|| tg::error!("expected an update key for the update version key"))?;
 
-			let source = match &kind {
-				Kind::Grant(_) | Kind::Node => Some(deserialize_source_update(&kind, value)?),
+			// A preceding item can lower the pending version after this batch selected its queue entry.
+			let (source, version) = match &kind {
+				Kind::Grant(_) | Kind::Node => {
+					let (source, version) = deserialize_source_update(&kind, value)?;
+					(Some(source), version)
+				},
 				Kind::Storage(_) => {
 					StorageUpdate::deserialize(value)?;
-					None
+					(None, version)
 				},
 			};
 
@@ -293,12 +301,59 @@ impl Index {
 				) => return Err(tg::error!("unsupported LMDB storage update kind")),
 			};
 
-			if !matches!(kind, Kind::Storage(_))
-				&& match source.unwrap() {
-					Source::Put => true,
-					Source::Propagate => changed,
-				} {
-				Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
+			if let Some(source) = source {
+				let key = crate::lmdb::Key::Update(Key::PropagatedVersion {
+					id: id.clone(),
+					kind: kind.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let propagated_version = db
+					.get(transaction, &key)
+					.map_err(|error| {
+						tg::error!(!error, "failed to get the propagated update version")
+					})?
+					.map(|bytes| bytes.try_into().map(u64::from_be_bytes))
+					.transpose()
+					.map_err(|error| {
+						tg::error!(
+							!error,
+							"failed to deserialize the propagated update version"
+						)
+					})?;
+				// Propagate an older version even when the item's metadata or grants are unchanged.
+				if source == Source::Put
+					|| changed || propagated_version
+					.is_some_and(|propagated_version| version < propagated_version)
+				{
+					Self::enqueue_parents(db, subspace, transaction, &id, &kind, version)?;
+					let item = match &id {
+						tg::Either::Left(id) => {
+							crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()))
+						},
+						tg::Either::Right(id) => crate::lmdb::Key::Process(
+							crate::lmdb::process::Key::Process(id.clone()),
+						),
+					};
+					if db
+						.get(transaction, &Self::pack(subspace, &item))
+						.map_err(|error| tg::error!(!error, "failed to get the update item"))?
+						.is_some()
+					{
+						db.put(transaction, &key, &version.to_be_bytes())
+							.map_err(|error| {
+								tg::error!(!error, "failed to put the propagated update version")
+							})?;
+						let key = crate::lmdb::Key::Update(Key::Clean {
+							id: id.clone(),
+							kind: kind.clone(),
+							version,
+						});
+						db.put(transaction, &Self::pack(subspace, &key), &[])
+							.map_err(|error| {
+								tg::error!(!error, "failed to put the update clean key")
+							})?;
+					}
+				}
 			}
 
 			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
@@ -1857,6 +1912,8 @@ impl Index {
 			kind: kind.clone(),
 		});
 		let key = Self::pack(subspace, &key);
+		let mut source = source;
+		let mut version = version.unwrap_or_else(|| transaction.id() as u64);
 		if let Some(existing) = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
@@ -1864,26 +1921,60 @@ impl Index {
 			if matches!(kind, Kind::Storage(_)) {
 				return Ok(());
 			}
-			let existing = deserialize_source_update(&kind, existing)?;
-			if existing == Source::Propagate && source == Source::Put {
-				let value = serialize_update(&kind, source)?;
-				db.put(transaction, &key, &value)
-					.map_err(|error| tg::error!(!error, "failed to put update key"))?;
+			let (existing_source, existing_version) = deserialize_source_update(&kind, existing)?;
+			if existing_source == Source::Put {
+				source = Source::Put;
 			}
-			return Ok(());
+			version = version.min(existing_version);
+			if source == existing_source && version == existing_version {
+				return Ok(());
+			}
+			if version != existing_version {
+				let key = crate::lmdb::Key::Update(Key::UpdateVersion {
+					id: id.clone(),
+					kind: kind.clone(),
+					version: existing_version,
+				});
+				db.delete(transaction, &Self::pack(subspace, &key))
+					.map_err(|error| {
+						tg::error!(!error, "failed to delete the update version key")
+					})?;
+			}
 		}
 
-		let value = serialize_update(&kind, source)?;
+		let value = serialize_update(&kind, source, version)?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, "failed to put update key"))?;
 
-		let version = version.unwrap_or_else(|| transaction.id() as u64);
 		let key =
 			crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion { id, kind, version });
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put update version key"))?;
 
+		Ok(())
+	}
+
+	pub(super) fn clear_update_propagated_versions(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &[u8],
+	) -> tg::Result<()> {
+		for kind in [
+			KeyKind::GrantUpdatePropagatedVersion,
+			KeyKind::NodeUpdatePropagatedVersion,
+		] {
+			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
+			let (_, end) = fdbt::Subspace::from_bytes(prefix.clone()).range();
+			let range = (
+				std::ops::Bound::Included(prefix.as_slice()),
+				std::ops::Bound::Excluded(end.as_slice()),
+			);
+			db.delete_range(transaction, &range).map_err(|error| {
+				tg::error!(!error, "failed to delete the propagated update versions")
+			})?;
+		}
 		Ok(())
 	}
 }
@@ -1896,20 +1987,26 @@ fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
 	}
 }
 
-fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
-	let source = match kind {
-		Kind::Grant(_) => GrantUpdate::deserialize(bytes)?.source,
-		Kind::Node => NodeUpdate::deserialize(bytes)?.source,
+fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<(Source, u64)> {
+	let output = match kind {
+		Kind::Grant(_) => {
+			let update = GrantUpdate::deserialize(bytes)?;
+			(update.source, update.version)
+		},
+		Kind::Node => {
+			let update = NodeUpdate::deserialize(bytes)?;
+			(update.source, update.version)
+		},
 		Kind::Storage(_) => return Err(tg::error!("expected a source update")),
 	};
 
-	Ok(source)
+	Ok(output)
 }
 
-fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
+fn serialize_update(kind: &Kind, source: Source, version: u64) -> tg::Result<Vec<u8>> {
 	let value = match kind {
-		Kind::Grant(_) => GrantUpdate::new(source).serialize()?,
-		Kind::Node => NodeUpdate::new(source).serialize()?,
+		Kind::Grant(_) => GrantUpdate::new(source, version).serialize()?,
+		Kind::Node => NodeUpdate::new(source, version).serialize()?,
 		Kind::Storage(_) => StorageUpdate::new().serialize()?,
 	};
 
