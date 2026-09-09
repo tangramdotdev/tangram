@@ -8,7 +8,7 @@ export namespace Write {
 	};
 
 	export type Output = {
-		blob: tg.Blob.Id;
+		blob: tg.Referent<tg.Blob.Id>;
 	};
 }
 
@@ -27,7 +27,7 @@ export async function write(
 					: argOrBytes,
 			),
 		);
-		return (output as tg.Write.Output).blob;
+		return (output as tg.Write.Output).blob.node;
 	}
 	let method = "POST";
 	let uri = new Uri({
@@ -55,7 +55,10 @@ export async function write(
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return await response.json<tg.Write.Output>();
+	let output = await response.json<{ blob: string }>();
+	return {
+		blob: tg.Referent.fromDataString(output.blob, (id) => id as tg.Blob.Id),
+	};
 }
 
 async function* singleBytes(
