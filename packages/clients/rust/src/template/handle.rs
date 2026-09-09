@@ -109,7 +109,7 @@ impl Template {
 
 	/// Unrender a string using a resolver for each artifact occurrence.
 	///
-	/// The resolver may return `None` to keep a bare handle, or a handle with the same ID to retain its state.
+	/// Returning `None` keeps a bare handle; a same-ID handle retains its state.
 	/// Resolver errors are propagated; tokens are not verified.
 	pub fn unrender_with<F>(prefix: &str, string: &str, mut f: F) -> tg::Result<Self>
 	where

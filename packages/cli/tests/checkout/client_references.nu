@@ -1,7 +1,7 @@
 use ../../test.nu *
 use ../lib/vfs.nu
 
-# The Rust client recovers checkout tokens to load unrendered file and directory paths.
+# Recover checkout tokens for an unrendered client path.
 
 const repository_path = path self '../../../..'
 
@@ -34,13 +34,13 @@ if (($env.TANGRAM_TEST_VFS? | default '') | str length) > 0 {
 	assert equal ($directory_path | path expand) (vfs root $server.directory $directory)
 }
 
-# Exercise the capacity fallback that retains only the file token.
+# Simulate a checkout that retained only the file token.
 let fallback = artifact (file --xattrs {
 	'user.tangram.dependencies': ([$directory] | to json --raw)
 	'user.tangram.token': (xattr_read user.tangram.token $wrapper_path)
 } wrapper)
 
-# A parent token needs one edge, while an unguided search exhausts the budget.
+# Limit graph search so the parent token is necessary.
 let config = $server.config | merge deep {
 	authorization: {
 		final: {
