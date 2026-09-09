@@ -271,6 +271,56 @@ impl Tokens {
 		}
 	}
 
+	/// Inherit authorization for an object from handles for it or its ancestors.
+	pub fn inherit_for_object(&mut self, object: &tg::object::Id, parent: &Self) {
+		use tg::authorization::{
+			Permission::Object,
+			permission::object::Permission::{Node, Subtree},
+		};
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let resource = tg::Id::from(object.clone());
+		let applicable = |token: &Token| {
+			!token.body.grants(Object(Node))
+				|| token.body.grants(Object(Subtree))
+				|| token.body.resource == resource
+		};
+		self.map.retain(|_, token| applicable(token));
+		for (location, token) in parent.iter().filter(|(_, token)| applicable(token)) {
+			let replace = self.get(location).is_none_or(|existing| {
+				let valid = token.body.expires_at >= now;
+				let existing_valid = existing.body.expires_at >= now;
+				if valid != existing_valid {
+					return valid;
+				}
+				if token.body.grants(Object(Node)) && existing.body.grants(Object(Node)) {
+					let rank = |token: &Token| {
+						(
+							token.body.grants(Object(Subtree)),
+							token.body.resource == resource,
+							token.body.expires_at,
+						)
+					};
+					return rank(token) > rank(existing);
+				}
+				token.body.resource == existing.body.resource
+					&& token
+						.body
+						.permissions
+						.iter()
+						.all(|permission| existing.body.grants(*permission))
+					&& existing
+						.body
+						.permissions
+						.iter()
+						.all(|permission| token.body.grants(*permission))
+					&& token.body.expires_at > existing.body.expires_at
+			});
+			if replace {
+				self.set(location.clone(), token.clone());
+			}
+		}
+	}
+
 	#[must_use]
 	pub fn for_location(&self, location: &tg::Location) -> Self {
 		Self::with_local(self.get(location).cloned())
@@ -384,6 +434,51 @@ impl std::str::FromStr for Token {
 #[cfg(test)]
 mod tests {
 	use crate as tg;
+
+	#[test]
+	fn inheritance_preserves_usable_object_tokens() {
+		use tg::authorization::{
+			Tokens,
+			permission::object::Permission::{Node, Subtree},
+		};
+		let object = tg::File::with_contents("object").id().into();
+		let parent = tg::File::with_contents("parent").id().into();
+		let key = tg::authorization::PrivateKey::new(
+			"test",
+			tg::authorization::Algorithm::Ed25519,
+			vec![0; 32],
+		);
+		let tokens = |object: &tg::object::Id, permission, expires_at| {
+			let body = tg::authorization::Body {
+				expires_at,
+				permissions: vec![tg::authorization::Permission::Object(permission)],
+				resource: object.clone().into(),
+			};
+			Tokens::with_local(Some(tg::authorization::Token::sign(body, &key).unwrap()))
+		};
+		let subtree = tokens(&object, Subtree, i64::MAX - 1);
+		let node = tokens(&object, Node, i64::MAX);
+		let expired = tokens(&object, Subtree, 0);
+		let parent_node = tokens(&parent, Node, i64::MAX);
+		let parent_subtree = tokens(&parent, Subtree, i64::MAX);
+		let newer = tokens(&object, Subtree, i64::MAX);
+		for (left, right, expected) in [
+			(&expired, &node, &node),
+			(&node, &subtree, &subtree),
+			(&subtree, &newer, &newer),
+			(&parent_subtree, &subtree, &subtree),
+			(&parent_node, &node, &node),
+		] {
+			for (left, right) in [(left, right), (right, left)] {
+				let mut tokens = left.clone();
+				tokens.inherit_for_object(&object, right);
+				assert_eq!(tokens, *expected);
+			}
+		}
+		let mut tokens = Tokens::default();
+		tokens.inherit_for_object(&object, &parent_node);
+		assert!(tokens.is_empty());
+	}
 
 	#[test]
 	fn algorithm_round_trips() {
