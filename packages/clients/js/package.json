@@ -28,9 +28,10 @@
 	},
 	"scripts": {
 		"build": "node build.ts",
-		"check": "tsc --noEmit && oxlint build.ts src",
-		"format": "oxfmt --write build.ts src",
-		"prepack": "bun run build"
+		"check": "tsc --noEmit && oxlint build.ts src tests",
+		"format": "oxfmt --write build.ts src tests",
+		"prepack": "bun run build",
+		"test": "bun test tests"
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.3.0",

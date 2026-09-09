@@ -8,6 +8,9 @@ use {
 	tangram_futures::task::Shared,
 };
 
+#[cfg(test)]
+mod authorization;
+
 #[derive(Clone, Debug)]
 pub struct State(Arc<RwLock<Inner>>);
 

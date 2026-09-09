@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# Loading state replaces inherited tokens with the non-empty tokens returned by the server.
+# Loads refresh returned tokens; object loads also retain tokens for other locations.
 
 let server = server spawn
 
@@ -75,7 +75,7 @@ let path = artifact {
 
 let output = tg build $path | from json
 let expected = {
-	object: { local: returned }
+	object: { local: returned, remote: remote }
 	process: { local: returned }
 	sandbox: { local: returned }
 }
