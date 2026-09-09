@@ -144,7 +144,6 @@ struct RunProcessArg {
 pub(super) struct WriteProcessLogTaskArg {
 	receiver: tokio::sync::mpsc::Receiver<LogEvent>,
 	started_at: i64,
-	streams: Vec<tg::process::stdio::Stream>,
 }
 
 struct RunProcessOutput {
@@ -863,7 +862,6 @@ impl Session {
 				let arg = WriteProcessLogTaskArg {
 					receiver,
 					started_at,
-					streams: log_streams,
 				};
 
 				Ok::<_, tg::Error>(arg)
@@ -997,7 +995,6 @@ impl Session {
 		let WriteProcessLogTaskArg {
 			mut receiver,
 			started_at,
-			streams,
 		} = arg;
 		let clock = self.server.clock.clone();
 		let mut position = 0_u64;
@@ -1057,10 +1054,7 @@ impl Session {
 					timestamp: Some(timestamp),
 				};
 				let arg = tg::process::control::ClientRequestArg::Write(
-					tg::process::control::WriteClientRequestArg {
-						chunk,
-						failed: false,
-					},
+					tg::process::control::WriteClientRequestArg::Chunk(chunk),
 				);
 
 				Ok((
@@ -1119,94 +1113,42 @@ impl Session {
 		drop(receiver);
 		drop(requests);
 
-		// Finish the log streams.
+		// End the log.
 		finished
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish notification"))?;
-		let mut finish_failed = false;
-		for &stream in &streams {
-			let stream_position = match stream {
-				tg::process::stdio::Stream::Stderr => stderr_position,
-				tg::process::stdio::Stream::Stdin => unreachable!(),
-				tg::process::stdio::Stream::Stdout => stdout_position,
-			};
-			let failed = result.is_err();
-			let request_result = Self::finish_process_log_stream(
-				&sender,
-				&pending_requests,
-				position,
-				stream,
-				stream_position,
-				failed,
-			)
-			.await;
-			if let Err(error) = request_result {
-				finish_failed = true;
-				if result.is_ok() {
-					result = Err(error);
-				}
-			}
-		}
-		if finish_failed {
-			for &stream in &streams {
-				let stream_position = match stream {
-					tg::process::stdio::Stream::Stderr => stderr_position,
-					tg::process::stdio::Stream::Stdin => unreachable!(),
-					tg::process::stdio::Stream::Stdout => stdout_position,
-				};
-				Self::finish_process_log_stream(
-					&sender,
-					&pending_requests,
-					position,
-					stream,
-					stream_position,
-					true,
-				)
-				.await
-				.ok();
-			}
+		let end_result = Self::send_process_log_end(&sender, &pending_requests, position).await;
+		if result.is_ok() {
+			result = end_result;
 		}
 
 		result
 	}
 
-	fn finish_process_log_stream<'a>(
-		sender: &'a control::ProcessControlSender,
-		pending_requests: &'a control::ProcessControlRequests,
+	async fn send_process_log_end(
+		sender: &control::ProcessControlSender,
+		pending_requests: &control::ProcessControlRequests,
 		position: u64,
-		stream: tg::process::stdio::Stream,
-		stream_position: u64,
-		failed: bool,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		async move {
-			let chunk = tg::process::stdio::Chunk {
-				bytes: Bytes::new(),
-				combined_position: position,
-				stream,
-				stream_position,
-				timestamp: None,
-			};
-			let arg = tg::process::control::ClientRequestArg::Write(
-				tg::process::control::WriteClientRequestArg { chunk, failed },
-			);
-			let priority = crate::control::Priority::Low;
-			let output =
-				Self::send_process_control_client_request(sender, pending_requests, arg, priority)
-					.boxed()
-					.await?
-					.try_unwrap_write()
-					.map_err(|_| tg::error!("expected a write process response"))?;
-			if output.position != position {
-				return Err(tg::error!(
-					expected = %position,
-					actual = %output.position,
-					"received an invalid log position"
-				));
-			}
-
-			Ok(())
+	) -> tg::Result<()> {
+		let arg = tg::process::control::ClientRequestArg::Write(
+			tg::process::control::WriteClientRequestArg::End,
+		);
+		let priority = crate::control::Priority::Low;
+		let output =
+			Self::send_process_control_client_request(sender, pending_requests, arg, priority)
+				.boxed()
+				.await?
+				.try_unwrap_write()
+				.map_err(|_| tg::error!("expected a write process response"))?;
+		if output.position != position {
+			return Err(tg::error!(
+				expected = %position,
+				actual = %output.position,
+				"received an invalid log position"
+			));
 		}
-		.boxed()
+
+		Ok(())
 	}
 
 	fn receive_process_log_response(

@@ -246,10 +246,7 @@ impl Server {
 				data.error = Some(tg::Either::Left(error.clone()));
 				data.exit = Some(1);
 				data.finished_at = Some(now);
-				data.log_failed = data.stderr.is_log() || data.stdout.is_log();
 				data.status = tg::process::Status::Finished;
-				data.stderr_finished |= data.stderr.is_log();
-				data.stdout_finished |= data.stdout.is_log();
 				let mut context = self.context.clone();
 				context.principal = tg::Principal::Process(process.clone());
 				let session = self.session(&context);

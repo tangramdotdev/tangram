@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Reproduces a race where sync observes a process before its log is compacted.
+# Verify that sync does not compact a live process log on demand.
 
 let local = server spawn --name local --config { indexer: { log_compaction: false } }
 let remote = server spawn --name remote
@@ -21,7 +21,5 @@ assert ((tg --url $local.url get $id | from json | get log?) == null) "The sourc
 tg --url $local.url remote put default $remote.url | complete
 tg --url $local.url push --process-logs $id
 
-# Read from remote blob should not fail with early eof.
-let output = tg --url $remote.url process log $id | complete
-success $output "Log read failed"
-assert equal ($output.stdout | lines | length) 9900 "The remote log should contain every line"
+let log = tg --url $remote.url get $id | from json | get log?
+assert ($log == null) "The uncompacted log should not be sent"

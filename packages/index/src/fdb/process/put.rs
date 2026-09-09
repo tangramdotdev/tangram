@@ -68,15 +68,6 @@ impl Index {
 			.clone()
 			.or_else(|| existing.as_ref().and_then(|existing| existing.data.clone()));
 		if let Some(data) = &mut data {
-			if let Some(existing) = existing
-				.as_ref()
-				.and_then(|existing| existing.data.as_ref())
-			{
-				data.log = data.log.take().or_else(|| existing.log.clone());
-				data.log_failed |= existing.log_failed;
-				data.stderr_finished |= existing.stderr_finished;
-				data.stdout_finished |= existing.stdout_finished;
-			}
 			data.children = None;
 		}
 

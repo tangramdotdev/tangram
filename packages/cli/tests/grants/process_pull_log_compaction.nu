@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Pulling a process with its logs must not let a node-only reader obtain a live log. The sync send path compacts a live log on demand, granting the caller the resulting blob, so it must require the log permission first. The process is kept running so its log stays live.
+# Pulling a process with its logs must not let a node-only reader obtain a live log. Sync omits live logs, and the process is kept running so its log cannot be transferred as a compacted object.
 
 let root_token = random chars
 let remote = server spawn --cloud --name remote --preserve-keys --config {

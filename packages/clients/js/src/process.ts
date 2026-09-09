@@ -1510,17 +1510,14 @@ export namespace Process {
 		finished_at?: number | null;
 		host: string;
 		log?: string | null;
-		log_failed?: boolean;
 		output?: tg.Value.Data;
 		retry?: boolean;
 		sandbox: string;
 		started_at?: number | null;
 		status: tg.Process.Status;
 		stderr?: tg.Process.Stdio;
-		stderr_finished?: boolean;
 		stdin?: tg.Process.Stdio;
 		stdout?: tg.Process.Stdio;
-		stdout_finished?: boolean;
 		tty?: tg.Process.Tty | null;
 	};
 

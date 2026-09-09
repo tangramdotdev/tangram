@@ -286,9 +286,12 @@ impl Session {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::Chunk>>,
 	) -> tg::Result<()> {
+		let mut closed = BTreeSet::new();
 		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 			None
 		} else {
+			let mut wakeups: Vec<BoxStream<'static, Option<tg::process::stdio::Stream>>> =
+				Vec::new();
 			let subject = format!("processes.{id}.log");
 			let log_wakeups = self
 				.server
@@ -296,8 +299,9 @@ impl Session {
 				.subscribe::<()>(subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-				.map(|_| ())
+				.map(|_| None)
 				.boxed();
+			wakeups.push(log_wakeups);
 			let subject = format!("processes.{id}.status");
 			let status_wakeups = self
 				.server
@@ -305,15 +309,29 @@ impl Session {
 				.subscribe::<()>(subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-				.map(|_| ())
+				.map(|_| None)
 				.boxed();
+			wakeups.push(status_wakeups);
+			for &stream in &streams {
+				let subject = format!("processes.{id}.{stream}.close");
+				let close_wakeups = self
+					.server
+					.messenger
+					.subscribe::<()>(subject)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
+					.map(move |_| Some(stream))
+					.boxed();
+				wakeups.push(close_wakeups);
+			}
 			let interval = IntervalStream::new(tokio::time::interval(
 				self.server.config.process.stdio_wakeup_interval,
 			))
 			.skip(1)
-			.map(|_| ())
+			.map(|_| None)
 			.boxed();
-			let wakeups = stream::select_all([log_wakeups, status_wakeups, interval]);
+			wakeups.push(interval);
+			let wakeups = stream::select_all(wakeups);
 			let wakeups = match arg.timeout {
 				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
 				None => wakeups.boxed(),
@@ -329,11 +347,9 @@ impl Session {
 			let data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-			let output_finished = streams.iter().all(|stream| match stream {
-				tg::process::stdio::Stream::Stderr => data.stderr_finished,
-				tg::process::stdio::Stream::Stdin => false,
-				tg::process::stdio::Stream::Stdout => data.stdout_finished,
-			});
+			let output_finished = data.log.is_some()
+				|| data.status.is_finished() && data.started_at.is_none()
+				|| streams.iter().all(|stream| closed.contains(stream));
 			let mut stream = self
 				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
@@ -366,10 +382,7 @@ impl Session {
 			}
 			let reached_start = arg.length.is_some_and(|length| length < 0)
 				&& matches!(arg.position, Some(SeekFrom::Start(0)));
-			if data.status.is_finished() && output_finished {
-				if data.log_failed {
-					return Err(tg::error!("failed to write the complete process log"));
-				}
+			if output_finished {
 				break;
 			}
 			if arg.length == Some(0) || reached_start {
@@ -378,8 +391,11 @@ impl Session {
 			let Some(wakeups) = &mut wakeups else {
 				break;
 			};
-			if wakeups.next().await.is_none() {
+			let Some(wakeup) = wakeups.next().await else {
 				break;
+			};
+			if let Some(stream) = wakeup {
+				closed.insert(stream);
 			}
 		}
 

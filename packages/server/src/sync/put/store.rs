@@ -245,38 +245,6 @@ impl Session {
 				continue;
 			};
 
-			// Compact the log if needed before sending the process data.
-			if node.descendants && state.arg.process_logs && output.data.log.is_none() {
-				let permission = tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeLog,
-				);
-				let required = tg::authorization::permission::Set::from_permission(permission);
-				let permissions = state
-					.graph
-					.lock()
-					.unwrap()
-					.get_process_local_authorization(&node.id, required)
-					.permissions;
-				if !permissions.contains(permission) {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				// Compact.
-				self.compact_process_log(&node.id).boxed().await.map_err(
-					|error| tg::error!(!error, process = %node.id, "failed to compact the log"),
-				)?;
-
-				// Get the compacted process data from the index.
-				output.data = self
-					.server
-					.try_get_process_local(&node.id, false)
-					.await?
-					.ok_or_else(
-						|| tg::error!(process = %node.id, "failed to get the process after compaction"),
-					)?
-					.data;
-			}
-
 			// Validate the process before waiting for all of its children.
 			Self::validate_process_data(&output.data)?;
 

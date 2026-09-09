@@ -362,17 +362,14 @@ impl Session {
 			finished_at: None,
 			host: host.to_owned(),
 			log: None,
-			log_failed: false,
 			output: None,
 			retry: arg.retry,
 			sandbox: sandbox.clone(),
 			started_at: Some(now),
 			status: tg::process::Status::Started,
 			stderr: arg.stderr.clone(),
-			stderr_finished: false,
 			stdin: arg.stdin.clone(),
 			stdout: arg.stdout.clone(),
-			stdout_finished: false,
 			tty,
 		};
 		let output = Output {

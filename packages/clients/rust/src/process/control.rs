@@ -1,9 +1,6 @@
 use {
-	crate::prelude::*,
-	futures::stream::BoxStream,
-	tangram_http::response::Ext as _,
-	tangram_uri::Uri,
-	tangram_util::serde::{is_default, is_false},
+	crate::prelude::*, futures::stream::BoxStream, tangram_http::response::Ext as _,
+	tangram_uri::Uri, tangram_util::serde::is_default,
 };
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
@@ -544,13 +541,13 @@ pub struct WriteServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct WriteClientRequestArg {
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum WriteClientRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub chunk: tg::process::stdio::Chunk,
+	Chunk(tg::process::stdio::Chunk),
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub failed: bool,
+	#[tangram_serialize(id = 1)]
+	End,
 }
 
 #[derive(
