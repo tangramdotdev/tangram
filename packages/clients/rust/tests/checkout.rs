@@ -18,7 +18,7 @@ async fn unrender() {
 	let path = fixture.directory.join("lib/libexample.so");
 	let path = path.to_str().unwrap();
 
-	// A leaf token cannot authorize the directory retained by unrender.
+	// The leaf token cannot authorize the retained directory.
 	let template = tg::Template::unrender(prefix, path).unwrap();
 	let directory = template.artifacts().next().unwrap();
 	assert!(directory.is_directory());
@@ -31,7 +31,7 @@ async fn unrender() {
 	);
 	assert!(load(metadata, prefix, path).await.is_err());
 
-	// Exercise dependency tokens independently when the provider retains them.
+	// Use dependency tokens when they are retained.
 	let mut metadata = tg::file::checkout::read(&fixture.wrapper).unwrap();
 	if metadata
 		.dependencies
@@ -44,7 +44,7 @@ async fn unrender() {
 	let file = load(metadata, prefix, path).await.unwrap();
 	assert_eq!(file.id(), fixture.file);
 
-	// Fall back to the wrapper's token when dependency tokens are absent.
+	// Fall back to the wrapper token when dependency tokens are absent.
 	let metadata = tg::file::checkout::read(&fixture.wrapper_without_dependency_tokens).unwrap();
 	assert!(
 		metadata
@@ -56,7 +56,7 @@ async fn unrender() {
 	let file = load(metadata, prefix, path).await.unwrap();
 	assert_eq!(file.id(), fixture.file);
 
-	// A file-rooted path uses the file's own token.
+	// A file-rooted path uses its own token.
 	let path = fixture.file_path.to_str().unwrap();
 	let metadata = tg::file::checkout::read(&fixture.file_path).unwrap();
 	let file = load(metadata, prefix, path).await.unwrap();
@@ -68,22 +68,20 @@ async fn load(
 	prefix: &str,
 	path: &str,
 ) -> tg::Result<tg::File> {
-	// Attach the recovered tokens to the unrendered artifacts.
-	let template = tg::Template::unrender(prefix, path)?;
 	let file_tokens = tg::authorization::Tokens::with_local(metadata.token);
-	for artifact in template.artifacts() {
-		let mut tokens = metadata
+	let template = tg::Template::unrender_with(prefix, path, |id| {
+		let mut options = metadata
 			.dependencies
 			.iter()
 			.flatten()
-			.find(|reference| reference.node() == &tg::reference::Node::Id(artifact.id().into()))
-			.map(|reference| reference.options().tokens.clone())
+			.find(|reference| reference.node() == &tg::reference::Node::Id(id.clone().into()))
+			.map(|reference| reference.options().clone())
 			.unwrap_or_default();
-		tokens.inherit(&file_tokens);
-		artifact.state().set_tokens(tokens);
-	}
+		options.tokens.inherit(&file_tokens);
+		let referent = tg::Referent::new(id, options.into());
+		Ok(Some(tg::Artifact::with_referent(referent)))
+	})?;
 
-	// Resolve the path and load the file in a fresh client.
 	let client = tg::Client::with_env(tg::Arg::default())?;
 	let file = match template.components() {
 		[tg::template::Component::Artifact(artifact)] => artifact.clone(),
