@@ -4,6 +4,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, future, stream},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tokio_stream::wrappers::IntervalStream,
@@ -29,9 +30,16 @@ impl Indexer {
 		config: &crate::config::IndexerLogCompaction,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
-		let futures = partition::ranges(partition_start, partition_end, config.concurrency)
-			.map(|range| self.log_compaction_partition_task(config, range.start, range.end));
+		if partition_start == partition_end {
+			stopper.wait().await;
+			return Ok(());
+		}
+		let futures =
+			partition::ranges(partition_start, partition_end, config.concurrency).map(|range| {
+				self.log_compaction_partition_task(config, range.start, range.end, stopper)
+			});
 		future::try_join_all(futures).await?;
 
 		Ok(())
@@ -42,10 +50,16 @@ impl Indexer {
 		config: &crate::config::IndexerLogCompaction,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		tangram_futures::retry(&RETRY_OPTIONS, || async {
 			match self
-				.log_compaction_partition_task_inner(config, partition_start, partition_end)
+				.log_compaction_partition_task_inner(
+					config,
+					partition_start,
+					partition_end,
+					stopper,
+				)
 				.await
 			{
 				Ok(()) => Ok(ControlFlow::Break(())),
@@ -66,6 +80,7 @@ impl Indexer {
 		config: &crate::config::IndexerLogCompaction,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let subject = log_compaction_subject();
 		let notifications = self
@@ -83,6 +98,9 @@ impl Indexer {
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			while wakeups.next().now_or_never().flatten().is_some() {}
 			crate::checkpoint!(self.server, "indexer.log_compaction.batch").await;
 			let entries = self
@@ -92,7 +110,10 @@ impl Indexer {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read log compactions"))?;
 			if entries.is_empty() {
-				if wakeups.next().await.is_none() {
+				if tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					wakeup = wakeups.next() => wakeup.is_none(),
+				} {
 					return Err(tg::error!("the log compaction wakeup stream ended"));
 				}
 				continue;

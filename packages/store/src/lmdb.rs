@@ -5,7 +5,6 @@ mod capacity;
 mod delete;
 mod flush;
 mod get;
-mod indexer;
 mod key;
 mod log;
 mod object;
@@ -219,16 +218,13 @@ impl Drop for Store {
 impl crate::Store for Store {
 	async fn contains_object(&self, arg: crate::object::contains::Arg) -> tg::Result<bool> {
 		let arg = crate::object::get::Arg {
+			bytes: false,
 			id: arg.id,
 			put: Some(arg.put),
 		};
 		let output = self.try_get_object(arg).await?;
 
 		Ok(output.object.is_some())
-	}
-
-	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(arg).await
 	}
 
 	async fn delete_object_cache_entry(
@@ -238,11 +234,11 @@ impl crate::Store for Store {
 		self.delete_object_cache_entry(arg).await
 	}
 
-	async fn delete_object_archive_queue_entry(
+	async fn delete_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::delete::Arg,
+		arg: crate::archive::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_object_archive_queue_entry(arg).await
+		self.delete_archive_queue_entry(arg).await
 	}
 
 	async fn delete_log(&self, arg: crate::log::delete::Arg) -> tg::Result<()> {
@@ -257,11 +253,11 @@ impl crate::Store for Store {
 		self.delete_object_batch(args).await
 	}
 
-	async fn delete_object_index_queue_fragment(
+	async fn delete_index_queue_fragment(
 		&self,
-		arg: crate::object::index::queue::delete::Arg,
+		arg: crate::index::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_object_index_queue_fragment(arg).await
+		self.delete_index_queue_fragment(arg).await
 	}
 
 	async fn get_object_cache_entries(
@@ -271,12 +267,18 @@ impl crate::Store for Store {
 		self.get_object_cache_entries(arg).await
 	}
 
-	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
-		self.get_indexers().await
+	async fn get_archive_queue_entries(
+		&self,
+		arg: crate::archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<crate::archive::queue::Entry>> {
+		self.get_archive_queue_entries(arg).await
 	}
 
-	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
-		self.put_indexer(arg).await
+	async fn get_index_queue_fragments(
+		&self,
+		arg: crate::index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<crate::index::queue::Fragment>> {
+		self.get_index_queue_fragments(arg).await
 	}
 
 	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
@@ -290,18 +292,15 @@ impl crate::Store for Store {
 		self.put_object_cache_entry_with_object(arg).await
 	}
 
-	async fn put_object_archive_queue_entry(
+	async fn put_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::put::Arg,
+		arg: crate::archive::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_object_archive_queue_entry(arg).await
+		self.put_archive_queue_entry(arg).await
 	}
 
-	async fn put_object_index_queue_fragment(
-		&self,
-		arg: crate::object::index::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_index_queue_fragment(arg).await
+	async fn put_index_queue_fragment(&self, arg: crate::index::queue::put::Arg) -> tg::Result<()> {
+		self.put_index_queue_fragment(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -339,13 +338,6 @@ impl crate::Store for Store {
 		self.try_get_log_length(arg).await
 	}
 
-	async fn try_get_indexer(
-		&self,
-		arg: crate::indexer::get::Arg,
-	) -> tg::Result<Option<crate::indexer::Indexer>> {
-		self.try_get_indexer(arg).await
-	}
-
 	async fn try_get_object(
 		&self,
 		arg: crate::object::get::Arg,
@@ -353,11 +345,11 @@ impl crate::Store for Store {
 		self.try_get_object(arg).await
 	}
 
-	async fn try_get_object_archive_queue_entry(
+	async fn try_get_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::get::Arg,
-	) -> tg::Result<Option<crate::object::archive::queue::Entry>> {
-		self.try_get_object_archive_queue_entry(arg).await
+		arg: crate::archive::queue::get::Arg,
+	) -> tg::Result<Option<crate::archive::queue::Entry>> {
+		self.try_get_archive_queue_entry(arg).await
 	}
 
 	async fn try_get_object_batch(
@@ -367,11 +359,11 @@ impl crate::Store for Store {
 		self.try_get_object_batch(arg).await
 	}
 
-	async fn try_get_object_index_queue_fragment(
+	async fn try_get_index_queue_fragment(
 		&self,
-		arg: crate::object::index::queue::get::Arg,
-	) -> tg::Result<Option<crate::object::index::queue::Fragment>> {
-		self.try_get_object_index_queue_fragment(arg).await
+		arg: crate::index::queue::get::Arg,
+	) -> tg::Result<Option<crate::index::queue::Fragment>> {
+		self.try_get_index_queue_fragment(arg).await
 	}
 
 	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
@@ -383,10 +375,6 @@ impl crate::Store for Store {
 		arg: crate::log::read::Arg,
 	) -> tg::Result<Vec<crate::log::read::Entry<'static>>> {
 		self.try_read_log(arg).await
-	}
-
-	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
-		self.update_indexer(arg).await
 	}
 }
 
@@ -433,6 +421,7 @@ mod tests {
 
 		// Get the object.
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -442,8 +431,27 @@ mod tests {
 			Some(Cow::Owned(bytes.to_vec()))
 		);
 
+		// Get the object without copying its bytes.
+		let arg = crate::object::get::Arg {
+			bytes: false,
+			id: id.clone(),
+			put: Some([1; 16]),
+		};
+		let object = store.try_get_object(arg).await.unwrap().object.unwrap();
+		assert!(object.bytes.is_none());
+		assert_eq!(object.put, [1; 16]);
+		let arg = crate::object::get::batch::Arg {
+			bytes: false,
+			ids: vec![id.clone()],
+		};
+		let objects = store.try_get_object_batch(arg).await.unwrap();
+		let object = objects[0].object.as_ref().unwrap();
+		assert!(object.bytes.is_none());
+		assert_eq!(object.put, [1; 16]);
+
 		// Get the object by its exact put.
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([0; 16]),
 		};
@@ -460,6 +468,7 @@ mod tests {
 		.unwrap();
 		assert!(!contains);
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([1; 16]),
 		};
@@ -511,6 +520,7 @@ mod tests {
 
 		// Verify object bytes do not exist (object may exist with bytes=None).
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -537,6 +547,7 @@ mod tests {
 
 		// Verify object now exists.
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -584,6 +595,7 @@ mod tests {
 
 		// Get the object using sync function.
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -643,6 +655,7 @@ mod tests {
 			.unwrap();
 
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -652,6 +665,7 @@ mod tests {
 			Some(Cow::Owned(bytes.to_vec()))
 		);
 		let arg = crate::object::get::Arg {
+			bytes: true,
 			id: other_id,
 			put: None,
 		};
@@ -697,6 +711,7 @@ mod tests {
 			.unwrap();
 		let object = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: None,
 			})
@@ -719,6 +734,7 @@ mod tests {
 			.unwrap();
 		let object = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: None,
 			})
@@ -742,6 +758,7 @@ mod tests {
 			.unwrap();
 		let object = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: other,
 				put: None,
 			})
@@ -755,6 +772,7 @@ mod tests {
 		let absent = tg::object::Id::new(tg::object::Kind::Blob, &Bytes::from_static(b"absent"));
 		let output = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: absent,
 				put: None,
 			})
@@ -808,6 +826,7 @@ mod tests {
 
 		let output = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: None,
 			})
@@ -826,6 +845,7 @@ mod tests {
 			.unwrap();
 		let output = store
 			.try_get_object(crate::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: None,
 			})
@@ -842,7 +862,11 @@ mod tests {
 			.unwrap();
 
 		let output = store
-			.try_get_object(crate::object::get::Arg { id, put: None })
+			.try_get_object(crate::object::get::Arg {
+				bytes: true,
+				id,
+				put: None,
+			})
 			.await
 			.unwrap();
 		assert!(output.object.is_none());

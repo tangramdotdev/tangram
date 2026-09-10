@@ -3,8 +3,7 @@ use {
 	std::sync::{Arc, RwLock},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_store as store,
-	tangram_store::Store as _,
+	tangram_index::{self as index, Index as _},
 };
 
 #[derive(Clone, Default)]
@@ -30,6 +29,9 @@ impl Server {
 		poll_interval: std::time::Duration,
 		stopper: Stopper,
 	) {
+		if self.config.advanced.single_process {
+			return;
+		}
 		let mut interval = tokio::time::interval(poll_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
@@ -44,8 +46,8 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn get_indexers(&self) -> tg::Result<Vec<store::indexer::Indexer>> {
-		self.store
+	pub(crate) async fn get_indexers(&self) -> tg::Result<Vec<index::indexer::Indexer>> {
+		self.index
 			.get_indexers()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the indexers"))
@@ -64,22 +66,20 @@ impl Server {
 
 	pub(crate) async fn select_indexer(
 		&self,
-		excluded: &std::collections::BTreeSet<tg::indexer::Id>,
+		index: u64,
+		refresh: bool,
 	) -> tg::Result<tg::indexer::Id> {
 		let mut indexers = self.indexers.available();
-		indexers.retain(|indexer| !excluded.contains(indexer));
-		if indexers.is_empty() {
+		if refresh || indexers.is_empty() {
 			self.refresh_indexer_cache().await?;
 			indexers = self.indexers.available();
-			indexers.retain(|indexer| !excluded.contains(indexer));
 		}
-		if indexers.is_empty() && !excluded.is_empty() {
-			indexers = self.indexers.available();
+		let len = u64::try_from(indexers.len()).unwrap();
+		if len == 0 {
+			return Err(tg::error!("no indexers are available"));
 		}
-		let index = (!indexers.is_empty()).then(|| rand::random_range(0..indexers.len()));
-		let indexer = index
-			.map(|index| indexers.swap_remove(index))
-			.ok_or_else(|| tg::error!("no indexers are available"))?;
+		let index = usize::try_from(index % len).unwrap();
+		let indexer = indexers.swap_remove(index);
 
 		Ok(indexer)
 	}

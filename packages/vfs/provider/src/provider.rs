@@ -1425,6 +1425,7 @@ impl Fast {
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<store::object::Object<'static>>> {
 		let arg = store::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};

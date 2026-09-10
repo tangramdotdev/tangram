@@ -5,7 +5,6 @@ mod capacity;
 mod delete;
 mod flush;
 mod get;
-mod indexer;
 mod log;
 mod put;
 mod queue;
@@ -59,7 +58,8 @@ struct Statements {
 	get_object: scylla::statement::prepared::PreparedStatement,
 	get_object_cache_entries: scylla::statement::prepared::PreparedStatement,
 	get_object_for_put: scylla::statement::prepared::PreparedStatement,
-	indexer: indexer::Statements,
+	get_object_info: scylla::statement::prepared::PreparedStatement,
+	get_object_info_for_put: scylla::statement::prepared::PreparedStatement,
 	log: log::Statements,
 	put_object: scylla::statement::prepared::PreparedStatement,
 	put_object_cache_entry: scylla::statement::prepared::PreparedStatement,
@@ -164,6 +164,24 @@ impl Store {
 		get_object_for_put.set_consistency(scylla::statement::Consistency::One);
 		get_object_for_put.set_is_idempotent(true);
 
+		let mut get_object_info = session
+			.prepare("select writetime(bytes), put from objects where id = ? limit 1;")
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the object info statement"))?;
+		get_object_info.set_consistency(scylla::statement::Consistency::One);
+		get_object_info.set_is_idempotent(true);
+		let mut get_object_info_for_put = session
+			.prepare("select writetime(bytes), put from objects where id = ? and put = ?;")
+			.await
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to prepare the object info for put statement"
+				)
+			})?;
+		get_object_info_for_put.set_consistency(scylla::statement::Consistency::One);
+		get_object_info_for_put.set_is_idempotent(true);
+
 		let statement = indoc!(
 			"
 				select put
@@ -245,13 +263,14 @@ impl Store {
 				&mut get_object,
 				&mut get_object_cache_entries,
 				&mut get_object_for_put,
+				&mut get_object_info,
+				&mut get_object_info_for_put,
 				&mut put_object,
 				&mut put_object_cache_entry,
 			] {
 				statement.set_execution_profile_handle(Some(handle.clone()));
 			}
 		}
-		let indexer = indexer::Statements::new(&session).await?;
 		let log = log::Statements::new(&session).await?;
 		let queue = queue::Statements::new(&session).await?;
 
@@ -270,7 +289,8 @@ impl Store {
 				get_object,
 				get_object_cache_entries,
 				get_object_for_put,
-				indexer,
+				get_object_info,
+				get_object_info_for_put,
 				log,
 				put_object,
 				put_object_cache_entry,
@@ -288,10 +308,6 @@ impl crate::Store for Store {
 		self.contains_object(arg).await
 	}
 
-	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(arg).await
-	}
-
 	async fn delete_object_cache_entry(
 		&self,
 		arg: crate::object::cache::delete::Arg,
@@ -299,11 +315,11 @@ impl crate::Store for Store {
 		self.delete_object_cache_entry(arg).await
 	}
 
-	async fn delete_object_archive_queue_entry(
+	async fn delete_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::delete::Arg,
+		arg: crate::archive::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_object_archive_queue_entry(arg).await
+		self.delete_archive_queue_entry(arg).await
 	}
 
 	async fn delete_log(&self, arg: crate::log::delete::Arg) -> tg::Result<()> {
@@ -318,11 +334,11 @@ impl crate::Store for Store {
 		self.delete_object_batch(args).await
 	}
 
-	async fn delete_object_index_queue_fragment(
+	async fn delete_index_queue_fragment(
 		&self,
-		arg: crate::object::index::queue::delete::Arg,
+		arg: crate::index::queue::delete::Arg,
 	) -> tg::Result<()> {
-		self.delete_object_index_queue_fragment(arg).await
+		self.delete_index_queue_fragment(arg).await
 	}
 
 	async fn get_object_cache_entries(
@@ -332,12 +348,18 @@ impl crate::Store for Store {
 		self.get_object_cache_entries(arg).await
 	}
 
-	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
-		self.get_indexers().await
+	async fn get_archive_queue_entries(
+		&self,
+		arg: crate::archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<crate::archive::queue::Entry>> {
+		self.get_archive_queue_entries(arg).await
 	}
 
-	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
-		self.put_indexer(arg).await
+	async fn get_index_queue_fragments(
+		&self,
+		arg: crate::index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<crate::index::queue::Fragment>> {
+		self.get_index_queue_fragments(arg).await
 	}
 
 	async fn put_object_cache_entry(&self, arg: crate::object::cache::put::Arg) -> tg::Result<()> {
@@ -351,18 +373,15 @@ impl crate::Store for Store {
 		self.put_object_cache_entry_with_object(arg).await
 	}
 
-	async fn put_object_archive_queue_entry(
+	async fn put_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::put::Arg,
+		arg: crate::archive::queue::put::Arg,
 	) -> tg::Result<()> {
-		self.put_object_archive_queue_entry(arg).await
+		self.put_archive_queue_entry(arg).await
 	}
 
-	async fn put_object_index_queue_fragment(
-		&self,
-		arg: crate::object::index::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_index_queue_fragment(arg).await
+	async fn put_index_queue_fragment(&self, arg: crate::index::queue::put::Arg) -> tg::Result<()> {
+		self.put_index_queue_fragment(arg).await
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -400,22 +419,15 @@ impl crate::Store for Store {
 		self.try_get_log_length_inner(arg).await
 	}
 
-	async fn try_get_indexer(
-		&self,
-		arg: crate::indexer::get::Arg,
-	) -> tg::Result<Option<crate::indexer::Indexer>> {
-		self.try_get_indexer(arg).await
-	}
-
 	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
 		self.try_get_object(arg).await
 	}
 
-	async fn try_get_object_archive_queue_entry(
+	async fn try_get_archive_queue_entry(
 		&self,
-		arg: crate::object::archive::queue::get::Arg,
-	) -> tg::Result<Option<crate::object::archive::queue::Entry>> {
-		self.try_get_object_archive_queue_entry(arg).await
+		arg: crate::archive::queue::get::Arg,
+	) -> tg::Result<Option<crate::archive::queue::Entry>> {
+		self.try_get_archive_queue_entry(arg).await
 	}
 
 	async fn try_get_object_batch(
@@ -425,11 +437,11 @@ impl crate::Store for Store {
 		self.try_get_object_batch(arg).await
 	}
 
-	async fn try_get_object_index_queue_fragment(
+	async fn try_get_index_queue_fragment(
 		&self,
-		arg: crate::object::index::queue::get::Arg,
-	) -> tg::Result<Option<crate::object::index::queue::Fragment>> {
-		self.try_get_object_index_queue_fragment(arg).await
+		arg: crate::index::queue::get::Arg,
+	) -> tg::Result<Option<crate::index::queue::Fragment>> {
+		self.try_get_index_queue_fragment(arg).await
 	}
 
 	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
@@ -441,10 +453,6 @@ impl crate::Store for Store {
 		arg: crate::log::read::Arg,
 	) -> tg::Result<Vec<crate::log::read::Entry<'static>>> {
 		self.try_read_log_inner(arg).await
-	}
-
-	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
-		self.update_indexer(arg).await
 	}
 }
 

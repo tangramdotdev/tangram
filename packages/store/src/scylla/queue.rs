@@ -1,12 +1,18 @@
 use {
-	super::Store, crate::object, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
+	super::Store,
+	crate::{archive, index},
+	indoc::indoc,
+	num::ToPrimitive as _,
+	tangram_client::prelude::*,
 };
 
 pub(super) struct Statements {
 	delete_archive: scylla::statement::prepared::PreparedStatement,
 	delete_index: scylla::statement::prepared::PreparedStatement,
 	get_archive: scylla::statement::prepared::PreparedStatement,
+	get_archive_batch: scylla::statement::prepared::PreparedStatement,
 	get_index: scylla::statement::prepared::PreparedStatement,
+	get_index_batch: scylla::statement::prepared::PreparedStatement,
 	put_archive: scylla::statement::prepared::PreparedStatement,
 	put_index: scylla::statement::prepared::PreparedStatement,
 }
@@ -15,12 +21,12 @@ impl Statements {
 	pub(super) async fn new(session: &scylla::client::session::Session) -> tg::Result<Self> {
 		let delete_archive = prepare(
 			session,
-			"delete from object_archive_queue where indexer = ? and sequence = ?;",
+			"delete from archive_queue where indexer = ? and sequence = ?;",
 		)
 		.await?;
 		let delete_index = prepare(
 			session,
-			"delete from object_index_queue where indexer = ? and sequence = ?;",
+			"delete from index_queue where indexer = ? and sequence = ?;",
 		)
 		.await?;
 		let get_archive = prepare(
@@ -28,8 +34,19 @@ impl Statements {
 			indoc!(
 				"
 					select object, put
-					from object_archive_queue
+					from archive_queue
 					where indexer = ? and sequence = ?;
+				"
+			),
+		)
+		.await?;
+		let get_archive_batch = prepare(
+			session,
+			indoc!(
+				"
+					select sequence, object, put
+					from archive_queue
+					where indexer = ? and sequence >= ? and sequence < ?;
 				"
 			),
 		)
@@ -39,8 +56,19 @@ impl Statements {
 			indoc!(
 				r#"
 					select "batch", fragment, fragments, payload
-					from object_index_queue
+					from index_queue
 					where indexer = ? and sequence = ?;
+				"#
+			),
+		)
+		.await?;
+		let get_index_batch = prepare(
+			session,
+			indoc!(
+				r#"
+					select sequence, "batch", fragment, fragments, payload
+					from index_queue
+					where indexer = ? and sequence >= ? and sequence < ?;
 				"#
 			),
 		)
@@ -49,7 +77,7 @@ impl Statements {
 			session,
 			indoc!(
 				"
-					insert into object_archive_queue (indexer, object, put, sequence)
+					insert into archive_queue (indexer, object, put, sequence)
 					values (?, ?, ?, ?);
 				"
 			),
@@ -59,7 +87,7 @@ impl Statements {
 			session,
 			indoc!(
 				r#"
-					insert into object_index_queue (
+					insert into index_queue (
 						"batch", fragment, fragments, indexer, payload, sequence
 					) values (?, ?, ?, ?, ?, ?);
 				"#
@@ -70,7 +98,9 @@ impl Statements {
 			delete_archive,
 			delete_index,
 			get_archive,
+			get_archive_batch,
 			get_index,
+			get_index_batch,
 			put_archive,
 			put_index,
 		};
@@ -80,9 +110,95 @@ impl Statements {
 }
 
 impl Store {
-	pub async fn delete_object_archive_queue_entry(
+	pub async fn get_archive_queue_entries(
 		&self,
-		arg: object::archive::queue::delete::Arg,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Entry>> {
+		let indexer = arg.indexer.to_bytes();
+		let sequence_end = sequence(arg.sequence_end)?;
+		let sequence_start = sequence(arg.sequence_start)?;
+		let result = self
+			.session
+			.execute_unpaged(
+				&self.statements.queue.get_archive_batch,
+				(indexer.as_ref(), sequence_start, sequence_end),
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get archive queue entries"))?
+			.into_rows_result()
+			.map_err(|error| tg::error!(!error, "failed to get the archive queue rows"))?;
+		let entries = result
+			.rows::<(i64, Vec<u8>, Vec<u8>)>()
+			.map_err(|error| tg::error!(!error, "failed to iterate the archive queue rows"))?
+			.map(|row| {
+				let (sequence, object, put) = row.map_err(|error| {
+					tg::error!(!error, "failed to deserialize an archive queue row")
+				})?;
+				let object = tg::object::Id::from_slice(&object)?;
+				let put = put
+					.try_into()
+					.map_err(|_| tg::error!("invalid archive queue put"))?;
+				let entry = archive::queue::Entry {
+					indexer: arg.indexer.clone(),
+					object,
+					put,
+					sequence: value(sequence)?,
+				};
+
+				Ok(entry)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(entries)
+	}
+
+	pub async fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<index::queue::Fragment>> {
+		let indexer = arg.indexer.to_bytes();
+		let sequence_end = sequence(arg.sequence_end)?;
+		let sequence_start = sequence(arg.sequence_start)?;
+		let result = self
+			.session
+			.execute_unpaged(
+				&self.statements.queue.get_index_batch,
+				(indexer.as_ref(), sequence_start, sequence_end),
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get index queue fragments"))?
+			.into_rows_result()
+			.map_err(|error| tg::error!(!error, "failed to get the index queue rows"))?;
+		let fragments = result
+			.rows::<(i64, Vec<u8>, i64, i64, Vec<u8>)>()
+			.map_err(|error| tg::error!(!error, "failed to iterate the index queue rows"))?
+			.map(|row| {
+				let (sequence, batch, fragment, fragments, payload) = row.map_err(|error| {
+					tg::error!(!error, "failed to deserialize an index queue row")
+				})?;
+				let batch = batch
+					.try_into()
+					.map(index::queue::batch::Id::new)
+					.map_err(|_| tg::error!("invalid index queue batch id"))?;
+				let fragment = index::queue::Fragment {
+					batch,
+					fragment: value(fragment)?,
+					fragments: value(fragments)?,
+					indexer: arg.indexer.clone(),
+					payload: payload.into(),
+					sequence: value(sequence)?,
+				};
+
+				Ok(fragment)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(fragments)
+	}
+
+	pub async fn delete_archive_queue_entry(
+		&self,
+		arg: archive::queue::delete::Arg,
 	) -> tg::Result<()> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
@@ -92,16 +208,14 @@ impl Store {
 				(indexer.as_ref(), sequence),
 			)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to delete an object archive queue entry")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to delete an archive queue entry"))?;
 
 		Ok(())
 	}
 
-	pub async fn delete_object_index_queue_fragment(
+	pub async fn delete_index_queue_fragment(
 		&self,
-		arg: object::index::queue::delete::Arg,
+		arg: index::queue::delete::Arg,
 	) -> tg::Result<()> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
@@ -111,17 +225,12 @@ impl Store {
 				(indexer.as_ref(), sequence),
 			)
 			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to delete an object index queue fragment")
-			})?;
+			.map_err(|error| tg::error!(!error, "failed to delete an index queue fragment"))?;
 
 		Ok(())
 	}
 
-	pub async fn put_object_archive_queue_entry(
-		&self,
-		arg: object::archive::queue::put::Arg,
-	) -> tg::Result<()> {
+	pub async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
 		let entry = arg.entry;
 		let indexer = entry.indexer.to_bytes();
 		let object = entry.object.to_bytes();
@@ -135,15 +244,12 @@ impl Store {
 		self.session
 			.execute_unpaged(&self.statements.queue.put_archive, params)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to put an object archive queue entry"))?;
+			.map_err(|error| tg::error!(!error, "failed to put an archive queue entry"))?;
 
 		Ok(())
 	}
 
-	pub async fn put_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::put::Arg,
-	) -> tg::Result<()> {
+	pub async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
 		let fragment = arg.fragment;
 		let batch = fragment.batch.value();
 		let fragment_index = sequence(fragment.fragment)?;
@@ -161,15 +267,15 @@ impl Store {
 		self.session
 			.execute_unpaged(&self.statements.queue.put_index, params)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to put an object index queue fragment"))?;
+			.map_err(|error| tg::error!(!error, "failed to put an index queue fragment"))?;
 
 		Ok(())
 	}
 
-	pub async fn try_get_object_archive_queue_entry(
+	pub async fn try_get_archive_queue_entry(
 		&self,
-		arg: object::archive::queue::get::Arg,
-	) -> tg::Result<Option<object::archive::queue::Entry>> {
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Entry>> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
 		let result = self
@@ -179,20 +285,18 @@ impl Store {
 				(indexer.as_ref(), sequence),
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get an object archive queue entry"))?
+			.map_err(|error| tg::error!(!error, "failed to get an archive queue entry"))?
 			.into_rows_result()
-			.map_err(|error| tg::error!(!error, "failed to get the object archive queue row"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the archive queue row"))?;
 		let entry = result
 			.maybe_first_row::<(Vec<u8>, Vec<u8>)>()
-			.map_err(|error| {
-				tg::error!(!error, "failed to deserialize the object archive queue row")
-			})?
+			.map_err(|error| tg::error!(!error, "failed to deserialize the archive queue row"))?
 			.map(|(object, put)| {
 				let object = tg::object::Id::from_slice(&object)?;
 				let put = put
 					.try_into()
-					.map_err(|_| tg::error!("invalid object archive queue put"))?;
-				let entry = object::archive::queue::Entry {
+					.map_err(|_| tg::error!("invalid archive queue put"))?;
+				let entry = archive::queue::Entry {
 					indexer: arg.indexer.clone(),
 					object,
 					put,
@@ -206,10 +310,10 @@ impl Store {
 		Ok(entry)
 	}
 
-	pub async fn try_get_object_index_queue_fragment(
+	pub async fn try_get_index_queue_fragment(
 		&self,
-		arg: object::index::queue::get::Arg,
-	) -> tg::Result<Option<object::index::queue::Fragment>> {
+		arg: index::queue::get::Arg,
+	) -> tg::Result<Option<index::queue::Fragment>> {
 		let indexer = arg.indexer.to_bytes();
 		let sequence = sequence(arg.sequence)?;
 		let result = self
@@ -219,20 +323,18 @@ impl Store {
 				(indexer.as_ref(), sequence),
 			)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get an object index queue fragment"))?
+			.map_err(|error| tg::error!(!error, "failed to get an index queue fragment"))?
 			.into_rows_result()
-			.map_err(|error| tg::error!(!error, "failed to get the object index queue row"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the index queue row"))?;
 		let fragment = result
 			.maybe_first_row::<(Vec<u8>, i64, i64, Vec<u8>)>()
-			.map_err(|error| {
-				tg::error!(!error, "failed to deserialize the object index queue row")
-			})?
+			.map_err(|error| tg::error!(!error, "failed to deserialize the index queue row"))?
 			.map(|(batch, fragment, fragments, payload)| {
 				let batch = batch
 					.try_into()
-					.map(object::index::queue::batch::Id::new)
-					.map_err(|_| tg::error!("invalid object index queue batch id"))?;
-				let fragment = object::index::queue::Fragment {
+					.map(index::queue::batch::Id::new)
+					.map_err(|_| tg::error!("invalid index queue batch id"))?;
+				let fragment = index::queue::Fragment {
 					batch,
 					fragment: value(fragment)?,
 					fragments: value(fragments)?,

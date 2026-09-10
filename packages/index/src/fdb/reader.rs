@@ -12,7 +12,7 @@ use {
 pub(super) struct Arg {
 	pub authorize_concurrency: usize,
 	pub database: Arc<fdb::Database>,
-	pub partition_total: u64,
+	pub partition_totals: crate::fdb::PartitionTotals,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
 	pub receiver: crate::read::Receiver,
@@ -24,7 +24,7 @@ impl Index {
 		let Arg {
 			authorize_concurrency,
 			database,
-			partition_total,
+			partition_totals,
 			read_request_batch_size,
 			read_transaction_concurrency,
 			receiver,
@@ -48,7 +48,7 @@ impl Index {
 			Self::execute_read_batch(
 				authorize_concurrency,
 				&database,
-				partition_total,
+				partition_totals,
 				&subspace,
 				requests,
 			)
@@ -75,7 +75,7 @@ impl Index {
 	async fn execute_read_batch(
 		authorize_concurrency: usize,
 		database: &fdb::Database,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 		subspace: &fdbt::Subspace,
 		requests: Vec<(crate::read::Request, crate::read::ResponseSender)>,
 	) {
@@ -115,7 +115,7 @@ impl Index {
 							let result = Self::execute_read_request(
 								authorization_fact_cache,
 								authorize_concurrency,
-								partition_total,
+								partition_totals,
 								transaction,
 								subspace,
 								&request,
@@ -190,7 +190,7 @@ impl Index {
 	async fn execute_read_request(
 		authorization_fact_cache: crate::authorize::facts::Cache<fdb::FdbError>,
 		authorize_concurrency: usize,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 		transaction: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &crate::read::Request,
@@ -234,6 +234,11 @@ impl Index {
 				.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::LogCompactionBatch(output)
+			},
+			crate::read::Request::GetIndexers => {
+				let result = Self::get_indexers_with_transaction(transaction, subspace).await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::GetIndexers(output)
 			},
 			crate::read::Request::TryGetProcessChildren {
 				id,
@@ -360,6 +365,12 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetIdsForSpecifiers(output)
 			},
+			crate::read::Request::TryGetIndexer(arg) => {
+				let result =
+					Self::try_get_indexer_with_transaction(transaction, subspace, arg).await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::TryGetIndexer(output)
+			},
 			crate::read::Request::TryGetObjectChildren { id } => {
 				let result =
 					Self::try_get_object_children_with_transaction(transaction, subspace, id).await;
@@ -376,7 +387,7 @@ impl Index {
 				let result = Self::try_get_oldest_log_compaction_transaction_id_with_transaction(
 					transaction,
 					subspace,
-					partition_total,
+					partition_totals.log_compaction,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -387,7 +398,7 @@ impl Index {
 					transaction,
 					subspace,
 					*kind,
-					partition_total,
+					partition_totals.update(*kind),
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);

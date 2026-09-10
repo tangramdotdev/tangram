@@ -80,7 +80,8 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		arg: &object::get::Arg,
 	) -> tg::Result<object::get::Output> {
-		let object = Self::try_get_object_inner_with_transaction(db, transaction, &arg.id)?;
+		let object =
+			Self::try_get_object_with_bytes_with_transaction(db, transaction, &arg.id, arg.bytes)?;
 		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
 		Ok(object::get::Output { object })
 	}
@@ -92,7 +93,8 @@ impl Store {
 	) -> tg::Result<Vec<object::get::Output>> {
 		let mut outputs = Vec::with_capacity(arg.ids.len());
 		for id in &arg.ids {
-			let object = Self::try_get_object_inner_with_transaction(db, transaction, id)?;
+			let object =
+				Self::try_get_object_with_bytes_with_transaction(db, transaction, id, arg.bytes)?;
 			outputs.push(object::get::Output { object });
 		}
 
@@ -104,6 +106,15 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<object::Object<'static>>> {
+		Self::try_get_object_with_bytes_with_transaction(db, transaction, id, true)
+	}
+
+	fn try_get_object_with_bytes_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+		include_bytes: bool,
+	) -> tg::Result<Option<object::Object<'static>>> {
 		let key = Key::Object(lmdb_object::Key::Object(id));
 		let key_bytes = key.pack_to_vec();
 		let Some(bytes) = db
@@ -112,7 +123,7 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let value = lmdb_object::Value::deserialize(bytes)
+		let value = lmdb_object::Value::deserialize_with_bytes(bytes, include_bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
 		Ok(Some(value.object))
 	}

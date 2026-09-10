@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
@@ -282,6 +282,7 @@ impl Session {
 		let task = Task::spawn(move |_| async move {
 			let result = session
 				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone())
+				.boxed()
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();

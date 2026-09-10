@@ -3,6 +3,7 @@ use {
 	futures::future,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
 };
 
@@ -12,9 +13,16 @@ impl Indexer {
 		config: &crate::config::IndexerUsageAggregation,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
-		let futures = partition::ranges(partition_start, partition_end, config.concurrency)
-			.map(|range| self.usage_aggregation_task_inner(config, range.start, range.end));
+		if partition_start == partition_end {
+			stopper.wait().await;
+			return Ok(());
+		}
+		let futures =
+			partition::ranges(partition_start, partition_end, config.concurrency).map(|range| {
+				self.usage_aggregation_task_inner(config, range.start, range.end, stopper)
+			});
 		future::try_join_all(futures).await?;
 
 		Ok(())
@@ -25,8 +33,12 @@ impl Indexer {
 		config: &crate::config::IndexerUsageAggregation,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			crate::checkpoint!(self.server, "indexer.usage.aggregation.batch").await;
 			let now = self.server.clock.now()?;
 			let arg = tangram_index::usage::aggregate::Arg {
@@ -47,7 +59,10 @@ impl Indexer {
 			})
 			.await?;
 			if output.count == 0 {
-				tokio::time::sleep(config.poll_interval).await;
+				tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					() = tokio::time::sleep(config.poll_interval) => {},
+				}
 			}
 		}
 	}
@@ -57,13 +72,15 @@ impl Indexer {
 		config: &crate::config::IndexerUsageExpiration,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let usage = self.server.config.usage;
 		let partition_total = self.server.index.usage_partition_total();
 		let partition_end = partition_end.min(partition_total);
 		let partition_start = partition_start.min(partition_total);
 		if partition_end <= partition_start {
-			return future::pending().await;
+			stopper.wait().await;
+			return Ok(());
 		}
 		let retry = tangram_futures::retry::Options {
 			backoff: config.poll_interval,
@@ -72,6 +89,9 @@ impl Indexer {
 			max_retries: u64::MAX,
 		};
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			let now = self.server.clock.now()?;
 			let arg = tangram_index::usage::expire::Arg {
 				batch_size: config.batch_size,
@@ -96,7 +116,10 @@ impl Indexer {
 			})
 			.await?;
 			if output.done {
-				tokio::time::sleep(config.poll_interval).await;
+				tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					() = tokio::time::sleep(config.poll_interval) => {},
+				}
 			}
 		}
 	}

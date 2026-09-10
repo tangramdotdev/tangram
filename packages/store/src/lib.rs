@@ -1,8 +1,9 @@
 #[cfg(feature = "lmdb")]
 mod read;
 
+pub mod archive;
 pub mod capacity;
-pub mod indexer;
+pub mod index;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod log;
@@ -23,19 +24,14 @@ pub trait Store {
 		arg: object::cache::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn delete_indexer(
+	fn delete_archive_queue_entry(
 		&self,
-		arg: indexer::delete::Arg,
+		arg: archive::queue::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn delete_object_archive_queue_entry(
+	fn delete_index_queue_fragment(
 		&self,
-		arg: object::archive::queue::delete::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn delete_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::delete::Arg,
+		arg: index::queue::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn delete_log(
@@ -58,28 +54,29 @@ pub trait Store {
 		arg: object::cache::get::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::cache::Entry>>> + Send;
 
-	fn get_indexers(
+	fn get_archive_queue_entries(
 		&self,
-	) -> impl std::future::Future<Output = tangram_client::Result<Vec<indexer::Indexer>>> + Send;
+		arg: archive::queue::get::batch::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<archive::queue::Entry>>> + Send;
+
+	fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<index::queue::Fragment>>> + Send;
 
 	fn put_object_cache_entry(
 		&self,
 		arg: object::cache::put::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn put_indexer(
+	fn put_archive_queue_entry(
 		&self,
-		arg: indexer::put::Arg,
+		arg: archive::queue::put::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn put_object_archive_queue_entry(
+	fn put_index_queue_fragment(
 		&self,
-		arg: object::archive::queue::put::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn put_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::put::Arg,
+		arg: index::queue::put::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn put_object_cache_entry_with_object(
@@ -126,24 +123,15 @@ pub trait Store {
 		arg: log::length::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Option<u64>>> + Send;
 
-	fn try_get_indexer(
+	fn try_get_archive_queue_entry(
 		&self,
-		arg: indexer::get::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<Option<indexer::Indexer>>> + Send;
+		arg: archive::queue::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Option<archive::queue::Entry>>> + Send;
 
-	fn try_get_object_archive_queue_entry(
+	fn try_get_index_queue_fragment(
 		&self,
-		arg: object::archive::queue::get::Arg,
-	) -> impl std::future::Future<
-		Output = tangram_client::Result<Option<object::archive::queue::Entry>>,
-	> + Send;
-
-	fn try_get_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::get::Arg,
-	) -> impl std::future::Future<
-		Output = tangram_client::Result<Option<object::index::queue::Fragment>>,
-	> + Send;
+		arg: index::queue::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Option<index::queue::Fragment>>> + Send;
 
 	fn try_get_object(
 		&self,
@@ -163,9 +151,4 @@ pub trait Store {
 		&self,
 		arg: log::read::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Vec<log::read::Entry<'static>>>> + Send;
-
-	fn update_indexer(
-		&self,
-		arg: indexer::update::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 }

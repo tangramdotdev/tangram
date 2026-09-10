@@ -42,9 +42,8 @@ pub(super) struct TransactionArg<'a> {
 	pub now: i64,
 	pub partition_end: u64,
 	pub partition_start: u64,
-	pub partition_total: u64,
+	pub partition_totals: crate::fdb::PartitionTotals,
 	pub subspace: &'a Subspace,
-	pub usage_partition_total: u64,
 	pub txn: &'a crate::fdb::Transaction,
 }
 
@@ -86,11 +85,11 @@ impl Index {
 			now,
 			partition_end,
 			partition_start,
-			partition_total,
+			partition_totals,
 			subspace,
-			usage_partition_total,
 			txn,
 		} = arg;
+		let partition_total = partition_totals.cleaning;
 		let grants = crate::fdb::propagate!(
 			Self::delete_expired_grants(
 				txn,
@@ -99,7 +98,7 @@ impl Index {
 				batch_size,
 				partition_start,
 				partition_end,
-				partition_total,
+				partition_totals,
 			)
 			.await
 		);
@@ -226,8 +225,7 @@ impl Index {
 							now,
 							candidate.partition,
 							candidate.touched_at,
-							partition_total,
-							usage_partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -243,8 +241,7 @@ impl Index {
 							now,
 							candidate.partition,
 							candidate.touched_at,
-							partition_total,
-							usage_partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -328,7 +325,7 @@ impl Index {
 				remaining_batch_size,
 				partition_start,
 				partition_end,
-				partition_total,
+				partition_totals,
 			)
 			.await
 		);
@@ -344,8 +341,9 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
 		let mut args = Vec::new();
 		for partition in partition_start..partition_end {
@@ -411,7 +409,7 @@ impl Index {
 					&arg.resource,
 					&arg.subject,
 					permission,
-					partition_total,
+					partition_totals.grant_update,
 				);
 			}
 		}

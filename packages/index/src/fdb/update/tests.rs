@@ -24,24 +24,43 @@ async fn late_updates_preserve_the_oldest_version() {
 }
 
 async fn run(test: impl AsyncFnOnce(&Index)) {
+	let partition_totals = crate::fdb::PartitionTotals {
+		cleaning: 2,
+		grant_update: 2,
+		log_compaction: 2,
+		node_update: 2,
+		storage_update: 2,
+		usage: 1,
+	};
+	run_with_partition_totals(partition_totals, test).await;
+}
+
+async fn run_with_partition_totals(
+	partition_totals: crate::fdb::PartitionTotals,
+	test: impl AsyncFnOnce(&Index),
+) {
 	NETWORK.get_or_init(|| {
 		// SAFETY: The network is initialized once and outlives every test database and runtime.
 		unsafe { fdb::boot() }
 	});
 	let options = crate::fdb::Options {
 		authorize: crate::fdb::AuthorizeConfig { concurrency: 1 },
+		cleaning_partition_total: partition_totals.cleaning,
 		cluster: std::env::var_os("FDB_CLUSTER_FILE")
 			.expect("set FDB_CLUSTER_FILE")
 			.into(),
+		grant_update_partition_total: partition_totals.grant_update,
 		instance: Some(format!(
 			"index_update_test_{:032x}/",
 			rand::random::<u128>()
 		)),
+		log_compaction_partition_total: partition_totals.log_compaction,
 		max_process_depth: None,
-		partition_total: 2,
+		node_update_partition_total: partition_totals.node_update,
 		read_request_batch_size: 1,
 		read_transaction_concurrency: 1,
-		usage_partition_total: 1,
+		storage_update_partition_total: partition_totals.storage_update,
+		usage_partition_total: partition_totals.usage,
 		write_operation_batch_size: 1024,
 		write_transaction_concurrency: 1,
 	};

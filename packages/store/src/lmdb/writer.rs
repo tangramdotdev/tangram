@@ -179,30 +179,29 @@ impl Store {
 
 	fn split_request(request: Request, write_batch_size: usize) -> Vec<(Request, usize)> {
 		match request {
-			Request::DeleteIndexer(arg) => vec![(Request::DeleteIndexer(arg), 1)],
+			Request::DeleteArchiveQueueEntry(arg) => {
+				vec![(Request::DeleteArchiveQueueEntry(arg), 1)]
+			},
+			Request::DeleteIndexQueueFragment(arg) => {
+				vec![(Request::DeleteIndexQueueFragment(arg), 1)]
+			},
 			Request::DeleteLog(arg) => vec![(Request::DeleteLog(arg), 1)],
 			Request::DeleteObject(request) => vec![(Request::DeleteObject(request), 1)],
-			Request::DeleteObjectArchiveQueueEntry(arg) => {
-				vec![(Request::DeleteObjectArchiveQueueEntry(arg), 1)]
-			},
 			Request::DeleteObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::DeleteObjectBatch)
 			},
 			Request::DeleteObjectCacheEntry(arg) => {
 				vec![(Request::DeleteObjectCacheEntry(arg), 1)]
 			},
-			Request::DeleteObjectIndexQueueFragment(arg) => {
-				vec![(Request::DeleteObjectIndexQueueFragment(arg), 1)]
+			Request::PutArchiveQueueEntry(arg) => vec![(Request::PutArchiveQueueEntry(arg), 1)],
+			Request::PutIndexQueueFragment(arg) => {
+				vec![(Request::PutIndexQueueFragment(arg), 1)]
 			},
 			Request::PutLogBatch(args) => {
 				Self::split_items(args, write_batch_size, Request::PutLogBatch)
 			},
-			Request::PutIndexer(arg) => vec![(Request::PutIndexer(arg), 1)],
 			Request::PutLogEnd(arg) => vec![(Request::PutLogEnd(arg), 1)],
 			Request::PutObject(request) => vec![(Request::PutObject(request), 1)],
-			Request::PutObjectArchiveQueueEntry(arg) => {
-				vec![(Request::PutObjectArchiveQueueEntry(arg), 1)]
-			},
 			Request::PutObjectBatch(requests) => {
 				Self::split_items(requests, write_batch_size, Request::PutObjectBatch)
 			},
@@ -210,10 +209,6 @@ impl Store {
 			Request::PutObjectCacheEntryWithObject(arg) => {
 				vec![(Request::PutObjectCacheEntryWithObject(arg), 1)]
 			},
-			Request::PutObjectIndexQueueFragment(arg) => {
-				vec![(Request::PutObjectIndexQueueFragment(arg), 1)]
-			},
-			Request::UpdateIndexer(arg) => vec![(Request::UpdateIndexer(arg), 1)],
 		}
 	}
 
@@ -245,15 +240,15 @@ impl Store {
 		request: Request,
 	) -> tg::Result<()> {
 		match request {
-			Request::DeleteIndexer(arg) => {
-				Self::delete_indexer_with_transaction(db, transaction, &arg)
+			Request::DeleteArchiveQueueEntry(arg) => {
+				Self::delete_archive_queue_entry_with_transaction(db, transaction, &arg)
+			},
+			Request::DeleteIndexQueueFragment(arg) => {
+				Self::delete_index_queue_fragment_with_transaction(db, transaction, &arg)
 			},
 			Request::DeleteLog(arg) => Self::delete_log_with_transaction(db, transaction, &arg),
 			Request::DeleteObject(request) => {
 				Self::delete_inner_with_transaction(db, transaction, request)
-			},
-			Request::DeleteObjectArchiveQueueEntry(arg) => {
-				Self::delete_object_archive_queue_entry_with_transaction(db, transaction, &arg)
 			},
 			Request::DeleteObjectBatch(requests) => requests.into_iter().try_for_each(|request| {
 				Self::delete_inner_with_transaction(db, transaction, request)
@@ -261,19 +256,18 @@ impl Store {
 			Request::DeleteObjectCacheEntry(arg) => {
 				Self::delete_object_cache_entry_with_transaction(db, transaction, arg)
 			},
-			Request::DeleteObjectIndexQueueFragment(arg) => {
-				Self::delete_object_index_queue_fragment_with_transaction(db, transaction, &arg)
+			Request::PutArchiveQueueEntry(arg) => {
+				Self::put_archive_queue_entry_with_transaction(db, transaction, arg)
+			},
+			Request::PutIndexQueueFragment(arg) => {
+				Self::put_index_queue_fragment_with_transaction(db, transaction, arg)
 			},
 			Request::PutLogBatch(args) => args
 				.iter()
 				.try_for_each(|arg| Self::put_log_with_transaction(db, transaction, arg)),
-			Request::PutIndexer(arg) => Self::put_indexer_with_transaction(db, transaction, arg),
 			Request::PutLogEnd(arg) => Self::put_log_end_with_transaction(db, transaction, &arg),
 			Request::PutObject(request) => {
 				Self::put_inner_with_transaction(db, transaction, request)
-			},
-			Request::PutObjectArchiveQueueEntry(arg) => {
-				Self::put_object_archive_queue_entry_with_transaction(db, transaction, arg)
 			},
 			Request::PutObjectBatch(requests) => requests
 				.into_iter()
@@ -283,12 +277,6 @@ impl Store {
 			},
 			Request::PutObjectCacheEntryWithObject(arg) => {
 				Self::put_object_cache_entry_with_object_with_transaction(db, transaction, arg)
-			},
-			Request::PutObjectIndexQueueFragment(arg) => {
-				Self::put_object_index_queue_fragment_with_transaction(db, transaction, arg)
-			},
-			Request::UpdateIndexer(arg) => {
-				Self::update_indexer_with_transaction(db, transaction, &arg)
 			},
 		}
 	}

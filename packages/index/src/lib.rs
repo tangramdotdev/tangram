@@ -11,6 +11,7 @@ pub mod checkout;
 pub mod clean;
 pub mod grant;
 pub mod group;
+pub mod indexer;
 pub mod log;
 pub mod object;
 pub mod organization;
@@ -64,6 +65,29 @@ pub trait Index {
 	}
 
 	fn contains_ids(&self, ids: &[tg::Id]) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
+
+	fn delete_indexer(
+		&self,
+		arg: crate::indexer::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_indexers(&self)
+	-> impl Future<Output = tg::Result<Vec<crate::indexer::Indexer>>> + Send;
+
+	fn put_indexer(
+		&self,
+		arg: crate::indexer::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_indexer(
+		&self,
+		arg: crate::indexer::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<crate::indexer::Indexer>>> + Send;
+
+	fn update_indexer(
+		&self,
+		arg: crate::indexer::update::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn expire_usage(
 		&self,
@@ -511,7 +535,21 @@ pub trait Index {
 
 	fn sync(&self) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn partition_total(&self) -> u64;
+	#[must_use]
+	fn cleaning_partition_total(&self) -> u64;
 
+	#[must_use]
+	fn grant_update_partition_total(&self) -> u64;
+
+	#[must_use]
+	fn log_compaction_partition_total(&self) -> u64;
+
+	#[must_use]
+	fn node_update_partition_total(&self) -> u64;
+
+	#[must_use]
+	fn storage_update_partition_total(&self) -> u64;
+
+	#[must_use]
 	fn usage_partition_total(&self) -> u64;
 }

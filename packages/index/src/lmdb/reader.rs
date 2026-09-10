@@ -148,6 +148,10 @@ impl Index {
 			crate::read::Request::FdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected FDB read request"));
 			},
+			crate::read::Request::GetIndexers => {
+				let output = Self::get_indexers_with_transaction(db, subspace, transaction)?;
+				crate::read::Response::GetIndexers(output)
+			},
 			crate::read::Request::TryGetProcessChildren {
 				id,
 				length,
@@ -277,6 +281,11 @@ impl Index {
 					&specifiers,
 				)?;
 				crate::read::Response::TryGetIdsForSpecifiers(output)
+			},
+			crate::read::Request::TryGetIndexer(arg) => {
+				let output =
+					Self::try_get_indexer_with_transaction(db, subspace, transaction, &arg)?;
+				crate::read::Response::TryGetIndexer(output)
 			},
 			crate::read::Request::TryGetObjectChildren { id } => {
 				let output =

@@ -375,6 +375,7 @@ impl Session {
 			.map(|(id, _)| id.clone().into())
 			.collect::<Vec<_>>();
 		let arg = tangram_store::object::get::batch::Arg {
+			bytes: true,
 			ids: object_ids.clone(),
 		};
 		let objects_future = async {

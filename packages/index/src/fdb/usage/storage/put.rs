@@ -295,11 +295,12 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::storage::put::ObjectArg,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let cleaning_partition_total = partition_totals.cleaning;
+		let usage_partition_total = partition_totals.usage;
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: arg.account.clone(),
 			object: arg.object.clone(),
@@ -312,7 +313,7 @@ impl Index {
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
-				Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
+				Self::put_account_object_clean_key(txn, subspace, arg, cleaning_partition_total);
 			}
 			if let Some(version) = version {
 				crate::fdb::propagate!(
@@ -322,7 +323,7 @@ impl Index {
 						&tg::Either::Left(arg.object.clone()),
 						&arg.account,
 						arg.touched_at,
-						partition_total,
+						partition_totals.storage_update,
 						Some(version)
 					)
 					.await
@@ -350,7 +351,7 @@ impl Index {
 		});
 		let reverse_key = Self::pack(subspace, &reverse_key);
 		txn.set(&reverse_key, &[]);
-		Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
+		Self::put_account_object_clean_key(txn, subspace, arg, cleaning_partition_total);
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
 		Self::add_usage_delta(
@@ -381,7 +382,7 @@ impl Index {
 				&tg::Either::Left(arg.object.clone()),
 				&arg.account,
 				arg.touched_at,
-				partition_total,
+				partition_totals.storage_update,
 				version
 			)
 			.await
@@ -394,11 +395,12 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::usage::storage::put::ProcessArg,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 		touch_existing: bool,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
+		let cleaning_partition_total = partition_totals.cleaning;
+		let usage_partition_total = partition_totals.usage;
 		let entry_key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: arg.account.clone(),
 			process: arg.process.clone(),
@@ -411,7 +413,7 @@ impl Index {
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
-				Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+				Self::put_account_process_clean_key(txn, subspace, arg, cleaning_partition_total);
 			}
 			if let Some(version) = version {
 				crate::fdb::propagate!(
@@ -421,7 +423,7 @@ impl Index {
 						&tg::Either::Right(arg.process.clone()),
 						&arg.account,
 						arg.touched_at,
-						partition_total,
+						partition_totals.storage_update,
 						Some(version)
 					)
 					.await
@@ -449,7 +451,7 @@ impl Index {
 		});
 		let reverse_key = Self::pack(subspace, &reverse_key);
 		txn.set(&reverse_key, &[]);
-		Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+		Self::put_account_process_clean_key(txn, subspace, arg, cleaning_partition_total);
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
 		Self::add_usage_delta(
@@ -469,7 +471,7 @@ impl Index {
 				&tg::Either::Right(arg.process.clone()),
 				&arg.account,
 				arg.touched_at,
-				partition_total,
+				partition_totals.storage_update,
 				version
 			)
 			.await

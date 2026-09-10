@@ -3,9 +3,7 @@ use ../../test.nu *
 # A server that is killed while a process is running must be able to start again. It currently hangs before it signals readiness, so the server directory is unusable until the index is deleted.
 
 print -e 'spawning the server'
-let server = server spawn --config {
-	indexer: { id: 'idx_0000000000000000000000000000' },
-}
+let server = server spawn
 
 let path = artifact {
 	tangram.ts: '
@@ -40,3 +38,5 @@ print -e 'the server started again'
 let output = tg health | complete
 success $output "the server must be usable after being killed"
 print -e 'the server is healthy'
+let output = tg index | complete
+success $output "awaiting indexing must work after restarting without an indexer ID"

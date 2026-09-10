@@ -1,34 +1,53 @@
 use {
-	super::Indexer, futures::StreamExt as _, tangram_client::prelude::*, tangram_store::Store as _,
+	super::Indexer, futures::StreamExt as _, std::collections::BTreeSet,
+	tangram_client::prelude::*, tangram_store::Store as _,
 };
 
 mod cache;
 
 impl Indexer {
-	pub(super) async fn wait_for_object_put(
+	pub(super) async fn wait_for_object_put_batch(
 		&self,
 		retry: &crate::config::Retry,
-		id: &tg::object::Id,
-		put: [u8; 16],
-	) -> tg::Result<bool> {
+		mut missing: BTreeSet<(tg::object::Id, [u8; 16])>,
+	) -> tg::Result<BTreeSet<(tg::object::Id, [u8; 16])>> {
 		// A queue entry can become visible before its concurrent object put completes.
 		let options = retry.clone().into();
 		let attempts = tangram_futures::retry::stream(options);
 		futures::pin_mut!(attempts);
 		while attempts.next().await.is_some() {
-			let arg = crate::store::object::get::Arg {
-				id: id.clone(),
-				put: None,
+			if missing.is_empty() {
+				break;
+			}
+			let arg = crate::store::object::get::batch::Arg {
+				bytes: false,
+				ids: missing.iter().map(|(id, _)| id.clone()).collect(),
 			};
-			let output = self.server.store.try_get_object(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get an object from the store"),
-			)?;
-			if output.object.is_some_and(|object| object.put >= put) {
-				return Ok(true);
+			let outputs = self
+				.server
+				.store
+				.try_get_object_batch(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the objects from the store"))?;
+			if outputs.len() != missing.len() {
+				return Err(tg::error!("unexpected object get batch length"));
+			}
+			missing = missing
+				.into_iter()
+				.zip(outputs)
+				.filter_map(|((id, put), output)| {
+					output
+						.object
+						.is_none_or(|object| object.put < put)
+						.then_some((id, put))
+				})
+				.collect();
+			if missing.is_empty() {
+				break;
 			}
 		}
 
-		Ok(false)
+		Ok(missing)
 	}
 
 	pub(super) async fn try_wait_for_object_put(
@@ -43,6 +62,7 @@ impl Indexer {
 		futures::pin_mut!(attempts);
 		while attempts.next().await.is_some() {
 			let arg = crate::store::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: Some(put),
 			};

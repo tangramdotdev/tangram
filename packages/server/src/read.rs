@@ -253,6 +253,7 @@ impl Reader {
 			.is_some_and(|permissions| permissions.contains(permission));
 		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
 			let arg = crate::store::object::get::Arg {
+				bytes: true,
 				id: id.clone().into(),
 				put: None,
 			};
@@ -294,6 +295,7 @@ impl Reader {
 	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
 		let arg = crate::store::object::get::Arg {
+			bytes: true,
 			id: id.clone().into(),
 			put: None,
 		};

@@ -1,8 +1,8 @@
 use {
 	crate::{Server, Session},
-	futures::{FutureExt as _, future},
+	futures::{FutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow, sync::Arc},
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -353,6 +353,9 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
 		}
+		if self.config.advanced.single_process {
+			return self.put_object_batch_inner(vec![arg]).await;
+		}
 
 		let archive = self.enqueue_object_archive(arg.id.clone(), arg.put);
 		let object_put = self.store.put_object(arg);
@@ -431,6 +434,15 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"));
 		}
+		if self.config.advanced.single_process {
+			let archive_args = Self::object_archive_args(&args);
+			self.store
+				.put_object_batch(args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			self.archive_object_batch_task(archive_args);
+			return Ok(());
+		}
 
 		let entries = args
 			.iter()
@@ -450,21 +462,70 @@ impl Server {
 		Ok(())
 	}
 
+	pub(crate) async fn put_object_batch_local(
+		&self,
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		let future = self.put_object_batch_local_inner(args);
+		tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out storing and archiving the objects"))??;
+		Ok(())
+	}
+
+	async fn put_object_batch_local_inner(
+		&self,
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		let archive_args = if self.archive.is_some() {
+			Self::object_archive_args(&args)
+		} else {
+			Vec::new()
+		};
+		self.store
+			.put_object_batch(args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		stream::iter(archive_args.into_iter().map(Ok))
+			.try_for_each_concurrent(self.config.object.archive_queue.concurrency, |arg| {
+				self.archive_object(arg)
+			})
+			.await?;
+
+		Ok(())
+	}
+
+	fn object_archive_args(
+		args: &[crate::store::object::put::Arg],
+	) -> Vec<tangram_archive::object::put::Arg> {
+		args.iter()
+			.filter_map(|arg| {
+				arg.bytes
+					.as_ref()
+					.map(|bytes| tangram_archive::object::put::Arg {
+						bytes: bytes.clone(),
+						id: arg.id.clone(),
+						put: arg.put,
+					})
+			})
+			.collect()
+	}
+
 	async fn enqueue_object_archive(
 		&self,
 		object: tg::object::Id,
 		put: [u8; 16],
 	) -> tg::Result<()> {
-		let excluded = Arc::new(tokio::sync::Mutex::new(BTreeSet::new()));
-		let mut retry =
-			tangram_futures::retry::Options::from(self.config.indexer.request.retry.clone());
-		retry.max_retries = u64::MAX;
+		let start = rand::random::<u64>();
+		let mut attempt = 0u64;
+		let retry = tangram_futures::retry::Options::from(self.config.indexer.batch.retry.clone());
 		tangram_futures::retry(&retry, || {
-			let excluded = excluded.clone();
+			let index = start.wrapping_add(attempt);
+			let refresh = attempt > 0;
+			attempt = attempt.wrapping_add(1);
 			let object = object.clone();
 			async move {
-				let excluded_indexers = excluded.lock().await.clone();
-				let indexer = match self.select_indexer(&excluded_indexers).await {
+				let indexer = match self.select_indexer(index, refresh).await {
 					Ok(indexer) => indexer,
 					Err(error) => return Ok(ControlFlow::Continue(error)),
 				};
@@ -473,11 +534,7 @@ impl Server {
 					.await;
 				match result {
 					Ok(()) => Ok(ControlFlow::Break(())),
-					Err(error) => {
-						excluded.lock().await.insert(indexer);
-
-						Ok(ControlFlow::Continue(error))
-					},
+					Err(error) => Ok(ControlFlow::Continue(error)),
 				}
 			}
 		})
@@ -494,8 +551,8 @@ impl Server {
 	) -> tg::Result<()> {
 		let arg =
 			crate::indexer::RequestArg::Archive(crate::indexer::ArchiveRequestArg { object, put });
-		let request = self.send_indexer_request(indexer, arg);
-		let output = tokio::time::timeout(self.config.indexer.request.timeout, request)
+		let request = self.send_indexer_request(Some(indexer), arg);
+		let output = tokio::time::timeout(self.config.indexer.batch.timeout, request)
 			.await
 			.map_err(|source| tg::error!(!source, "timed out enqueueing an object for archiving"))?
 			.map_err(|source| tg::error!(!source, "failed to send an archive request"))?

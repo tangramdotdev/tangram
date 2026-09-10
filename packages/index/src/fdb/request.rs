@@ -17,6 +17,7 @@ pub(super) enum Request {
 	DeleteGrants(Vec<crate::grant::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
 	DeleteGroups(Vec<tg::group::Id>),
+	DeleteIndexer(crate::indexer::delete::Arg),
 	DeleteOrganizationMembers(Vec<crate::organization::member::delete::Arg>),
 	DeleteOrganizations(Vec<tg::organization::Id>),
 	DeleteSandboxes(Vec<tg::sandbox::Id>),
@@ -32,6 +33,7 @@ pub(super) enum Request {
 	PutGrants(Vec<crate::grant::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
 	PutGroups(Vec<crate::group::put::Arg>),
+	PutIndexer(crate::indexer::put::Arg),
 	PutObjects(Vec<crate::object::put::Arg>),
 	PutOrganizationMembers(Vec<crate::organization::member::put::Arg>),
 	PutOrganizations(Vec<crate::organization::put::Arg>),
@@ -43,6 +45,7 @@ pub(super) enum Request {
 	TouchObjects(TouchObjects),
 	TouchProcesses(TouchProcesses),
 	Update(Update),
+	UpdateIndexer(crate::indexer::update::Arg),
 }
 
 #[derive(Clone)]
@@ -202,16 +205,19 @@ impl Request {
 			Self::DeleteGrants(_)
 			| Self::DeleteGroupMembers(_)
 			| Self::DeleteGroups(_)
+			| Self::DeleteIndexer(_)
 			| Self::DeleteOrganizationMembers(_)
 			| Self::DeleteOrganizations(_)
 			| Self::DeleteSandboxes(_)
 			| Self::DeleteTags(_)
 			| Self::DeleteUsers(_)
 			| Self::GetUsage { .. }
+			| Self::PutIndexer(_)
 			| Self::PutTags(_)
 			| Self::TouchCheckouts(_)
 			| Self::TouchObjects(_)
-			| Self::TouchProcesses(_) => Priority::High,
+			| Self::TouchProcesses(_)
+			| Self::UpdateIndexer(_) => Priority::High,
 		}
 	}
 }

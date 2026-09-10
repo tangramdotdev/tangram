@@ -709,19 +709,31 @@ pub struct FdbIndex {
 	pub authorize: Option<FdbIndexAuthorize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cleaning_partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cluster: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub grant_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub instance: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partition_total: Option<u64>,
+	pub log_compaction_partition_total: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub node_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_transaction_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub storage_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
@@ -776,7 +788,7 @@ pub struct Indexer {
 	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub partitions: Option<IndexerPartitions>,
+	pub object_cache_partitions: Option<IndexerPartitions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request: Option<IndexerRequest>,
@@ -786,6 +798,9 @@ pub struct Indexer {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage: Option<IndexerUsage>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub usage_partitions: Option<IndexerPartitions>,
 }
 
 #[serde_as]
@@ -822,6 +837,9 @@ pub struct IndexerCleaning {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partitions: Option<IndexerPartitions>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
@@ -841,9 +859,22 @@ pub struct IndexerPartitions {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerRequest {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub archive_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index_concurrency: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub response_ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
@@ -851,6 +882,9 @@ pub struct IndexerRequest {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub wait_concurrency: Option<usize>,
 }
 
 #[serde_as]
@@ -862,6 +896,9 @@ pub struct IndexerLogCompaction {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partitions: Option<IndexerPartitions>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -929,6 +966,9 @@ pub struct IndexerUpdate {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub partitions: Option<IndexerPartitions>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -961,7 +1001,7 @@ pub struct NatsMessenger {
 #[serde(deny_unknown_fields)]
 pub struct Object {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub archive_queue: Option<ObjectArchiveQueue>,
+	pub archive_queue: Option<ArchiveQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cache: Option<ObjectCache>,
@@ -975,7 +1015,7 @@ pub struct Object {
 	pub grant_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_queue: Option<ObjectIndexQueue>,
+	pub index_queue: Option<IndexQueue>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1019,7 +1059,10 @@ pub struct ObjectCache {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectArchiveQueue {
+pub struct ArchiveQueue {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
 
@@ -1030,11 +1073,15 @@ pub struct ObjectArchiveQueue {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectIndexQueue {
+pub struct IndexQueue {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_timeout: Option<Duration>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	/// The maximum number of encoded bytes in each index queue fragment.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub fragment_size: Option<usize>,
 
@@ -1414,6 +1461,9 @@ pub struct Scheduler {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_create_sandbox_requests_per_runner: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_concurrency: Option<usize>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2266,7 +2316,7 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 		target.sandbox = resolve_sandbox(source)?;
 	}
 	if let Some(source) = source.scheduler {
-		target.scheduler = resolve_scheduler(source);
+		target.scheduler = resolve_scheduler(&source);
 	}
 	if let Some(source) = source.store {
 		target.store = resolve_store(source)?;
@@ -2848,20 +2898,32 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(source) = &source.authorize {
 		target.authorize = resolve_fdb_index_authorize(source);
 	}
+	if let Some(value) = source.cleaning_partition_total {
+		target.cleaning_partition_total = value;
+	}
 	if let Some(value) = source.cluster {
 		target.cluster = value;
+	}
+	if let Some(value) = source.grant_update_partition_total {
+		target.grant_update_partition_total = value;
 	}
 	if let Some(value) = source.instance {
 		target.instance = Some(value);
 	}
-	if let Some(value) = source.partition_total {
-		target.partition_total = value;
+	if let Some(value) = source.log_compaction_partition_total {
+		target.log_compaction_partition_total = value;
+	}
+	if let Some(value) = source.node_update_partition_total {
+		target.node_update_partition_total = value;
 	}
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;
 	}
 	if let Some(value) = source.read_transaction_concurrency {
 		target.read_transaction_concurrency = value;
+	}
+	if let Some(value) = source.storage_update_partition_total {
+		target.storage_update_partition_total = value;
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
@@ -2916,14 +2978,14 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.cleaning {
 		target.cleaning = resolve_indexer_cleaning(source);
 	}
-	if let Some(source) = source.log_compaction {
-		target.log_compaction = resolve_indexer_log_compaction(source);
-	}
 	if let Some(id) = &source.id {
 		target.id = Some(id.clone());
 	}
-	if let Some(source) = source.partitions {
-		target.partitions = resolve_indexer_partitions(source);
+	if let Some(source) = source.log_compaction {
+		target.log_compaction = resolve_indexer_log_compaction(source);
+	}
+	if let Some(source) = source.object_cache_partitions {
+		target.object_cache_partitions = resolve_indexer_partitions(source);
 	}
 	if let Some(source) = source.request {
 		target.request = resolve_indexer_request(source);
@@ -2933,6 +2995,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	}
 	if let Some(source) = source.usage {
 		target.usage = resolve_indexer_usage(source);
+	}
+	if let Some(source) = source.usage_partitions {
+		target.usage_partitions = resolve_indexer_partitions(source);
 	}
 
 	target
@@ -2976,6 +3041,9 @@ fn resolve_indexer_cleaning(source: BoolOr<IndexerCleaning>) -> server::IndexerC
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
 		}
+		if let Some(source) = source.partitions {
+			target.partitions = resolve_indexer_partitions(source);
+		}
 		if let Some(value) = source.poll_interval {
 			target.poll_interval = value;
 		}
@@ -2997,8 +3065,23 @@ fn resolve_indexer_partitions(source: IndexerPartitions) -> server::IndexerParti
 
 fn resolve_indexer_request(source: IndexerRequest) -> server::IndexerRequest {
 	let mut target = server::IndexerRequest::default();
+	if let Some(value) = source.archive_concurrency {
+		target.archive_concurrency = value;
+	}
+	if let Some(value) = source.index_concurrency {
+		target.index_concurrency = value;
+	}
+	if let Some(value) = source.wait_concurrency {
+		target.wait_concurrency = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
+	}
+	if let Some(value) = source.response_ttl {
+		target.response_ttl = value;
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
@@ -3056,6 +3139,9 @@ fn resolve_indexer_log_compaction(
 		}
 		if let Some(value) = source.concurrency {
 			target.concurrency = value;
+		}
+		if let Some(source) = source.partitions {
+			target.partitions = resolve_indexer_partitions(source);
 		}
 		if let Some(value) = source.wakeup_interval {
 			target.wakeup_interval = value;
@@ -3143,6 +3229,9 @@ fn resolve_indexer_update(source: IndexerUpdate) -> server::IndexerUpdate {
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
 	}
+	if let Some(source) = source.partitions {
+		target.partitions = resolve_indexer_partitions(source);
+	}
 	target
 }
 
@@ -3177,7 +3266,7 @@ fn resolve_nats_messenger(source: NatsMessenger) -> tg::Result<server::NatsMesse
 fn resolve_object(source: &Object) -> server::Object {
 	let mut target = server::Object::default();
 	if let Some(source) = source.archive_queue {
-		target.archive_queue = resolve_object_archive_queue(source);
+		target.archive_queue = resolve_archive_queue(source);
 	}
 	if let Some(source) = source.cache {
 		target.cache = Some(resolve_object_cache(source));
@@ -3189,7 +3278,7 @@ fn resolve_object(source: &Object) -> server::Object {
 		target.grant_time_to_touch = value;
 	}
 	if let Some(source) = source.index_queue {
-		target.index_queue = resolve_object_index_queue(source);
+		target.index_queue = resolve_index_queue(source);
 	}
 	if let Some(value) = source.put_timeout {
 		target.put_timeout = value;
@@ -3228,8 +3317,11 @@ fn resolve_object_cache(source: ObjectCache) -> server::ObjectCache {
 	target
 }
 
-fn resolve_object_archive_queue(source: ObjectArchiveQueue) -> server::ObjectArchiveQueue {
-	let mut target = server::ObjectArchiveQueue::default();
+fn resolve_archive_queue(source: ArchiveQueue) -> server::ArchiveQueue {
+	let mut target = server::ArchiveQueue::default();
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
@@ -3239,10 +3331,13 @@ fn resolve_object_archive_queue(source: ObjectArchiveQueue) -> server::ObjectArc
 	target
 }
 
-fn resolve_object_index_queue(source: ObjectIndexQueue) -> server::ObjectIndexQueue {
-	let mut target = server::ObjectIndexQueue::default();
+fn resolve_index_queue(source: IndexQueue) -> server::IndexQueue {
+	let mut target = server::IndexQueue::default();
 	if let Some(value) = source.batch_timeout {
 		target.batch_timeout = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
 	}
 	if let Some(value) = source.fragment_size {
 		target.fragment_size = value;
@@ -3592,8 +3687,11 @@ fn resolve_js_engine(source: JsEngine) -> server::JsEngine {
 	}
 }
 
-fn resolve_scheduler(source: Scheduler) -> server::Scheduler {
+fn resolve_scheduler(source: &Scheduler) -> server::Scheduler {
 	let mut target = server::Scheduler::default();
+	if let Some(value) = source.request_concurrency {
+		target.request_concurrency = value;
+	}
 	if let Some(source) = source.message_retry {
 		target.message_retry = resolve_retry_with_default(source, target.message_retry);
 	}
@@ -4335,6 +4433,26 @@ mod tests {
 	}
 
 	#[test]
+	fn resolves_request_concurrency() {
+		let source: Config = serde_json::from_value(serde_json::json!({
+			"indexer": { "request": {
+				"archive_concurrency": 2,
+				"concurrency": 3,
+				"index_concurrency": 4,
+				"wait_concurrency": 5,
+			}},
+			"scheduler": { "request_concurrency": 6 },
+		}))
+		.unwrap();
+		let target = resolve_server_config(&source).unwrap();
+		assert_eq!(target.indexer.request.archive_concurrency, 2);
+		assert_eq!(target.indexer.request.concurrency, 3);
+		assert_eq!(target.indexer.request.index_concurrency, 4);
+		assert_eq!(target.indexer.request.wait_concurrency, 5);
+		assert_eq!(target.scheduler.request_concurrency, 6);
+	}
+
+	#[test]
 	fn parses_and_resolves_authorization_search_booleans() {
 		let source: Authorization = serde_json::from_value(serde_json::json!({
 			"final": false,
@@ -4508,6 +4626,7 @@ mod tests {
 			},
 			"object": {
 				"archive_queue": {
+					"concurrency": 41,
 					"retry": {
 						"max_retries": 4,
 					},
@@ -4515,6 +4634,7 @@ mod tests {
 				},
 				"index_queue": {
 					"batch_timeout": 0.3,
+					"concurrency": 42,
 					"fragment_size": 333,
 					"retry": {
 						"backoff": 0.04,
@@ -4544,6 +4664,7 @@ mod tests {
 			target.database.index_outbox().wakeup_interval,
 			Duration::from_millis(100)
 		);
+		assert_eq!(target.object.archive_queue.concurrency, 41);
 		assert_eq!(target.object.archive_queue.sequence_reservation_size, 200);
 		assert_eq!(
 			target.object.archive_queue.retry.backoff,
@@ -4562,6 +4683,7 @@ mod tests {
 			target.object.index_queue.batch_timeout,
 			Duration::from_millis(300)
 		);
+		assert_eq!(target.object.index_queue.concurrency, 42);
 		assert_eq!(target.object.index_queue.fragment_size, 333);
 		assert_eq!(target.object.index_queue.sequence_reservation_size, 300);
 		assert_eq!(
@@ -4618,13 +4740,27 @@ mod tests {
 					"timeout": 3,
 				},
 				"cache": { "poll_interval": 0.125 },
+				"cleaning": {
+					"partitions": {
+						"end": 9,
+						"start": 3,
+					},
+				},
 				"id": "idx_0000000000000000000000000000",
-				"partitions": {
-					"end": 9,
-					"start": 3,
+				"log_compaction": {
+					"partitions": {
+						"end": 10,
+						"start": 4,
+					},
+				},
+				"object_cache_partitions": {
+					"end": 8,
+					"start": 2,
 				},
 				"request": {
+					"concurrency": 43,
 					"poll_interval": 0.25,
+					"response_ttl": 90,
 					"retry": {
 						"backoff": 0.11,
 						"jitter": 0.12,
@@ -4633,7 +4769,16 @@ mod tests {
 					},
 					"timeout": 2,
 				},
-				"updates": { "max_process_depth": 64 },
+				"updates": {
+					"grants": { "partitions": { "end": 11, "start": 5 } },
+					"max_process_depth": 64,
+					"nodes": { "partitions": { "end": 12, "start": 6 } },
+					"storage": { "partitions": { "end": 13, "start": 7 } },
+				},
+				"usage_partitions": {
+					"end": 7,
+					"start": 1,
+				},
 			},
 		}))
 		.unwrap();
@@ -4658,8 +4803,13 @@ mod tests {
 			target.indexer.id.unwrap().to_string(),
 			"idx_0000000000000000000000000000"
 		);
-		assert_eq!(target.indexer.partitions.end, 9);
-		assert_eq!(target.indexer.partitions.start, 3);
+		assert_eq!(target.indexer.cleaning.partitions.end, 9);
+		assert_eq!(target.indexer.cleaning.partitions.start, 3);
+		assert_eq!(target.indexer.log_compaction.partitions.end, 10);
+		assert_eq!(target.indexer.log_compaction.partitions.start, 4);
+		assert_eq!(target.indexer.object_cache_partitions.end, 8);
+		assert_eq!(target.indexer.object_cache_partitions.start, 2);
+		assert_eq!(target.indexer.request.concurrency, 43);
 		assert_eq!(
 			target.indexer.request.poll_interval,
 			Duration::from_millis(250)
@@ -4678,7 +4828,16 @@ mod tests {
 		);
 		assert_eq!(target.indexer.request.retry.max_retries, 5);
 		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
+		assert_eq!(target.indexer.request.response_ttl, Duration::from_secs(90));
+		assert_eq!(target.indexer.updates.grants.partitions.end, 11);
+		assert_eq!(target.indexer.updates.grants.partitions.start, 5);
 		assert_eq!(target.indexer.updates.max_process_depth, 64);
+		assert_eq!(target.indexer.updates.nodes.partitions.end, 12);
+		assert_eq!(target.indexer.updates.nodes.partitions.start, 6);
+		assert_eq!(target.indexer.updates.storage.partitions.end, 13);
+		assert_eq!(target.indexer.updates.storage.partitions.start, 7);
+		assert_eq!(target.indexer.usage_partitions.end, 7);
+		assert_eq!(target.indexer.usage_partitions.start, 1);
 	}
 
 	#[test]
@@ -4693,6 +4852,7 @@ mod tests {
 						"stop_at": 0.25,
 					},
 					"concurrency": 2,
+					"partitions": { "end": 9, "start": 3 },
 					"poll_interval": 0.5,
 				},
 			},
@@ -4704,6 +4864,8 @@ mod tests {
 		assert_eq!(cleaning.batch_size, 11);
 		assert_eq!(cleaning.concurrency, 2);
 		assert!(cleaning.enabled);
+		assert_eq!(cleaning.partitions.end, 9);
+		assert_eq!(cleaning.partitions.start, 3);
 		assert_eq!(cleaning.poll_interval, Duration::from_millis(500));
 		let Some(server::CapacityThreshold::Ratio(capacity)) = cleaning.capacity else {
 			panic!("expected a ratio capacity threshold");
@@ -4751,6 +4913,10 @@ mod tests {
 			log_compaction: Some(BoolOr::Value(IndexerLogCompaction {
 				batch_size: Some(11),
 				concurrency: Some(2),
+				partitions: Some(IndexerPartitions {
+					end: Some(9),
+					start: Some(3),
+				}),
 				wakeup_interval: Some(Duration::from_millis(250)),
 			})),
 			..Indexer::default()
@@ -4760,6 +4926,8 @@ mod tests {
 		assert_eq!(target.log_compaction.batch_size, 11);
 		assert_eq!(target.log_compaction.concurrency, 2);
 		assert!(target.log_compaction.enabled);
+		assert_eq!(target.log_compaction.partitions.end, 9);
+		assert_eq!(target.log_compaction.partitions.start, 3);
 		assert_eq!(
 			target.log_compaction.wakeup_interval,
 			Duration::from_millis(250)
@@ -4780,15 +4948,27 @@ mod tests {
 				grants: Some(IndexerUpdate {
 					batch_size: Some(11),
 					concurrency: Some(2),
+					partitions: Some(IndexerPartitions {
+						end: Some(9),
+						start: Some(3),
+					}),
 				}),
 				max_process_depth: Some(55),
 				nodes: Some(IndexerUpdate {
 					batch_size: Some(22),
 					concurrency: Some(3),
+					partitions: Some(IndexerPartitions {
+						end: Some(10),
+						start: Some(4),
+					}),
 				}),
 				storage: Some(IndexerUpdate {
 					batch_size: Some(33),
 					concurrency: Some(4),
+					partitions: Some(IndexerPartitions {
+						end: Some(11),
+						start: Some(5),
+					}),
 				}),
 			}),
 			..Indexer::default()
@@ -4797,11 +4977,17 @@ mod tests {
 
 		assert_eq!(target.updates.grants.batch_size, 11);
 		assert_eq!(target.updates.grants.concurrency, 2);
+		assert_eq!(target.updates.grants.partitions.end, 9);
+		assert_eq!(target.updates.grants.partitions.start, 3);
 		assert_eq!(target.updates.max_process_depth, 55);
 		assert_eq!(target.updates.nodes.batch_size, 22);
 		assert_eq!(target.updates.nodes.concurrency, 3);
+		assert_eq!(target.updates.nodes.partitions.end, 10);
+		assert_eq!(target.updates.nodes.partitions.start, 4);
 		assert_eq!(target.updates.storage.batch_size, 33);
 		assert_eq!(target.updates.storage.concurrency, 4);
+		assert_eq!(target.updates.storage.partitions.end, 11);
+		assert_eq!(target.updates.storage.partitions.start, 5);
 	}
 
 	#[test]
@@ -4871,8 +5057,13 @@ mod tests {
 	}
 
 	#[test]
-	fn resolves_usage_partition_totals() {
+	fn resolves_index_partition_totals() {
 		let fdb = resolve_fdb_index(FdbIndex {
+			cleaning_partition_total: Some(128),
+			grant_update_partition_total: Some(256),
+			log_compaction_partition_total: Some(64),
+			node_update_partition_total: Some(512),
+			storage_update_partition_total: Some(1_024),
 			usage_partition_total: Some(512),
 			..FdbIndex::default()
 		});
@@ -4881,6 +5072,11 @@ mod tests {
 			..LmdbIndex::default()
 		});
 
+		assert_eq!(fdb.cleaning_partition_total, 128);
+		assert_eq!(fdb.grant_update_partition_total, 256);
+		assert_eq!(fdb.log_compaction_partition_total, 64);
+		assert_eq!(fdb.node_update_partition_total, 512);
+		assert_eq!(fdb.storage_update_partition_total, 1_024);
 		assert_eq!(fdb.usage_partition_total, 512);
 		assert_eq!(lmdb.usage_partition_total, 2);
 	}

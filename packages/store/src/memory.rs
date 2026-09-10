@@ -1,5 +1,5 @@
 use {
-	crate::object,
+	crate::{archive, index, object},
 	std::{
 		collections::{BTreeMap, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
@@ -11,7 +11,6 @@ mod cache;
 mod delete;
 mod flush;
 mod get;
-mod indexer;
 mod log;
 mod put;
 mod queue;
@@ -32,11 +31,10 @@ struct Log {
 
 #[derive(Default)]
 struct State {
-	indexers: BTreeMap<tg::indexer::Id, crate::indexer::Indexer>,
+	archive_queue: BTreeMap<(tg::indexer::Id, u64), crate::archive::queue::Entry>,
+	index_queue: BTreeMap<(tg::indexer::Id, u64), crate::index::queue::Fragment>,
 	logs: Logs,
-	object_archive_queue: BTreeMap<(tg::indexer::Id, u64), crate::object::archive::queue::Entry>,
 	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,
-	object_index_queue: BTreeMap<(tg::indexer::Id, u64), crate::object::index::queue::Fragment>,
 	objects: Objects,
 }
 
@@ -71,6 +69,7 @@ impl Default for Store {
 impl crate::Store for Store {
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		let arg = object::get::Arg {
+			bytes: false,
 			id: arg.id,
 			put: Some(arg.put),
 		};
@@ -84,24 +83,13 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(&arg);
+	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
+		self.delete_archive_queue_entry(arg);
 		Ok(())
 	}
 
-	async fn delete_object_archive_queue_entry(
-		&self,
-		arg: object::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_archive_queue_entry(arg);
-		Ok(())
-	}
-
-	async fn delete_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_index_queue_fragment(arg);
+	async fn delete_index_queue_fragment(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
+		self.delete_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -125,8 +113,18 @@ impl crate::Store for Store {
 		Ok(self.get_object_cache_entries(arg))
 	}
 
-	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
-		Ok(self.get_indexers())
+	async fn get_archive_queue_entries(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Entry>> {
+		Ok(self.get_archive_queue_entries(arg))
+	}
+
+	async fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<index::queue::Fragment>> {
+		Ok(self.get_index_queue_fragments(arg))
 	}
 
 	async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
@@ -134,24 +132,13 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
-		self.put_indexer(arg);
+	async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
+		self.put_archive_queue_entry(arg);
 		Ok(())
 	}
 
-	async fn put_object_archive_queue_entry(
-		&self,
-		arg: object::archive::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_archive_queue_entry(arg);
-		Ok(())
-	}
-
-	async fn put_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_index_queue_fragment(arg);
+	async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		self.put_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -202,25 +189,18 @@ impl crate::Store for Store {
 		Ok(self.try_get_log_length(&arg))
 	}
 
-	async fn try_get_indexer(
+	async fn try_get_archive_queue_entry(
 		&self,
-		arg: crate::indexer::get::Arg,
-	) -> tg::Result<Option<crate::indexer::Indexer>> {
-		Ok(self.try_get_indexer(&arg))
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Entry>> {
+		Ok(self.try_get_archive_queue_entry(arg))
 	}
 
-	async fn try_get_object_archive_queue_entry(
+	async fn try_get_index_queue_fragment(
 		&self,
-		arg: object::archive::queue::get::Arg,
-	) -> tg::Result<Option<object::archive::queue::Entry>> {
-		Ok(self.try_get_object_archive_queue_entry(arg))
-	}
-
-	async fn try_get_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::get::Arg,
-	) -> tg::Result<Option<object::index::queue::Fragment>> {
-		Ok(self.try_get_object_index_queue_fragment(arg))
+		arg: index::queue::get::Arg,
+	) -> tg::Result<Option<index::queue::Fragment>> {
+		Ok(self.try_get_index_queue_fragment(arg))
 	}
 
 	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
@@ -243,11 +223,6 @@ impl crate::Store for Store {
 		arg: crate::log::read::Arg,
 	) -> tg::Result<Vec<crate::log::read::Entry<'static>>> {
 		Ok(self.try_read_log(arg))
-	}
-
-	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
-		self.update_indexer(&arg)?;
-		Ok(())
 	}
 }
 
@@ -294,7 +269,11 @@ mod tests {
 			.unwrap();
 
 		let object = store
-			.try_get_object_sync(&object::get::Arg { id, put: None })
+			.try_get_object_sync(&object::get::Arg {
+				bytes: true,
+				id,
+				put: None,
+			})
 			.object
 			.unwrap();
 		assert_eq!(object.bytes, Some(Cow::Owned(second_bytes.to_vec())));
@@ -320,6 +299,7 @@ mod tests {
 			.unwrap();
 
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([1; 16]),
 		});
@@ -335,6 +315,7 @@ mod tests {
 		.unwrap();
 		assert!(!contains);
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([2; 16]),
 		});
@@ -377,6 +358,7 @@ mod tests {
 			.unwrap();
 
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -391,6 +373,7 @@ mod tests {
 			})
 			.unwrap();
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -403,7 +386,11 @@ mod tests {
 			})
 			.unwrap();
 
-		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
+			id,
+			put: None,
+		});
 		assert!(output.object.is_none());
 	}
 }

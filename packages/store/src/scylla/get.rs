@@ -26,10 +26,11 @@ impl Store {
 		&self,
 		arg: object::get::Arg,
 	) -> tg::Result<object::get::Output> {
-		let statement = if arg.put.is_some() {
-			&self.statements.get_object_for_put
-		} else {
-			&self.statements.get_object
+		let statement = match (arg.bytes, arg.put.is_some()) {
+			(false, false) => &self.statements.get_object_info,
+			(false, true) => &self.statements.get_object_info_for_put,
+			(true, false) => &self.statements.get_object,
+			(true, true) => &self.statements.get_object_for_put,
 		};
 		let object = self.try_get_object_inner(&arg, statement).await?;
 		if object.is_some() {
@@ -48,7 +49,11 @@ impl Store {
 	) -> tg::Result<Vec<object::get::Output>> {
 		let mut output = stream::iter(arg.ids.into_iter().enumerate())
 			.map(|(index, id)| async move {
-				let arg = object::get::Arg { id, put: None };
+				let arg = object::get::Arg {
+					bytes: arg.bytes,
+					id,
+					put: None,
+				};
 				let output = self.try_get_object(arg).await?;
 
 				Ok::<_, tg::Error>((index, output))
@@ -90,6 +95,24 @@ impl Store {
 		.map_err(|error| tg::error!(!error, %id, "failed to execute the query"))?
 		.into_rows_result()
 		.map_err(|error| tg::error!(!error, %id, "failed to get the rows"))?;
+		if !arg.bytes {
+			let row = result
+				.maybe_first_row::<(Option<i64>, Vec<u8>)>()
+				.map_err(|error| tg::error!(!error, %id, "failed to get the object info row"))?;
+			let Some((Some(_), put)) = row else {
+				return Ok(None);
+			};
+			let put = put
+				.try_into()
+				.map_err(|_| tg::error!(%id, "invalid object put"))?;
+			let object = object::Object {
+				bytes: None,
+				checkout_pointer: None,
+				length: None,
+				put,
+			};
+			return Ok(Some(object));
+		}
 		let Some(row) = result
 			.maybe_first_row::<Row>()
 			.map_err(|error| tg::error!(!error, %id, "failed to get the row"))?

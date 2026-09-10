@@ -75,7 +75,7 @@ spec:
     spec:
       containers:
         - name: scylla
-          image: scylladb/scylla:2026.1.1
+          image: scylladb/scylla:2026.3.0
           args:
             - --overprovisioned
             - "1"

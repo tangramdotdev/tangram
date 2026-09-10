@@ -69,9 +69,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		arg: &crate::fdb::TouchProcesses,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<Vec<Option<crate::process::Process>>, fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let crate::fdb::TouchProcesses {
 			account,
 			ids,
@@ -108,8 +108,7 @@ impl Index {
 											txn,
 											subspace,
 											&arg,
-											partition_total,
-											usage_partition_total,
+											partition_totals,
 											false,
 											None,
 										)

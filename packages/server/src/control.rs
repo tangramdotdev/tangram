@@ -16,6 +16,8 @@ use {
 #[cfg(test)]
 mod tests;
 
+pub(crate) mod requests;
+
 // Acknowledgements confirm receipt only. Requests remain pending until a response; reconnects replay them with the same IDs. Responses retry until acknowledged.
 pub(crate) trait Input<O> {
 	fn kind(&self) -> InputKind<'_>;
@@ -233,8 +235,7 @@ where
 			};
 			match message.kind() {
 				InputKind::Ack { id } => {
-					self.sender.acknowledge(id);
-					if self.inbox.contains_key(id) {
+					if self.sender.acknowledge(id) && self.inbox.contains_key(id) {
 						let id = id.to_owned();
 						let inbox = self.inbox.clone();
 						let ttl = self.inbox_ttl;
@@ -253,9 +254,10 @@ where
 						return Ok(Some(message));
 					}
 					let priority = self.input_priority(&message);
-					self.sender
-						.send_with_priority(I::create_ack_message(id.to_owned()), priority)
-						.await?;
+					self.sender.try_send_untracked_with_priority(
+						I::create_ack_message(id.to_owned()),
+						priority,
+					);
 				},
 				InputKind::Response { id } => {
 					if !self.sender.responses.contains_key(id) {
@@ -265,6 +267,12 @@ where
 				},
 			}
 		}
+	}
+
+	pub(crate) fn acknowledge_now(&mut self, id: String) {
+		self.sender
+			.try_send_untracked(I::create_ack_message(id.clone()));
+		self.inbox.insert(id, ());
 	}
 
 	pub(crate) async fn acknowledge(&mut self, id: String) -> tg::Result<()> {
@@ -327,6 +335,23 @@ where
 	I: Send + 'static,
 	O: Output + Clone + Send + Sync + 'static,
 {
+	pub(crate) fn try_send_untracked(&self, message: O) {
+		self.try_send_untracked_with_priority(message, Priority::High);
+	}
+
+	fn try_send_untracked_with_priority(&self, message: O, priority: Priority) {
+		let sender = match priority {
+			Priority::High => &self.inner_high,
+			Priority::Low => &self.inner_low,
+		};
+		sender.try_send(message).ok();
+	}
+
+	pub(crate) fn send_now(&self, message: O) {
+		self.insert(&message, Priority::High);
+		self.try_send_untracked(message);
+	}
+
 	pub(crate) async fn send(&self, message: O) -> tg::Result<()> {
 		self.send_with_priority(message, Priority::High).await
 	}
@@ -336,6 +361,12 @@ where
 	}
 
 	async fn send_with_priority(&self, message: O, priority: Priority) -> tg::Result<()> {
+		self.insert(&message, priority);
+		self.send_inner(message, priority).await?;
+		Ok(())
+	}
+
+	fn insert(&self, message: &O, priority: Priority) {
 		let id = message.id().map(str::to_owned);
 		if let Some(id) = &id {
 			let entry = OutboxEntry {
@@ -362,8 +393,6 @@ where
 				});
 			}
 		}
-		self.send_inner(message, priority).await?;
-		Ok(())
 	}
 
 	fn send_inner(
@@ -405,20 +434,22 @@ where
 		Ok(response)
 	}
 
-	fn acknowledge(&self, id: &str) {
+	fn acknowledge(&self, id: &str) -> bool {
 		if let Some(mut entry) = self.outbox.get_mut(id)
 			&& entry.message.is_request()
 		{
 			entry.acknowledged = true;
-			return;
+			return false;
 		}
-		self.remove(id);
+		self.remove(id)
 	}
 
-	pub(crate) fn remove(&self, id: &str) {
-		if self.outbox.remove(id).is_some() && self.outbox.is_empty() {
+	pub(crate) fn remove(&self, id: &str) -> bool {
+		let removed = self.outbox.remove(id).is_some();
+		if removed && self.outbox.is_empty() {
 			self.notify.notify_waiters();
 		}
+		removed
 	}
 
 	pub(crate) async fn wait_for_empty(&self) {

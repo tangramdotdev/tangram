@@ -6,6 +6,7 @@ use {
 	std::{path::Path, time::Duration},
 	tangram_archive::Archive as _,
 	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
@@ -40,9 +41,17 @@ impl Indexer {
 		config: &crate::config::IndexerCleaning,
 		partition_start: u64,
 		partition_end: u64,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
+		if partition_start == partition_end {
+			stopper.wait().await;
+			return Ok(());
+		}
 		let mut mode = CleanMode::default();
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			if let Some(config) = &config.capacity {
 				match self.server.cleaning_capacity() {
 					Ok(capacity) => {
@@ -103,7 +112,10 @@ impl Indexer {
 				}
 			}
 			if done || failed {
-				tokio::time::sleep(config.poll_interval).await;
+				tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					() = tokio::time::sleep(config.poll_interval) => {},
+				}
 			}
 		}
 	}

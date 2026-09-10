@@ -2,31 +2,29 @@ use {foundationdb_tuple as fdbt, num_traits::ToPrimitive as _, tangram_client::p
 
 #[derive(Debug)]
 pub enum Key<'a> {
-	Indexer(&'a tg::indexer::Id),
+	ArchiveQueue {
+		indexer: &'a tg::indexer::Id,
+		sequence: u64,
+	},
+	IndexQueue {
+		indexer: &'a tg::indexer::Id,
+		sequence: u64,
+	},
 	Log(crate::lmdb::log::Key<'a>),
 	Object(crate::lmdb::object::Key<'a>),
-	ObjectArchiveQueue {
-		indexer: &'a tg::indexer::Id,
-		sequence: u64,
-	},
 	ObjectCache(crate::object::cache::Entry),
-	ObjectIndexQueue {
-		indexer: &'a tg::indexer::Id,
-		sequence: u64,
-	},
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 pub enum Kind {
-	Indexer = 9,
+	ArchiveQueue = 7,
+	IndexQueue = 8,
 	LogEnd = 6,
 	LogEntry = 2,
 	LogStreamPosition = 3,
 	Object = 0,
-	ObjectArchiveQueue = 7,
 	ObjectCache = 5,
-	ObjectIndexQueue = 8,
 }
 
 impl fdbt::TuplePack for Key<'_> {
@@ -36,9 +34,18 @@ impl fdbt::TuplePack for Key<'_> {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Self::Indexer(id) => {
-				(Kind::Indexer.to_i32().unwrap(), id.to_bytes().as_ref()).pack(writer, tuple_depth)
-			},
+			Self::ArchiveQueue { indexer, sequence } => (
+				Kind::ArchiveQueue.to_i32().unwrap(),
+				indexer.to_bytes().as_ref(),
+				sequence,
+			)
+				.pack(writer, tuple_depth),
+			Self::IndexQueue { indexer, sequence } => (
+				Kind::IndexQueue.to_i32().unwrap(),
+				indexer.to_bytes().as_ref(),
+				sequence,
+			)
+				.pack(writer, tuple_depth),
 			Self::Log(crate::lmdb::log::Key::End { position, process }) => (
 				Kind::LogEnd.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
@@ -87,22 +94,10 @@ impl fdbt::TuplePack for Key<'_> {
 			Self::Object(crate::lmdb::object::Key::Object(id)) => {
 				(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(writer, tuple_depth)
 			},
-			Self::ObjectArchiveQueue { indexer, sequence } => (
-				Kind::ObjectArchiveQueue.to_i32().unwrap(),
-				indexer.to_bytes().as_ref(),
-				sequence,
-			)
-				.pack(writer, tuple_depth),
 			Self::ObjectCache(entry) => (
 				Kind::ObjectCache.to_i32().unwrap(),
 				entry.partition,
 				entry.cache.as_slice(),
-			)
-				.pack(writer, tuple_depth),
-			Self::ObjectIndexQueue { indexer, sequence } => (
-				Kind::ObjectIndexQueue.to_i32().unwrap(),
-				indexer.to_bytes().as_ref(),
-				sequence,
 			)
 				.pack(writer, tuple_depth),
 		}

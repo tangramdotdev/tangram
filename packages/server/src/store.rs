@@ -2,7 +2,7 @@
 use std::path::Path;
 use {tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{indexer, log, object};
+pub use store::{archive, index, log, object};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -134,142 +134,69 @@ impl Store {
 }
 
 impl store::Store for Store {
-	async fn delete_indexer(&self, arg: store::indexer::delete::Arg) -> tg::Result<()> {
+	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_indexer(arg).await,
-			Self::Memory(store) => store::Store::delete_indexer(store, arg).await,
+			Self::Lmdb(store) => store.delete_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::delete_archive_queue_entry(store, arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_indexer(arg).await,
+			Self::Scylla(store) => store.delete_archive_queue_entry(arg).await,
 		}
 	}
 
-	async fn delete_object_archive_queue_entry(
+	async fn delete_index_queue_fragment(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.delete_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::delete_index_queue_fragment(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.delete_index_queue_fragment(arg).await,
+		}
+	}
+
+	async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::put_archive_queue_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_archive_queue_entry(arg).await,
+		}
+	}
+
+	async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::put_index_queue_fragment(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_index_queue_fragment(arg).await,
+		}
+	}
+
+	async fn try_get_archive_queue_entry(
 		&self,
-		arg: object::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Entry>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_object_archive_queue_entry(arg).await,
-			Self::Memory(store) => {
-				store::Store::delete_object_archive_queue_entry(store, arg).await
-			},
+			Self::Lmdb(store) => store.try_get_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::try_get_archive_queue_entry(store, arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_object_archive_queue_entry(arg).await,
+			Self::Scylla(store) => store.try_get_archive_queue_entry(arg).await,
 		}
 	}
 
-	async fn delete_object_index_queue_fragment(
+	async fn try_get_index_queue_fragment(
 		&self,
-		arg: object::index::queue::delete::Arg,
-	) -> tg::Result<()> {
+		arg: index::queue::get::Arg,
+	) -> tg::Result<Option<index::queue::Fragment>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_object_index_queue_fragment(arg).await,
-			Self::Memory(store) => {
-				store::Store::delete_object_index_queue_fragment(store, arg).await
-			},
+			Self::Lmdb(store) => store.try_get_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::try_get_index_queue_fragment(store, arg).await,
 			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_object_index_queue_fragment(arg).await,
-		}
-	}
-
-	async fn get_indexers(&self) -> tg::Result<Vec<store::indexer::Indexer>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.get_indexers().await,
-			Self::Memory(store) => store::Store::get_indexers(store).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.get_indexers().await,
-		}
-	}
-
-	async fn put_indexer(&self, arg: store::indexer::put::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.put_indexer(arg).await,
-			Self::Memory(store) => store::Store::put_indexer(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.put_indexer(arg).await,
-		}
-	}
-
-	async fn put_object_archive_queue_entry(
-		&self,
-		arg: object::archive::queue::put::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.put_object_archive_queue_entry(arg).await,
-			Self::Memory(store) => store::Store::put_object_archive_queue_entry(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.put_object_archive_queue_entry(arg).await,
-		}
-	}
-
-	async fn put_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::put::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.put_object_index_queue_fragment(arg).await,
-			Self::Memory(store) => store::Store::put_object_index_queue_fragment(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.put_object_index_queue_fragment(arg).await,
-		}
-	}
-
-	async fn try_get_indexer(
-		&self,
-		arg: store::indexer::get::Arg,
-	) -> tg::Result<Option<store::indexer::Indexer>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.try_get_indexer(arg).await,
-			Self::Memory(store) => store::Store::try_get_indexer(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.try_get_indexer(arg).await,
-		}
-	}
-
-	async fn try_get_object_archive_queue_entry(
-		&self,
-		arg: object::archive::queue::get::Arg,
-	) -> tg::Result<Option<object::archive::queue::Entry>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.try_get_object_archive_queue_entry(arg).await,
-			Self::Memory(store) => {
-				store::Store::try_get_object_archive_queue_entry(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.try_get_object_archive_queue_entry(arg).await,
-		}
-	}
-
-	async fn try_get_object_index_queue_fragment(
-		&self,
-		arg: object::index::queue::get::Arg,
-	) -> tg::Result<Option<object::index::queue::Fragment>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.try_get_object_index_queue_fragment(arg).await,
-			Self::Memory(store) => {
-				store::Store::try_get_object_index_queue_fragment(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.try_get_object_index_queue_fragment(arg).await,
-		}
-	}
-
-	async fn update_indexer(&self, arg: store::indexer::update::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.update_indexer(arg).await,
-			Self::Memory(store) => store::Store::update_indexer(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.update_indexer(arg).await,
+			Self::Scylla(store) => store.try_get_index_queue_fragment(arg).await,
 		}
 	}
 
@@ -333,6 +260,32 @@ impl store::Store for Store {
 			Self::Memory(store) => store::Store::get_object_cache_entries(store, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.get_object_cache_entries(arg).await,
+		}
+	}
+
+	async fn get_archive_queue_entries(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Entry>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.get_archive_queue_entries(arg).await,
+			Self::Memory(store) => store::Store::get_archive_queue_entries(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.get_archive_queue_entries(arg).await,
+		}
+	}
+
+	async fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<index::queue::Fragment>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.get_index_queue_fragments(arg).await,
+			Self::Memory(store) => store::Store::get_index_queue_fragments(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.get_index_queue_fragments(arg).await,
 		}
 	}
 

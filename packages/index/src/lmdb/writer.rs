@@ -223,6 +223,10 @@ impl Index {
 						Self::delete_groups_with_transaction(db, subspace, &mut transaction, &ids)
 							.map(|()| Response::Unit)
 					},
+					Request::DeleteIndexer(arg) => {
+						Self::delete_indexer_with_transaction(db, subspace, &mut transaction, &arg)
+							.map(|()| Response::Unit)
+					},
 					Request::DeleteOrganizationMembers(args) => {
 						Self::delete_organization_members_with_transaction(
 							db,
@@ -296,6 +300,10 @@ impl Index {
 					.map(|()| Response::Unit),
 					Request::PutGroups(args) => {
 						Self::put_groups_with_transaction(db, subspace, &mut transaction, &args)
+							.map(|()| Response::Unit)
+					},
+					Request::PutIndexer(arg) => {
+						Self::put_indexer_with_transaction(db, subspace, &mut transaction, &arg)
 							.map(|()| Response::Unit)
 					},
 					Request::PutObjects(args) => {
@@ -388,6 +396,10 @@ impl Index {
 						)
 						.map(Response::UpdateOutput)
 					},
+					Request::UpdateIndexer(arg) => {
+						Self::update_indexer_with_transaction(db, subspace, &mut transaction, &arg)
+							.map(|()| Response::Unit)
+					},
 				};
 				results.push(result);
 			}
@@ -467,8 +479,14 @@ impl Index {
 				response: Ok(Self::create_initial_response(&request)),
 				sender: Some(sender),
 			});
-			if let Request::Batch(arg) = request {
-				let count = arg.items.len();
+			let operation_count = match &request {
+				Request::Batch(arg) => Some(arg.items.len()),
+				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
+					Some(1)
+				},
+				_ => None,
+			};
+			if let Some(count) = operation_count {
 				if !current_batch.requests.is_empty()
 					&& current_count.saturating_add(count) > max_items
 				{
@@ -479,7 +497,7 @@ impl Index {
 					};
 					current_count = 0;
 				}
-				current_batch.requests.push(Request::Batch(arg));
+				current_batch.requests.push(request);
 				current_batch.tracker_indices.push(tracker_idx);
 				trackers[tracker_idx].remaining = 1;
 				current_count = current_count.saturating_add(count);
@@ -554,6 +572,7 @@ impl Index {
 			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
+			| Request::DeleteIndexer(_)
 			| Request::DeleteOrganizationMembers(_)
 			| Request::DeleteOrganizations(_)
 			| Request::DeleteSandboxes(_)
@@ -564,13 +583,15 @@ impl Index {
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
 			| Request::PutGroups(_)
+			| Request::PutIndexer(_)
 			| Request::PutObjects(_)
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
-			| Request::PutUsers(_) => Response::Unit,
+			| Request::PutUsers(_)
+			| Request::UpdateIndexer(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(crate::usage::Aggregate::default()),
 			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
@@ -582,7 +603,10 @@ impl Index {
 	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
-			Request::Batch(_) => unreachable!(),
+			Request::Batch(_)
+			| Request::DeleteIndexer(_)
+			| Request::PutIndexer(_)
+			| Request::UpdateIndexer(_) => unreachable!(),
 			Request::Clean(crate::lmdb::Clean {
 				batch_size,
 				max_object_touched_at,

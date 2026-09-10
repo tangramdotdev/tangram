@@ -12,8 +12,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::put::Arg,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		arg.validate()?;
 		let id = &arg.id;
 		let key = Key::Process(crate::fdb::process::Key::Process(id.clone()));
@@ -331,7 +332,7 @@ impl Index {
 				&tg::Either::Left(object),
 				&crate::fdb::update::Kind::Grant(tg::authorization::Subject::Process(id.clone())),
 				crate::fdb::update::Source::Put,
-				partition_total,
+				partition_totals.grant_update,
 			);
 		}
 
@@ -352,14 +353,14 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(id.clone()),
-				partition_total,
+				partition_totals.node_update,
 			);
 			crate::fdb::propagate!(
 				Self::enqueue_account_process_from_parents(
 					txn,
 					subspace,
 					id,
-					partition_total,
+					partition_totals.storage_update,
 					touched_at,
 				)
 				.await
@@ -369,7 +370,7 @@ impl Index {
 					txn,
 					subspace,
 					id,
-					partition_total,
+					partition_totals.storage_update,
 					touched_at,
 				)
 				.await
@@ -383,11 +384,11 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::process::put::Arg],
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for process in args {
 			crate::fdb::propagate!(
-				Self::put_process(txn, subspace, process, partition_total).await
+				Self::put_process(txn, subspace, process, partition_totals).await
 			);
 		}
 		Ok(ControlFlow::Break(()))

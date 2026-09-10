@@ -1,11 +1,12 @@
 use ../../test.nu *
 
-# An index batch survives an indexer crash and is recovered on restart.
+# An index batch split within its encoded items survives an indexer crash and is reassembled on restart.
 
 let directory = mktemp -d
 let config = {
 	advanced: { checkpoints: true, single_process: false },
 	indexer: { id: 'idx_0000000000000000000000000000' },
+	object: { index_queue: { fragment_size: 64 } },
 }
 let server = server spawn --name server --directory $directory --config $config
 let watch = tg --url $server.url checkpoint watch index.batch | from json | get watch

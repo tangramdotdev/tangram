@@ -112,9 +112,15 @@ impl Store {
 		request: crate::read::Request,
 	) -> tg::Result<crate::read::Response> {
 		let response = match request {
-			crate::read::Request::GetIndexers => {
-				let output = Self::get_indexers_with_transaction(db, transaction)?;
-				crate::read::Response::GetIndexers(output)
+			crate::read::Request::GetArchiveQueueEntries(arg) => {
+				let output =
+					Self::get_archive_queue_entries_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetArchiveQueueEntries(output)
+			},
+			crate::read::Request::GetIndexQueueFragments(arg) => {
+				let output =
+					Self::get_index_queue_fragments_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetIndexQueueFragments(output)
 			},
 			crate::read::Request::GetObjectCacheEntries(arg) => {
 				let output =
@@ -125,6 +131,16 @@ impl Store {
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)
 			},
+			crate::read::Request::TryGetArchiveQueueEntry(arg) => {
+				let output =
+					Self::try_get_archive_queue_entry_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::TryGetArchiveQueueEntry(output)
+			},
+			crate::read::Request::TryGetIndexQueueFragment(arg) => {
+				let output =
+					Self::try_get_index_queue_fragment_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::TryGetIndexQueueFragment(output)
+			},
 			crate::read::Request::TryGetLogEnd(process) => {
 				let output = Self::try_get_log_end_with_transaction(db, transaction, &process)?;
 				crate::read::Response::TryGetLogEnd(output)
@@ -133,33 +149,13 @@ impl Store {
 				let output = Self::try_get_log_length_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetLogLength(output)
 			},
-			crate::read::Request::TryGetIndexer(arg) => {
-				let output = Self::try_get_indexer_with_transaction(db, transaction, &arg)?;
-				crate::read::Response::TryGetIndexer(output)
-			},
 			crate::read::Request::TryGetObject(arg) => {
 				let output = Self::try_get_object_with_arg_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetObject(output)
 			},
-			crate::read::Request::TryGetObjectArchiveQueueEntry(arg) => {
-				let output = Self::try_get_object_archive_queue_entry_with_transaction(
-					db,
-					transaction,
-					&arg,
-				)?;
-				crate::read::Response::TryGetObjectArchiveQueueEntry(output)
-			},
 			crate::read::Request::TryGetObjectBatch(arg) => {
 				let output = Self::try_get_object_batch_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetObjectBatch(output)
-			},
-			crate::read::Request::TryGetObjectIndexQueueFragment(arg) => {
-				let output = Self::try_get_object_index_queue_fragment_with_transaction(
-					db,
-					transaction,
-					&arg,
-				)?;
-				crate::read::Response::TryGetObjectIndexQueueFragment(output)
 			},
 			crate::read::Request::TryReadLog(arg) => {
 				let output = Self::try_read_log_with_transaction(db, transaction, &arg)?;

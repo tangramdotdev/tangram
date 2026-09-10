@@ -2694,6 +2694,7 @@ impl Provider {
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
 		let arg = crate::store::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -3222,6 +3223,7 @@ impl Provider {
 			(&self.server.store, transaction)
 		{
 			let arg = crate::store::object::get::Arg {
+				bytes: true,
 				id: id.clone(),
 				put: None,
 			};
@@ -3235,6 +3237,7 @@ impl Provider {
 		let _ = transaction;
 
 		let arg = crate::store::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
