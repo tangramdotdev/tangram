@@ -28,10 +28,12 @@ impl fdbt::TuplePack for Key<'_> {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Self::Log(crate::lmdb::log::Key::End { process }) => {
-				(Kind::LogEnd.to_i32().unwrap(), process.to_bytes().as_ref())
-					.pack(writer, tuple_depth)
-			},
+			Self::Log(crate::lmdb::log::Key::End { position, process }) => (
+				Kind::LogEnd.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
+				position,
+			)
+				.pack(writer, tuple_depth),
 			Self::Log(crate::lmdb::log::Key::Entry { position, process }) => (
 				Kind::LogEntry.to_i32().unwrap(),
 				process.to_bytes().as_ref(),

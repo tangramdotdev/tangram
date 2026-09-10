@@ -78,6 +78,7 @@ impl Store {
 		arg: &log::end::Arg,
 	) -> tg::Result<()> {
 		let key = StoreKey::Log(Key::End {
+			position: arg.end.position,
 			process: &arg.process,
 		})
 		.pack_to_vec();
@@ -105,15 +106,28 @@ impl Store {
 		transaction: &lmdb::RoTxn<'_>,
 		process: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::log::End>> {
-		let key = StoreKey::Log(Key::End { process }).pack_to_vec();
-		let value = db
-			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get the log end"))?;
-		let output = value
-			.map(tangram_serialize::from_slice)
-			.transpose()
+		let start = StoreKey::Log(Key::End {
+			position: 0,
+			process,
+		})
+		.pack_to_vec();
+		let end = StoreKey::Log(Key::End {
+			position: u64::MAX,
+			process,
+		})
+		.pack_to_vec();
+		let Some((key, value)) = db
+			.get_lower_than_or_equal_to(transaction, &end)
+			.map_err(|error| tg::error!(!error, "failed to get the log end"))?
+		else {
+			return Ok(None);
+		};
+		if key < start.as_slice() {
+			return Ok(None);
+		}
+		let output = tangram_serialize::from_slice(value)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the log end"))?;
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	pub(super) async fn try_get_log_length(
@@ -148,9 +162,17 @@ impl Store {
 		arg: &log::delete::Arg,
 	) -> tg::Result<()> {
 		let process = &arg.process;
-		let key = StoreKey::Log(Key::End { process }).pack_to_vec();
-		db.delete(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to delete the log end"))?;
+		let start = StoreKey::Log(Key::End {
+			position: 0,
+			process,
+		})
+		.pack_to_vec();
+		let end = StoreKey::Log(Key::End {
+			position: u64::MAX,
+			process,
+		})
+		.pack_to_vec();
+		Self::delete_log_range_with_transaction(db, transaction, &start, &end)?;
 		let start = StoreKey::Log(Key::Entry {
 			position: 0,
 			process,

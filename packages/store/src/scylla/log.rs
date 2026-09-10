@@ -117,13 +117,15 @@ impl Statements {
 		put.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		put.set_is_idempotent(true);
 		let mut get_end = session
-			.prepare("select bytes from logs where process = ? and kind = ? and position = 0;")
+			.prepare(
+				"select bytes from logs where process = ? and kind = ? order by position desc limit 1;",
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the log end read statement"))?;
 		get_end.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		get_end.set_is_idempotent(true);
 		let mut put_end = session
-			.prepare("insert into logs (process, kind, position, bytes) values (?, ?, 0, ?);")
+			.prepare("insert into logs (process, kind, position, bytes) values (?, ?, ?, ?);")
 			.await
 			.map_err(|error| tg::error!(!error, "failed to prepare the log end write statement"))?;
 		put_end.set_consistency(scylla::statement::Consistency::LocalQuorum);

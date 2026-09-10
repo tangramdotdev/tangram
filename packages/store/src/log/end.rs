@@ -12,7 +12,9 @@ mod tests {
 
 	async fn completion(store: &impl crate::Store) {
 		for bytes in [Bytes::new(), Bytes::from_static(b"hello")] {
-			let process = tg::process::Id::new();
+			let mut processes = std::array::from_fn::<_, 3, _>(|_| tg::process::Id::new());
+			processes.sort();
+			let [before, process, after] = processes;
 			assert_eq!(store.try_get_log_end(&process).await.unwrap(), None);
 			let position = u64::try_from(bytes.len()).unwrap();
 			let arg = log::put::Arg {
@@ -36,6 +38,8 @@ mod tests {
 			store.put_log_end(arg.clone()).await.unwrap();
 			store.put_log_end(arg).await.unwrap();
 			assert_eq!(store.try_get_log_end(&process).await.unwrap(), Some(end));
+			assert_eq!(store.try_get_log_end(&before).await.unwrap(), None);
+			assert_eq!(store.try_get_log_end(&after).await.unwrap(), None);
 			let arg = log::read::Arg {
 				length: u64::MAX,
 				position: 0,
@@ -48,11 +52,19 @@ mod tests {
 				.flat_map(|entry| entry.bytes.into_owned())
 				.collect::<Vec<_>>();
 			assert_eq!(output, bytes);
+
+			// Deleting a log must preserve the adjacent process's marker.
+			let arg = log::end::Arg {
+				end,
+				process: after.clone(),
+			};
+			store.put_log_end(arg).await.unwrap();
 			let arg = log::delete::Arg {
 				process: process.clone(),
 			};
 			store.delete_log(arg).await.unwrap();
 			assert_eq!(store.try_get_log_end(&process).await.unwrap(), None);
+			assert_eq!(store.try_get_log_end(&after).await.unwrap(), Some(end));
 		}
 	}
 

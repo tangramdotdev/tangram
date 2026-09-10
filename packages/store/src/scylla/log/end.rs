@@ -3,12 +3,14 @@ use {super::super::Store, crate::log, tangram_client::prelude::*};
 impl Store {
 	pub(in crate::scylla) async fn put_log_end_inner(&self, arg: log::end::Arg) -> tg::Result<()> {
 		let process = arg.process.to_bytes().to_vec();
+		let position = i64::try_from(arg.end.position)
+			.map_err(|_| tg::error!("the log position is too large"))?;
 		let bytes = tangram_serialize::to_vec(&arg.end)
 			.map_err(|error| tg::error!(!error, "failed to serialize the log end"))?;
 		self.session
 			.execute_unpaged(
 				&self.statements.log.put_end,
-				(process, super::END_KIND, bytes),
+				(process, super::END_KIND, position, bytes),
 			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the log end"))?;
