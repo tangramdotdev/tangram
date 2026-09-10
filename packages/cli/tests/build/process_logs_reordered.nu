@@ -12,6 +12,6 @@ for compaction in [false true] {
 	tg wait $id | ignore
 	let data = mktemp
 	tg get $id | save -f $data
-	let output = python3 $driver reconnect ($server.directory | path join socket) $tangram $server.url $id $data ($compaction | into string) | complete
+	let output = python3 $driver reordered ($server.directory | path join socket) $tangram $server.url $id $data ($compaction | into string) | complete
 	success $output
 }

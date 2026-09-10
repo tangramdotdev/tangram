@@ -383,6 +383,15 @@ impl Session {
 						.into();
 				}
 
+				// A reverse read must reach its cursor before yielding any part of the window.
+				if state.reverse
+					&& state.entries.back().is_some_and(|entry| {
+						entry_position(entry, &state.streams) + entry.bytes.len().to_u64().unwrap()
+							< state.position
+					}) {
+					return Ok(None);
+				}
+
 				let boundary = if state.reverse {
 					state.entries.front()
 				} else {

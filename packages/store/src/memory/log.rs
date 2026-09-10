@@ -83,7 +83,10 @@ impl Store {
 		}
 		let combined = arg.streams.len() > 1;
 		let start_position = if combined {
-			arg.position
+			let Some((&position, _)) = log.entries.range(..=arg.position).next_back() else {
+				return Vec::new();
+			};
+			position
 		} else {
 			let Some(stream) = arg.streams.iter().next().copied() else {
 				return Vec::new();
@@ -99,59 +102,14 @@ impl Store {
 			};
 			position
 		};
-		let mut current: Option<log::read::Entry<'static>> = None;
-		let mut output = Vec::new();
-		let mut remaining = arg.length;
-		for chunk in log.entries.range(start_position..).map(|(_, entry)| entry) {
-			if remaining == 0 {
+		let mut builder = log::read::Builder::new(&arg);
+		for entry in log.entries.range(start_position..).map(|(_, entry)| entry) {
+			if !builder.push(entry) {
 				break;
 			}
-			if !arg.streams.contains(&chunk.stream) {
-				continue;
-			}
-			let position = if combined {
-				chunk.position
-			} else {
-				chunk.stream_position
-			};
-			let offset = arg.position.saturating_sub(position);
-			let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
-			let take = remaining.min(available);
-			if take == 0 {
-				continue;
-			}
-			let start = offset.to_usize().unwrap();
-			let end = (offset + take).to_usize().unwrap();
-			let bytes = chunk.bytes[start..end].to_vec();
-			if let Some(entry) = &mut current {
-				if entry.stream == chunk.stream {
-					entry.bytes.to_mut().extend_from_slice(&bytes);
-				} else {
-					output.push(current.take().unwrap());
-					current = Some(log::read::Entry {
-						bytes: Cow::Owned(bytes),
-						position: chunk.position + offset,
-						stream: chunk.stream,
-						stream_position: chunk.stream_position + offset,
-						timestamp: chunk.timestamp,
-					});
-				}
-			} else {
-				current = Some(log::read::Entry {
-					bytes: Cow::Owned(bytes),
-					position: chunk.position + offset,
-					stream: chunk.stream,
-					stream_position: chunk.stream_position + offset,
-					timestamp: chunk.timestamp,
-				});
-			}
-			remaining -= take;
-		}
-		if let Some(entry) = current {
-			output.push(entry);
 		}
 
-		output
+		builder.finish()
 	}
 }
 

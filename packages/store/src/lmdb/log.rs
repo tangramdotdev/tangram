@@ -355,11 +355,9 @@ impl Store {
 			process: &arg.process,
 		})
 		.pack_to_vec();
-		let mut current: Option<log::read::Entry<'static>> = None;
-		let mut output = Vec::new();
-		let mut remaining = arg.length;
+		let mut builder = log::read::Builder::new(arg);
 		let mut value = Some(first_value);
-		while remaining > 0 {
+		loop {
 			let value = if let Some(value) = value.take() {
 				value
 			} else {
@@ -377,54 +375,11 @@ impl Store {
 			};
 			let chunk = tangram_serialize::from_slice::<log::read::Entry<'_>>(value)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
-			if !arg.streams.contains(&chunk.stream) {
-				continue;
+			if !builder.push(&chunk) {
+				break;
 			}
-			let position = if combined {
-				chunk.position
-			} else {
-				chunk.stream_position
-			};
-			let offset = arg.position.saturating_sub(position);
-			let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
-			let take = remaining.min(available);
-			if take == 0 {
-				continue;
-			}
-			let bytes = if offset > 0 || take < chunk.bytes.len().to_u64().unwrap() {
-				let start = offset.to_usize().unwrap();
-				let end = (offset + take).to_usize().unwrap();
-				chunk.bytes[start..end].to_vec()
-			} else {
-				chunk.bytes.into_owned()
-			};
-			if let Some(entry) = &mut current {
-				if entry.stream == chunk.stream {
-					entry.bytes.to_mut().extend_from_slice(&bytes);
-				} else {
-					output.push(current.take().unwrap());
-					current = Some(log::read::Entry {
-						bytes: Cow::Owned(bytes),
-						position: chunk.position + offset,
-						stream: chunk.stream,
-						stream_position: chunk.stream_position + offset,
-						timestamp: chunk.timestamp,
-					});
-				}
-			} else {
-				current = Some(log::read::Entry {
-					bytes: Cow::Owned(bytes),
-					position: chunk.position + offset,
-					stream: chunk.stream,
-					stream_position: chunk.stream_position + offset,
-					timestamp: chunk.timestamp,
-				});
-			}
-			remaining -= take;
 		}
-		if let Some(entry) = current {
-			output.push(entry);
-		}
+		let output = builder.finish();
 
 		Ok(output)
 	}
