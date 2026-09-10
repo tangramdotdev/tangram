@@ -269,6 +269,14 @@ impl Session {
 		if !permissions.contains(permission) {
 			return Ok(None);
 		}
+		if !process.data.status.is_finished()
+			&& process
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
 		let initial = process.data.status;
 		let stream =
 			self.create_process_status_stream_local_with_wakeups(id, Some(initial), Some(wakeups));

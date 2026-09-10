@@ -39,6 +39,10 @@ let query = { lease: $spawned.lease, location: local } | url build-query
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/cancel?($query)' ''
 assert equal $output.status 404
 
+# A local wait must reject the running remote process instead of attaching a local cancellation guard.
+let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/processes/($process)/wait?($query)' ''
+assert equal $output.status 404
+
 let params = { kind: release_lease, process: $process } | to json --raw
 let response_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.response.publish --params $params | from json | get watch
 let cancel_job = job spawn {
@@ -60,3 +64,9 @@ tg --url $runner.url index
 let query = { lease: $spawned.lease, location: local } | url build-query
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/cancel?($query)' ''
 assert equal $output.status 404 "finishing the process must preserve its remote location"
+
+# Finished remote process data can still satisfy a local wait.
+let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/processes/($process)/wait?($query)' ''
+assert equal $output.status 200
+let output = $output.body | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+assert equal $output.exit 1
