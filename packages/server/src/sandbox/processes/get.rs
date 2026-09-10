@@ -263,15 +263,6 @@ impl Session {
 		position: u64,
 		length: u64,
 	) -> tg::Result<Output> {
-		if let Some(output) = self
-			.server
-			.runner
-			.state()
-			.try_get_sandbox_processes(id, position, length)
-		{
-			return Ok(output);
-		}
-
 		let status = self
 			.try_get_sandbox_status_local(id)
 			.await?

@@ -25,6 +25,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 4)]
 	pub id: tg::process::Id,
 
+	/// The process location, or `None` to preserve the indexed location.
+	#[tangram_serialize(id = 15)]
+	pub location: Option<tg::Location>,
+
 	#[tangram_serialize(
 		default,
 		id = 5,

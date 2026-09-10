@@ -104,8 +104,12 @@ impl Session {
 		let authorize_future = self.authorize(id.clone(), permission);
 		let get_future = self.try_get_sandbox_from_index(id);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
-		if sandbox.is_none()
-			|| !authorized.is_some_and(|permissions| permissions.contains(permission))
+		if sandbox.is_none_or(|sandbox| {
+			sandbox
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+		}) || !authorized.is_some_and(|permissions| permissions.contains(permission))
 		{
 			return Ok(None);
 		}

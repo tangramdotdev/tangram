@@ -60,8 +60,21 @@ let build = job spawn {
 # The process must start while its index is held.
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.index.started $index_watch 0 | complete
 success $output "the runner must start indexing the process"
+let process = $output.stdout | from json | get params.process
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete
 success $output "the process must start before its index is ready"
+
+# Authorized runner reads must not wait for either local indexing or remote control state.
+let output = timeout 5s tg --url $runner.url process get --remote $process | complete
+success $output "the runner must return process data before indexing completes"
+assert equal ($output.stdout | from json | get status) started
+let output = timeout 5s tg --url $runner.url process status --remote $process | complete
+success $output "the runner must return process status before indexing completes"
+assert equal ($output.stdout | from json) [started]
+let output = timeout 5s tg --url $runner.url process children --remote $process | complete
+success $output "the runner must return process children before indexing completes"
+assert equal ($output.stdout | from json) []
+
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 

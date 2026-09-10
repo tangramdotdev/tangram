@@ -9,6 +9,9 @@ use {
 };
 
 mod grant;
+mod runner;
+
+pub(crate) use runner::Runner;
 
 pub mod availability;
 pub mod cancel;
@@ -44,6 +47,7 @@ pub struct Child {
 }
 
 pub struct State {
+	pub changed: tokio::sync::watch::Sender<()>,
 	pub children: IndexMap<tg::process::Id, Child, tg::id::BuildHasher>,
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub data: tg::process::Data,
@@ -86,14 +90,6 @@ impl Processes {
 		let index = *self.indexes.get(id)?;
 
 		self.processes.get_mut(&index)
-	}
-
-	#[must_use]
-	pub fn ids(&self) -> Vec<tg::process::Id> {
-		self.indexes
-			.iter()
-			.map(|entry| entry.key().clone())
-			.collect()
 	}
 
 	pub fn insert(&self, index: u64, state: State) {

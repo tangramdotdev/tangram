@@ -28,3 +28,13 @@ snapshot --normalize $output.stderr '
 	   sandbox = sbx_0000000000000000000000000000
 
 '
+
+# Retained runner state must not make an expired sandbox's endpoints available.
+let socket = $server.url | str replace 'http+unix://' '' | url decode
+let processes = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($id)/processes?timeout=0'
+assert equal $processes.status 404
+let status = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($id)/status?timeout=0'
+assert equal $status.status 404
+let output = timeout 10s tg sandbox wait $id | complete
+failure $output
+assert ($output.stderr | str contains "failed to find the sandbox")

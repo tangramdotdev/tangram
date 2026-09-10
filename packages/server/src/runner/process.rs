@@ -363,6 +363,7 @@ impl Session {
 		let process_index = session.server.runner.state.create_process_index();
 		let sandbox_id = state.sandbox.clone();
 		let entry = crate::process::State {
+			changed: tokio::sync::watch::channel(()).0,
 			children,
 			control: control_sender.clone(),
 			data,
@@ -1082,10 +1083,6 @@ impl Session {
 			progress_sender,
 		} = arg;
 		let session = self;
-		let remote = process
-			.location()
-			.and_then(|location| location.to_location())
-			.is_some_and(|location| location.is_remote());
 
 		let finish = processes
 			.get_mut(process_index)
@@ -1262,6 +1259,7 @@ impl Session {
 		let mut process_state = processes
 			.get_mut(process_index)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		let mut data = process_state.data();
 		if matches!(
 			error_code,
 			Some(
@@ -1270,9 +1268,9 @@ impl Session {
 					| tg::error::Code::Internal
 			)
 		) {
-			process_state.data.cacheable = false;
+			data.cacheable = false;
 		}
-		if let Some(expected) = &process_state.data.expected_checksum
+		if let Some(expected) = &data.expected_checksum
 			&& exit == 0
 		{
 			if let Some(actual) = &output.checksum
@@ -1293,12 +1291,12 @@ impl Session {
 				return Err(tg::error!(%id, "the actual checksum was not set"));
 			}
 		}
-		process_state.data.actual_checksum = output.checksum;
-		process_state.data.error = error;
-		process_state.data.exit = Some(exit);
-		process_state.data.finished_at = Some(self.server.clock.unix_timestamp()?);
-		process_state.data.output = value;
-		process_state.data.status = tg::process::Status::Finished;
+		data.actual_checksum = output.checksum;
+		data.error = error;
+		data.exit = Some(exit);
+		data.finished_at = Some(self.server.clock.unix_timestamp()?);
+		data.output = value;
+		data.status = tg::process::Status::Finished;
 		let child_leases = process_state
 			.children
 			.iter_mut()
@@ -1308,18 +1306,36 @@ impl Session {
 				Some((id.clone(), lease, location))
 			})
 			.collect::<Vec<_>>();
-		let data = process_state.data();
 		drop(process_state);
 
-		// Store the finished remote process in the runner's local index.
-		if remote {
-			session
-				.put_finished_process_local(id, data.clone())
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to index the finished remote process"),
-				)?;
-		}
+		// Enqueue the index batch before finishing the process so subsequent authorization can wait for indexing.
+		// Leave the local process data and log compaction to the control finish handler to avoid racing its writes.
+		let location = process
+			.location()
+			.and_then(|location| location.to_location());
+		let remote = location.as_ref().is_some_and(tg::Location::is_remote);
+		let options = crate::process::put::Options {
+			defer_index: true,
+			enqueue_log_compaction: remote,
+			location,
+			store_data: remote,
+		};
+		session
+			.put_finished_process_local(id, data.clone(), options)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to index the finished process"))?;
+		let mut process_state = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		process_state.data.actual_checksum = data.actual_checksum.clone();
+		process_state.data.cacheable = data.cacheable;
+		process_state.data.error = data.error.clone();
+		process_state.data.exit = data.exit;
+		process_state.data.finished_at = data.finished_at;
+		process_state.data.output = data.output.clone();
+		process_state.data.status = tg::process::Status::Finished;
+		process_state.changed.send_replace(());
+		drop(process_state);
 
 		child_leases
 			.into_iter()
@@ -1474,6 +1490,7 @@ impl Session {
 			data: Some(data.clone()),
 			error: None,
 			id: id.clone(),
+			location: Some(location.clone()),
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options,

@@ -16,6 +16,7 @@ impl Session {
 		if !arg.data.data.status.is_destroyed() {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));
 		}
+		crate::checkpoint!(self.server, "sandbox.control.destroy", sandbox = %id).await;
 
 		let account = match arg.data.data.owner.as_ref() {
 			Some(owner) => self.usage_account(owner).await?,
@@ -27,6 +28,7 @@ impl Session {
 			created_at,
 			data: Some(arg.data),
 			id: id.clone(),
+			location: None,
 			runner,
 			touched_at: now,
 		};

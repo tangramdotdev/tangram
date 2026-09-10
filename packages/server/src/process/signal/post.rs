@@ -62,6 +62,13 @@ impl Session {
 		else {
 			return Ok(None);
 		};
+		if output
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
 		let cacheable = output.data.cacheable;
 
 		let permission = tg::authorization::Permission::Process(

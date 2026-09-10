@@ -103,6 +103,7 @@ fn put_process_with_set(
 ) {
 	let value = crate::process::Process {
 		data: None,
+		location: None,
 		metadata: tg::process::Metadata::default(),
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
@@ -278,6 +279,7 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		account: None,
 		created_at: 0,
 		data: None,
+		location: None,
 		reference_count: 0,
 		runner: None,
 		touched_at: 0,

@@ -55,22 +55,6 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		if let Some(result) = self
-			.server
-			.runner
-			.state()
-			.try_update_process(id, |process| {
-				if process.data.status.is_finished() {
-					return tg::process::cancel::Output { released: false };
-				}
-				let released = process.leases.remove(&arg.lease);
-				if released && process.leases.is_empty() {
-					process.stopper.stop();
-				}
-				tg::process::cancel::Output { released }
-			}) {
-			return Ok(Some(result));
-		}
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
 		);
@@ -78,13 +62,10 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let session = self.server.session(&self.server.context);
 		let release_future = self
 			.send_process_control_request(id, request, options)
 			.boxed();
-		let get_future = session
-			.try_get_process_local(id, false, false, None)
-			.boxed();
+		let get_future = self.try_get_process_from_index(id).boxed();
 		let response = match future::select(pin!(release_future), pin!(get_future)).await {
 			future::Either::Left((response, _)) => response,
 			future::Either::Right((process, release_future)) => {
@@ -93,7 +74,18 @@ impl Session {
 				else {
 					return Ok(None);
 				};
-				if process.data.status.is_finished() {
+				if process
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+				{
+					return Ok(None);
+				}
+				if process
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_finished())
+				{
 					let output = tg::process::cancel::Output { released: false };
 					return Ok(Some(output));
 				}

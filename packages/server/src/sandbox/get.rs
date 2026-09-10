@@ -17,6 +17,9 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		if let Some(output) = self.try_get_sandbox_runner(id, &arg).await? {
+			return Ok(Some(output));
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -54,6 +57,54 @@ impl Session {
 		Ok(None)
 	}
 
+	async fn try_get_sandbox_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::get::Arg,
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let Some(runner) = self.try_get_sandbox_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		let available = self
+			.server
+			.runner
+			.state()
+			.sandboxes()
+			.get(runner.index)
+			.is_some_and(|sandbox| !sandbox.status.is_destroyed());
+		if !available {
+			return Ok(None);
+		}
+		if !self
+			.authorize_sandbox_runner(
+				id,
+				None,
+				tg::authorization::permission::sandbox::Permission::Read,
+			)
+			.await?
+		{
+			return Ok(None);
+		}
+		// Retained runner state must not resurrect a destroyed sandbox after its index entry expires.
+		let output = self
+			.server
+			.runner
+			.state()
+			.sandboxes()
+			.get(runner.index)
+			.filter(|sandbox| !sandbox.status.is_destroyed())
+			.and_then(|sandbox| sandbox.data());
+		let Some(mut output) = output else {
+			return Ok(None);
+		};
+		// The runner's capabilities belong to the runner, not to the caller.
+		output.tokens.clear();
+		if let Some(token) = self.create_read_token(&id.clone().into())? {
+			output.tokens.set_local(token);
+		}
+		Ok(Some(output))
+	}
+
 	pub(crate) async fn try_get_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
@@ -85,12 +136,6 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		if let Some(data) = self.server.runner.state().try_get_sandbox(id)
-			&& !data.data.status.is_destroyed()
-		{
-			return Ok(Some(data));
-		}
-
 		let index_future = self.try_get_sandbox_from_index(id).boxed();
 		let control_future = self.get_sandbox_from_control(id).boxed();
 		let output = match future::select(index_future, control_future).await {
@@ -98,6 +143,13 @@ impl Session {
 				let Some(indexed) = indexed? else {
 					return Ok(None);
 				};
+				if indexed
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+				{
+					return Ok(indexed.data);
+				}
 				if indexed
 					.data
 					.as_ref()
@@ -186,7 +238,10 @@ impl Session {
 		let response = response
 			.try_unwrap_get()
 			.map_err(|_| tg::error!("expected a get response"))?;
-		let output = response.data;
+		let mut output = response.data;
+		output.location = Some(tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		}));
 		Ok(output)
 	}
 

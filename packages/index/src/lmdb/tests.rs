@@ -2,6 +2,7 @@ mod ancestor;
 mod authorize;
 mod batch;
 mod clean;
+mod location;
 mod log;
 mod object;
 mod process_object_grant;

@@ -194,6 +194,14 @@ impl Session {
 			return Ok(None);
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
+		if matches!(source, Source::Pipe(_))
+			&& output
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
 		self.authorize_process_stdio_read(id, &source, arg.tokens.local())
 			.await?;
 		let stream = match source {

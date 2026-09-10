@@ -14,6 +14,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::metadata::Arg,
 	) -> tg::Result<Option<tg::process::Metadata>> {
+		crate::checkpoint!(self.server, "process.metadata", id = %id).await;
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

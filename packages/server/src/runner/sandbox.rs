@@ -313,6 +313,7 @@ impl Session {
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
 			authorization_tokens: tg::authorization::Tokens::default(),
+			changed: tokio::sync::watch::channel(()).0,
 			data: control_data,
 			id: expected_id.clone(),
 			location: location.clone(),
@@ -328,6 +329,7 @@ impl Session {
 		scopeguard::defer! {
 			server.runner.state.sandboxes.remove(index);
 		}
+		crate::checkpoint!(self.server, "runner.sandbox.state.inserted", index).await;
 
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
@@ -1099,10 +1101,18 @@ impl Session {
 				.get_mut_by_id(&id)
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
 			state.status = tg::sandbox::Status::Destroyed;
+			state.changed.send_replace(());
 			state.sandbox.take();
 			state.data().expect("the sandbox ID was not set")
 		};
 		drop(sandbox);
+		self.index_remote_sandbox(
+			&id,
+			&location,
+			self.server.clock.unix_timestamp()?,
+			Some(&data),
+		)
+		.await?;
 
 		let request_id = crate::control::id();
 		let request =
@@ -1274,7 +1284,44 @@ impl Session {
 			})?;
 		let control =
 			crate::control::Stream::new(control.boxed(), input, crate::control::stream_options());
+		self.index_remote_sandbox(&output.id, location, created_at, None)
+			.await?;
 		Ok((output, control))
+	}
+
+	async fn index_remote_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		location: &tg::Location,
+		created_at: i64,
+		data: Option<&tg::sandbox::get::Output>,
+	) -> tg::Result<()> {
+		if !location.is_remote() {
+			return Ok(());
+		}
+		let data = data.cloned().map(|mut data| {
+			data.tokens.clear();
+			data
+		});
+		let touched_at = self.server.clock.unix_timestamp()?;
+		let sandbox = tangram_index::sandbox::put::Arg {
+			account: None,
+			created_at,
+			data,
+			id: id.clone(),
+			location: Some(location.clone()),
+			runner: None,
+			touched_at,
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+		};
+		self.server
+			.index_batch(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to index the remote sandbox"))?;
+
+		Ok(())
 	}
 
 	fn prepare_process(

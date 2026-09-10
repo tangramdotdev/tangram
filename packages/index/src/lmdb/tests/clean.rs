@@ -99,6 +99,7 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 					data: None,
 					error: None,
 					id: process.clone(),
+					location: None,
 					log: None,
 					metadata: tg::process::Metadata::default(),
 					options: tg::referent::Options::default(),

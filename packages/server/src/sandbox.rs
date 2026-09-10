@@ -7,6 +7,10 @@ use {
 	tangram_messenger::prelude::*,
 };
 
+mod runner;
+
+pub(crate) use runner::Runner;
+
 pub mod control;
 pub mod create;
 pub mod destroy;
@@ -27,6 +31,7 @@ pub struct Sandboxes {
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
 	pub authorization_tokens: tg::authorization::Tokens,
+	pub changed: tokio::sync::watch::Sender<()>,
 	pub data: tg::sandbox::control::Data,
 	pub id: Option<tg::sandbox::Id>,
 	pub location: tg::Location,

@@ -15,6 +15,9 @@ pub struct Process {
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub data: Option<tg::process::Data>,
 
+	#[tangram_serialize(id = 7)]
+	pub location: Option<tg::Location>,
+
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
 

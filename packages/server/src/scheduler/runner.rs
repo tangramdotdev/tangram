@@ -254,8 +254,14 @@ impl Server {
 					data: data.clone(),
 					location: None,
 				};
+				let options = crate::process::put::Options {
+					defer_index: false,
+					enqueue_log_compaction: true,
+					location: None,
+					store_data: true,
+				};
 				session
-					.put_process_local(&process, entry, true)
+					.put_process_local(&process, entry, options)
 					.boxed()
 					.await
 					.map_err(
@@ -277,6 +283,7 @@ impl Server {
 								data: Some(data.clone()),
 								error: None,
 								id: process.clone(),
+								location: None,
 								log: None,
 								metadata: indexed.metadata,
 								options: tg::referent::Options::default(),
@@ -320,6 +327,7 @@ impl Server {
 						created_at: indexed.created_at,
 						data: indexed.data,
 						id: id.clone(),
+						location: None,
 						runner: indexed.runner,
 						touched_at: now,
 					},

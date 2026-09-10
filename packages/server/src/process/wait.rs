@@ -80,6 +80,119 @@ impl Session {
 		arg: tg::process::wait::Arg,
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+		let output = match self.try_wait_process_runner(id, &arg).await? {
+			Some(output) => Some(output),
+			None => self.try_wait_process_inner(id, arg.clone()).await?,
+		};
+		let Some((future, location)) = output else {
+			return Ok(None);
+		};
+		let future =
+			self.attach_wait_process_guard(id, &arg, Some(location.into()), stopper, future);
+		Ok(Some(future))
+	}
+
+	async fn try_wait_process_runner(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			tg::Location,
+		)>,
+	> {
+		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		if self
+			.authorize_process_runner(
+				id,
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let location = runner.location.clone();
+		let session = self.clone();
+		let id = id.clone();
+		let arg = arg.clone();
+		let future =
+			async move { session.try_wait_process_runner_task(&id, arg, runner).await }.boxed();
+		Ok(Some((future, location)))
+	}
+
+	async fn try_wait_process_runner_task(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::wait::Arg,
+		mut runner: crate::process::Runner,
+	) -> tg::Result<Option<tg::process::wait::Output>> {
+		loop {
+			let output = runner
+				.processes
+				.get(runner.index)
+				.map(|process| -> tg::Result<_> {
+					if !process.data.status.is_finished() {
+						return Ok(None);
+					}
+					let exit = process
+						.data
+						.exit
+						.ok_or_else(|| tg::error!("expected the exit to be set"))?;
+					let error = process.data.error.clone().map(|error| match error {
+						tg::Either::Left(error) => {
+							tg::Either::Left(error.without_location_and_tokens())
+						},
+						tg::Either::Right(mut error) => {
+							error.options.clear_location_and_tokens();
+							tg::Either::Right(error)
+						},
+					});
+					let output = process
+						.data
+						.output
+						.clone()
+						.map(tg::value::Data::without_location_and_tokens);
+					Ok(Some(tg::process::wait::Output {
+						error,
+						exit,
+						output,
+					}))
+				})
+				.transpose()?;
+			let Some(output) = output else {
+				arg.location = Some(runner.location_arg);
+				let Some((future, _)) = self.try_wait_process_inner(id, arg).await? else {
+					return Ok(None);
+				};
+				return future.await;
+			};
+			if let Some(mut output) = output {
+				// The runner has the output locally, but the process still belongs to its original location.
+				if runner.location.is_remote() {
+					let location = tg::Location::Local(tg::location::Local::default());
+					self.update_wait_output_referents_for_location(&mut output, &location, false)?;
+				}
+				return Ok(Some(output));
+			}
+			runner.changed.changed().await.ok();
+		}
+	}
+
+	async fn try_wait_process_inner(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			tg::Location,
+		)>,
+	> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -91,9 +204,8 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
-				let future =
-					self.attach_wait_process_guard(id, &arg, None, stopper.clone(), future);
-				return Ok(Some(future));
+				let location = tg::Location::Local(tg::location::Local::default());
+				return Ok(Some((future, location)));
 			}
 
 			if let Some((future, region)) = self
@@ -102,17 +214,10 @@ impl Session {
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
 				)? {
-				let location = Some(tg::Location::Local(tg::location::Local {
+				let location = tg::Location::Local(tg::location::Local {
 					region: Some(region),
-				}));
-				let future = self.attach_wait_process_guard(
-					id,
-					&arg,
-					location.map(Into::into),
-					stopper.clone(),
-					future,
-				);
-				return Ok(Some(future));
+				});
+				return Ok(Some((future, location)));
 			}
 		}
 
@@ -130,16 +235,12 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let location = Some(
-			tg::Location::Remote(tg::location::Remote {
-				name: remote.name.clone(),
-				region: None,
-			})
-			.into(),
-		);
-		let future = self.attach_wait_process_guard(id, &arg, location, stopper, future);
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 
-		Ok(Some(future))
+		Ok(Some((future, location)))
 	}
 
 	async fn try_wait_process_local(
@@ -147,10 +248,6 @@ impl Session {
 		id: &tg::process::Id,
 		token: Option<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let mut permissions = tg::authorization::permission::process::Set::NODE;
-		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
-		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
-		let permissions = tg::authorization::permission::Set::Process(permissions);
 		let resource = tg::Referent::with_node_and_token(id.clone(), token);
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
@@ -158,7 +255,7 @@ impl Session {
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(id, None, None)
 			.await?;
-		let authorize_future = self.authorize(resource, permissions).boxed();
+		let authorize_future = self.authorize(resource, permission).boxed();
 		let get_future = self
 			.try_get_process_local_inner_with_wakeups(id, false, &mut wakeups)
 			.boxed();
@@ -203,7 +300,7 @@ impl Session {
 				.data
 				.exit
 				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-			let mut output = tg::process::wait::Output {
+			let output = tg::process::wait::Output {
 				error: process
 					.data
 					.error
@@ -211,22 +308,6 @@ impl Session {
 				exit,
 				output: process.data.output,
 			};
-			let permission = tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::NodeOutput,
-			);
-			if permissions.contains(permission)
-				&& let Some(output) = &mut output.output
-			{
-				session.add_tokens_to_value_data(output)?;
-			}
-			let permission = tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::NodeError,
-			);
-			if permissions.contains(permission)
-				&& let Some(tg::Either::Right(error)) = &mut output.error
-			{
-				session.add_token_to_object_referent(error)?;
-			}
 			Ok(Some(output))
 		};
 

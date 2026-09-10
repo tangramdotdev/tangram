@@ -705,6 +705,7 @@ impl Session {
 				created_at: message.created_at,
 				data: Some(message.data),
 				id: message.id,
+				location: None,
 				runner: None,
 				touched_at,
 			});
@@ -1578,6 +1579,7 @@ impl Session {
 								.map(tg::process::Data::without_location_and_tokens),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
+							location: None,
 							log: Some(log),
 							metadata,
 							options: tg::referent::Options::default(),
