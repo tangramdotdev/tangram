@@ -17,22 +17,7 @@ use {
 
 mod reader;
 #[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[tokio::test]
-	async fn decode_with_output_preserves_error_trailers() {
-		let stream =
-			futures::stream::iter([Ok(7_u64), Err(tg::error!("the test stream failed"))]).boxed();
-		let body = encode(stream, 1024);
-		let body = tangram_http::body::output::set(body, &42_u64).unwrap();
-		let (output, mut stream) = decode_with_output::<u64, u64>(body, 1024).await.unwrap();
-
-		assert_eq!(output, 42);
-		assert_eq!(stream.try_next().await.unwrap(), Some(7));
-		assert!(stream.try_next().await.is_err());
-	}
-}
+mod tests;
 mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
@@ -308,14 +293,14 @@ fn split_body(
 	Task<()>,
 ) {
 	let mut stream = BodyStream::new(body);
-	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<tg::Result<Bytes>>(1);
+	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<Bytes>(1);
 	let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
 	let task = Task::spawn(|_| async move {
 		while let Some(result) = stream.next().await {
 			match result {
 				Ok(frame) if frame.is_data() => {
 					let data = frame.into_data().unwrap();
-					if data_sender.send(Ok(data)).await.is_err() {
+					if data_sender.send(data).await.is_err() {
 						break;
 					}
 				},
@@ -325,15 +310,14 @@ fn split_body(
 				},
 				Ok(_) => unreachable!(),
 				Err(error) => {
-					let error = tg::error!(!error, "failed to read the response body");
-					data_sender.send(Err(error)).await.ok();
+					// Only the protocol end handshake completes the operation, so a lost transport ends this attempt and lets the caller reconnect.
+					tracing::debug!(%error, "failed to read the response body");
 					break;
 				},
 			}
 		}
 	});
-	let reader =
-		StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
+	let reader = StreamReader::new(ReceiverStream::new(data_receiver).map(Ok::<_, std::io::Error>));
 
 	(reader, trailer_receiver, task)
 }

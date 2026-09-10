@@ -127,6 +127,15 @@ pub enum ServerNotification {
 	#[tangram_serialize(id = 0)]
 	Chunk(Chunk),
 
+	/// The resolved cursor and remaining length, including any clipping at EOF.
+	#[tangram_serialize(id = 2)]
+	Position {
+		#[tangram_serialize(id = 0)]
+		length: Option<i64>,
+		#[tangram_serialize(id = 1)]
+		position: u64,
+	},
+
 	#[tangram_serialize(id = 1)]
 	Stop,
 }

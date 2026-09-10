@@ -708,8 +708,37 @@ pub trait Ext: tg::Handle {
 		>,
 	> + Send {
 		async move {
+			let output = self.try_read_process_stdio_all_inner(id, arg).await?;
+			let output = output.map(|stream| {
+				stream.try_filter_map(|notification| {
+					future::ready(Ok(match notification {
+						tg::process::stdio::read::ServerNotification::Chunk(chunk) => Some(chunk),
+						tg::process::stdio::read::ServerNotification::Position { .. }
+						| tg::process::stdio::read::ServerNotification::Stop => None,
+					}))
+				})
+			});
+			Ok(output)
+		}
+	}
+
+	fn try_read_process_stdio_all_inner(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerNotification>>
+				+ Send
+				+ 'static,
+			>,
+		>,
+	> + Send {
+		async move {
 			let handle = self.clone();
 			let id = id.clone();
+			let forward = arg.length.is_none_or(|length| length >= 0);
 			let position = match arg.position {
 				None => Some(0),
 				Some(SeekFrom::Start(position)) => Some(position),
@@ -744,7 +773,6 @@ pub trait Ext: tg::Handle {
 				>,
 			}
 			let combined = arg.streams.len() > 1;
-			let forward = arg.length.is_none_or(|length| length >= 0);
 			let state = State {
 				arg,
 				combined,
@@ -759,19 +787,6 @@ pub trait Ext: tg::Handle {
 			};
 			let stream = stream::try_unfold(state, move |mut state| async move {
 				loop {
-					if state.pending_notification {
-						let position = state.position.unwrap();
-						let message = tg::process::stdio::read::ClientMessage::Notification(
-							tg::process::stdio::read::ClientNotification::Read { position },
-						);
-						let result = state.sender.as_ref().unwrap().send(Ok(message)).await;
-						if result.is_err() {
-							state.output.take();
-							state.sender.take();
-							continue;
-						}
-						state.pending_notification = false;
-					}
 					if state.output.is_none() {
 						let retries = state.retries.get_or_insert_with(|| {
 							let options = tangram_futures::retry::Options {
@@ -804,6 +819,19 @@ pub trait Ext: tg::Handle {
 								continue;
 							},
 						}
+					}
+					if state.pending_notification {
+						let position = state.position.unwrap();
+						let message = tg::process::stdio::read::ClientMessage::Notification(
+							tg::process::stdio::read::ClientNotification::Read { position },
+						);
+						let result = state.sender.as_ref().unwrap().send(Ok(message)).await;
+						if result.is_err() {
+							state.output.take();
+							state.sender.take();
+							continue;
+						}
+						state.pending_notification = false;
 					}
 					let message = state.output.as_mut().unwrap().next().await;
 					match message {
@@ -864,14 +892,32 @@ pub trait Ext: tg::Handle {
 								if *remaining >= 0 {
 									*remaining -= length.min(*remaining);
 								} else {
-									*remaining += length.min(remaining.abs());
+									*remaining = remaining.saturating_add(length).min(0);
 								}
 							}
 							state.arg.position = Some(SeekFrom::Start(position));
 							state.pending_notification = true;
 							state.position = Some(position);
 
-							return Ok(Some((chunk, state)));
+							let notification =
+								tg::process::stdio::read::ServerNotification::Chunk(chunk);
+							return Ok(Some((notification, state)));
+						},
+						Some(Ok(tg::process::stdio::read::ServerMessage::Notification(
+							tg::process::stdio::read::ServerNotification::Position {
+								length,
+								position,
+							},
+						))) => {
+							state.arg.length = length;
+							state.arg.position = Some(SeekFrom::Start(position));
+							state.position = Some(position);
+							let notification =
+								tg::process::stdio::read::ServerNotification::Position {
+									length,
+									position,
+								};
+							return Ok(Some((notification, state)));
 						},
 						Some(Ok(tg::process::stdio::read::ServerMessage::Notification(
 							tg::process::stdio::read::ServerNotification::Stop,

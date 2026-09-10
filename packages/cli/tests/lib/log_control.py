@@ -59,13 +59,17 @@ def send(sock, event, value):
     sock.sendall(f"{len(content):x}\r\n".encode() + content + b"\r\n")
 
 
-def read(response):
+def read(response, positions=False):
     event, data = None, None
     while True:
         line = response.readline().decode().strip()
         if not line:
             assert event is not None, "the response stream ended"
-            return event, json.loads(data)
+            value = json.loads(data)
+            if not positions and event == "notification" and value.get("kind") == "position":
+                event, data = None, None
+                continue
+            return event, value
         key, value = line.split(":", 1)
         if key == "event":
             event = value.strip()
@@ -114,6 +118,11 @@ def reconnect():
     # Replay a write whose receipt was acknowledged but whose result was lost.
     sock, response, _ = connect(arg, token)
     assert request(sock, response, "first", write)["value"] == {"closed": False, "length": 6}
+
+    # An unfinished log must not clip a reverse cursor to the currently persisted prefix.
+    result = subprocess.run([tangram, "--url", url, "log", "--position", "12", "--length=-12", id], capture_output=True, timeout=10)
+    assert result.returncode == 0 and result.stdout == b"" and result.stderr == b"", result
+
     write = chunk("stderr", 6, b"world\n")
     assert request(sock, response, "second", write, False)["value"] == {"closed": False, "length": 6}
     close(sock, response)
@@ -220,7 +229,42 @@ def reordered():
             close(sock, response)
 
 
-if case == "reconnect":
+def growing():
+    for added in (46, 96):
+        sock, response, output = connect({"parent": parent, "lease": "test", "data": data})
+        id = output["id"]
+        request(sock, response, "prefix", chunk("stdout", 0, b"abcd"))
+        reader_sock, reader_response = open_stream(f"/processes/{id}/stdio/read", {"streams": "stdout", "position": "end.96", "length": -99, "size": 1})
+        try:
+            # Wait for seek resolution before changing the log, without depending on timing.
+            event, message = read(reader_response, positions=True)
+            assert event == "notification" and message == {"kind": "position", "value": {"length": -99, "position": 100}}, (event, message)
+            request(sock, response, "suffix", chunk("stdout", 4, b"x" * added, 4))
+            request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
+            request(sock, response, "end", {"kind": "write", "value": {"kind": "end", "value": {
+                "position": 4 + added, "stderr_position": 0, "stdout_position": 4 + added,
+            }}})
+            if added < 96:
+                event, message = read(reader_response, positions=True)
+                assert event == "notification" and message == {"kind": "position", "value": {"length": -(3 + added), "position": 4 + added}}, (event, message)
+            chunks = []
+            while True:
+                event, message = read(reader_response)
+                if event == "request" and message["kind"] == "end":
+                    send(reader_sock, "response", {"kind": "end"})
+                    break
+                assert event == "notification" and message["kind"] == "chunk", (event, message)
+                chunks.append(base64.b64decode(message["value"]["bytes"]))
+                send(reader_sock, "notification", {"kind": "read", "value": {"position": message["value"]["stream_position"]}})
+            assert b"".join(chunks) == b"x" * added + b"dcb", chunks
+        finally:
+            close(reader_sock, reader_response)
+            close(sock, response)
+
+
+if case == "growing":
+    growing()
+elif case == "reconnect":
     reconnect()
 elif case == "reordered":
     reordered()

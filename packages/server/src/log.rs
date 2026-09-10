@@ -233,9 +233,8 @@ impl Session {
 	pub(crate) async fn process_log_stream(
 		&self,
 		id: &tg::process::Id,
-		position: Option<SeekFrom>,
-		length: Option<i64>,
-		size: Option<u64>,
+		arg: &mut tg::process::stdio::read::Arg,
+		finished: bool,
 		streams: BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>> {
 		if streams.is_empty() {
@@ -277,17 +276,18 @@ impl Session {
 			})
 		};
 
-		let position = match position.unwrap_or(SeekFrom::Start(0)) {
+		// Resolve the requested window against the current log length.
+		let log_length = inner
+			.try_get_length(&streams)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the log length"))?;
+		let mut position = match arg.position.unwrap_or(SeekFrom::Start(0)) {
 			SeekFrom::Start(position) => position,
 			SeekFrom::Current(_) => {
 				return Err(tg::error!("SeekFrom::Current is not supported"));
 			},
 			SeekFrom::End(offset) => {
-				let length = inner
-					.try_get_length(&streams)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to get the log length"))?
-					.unwrap_or_default();
+				let length = log_length.unwrap_or_default();
 				if offset >= 0 {
 					length.saturating_add(offset.to_u64().unwrap())
 				} else {
@@ -296,24 +296,26 @@ impl Session {
 			},
 		};
 
-		let log_length = if length.is_some_and(|length| length < 0) {
-			None
-		} else {
-			inner
-				.try_get_length(&streams)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to get the log length"))?
-		};
+		// Clip at EOF only when completion rules out further writes.
+		if finished
+			&& let Some(length) = &mut arg.length
+			&& *length < 0
+		{
+			let end = position.min(log_length.unwrap_or_default());
+			*length = length.saturating_add_unsigned(position - end).min(0);
+			position = end;
+		}
+		arg.position = Some(SeekFrom::Start(position));
 
 		struct State {
 			entries: VecDeque<log::read::Entry<'static>>,
 			inner: Inner,
 			log_length: Option<u64>,
 			position: u64,
+			remaining: Option<u64>,
 			reverse: bool,
 			size: u64,
 			streams: BTreeSet<tg::process::stdio::Stream>,
-			total_length: Option<u64>,
 		}
 
 		let state = State {
@@ -321,13 +323,16 @@ impl Session {
 			inner,
 			log_length,
 			position,
-			reverse: length.is_some_and(|length| length < 0),
-			size: size.unwrap_or(4096),
+			remaining: arg.length.map(i64::unsigned_abs),
+			reverse: arg.length.is_some_and(|length| length < 0),
+			size: arg.size.unwrap_or(4096),
 			streams,
-			total_length: length.map(i64::unsigned_abs),
 		};
 
 		let stream = stream::try_unfold(state, async move |mut state| {
+			if state.remaining == Some(0) {
+				return Ok(None);
+			}
 			if state.entries.is_empty() {
 				if state.reverse && state.position == 0 {
 					return Ok(None);
@@ -342,11 +347,12 @@ impl Session {
 				}
 
 				let mut length = state.size;
-				if let Some(total_length) = state.total_length {
-					length = length.min(total_length);
+				if let Some(remaining) = state.remaining {
+					length = length.min(remaining);
 				}
 				let position = if state.reverse {
-					state.position.saturating_sub(length)
+					length = length.min(state.position);
+					state.position - length
 				} else {
 					state.position
 				};
@@ -358,9 +364,7 @@ impl Session {
 					.into();
 
 				if state.entries.is_empty()
-					&& state
-						.log_length
-						.is_some_and(|length| length > state.position)
+					&& state.log_length.is_some_and(|length| length > position)
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
 						.session
@@ -423,6 +427,9 @@ impl Session {
 				stream_position: entry.stream_position,
 				timestamp: Some(entry.timestamp),
 			};
+			if let Some(remaining) = &mut state.remaining {
+				*remaining -= chunk.bytes.len().to_u64().unwrap();
+			}
 			Ok(Some((chunk, state)))
 		})
 		.boxed();

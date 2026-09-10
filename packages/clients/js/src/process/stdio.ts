@@ -73,6 +73,7 @@ export namespace Stdio {
 
 		export type ServerNotification =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
+			| { kind: "position"; value: { length: number | null; position: number } }
 			| { kind: "stop" };
 
 		export type ServerRequest = { kind: "end" };
